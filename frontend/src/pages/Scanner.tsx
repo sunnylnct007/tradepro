@@ -39,21 +39,22 @@ export function Scanner() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h2 style={{ margin: 0 }}>What's worth buying or selling today?</h2>
-        <p style={{ color: "#555", margin: "4px 0 0 0" }}>
-          Runs the chosen trading strategy across a defined watchlist and ranks
-          the names by signal strength. Start with the UK large-caps, then add
-          your own lists. This is a decision aid, not advice.
+        <h1 style={{ margin: 0, fontSize: 24 }}>What's worth buying or selling today?</h1>
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
+          Run a trading strategy across a defined watchlist. Results are ranked by signal
+          strength. This is a decision aid, not advice.
         </p>
       </div>
 
       <section
+        className="card"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 14,
+          alignItems: "end",
         }}
       >
         <Labelled label="Watchlist">
@@ -65,15 +66,15 @@ export function Scanner() {
         </Labelled>
         <Labelled label="Strategy">
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-            <option value="sma_crossover">sma_crossover</option>
-            <option value="buy_and_hold">buy_and_hold</option>
+            <option value="sma_crossover">SMA crossover</option>
+            <option value="buy_and_hold">Buy &amp; hold</option>
           </select>
         </Labelled>
         <Labelled label="Provider">
           <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="yahoo">yahoo</option>
-            <option value="stooq">stooq</option>
-            <option value="binance">binance</option>
+            <option value="yahoo">Yahoo Finance</option>
+            <option value="stooq">Stooq</option>
+            <option value="binance">Binance (crypto)</option>
           </select>
         </Labelled>
         {strategy === "sma_crossover" && (
@@ -86,32 +87,46 @@ export function Scanner() {
             </Labelled>
           </>
         )}
+        <button className="primary" onClick={scan} disabled={loading}>
+          {loading ? "Scanning…" : "Run scan"}
+        </button>
       </section>
 
-      <button onClick={scan} disabled={loading} style={{ alignSelf: "flex-start", padding: "8px 16px" }}>
-        {loading ? "Scanning…" : "Run scan"}
-      </button>
-
-      {error && <div style={{ color: "#b00020" }}>Error: {error}</div>}
+      {error && (
+        <div
+          className="card"
+          style={{ borderColor: "var(--down)", color: "var(--down)", background: "var(--down-soft)" }}
+        >
+          {error}
+        </div>
+      )}
 
       {result && (
         <>
-          <div style={{ fontSize: 12, color: "#888" }}>
-            Generated {new Date(result.generatedAt).toLocaleString()} · watchlist <code>{result.watchlist}</code> · strategy <code>{result.strategy}</code>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <span>Generated <span className="num">{new Date(result.generatedAt).toLocaleString()}</span></span>
+            <span>Watchlist <code>{result.watchlist}</code></span>
+            <span>Strategy <code>{result.strategy}</code></span>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
-            <Bucket title="Buy" colour="#0a7a34" items={result.buys} />
-            <Bucket title="Sell" colour="#b00020" items={result.sells} />
-            <Bucket title="Hold" colour="#666" items={result.holds} />
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: 16,
+            }}
+          >
+            <Bucket title="Buy" tone="up" items={result.buys} />
+            <Bucket title="Sell" tone="down" items={result.sells} />
+            <Bucket title="Hold" tone="neutral" items={result.holds} />
           </div>
 
           {result.errors.length > 0 && (
-            <details>
-              <summary style={{ color: "#b00020", cursor: "pointer" }}>
+            <details className="card" style={{ borderColor: "var(--down)" }}>
+              <summary style={{ color: "var(--down)", cursor: "pointer" }}>
                 {result.errors.length} provider error(s)
               </summary>
-              <ul style={{ color: "#b00020" }}>
+              <ul style={{ color: "var(--text-dim)", marginTop: 8 }}>
                 {result.errors.map((e, i) => <li key={i}>{e}</li>)}
               </ul>
             </details>
@@ -122,27 +137,42 @@ export function Scanner() {
   );
 }
 
-function Bucket({ title, colour, items }: { title: string; colour: string; items: ScanResultItem[] }) {
+function Bucket({ title, tone, items }: { title: string; tone: "up" | "down" | "neutral"; items: ScanResultItem[] }) {
+  const colour = tone === "up" ? "var(--up)" : tone === "down" ? "var(--down)" : "var(--neutral)";
   return (
-    <div style={{ background: "#fafafa", borderRadius: 12, padding: 16, borderTop: `4px solid ${colour}` }}>
-      <h3 style={{ margin: "0 0 8px 0", color: colour }}>{title} · {items.length}</h3>
-      {items.length === 0 && <div style={{ color: "#888" }}>Nothing here.</div>}
+    <div className="card" style={{ borderTop: `3px solid ${colour}`, paddingTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+        <h3 style={{ margin: 0, color: colour, textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 12 }}>
+          {title}
+        </h3>
+        <span className="num" style={{ color: "var(--text-muted)", fontSize: 12 }}>{items.length}</span>
+      </div>
+      {items.length === 0 && <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Nothing here.</div>}
       <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
         {items.map((i) => (
-          <li key={i.symbol} style={{ padding: "8px 0", borderBottom: "1px solid #eee" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <div>
-                <strong>{i.symbol}</strong> <span style={{ color: "#777" }}>— {i.label}</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#555" }}>
+          <li
+            key={i.symbol}
+            style={{
+              padding: "10px 0",
+              borderBottom: "1px solid rgba(37, 50, 86, 0.4)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+              <Link
+                to={`/signals?symbol=${encodeURIComponent(i.symbol)}`}
+                style={{ color: "var(--text)", fontWeight: 600 }}
+              >
+                <span className="num">{i.symbol}</span>
+              </Link>
+              <span className="num" style={{ color: colour, fontSize: 12, fontWeight: 600 }}>
                 {Math.round(i.decision.confidence * 100)}%
-              </div>
+              </span>
             </div>
-            <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 2 }}>
+              {i.label}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
               {i.decision.reasons[0]}
-            </div>
-            <div style={{ fontSize: 11, marginTop: 4 }}>
-              <Link to={`/signals?symbol=${encodeURIComponent(i.symbol)}`}>details →</Link>
             </div>
           </li>
         ))}
@@ -153,8 +183,8 @@ function Bucket({ title, colour, items }: { title: string; colour: string; items
 
 function Labelled({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#555" }}>
-      {label}
+    <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <span className="stat-label">{label}</span>
       {children}
     </label>
   );

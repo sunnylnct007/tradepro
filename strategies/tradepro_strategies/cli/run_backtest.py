@@ -1,6 +1,6 @@
 """CLI wrapper around the backtest engine. Example:
 
-    python scripts/run_backtest.py --symbol BARC.L --strategy sma_crossover \
+    uv run tradepro-backtest --symbol BARC.L --strategy sma_crossover \
         --from 2019-01-01 --to 2024-12-31 --capital 10000
 """
 from __future__ import annotations

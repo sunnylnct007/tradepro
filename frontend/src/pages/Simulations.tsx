@@ -69,31 +69,41 @@ export function Simulations() {
   );
 
   const ccy = (n: number) =>
-    new Intl.NumberFormat("en-GB", { style: "currency", currency: result?.currency ?? "GBP" }).format(n);
+    new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: result?.currency ?? "GBP",
+      maximumFractionDigits: 0,
+    }).format(n);
+
+  const pnl = result ? result.finalEquity - result.initialCapital : 0;
+  const pnlTone = pnl >= 0 ? "up" : "down";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <h2 style={{ margin: 0 }}>Simulations</h2>
-      <p style={{ margin: 0, color: "#555" }}>
-        Test how much money a strategy <em>would have</em> made over a historical window. UK fee
-        model applies by default (0.5% stamp duty on buys).
-      </p>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div>
+        <h1 style={{ margin: 0, fontSize: 24 }}>Simulations</h1>
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
+          How much money would this strategy have made? UK fee model by default (0.5% stamp duty on buys).
+        </p>
+      </div>
 
       <section
+        className="card"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 14,
+          alignItems: "end",
         }}
       >
         <Labelled label="Symbol">
-          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} />
+          <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
         </Labelled>
         <Labelled label="Provider">
           <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="yahoo">yahoo</option>
-            <option value="stooq">stooq</option>
-            <option value="binance">binance</option>
+            <option value="yahoo">Yahoo Finance</option>
+            <option value="stooq">Stooq</option>
+            <option value="binance">Binance</option>
           </select>
         </Labelled>
         <Labelled label="Strategy">
@@ -103,12 +113,16 @@ export function Simulations() {
             ))}
           </select>
         </Labelled>
-        <Labelled label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Labelled>
-        <Labelled label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Labelled>
+        <Labelled label="From">
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Labelled>
+        <Labelled label="To">
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </Labelled>
         <Labelled label={`Capital (${config.defaultCurrency})`}>
           <input type="number" value={capital} onChange={(e) => setCapital(Number(e.target.value))} />
         </Labelled>
-        <Labelled label="Stamp duty (fraction)">
+        <Labelled label="Stamp duty">
           <input type="number" step="0.001" value={stampDuty} onChange={(e) => setStampDuty(Number(e.target.value))} />
         </Labelled>
         <Labelled label="Commission / trade">
@@ -124,37 +138,61 @@ export function Simulations() {
             </Labelled>
           </>
         )}
+        <button className="primary" onClick={run} disabled={running}>
+          {running ? "Running…" : "Run simulation"}
+        </button>
       </section>
 
-      <button onClick={run} disabled={running} style={{ alignSelf: "flex-start", padding: "8px 16px" }}>
-        {running ? "Running…" : "Run simulation"}
-      </button>
-
-      {error && <div style={{ color: "#b00020" }}>Error: {error}</div>}
+      {error && (
+        <div
+          className="card"
+          style={{ borderColor: "var(--down)", color: "var(--down)", background: "var(--down-soft)" }}
+        >
+          {error}
+        </div>
+      )}
 
       {result && (
         <>
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          <section
+            className="card"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+              gap: 16,
+            }}
+          >
             <Stat label="Final equity" value={ccy(result.finalEquity)} />
-            <Stat label="P&L" value={ccy(result.finalEquity - result.initialCapital)} />
-            <Stat label="Total return" value={`${result.totalReturnPct.toFixed(2)}%`} />
-            <Stat label="CAGR" value={`${result.cagrPct.toFixed(2)}%`} />
-            <Stat label="Max drawdown" value={`${result.maxDrawdownPct.toFixed(2)}%`} />
+            <Stat label="P&L" value={ccy(pnl)} tone={pnlTone} />
+            <Stat label="Total return" value={`${result.totalReturnPct.toFixed(2)}%`} tone={result.totalReturnPct >= 0 ? "up" : "down"} />
+            <Stat label="CAGR" value={`${result.cagrPct.toFixed(2)}%`} tone={result.cagrPct >= 0 ? "up" : "down"} />
+            <Stat label="Max drawdown" value={`${result.maxDrawdownPct.toFixed(2)}%`} tone="down" />
             <Stat label="Sharpe" value={result.sharpeRatio.toFixed(2)} />
             <Stat label="Trades" value={String(result.tradeCount)} />
-          </div>
+          </section>
 
-          <div style={{ height: 400, background: "#fafafa", borderRadius: 8, padding: 8 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <CartesianGrid stroke="#eee" />
-                <XAxis dataKey="t" minTickGap={40} />
-                <YAxis domain={["auto", "auto"]} />
-                <Tooltip />
-                <Line type="monotone" dataKey="equity" stroke="#0b3d91" dot={false} strokeWidth={1.5} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <section className="card" style={{ padding: 8 }}>
+            <div style={{ height: 400 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="t" minTickGap={40} />
+                  <YAxis domain={["auto", "auto"]} />
+                  <Tooltip
+                    formatter={(v: number) => ccy(v)}
+                    labelStyle={{ color: "var(--text-dim)" }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="equity"
+                    stroke="var(--accent)"
+                    dot={false}
+                    strokeWidth={2}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </section>
         </>
       )}
     </div>
@@ -163,18 +201,19 @@ export function Simulations() {
 
 function Labelled({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#555" }}>
-      {label}
+    <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <span className="stat-label">{label}</span>
       {children}
     </label>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {
+  const colour = tone === "up" ? "var(--up)" : tone === "down" ? "var(--down)" : "var(--text)";
   return (
     <div>
-      <div style={{ fontSize: 12, color: "#888" }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 600 }}>{value}</div>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={{ color: colour }}>{value}</div>
     </div>
   );
 }
