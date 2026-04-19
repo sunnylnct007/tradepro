@@ -7,7 +7,7 @@ public static class SignalEndpoints
 {
     public static IEndpointRouteBuilder MapSignalEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/signals").WithTags("Signals");
+        var group = app.MapGroup("/signals").WithTags("Signals");
 
         group.MapPost("/evaluate", async (SignalRequest req, ISignalEngine engine, CancellationToken ct) =>
         {

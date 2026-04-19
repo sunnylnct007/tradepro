@@ -1,4 +1,5 @@
 import { config } from "../config";
+import { getIdToken } from "../firebase";
 import type {
   CandleSeries,
   ScanRequest,
@@ -10,6 +11,11 @@ import type {
   Watchlist,
 } from "./types";
 
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getIdToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
   const url = new URL(path, config.apiBaseUrl);
   if (params) {
@@ -17,7 +23,7 @@ async function get<T>(path: string, params?: Record<string, string | number | un
       if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
     }
   }
-  const resp = await fetch(url);
+  const resp = await fetch(url, { headers: await authHeaders() });
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
   return resp.json() as Promise<T>;
 }
@@ -26,7 +32,7 @@ async function post<T, B>(path: string, body: B): Promise<T> {
   const url = new URL(path, config.apiBaseUrl);
   const resp = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);

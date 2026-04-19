@@ -1,3 +1,4 @@
+using TradePro.Api.Auth;
 using TradePro.Api.Endpoints;
 using TradePro.Api.Providers;
 using TradePro.Api.Simulation;
@@ -18,6 +19,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
     });
 });
+
+builder.Services.AddFirebaseAuth(builder.Configuration, builder.Environment);
 
 // Typed HttpClients — one per upstream provider, all configurable.
 builder.Services.AddHttpClient<YahooFinanceProvider>(c =>
@@ -59,11 +62,19 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseAuthentication();
+app.UseAuthorization();
 
+// /health stays public so uptime pings don't need a token.
 app.MapHealthEndpoints();
-app.MapMarketDataEndpoints();
-app.MapSimulationEndpoints();
-app.MapSignalEndpoints();
-app.MapWatchlistEndpoints();
+
+// Everything under /api requires a verified Firebase ID token from one of
+// the allow-listed UIDs. In dev, leaving Firebase:AllowedUserIds empty lets
+// any signed-in user through (handy for testing).
+var api = app.MapGroup("/api").RequireAuthorization("AllowedUsers");
+api.MapMarketDataEndpoints();
+api.MapSimulationEndpoints();
+api.MapSignalEndpoints();
+api.MapWatchlistEndpoints();
 
 app.Run();

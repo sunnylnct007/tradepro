@@ -6,7 +6,7 @@ public static class MarketDataEndpoints
 {
     public static IEndpointRouteBuilder MapMarketDataEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/marketdata").WithTags("MarketData");
+        var group = app.MapGroup("/marketdata").WithTags("MarketData");
 
         group.MapGet("/providers", (IMarketDataRegistry registry) =>
             Results.Ok(new { providers = registry.AvailableProviders }));

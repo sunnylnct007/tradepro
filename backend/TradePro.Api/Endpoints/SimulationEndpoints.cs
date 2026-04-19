@@ -7,7 +7,7 @@ public static class SimulationEndpoints
 {
     public static IEndpointRouteBuilder MapSimulationEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/simulations").WithTags("Simulations");
+        var group = app.MapGroup("/simulations").WithTags("Simulations");
 
         group.MapGet("/strategies", (IStrategyRegistry reg) =>
             Results.Ok(new { strategies = reg.AvailableStrategies }));

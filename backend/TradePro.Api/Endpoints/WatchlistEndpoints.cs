@@ -6,7 +6,7 @@ public static class WatchlistEndpoints
 {
     public static IEndpointRouteBuilder MapWatchlistEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/watchlists").WithTags("Watchlists");
+        var group = app.MapGroup("/watchlists").WithTags("Watchlists");
 
         group.MapGet("/", (IWatchlistStore store) => Results.Ok(new { names = store.Keys }));
 

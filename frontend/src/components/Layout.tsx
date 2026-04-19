@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 
 const navLinkStyle = ({ isActive }: { isActive: boolean }) => ({
   padding: "6px 12px",
@@ -10,6 +11,8 @@ const navLinkStyle = ({ isActive }: { isActive: boolean }) => ({
 });
 
 export function Layout() {
+  const { user, firebaseAvailable, signIn, signOut } = useAuth();
+
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", margin: 0 }}>
       <header
@@ -28,7 +31,23 @@ export function Layout() {
           <NavLink to="/simulations" style={navLinkStyle}>Simulations</NavLink>
           <NavLink to="/charts" style={navLinkStyle}>Charts</NavLink>
         </nav>
-        <div style={{ marginLeft: "auto", fontSize: 12, color: "#888" }}>UK · GBP</div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 12, color: "#888" }}>UK · GBP</span>
+          {firebaseAvailable ? (
+            user ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: "#444" }}>
+                  {user.displayName ?? user.email}
+                </span>
+                <button onClick={signOut} style={{ fontSize: 12 }}>Sign out</button>
+              </div>
+            ) : (
+              <button onClick={signIn} style={{ fontSize: 12 }}>Sign in with Google</button>
+            )
+          ) : (
+            <span style={{ fontSize: 11, color: "#888" }}>(local mode — no auth)</span>
+          )}
+        </div>
       </header>
       <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
         <Outlet />

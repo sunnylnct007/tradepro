@@ -39,7 +39,10 @@ ROADMAP.md       phased build plan
 
 ## Quick start (local)
 
-### Backend
+Works out of the box — no Firebase project or Azure subscription needed. Auth
+is automatically bypassed in development (`ASPNETCORE_ENVIRONMENT=Development`).
+
+### Backend (.NET 8)
 ```bash
 cd backend/TradePro.Api
 dotnet run
@@ -52,14 +55,16 @@ dotnet run
 # -> POST /api/simulations/run  (see the Simulations page in the UI)
 ```
 
-### Frontend
+### Frontend (React + Vite)
 ```bash
 cd frontend
-cp .env.example .env.local
-# set VITE_API_BASE_URL=http://localhost:5080 for local dev
+cp .env.example .env.local      # edit — only VITE_API_BASE_URL is required locally
 npm install
-npm run dev   # -> http://localhost:5173
+npm run dev                     # -> http://localhost:5173
 ```
+
+If `.env.local` has no `VITE_FIREBASE_*` values, the UI runs in "local mode"
+(no sign-in button, no token on API calls) and the backend accepts it.
 
 ### Strategies (Python, M-series friendly)
 ```bash
@@ -86,6 +91,26 @@ python scripts/run_backtest.py --symbol BARC.L --strategy sma_crossover \
 Firebase web config (`apiKey`, etc.) is in `frontend/.env.production` — it's
 not secret (it ships in the client bundle), but lock it down in Google Cloud
 Console with HTTP-referrer restrictions once the custom domain is live.
+
+### Auth — Firebase ID tokens + UID whitelist
+
+In production the API refuses anything without a valid Firebase ID token
+issued by the `smsp-291e3` project, and it further restricts access to a
+whitelist of Firebase user IDs (so only you can hit your API).
+
+1. In Firebase Console → Authentication, enable the **Google** sign-in
+   provider.
+2. Sign into the deployed web app once with your Google account.
+3. Grab your UID: Firebase Console → Authentication → Users → copy the UID
+   for your account.
+4. In the Azure App Service → Configuration, add an app setting:
+   - `Firebase__AllowedUserIds__0` = `<your UID>`
+   - (Add `…__1`, `…__2` for more users.)
+5. The App Service should already have `Firebase__ProjectId=smsp-291e3` (it
+   defaults to that via `appsettings.json`).
+
+Leaving `Firebase__AllowedUserIds` empty means **any** signed-in Firebase user
+on this project can call your API — so set it before going public.
 
 ### Backend → Azure App Service
 
