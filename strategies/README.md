@@ -104,7 +104,7 @@ instead it pushes.
 # 1. Store creds once (chmod 600 so others on the Mac can't read it)
 mkdir -p ~/.tradepro && chmod 700 ~/.tradepro
 cat > ~/.tradepro/credentials <<'JSON'
-{ "api_base_url": "https://tradepro-api.azurewebsites.net",
+{ "api_base_url": "https://tradepro-api-g2ardxhffph4fbdr.canadacentral-01.azurewebsites.net",
   "api_token":    "<matches Ingest__Token on Azure>" }
 JSON
 chmod 600 ~/.tradepro/credentials
