@@ -66,13 +66,22 @@ npm run dev                     # -> http://localhost:5173
 If `.env.local` has no `VITE_FIREBASE_*` values, the UI runs in "local mode"
 (no sign-in button, no token on API calls) and the backend accepts it.
 
-### Strategies (Python, M-series friendly)
+### Strategies (Python + uv, M-series friendly)
+
+Install [uv](https://docs.astral.sh/uv/) once (`brew install uv` or
+`curl -LsSf https://astral.sh/uv/install.sh | sh`), then:
+
 ```bash
 cd strategies
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python scripts/run_backtest.py --symbol BARC.L --strategy sma_crossover \
+uv sync                                  # installs from uv.lock
+uv run tradepro-backtest --symbol BARC.L --strategy sma_crossover \
     --from 2019-01-01 --capital 10000
+```
+
+Optional ML extras (`torch`, `scikit-learn`, `lightgbm`):
+
+```bash
+uv sync --extra ml
 ```
 
 ## Deploying

@@ -2,10 +2,10 @@
 
 The website never connects to your Mac. Your Mac pushes results up instead:
 
-    python scripts/push_to_api.py --kind backtest ../out/barc_sma.json
+    uv run tradepro-push --kind backtest ../out/barc_sma.json
 
 Credentials: put in `~/.tradepro/credentials` as JSON, e.g.
-    { "api_base_url": "https://api.showmesoldprice.com",
+    { "api_base_url": "https://smspapi-cxhzera4excgckfw.canadacentral-01.azurewebsites.net",
       "api_token":    "<long-random-string>" }
 
 Matching env on Azure App Service: set `Ingest__Token` to the same value.

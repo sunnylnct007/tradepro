@@ -12,11 +12,18 @@ Phased plan. Each phase is independently useful — ship, then extend.
 
 ## Phase 1 — Data layer
 
-- [ ] Add Alpha Vantage + Finnhub providers (API keys, free tiers).
-- [ ] Add a caching layer (SQLite via EF Core for dev, Postgres on Azure).
-- [ ] Daily scheduled ingestion job (Azure Function or hosted BackgroundService).
+- [ ] Local Parquet + DuckDB cache on the Mac (one write per symbol per day).
+- [ ] `IbkrProvider` (Python only, via `ib_insync` against IB Gateway). IBKR
+      delayed data is free with an account; real-time is a per-exchange sub.
+      The Mac runs the gateway, the API never talks to IBKR directly.
+- [ ] Add Alpha Vantage + Finnhub providers (API keys, free tiers) for the
+      server-side API fallback path.
+- [ ] Firestore as the server-side store (watchlists, scan history, backtest
+      summaries). Free-tier friendly.
+- [ ] Daily scheduled Mac job (`launchd`) that refreshes the cache, runs
+      scans, and pushes results to Firestore.
 - [ ] Normalize candle schema across providers (OHLCV + adjusted close).
-- [ ] Symbol universe management (watchlists stored server-side).
+- [ ] Symbol universe management (watchlists stored in Firestore).
 
 ## Phase 2 — Backtesting engine
 
