@@ -112,22 +112,27 @@ whitelist of Firebase user IDs (so only you can hit your API).
 Leaving `Firebase__AllowedUserIds` empty means **any** signed-in Firebase user
 on this project can call your API — so set it before going public.
 
-### Backend → Azure App Service
+### Backend → Azure App Service (`smspapi` in Canada Central)
 
-1. Create an App Service (Linux, .NET 8) — suggested name `tradepro-api`.
-   Edit `AZURE_WEBAPP_NAME` in `.github/workflows/azure-api-deploy.yml` if
-   you pick a different name.
-2. In the App Service overview, click **Get publish profile** to download an
-   XML file.
-3. In GitHub → Settings → Secrets → Actions, add a secret named
-   **`AZURE_WEBAPP_PUBLISH_PROFILE`** with the XML contents.
-4. In App Service → Configuration, set:
+1. App Service already exists: `smspapi`, URL
+   `https://smspapi-cxhzera4excgckfw.canadacentral-01.azurewebsites.net`.
+   (If you rename it, update `AZURE_WEBAPP_NAME` in
+   `.github/workflows/azure-api-deploy.yml` to match.)
+2. In App Service → Deployment Center, download the publish profile XML and
+   add it as the GitHub secret **`AZURE_WEBAPP_PUBLISH_PROFILE`**.
+3. In App Service → Configuration, set these app settings:
+   - `ASPNETCORE_ENVIRONMENT` = `Production`
+   - `Firebase__ProjectId` = `smsp-291e3` (already in appsettings.json; only set
+     here if you want to override).
+   - `Firebase__AllowedUserIds__0` = `<your Firebase UID>` (grab it from
+     Firebase Console → Authentication → Users after signing in once).
    - `Cors__AllowedOrigins__0` = `https://smsp-291e3.web.app`
    - `Cors__AllowedOrigins__1` = `https://showmesoldprice.com`
-5. Push to `main` — the workflow builds, publishes, and deploys.
+4. Push to `main` → the workflow builds, publishes, and deploys.
 
-Point `VITE_API_BASE_URL` in `frontend/.env.production` at the App Service URL
-(or your custom API subdomain, e.g. `https://api.showmesoldprice.com`).
+`VITE_API_BASE_URL` in `frontend/.env.production` already points at the
+Azure URL. Swap it for a custom domain (e.g. `https://api.showmesoldprice.com`)
+once you add one.
 
 ## Design principles
 

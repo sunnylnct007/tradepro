@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: tradepro-api        # rename to match the App Service you create
+  AZURE_WEBAPP_NAME: smspapi
   DOTNET_VERSION: "8.0.x"
   BUILD_CONFIGURATION: Release
 
