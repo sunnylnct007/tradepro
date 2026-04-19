@@ -51,13 +51,13 @@ public sealed class SignalScanner : ISignalScanner
             await sem.WaitAsync(ct);
             try
             {
-                var decision = await _engine.EvaluateAsync(
+                var d = await _engine.EvaluateAsync(
                     new SignalRequest(entry.Symbol, req.Provider, req.Strategy, 365, req.Params), ct);
-                return (entry, decision, error: (string?)null);
+                return (entry: entry, decision: (SignalDecision?)d, error: (string?)null);
             }
             catch (Exception ex)
             {
-                return (entry, (SignalDecision?)null, error: $"{entry.Symbol}: {ex.Message}");
+                return (entry: entry, decision: (SignalDecision?)null, error: (string?)$"{entry.Symbol}: {ex.Message}");
             }
             finally { sem.Release(); }
         });
