@@ -13,7 +13,7 @@ const navLinkStyle = ({ isActive }: { isActive: boolean }) => ({
 });
 
 export function Layout() {
-  const { user, firebaseAvailable, signIn, signOut } = useAuth();
+  const { user, firebaseAvailable, error, signIn, signOut } = useAuth();
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -109,6 +109,21 @@ export function Layout() {
           flex: 1,
         }}
       >
+        {error && (
+          <div
+            style={{
+              padding: "10px 14px",
+              marginBottom: 16,
+              borderRadius: 8,
+              border: "1px solid var(--down)",
+              background: "var(--down-soft)",
+              color: "var(--down)",
+              fontSize: 13,
+            }}
+          >
+            Sign-in failed: {error}
+          </div>
+        )}
         <Outlet />
       </main>
     </div>
