@@ -1,6 +1,7 @@
 using TradePro.Api.Endpoints;
 using TradePro.Api.Providers;
 using TradePro.Api.Simulation;
+using TradePro.Api.Watchlists;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,6 +46,9 @@ builder.Services.AddScoped<ISignalStrategy, BuyAndHoldStrategy>();
 builder.Services.AddScoped<ISignalStrategy, SmaCrossoverStrategy>();
 builder.Services.AddScoped<IStrategyRegistry, StrategyRegistry>();
 builder.Services.AddScoped<ISimulator, Simulator>();
+builder.Services.AddScoped<ISignalEngine, SignalEngine>();
+builder.Services.AddScoped<ISignalScanner, SignalScanner>();
+builder.Services.AddSingleton<IWatchlistStore, InMemoryWatchlistStore>();
 
 var app = builder.Build();
 
@@ -59,6 +63,7 @@ app.UseCors();
 app.MapHealthEndpoints();
 app.MapMarketDataEndpoints();
 app.MapSimulationEndpoints();
+app.MapSignalEndpoints();
 app.MapWatchlistEndpoints();
 
 app.Run();

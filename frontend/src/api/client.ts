@@ -1,6 +1,10 @@
 import { config } from "../config";
 import type {
   CandleSeries,
+  ScanRequest,
+  ScanResult,
+  SignalDecision,
+  SignalRequest,
   SimulationRequest,
   SimulationResult,
   Watchlist,
@@ -37,5 +41,10 @@ export const api = {
     get<CandleSeries>("/api/marketdata/candles", params),
   runSimulation: (req: SimulationRequest) =>
     post<SimulationResult, SimulationRequest>("/api/simulations/run", req),
+  evaluateSignal: (req: SignalRequest) =>
+    post<SignalDecision, SignalRequest>("/api/signals/evaluate", req),
+  scanSignals: (req: ScanRequest) =>
+    post<ScanResult, ScanRequest>("/api/signals/scan", req),
   ukWatchlist: () => get<Watchlist>("/api/watchlists/uk"),
+  watchlists: () => get<{ names: string[] }>("/api/watchlists/"),
 };

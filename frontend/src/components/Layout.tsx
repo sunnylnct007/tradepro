@@ -23,8 +23,10 @@ export function Layout() {
       >
         <div style={{ fontWeight: 700, fontSize: 18 }}>TradePro</div>
         <nav style={{ display: "flex", gap: 8 }}>
-          <NavLink to="/" end style={navLinkStyle}>Dashboard</NavLink>
+          <NavLink to="/" end style={navLinkStyle}>Scanner</NavLink>
+          <NavLink to="/signals" style={navLinkStyle}>Signal detail</NavLink>
           <NavLink to="/simulations" style={navLinkStyle}>Simulations</NavLink>
+          <NavLink to="/charts" style={navLinkStyle}>Charts</NavLink>
         </nav>
         <div style={{ marginLeft: "auto", fontSize: 12, color: "#888" }}>UK · GBP</div>
       </header>

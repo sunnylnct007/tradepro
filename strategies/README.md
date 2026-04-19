@@ -53,6 +53,31 @@ scripts/
   run_backtest.py      CLI entry point
 ```
 
+## Pushing results to the website
+
+The web UI reads from the Azure-hosted API; the API reads from a database.
+Your Mac never accepts inbound connections — instead it pushes.
+
+```bash
+# 1. store creds once
+mkdir -p ~/.tradepro && chmod 700 ~/.tradepro
+cat > ~/.tradepro/credentials <<'JSON'
+{ "api_base_url": "https://api.showmesoldprice.com",
+  "api_token":    "<matches Ingest__Token on Azure>" }
+JSON
+chmod 600 ~/.tradepro/credentials
+
+# 2. run a backtest that writes JSON
+python scripts/run_backtest.py --symbol BARC.L --strategy sma_crossover \
+    --out ../out/barc_sma.json
+
+# 3. push the result to the API (retries with exponential backoff)
+python scripts/push_to_api.py --kind backtest ../out/barc_sma.json
+```
+
+Automate with `launchd` — drop a plist into `~/Library/LaunchAgents/` that
+runs the script every evening after the US close.
+
 ## Adding a strategy
 
 1. Create `tradepro_strategies/strategies/<name>.py` exporting a function that

@@ -1,3 +1,5 @@
+using TradePro.Api.Watchlists;
+
 namespace TradePro.Api.Endpoints;
 
 public static class WatchlistEndpoints
@@ -6,27 +8,13 @@ public static class WatchlistEndpoints
     {
         var group = app.MapGroup("/api/watchlists").WithTags("Watchlists");
 
-        // Hand-seeded UK preset so you can demo the stack without typing symbols.
-        // Move to config/persistent storage in Phase 1.
-        group.MapGet("/uk", () => Results.Ok(new
+        group.MapGet("/", (IWatchlistStore store) => Results.Ok(new { names = store.Keys }));
+
+        group.MapGet("/{name}", (string name, IWatchlistStore store) =>
         {
-            name = "UK — Large Caps & Index",
-            currency = "GBP",
-            region = "UK",
-            items = new[]
-            {
-                new { symbol = "^FTSE",  label = "FTSE 100 Index",      kind = "index" },
-                new { symbol = "^FTMC",  label = "FTSE 250 Index",      kind = "index" },
-                new { symbol = "BARC.L", label = "Barclays",            kind = "equity" },
-                new { symbol = "LLOY.L", label = "Lloyds Banking Group",kind = "equity" },
-                new { symbol = "HSBA.L", label = "HSBC Holdings",       kind = "equity" },
-                new { symbol = "SHEL.L", label = "Shell",               kind = "equity" },
-                new { symbol = "AZN.L",  label = "AstraZeneca",         kind = "equity" },
-                new { symbol = "ULVR.L", label = "Unilever",            kind = "equity" },
-                new { symbol = "GSK.L",  label = "GSK",                 kind = "equity" },
-                new { symbol = "BP.L",   label = "BP",                  kind = "equity" }
-            }
-        }));
+            var list = store.Get(name);
+            return list is null ? Results.NotFound() : Results.Ok(list);
+        });
 
         return app;
     }

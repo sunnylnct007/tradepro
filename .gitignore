@@ -435,7 +435,7 @@ __pycache__/
 
 # Firebase
 .firebase/
-.firebaserc
+# .firebaserc is committed — it only maps the project alias.
 
 # Backtest outputs
 /out/

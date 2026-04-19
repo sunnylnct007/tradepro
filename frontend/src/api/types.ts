@@ -76,3 +76,57 @@ export interface Watchlist {
   region: string;
   items: WatchlistItem[];
 }
+
+export interface IndicatorSnapshot {
+  sma20: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  rsi14: number | null;
+  lastClose: number | null;
+  priceVs52wHighPct: number | null;
+  priceVs52wLowPct: number | null;
+}
+
+export interface SignalDecision {
+  symbol: string;
+  strategy: string;
+  asOf: string;
+  action: "BUY" | "SELL" | "HOLD";
+  confidence: number;
+  reasons: string[];
+  indicators: IndicatorSnapshot;
+  suggestedStopLossPct: number | null;
+  suggestedTargetPct: number | null;
+}
+
+export interface SignalRequest {
+  symbol: string;
+  provider?: string;
+  strategy: string;
+  lookbackDays: number;
+  params?: Record<string, number> | null;
+}
+
+export interface ScanRequest {
+  watchlist?: string | null;
+  symbols?: string[] | null;
+  provider?: string | null;
+  strategy: string;
+  params?: Record<string, number> | null;
+}
+
+export interface ScanResultItem {
+  symbol: string;
+  label: string;
+  decision: SignalDecision;
+}
+
+export interface ScanResult {
+  watchlist: string;
+  strategy: string;
+  generatedAt: string;
+  buys: ScanResultItem[];
+  sells: ScanResultItem[];
+  holds: ScanResultItem[];
+  errors: string[];
+}
