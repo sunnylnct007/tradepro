@@ -1,0 +1,46 @@
+name: Deploy API to Azure App Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/azure-api-deploy.yml"
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: smspapi
+  DOTNET_VERSION: "8.0.x"
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore backend/TradePro.sln
+
+      - name: Build
+        run: dotnet build backend/TradePro.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+      - name: Publish
+        run: >
+          dotnet publish backend/TradePro.Api/TradePro.Api.csproj
+          --configuration ${{ env.BUILD_CONFIGURATION }}
+          --no-build
+          --output ${{ runner.temp }}/publish
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ runner.temp }}/publish

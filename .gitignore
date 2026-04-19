@@ -416,3 +416,26 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# === TradePro additions ===
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+.env.local
+.env.development.local
+.env.production.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Firebase
+.firebase/
+# .firebaserc is committed — it only maps the project alias.
+
+# Backtest outputs
+/out/
