@@ -121,27 +121,28 @@ whitelist of Firebase user IDs (so only you can hit your API).
 Leaving `Firebase__AllowedUserIds` empty means **any** signed-in Firebase user
 on this project can call your API — so set it before going public.
 
-### Backend → Azure App Service (`smspapi` in Canada Central)
+### Backend → Azure App Service (`tradepro-api`)
 
-1. App Service already exists: `smspapi`, URL
-   `https://smspapi-cxhzera4excgckfw.canadacentral-01.azurewebsites.net`.
-   (If you rename it, update `AZURE_WEBAPP_NAME` in
-   `.github/workflows/azure-api-deploy.yml` to match.)
-2. In App Service → Deployment Center, download the publish profile XML and
-   add it as the GitHub secret **`AZURE_WEBAPP_PUBLISH_PROFILE`**.
-3. In App Service → Configuration, set these app settings:
+1. Create a **Linux, .NET 8, Code-based** App Service named `tradepro-api`
+   (UK South keeps latency low). Avoid container-based publishing —
+   the workflow uses a zip deploy.
+2. App Service → **Get publish profile** → paste the XML into the GitHub
+   secret **`AZURE_WEBAPP_PUBLISH_PROFILE`**.
+3. App Service → **Environment variables**, add:
    - `ASPNETCORE_ENVIRONMENT` = `Production`
-   - `Firebase__ProjectId` = `smsp-291e3` (already in appsettings.json; only set
-     here if you want to override).
-   - `Firebase__AllowedUserIds__0` = `<your Firebase UID>` (grab it from
-     Firebase Console → Authentication → Users after signing in once).
-   - `Cors__AllowedOrigins__0` = `https://smsp-291e3.web.app`
-   - `Cors__AllowedOrigins__1` = `https://showmesoldprice.com`
-4. Push to `main` → the workflow builds, publishes, and deploys.
+   - `Firebase__AllowedUserIds__0` = `<your Firebase UID>` (from Firebase
+     Console → Authentication → Users after you sign in once).
+   CORS is handled by the code (`appsettings.json`) — do **not** add
+   anything under App Service → API → CORS, or it will conflict with
+   the in-code middleware.
+4. Push to `main` → the `azure-api-deploy.yml` workflow builds, publishes,
+   and deploys.
 
-`VITE_API_BASE_URL` in `frontend/.env.production` already points at the
-Azure URL. Swap it for a custom domain (e.g. `https://api.showmesoldprice.com`)
-once you add one.
+`VITE_API_BASE_URL` in `frontend/.env.production` points at
+`https://tradepro-api.azurewebsites.net` — verify against the new App
+Service's Overview URL (Azure sometimes appends a random subdomain) and
+edit if needed. Later, map a custom domain like
+`https://api.showsoldprice.com` and swap the env var.
 
 ## Design principles
 
