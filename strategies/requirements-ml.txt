@@ -1,0 +1,6 @@
+# Optional ML stack — install when you start Phase 4.
+# On M-series Macs, torch ships with MPS support out of the box.
+-r requirements.txt
+scikit-learn>=1.5
+torch>=2.3
+lightgbm>=4.3
