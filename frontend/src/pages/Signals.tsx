@@ -5,10 +5,10 @@ import { api } from "../api/client";
 import type { SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 
-const actionColour: Record<SignalDecision["action"], string> = {
-  BUY: "#0a7a34",
-  SELL: "#b00020",
-  HOLD: "#666",
+const actionToneVar: Record<SignalDecision["action"], string> = {
+  BUY: "var(--up)",
+  SELL: "var(--down)",
+  HOLD: "var(--neutral)",
 };
 
 export function Signals() {
@@ -51,44 +51,46 @@ export function Signals() {
     n === null || n === undefined ? "—" : n.toFixed(d);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <h2 style={{ margin: 0 }}>Signals — should I buy or sell?</h2>
-      <p style={{ margin: 0, color: "#555" }}>
-        Pick a product and a strategy. The engine runs the strategy on the latest
-        data and tells you what action it's suggesting <em>right now</em>, with
-        the indicators behind the call. This is a decision aid, not advice.
-      </p>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div>
+        <h1 style={{ margin: 0, fontSize: 24 }}>Signal detail</h1>
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0" }}>
+          Single-symbol recommendation with the indicators behind the call.
+        </p>
+      </div>
 
       <section
+        className="card"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 14,
+          alignItems: "end",
         }}
       >
         {watchlist && (
-          <Labelled label="From watchlist">
+          <Labelled label="Watchlist pick">
             <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
               {watchlist.items.map((i) => (
-                <option key={i.symbol} value={i.symbol}>{i.label} ({i.symbol})</option>
+                <option key={i.symbol} value={i.symbol}>{i.label}</option>
               ))}
             </select>
           </Labelled>
         )}
         <Labelled label="Symbol">
-          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} />
+          <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
         </Labelled>
         <Labelled label="Provider">
           <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="yahoo">yahoo</option>
-            <option value="stooq">stooq</option>
-            <option value="binance">binance</option>
+            <option value="yahoo">Yahoo Finance</option>
+            <option value="stooq">Stooq</option>
+            <option value="binance">Binance</option>
           </select>
         </Labelled>
         <Labelled label="Strategy">
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-            <option value="sma_crossover">sma_crossover</option>
-            <option value="buy_and_hold">buy_and_hold</option>
+            <option value="sma_crossover">SMA crossover</option>
+            <option value="buy_and_hold">Buy &amp; hold</option>
           </select>
         </Labelled>
         {strategy === "sma_crossover" && (
@@ -101,70 +103,102 @@ export function Signals() {
             </Labelled>
           </>
         )}
+        <button className="primary" onClick={evaluate} disabled={loading}>
+          {loading ? "Evaluating…" : "Get signal"}
+        </button>
       </section>
 
-      <button onClick={evaluate} disabled={loading} style={{ alignSelf: "flex-start", padding: "8px 16px" }}>
-        {loading ? "Evaluating…" : "Get signal"}
-      </button>
-
-      {error && <div style={{ color: "#b00020" }}>Error: {error}</div>}
+      {error && (
+        <div
+          className="card"
+          style={{ borderColor: "var(--down)", color: "var(--down)", background: "var(--down-soft)" }}
+        >
+          {error}
+        </div>
+      )}
 
       {decision && (
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(260px, 320px) 1fr",
-            gap: 24,
+            gridTemplateColumns: "minmax(280px, 360px) 1fr",
+            gap: 20,
             alignItems: "start",
           }}
         >
           <div
-            style={{
-              padding: 20,
-              borderRadius: 12,
-              background: "#fafafa",
-              borderLeft: `6px solid ${actionColour[decision.action]}`,
-            }}
+            className="card"
+            style={{ borderLeft: `4px solid ${actionToneVar[decision.action]}` }}
           >
-            <div style={{ fontSize: 12, color: "#888" }}>Recommendation</div>
-            <div style={{ fontSize: 36, fontWeight: 700, color: actionColour[decision.action] }}>
+            <div className="stat-label">Recommendation</div>
+            <div
+              className="num"
+              style={{
+                fontSize: 42,
+                fontWeight: 700,
+                color: actionToneVar[decision.action],
+                letterSpacing: "0.04em",
+                marginTop: 4,
+              }}
+            >
               {decision.action}
             </div>
-            <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
-              Confidence {Math.round(decision.confidence * 100)}% · as of {decision.asOf.slice(0, 10)}
+            <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+              Confidence <span className="num">{Math.round(decision.confidence * 100)}%</span>
+              {" · "}
+              as of <span className="num">{decision.asOf.slice(0, 10)}</span>
             </div>
-            <div style={{ marginTop: 12, fontSize: 13, color: "#333" }}>
+            <div style={{ marginTop: 14, fontSize: 13, color: "var(--text-dim)" }}>
               Strategy: <code>{decision.strategy}</code>
             </div>
             {(decision.suggestedStopLossPct || decision.suggestedTargetPct) && (
-              <div style={{ marginTop: 8, fontSize: 13 }}>
+              <div style={{ marginTop: 10, fontSize: 13, display: "flex", gap: 14 }}>
                 {decision.suggestedStopLossPct && (
-                  <div>Suggested stop-loss: −{decision.suggestedStopLossPct}%</div>
+                  <span>
+                    <span className="stat-label" style={{ display: "block" }}>Stop</span>
+                    <span className="down num">−{decision.suggestedStopLossPct}%</span>
+                  </span>
                 )}
                 {decision.suggestedTargetPct && (
-                  <div>Suggested target: +{decision.suggestedTargetPct}%</div>
+                  <span>
+                    <span className="stat-label" style={{ display: "block" }}>Target</span>
+                    <span className="up num">+{decision.suggestedTargetPct}%</span>
+                  </span>
                 )}
               </div>
             )}
           </div>
 
-          <div>
-            <h3 style={{ margin: "0 0 8px 0" }}>Why</h3>
-            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
-              {decision.reasons.map((r, i) => (
-                <li key={i}>{r}</li>
-              ))}
-            </ul>
-
-            <h3 style={{ margin: "16px 0 8px 0" }}>Indicators</h3>
-            <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-              <Stat label="Last close" value={fmt(ind?.lastClose)} />
-              <Stat label="SMA 20" value={fmt(ind?.sma20)} />
-              <Stat label="SMA 50" value={fmt(ind?.sma50)} />
-              <Stat label="SMA 200" value={fmt(ind?.sma200)} />
-              <Stat label="RSI 14" value={fmt(ind?.rsi14, 1)} />
-              <Stat label="vs 52w high" value={ind?.priceVs52wHighPct != null ? `${fmt(ind.priceVs52wHighPct, 1)}%` : "—"} />
-              <Stat label="vs 52w low" value={ind?.priceVs52wLowPct != null ? `${fmt(ind.priceVs52wLowPct, 1)}%` : "—"} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div className="card">
+              <h3 style={{ margin: "0 0 10px 0", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>
+                Reasoning
+              </h3>
+              <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8, color: "var(--text)" }}>
+                {decision.reasons.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </div>
+            <div className="card">
+              <h3 style={{ margin: "0 0 12px 0", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>
+                Indicators
+              </h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 14 }}>
+                <Stat label="Last close" value={fmt(ind?.lastClose)} />
+                <Stat label="SMA 20" value={fmt(ind?.sma20)} />
+                <Stat label="SMA 50" value={fmt(ind?.sma50)} />
+                <Stat label="SMA 200" value={fmt(ind?.sma200)} />
+                <Stat label="RSI 14" value={fmt(ind?.rsi14, 1)} />
+                <Stat
+                  label="vs 52w high"
+                  value={ind?.priceVs52wHighPct != null ? `${fmt(ind.priceVs52wHighPct, 1)}%` : "—"}
+                  tone={ind?.priceVs52wHighPct != null ? (ind.priceVs52wHighPct >= -3 ? "up" : "down") : undefined}
+                />
+                <Stat
+                  label="vs 52w low"
+                  value={ind?.priceVs52wLowPct != null ? `${fmt(ind.priceVs52wLowPct, 1)}%` : "—"}
+                  tone={ind?.priceVs52wLowPct != null ? (ind.priceVs52wLowPct > 20 ? "up" : undefined) : undefined}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -175,18 +209,19 @@ export function Signals() {
 
 function Labelled({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#555" }}>
-      {label}
+    <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <span className="stat-label">{label}</span>
       {children}
     </label>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {
+  const colour = tone === "up" ? "var(--up)" : tone === "down" ? "var(--down)" : "var(--text)";
   return (
     <div>
-      <div style={{ fontSize: 12, color: "#888" }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 600 }}>{value}</div>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={{ color: colour }}>{value}</div>
     </div>
   );
 }
