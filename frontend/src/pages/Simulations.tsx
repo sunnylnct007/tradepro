@@ -18,7 +18,6 @@ const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 export function Simulations() {
   const [symbol, setSymbol] = useState("^FTSE");
-  const [provider, setProvider] = useState(config.defaultProvider);
   const [strategy, setStrategy] = useState("buy_and_hold");
   const [strategies, setStrategies] = useState<string[]>([]);
   const [from, setFrom] = useState(isoDate(new Date(Date.now() - 5 * 365 * 24 * 3600 * 1000)));
@@ -26,6 +25,8 @@ export function Simulations() {
   const [capital, setCapital] = useState(10000);
   const [fast, setFast] = useState(20);
   const [slow, setSlow] = useState(50);
+  const [rsiLow, setRsiLow] = useState(30);
+  const [rsiHigh, setRsiHigh] = useState(70);
   const [stampDuty, setStampDuty] = useState(0.005);
   const [commission, setCommission] = useState(0);
   const [result, setResult] = useState<SimulationResult | null>(null);
@@ -42,14 +43,19 @@ export function Simulations() {
     try {
       const req: SimulationRequest = {
         symbol,
-        provider,
+        provider: config.defaultProvider,
         strategy,
         from: new Date(from).toISOString(),
         to: new Date(to).toISOString(),
         initialCapital: capital,
         currency: config.defaultCurrency,
         fees: { commissionPerTrade: commission, stampDutyRate: stampDuty, fxSpread: 0 },
-        params: strategy === "sma_crossover" ? { fast, slow } : null,
+        params:
+          strategy === "sma_crossover"
+            ? { fast, slow }
+            : strategy === "rsi_mean_reversion"
+              ? { low: rsiLow, high: rsiHigh }
+              : null,
       };
       const r = await api.runSimulation(req);
       setResult(r);
@@ -100,13 +106,6 @@ export function Simulations() {
         <Labelled label="Symbol">
           <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
         </Labelled>
-        <Labelled label="Provider" help="provider">
-          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="yahoo">Yahoo Finance</option>
-            <option value="binance">Binance (crypto)</option>
-            <option value="stooq">Stooq (flaky)</option>
-          </select>
-        </Labelled>
         <Labelled label="Strategy" help="strategy">
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
             {(strategies.length ? strategies : ["buy_and_hold", "sma_crossover"]).map((s) => (
@@ -136,6 +135,16 @@ export function Simulations() {
             </Labelled>
             <Labelled label="Slow SMA" help="slow_sma">
               <input type="number" value={slow} onChange={(e) => setSlow(Number(e.target.value))} />
+            </Labelled>
+          </>
+        )}
+        {strategy === "rsi_mean_reversion" && (
+          <>
+            <Labelled label="Oversold below" help="rsi14">
+              <input type="number" value={rsiLow} onChange={(e) => setRsiLow(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Overbought above" help="rsi14">
+              <input type="number" value={rsiHigh} onChange={(e) => setRsiHigh(Number(e.target.value))} />
             </Labelled>
           </>
         )}

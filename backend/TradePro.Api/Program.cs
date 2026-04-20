@@ -28,6 +28,9 @@ builder.Services.AddHttpClient<YahooFinanceProvider>(c =>
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
     c.Timeout = TimeSpan.FromSeconds(15);
 });
+// Stooq + Binance temporarily unregistered — Stooq now requires an API key
+// and Binance only supports crypto which we don't surface yet. The classes
+// are kept in the codebase so we can wire them back in with a click.
 builder.Services.AddHttpClient<StooqProvider>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
@@ -39,14 +42,13 @@ builder.Services.AddHttpClient<BinanceProvider>(c =>
     c.Timeout = TimeSpan.FromSeconds(15);
 });
 
-// Register each provider as IMarketDataProvider so the registry can resolve by name.
+// Only Yahoo Finance is advertised to the registry today.
 builder.Services.AddScoped<IMarketDataProvider>(sp => sp.GetRequiredService<YahooFinanceProvider>());
-builder.Services.AddScoped<IMarketDataProvider>(sp => sp.GetRequiredService<StooqProvider>());
-builder.Services.AddScoped<IMarketDataProvider>(sp => sp.GetRequiredService<BinanceProvider>());
 builder.Services.AddScoped<IMarketDataRegistry, MarketDataRegistry>();
 
 builder.Services.AddScoped<ISignalStrategy, BuyAndHoldStrategy>();
 builder.Services.AddScoped<ISignalStrategy, SmaCrossoverStrategy>();
+builder.Services.AddScoped<ISignalStrategy, RsiMeanReversionStrategy>();
 builder.Services.AddScoped<IStrategyRegistry, StrategyRegistry>();
 builder.Services.AddScoped<ISimulator, Simulator>();
 builder.Services.AddScoped<ISignalEngine, SignalEngine>();

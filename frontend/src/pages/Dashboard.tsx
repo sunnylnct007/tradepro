@@ -15,26 +15,23 @@ import { config } from "../config";
 export function Dashboard() {
   const [watchlist, setWatchlist] = useState<Watchlist | null>(null);
   const [symbol, setSymbol] = useState<string>("^FTSE");
-  const [provider, setProvider] = useState<string>(config.defaultProvider);
-  const [providers, setProviders] = useState<string[]>([]);
   const [series, setSeries] = useState<CandleSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     api.ukWatchlist().then(setWatchlist).catch(() => {});
-    api.providers().then((r) => setProviders(r.providers)).catch(() => {});
   }, []);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     api
-      .candles({ symbol, provider })
+      .candles({ symbol, provider: config.defaultProvider })
       .then(setSeries)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [symbol, provider]);
+  }, [symbol]);
 
   const chartData = useMemo(
     () =>
@@ -56,7 +53,7 @@ export function Dashboard() {
       <div>
         <h1 style={{ margin: 0, fontSize: 24 }}>Charts</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0" }}>
-          Quick price exploration across any provider and symbol.
+          Quick price exploration. Powered by Yahoo Finance.
         </p>
       </div>
 
@@ -75,14 +72,9 @@ export function Dashboard() {
           className="num"
           value={symbol}
           onChange={(e) => setSymbol(e.target.value)}
-          placeholder="Or type a symbol (BARC.L, AAPL, BTCUSDT…)"
+          placeholder="Or type a symbol (BARC.L, AAPL, ^FTSE…)"
           style={{ flex: 1, minWidth: 260 }}
         />
-        <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-          {providers.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
       </section>
 
       {error && (
@@ -110,7 +102,6 @@ export function Dashboard() {
           )}
           <Stat label="As of" value={latest.timestamp.slice(0, 10)} />
           <Stat label="Bars" value={String(series?.candles.length ?? 0)} />
-          <Stat label="Provider" value={series?.provider ?? ""} />
         </section>
       )}
 

@@ -30,7 +30,7 @@ data that produced it.
 | API | .NET 8 minimal API on Azure App Service (Linux, `tradepro-api`) | Strongly-typed domain; good with numeric code; deploys as a zip |
 | DB | Firestore on Firebase Spark (free) | Realtime listeners give us bidirectional Mac↔UI without opening ports on the Mac |
 | Research & heavy compute | Python (`tradepro_strategies`) on a MacBook M4 | Vectorised pandas/numpy is fast; MPS for future ML; free |
-| Data | Pluggable providers — Yahoo Finance, Stooq, Binance today; IBKR + Alpha Vantage later | All free, no keys for the defaults |
+| Data | Yahoo Finance only today (Stooq + Binance coded but disabled — Stooq now needs an API key, Binance is crypto-only). IBKR / Alpha Vantage planned. | Free, no key |
 
 Cost target: **£0/month** for a single user. F1 sleep and free-tier quotas
 are our constraints, not money.
@@ -202,7 +202,7 @@ Current:
 |---|---|---|---|
 | `buy_and_hold` | Long on day 1, flat at end | — | ✅ reference |
 | `sma_crossover` | Golden/death cross of two SMAs | `fast`, `slow` | ✅ |
-| `rsi_mean_reversion` | Buy RSI<30, sell RSI>70 | `period`, `low`, `high` | planned |
+| `rsi_mean_reversion` | Buy on recovery from oversold, sell on cool-off from overbought | `period`, `low`, `high` | ✅ |
 | `donchian_breakout` | Buy N-day high, exit on N-day low | `lookback` | planned |
 | `macd_signal_cross` | Buy MACD > signal, sell below | `fast`, `slow`, `signal` | planned |
 
