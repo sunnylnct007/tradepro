@@ -41,6 +41,23 @@ public static class SignalEndpoints
             }
         });
 
+        group.MapPost("/hitrate", async (HitRateRequest req, IHitRateEngine engine, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Symbol))
+                return Results.BadRequest(new { error = "symbol is required" });
+            if (string.IsNullOrWhiteSpace(req.Strategy))
+                return Results.BadRequest(new { error = "strategy is required" });
+            try
+            {
+                var result = await engine.ComputeAsync(req, ct);
+                return Results.Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         return app;
     }
 }

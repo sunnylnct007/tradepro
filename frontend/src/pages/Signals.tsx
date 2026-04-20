@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { SignalDecision, Watchlist } from "../api/types";
+import type { HitRateResult, SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
 
@@ -22,6 +22,8 @@ export function Signals() {
   const [rsiLow, setRsiLow] = useState(30);
   const [rsiHigh, setRsiHigh] = useState(70);
   const [decision, setDecision] = useState<SignalDecision | null>(null);
+  const [hitRate, setHitRate] = useState<HitRateResult | null>(null);
+  const [hitRateLoading, setHitRateLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -32,20 +34,29 @@ export function Signals() {
   async function evaluate() {
     setLoading(true);
     setError(null);
+    setHitRate(null);
+    const params =
+      strategy === "sma_crossover"
+        ? { fast, slow }
+        : strategy === "rsi_mean_reversion"
+          ? { low: rsiLow, high: rsiHigh }
+          : null;
     try {
       const d = await api.evaluateSignal({
         symbol,
         provider: config.defaultProvider,
         strategy,
         lookbackDays: 365,
-        params:
-          strategy === "sma_crossover"
-            ? { fast, slow }
-            : strategy === "rsi_mean_reversion"
-              ? { low: rsiLow, high: rsiHigh }
-              : null,
+        params,
       });
       setDecision(d);
+      // Kick off the hit-rate in the background — slower, queries 10y.
+      setHitRateLoading(true);
+      api
+        .hitRate({ symbol, provider: config.defaultProvider, strategy, lookbackYears: 10, params })
+        .then(setHitRate)
+        .catch(() => {})
+        .finally(() => setHitRateLoading(false));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -222,7 +233,77 @@ export function Signals() {
                 />
               </div>
             </div>
+
+            <HitRateCard loading={hitRateLoading} result={hitRate} />
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HitRateCard({ loading, result }: { loading: boolean; result: HitRateResult | null }) {
+  const pct = (n: number | null | undefined, d = 1) =>
+    n === null || n === undefined ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(d)}%`;
+
+  if (!loading && !result) return null;
+
+  return (
+    <div className="card">
+      <h3
+        style={{
+          margin: "0 0 12px 0",
+          fontSize: 13,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          color: "var(--text-muted)",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        Historical hit-rate <Info k="win_rate" />
+        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
+          {result ? `${new Date(result.from).getFullYear()}–${new Date(result.to).getFullYear()}` : ""}
+        </span>
+      </h3>
+
+      {loading && !result && <div style={{ color: "var(--text-dim)" }}>Simulating 10 years of this strategy…</div>}
+
+      {result && result.totalTrades === 0 && (
+        <div style={{ color: "var(--text-dim)", fontSize: 13 }}>
+          No round-trip trades in the window. Either the strategy never fires (Buy &amp; Hold) or
+          the window's too short — increase lookback to see more.
+        </div>
+      )}
+
+      {result && result.totalTrades > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14 }}>
+          <Stat
+            label="Win rate"
+            value={`${result.winRatePct.toFixed(0)}%`}
+            tone={result.winRatePct >= 55 ? "up" : result.winRatePct < 45 ? "down" : undefined}
+            help="win_rate"
+          />
+          <Stat label="Trades" value={`${result.winners}W / ${result.losers}L`} />
+          <Stat label="Avg winner" value={pct(result.avgWinnerPct)} tone="up" />
+          <Stat label="Avg loser" value={pct(result.avgLoserPct)} tone="down" />
+          <Stat
+            label="Expectancy"
+            value={pct(result.expectancyPct, 2)}
+            tone={result.expectancyPct > 0 ? "up" : "down"}
+            help="expectancy"
+          />
+          <Stat label="Best / worst" value={`${pct(result.bestPct)} / ${pct(result.worstPct)}`} />
+          <Stat
+            label="Median hold"
+            value={`${Math.round(result.medianHoldingDays)}d`}
+            help="median_hold"
+          />
+          <Stat
+            label="Cumulative (rough)"
+            value={pct(result.totalReturnPct, 0)}
+            tone={result.totalReturnPct > 0 ? "up" : "down"}
+          />
         </div>
       )}
     </div>
