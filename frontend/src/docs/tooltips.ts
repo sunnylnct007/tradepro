@@ -97,4 +97,19 @@ export const HELP: Record<string, HelpEntry> = {
     body:
       "Price relative to its 1-year high/low. Near the 52w high = strong uptrend (or overextended). Near 52w low = downtrend (or a bottom).",
   },
+  win_rate: {
+    title: "Historical win-rate",
+    body:
+      "Percentage of past round-trip trades this exact strategy made on this exact stock that finished profitable. Above 55% is good; above 65% is suspicious unless the sample is big.",
+  },
+  expectancy: {
+    title: "Expectancy",
+    body:
+      "Average return per round-trip trade. = winRate × avgWinner + lossRate × avgLoser. Positive means the strategy made money on average across all trades.",
+  },
+  median_hold: {
+    title: "Median holding period",
+    body:
+      "The typical number of calendar days a trade stayed open. Tells you how actively this strategy churns the stock.",
+  },
 };

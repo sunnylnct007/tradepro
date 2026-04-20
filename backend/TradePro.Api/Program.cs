@@ -53,6 +53,7 @@ builder.Services.AddScoped<IStrategyRegistry, StrategyRegistry>();
 builder.Services.AddScoped<ISimulator, Simulator>();
 builder.Services.AddScoped<ISignalEngine, SignalEngine>();
 builder.Services.AddScoped<ISignalScanner, SignalScanner>();
+builder.Services.AddScoped<IHitRateEngine, HitRateEngine>();
 builder.Services.AddSingleton<IWatchlistStore, InMemoryWatchlistStore>();
 
 var app = builder.Build();

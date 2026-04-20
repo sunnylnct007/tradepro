@@ -130,3 +130,40 @@ export interface ScanResult {
   holds: ScanResultItem[];
   errors: string[];
 }
+
+export interface HitRateRequest {
+  symbol: string;
+  provider?: string | null;
+  strategy: string;
+  lookbackYears: number;
+  params?: Record<string, number> | null;
+}
+
+export interface HitRateTrade {
+  entryDate: string;
+  exitDate: string | null;
+  entryPrice: number;
+  exitPrice: number | null;
+  returnPct: number | null;
+  holdingDays: number | null;
+  isOpen: boolean;
+}
+
+export interface HitRateResult {
+  symbol: string;
+  strategy: string;
+  from: string;
+  to: string;
+  totalTrades: number;
+  winners: number;
+  losers: number;
+  winRatePct: number;
+  avgWinnerPct: number;
+  avgLoserPct: number;
+  medianHoldingDays: number;
+  bestPct: number;
+  worstPct: number;
+  expectancyPct: number;
+  totalReturnPct: number;
+  trades: HitRateTrade[];
+}

@@ -2,6 +2,8 @@ import { config } from "../config";
 import { getIdToken } from "../firebase";
 import type {
   CandleSeries,
+  HitRateRequest,
+  HitRateResult,
   ScanRequest,
   ScanResult,
   SignalDecision,
@@ -51,6 +53,8 @@ export const api = {
     post<SignalDecision, SignalRequest>("/api/signals/evaluate", req),
   scanSignals: (req: ScanRequest) =>
     post<ScanResult, ScanRequest>("/api/signals/scan", req),
+  hitRate: (req: HitRateRequest) =>
+    post<HitRateResult, HitRateRequest>("/api/signals/hitrate", req),
   ukWatchlist: () => get<Watchlist>("/api/watchlists/uk"),
   watchlists: () => get<{ names: string[] }>("/api/watchlists/"),
 };
