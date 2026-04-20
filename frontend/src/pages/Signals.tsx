@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
+import { Info } from "../components/Info";
 
 const actionToneVar: Record<SignalDecision["action"], string> = {
   BUY: "var(--up)",
@@ -69,7 +70,7 @@ export function Signals() {
         }}
       >
         {watchlist && (
-          <Labelled label="Watchlist pick">
+          <Labelled label="Watchlist pick" help="watchlist">
             <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
               {watchlist.items.map((i) => (
                 <option key={i.symbol} value={i.symbol}>{i.label}</option>
@@ -80,14 +81,14 @@ export function Signals() {
         <Labelled label="Symbol">
           <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
         </Labelled>
-        <Labelled label="Provider">
+        <Labelled label="Provider" help="provider">
           <select value={provider} onChange={(e) => setProvider(e.target.value)}>
             <option value="yahoo">Yahoo Finance</option>
-            <option value="stooq">Stooq</option>
-            <option value="binance">Binance</option>
+            <option value="binance">Binance (crypto)</option>
+            <option value="stooq">Stooq (flaky)</option>
           </select>
         </Labelled>
-        <Labelled label="Strategy">
+        <Labelled label="Strategy" help="strategy">
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
             <option value="sma_crossover">SMA crossover</option>
             <option value="buy_and_hold">Buy &amp; hold</option>
@@ -95,10 +96,10 @@ export function Signals() {
         </Labelled>
         {strategy === "sma_crossover" && (
           <>
-            <Labelled label="Fast SMA">
+            <Labelled label="Fast SMA" help="fast_sma">
               <input type="number" value={fast} onChange={(e) => setFast(Number(e.target.value))} />
             </Labelled>
-            <Labelled label="Slow SMA">
+            <Labelled label="Slow SMA" help="slow_sma">
               <input type="number" value={slow} onChange={(e) => setSlow(Number(e.target.value))} />
             </Labelled>
           </>
@@ -143,10 +144,11 @@ export function Signals() {
             >
               {decision.action}
             </div>
-            <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
-              Confidence <span className="num">{Math.round(decision.confidence * 100)}%</span>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, display: "flex", alignItems: "center" }}>
+              Confidence <span className="num" style={{ marginLeft: 4 }}>{Math.round(decision.confidence * 100)}%</span>
+              <Info k="confidence" />
               {" · "}
-              as of <span className="num">{decision.asOf.slice(0, 10)}</span>
+              <span style={{ marginLeft: 6 }}>as of <span className="num">{decision.asOf.slice(0, 10)}</span></span>
             </div>
             <div style={{ marginTop: 14, fontSize: 13, color: "var(--text-dim)" }}>
               Strategy: <code>{decision.strategy}</code>
@@ -172,11 +174,19 @@ export function Signals() {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div className="card">
               <h3 style={{ margin: "0 0 10px 0", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>
-                Reasoning
+                Why this call
               </h3>
-              <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8, color: "var(--text)" }}>
-                {decision.reasons.map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
+              <div>
+                {decision.reasons.map((r, i) => {
+                  const tone = toneOf(r, decision.action);
+                  return (
+                    <div key={i} className={`reason ${tone}`}>
+                      <span className="dot" />
+                      <span>{r}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             <div className="card">
               <h3 style={{ margin: "0 0 12px 0", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>
@@ -184,19 +194,21 @@ export function Signals() {
               </h3>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 14 }}>
                 <Stat label="Last close" value={fmt(ind?.lastClose)} />
-                <Stat label="SMA 20" value={fmt(ind?.sma20)} />
-                <Stat label="SMA 50" value={fmt(ind?.sma50)} />
+                <Stat label="SMA 20" value={fmt(ind?.sma20)} help="fast_sma" />
+                <Stat label="SMA 50" value={fmt(ind?.sma50)} help="slow_sma" />
                 <Stat label="SMA 200" value={fmt(ind?.sma200)} />
-                <Stat label="RSI 14" value={fmt(ind?.rsi14, 1)} />
+                <Stat label="RSI 14" value={fmt(ind?.rsi14, 1)} help="rsi14" />
                 <Stat
                   label="vs 52w high"
                   value={ind?.priceVs52wHighPct != null ? `${fmt(ind.priceVs52wHighPct, 1)}%` : "—"}
                   tone={ind?.priceVs52wHighPct != null ? (ind.priceVs52wHighPct >= -3 ? "up" : "down") : undefined}
+                  help="vs_52w"
                 />
                 <Stat
                   label="vs 52w low"
                   value={ind?.priceVs52wLowPct != null ? `${fmt(ind.priceVs52wLowPct, 1)}%` : "—"}
                   tone={ind?.priceVs52wLowPct != null ? (ind.priceVs52wLowPct > 20 ? "up" : undefined) : undefined}
+                  help="vs_52w"
                 />
               </div>
             </div>
@@ -207,20 +219,36 @@ export function Signals() {
   );
 }
 
-function Labelled({ label, children }: { label: string; children: ReactNode }) {
+function Labelled({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span className="stat-label">{label}</span>
+      <span className="stat-label">
+        {label}
+        {help && <Info k={help as keyof typeof import("../docs/tooltips").HELP} />}
+      </span>
       {children}
     </label>
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {
+/** Classify a reason as up / down / neutral so the bullet dot matches the tone.
+ * Heuristic: keyword match + agreement with the overall BUY/SELL call. */
+function toneOf(reason: string, action: SignalDecision["action"]): "up" | "down" | "neutral" {
+  const r = reason.toLowerCase();
+  if (/triggered buy|up-trend|oversold|bounce|bullish/.test(r)) return "up";
+  if (/triggered sell|down-trend|overbought|bearish|pullback/.test(r)) return "down";
+  if (/neutral|no fresh signal|52w/.test(r)) return "neutral";
+  return action === "BUY" ? "up" : action === "SELL" ? "down" : "neutral";
+}
+
+function Stat({ label, value, tone, help }: { label: string; value: string; tone?: "up" | "down"; help?: string }) {
   const colour = tone === "up" ? "var(--up)" : tone === "down" ? "var(--down)" : "var(--text)";
   return (
     <div>
-      <div className="stat-label">{label}</div>
+      <div className="stat-label">
+        {label}
+        {help && <Info k={help as keyof typeof import("../docs/tooltips").HELP} />}
+      </div>
       <div className="stat-value" style={{ color: colour }}>{value}</div>
     </div>
   );

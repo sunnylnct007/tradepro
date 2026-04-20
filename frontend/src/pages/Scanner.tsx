@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { ScanResult, ScanResultItem } from "../api/types";
 import { config } from "../config";
+import { Info } from "../components/Info";
+
+const CRYPTO_WATCHLISTS = new Set<string>(["crypto"]);
+const EQUITY_WATCHLISTS = new Set<string>(["uk", "uk_ftse100_sample", "us_megacap_sample"]);
 
 export function Scanner() {
   const [watchlist, setWatchlist] = useState("uk");
@@ -38,6 +42,19 @@ export function Scanner() {
     }
   }
 
+  const compatWarning = useMemo(() => {
+    if (provider === "binance" && EQUITY_WATCHLISTS.has(watchlist)) {
+      return "Binance only serves crypto pairs (like BTCUSDT). For UK/US stocks use Yahoo Finance.";
+    }
+    if (provider === "yahoo" && CRYPTO_WATCHLISTS.has(watchlist)) {
+      return "Yahoo supports crypto as SYMBOL-USD tickers. Binance gives cleaner crypto data for pairs like BTCUSDT.";
+    }
+    if (provider === "stooq") {
+      return "Stooq's free CSV now requires an API key for many symbols — expect errors. Yahoo Finance is the reliable free source today.";
+    }
+    return null;
+  }, [provider, watchlist]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
@@ -57,32 +74,32 @@ export function Scanner() {
           alignItems: "end",
         }}
       >
-        <Labelled label="Watchlist">
+        <Labelled label="Watchlist" help="watchlist">
           <select value={watchlist} onChange={(e) => setWatchlist(e.target.value)}>
             {watchlistNames.map((n) => (
               <option key={n} value={n}>{n}</option>
             ))}
           </select>
         </Labelled>
-        <Labelled label="Strategy">
+        <Labelled label="Strategy" help="strategy">
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
             <option value="sma_crossover">SMA crossover</option>
             <option value="buy_and_hold">Buy &amp; hold</option>
           </select>
         </Labelled>
-        <Labelled label="Provider">
+        <Labelled label="Provider" help="provider">
           <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="yahoo">Yahoo Finance</option>
-            <option value="stooq">Stooq</option>
-            <option value="binance">Binance (crypto)</option>
+            <option value="yahoo">Yahoo Finance — stocks, indices, crypto</option>
+            <option value="binance">Binance — crypto pairs only</option>
+            <option value="stooq">Stooq — needs API key (flaky)</option>
           </select>
         </Labelled>
         {strategy === "sma_crossover" && (
           <>
-            <Labelled label="Fast SMA">
+            <Labelled label="Fast SMA" help="fast_sma">
               <input type="number" value={fast} onChange={(e) => setFast(Number(e.target.value))} />
             </Labelled>
-            <Labelled label="Slow SMA">
+            <Labelled label="Slow SMA" help="slow_sma">
               <input type="number" value={slow} onChange={(e) => setSlow(Number(e.target.value))} />
             </Labelled>
           </>
@@ -91,6 +108,20 @@ export function Scanner() {
           {loading ? "Scanning…" : "Run scan"}
         </button>
       </section>
+
+      {compatWarning && (
+        <div
+          className="card"
+          style={{
+            borderColor: "#caa033",
+            background: "rgba(202, 160, 51, 0.08)",
+            color: "#e8c76a",
+            fontSize: 13,
+          }}
+        >
+          ⚠ {compatWarning}
+        </div>
+      )}
 
       {error && (
         <div
@@ -171,9 +202,20 @@ function Bucket({ title, tone, items }: { title: string; tone: "up" | "down" | "
             <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 2 }}>
               {i.label}
             </div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-              {i.decision.reasons[0]}
-            </div>
+            <ul style={{ margin: "4px 0 0 0", padding: 0, listStyle: "none" }}>
+              {i.decision.reasons.slice(0, 2).map((r, idx) => (
+                <li
+                  key={idx}
+                  style={{
+                    fontSize: 11,
+                    color: idx === 0 ? "var(--text-dim)" : "var(--text-muted)",
+                    marginTop: 2,
+                  }}
+                >
+                  · {r}
+                </li>
+              ))}
+            </ul>
           </li>
         ))}
       </ul>
@@ -181,10 +223,13 @@ function Bucket({ title, tone, items }: { title: string; tone: "up" | "down" | "
   );
 }
 
-function Labelled({ label, children }: { label: string; children: ReactNode }) {
+function Labelled({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span className="stat-label">{label}</span>
+      <span className="stat-label">
+        {label}
+        {help && <Info k={help as keyof typeof import("../docs/tooltips").HELP} />}
+      </span>
       {children}
     </label>
   );
