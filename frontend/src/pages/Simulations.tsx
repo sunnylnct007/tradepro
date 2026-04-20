@@ -12,6 +12,7 @@ import {
 import { api } from "../api/client";
 import type { SimulationRequest, SimulationResult } from "../api/types";
 import { config } from "../config";
+import { Info } from "../components/Info";
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -99,14 +100,14 @@ export function Simulations() {
         <Labelled label="Symbol">
           <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
         </Labelled>
-        <Labelled label="Provider">
+        <Labelled label="Provider" help="provider">
           <select value={provider} onChange={(e) => setProvider(e.target.value)}>
             <option value="yahoo">Yahoo Finance</option>
-            <option value="stooq">Stooq</option>
-            <option value="binance">Binance</option>
+            <option value="binance">Binance (crypto)</option>
+            <option value="stooq">Stooq (flaky)</option>
           </select>
         </Labelled>
-        <Labelled label="Strategy">
+        <Labelled label="Strategy" help="strategy">
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
             {(strategies.length ? strategies : ["buy_and_hold", "sma_crossover"]).map((s) => (
               <option key={s} value={s}>{s}</option>
@@ -119,21 +120,21 @@ export function Simulations() {
         <Labelled label="To">
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </Labelled>
-        <Labelled label={`Capital (${config.defaultCurrency})`}>
+        <Labelled label={`Capital (${config.defaultCurrency})`} help="initial_capital">
           <input type="number" value={capital} onChange={(e) => setCapital(Number(e.target.value))} />
         </Labelled>
-        <Labelled label="Stamp duty">
+        <Labelled label="Stamp duty" help="stamp_duty">
           <input type="number" step="0.001" value={stampDuty} onChange={(e) => setStampDuty(Number(e.target.value))} />
         </Labelled>
-        <Labelled label="Commission / trade">
+        <Labelled label="Commission / trade" help="commission">
           <input type="number" value={commission} onChange={(e) => setCommission(Number(e.target.value))} />
         </Labelled>
         {strategy === "sma_crossover" && (
           <>
-            <Labelled label="Fast SMA">
+            <Labelled label="Fast SMA" help="fast_sma">
               <input type="number" value={fast} onChange={(e) => setFast(Number(e.target.value))} />
             </Labelled>
-            <Labelled label="Slow SMA">
+            <Labelled label="Slow SMA" help="slow_sma">
               <input type="number" value={slow} onChange={(e) => setSlow(Number(e.target.value))} />
             </Labelled>
           </>
@@ -165,9 +166,9 @@ export function Simulations() {
             <Stat label="Final equity" value={ccy(result.finalEquity)} />
             <Stat label="P&L" value={ccy(pnl)} tone={pnlTone} />
             <Stat label="Total return" value={`${result.totalReturnPct.toFixed(2)}%`} tone={result.totalReturnPct >= 0 ? "up" : "down"} />
-            <Stat label="CAGR" value={`${result.cagrPct.toFixed(2)}%`} tone={result.cagrPct >= 0 ? "up" : "down"} />
-            <Stat label="Max drawdown" value={`${result.maxDrawdownPct.toFixed(2)}%`} tone="down" />
-            <Stat label="Sharpe" value={result.sharpeRatio.toFixed(2)} />
+            <Stat label="CAGR" value={`${result.cagrPct.toFixed(2)}%`} tone={result.cagrPct >= 0 ? "up" : "down"} help="cagr" />
+            <Stat label="Max drawdown" value={`${result.maxDrawdownPct.toFixed(2)}%`} tone="down" help="max_drawdown" />
+            <Stat label="Sharpe" value={result.sharpeRatio.toFixed(2)} help="sharpe" />
             <Stat label="Trades" value={String(result.tradeCount)} />
           </section>
 
@@ -199,20 +200,26 @@ export function Simulations() {
   );
 }
 
-function Labelled({ label, children }: { label: string; children: ReactNode }) {
+function Labelled({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span className="stat-label">{label}</span>
+      <span className="stat-label">
+        {label}
+        {help && <Info k={help as keyof typeof import("../docs/tooltips").HELP} />}
+      </span>
       {children}
     </label>
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {
+function Stat({ label, value, tone, help }: { label: string; value: string; tone?: "up" | "down"; help?: string }) {
   const colour = tone === "up" ? "var(--up)" : tone === "down" ? "var(--down)" : "var(--text)";
   return (
     <div>
-      <div className="stat-label">{label}</div>
+      <div className="stat-label">
+        {label}
+        {help && <Info k={help as keyof typeof import("../docs/tooltips").HELP} />}
+      </div>
       <div className="stat-value" style={{ color: colour }}>{value}</div>
     </div>
   );

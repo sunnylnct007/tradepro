@@ -64,6 +64,7 @@ export function Layout() {
           <NavLink to="/signals" style={navLinkStyle}>Signal</NavLink>
           <NavLink to="/simulations" style={navLinkStyle}>Simulations</NavLink>
           <NavLink to="/charts" style={navLinkStyle}>Charts</NavLink>
+          <NavLink to="/help" style={navLinkStyle}>Help</NavLink>
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           <span
