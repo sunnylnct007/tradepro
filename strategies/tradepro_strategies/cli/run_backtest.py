@@ -10,23 +10,16 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tradepro_strategies.backtest import BacktestConfig, FeeModel, run_backtest
-from tradepro_strategies.data import DataRequest, load_candles
-from tradepro_strategies.strategies import buy_and_hold_signals, sma_crossover_signals
-
-
-STRATEGIES = {
-    "buy_and_hold": lambda params: (lambda df: buy_and_hold_signals(df)),
-    "sma_crossover": lambda params: (
-        lambda df: sma_crossover_signals(df, fast=params.get("fast", 20), slow=params.get("slow", 50))
-    ),
-}
+from ..backtest import BacktestConfig, FeeModel, run_backtest
+from ..cache import ensure_cached
+from ..observability import RunLogger
+from ..strategies import available, resolve
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--symbol", required=True)
-    p.add_argument("--strategy", default="buy_and_hold", choices=sorted(STRATEGIES.keys()))
+    p.add_argument("--strategy", default="buy_and_hold", choices=available())
     p.add_argument("--provider", default="yahoo", choices=["yahoo", "stooq", "binance"])
     p.add_argument("--from", dest="start", default="2019-01-01")
     p.add_argument("--to", dest="end", default=datetime.utcnow().strftime("%Y-%m-%d"))
@@ -45,14 +38,20 @@ def main() -> None:
     start = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
     end = datetime.fromisoformat(args.end).replace(tzinfo=timezone.utc)
 
-    prices = load_candles(DataRequest(
-        symbol=args.symbol, start=start, end=end, interval="1d", provider=args.provider,
-    ))
+    logger = RunLogger()
+    logger.emit(
+        "cli.start",
+        symbol=args.symbol, strategy=args.strategy, provider=args.provider,
+        start=start, end=end, capital=args.capital,
+    )
+
+    prices = ensure_cached(args.provider, args.symbol, start, end)
     if prices.empty:
         print(f"no data for {args.symbol} on {args.provider}")
+        logger.emit("cli.nodata")
         return
 
-    signal_fn = STRATEGIES[args.strategy]({"fast": args.fast, "slow": args.slow})
+    signal_fn = resolve(args.strategy, {"fast": args.fast, "slow": args.slow})
     config = BacktestConfig(
         initial_capital=args.capital,
         currency=args.currency,
@@ -60,20 +59,40 @@ def main() -> None:
     )
     result = run_backtest(prices, signal_fn, config)
 
-    print(f"symbol:    {args.symbol}")
-    print(f"strategy:  {args.strategy}")
-    print(f"bars:      {len(prices)}")
-    print(f"trades:    {len(result.trades)}")
+    inputs = {
+        "symbol": args.symbol,
+        "strategy": args.strategy,
+        "provider": args.provider,
+        "from": args.start,
+        "to": args.end,
+        "capital": args.capital,
+        "currency": args.currency,
+        "fees": {"commission": args.commission, "stamp_duty": args.stamp_duty},
+        "params": {"fast": args.fast, "slow": args.slow} if args.strategy == "sma_crossover" else {},
+    }
+    manifest = logger.write_manifest(inputs=inputs, stats=result.stats)
+
+    # Persist artefacts next to the manifest.
+    if not result.equity_curve.empty:
+        result.equity_curve.to_frame().to_parquet(logger.artefact_dir / "equity_curve.parquet")
+    if not result.trades.empty:
+        result.trades.to_parquet(logger.artefact_dir / "trades.parquet")
+
+    logger.emit("cli.done", bars=len(prices), trades=len(result.trades))
+
+    print(f"run_id:     {logger.run_id}")
+    print(f"symbol:     {args.symbol}")
+    print(f"strategy:   {args.strategy}")
+    print(f"bars:       {len(prices)}")
+    print(f"trades:     {len(result.trades)}")
     for k, v in result.stats.items():
         print(f"{k:18s} {v:,.2f}")
+    print(f"artefacts:  {logger.artefact_dir}")
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "symbol": args.symbol,
-            "strategy": args.strategy,
-            "currency": args.currency,
-            "stats": result.stats,
+            **manifest,
             "trades": result.trades.to_dict(orient="records") if not result.trades.empty else [],
             "equity_curve": [
                 {"timestamp": t.isoformat(), "equity": float(v)}

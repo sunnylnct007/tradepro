@@ -94,6 +94,35 @@ pyproject.toml                 project metadata + dependencies
 uv.lock                        pinned dependency graph (commit this)
 ```
 
+## Local cache + worker on the Mac
+
+```bash
+# Refresh the local Parquet cache (idempotent, run nightly).
+uv run tradepro-refresh --watchlist uk --years 10
+
+# Start the Firestore-driven job worker. Picks up backtest requests
+# submitted from the web UI and runs them locally. Ctrl-C to stop.
+uv run tradepro-worker
+```
+
+### Worker credentials
+
+The worker needs a Firebase Admin service-account key at
+`~/.tradepro/firebase-sa.json`:
+
+```bash
+mkdir -p ~/.tradepro && chmod 700 ~/.tradepro
+# Drop the JSON downloaded from Firebase → Project settings → Service accounts
+mv ~/Downloads/smsp-291e3-firebase-adminsdk-*.json ~/.tradepro/firebase-sa.json
+chmod 600 ~/.tradepro/firebase-sa.json
+```
+
+Every run produces:
+- `~/.tradepro/logs/<date>/<run_id>.jsonl` — structured event log.
+- `~/.tradepro/artefacts/<run_id>/` — `manifest.json`, `equity_curve.parquet`,
+  `trades.parquet`.
+- A Firestore doc under `jobs/{id}` / `runs/{id}` that the UI reads.
+
 ## Pushing results to the website
 
 The web UI reads from the Azure-hosted API; the API reads from a database

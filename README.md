@@ -158,4 +158,8 @@ edit if needed. Later, map a custom domain like
 - **Honest about uncertainty.** Confidence is displayed, not hidden. No
   claims of alpha that haven't been measured.
 
+See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the full system
+description (components, data flows, indicators like SMA/RSI/MACD in plain
+English, security posture, observability model).
+
 See [ROADMAP.md](./ROADMAP.md) for the phased plan.
