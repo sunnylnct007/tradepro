@@ -7,6 +7,7 @@ from typing import Callable
 import pandas as pd
 
 from .buy_and_hold import buy_and_hold_signals
+from .rsi_mean_reversion import rsi_mean_reversion_signals
 from .sma_crossover import sma_crossover_signals
 
 SignalFn = Callable[[pd.DataFrame], pd.Series]
@@ -20,6 +21,14 @@ REGISTRY: dict[str, Factory] = {
             df,
             fast=int(params.get("fast", 20)),
             slow=int(params.get("slow", 50)),
+        )
+    ),
+    "rsi_mean_reversion": lambda params: (
+        lambda df: rsi_mean_reversion_signals(
+            df,
+            period=int(params.get("period", 14)),
+            low=float(params.get("low", 30)),
+            high=float(params.get("high", 70)),
         )
     ),
 }
@@ -41,4 +50,5 @@ __all__ = [
     "available",
     "buy_and_hold_signals",
     "sma_crossover_signals",
+    "rsi_mean_reversion_signals",
 ]

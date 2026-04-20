@@ -51,6 +51,41 @@ public sealed class SmaCrossoverStrategy : ISignalStrategy
     }
 }
 
+/// Buy when RSI(14) drops below `low` (default 30 — oversold), sell when it
+/// climbs above `high` (default 70 — overbought). Fires more often than
+/// SMA crossover and tends to do well in range-bound markets.
+public sealed class RsiMeanReversionStrategy : ISignalStrategy
+{
+    public string Name => "rsi_mean_reversion";
+
+    public Signal[] Generate(IReadOnlyList<Candle> candles, IReadOnlyDictionary<string, double> @params)
+    {
+        var period = (int)(@params.TryGetValue("period", out var p) ? p : 14);
+        var low = (decimal)(@params.TryGetValue("low", out var lo) ? lo : 30);
+        var high = (decimal)(@params.TryGetValue("high", out var hi) ? hi : 70);
+
+        var closes = candles.Select(c => c.Close).ToArray();
+        var rsi = Indicators.Rsi(closes, period);
+
+        var signals = new Signal[candles.Count];
+        bool? prevWasOversold = null;
+        bool? prevWasOverbought = null;
+        for (var i = 0; i < candles.Count; i++)
+        {
+            if (rsi[i] is not { } v) continue;
+            var oversold = v < low;
+            var overbought = v > high;
+            // Fire on the bar where RSI re-enters the neutral zone, so we don't
+            // sit through the whole oversold leg generating duplicate signals.
+            if (prevWasOversold == true && !oversold) signals[i] = Signal.Buy;
+            else if (prevWasOverbought == true && !overbought) signals[i] = Signal.Sell;
+            prevWasOversold = oversold;
+            prevWasOverbought = overbought;
+        }
+        return signals;
+    }
+}
+
 public interface IStrategyRegistry
 {
     IReadOnlyCollection<string> AvailableStrategies { get; }

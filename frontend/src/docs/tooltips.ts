@@ -29,7 +29,13 @@ export const HELP: Record<string, HelpEntry> = {
   provider: {
     title: "Data provider",
     body:
-      "Where the historical prices come from. Yahoo Finance works for UK and US stocks, indices, and crypto — use this by default. Binance is crypto pairs only (e.g. BTCUSDT). Stooq currently requires an API key.",
+      "Today everything runs through Yahoo Finance — covers UK + US stocks, indices, and crypto, no API key required. Stooq and Binance are coded but disabled (Stooq now needs a paid key; Binance is crypto-only).",
+  },
+  rsi_strategy: {
+    title: "RSI mean-reversion",
+    body:
+      "Buys when RSI(14) recovers from oversold (<30) and sells when it cools off from overbought (>70). Fires more often than SMA crossover and tends to do well in sideways markets.",
+    href: "#rsi-relative-strength-index",
   },
   fast_sma: {
     title: "Fast SMA window",

@@ -1,20 +1,17 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ScanResult, ScanResultItem } from "../api/types";
-import { config } from "../config";
 import { Info } from "../components/Info";
-
-const CRYPTO_WATCHLISTS = new Set<string>(["crypto"]);
-const EQUITY_WATCHLISTS = new Set<string>(["uk", "uk_ftse100_sample", "us_megacap_sample"]);
 
 export function Scanner() {
   const [watchlist, setWatchlist] = useState("uk");
   const [strategy, setStrategy] = useState("sma_crossover");
   const [fast, setFast] = useState(20);
   const [slow, setSlow] = useState(50);
-  const [provider, setProvider] = useState(config.defaultProvider);
+  const [rsiLow, setRsiLow] = useState(30);
+  const [rsiHigh, setRsiHigh] = useState(70);
   const [watchlistNames, setWatchlistNames] = useState<string[]>(["uk"]);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,8 +28,12 @@ export function Scanner() {
       const r = await api.scanSignals({
         watchlist,
         strategy,
-        provider,
-        params: strategy === "sma_crossover" ? { fast, slow } : null,
+        params:
+          strategy === "sma_crossover"
+            ? { fast, slow }
+            : strategy === "rsi_mean_reversion"
+              ? { low: rsiLow, high: rsiHigh }
+              : null,
       });
       setResult(r);
     } catch (e) {
@@ -41,19 +42,6 @@ export function Scanner() {
       setLoading(false);
     }
   }
-
-  const compatWarning = useMemo(() => {
-    if (provider === "binance" && EQUITY_WATCHLISTS.has(watchlist)) {
-      return "Binance only serves crypto pairs (like BTCUSDT). For UK/US stocks use Yahoo Finance.";
-    }
-    if (provider === "yahoo" && CRYPTO_WATCHLISTS.has(watchlist)) {
-      return "Yahoo supports crypto as SYMBOL-USD tickers. Binance gives cleaner crypto data for pairs like BTCUSDT.";
-    }
-    if (provider === "stooq") {
-      return "Stooq's free CSV now requires an API key for many symbols — expect errors. Yahoo Finance is the reliable free source today.";
-    }
-    return null;
-  }, [provider, watchlist]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -84,14 +72,8 @@ export function Scanner() {
         <Labelled label="Strategy" help="strategy">
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
             <option value="sma_crossover">SMA crossover</option>
+            <option value="rsi_mean_reversion">RSI mean-reversion</option>
             <option value="buy_and_hold">Buy &amp; hold</option>
-          </select>
-        </Labelled>
-        <Labelled label="Provider" help="provider">
-          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="yahoo">Yahoo Finance — stocks, indices, crypto</option>
-            <option value="binance">Binance — crypto pairs only</option>
-            <option value="stooq">Stooq — needs API key (flaky)</option>
           </select>
         </Labelled>
         {strategy === "sma_crossover" && (
@@ -104,24 +86,20 @@ export function Scanner() {
             </Labelled>
           </>
         )}
+        {strategy === "rsi_mean_reversion" && (
+          <>
+            <Labelled label="Oversold below" help="rsi14">
+              <input type="number" value={rsiLow} onChange={(e) => setRsiLow(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Overbought above" help="rsi14">
+              <input type="number" value={rsiHigh} onChange={(e) => setRsiHigh(Number(e.target.value))} />
+            </Labelled>
+          </>
+        )}
         <button className="primary" onClick={scan} disabled={loading}>
           {loading ? "Scanning…" : "Run scan"}
         </button>
       </section>
-
-      {compatWarning && (
-        <div
-          className="card"
-          style={{
-            borderColor: "#caa033",
-            background: "rgba(202, 160, 51, 0.08)",
-            color: "#e8c76a",
-            fontSize: 13,
-          }}
-        >
-          ⚠ {compatWarning}
-        </div>
-      )}
 
       {error && (
         <div

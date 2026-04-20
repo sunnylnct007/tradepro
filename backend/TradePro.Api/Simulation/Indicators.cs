@@ -15,4 +15,32 @@ public static class Indicators
         }
         return result;
     }
+
+    /// Wilder-smoothed RSI over `period` bars. Index aligned to `values`.
+    public static decimal?[] Rsi(IReadOnlyList<decimal> values, int period = 14)
+    {
+        var result = new decimal?[values.Count];
+        if (values.Count <= period) return result;
+
+        decimal gainAvg = 0, lossAvg = 0;
+        for (var i = 1; i <= period; i++)
+        {
+            var d = values[i] - values[i - 1];
+            if (d > 0) gainAvg += d; else lossAvg -= d;
+        }
+        gainAvg /= period;
+        lossAvg /= period;
+        result[period] = lossAvg == 0m ? 100m : 100m - 100m / (1m + gainAvg / lossAvg);
+
+        for (var i = period + 1; i < values.Count; i++)
+        {
+            var d = values[i] - values[i - 1];
+            var gain = d > 0 ? d : 0m;
+            var loss = d < 0 ? -d : 0m;
+            gainAvg = (gainAvg * (period - 1) + gain) / period;
+            lossAvg = (lossAvg * (period - 1) + loss) / period;
+            result[i] = lossAvg == 0m ? 100m : 100m - 100m / (1m + gainAvg / lossAvg);
+        }
+        return result;
+    }
 }

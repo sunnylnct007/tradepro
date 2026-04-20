@@ -17,9 +17,10 @@ export function Signals() {
   const [watchlist, setWatchlist] = useState<Watchlist | null>(null);
   const [symbol, setSymbol] = useState(searchParams.get("symbol") ?? "BARC.L");
   const [strategy, setStrategy] = useState("sma_crossover");
-  const [provider, setProvider] = useState(config.defaultProvider);
   const [fast, setFast] = useState(20);
   const [slow, setSlow] = useState(50);
+  const [rsiLow, setRsiLow] = useState(30);
+  const [rsiHigh, setRsiHigh] = useState(70);
   const [decision, setDecision] = useState<SignalDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -34,10 +35,15 @@ export function Signals() {
     try {
       const d = await api.evaluateSignal({
         symbol,
-        provider,
+        provider: config.defaultProvider,
         strategy,
         lookbackDays: 365,
-        params: strategy === "sma_crossover" ? { fast, slow } : null,
+        params:
+          strategy === "sma_crossover"
+            ? { fast, slow }
+            : strategy === "rsi_mean_reversion"
+              ? { low: rsiLow, high: rsiHigh }
+              : null,
       });
       setDecision(d);
     } catch (e) {
@@ -81,16 +87,10 @@ export function Signals() {
         <Labelled label="Symbol">
           <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
         </Labelled>
-        <Labelled label="Provider" help="provider">
-          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="yahoo">Yahoo Finance</option>
-            <option value="binance">Binance (crypto)</option>
-            <option value="stooq">Stooq (flaky)</option>
-          </select>
-        </Labelled>
         <Labelled label="Strategy" help="strategy">
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
             <option value="sma_crossover">SMA crossover</option>
+            <option value="rsi_mean_reversion">RSI mean-reversion</option>
             <option value="buy_and_hold">Buy &amp; hold</option>
           </select>
         </Labelled>
@@ -101,6 +101,16 @@ export function Signals() {
             </Labelled>
             <Labelled label="Slow SMA" help="slow_sma">
               <input type="number" value={slow} onChange={(e) => setSlow(Number(e.target.value))} />
+            </Labelled>
+          </>
+        )}
+        {strategy === "rsi_mean_reversion" && (
+          <>
+            <Labelled label="Oversold below" help="rsi14">
+              <input type="number" value={rsiLow} onChange={(e) => setRsiLow(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Overbought above" help="rsi14">
+              <input type="number" value={rsiHigh} onChange={(e) => setRsiHigh(Number(e.target.value))} />
             </Labelled>
           </>
         )}
