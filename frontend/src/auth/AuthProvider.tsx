@@ -11,6 +11,7 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   firebaseAvailable: boolean;
+  error: string | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -21,6 +22,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const firebaseAvailable = isFirebaseConfigured();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(firebaseAvailable);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!firebaseAvailable) {
@@ -38,10 +40,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       firebaseAvailable,
-      signIn: async () => { await signInWithGoogle(); },
-      signOut: async () => { await signOutFromFirebase(); },
+      error,
+      signIn: async () => {
+        setError(null);
+        try {
+          await signInWithGoogle();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          // Firebase error codes come through as `auth/...` — keep them visible
+          // so unauthorised-domain or popup-blocked failures don't fail silently.
+          setError(msg);
+          // eslint-disable-next-line no-console
+          console.error("sign-in failed:", e);
+        }
+      },
+      signOut: async () => {
+        setError(null);
+        await signOutFromFirebase();
+      },
     }),
-    [user, loading, firebaseAvailable],
+    [user, loading, firebaseAvailable, error],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
