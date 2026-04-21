@@ -7,6 +7,8 @@ from typing import Callable
 import pandas as pd
 
 from .buy_and_hold import buy_and_hold_signals
+from .donchian_breakout import donchian_breakout_signals
+from .macd_signal_cross import macd_signal_cross_signals
 from .rsi_mean_reversion import rsi_mean_reversion_signals
 from .sma_crossover import sma_crossover_signals
 
@@ -31,6 +33,20 @@ REGISTRY: dict[str, Factory] = {
             high=float(params.get("high", 70)),
         )
     ),
+    "macd_signal_cross": lambda params: (
+        lambda df: macd_signal_cross_signals(
+            df,
+            fast=int(params.get("fast", 12)),
+            slow=int(params.get("slow", 26)),
+            signal=int(params.get("signal", 9)),
+        )
+    ),
+    "donchian_breakout": lambda params: (
+        lambda df: donchian_breakout_signals(
+            df,
+            lookback=int(params.get("lookback", 20)),
+        )
+    ),
 }
 
 
@@ -51,4 +67,6 @@ __all__ = [
     "buy_and_hold_signals",
     "sma_crossover_signals",
     "rsi_mean_reversion_signals",
+    "macd_signal_cross_signals",
+    "donchian_breakout_signals",
 ]

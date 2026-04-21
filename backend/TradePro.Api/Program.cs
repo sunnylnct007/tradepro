@@ -49,6 +49,8 @@ builder.Services.AddScoped<IMarketDataRegistry, MarketDataRegistry>();
 builder.Services.AddScoped<ISignalStrategy, BuyAndHoldStrategy>();
 builder.Services.AddScoped<ISignalStrategy, SmaCrossoverStrategy>();
 builder.Services.AddScoped<ISignalStrategy, RsiMeanReversionStrategy>();
+builder.Services.AddScoped<ISignalStrategy, MacdSignalCrossStrategy>();
+builder.Services.AddScoped<ISignalStrategy, DonchianBreakoutStrategy>();
 builder.Services.AddScoped<IStrategyRegistry, StrategyRegistry>();
 builder.Services.AddScoped<ISimulator, Simulator>();
 builder.Services.AddScoped<ISignalEngine, SignalEngine>();
