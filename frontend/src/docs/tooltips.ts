@@ -37,6 +37,26 @@ export const HELP: Record<string, HelpEntry> = {
       "Buys when RSI(14) recovers from oversold (<30) and sells when it cools off from overbought (>70). Fires more often than SMA crossover and tends to do well in sideways markets.",
     href: "#rsi-relative-strength-index",
   },
+  macd_fast: {
+    title: "MACD fast EMA",
+    body:
+      "Span of the short-term exponential moving average. Classic value: 12 days. Smaller = more reactive, more whipsaw.",
+  },
+  macd_slow: {
+    title: "MACD slow EMA",
+    body:
+      "Span of the long-term exponential moving average. Classic value: 26 days. The MACD line itself is fast EMA − slow EMA.",
+  },
+  macd_signal: {
+    title: "MACD signal smoothing",
+    body:
+      "Span of the EMA applied to the MACD line to produce the 'signal' line. Buy fires when MACD crosses above signal; sell on the reverse. Classic value: 9 days.",
+  },
+  donchian_lookback: {
+    title: "Donchian lookback window",
+    body:
+      "How many prior bars define the breakout level. With 20, a buy fires when today closes above the highest close of the previous 20 days. Bigger = fewer, stronger signals; smaller = more noise.",
+  },
   fast_sma: {
     title: "Fast SMA window",
     body:

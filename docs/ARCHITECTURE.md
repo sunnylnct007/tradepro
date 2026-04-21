@@ -171,12 +171,28 @@ days.
 - Works: mean-reverting stocks in range-bound markets.
 - Fails: strong trends — a stock can stay above 70 for weeks while rising.
 
-### MACD (not yet wired, but planned)
+### MACD (Moving Average Convergence Divergence)
 
-Momentum indicator built from two EMAs (12 and 26) plus a "signal line"
-(EMA 9 of the difference). Buy when the MACD line crosses above the signal
-line, sell when below. Same DNA as SMA crossover but with exponential
-smoothing.
+Momentum indicator built from two EMAs (default 12 and 26).
+- **MACD line** = fast EMA − slow EMA. Above zero = uptrend, below = downtrend.
+- **Signal line** = 9-day EMA of the MACD line — a smoothed version.
+- **Histogram** = MACD line − signal line. Tells you if momentum is
+  accelerating (rising bars) or decelerating (falling bars).
+
+Buy when the MACD line crosses above the signal line (momentum turning
+positive); sell on the reverse. Same DNA as SMA crossover but EMAs react
+faster than SMAs, so signals come earlier — at the cost of more whipsaw.
+
+### Donchian channel breakout
+
+Made famous by the Turtle Traders. Two lines:
+- Upper Donchian = highest close of the last N bars (default 20).
+- Lower Donchian = lowest close of the last N bars.
+
+Buy when today's close pushes **above** the prior upper line — a true
+new high, the market is breaking out. Sell when it drops **below** the
+prior lower line. Catches strong sustained trends, sits flat when the
+market is range-bound. Loves momentum, hates mean reversion.
 
 ### Buy & Hold (baseline)
 
@@ -203,8 +219,8 @@ Current:
 | `buy_and_hold` | Long on day 1, flat at end | — | ✅ reference |
 | `sma_crossover` | Golden/death cross of two SMAs | `fast`, `slow` | ✅ |
 | `rsi_mean_reversion` | Buy on recovery from oversold, sell on cool-off from overbought | `period`, `low`, `high` | ✅ |
-| `donchian_breakout` | Buy N-day high, exit on N-day low | `lookback` | planned |
-| `macd_signal_cross` | Buy MACD > signal, sell below | `fast`, `slow`, `signal` | planned |
+| `macd_signal_cross` | Buy MACD > signal, sell below (EMA-based momentum) | `fast`, `slow`, `signal` | ✅ |
+| `donchian_breakout` | Buy on close above prior N-day high, sell on close below prior N-day low | `lookback` | ✅ |
 
 ---
 

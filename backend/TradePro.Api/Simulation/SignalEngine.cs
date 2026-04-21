@@ -149,6 +149,8 @@ public sealed class SignalEngine : ISignalEngine
         "buy_and_hold" => "Buy & Hold",
         "sma_crossover" => "SMA crossover",
         "rsi_mean_reversion" => "RSI mean-reversion",
+        "macd_signal_cross" => "MACD signal-cross",
+        "donchian_breakout" => "Donchian breakout",
         _ => name,
     };
 
@@ -172,6 +174,12 @@ public sealed class SignalEngine : ISignalEngine
                     return $"RSI14 is {r:F0} — neutral zone. Buy fires under 30, sell over 70.";
                 if (r < 30) return $"RSI14 is {r:F0} (oversold). Buy fires when it climbs back above 30.";
                 return $"RSI14 is {r:F0} (overbought). Sell fires when it drops back below 70.";
+
+            case "macd_signal_cross":
+                return "Buy fires when MACD line crosses above its signal line; sell on the reverse.";
+
+            case "donchian_breakout":
+                return "Buy fires on a close above the prior N-day high; sell on a close below the prior N-day low.";
 
             default:
                 return null;

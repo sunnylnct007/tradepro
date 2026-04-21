@@ -27,6 +27,10 @@ export function Simulations() {
   const [slow, setSlow] = useState(50);
   const [rsiLow, setRsiLow] = useState(30);
   const [rsiHigh, setRsiHigh] = useState(70);
+  const [macdFast, setMacdFast] = useState(12);
+  const [macdSlow, setMacdSlow] = useState(26);
+  const [macdSignal, setMacdSignal] = useState(9);
+  const [donchian, setDonchian] = useState(20);
   const [stampDuty, setStampDuty] = useState(0.005);
   const [commission, setCommission] = useState(0);
   const [result, setResult] = useState<SimulationResult | null>(null);
@@ -55,7 +59,11 @@ export function Simulations() {
             ? { fast, slow }
             : strategy === "rsi_mean_reversion"
               ? { low: rsiLow, high: rsiHigh }
-              : null,
+              : strategy === "macd_signal_cross"
+                ? { fast: macdFast, slow: macdSlow, signal: macdSignal }
+                : strategy === "donchian_breakout"
+                  ? { lookback: donchian }
+                  : null,
       };
       const r = await api.runSimulation(req);
       setResult(r);
@@ -147,6 +155,24 @@ export function Simulations() {
               <input type="number" value={rsiHigh} onChange={(e) => setRsiHigh(Number(e.target.value))} />
             </Labelled>
           </>
+        )}
+        {strategy === "macd_signal_cross" && (
+          <>
+            <Labelled label="Fast EMA" help="macd_fast">
+              <input type="number" value={macdFast} onChange={(e) => setMacdFast(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Slow EMA" help="macd_slow">
+              <input type="number" value={macdSlow} onChange={(e) => setMacdSlow(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Signal EMA" help="macd_signal">
+              <input type="number" value={macdSignal} onChange={(e) => setMacdSignal(Number(e.target.value))} />
+            </Labelled>
+          </>
+        )}
+        {strategy === "donchian_breakout" && (
+          <Labelled label="Lookback (bars)" help="donchian_lookback">
+            <input type="number" value={donchian} onChange={(e) => setDonchian(Number(e.target.value))} />
+          </Labelled>
         )}
         <button className="primary" onClick={run} disabled={running}>
           {running ? "Running…" : "Run simulation"}

@@ -12,6 +12,10 @@ export function Scanner() {
   const [slow, setSlow] = useState(50);
   const [rsiLow, setRsiLow] = useState(30);
   const [rsiHigh, setRsiHigh] = useState(70);
+  const [macdFast, setMacdFast] = useState(12);
+  const [macdSlow, setMacdSlow] = useState(26);
+  const [macdSignal, setMacdSignal] = useState(9);
+  const [donchian, setDonchian] = useState(20);
   const [watchlistNames, setWatchlistNames] = useState<string[]>(["uk"]);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +25,16 @@ export function Scanner() {
     api.watchlists().then((r) => setWatchlistNames(r.names)).catch(() => {});
   }, []);
 
+  function paramsFor(): Record<string, number> | null {
+    switch (strategy) {
+      case "sma_crossover": return { fast, slow };
+      case "rsi_mean_reversion": return { low: rsiLow, high: rsiHigh };
+      case "macd_signal_cross": return { fast: macdFast, slow: macdSlow, signal: macdSignal };
+      case "donchian_breakout": return { lookback: donchian };
+      default: return null;
+    }
+  }
+
   async function scan() {
     setLoading(true);
     setError(null);
@@ -28,12 +42,7 @@ export function Scanner() {
       const r = await api.scanSignals({
         watchlist,
         strategy,
-        params:
-          strategy === "sma_crossover"
-            ? { fast, slow }
-            : strategy === "rsi_mean_reversion"
-              ? { low: rsiLow, high: rsiHigh }
-              : null,
+        params: paramsFor(),
       });
       setResult(r);
     } catch (e) {
@@ -73,6 +82,8 @@ export function Scanner() {
           <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
             <option value="sma_crossover">SMA crossover</option>
             <option value="rsi_mean_reversion">RSI mean-reversion</option>
+            <option value="macd_signal_cross">MACD signal-cross</option>
+            <option value="donchian_breakout">Donchian breakout</option>
             <option value="buy_and_hold">Buy &amp; hold</option>
           </select>
         </Labelled>
@@ -95,6 +106,24 @@ export function Scanner() {
               <input type="number" value={rsiHigh} onChange={(e) => setRsiHigh(Number(e.target.value))} />
             </Labelled>
           </>
+        )}
+        {strategy === "macd_signal_cross" && (
+          <>
+            <Labelled label="Fast EMA" help="macd_fast">
+              <input type="number" value={macdFast} onChange={(e) => setMacdFast(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Slow EMA" help="macd_slow">
+              <input type="number" value={macdSlow} onChange={(e) => setMacdSlow(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Signal EMA" help="macd_signal">
+              <input type="number" value={macdSignal} onChange={(e) => setMacdSignal(Number(e.target.value))} />
+            </Labelled>
+          </>
+        )}
+        {strategy === "donchian_breakout" && (
+          <Labelled label="Lookback (bars)" help="donchian_lookback">
+            <input type="number" value={donchian} onChange={(e) => setDonchian(Number(e.target.value))} />
+          </Labelled>
         )}
         <button className="primary" onClick={scan} disabled={loading}>
           {loading ? "Scanning…" : "Run scan"}

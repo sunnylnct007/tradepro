@@ -86,6 +86,69 @@ public sealed class RsiMeanReversionStrategy : ISignalStrategy
     }
 }
 
+/// Classic MACD signal-line crossover. Buy when MACD crosses above signal,
+/// sell when it crosses below. Faster than SMA crossover (uses EMAs) but
+/// still trend-following — whipsaws in chop.
+public sealed class MacdSignalCrossStrategy : ISignalStrategy
+{
+    public string Name => "macd_signal_cross";
+
+    public Signal[] Generate(IReadOnlyList<Candle> candles, IReadOnlyDictionary<string, double> @params)
+    {
+        var fast = (int)(@params.TryGetValue("fast", out var f) ? f : 12);
+        var slow = (int)(@params.TryGetValue("slow", out var s) ? s : 26);
+        var sigP = (int)(@params.TryGetValue("signal", out var g) ? g : 9);
+
+        var closes = candles.Select(c => c.Close).ToArray();
+        var (macd, signalLine, _) = Indicators.Macd(closes, fast, slow, sigP);
+
+        var signals = new Signal[candles.Count];
+        bool? prevAbove = null;
+        for (var i = slow; i < candles.Count; i++)
+        {
+            if (macd[i] is not { } m || signalLine[i] is not { } sl) continue;
+            var above = m > sl;
+            if (prevAbove.HasValue && above != prevAbove.Value)
+            {
+                signals[i] = above ? Signal.Buy : Signal.Sell;
+            }
+            prevAbove = above;
+        }
+        return signals;
+    }
+}
+
+/// Donchian breakout. Buy when today's close exceeds the highest close of
+/// the prior `lookback` bars (a true momentum breakout); sell when it
+/// drops below the prior `lookback` bars' low. Trend-following with
+/// no smoothing — catches strong trends, flat in range-bound markets.
+public sealed class DonchianBreakoutStrategy : ISignalStrategy
+{
+    public string Name => "donchian_breakout";
+
+    public Signal[] Generate(IReadOnlyList<Candle> candles, IReadOnlyDictionary<string, double> @params)
+    {
+        var lookback = (int)(@params.TryGetValue("lookback", out var lb) ? lb : 20);
+        var closes = candles.Select(c => c.Close).ToArray();
+        var (high, low) = Indicators.Donchian(closes, lookback);
+
+        var signals = new Signal[candles.Count];
+        bool? prevAboveHigh = null;
+        bool? prevBelowLow = null;
+        for (var i = lookback; i < candles.Count; i++)
+        {
+            if (high[i] is not { } h || low[i] is not { } l) continue;
+            var aboveHigh = closes[i] > h;
+            var belowLow = closes[i] < l;
+            if (prevAboveHigh == false && aboveHigh) signals[i] = Signal.Buy;
+            else if (prevBelowLow == false && belowLow) signals[i] = Signal.Sell;
+            prevAboveHigh = aboveHigh;
+            prevBelowLow = belowLow;
+        }
+        return signals;
+    }
+}
+
 public interface IStrategyRegistry
 {
     IReadOnlyCollection<string> AvailableStrategies { get; }
