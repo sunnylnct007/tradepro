@@ -5,6 +5,7 @@ import type {
   HitRateRequest,
   HitRateResult,
   ScanRequest,
+  StrategyCatalogResponse,
   ScanResult,
   SignalDecision,
   SignalRequest,
@@ -44,7 +45,7 @@ async function post<T, B>(path: string, body: B): Promise<T> {
 export const api = {
   health: () => get<{ status: string }>("/health"),
   providers: () => get<{ providers: string[] }>("/api/marketdata/providers"),
-  strategies: () => get<{ strategies: string[] }>("/api/simulations/strategies"),
+  strategies: () => get<StrategyCatalogResponse>("/api/simulations/strategies"),
   candles: (params: { symbol: string; provider?: string; interval?: string; from?: string; to?: string }) =>
     get<CandleSeries>("/api/marketdata/candles", params),
   runSimulation: (req: SimulationRequest) =>

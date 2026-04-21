@@ -131,6 +131,25 @@ export interface ScanResult {
   errors: string[];
 }
 
+export type TimeHorizon = "Intraday" | "Short" | "Mid" | "Long" | "Any";
+
+export interface StrategyMetadata {
+  name: string;
+  displayName: string;
+  oneLiner: string;
+  bestIn: string;
+  worstIn: string;
+  horizon: TimeHorizon;
+  horizonText: string;
+  defaultParams: Record<string, number> | null;
+  paramKeys: string[] | null;
+}
+
+export interface StrategyCatalogResponse {
+  strategies: string[];
+  catalog: StrategyMetadata[];
+}
+
 export interface HitRateRequest {
   symbol: string;
   provider?: string | null;

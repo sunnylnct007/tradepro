@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { HitRateResult, SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
+import { StrategyPicker } from "../components/StrategyPicker";
 
 const actionToneVar: Record<SignalDecision["action"], string> = {
   BUY: "var(--up)",
@@ -108,13 +109,7 @@ export function Signals() {
           <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
         </Labelled>
         <Labelled label="Strategy" help="strategy">
-          <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-            <option value="sma_crossover">SMA crossover</option>
-            <option value="rsi_mean_reversion">RSI mean-reversion</option>
-            <option value="macd_signal_cross">MACD signal-cross</option>
-            <option value="donchian_breakout">Donchian breakout</option>
-            <option value="buy_and_hold">Buy &amp; hold</option>
-          </select>
+          <StrategyPicker value={strategy} onChange={setStrategy} />
         </Labelled>
         {strategy === "sma_crossover" && (
           <>

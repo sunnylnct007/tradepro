@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ScanResult, ScanResultItem } from "../api/types";
 import { Info } from "../components/Info";
+import { StrategyPicker } from "../components/StrategyPicker";
 
 export function Scanner() {
   const [watchlist, setWatchlist] = useState("uk");
@@ -79,13 +80,7 @@ export function Scanner() {
           </select>
         </Labelled>
         <Labelled label="Strategy" help="strategy">
-          <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-            <option value="sma_crossover">SMA crossover</option>
-            <option value="rsi_mean_reversion">RSI mean-reversion</option>
-            <option value="macd_signal_cross">MACD signal-cross</option>
-            <option value="donchian_breakout">Donchian breakout</option>
-            <option value="buy_and_hold">Buy &amp; hold</option>
-          </select>
+          <StrategyPicker value={strategy} onChange={setStrategy} />
         </Labelled>
         {strategy === "sma_crossover" && (
           <>

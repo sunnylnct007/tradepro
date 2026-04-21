@@ -10,7 +10,21 @@ public static class SimulationEndpoints
         var group = app.MapGroup("/simulations").WithTags("Simulations");
 
         group.MapGet("/strategies", (IStrategyRegistry reg) =>
-            Results.Ok(new { strategies = reg.AvailableStrategies }));
+        {
+            var items = reg.AvailableStrategies
+                .Select(name => StrategyCatalog.Get(name) ?? new Models.StrategyMetadata(
+                    Name: name,
+                    DisplayName: name,
+                    OneLiner: string.Empty,
+                    BestIn: string.Empty,
+                    WorstIn: string.Empty,
+                    Horizon: Models.TimeHorizon.Any,
+                    HorizonText: string.Empty,
+                    DefaultParams: null,
+                    ParamKeys: null))
+                .ToArray();
+            return Results.Ok(new { strategies = reg.AvailableStrategies, catalog = items });
+        });
 
         group.MapPost("/run", async (SimulationRequest req, ISimulator sim, CancellationToken ct) =>
         {

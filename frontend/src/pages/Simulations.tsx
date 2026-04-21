@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -13,13 +13,13 @@ import { api } from "../api/client";
 import type { SimulationRequest, SimulationResult } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
+import { StrategyPicker } from "../components/StrategyPicker";
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 export function Simulations() {
   const [symbol, setSymbol] = useState("^FTSE");
   const [strategy, setStrategy] = useState("buy_and_hold");
-  const [strategies, setStrategies] = useState<string[]>([]);
   const [from, setFrom] = useState(isoDate(new Date(Date.now() - 5 * 365 * 24 * 3600 * 1000)));
   const [to, setTo] = useState(isoDate(new Date()));
   const [capital, setCapital] = useState(10000);
@@ -36,10 +36,6 @@ export function Simulations() {
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-
-  useEffect(() => {
-    api.strategies().then((r) => setStrategies(r.strategies)).catch(() => {});
-  }, []);
 
   async function run() {
     setRunning(true);
@@ -115,11 +111,7 @@ export function Simulations() {
           <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
         </Labelled>
         <Labelled label="Strategy" help="strategy">
-          <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-            {(strategies.length ? strategies : ["buy_and_hold", "sma_crossover"]).map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <StrategyPicker value={strategy} onChange={setStrategy} />
         </Labelled>
         <Labelled label="From">
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />

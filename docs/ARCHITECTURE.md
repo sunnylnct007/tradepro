@@ -333,13 +333,86 @@ See `ROADMAP.md` for the phased plan. Short version:
 
 ## 14. Glossary
 
+Anything that looks like an acronym in the UI should be defined here. Add new
+ones as we introduce them — this is the canonical reference.
+
+### Indicators & maths
+
 | Term | Meaning |
 |---|---|
-| **CAGR** | Compound annual growth rate. Your return expressed as an annualised %. |
-| **Max drawdown** | Worst peak-to-trough fall in equity during the backtest. Tells you the emotional cost of following the strategy. |
-| **Sharpe ratio** | Return per unit of volatility (annualised). Higher = smoother ride. > 1 is good for a long-only equity strategy. |
-| **Walk-forward** | Fit parameters on years 1–5, test on year 6; slide window; repeat. Lies least about out-of-sample performance. |
-| **Whipsaw** | A strategy that keeps flipping between buy and sell in choppy markets, losing money to fees each flip. |
-| **Stamp duty** | UK-specific 0.5% tax on buying most LSE main-market shares. |
-| **LSE** | London Stock Exchange. Symbols use the `.L` suffix on Yahoo (e.g. `BARC.L`). |
-| **FTSE 100 / 250** | The 100 (and next 250) largest UK-listed companies by market cap. Yahoo symbols: `^FTSE`, `^FTMC`. |
+| **SMA** (Simple Moving Average) | Unweighted average of the last N closing prices. `SMA(20)` = average of last 20 daily closes. Smooths noise; always lags the price. |
+| **EMA** (Exponential Moving Average) | Like SMA but recent prices count more than old ones. Reacts faster, noisier. `EMA(12)` is the standard "fast" EMA in MACD. |
+| **WMA** (Weighted Moving Average) | Less common cousin of EMA; linear (not exponential) decay. Not used today. |
+| **MACD** (Moving Average Convergence Divergence) | `EMA(12) − EMA(26)` = MACD line; `EMA(9)` of the MACD line = signal line. Momentum oscillator. |
+| **RSI** (Relative Strength Index) | 0–100 score of recent gains vs losses over N bars (default 14). Above 70 = overbought, below 30 = oversold. |
+| **Donchian channel** | Rolling high and low of the last N bars (close-based). Breakout strategy buys when today's close exceeds the prior N-bar high. |
+| **ATR** (Average True Range) | Average daily price range — a measure of volatility. Not wired yet; planned for position sizing. |
+| **Bollinger Bands** | SMA ± 2 × rolling standard deviation. Not wired yet. |
+
+### Strategy jargon
+
+| Term | Meaning |
+|---|---|
+| **Golden cross** | The fast moving average crossing *up through* the slow moving average. Bullish signal. |
+| **Death cross** | The fast MA crossing *down through* the slow MA. Bearish signal. |
+| **Crossover** | Generic term for one line crossing another (SMA/EMA/MACD). |
+| **Breakout** | Price pushing above a previously established high (or below a low). Donchian is a breakout strategy. |
+| **Mean reversion** | The assumption that prices return to an average — the opposite of trend-following. RSI mean-reversion uses this. |
+| **Whipsaw** | A strategy flipping BUY→SELL→BUY in quick succession in a choppy market, losing to fees each flip. |
+| **Long / short** | Long = bet on price going up (we own the stock); short = bet on it going down. Today we only go long. |
+| **Flat** | No position. Neither long nor short. |
+
+### Performance stats
+
+| Term | Meaning |
+|---|---|
+| **CAGR** (Compound Annual Growth Rate) | Return expressed as an annualised %. Doubling over 10 years ≈ 7.2% CAGR. |
+| **Total return** | Raw % gain from start to end, without annualising. |
+| **Max drawdown** | Worst peak-to-trough fall in equity during the backtest. The emotional cost of following the strategy. |
+| **Sharpe ratio** | `(mean daily return / stdev of daily return) × √252`. Return per unit of volatility, annualised. > 1 is good for a long-only strategy; > 2 is rare. |
+| **Sortino ratio** | Like Sharpe but only penalises *downside* volatility. Less used, planned for Phase 2. |
+| **Expectancy** | Average return per trade = `winRate × avgWinner + lossRate × avgLoser`. Positive = strategy pays net, regardless of win-rate. |
+| **Win rate** | % of round-trip trades that finished profitable. |
+| **Hit rate** | Synonym for win rate in this app. |
+| **Walk-forward** | Fit parameters on years 1–5, test on year 6; slide; repeat. Least-biased measure of out-of-sample performance. Phase 2. |
+| **Alpha** | Excess return over a benchmark (e.g. the FTSE 100). Not computed yet. |
+| **Beta** | Sensitivity to the benchmark. Not computed yet. |
+
+### Market / execution
+
+| Term | Meaning |
+|---|---|
+| **LSE** | London Stock Exchange. Yahoo suffixes its symbols with `.L` (e.g. `BARC.L`). |
+| **NYSE / NASDAQ** | New York Stock Exchange / NASDAQ. No suffix on Yahoo (e.g. `AAPL`). |
+| **Ticker / Symbol** | Short code identifying a stock (e.g. `BARC.L` = Barclays on LSE). |
+| **FTSE 100** | Top 100 UK-listed companies by market cap. Index ticker on Yahoo: `^FTSE`. |
+| **FTSE 250** | Next 250 after the FTSE 100. Ticker: `^FTMC`. |
+| **S&P 500** | Top 500 US-listed companies. Ticker: `^GSPC`. |
+| **OHLCV** | Open / High / Low / Close / Volume — the five fields in a bar of price data. |
+| **Bar / candle** | One period of OHLCV — could be a day, an hour, a minute. This app uses daily bars today. |
+| **Stamp duty** | UK tax of 0.5% on buying most LSE main-market shares. AIM shares and ETFs are exempt. |
+| **Commission** | Flat fee broker charges per trade. |
+| **Slippage** | Difference between expected fill price and actual fill. We don't model it today. |
+| **ISA** (Individual Savings Account) | UK tax-free wrapper; up to £20,000/year contributions, gains + dividends tax-free. Planned feature: ISA mode in simulations. |
+| **AIM** (Alternative Investment Market) | LSE's growth-company market. Shares are exempt from stamp duty and may qualify for BPR inheritance-tax relief. |
+
+### Time horizons (how we classify strategies)
+
+| Label | Typical holding period | Example strategies |
+|---|---|---|
+| **Intraday** | Minutes to hours, flat by close | None today |
+| **Short-term** | Days to a couple of weeks | RSI mean-reversion, tight SMA crossover (5/10) |
+| **Mid-term** | A few weeks to a few months | SMA crossover (20/50), MACD, Donchian |
+| **Long-term** | Months to years | Buy & Hold, SMA crossover (50/200) |
+
+### App-specific
+
+| Term | Meaning |
+|---|---|
+| **Watchlist** | A named list of symbols to run the scanner over (e.g. `uk`, `uk_ftse100_sample`). |
+| **Scanner** | The "what's worth buying or selling today?" view — runs a strategy over a watchlist and ranks the results. |
+| **Signal detail** | Single-symbol view of the current BUY/SELL/HOLD call, with indicators and historical hit-rate. |
+| **Hit-rate card** | On the Signal detail page: win rate, expectancy, median hold, best/worst trades over the last 10 years. |
+| **Run ID** | Unique UUID for each backtest/simulation, used to trace a number on a chart back to its exact inputs. |
+| **Worker** | `tradepro-worker` process running on your Mac that picks up deep-backtest jobs from Firestore. |
+| **Cache** | Local Parquet files per `(provider, symbol, interval)` on the Mac under `~/.tradepro/cache`. |
