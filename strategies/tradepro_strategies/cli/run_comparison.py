@@ -131,21 +131,35 @@ def _print_summary(payload: dict) -> None:
     print()
     print(f"{'#':>3} {'symbol':10s} {'strategy':22s} "
           f"{'cagr%':>8s} {'sharpe':>7s} {'maxDD%':>8s} "
-          f"{'today':>6s}")
+          f"{'off52w%':>8s} {'rsi':>5s} {'now':>6s}")
     for row in payload["rows"]:
         stats = row.get("stats") or {}
+        ms = row.get("market_state") or {}
         print(f"{row.get('rank', 0):>3} "
               f"{row['symbol']:10s} "
               f"{row['strategy_label'][:22]:22s} "
               f"{_fmt(stats.get('cagr_pct')):>8s} "
               f"{_fmt(stats.get('sharpe')):>7s} "
               f"{_fmt(stats.get('max_drawdown_pct')):>8s} "
-              f"{row.get('current_action', ''):>6s}")
+              f"{_fmt(ms.get('pct_off_52w_high_pct')):>8s} "
+              f"{_fmt(ms.get('rsi_14')):>5s} "
+              f"{ms.get('entry_signal', '—'):>6s}")
     bo = payload.get("best_overall")
     if bo:
+        # Find the full row for the best pick so we can print its
+        # entry-quality verdict alongside the rank.
+        best_row = next(
+            (r for r in payload["rows"]
+             if r["symbol"] == bo["symbol"] and r["strategy"] == bo["strategy"]),
+            None,
+        )
+        ms = (best_row or {}).get("market_state") or {}
         print()
         print(f"best:       {bo['symbol']} via {bo['strategy']} "
               f"({rank_metric}={_fmt(bo.get('value'))})")
+        if ms:
+            print(f"timing:     {ms.get('entry_signal', '—')} — "
+                  f"{ms.get('entry_reason', '')}")
 
 
 def _fmt(x) -> str:

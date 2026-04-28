@@ -23,6 +23,7 @@ import pandas as pd
 
 from .backtest import BacktestConfig, FeeModel, run_backtest
 from .cache import ensure_cached
+from .market_state import MarketState, market_state
 from .regimes import REGIMES, all_regime_stats
 from .strategies import resolve as resolve_strategy
 
@@ -73,7 +74,13 @@ def _safe_float(x) -> float:
     return f
 
 
-def _row_for(symbol: str, strategy: StrategySpec, prices: pd.DataFrame, cfg: CompareConfig) -> dict:
+def _row_for(
+    symbol: str,
+    strategy: StrategySpec,
+    prices: pd.DataFrame,
+    state: MarketState,
+    cfg: CompareConfig,
+) -> dict:
     """Run one (symbol, strategy) backtest and return a JSON-ready row."""
     if prices.empty:
         return {
@@ -87,6 +94,7 @@ def _row_for(symbol: str, strategy: StrategySpec, prices: pd.DataFrame, cfg: Com
             "current_action": "HOLD",
             "latest_signal": 0,
             "latest_bar": None,
+            "market_state": state.to_dict(),
             "error": "no_data",
         }
 
@@ -110,6 +118,7 @@ def _row_for(symbol: str, strategy: StrategySpec, prices: pd.DataFrame, cfg: Com
             "current_action": "HOLD",
             "latest_signal": 0,
             "latest_bar": None,
+            "market_state": state.to_dict(),
             "error": str(e),
         }
 
@@ -146,6 +155,7 @@ def _row_for(symbol: str, strategy: StrategySpec, prices: pd.DataFrame, cfg: Com
         "current_action": _action_from_signal(latest_signal),
         "latest_signal": latest_signal,
         "latest_bar": latest_bar,
+        "market_state": state.to_dict(),
         "error": None,
     }
 
@@ -179,13 +189,16 @@ def compare(
 
     rows: list[dict] = []
     price_cache: dict[str, pd.DataFrame] = {}
+    state_cache: dict[str, MarketState] = {}
 
     for symbol in symbols:
         if symbol not in price_cache:
             price_cache[symbol] = ensure_cached(cfg.provider, symbol, start, end)
+            state_cache[symbol] = market_state(symbol, price_cache[symbol])
         prices = price_cache[symbol]
+        state = state_cache[symbol]
         for strat in strategies:
-            rows.append(_row_for(symbol, strat, prices, cfg))
+            rows.append(_row_for(symbol, strat, prices, state, cfg))
 
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)
     for i, row in enumerate(rows, start=1):
