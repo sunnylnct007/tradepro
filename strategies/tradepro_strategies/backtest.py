@@ -39,6 +39,13 @@ def run_backtest(prices: pd.DataFrame, signal_fn: SignalFn, config: BacktestConf
     if prices.empty:
         return BacktestResult(pd.Series(dtype=float), pd.DataFrame(), {})
 
+    # Use total-return prices: dividends + splits are baked into adj_close.
+    # Strategies consume prices["close"], so swap close←adj_close for the
+    # whole backtest pass. Keeps every existing strategy correct without
+    # per-strategy edits.
+    if "adj_close" in prices.columns:
+        prices = prices.assign(close=prices["adj_close"])
+
     signals = signal_fn(prices).reindex(prices.index).fillna(0).astype(int)
     cash = config.initial_capital
     qty = 0.0
