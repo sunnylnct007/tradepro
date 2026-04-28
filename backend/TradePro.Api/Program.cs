@@ -57,6 +57,7 @@ builder.Services.AddScoped<ISignalEngine, SignalEngine>();
 builder.Services.AddScoped<ISignalScanner, SignalScanner>();
 builder.Services.AddScoped<IHitRateEngine, HitRateEngine>();
 builder.Services.AddSingleton<IWatchlistStore, InMemoryWatchlistStore>();
+builder.Services.AddSingleton<ICompareStore, InMemoryCompareStore>();
 
 var app = builder.Build();
 
@@ -76,10 +77,16 @@ app.MapHealthEndpoints();
 // Everything under /api requires a verified Firebase ID token from one of
 // the allow-listed UIDs. In dev, leaving Firebase:AllowedUserIds empty lets
 // any signed-in user through (handy for testing).
+// User-facing routes (frontend, signed-in via Firebase).
 var api = app.MapGroup("/api").RequireAuthorization("AllowedUsers");
 api.MapMarketDataEndpoints();
 api.MapSimulationEndpoints();
 api.MapSignalEndpoints();
 api.MapWatchlistEndpoints();
+api.MapCompareEndpoints();
+
+// Mac-pushed ingest routes (no human, static Bearer token).
+var ingest = app.MapGroup("/api");
+ingest.MapIngestEndpoints();
 
 app.Run();

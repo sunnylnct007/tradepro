@@ -40,7 +40,8 @@ public static class FirebaseAuth
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(1),
                 };
-            });
+            })
+            .AddIngestToken();
 
         services.AddAuthorization(options =>
         {
@@ -64,6 +65,7 @@ public static class FirebaseAuth
                     });
                 }
             });
+            options.AddIngestPolicy();
         });
 
         return services;
