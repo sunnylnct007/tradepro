@@ -1,0 +1,164 @@
+"""Compare strategies × symbols and emit a ranked JSON payload.
+
+Examples:
+
+    # Rank all strategies on every UK-listed core ETF
+    uv run tradepro-compare --watchlist etf_uk_core --from 2010-01-01 \
+        --out ../out/etf_uk_core.json
+
+    # Pick the strategies and the rank metric explicitly
+    uv run tradepro-compare --symbols VOO,QQQ,VTI \
+        --strategies buy_and_hold,sma_crossover,macd_signal_cross \
+        --rank cagr_pct
+
+    # Same call, then push the JSON to the API
+    uv run tradepro-compare --watchlist etf_us_core --push
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+from ..backtest import FeeModel
+from ..compare import CompareConfig, StrategySpec, compare
+from ..observability import RunLogger
+from ..strategies import available
+from ..watchlists import WATCHLISTS, resolve as resolve_watchlist
+from .push_to_api import load_credentials, push
+
+DEFAULT_STRATEGIES = ["buy_and_hold", "sma_crossover", "rsi_mean_reversion",
+                      "macd_signal_cross", "donchian_breakout"]
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser()
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--watchlist", choices=sorted(WATCHLISTS.keys()),
+                     help="named universe from watchlists.py")
+    src.add_argument("--symbols", help="comma-separated tickers, e.g. VOO,QQQ,VTI")
+
+    p.add_argument("--strategies",
+                   default=",".join(DEFAULT_STRATEGIES),
+                   help=f"comma-separated, from: {available()}")
+    p.add_argument("--provider", default="yahoo",
+                   choices=["yahoo", "stooq", "binance"])
+    p.add_argument("--from", dest="start", default="2010-01-01")
+    p.add_argument("--to", dest="end",
+                   default=datetime.utcnow().strftime("%Y-%m-%d"))
+    p.add_argument("--capital", type=float, default=10_000.0)
+    p.add_argument("--currency", default="GBP")
+    p.add_argument("--stamp-duty", type=float, default=0.005)
+    p.add_argument("--commission", type=float, default=0.0)
+    p.add_argument("--rank", default="sharpe",
+                   choices=["sharpe", "cagr_pct", "total_return_pct",
+                            "max_drawdown_pct"])
+    p.add_argument("--out", type=Path, default=None,
+                   help="write result JSON to path (default: artefact dir)")
+    p.add_argument("--push", action="store_true",
+                   help="push the JSON to /api/ingest/compare after writing")
+    return p.parse_args()
+
+
+def _resolve_symbols(args: argparse.Namespace) -> list[str]:
+    if args.watchlist:
+        return resolve_watchlist(args.watchlist)
+    return [s.strip() for s in args.symbols.split(",") if s.strip()]
+
+
+def _resolve_strategies(args: argparse.Namespace) -> list[StrategySpec]:
+    names = [s.strip() for s in args.strategies.split(",") if s.strip()]
+    valid = set(available())
+    bad = [n for n in names if n not in valid]
+    if bad:
+        raise SystemExit(f"unknown strategies: {bad}. Available: {sorted(valid)}")
+    return [StrategySpec(name=n) for n in names]
+
+
+def main() -> None:
+    args = parse_args()
+    start = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
+    end = datetime.fromisoformat(args.end).replace(tzinfo=timezone.utc)
+
+    symbols = _resolve_symbols(args)
+    strategies = _resolve_strategies(args)
+
+    logger = RunLogger()
+    logger.emit("compare.start",
+                source=args.watchlist or "explicit",
+                symbols=symbols,
+                strategies=[s.name for s in strategies],
+                start=start, end=end, rank=args.rank)
+
+    cfg = CompareConfig(
+        provider=args.provider,
+        initial_capital=args.capital,
+        currency=args.currency,
+        rank_metric=args.rank,
+        fees=FeeModel(commission_per_trade=args.commission,
+                      stamp_duty_rate=args.stamp_duty),
+    )
+
+    payload = compare(symbols, strategies, start, end, cfg)
+    payload["universe"] = args.watchlist or "custom"
+    payload["run_id"] = logger.run_id
+
+    out_path = args.out or (logger.artefact_dir / "compare.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, default=str, indent=2))
+
+    logger.emit("compare.done",
+                rows=len(payload["rows"]),
+                out=str(out_path))
+
+    _print_summary(payload)
+    print()
+    print(f"run_id:     {logger.run_id}")
+    print(f"wrote:      {out_path}")
+    print(f"artefacts:  {logger.artefact_dir}")
+
+    if args.push:
+        base, token = load_credentials()
+        push("compare", payload, base, token)
+
+
+def _print_summary(payload: dict) -> None:
+    rank_metric = payload["rank_metric"]
+    print(f"universe={payload.get('universe')}  "
+          f"window={payload['from']}..{payload['to']}  "
+          f"rank_by={rank_metric}")
+    print()
+    print(f"{'#':>3} {'symbol':10s} {'strategy':22s} "
+          f"{'cagr%':>8s} {'sharpe':>7s} {'maxDD%':>8s} "
+          f"{'today':>6s}")
+    for row in payload["rows"]:
+        stats = row.get("stats") or {}
+        print(f"{row.get('rank', 0):>3} "
+              f"{row['symbol']:10s} "
+              f"{row['strategy_label'][:22]:22s} "
+              f"{_fmt(stats.get('cagr_pct')):>8s} "
+              f"{_fmt(stats.get('sharpe')):>7s} "
+              f"{_fmt(stats.get('max_drawdown_pct')):>8s} "
+              f"{row.get('current_action', ''):>6s}")
+    bo = payload.get("best_overall")
+    if bo:
+        print()
+        print(f"best:       {bo['symbol']} via {bo['strategy']} "
+              f"({rank_metric}={_fmt(bo.get('value'))})")
+
+
+def _fmt(x) -> str:
+    if x is None:
+        return "—"
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return "—"
+    if f != f:  # NaN
+        return "—"
+    return f"{f:,.2f}"
+
+
+if __name__ == "__main__":
+    main()

@@ -32,6 +32,7 @@ dev = [
 
 [project.scripts]
 tradepro-backtest = "tradepro_strategies.cli.run_backtest:main"
+tradepro-compare = "tradepro_strategies.cli.run_comparison:main"
 tradepro-push = "tradepro_strategies.cli.push_to_api:main"
 tradepro-refresh = "tradepro_strategies.cli.refresh:main"
 tradepro-worker = "tradepro_strategies.cli.worker:main"
