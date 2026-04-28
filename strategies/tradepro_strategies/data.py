@@ -48,6 +48,10 @@ def _yahoo(req: DataRequest) -> pd.DataFrame:
     )
     if df.empty:
         return df
+    # yfinance >=0.2.40 returns MultiIndex columns even for a single ticker;
+    # drop the ticker level so we get plain column names.
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.droplevel("Ticker")
     df = df.rename(
         columns={"Open": "open", "High": "high", "Low": "low",
                  "Close": "close", "Adj Close": "adj_close", "Volume": "volume"}
