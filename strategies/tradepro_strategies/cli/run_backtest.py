@@ -13,6 +13,7 @@ from pathlib import Path
 from ..backtest import BacktestConfig, FeeModel, run_backtest
 from ..cache import ensure_cached
 from ..observability import RunLogger
+from ..regimes import all_regime_stats
 from ..strategies import available, resolve
 
 
@@ -72,11 +73,18 @@ def main() -> None:
     }
     manifest = logger.write_manifest(inputs=inputs, stats=result.stats)
 
+    # Per-regime breakdown — slices the equity curve over named historical
+    # stress / recovery windows so the user can see which regimes hurt.
+    regime_df = all_regime_stats(result.equity_curve)
+    covered = regime_df[regime_df["bars"] > 0]
+
     # Persist artefacts next to the manifest.
     if not result.equity_curve.empty:
         result.equity_curve.to_frame().to_parquet(logger.artefact_dir / "equity_curve.parquet")
     if not result.trades.empty:
         result.trades.to_parquet(logger.artefact_dir / "trades.parquet")
+    if not regime_df.empty:
+        regime_df.to_parquet(logger.artefact_dir / "regimes.parquet")
 
     logger.emit("cli.done", bars=len(prices), trades=len(result.trades))
 
@@ -87,6 +95,14 @@ def main() -> None:
     print(f"trades:     {len(result.trades)}")
     for k, v in result.stats.items():
         print(f"{k:18s} {v:,.2f}")
+
+    if not covered.empty:
+        print()
+        print(f"{'regime':28s} {'kind':10s} {'return %':>10s} {'max DD %':>10s}")
+        for _, r in covered.iterrows():
+            print(f"{r['regime_name']:28s} {r['kind']:10s} "
+                  f"{r['return_pct']:>10.2f} {r['max_drawdown_pct']:>10.2f}")
+
     print(f"artefacts:  {logger.artefact_dir}")
 
     if args.out:
@@ -98,6 +114,7 @@ def main() -> None:
                 {"timestamp": t.isoformat(), "equity": float(v)}
                 for t, v in result.equity_curve.items()
             ],
+            "regimes": regime_df.to_dict(orient="records") if not regime_df.empty else [],
         }
         args.out.write_text(json.dumps(payload, default=str, indent=2))
         print(f"wrote {args.out}")
