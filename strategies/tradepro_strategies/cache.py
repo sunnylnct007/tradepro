@@ -31,6 +31,14 @@ def _safe(symbol: str) -> str:
     return symbol.replace("/", "_").replace("^", "_idx_").replace(":", "_")
 
 
+def _to_utc(x) -> pd.Timestamp:
+    """Coerce anything timestamp-shaped into a tz-aware UTC pandas Timestamp.
+    Stooq returns tz-aware UTC, yfinance returns tz-naive — without this
+    helper, comparisons in `ensure_cached` raise TypeError."""
+    ts = pd.Timestamp(x)
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+
 def paths(provider: str, symbol: str, interval: str) -> tuple[Path, Path]:
     base = CACHE_ROOT / provider / interval / _safe(symbol)
     return base.with_suffix(".parquet"), base.with_suffix(".meta.json")
@@ -116,16 +124,16 @@ def ensure_cached(
     need_refresh = (
         df.empty
         or meta is None
-        or pd.Timestamp(meta.first_ts).tz_convert("UTC") > pd.Timestamp(start).tz_convert("UTC")
-        or pd.Timestamp(meta.last_ts).tz_convert("UTC") < pd.Timestamp(end).tz_convert("UTC") - pd.Timedelta(days=7)
+        or _to_utc(meta.first_ts) > _to_utc(start)
+        or _to_utc(meta.last_ts) < _to_utc(end) - pd.Timedelta(days=7)
     )
     if need_refresh:
         refresh_symbol(provider, symbol, start, end, interval)
         df = load_cached(provider, symbol, interval)
     if df.empty:
         return df
-    start_ts = pd.Timestamp(start).tz_convert("UTC") if start.tzinfo else pd.Timestamp(start, tz="UTC")
-    end_ts = pd.Timestamp(end).tz_convert("UTC") if end.tzinfo else pd.Timestamp(end, tz="UTC")
+    start_ts = _to_utc(start)
+    end_ts = _to_utc(end)
     idx = df.index
     if idx.tz is None:
         idx = idx.tz_localize("UTC")
