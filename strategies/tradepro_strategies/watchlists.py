@@ -74,6 +74,25 @@ WATCHLISTS: dict[str, list[str]] = {
 }
 
 
+def _all_etfs() -> list[str]:
+    """Union of every ETF universe — for one-shot 'compare everything' runs.
+    Currencies mix (UK = GBP, US = USD), but ranking metrics like Sharpe,
+    CAGR % and max-DD % are currency-neutral. Stamp duty differs by venue
+    so the comparator should run with stamp_duty=0 over this universe and
+    treat fees as a per-broker concern."""
+    seen: list[str] = []
+    deduped: list[str] = []
+    for key in ("etf_uk_core", "etf_us_core", "etf_us_sector", "etf_factor"):
+        for s in WATCHLISTS[key]:
+            if s not in seen:
+                seen.append(s)
+                deduped.append(s)
+    return deduped
+
+
+WATCHLISTS["etf_all"] = _all_etfs()
+
+
 def resolve(name: str) -> list[str]:
     if name not in WATCHLISTS:
         raise ValueError(f"unknown watchlist '{name}'. Available: {list(WATCHLISTS)}")

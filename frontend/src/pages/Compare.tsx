@@ -135,39 +135,13 @@ export function Compare() {
             avoids={avoids}
             rankMetric={rankMetric}
           />
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: 16,
-            }}
-          >
-            <Bucket
-              title="Buy today"
-              tone="up"
-              items={buys}
-              openSymbol={openSymbol}
-              setOpen={setOpenSymbol}
-              rankMetric={rankMetric}
-            />
-            <Bucket
-              title="Wait"
-              tone="neutral"
-              items={waits}
-              openSymbol={openSymbol}
-              setOpen={setOpenSymbol}
-              rankMetric={rankMetric}
-            />
-            <Bucket
-              title="Avoid"
-              tone="down"
-              items={avoids}
-              openSymbol={openSymbol}
-              setOpen={setOpenSymbol}
-              rankMetric={rankMetric}
-            />
-          </div>
+          <StrategyMatrix
+            views={views}
+            strategies={data.payload.strategies}
+            rankMetric={rankMetric}
+            openSymbol={openSymbol}
+            setOpen={setOpenSymbol}
+          />
         </>
       )}
     </div>
@@ -355,6 +329,183 @@ function VerdictHeadline({
         </div>
       )}
     </section>
+  );
+}
+
+/** One row per ETF, one column per strategy. Cell = is that strategy
+ * currently long this ETF? Plus a Vote column (count/total) and a
+ * Verdict column (BUY / WAIT / AVOID — the bucket assignment). Rows
+ * are sorted: BUY first (best ranked), then WAIT, then AVOID. Click a
+ * row to expand the decision trace + regime evidence. */
+function StrategyMatrix({
+  views,
+  strategies,
+  rankMetric,
+  openSymbol,
+  setOpen,
+}: {
+  views: SymbolView[];
+  strategies: { name: string; label: string }[];
+  rankMetric: string;
+  openSymbol: string | null;
+  setOpen: (s: string | null) => void;
+}) {
+  const bucketOrder = (b: SymbolView["bucket"]) =>
+    b === "BUY" ? 0 : b === "WAIT" ? 1 : 2;
+  const ordered = [...views].sort((a, b) => {
+    const ba = bucketOrder(a.bucket);
+    const bb = bucketOrder(b.bucket);
+    if (ba !== bb) return ba - bb;
+    return (a.bestRow.rank ?? 1e9) - (b.bestRow.rank ?? 1e9);
+  });
+
+  const stratHeader = (label: string) => {
+    const short = label
+      .replace(/_/g, " ")
+      .replace(/Buy & Hold/i, "B&H")
+      .replace(/SMA crossover/i, "SMA")
+      .replace(/RSI mean-reversion/i, "RSI")
+      .replace(/MACD signal-cross/i, "MACD")
+      .replace(/Donchian breakout/i, "Donch");
+    return short;
+  };
+
+  return (
+    <section className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div
+        style={{
+          padding: "10px 14px",
+          borderBottom: "1px solid var(--border)",
+          display: "flex",
+          gap: 12,
+          alignItems: "baseline",
+          flexWrap: "wrap",
+        }}
+      >
+        <strong style={{ fontSize: 13 }}>Strategies vote on each ETF</strong>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          Cell = is the strategy currently long this asset (last fired BUY newer than its last SELL)?
+          Click a row to see why and the regime history.
+        </span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: "var(--bg-hover)", color: "var(--text-dim)", textAlign: "left" }}>
+              <Th>Symbol</Th>
+              {strategies.map((s) => (
+                <Th key={s.name} align="center" title={s.label}>
+                  {stratHeader(s.label)}
+                </Th>
+              ))}
+              <Th align="center">Vote</Th>
+              <Th align="center" help="entry_signal">Verdict</Th>
+              <Th align="right" help={rankMetric === "sharpe" ? "sharpe" : rankMetric === "cagr_pct" ? "cagr" : undefined}>
+                Best {rankMetric}
+              </Th>
+            </tr>
+          </thead>
+          <tbody>
+            {ordered.map((v) => {
+              const open = openSymbol === v.symbol;
+              return (
+                <MatrixRow
+                  key={v.symbol}
+                  view={v}
+                  strategies={strategies}
+                  rankMetric={rankMetric}
+                  open={open}
+                  onToggle={() => setOpen(open ? null : v.symbol)}
+                />
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function MatrixRow({
+  view,
+  strategies,
+  rankMetric,
+  open,
+  onToggle,
+}: {
+  view: SymbolView;
+  strategies: { name: string; label: string }[];
+  rankMetric: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const verdictColour = bucketColour(view.bucket);
+  const cellByStrategy = new Map(view.rows.map((r) => [r.strategy, r] as const));
+  return (
+    <>
+      <tr
+        style={{ cursor: "pointer", borderTop: "1px solid var(--border)" }}
+        onClick={onToggle}
+      >
+        <Td>
+          <Link
+            to={`/signals?symbol=${encodeURIComponent(view.symbol)}`}
+            style={{ color: "var(--text)", fontWeight: 600 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {view.symbol}
+          </Link>
+        </Td>
+        {strategies.map((s) => {
+          const row = cellByStrategy.get(s.name);
+          return (
+            <Td key={s.name} align="center">
+              <StrategyCell row={row} />
+            </Td>
+          );
+        })}
+        <Td align="center">
+          <span
+            style={{ color: verdictColour, fontWeight: 700 }}
+            title={`${view.longCount} of ${view.total} strategies currently long`}
+          >
+            {view.longCount}/{view.total}
+          </span>
+        </Td>
+        <Td align="center" style={{ color: verdictColour, fontWeight: 700 }}>
+          {view.bucket}
+        </Td>
+        <Td align="right" className="num">
+          {fmtNum(view.bestRow.stats?.[rankMetric])}
+        </Td>
+      </tr>
+      {open && (
+        <tr style={{ background: "var(--bg-hover)" }}>
+          <td colSpan={strategies.length + 4} style={{ padding: 12 }}>
+            <ExpandedDetail view={view} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function StrategyCell({ row }: { row?: CompareRow }) {
+  if (!row) return <span style={{ color: "var(--text-muted)" }}>—</span>;
+  if (row.in_position) {
+    return (
+      <span
+        style={{ color: "var(--up)", fontWeight: 600 }}
+        title={`Long since ${row.position_since?.slice(0, 10) ?? "—"}`}
+      >
+        ● LONG
+      </span>
+    );
+  }
+  return (
+    <span style={{ color: "var(--text-muted)" }} title="Strategy is currently flat (not holding this asset)">
+      ○ flat
+    </span>
   );
 }
 
@@ -708,6 +859,56 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="stat-label">{label}</div>
       <div className="num" style={{ marginTop: 4, fontSize: 13 }}>{value}</div>
     </div>
+  );
+}
+
+function Th({
+  children,
+  align,
+  help,
+  title,
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right" | "center";
+  help?: string;
+  title?: string;
+}) {
+  return (
+    <th
+      title={title}
+      style={{
+        padding: "10px 12px",
+        fontWeight: 500,
+        fontSize: 11,
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        textAlign: align ?? "left",
+      }}
+    >
+      {children}
+      {help && <Info k={help as Parameters<typeof Info>[0]["k"]} />}
+    </th>
+  );
+}
+
+function Td({
+  children,
+  align,
+  style,
+  className,
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right" | "center";
+  style?: React.CSSProperties;
+  className?: string;
+}) {
+  return (
+    <td
+      className={className}
+      style={{ padding: "8px 12px", textAlign: align ?? "left", ...style }}
+    >
+      {children}
+    </td>
   );
 }
 
