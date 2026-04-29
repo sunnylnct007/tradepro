@@ -44,24 +44,33 @@ is automatically bypassed in development (`ASPNETCORE_ENVIRONMENT=Development`).
 
 ### Everything in one shot — Docker Compose
 
+Start the whole local stack (API + frontend) in one command:
+
 ```bash
-cp .env.compose.example .env       # tweak INGEST_TOKEN if you care
-docker compose up                  # API on :5080, frontend on :5173
+cp .env.compose.example .env        # one-off, before the first run
+docker compose up --build -d        # build images + start in background
+open http://localhost:5173          # frontend
+open http://localhost:5080/health   # API health
+```
+
+Other commands you'll want:
+
+```bash
+docker compose logs -f api          # tail API logs
+docker compose logs -f frontend     # tail frontend logs
+docker compose restart api          # nudge the API after a failed reload
+docker compose down                 # stop everything (keeps node_modules volume)
+docker compose down -v              # stop + drop the node_modules volume
+docker compose up frontend          # frontend only (run API natively for breakpoints)
 ```
 
 Both services hot-reload from your working tree (`dotnet watch run` for the
 API, Vite HMR for the frontend). Edit a `.cs` or `.tsx` file and the change
 is live in seconds — no rebuild needed.
 
-For breakpoint debugging the API, run it natively (`dotnet run` or via your
-IDE) and start only the frontend in a container:
-
-```bash
-docker compose up frontend
-```
-
 The Python research package (`strategies/`) intentionally isn't a service —
-run `uv run tradepro-compare` natively so you keep the M-series perf.
+run `uv run tradepro-compare` natively so you keep the M-series perf
+advantage; it pushes results to the API container over `localhost:5080`.
 
 ### Backend (.NET 8)
 ```bash
