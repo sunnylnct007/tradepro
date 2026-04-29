@@ -2,6 +2,8 @@ import { config } from "../config";
 import { getIdToken } from "../firebase";
 import type {
   CandleSeries,
+  CompareLatestResponse,
+  CompareUniverseSummary,
   HitRateRequest,
   HitRateResult,
   ScanRequest,
@@ -58,4 +60,8 @@ export const api = {
     post<HitRateResult, HitRateRequest>("/api/signals/hitrate", req),
   ukWatchlist: () => get<Watchlist>("/api/watchlists/uk"),
   watchlists: () => get<{ names: string[] }>("/api/watchlists/"),
+  compareUniverses: () =>
+    get<{ universes: CompareUniverseSummary[] }>("/api/compare/universes"),
+  compareLatest: (universe: string) =>
+    get<CompareLatestResponse>("/api/compare/latest", { universe }),
 };

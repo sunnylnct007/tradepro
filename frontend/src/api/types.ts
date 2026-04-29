@@ -168,6 +168,103 @@ export interface HitRateTrade {
   isOpen: boolean;
 }
 
+// ---- Compare (ETF ranking pushed in from the local Mac) ----------------
+// The .NET API wraps the raw Python comparator JSON in an envelope; the
+// frontend reads both: envelope fields are camelCase (.NET), the inner
+// payload keeps the snake_case it was generated with on the Mac.
+
+export type EntrySignal = "BUY" | "HOLD" | "WAIT" | "AVOID";
+
+export interface CompareMarketState {
+  symbol: string;
+  as_of: string | null;
+  last_price: number | null;
+  sma_200: number | null;
+  above_sma_200: boolean | null;
+  pct_off_52w_high_pct: number | null;
+  drawdown_from_peak_pct: number | null;
+  rsi_14: number | null;
+  momentum_3m_pct: number | null;
+  momentum_12m_pct: number | null;
+  vol_30d_annual_pct: number | null;
+  entry_signal: EntrySignal;
+  entry_reason: string;
+}
+
+export interface CompareRowRegime {
+  key: string;
+  name: string;
+  kind: string;
+  bars: number;
+  return_pct: number | null;
+  max_drawdown_pct: number | null;
+}
+
+export interface CompareRow {
+  symbol: string;
+  strategy: string;
+  strategy_label: string;
+  params: Record<string, number>;
+  bars: number;
+  stats: Record<string, number | null>;
+  regimes: CompareRowRegime[];
+  current_action: "BUY" | "SELL" | "HOLD";
+  latest_signal: number;
+  latest_bar: string | null;
+  market_state: CompareMarketState;
+  rank: number;
+  error: string | null;
+}
+
+export interface ComparePayload {
+  kind: string;
+  generated_at: string;
+  from: string;
+  to: string;
+  provider: string;
+  currency: string;
+  rank_metric: string;
+  universe?: string;
+  run_id?: string;
+  symbols: string[];
+  strategies: { name: string; params: Record<string, number>; label: string }[];
+  regimes: {
+    key: string;
+    name: string;
+    kind: string;
+    start: string;
+    end: string;
+    description: string;
+  }[];
+  rows: CompareRow[];
+  best_per_strategy: Record<string, { symbol: string; rank: number }>;
+  best_overall: {
+    symbol: string;
+    strategy: string;
+    rank_metric: string;
+    value: number | null;
+  } | null;
+}
+
+export interface CompareUniverseSummary {
+  universe: string;
+  runId: string | null;
+  generatedAtUtc: string;
+  receivedAtUtc: string;
+  rankMetric: string | null;
+  rowCount: number;
+}
+
+export interface CompareLatestResponse {
+  universe: string;
+  runId: string | null;
+  generatedAtUtc: string;
+  receivedAtUtc: string;
+  rankMetric: string | null;
+  rowCount: number;
+  payload: ComparePayload;
+}
+
 export interface HitRateResult {
   symbol: string;
   strategy: string;

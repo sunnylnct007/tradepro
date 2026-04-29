@@ -61,6 +61,7 @@ export function Layout() {
         </div>
         <nav style={{ display: "flex", gap: 4 }}>
           <NavLink to="/" end style={navLinkStyle}>Scanner</NavLink>
+          <NavLink to="/compare" style={navLinkStyle}>Compare ETFs</NavLink>
           <NavLink to="/signals" style={navLinkStyle}>Signal</NavLink>
           <NavLink to="/simulations" style={navLinkStyle}>Simulations</NavLink>
           <NavLink to="/charts" style={navLinkStyle}>Charts</NavLink>
