@@ -7,6 +7,8 @@ import type {
   CompareUniverseSummary,
   EntrySignal,
 } from "../api/types";
+import { Info } from "../components/Info";
+import type { HELP } from "../docs/tooltips";
 
 /** "Where should I put money for the long term?" page.
  *
@@ -117,13 +119,13 @@ export function Compare() {
               <tr style={{ background: "var(--bg-hover)", color: "var(--text-dim)", textAlign: "left" }}>
                 <Th>#</Th>
                 <Th>Symbol</Th>
-                <Th>Strategy</Th>
-                <Th align="right">CAGR %</Th>
-                <Th align="right">Sharpe</Th>
-                <Th align="right">Max DD %</Th>
-                <Th align="right">Off 52w</Th>
-                <Th align="right">RSI</Th>
-                <Th align="right">Now?</Th>
+                <Th help="strategy">Strategy</Th>
+                <Th align="right" help="cagr">CAGR %</Th>
+                <Th align="right" help="sharpe">Sharpe</Th>
+                <Th align="right" help="max_drawdown">Max DD %</Th>
+                <Th align="right" help="off_52w">Off 52w</Th>
+                <Th align="right" help="rsi14">RSI</Th>
+                <Th align="right" help="entry_signal">Now?</Th>
               </tr>
             </thead>
             <tbody>
@@ -307,7 +309,15 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Th({ children, align }: { children: React.ReactNode; align?: "left" | "right" }) {
+function Th({
+  children,
+  align,
+  help,
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right";
+  help?: keyof typeof HELP;
+}) {
   return (
     <th
       style={{
@@ -320,6 +330,7 @@ function Th({ children, align }: { children: React.ReactNode; align?: "left" | "
       }}
     >
       {children}
+      {help && <Info k={help} />}
     </th>
   );
 }

@@ -132,4 +132,14 @@ export const HELP: Record<string, HelpEntry> = {
     body:
       "The typical number of calendar days a trade stayed open. Tells you how actively this strategy churns the stock.",
   },
+  entry_signal: {
+    title: "Now or wait? — entry-quality verdict",
+    body:
+      "BUY = uptrend (above 200-day SMA), RSI healthy, not extended. WAIT = at 52w highs with RSI > 70 (overbought) or in mid-drawdown. AVOID = below 200-day SMA with 12m return < -10% (confirmed downtrend). HOLD = no fresh entry edge — keep the position if held, no rush to add.",
+  },
+  off_52w: {
+    title: "Distance below 52-week high",
+    body:
+      "How far today's price is below the highest price of the past year, in %. Near 0% means it's at or near all-time-ish highs — potentially extended. A larger number means the asset has corrected and may be a better entry, if the trend recovers.",
+  },
 };
