@@ -23,6 +23,7 @@ import pandas as pd
 
 from .backtest import BacktestConfig, FeeModel, run_backtest
 from .cache import ensure_cached
+from .external_consensus import ExternalConsensus, fetch_consensus
 from .market_context import market_context
 from .market_state import MarketState, market_state
 from .regimes import REGIMES, all_regime_stats
@@ -80,6 +81,7 @@ def _row_for(
     strategy: StrategySpec,
     prices: pd.DataFrame,
     state: MarketState,
+    consensus: ExternalConsensus,
     cfg: CompareConfig,
 ) -> dict:
     """Run one (symbol, strategy) backtest and return a JSON-ready row."""
@@ -98,6 +100,7 @@ def _row_for(
             "in_position": False,
             "position_since": None,
             "market_state": state.to_dict(),
+            "external_consensus": consensus.to_dict(),
             "error": "no_data",
         }
 
@@ -124,6 +127,7 @@ def _row_for(
             "in_position": False,
             "position_since": None,
             "market_state": state.to_dict(),
+            "external_consensus": consensus.to_dict(),
             "error": str(e),
         }
 
@@ -176,6 +180,7 @@ def _row_for(
         "in_position": bool(in_position),
         "position_since": position_since,
         "market_state": state.to_dict(),
+        "external_consensus": consensus.to_dict(),
         "error": None,
     }
 
@@ -210,15 +215,20 @@ def compare(
     rows: list[dict] = []
     price_cache: dict[str, pd.DataFrame] = {}
     state_cache: dict[str, MarketState] = {}
+    consensus_cache: dict[str, ExternalConsensus] = {}
 
     for symbol in symbols:
         if symbol not in price_cache:
             price_cache[symbol] = ensure_cached(cfg.provider, symbol, start, end)
             state_cache[symbol] = market_state(symbol, price_cache[symbol])
+            # Fetch Wall Street consensus once per symbol — slow (Yahoo
+            # quote summary is ~1-2s) but per-symbol, not per-strategy.
+            consensus_cache[symbol] = fetch_consensus(symbol)
         prices = price_cache[symbol]
         state = state_cache[symbol]
+        consensus = consensus_cache[symbol]
         for strat in strategies:
-            rows.append(_row_for(symbol, strat, prices, state, cfg))
+            rows.append(_row_for(symbol, strat, prices, state, consensus, cfg))
 
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)
     for i, row in enumerate(rows, start=1):

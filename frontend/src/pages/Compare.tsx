@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type {
+  CompareExternalConsensus,
   CompareLatestResponse,
   CompareMarketContext,
   CompareRow,
@@ -644,8 +645,10 @@ function VoteBar({ long, total, colour }: { long: number; total: number; colour:
 
 function ExpandedDetail({ view }: { view: SymbolView }) {
   const trace = view.bestRow.market_state?.decision_trace ?? [];
+  const consensus = view.bestRow.external_consensus;
   return (
     <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.18)", borderRadius: 6 }}>
+      {consensus && <CrossCheck view={view} consensus={consensus} />}
       {trace.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <div className="stat-label" style={{ marginBottom: 4 }}>
@@ -708,6 +711,122 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Side-by-side: our verdict vs Wall Street's published consensus.
+ * Lets a user sanity-check that we're not arguing with the analyst pool. */
+function CrossCheck({
+  view,
+  consensus,
+}: {
+  view: SymbolView;
+  consensus: CompareExternalConsensus;
+}) {
+  const ourBucket = view.bucket;
+  const theirLabel = consensus.rating_label;
+  const isRated = !!theirLabel;
+
+  let agreement: "agree" | "disagree" | "neutral" = "neutral";
+  let agreementText = "";
+  if (isRated && theirLabel) {
+    const theirSide =
+      theirLabel === "STRONG BUY" || theirLabel === "BUY"
+        ? "BUY"
+        : theirLabel === "SELL" || theirLabel === "STRONG SELL" || theirLabel === "UNDERPERFORM"
+          ? "SELL"
+          : "HOLD";
+    if (theirSide === "BUY" && ourBucket === "BUY") {
+      agreement = "agree"; agreementText = "Both sides say buy.";
+    } else if (theirSide === "SELL" && ourBucket === "AVOID") {
+      agreement = "agree"; agreementText = "Both sides say avoid.";
+    } else if (theirSide === "BUY" && ourBucket === "AVOID") {
+      agreement = "disagree";
+      agreementText = "We disagree with Wall Street — they say buy, we say avoid.";
+    } else if (theirSide === "SELL" && ourBucket === "BUY") {
+      agreement = "disagree";
+      agreementText = "We disagree with Wall Street — they say sell, we say buy.";
+    } else {
+      agreement = "neutral";
+      agreementText = "Mixed read — analysts and our system are not aligned.";
+    }
+  }
+  const colour =
+    agreement === "agree" ? "var(--up)" : agreement === "disagree" ? "var(--down)" : "var(--text-muted)";
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div className="stat-label" style={{ marginBottom: 4 }}>
+        Cross-check — Wall Street analyst consensus{" "}
+        <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+          (Yahoo Finance, free)
+        </span>
+      </div>
+      {!isRated ? (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "6px 0" }}>
+          Not rated. ETFs and index trackers usually don't have analyst
+          consensus — analysts rate the underlying companies, not the basket.
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+            gap: 10,
+            padding: "6px 8px",
+            borderLeft: `2px solid ${colour}`,
+            background: "rgba(255,255,255,0.02)",
+            borderRadius: 4,
+          }}
+        >
+          <ConsensusStat label="Wall St rating" value={theirLabel ?? "—"} colour={colour} />
+          <ConsensusStat
+            label="Mean rating"
+            value={consensus.rating_mean !== null ? consensus.rating_mean.toFixed(2) : "—"}
+            sub="1 = strong buy · 5 = strong sell"
+          />
+          <ConsensusStat
+            label="Analysts"
+            value={consensus.n_analysts !== null ? String(consensus.n_analysts) : "—"}
+          />
+          <ConsensusStat
+            label="Target (mean)"
+            value={consensus.target_mean !== null ? `$${consensus.target_mean.toFixed(2)}` : "—"}
+            sub={
+              consensus.target_vs_current_pct !== null
+                ? `${consensus.target_vs_current_pct >= 0 ? "+" : ""}${consensus.target_vs_current_pct.toFixed(1)}% vs current`
+                : ""
+            }
+          />
+          <div style={{ gridColumn: "1 / -1", fontSize: 11, color: colour, marginTop: 4 }}>
+            <strong>Our verdict:</strong> {ourBucket} · <strong>Wall St:</strong> {theirLabel}.{" "}
+            {agreementText}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConsensusStat({
+  label,
+  value,
+  sub,
+  colour,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  colour?: string;
+}) {
+  return (
+    <div>
+      <div className="stat-label" style={{ fontSize: 10 }}>{label}</div>
+      <div className="num" style={{ fontSize: 13, fontWeight: 600, marginTop: 2, color: colour ?? "var(--text)" }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>{sub}</div>}
     </div>
   );
 }

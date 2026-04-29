@@ -219,6 +219,25 @@ export interface CompareRowRegime {
   max_drawdown_pct: number | null;
 }
 
+export interface CompareExternalConsensus {
+  symbol: string;
+  fetched_at: string;
+  /** Yahoo recommendationKey: strong_buy / buy / hold / underperform / sell / strong_sell — null for unrated tickers (typically ETFs). */
+  rating_key: string | null;
+  rating_label: string | null;
+  /** 1.0 (strong buy) to 5.0 (strong sell). */
+  rating_mean: number | null;
+  n_analysts: number | null;
+  target_mean: number | null;
+  target_median: number | null;
+  target_high: number | null;
+  target_low: number | null;
+  current_price: number | null;
+  /** +12% means the analyst mean target is 12% above current. Null for unrated. */
+  target_vs_current_pct: number | null;
+  source: string;
+}
+
 export interface CompareRow {
   symbol: string;
   strategy: string;
@@ -236,6 +255,7 @@ export interface CompareRow {
   in_position: boolean;
   position_since: string | null;
   market_state: CompareMarketState;
+  external_consensus?: CompareExternalConsensus;
   rank: number;
   error: string | null;
 }
