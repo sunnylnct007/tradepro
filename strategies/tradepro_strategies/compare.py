@@ -23,6 +23,7 @@ import pandas as pd
 
 from .backtest import BacktestConfig, FeeModel, run_backtest
 from .cache import ensure_cached
+from .market_context import market_context
 from .market_state import MarketState, market_state
 from .regimes import REGIMES, all_regime_stats
 from .strategies import resolve as resolve_strategy
@@ -231,6 +232,10 @@ def compare(
 
     best_overall = rows[0] if rows else None
 
+    # Macro / sentiment proxy fetched once per run, not per symbol — VIX
+    # and 10Y move at index level, not per-ticker.
+    ctx = market_context(start, end).to_dict()
+
     return {
         "kind": "compare",
         "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -250,6 +255,7 @@ def compare(
              "description": r.description}
             for r in REGIMES
         ],
+        "market_context": ctx,
         "rows": rows,
         "best_per_strategy": best_per_strategy,
         "best_overall": (

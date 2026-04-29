@@ -51,6 +51,10 @@ class MarketState:
     vol_30d_annual_pct: float | None
     entry_signal: str           # BUY / HOLD / WAIT / AVOID
     entry_reason: str
+    # Each item: {"name", "status" ∈ pass|warn|fail, "detail"}.
+    # The trace is the audit trail behind entry_signal — every check the
+    # classifier looked at, not just the one that fired.
+    decision_trace: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +71,7 @@ class MarketState:
             "vol_30d_annual_pct": self.vol_30d_annual_pct,
             "entry_signal": self.entry_signal,
             "entry_reason": self.entry_reason,
+            "decision_trace": list(self.decision_trace),
         }
 
 
@@ -99,9 +104,80 @@ def _momentum_pct(closes: pd.Series, days: int) -> float | None:
     return float((last / past - 1.0) * 100.0)
 
 
+def _build_trace(state: MarketState) -> list[dict[str, Any]]:
+    """Build the audit trail of every check that goes into the verdict.
+    Returned independently of the verdict so the UI can render it as a
+    transparent checklist regardless of which rule fires."""
+    trace: list[dict[str, Any]] = []
+
+    # Trend
+    if state.above_sma_200 is True:
+        trace.append({"name": "Trend (200-day SMA)", "status": "pass",
+                      "detail": f"price {state.last_price:,.2f} above SMA {state.sma_200:,.2f}"})
+    elif state.above_sma_200 is False:
+        trace.append({"name": "Trend (200-day SMA)", "status": "fail",
+                      "detail": f"price {state.last_price:,.2f} below SMA {state.sma_200:,.2f}"})
+    else:
+        trace.append({"name": "Trend (200-day SMA)", "status": "warn",
+                      "detail": "not enough history (<200 bars)"})
+
+    # RSI
+    rsi_v = state.rsi_14
+    if rsi_v is None:
+        trace.append({"name": "RSI (14-day)", "status": "warn", "detail": "—"})
+    elif rsi_v >= RSI_OVERBOUGHT:
+        trace.append({"name": "RSI (14-day)", "status": "fail",
+                      "detail": f"{rsi_v:.0f} — overbought, pullback often follows"})
+    elif rsi_v <= RSI_OVERSOLD:
+        trace.append({"name": "RSI (14-day)", "status": "warn",
+                      "detail": f"{rsi_v:.0f} — oversold (bounce candidate)"})
+    else:
+        trace.append({"name": "RSI (14-day)", "status": "pass",
+                      "detail": f"{rsi_v:.0f} — healthy zone"})
+
+    # Distance from 52w high
+    pct = state.pct_off_52w_high_pct
+    if pct is None:
+        trace.append({"name": "Distance from 52w high", "status": "warn", "detail": "—"})
+    elif pct < EXTENDED_PCT_FROM_HIGH:
+        trace.append({"name": "Distance from 52w high", "status": "warn",
+                      "detail": f"{pct:.1f}% off — at the highs, potentially extended"})
+    else:
+        trace.append({"name": "Distance from 52w high", "status": "pass",
+                      "detail": f"{pct:.1f}% off — room to run"})
+
+    # Drawdown from peak
+    dd = state.drawdown_from_peak_pct
+    if dd is None:
+        trace.append({"name": "Drawdown from peak", "status": "warn", "detail": "—"})
+    elif dd <= DEEP_DRAWDOWN_PCT:
+        trace.append({"name": "Drawdown from peak", "status": "warn",
+                      "detail": f"{dd:.1f}% — deep correction, classic bounce zone if trend recovers"})
+    elif dd <= MID_DRAWDOWN_PCT:
+        trace.append({"name": "Drawdown from peak", "status": "fail",
+                      "detail": f"{dd:.1f}% — mid-drawdown, trend not stabilised"})
+    else:
+        trace.append({"name": "Drawdown from peak", "status": "pass",
+                      "detail": f"{dd:.1f}% from peak — minimal"})
+
+    # 12-month momentum
+    mom12 = state.momentum_12m_pct
+    if mom12 is None:
+        trace.append({"name": "12-month momentum", "status": "warn", "detail": "—"})
+    elif mom12 < WEAK_MOMENTUM_PCT:
+        trace.append({"name": "12-month momentum", "status": "fail",
+                      "detail": f"{mom12:.1f}% — weak, downtrend signal"})
+    else:
+        trace.append({"name": "12-month momentum", "status": "pass",
+                      "detail": f"{mom12:+.1f}% — positive"})
+
+    return trace
+
+
 def _classify(state: MarketState) -> tuple[str, str]:
     """Map the snapshot to a (signal, reason) pair. Rules are intentionally
-    short and explicit — easier to argue with than a black-box score."""
+    short and explicit — easier to argue with than a black-box score.
+    The decision_trace built separately surfaces the full audit trail."""
     above = state.above_sma_200
     pct_off_high = state.pct_off_52w_high_pct
     rsi_v = state.rsi_14
@@ -191,7 +267,8 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         pct_off_52w_high_pct=pct_off_high, drawdown_from_peak_pct=dd,
         rsi_14=rsi_14, momentum_3m_pct=mom_3m, momentum_12m_pct=mom_12m,
         vol_30d_annual_pct=vol_30d,
-        entry_signal="HOLD", entry_reason="",
+        entry_signal="HOLD", entry_reason="", decision_trace=[],
     )
     state.entry_signal, state.entry_reason = _classify(state)
+    state.decision_trace = _build_trace(state)
     return state

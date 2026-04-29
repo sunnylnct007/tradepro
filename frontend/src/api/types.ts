@@ -189,6 +189,25 @@ export interface CompareMarketState {
   vol_30d_annual_pct: number | null;
   entry_signal: EntrySignal;
   entry_reason: string;
+  decision_trace?: DecisionCheck[];
+}
+
+export interface DecisionCheck {
+  name: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+}
+
+export interface CompareMarketContext {
+  as_of: string | null;
+  vix: number | null;
+  vix_regime: "calm" | "normal" | "stressed" | null;
+  tnx: number | null;
+  tnx_change_30d: number | null;
+  tnx_trend: "rising" | "falling" | "flat" | null;
+  spy_drawdown_pct: number | null;
+  active_stress_regimes: string[];
+  summary: string;
 }
 
 export interface CompareRowRegime {
@@ -249,6 +268,7 @@ export interface ComparePayload {
     rank_metric: string;
     value: number | null;
   } | null;
+  market_context?: CompareMarketContext;
 }
 
 export interface CompareUniverseSummary {

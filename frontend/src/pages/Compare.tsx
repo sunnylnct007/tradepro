@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   CompareLatestResponse,
+  CompareMarketContext,
   CompareRow,
   CompareUniverseSummary,
+  DecisionCheck,
   EntrySignal,
 } from "../api/types";
 import { Info } from "../components/Info";
@@ -89,6 +91,10 @@ export function Compare() {
       </div>
 
       <ProvenanceBar data={data} loading={loading} />
+
+      {data?.payload?.market_context && (
+        <MarketContextBar ctx={data.payload.market_context} />
+      )}
 
       <section
         className="card"
@@ -431,28 +437,24 @@ function SymbolCard({
         style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, cursor: "pointer" }}
         onClick={onToggle}
       >
-        <div>
-          <Link
-            to={`/signals?symbol=${encodeURIComponent(view.symbol)}`}
-            style={{ color: "var(--text)", fontWeight: 600 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span className="num">{view.symbol}</span>
-          </Link>
-          <span style={{ marginLeft: 8, color: "var(--text-dim)", fontSize: 11 }}>
-            best: {view.bestRow.strategy_label}
-          </span>
-        </div>
+        <Link
+          to={`/signals?symbol=${encodeURIComponent(view.symbol)}`}
+          style={{ color: "var(--text)", fontWeight: 600 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span className="num">{view.symbol}</span>
+        </Link>
         <VoteBar long={view.longCount} total={view.total} colour={colour} />
       </div>
+      <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+        {view.bucketReason}
+      </div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+        Best historical: {view.bestRow.strategy_label} ·{" "}
         {rankMetric} {fmtNum(view.bestRow.stats?.[rankMetric])} ·{" "}
         CAGR {fmtNum(view.bestRow.stats?.cagr_pct)}% ·{" "}
         max DD {fmtNum(view.bestRow.stats?.max_drawdown_pct)}% ·{" "}
         RSI {fmtNum(ms?.rsi_14, 0)}
-      </div>
-      <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
-        {view.bucketReason}
       </div>
       {open && <ExpandedDetail view={view} />}
     </li>
@@ -490,9 +492,23 @@ function VoteBar({ long, total, colour }: { long: number; total: number; colour:
 }
 
 function ExpandedDetail({ view }: { view: SymbolView }) {
+  const trace = view.bestRow.market_state?.decision_trace ?? [];
   return (
     <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.18)", borderRadius: 6 }}>
-      <div style={{ marginBottom: 8 }}>
+      {trace.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div className="stat-label" style={{ marginBottom: 4 }}>
+            Why the verdict — every check, not just the one that fired
+          </div>
+          <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+            {trace.map((c, i) => (
+              <DecisionRow key={i} check={c} />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div style={{ marginBottom: 12 }}>
         <div className="stat-label" style={{ marginBottom: 4 }}>Strategies on {view.symbol}</div>
         <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
           <thead>
@@ -524,20 +540,132 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
       {view.bestRow.regimes.length > 0 && (
         <div>
           <div className="stat-label" style={{ marginBottom: 4 }}>
-            Stress history (best: {view.bestRow.strategy_label})
+            How the best strategy performed in past stress windows{" "}
+            <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+              (historical evidence — not a prediction)
+            </span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 6 }}>
             {view.bestRow.regimes.map((r) => (
               <div key={r.key} style={{ borderLeft: `2px solid ${regimeColour(r.kind)}`, paddingLeft: 6, fontSize: 11 }}>
                 <div style={{ color: "var(--text)", fontWeight: 600 }}>{r.name}</div>
                 <div className="num" style={{ color: "var(--text-dim)" }}>
-                  {fmtNum(r.return_pct)}% · DD {fmtNum(r.max_drawdown_pct)}%
+                  return during it {fmtNum(r.return_pct)}% · max drop {fmtNum(r.max_drawdown_pct)}%
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DecisionRow({ check }: { check: DecisionCheck }) {
+  const colour =
+    check.status === "pass"
+      ? "var(--up)"
+      : check.status === "fail"
+      ? "var(--down)"
+      : "var(--neutral)";
+  const glyph = check.status === "pass" ? "✓" : check.status === "fail" ? "✗" : "•";
+  return (
+    <li
+      style={{
+        display: "flex",
+        gap: 8,
+        padding: "3px 0",
+        fontSize: 11,
+        color: "var(--text-dim)",
+      }}
+    >
+      <span style={{ color: colour, fontWeight: 700, width: 14, textAlign: "center" }}>{glyph}</span>
+      <span style={{ color: "var(--text)", minWidth: 180 }}>{check.name}</span>
+      <span>{check.detail}</span>
+    </li>
+  );
+}
+
+function MarketContextBar({ ctx }: { ctx: CompareMarketContext }) {
+  const vixColour =
+    ctx.vix_regime === "stressed"
+      ? "var(--down)"
+      : ctx.vix_regime === "calm"
+      ? "var(--up)"
+      : "var(--neutral)";
+  return (
+    <section
+      className="card"
+      style={{
+        display: "flex",
+        gap: 18,
+        flexWrap: "wrap",
+        alignItems: "center",
+        padding: "10px 14px",
+        borderLeft: `3px solid ${vixColour}`,
+      }}
+    >
+      <div style={{ minWidth: 120 }}>
+        <div className="stat-label">Market context</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+          fear / rates / S&P drawdown
+        </div>
+      </div>
+      <ContextStat
+        label="VIX"
+        value={ctx.vix !== null ? ctx.vix.toFixed(1) : "—"}
+        sub={ctx.vix_regime ?? "—"}
+        colour={vixColour}
+      />
+      <ContextStat
+        label="10Y yield"
+        value={ctx.tnx !== null ? `${ctx.tnx.toFixed(2)}%` : "—"}
+        sub={ctx.tnx_trend ?? "—"}
+      />
+      <ContextStat
+        label="S&P off peak"
+        value={ctx.spy_drawdown_pct !== null ? `${ctx.spy_drawdown_pct.toFixed(1)}%` : "—"}
+        sub={
+          ctx.spy_drawdown_pct !== null && ctx.spy_drawdown_pct < -10
+            ? "correction"
+            : ctx.spy_drawdown_pct !== null && ctx.spy_drawdown_pct < -5
+            ? "pullback"
+            : "near highs"
+        }
+      />
+      <ContextStat
+        label="Active stress regime"
+        value={ctx.active_stress_regimes.length ? ctx.active_stress_regimes.join(", ") : "none"}
+        sub={ctx.active_stress_regimes.length ? "elevated risk" : "no flag"}
+        colour={ctx.active_stress_regimes.length ? "var(--down)" : "var(--text-muted)"}
+      />
+      <div style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)", maxWidth: 360 }}>
+        Informational — affects how you read the buckets, not the bucket assignment itself.
+      </div>
+    </section>
+  );
+}
+
+function ContextStat({
+  label,
+  value,
+  sub,
+  colour,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  colour?: string;
+}) {
+  return (
+    <div style={{ minWidth: 100 }}>
+      <div className="stat-label">{label}</div>
+      <div className="num" style={{ marginTop: 2, fontSize: 14, fontWeight: 600, color: colour ?? "var(--text)" }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        {sub}
+      </div>
     </div>
   );
 }
