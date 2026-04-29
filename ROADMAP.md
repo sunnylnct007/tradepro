@@ -1,171 +1,252 @@
 # TradePro Roadmap
 
-Phased plan. Each phase is independently useful — ship, then extend.
+A personal, evidence-based trading-strategy platform. The product
+question:
 
-## Phase 0 — Skeleton (this commit)
+> **"Today, should I BUY / WAIT / AVOID, and which ETF?"**
+> — backed by backtest evidence, per-regime stress survival, and a
+> cross-check against analyst consensus.
 
-- Monorepo: `backend/`, `frontend/`, `strategies/`.
-- .NET 8 minimal API with `IMarketDataProvider` abstraction.
-- Three free providers wired up: Yahoo Finance, Stooq, Binance (crypto).
-- React dashboard that lists candles from any provider.
-- Python package with an SMA-crossover backtest as a reference strategy.
+This document is the load-bearing plan: where we are, where we're
+going, and the assumptions baked into every choice. Update it when
+those assumptions change.
 
-## Phase 1 — Data layer
+---
 
-- [ ] Local Parquet + DuckDB cache on the Mac (one write per symbol per day).
-- [ ] `IbkrProvider` (Python only, via `ib_insync` against IB Gateway). IBKR
-      delayed data is free with an account; real-time is a per-exchange sub.
-      The Mac runs the gateway, the API never talks to IBKR directly.
-- [ ] Add Alpha Vantage + Finnhub providers (API keys, free tiers) for the
-      server-side API fallback path.
-- [ ] Firestore as the server-side store (watchlists, scan history, backtest
-      summaries). Free-tier friendly.
-- [ ] Daily scheduled Mac job (`launchd`) that refreshes the cache, runs
-      scans, and pushes results to Firestore.
-- [ ] Normalize candle schema across providers (OHLCV + adjusted close).
-- [ ] Symbol universe management (watchlists stored in Firestore).
+## Where we are now (April 2026)
 
-## Phase 2 — Backtesting engine
+Concrete, working today on `main`:
 
-- [ ] Port SMA/EMA/RSI/MACD indicators to C# and expose a `/backtest` endpoint.
-- [ ] Standard metrics: CAGR, Sharpe, Sortino, max drawdown, win rate.
-- [ ] Walk-forward + out-of-sample split.
-- [ ] Persist backtest runs so the frontend can diff two runs.
+**Research stack (Python, runs on Mac M-series):**
+- Five rule-based strategies: buy-and-hold, SMA crossover, RSI mean
+  reversion, MACD signal cross, Donchian breakout.
+- Comparator (`tradepro-compare`) that runs `N strategies × M symbols`,
+  outputs a JSON payload with backtest stats (CAGR, Sharpe, max-DD),
+  per-regime stress evidence (13 historical windows: dot-com, GFC,
+  COVID, 2022 rate shock, etc.), per-symbol market-state verdict
+  (BUY / HOLD / WAIT / AVOID) with a transparent decision trace, a
+  per-symbol Wall Street consensus snapshot from Yahoo, and macro
+  context (VIX, 10Y, S&P drawdown, active stress regimes).
+- Five ETF watchlists pre-defined: `etf_uk_core`, `etf_us_core`,
+  `etf_us_sector`, `etf_factor`, `etf_all` (35-symbol union).
+- Local Parquet cache, idempotent refresh, manifest + JSONL event log
+  per run.
 
-## Phase 3 — Live signals
+**API (.NET 8):**
+- Read endpoints (Firebase-auth): `/api/marketdata/*`,
+  `/api/signals/*`, `/api/simulations/*`, `/api/watchlists/*`,
+  `/api/compare/{universes, latest}`.
+- Ingest endpoint (static-token auth): `/api/ingest/{compare,
+  backtest, scan, model_prediction}`.
+- Pluggable provider abstraction (Yahoo / Stooq / Binance) with
+  Yahoo as the only one currently advertised.
 
-- [ ] Scheduled strategy evaluation on the watchlist.
-- [ ] Signal history + alerts (email / push via Firebase Cloud Messaging).
-- [ ] Paper-trading portfolio ledger (no real broker yet).
+**Frontend (React + Vite):**
+- Dashboard, Scanner, Signal detail (with hit-rate card), Simulations,
+  Charts, Help, **Compare ETFs** (the headline page).
+- Compare page: bucket triage (BUY today / WAIT / AVOID), strategy
+  matrix (rows = ETFs, columns = strategies, cells = LONG/flat),
+  expand panel with full decision trace, all-strategies stats, regime
+  evidence, and Wall Street cross-check.
 
-## Phase 4 — Models
+**Dev infra:**
+- `docker compose up` brings up the API and frontend with hot reload.
+- `tradepro-push` ships JSON from the Mac to the API over a static
+  bearer token.
 
-- [ ] Python research notebooks → reproducible training pipeline.
-- [ ] Classical ML first (gradient boosting on engineered features).
-- [ ] Serve model predictions via a Python FastAPI sidecar called by the .NET API.
-- [ ] Run locally on the M4 with MPS; optionally containerize for Azure.
+**Deploy:**
+- Frontend → Firebase Hosting on push to `main`.
+- API → Azure App Service on push to `main`.
+- Strategies stay on the Mac.
 
-## Phase 5 — Broker integration
+---
 
-- [ ] Read-only broker connection (Interactive Brokers / Alpaca / Zerodha Kite
-      depending on geography).
-- [ ] Manual order placement from the UI with confirmation guardrails.
-- [ ] Audit log of every order and signal that led to it.
+## Key assumptions
 
-## Phase 6 — Production hardening
+These are the constraints every design decision sits on top of. Argue
+with one, the plan changes.
 
-- [ ] Auth (Firebase Auth, single-user to start).
-- [ ] Rate-limited public API tier (if `showmesoldprice` becomes public).
-- [ ] Observability: OpenTelemetry → Azure Monitor.
-- [ ] Cost dashboard — know what each run costs before you scale.
+| # | Assumption | Implication if it changes |
+|---|---|---|
+| A1 | **Single user.** No multi-tenancy. Auth is "is it me, or someone I let in?" — a static ingest token + a Firebase UID whitelist. | Multi-tenant SaaS would need user IDs everywhere, per-user data partitioning, billing, and rate limiting. |
+| A2 | **UK-resident retail investor.** Defaults: GBP, LSE `.L` symbols, UK 0.5% stamp duty on buys. The system understands USD/EUR symbols too, but the UI lead is UK. | A US-resident default would change fee model, watchlist, and tax-wrapper modelling. |
+| A3 | **Daily bars, end-of-day decisions.** No intraday, no HFT. Strategies fire on close-to-close events. | Going intraday means a different data layer (1m bars, real-time feeds, streaming). |
+| A4 | **The Mac is the source of truth for compute.** Heavy work (backtests, model training) runs locally on the M-series. The API only stores + serves the JSON the Mac pushes. | Moving compute to the cloud means provisioned infra costs, GPU/CPU plans, and probably AWS Lambda or a managed batch service. |
+| A5 | **Yahoo Finance is primary, best-effort.** Free, no key, but rate-limited and subject to upstream changes. Failures are tolerated (return empty rather than crash). | If Yahoo gets blocked or sunsets the unofficial API, we'd need Alpha Vantage / Finnhub / IBKR with API keys + paid tiers. |
+| A6 | **Rule-based strategies, not ML — yet.** Every verdict is explainable: a human can read the rules in `market_state.py:_classify`. | Adding ML means model-versioning, training pipelines, drift monitoring, and a different transparency story (feature importance instead of an `if`-ladder). |
+| A7 | **Recommendations are decision aids, not advice.** No regulated advice claim. The UI says so explicitly. | Regulated advice means FCA / SEC compliance, custody questions, and is out of scope. |
+| A8 | **Backtests use `adj_close` (total return).** Dividends and splits are baked in. Cross-currency rankings (e.g. `etf_all`) are valid for Sharpe / CAGR % / max-DD % because those are currency-neutral; absolute fee accounting is per broker. | Mixing fees naively across currencies would distort return ladders. |
+| A9 | **Free-tier infra by default.** Firebase Hosting Spark + Firestore Spark + Azure App Service F1 covers single-user load at £0/mo. F1 sleeps after ~20m idle. | Going public or sharing the URL needs a B1+ App Service or a CDN/Cloudflare front. |
+| A10 | **AWS migration is planned but undated.** Today's deploy targets Azure App Service. Code is portable (env-driven URLs, no Azure SDKs). | When the migration happens, only `azure-api-deploy.yml` + `appsettings.json` env keys need to change. |
+| A11 | **ETFs aren't analyst-rated.** Yahoo returns null `recommendationKey` for baskets. The Wall Street cross-check is informational for stocks; for ETFs it shows "not rated" and doesn't degrade the BUY decision. | If a future provider rates ETFs, we'd surface that rating in the cross-check. |
+| A12 | **Manual `tradepro-push` for now.** No auto-refresh; data freshness is whatever the operator last ran. | Phase 4 introduces scheduled `launchd` jobs so the page is always ≤24h stale. |
 
-## Cost-effective starter stack (£0 / month)
+---
 
-Default path until usage justifies paid tiers:
+## Roadmap
 
-| Layer | Service | Free-tier limit | Cost if exceeded |
-|---|---|---|---|
-| UI hosting | Firebase Hosting (Spark) | 10 GB bandwidth / mo | pay-as-you-go |
-| Database | Firestore (Spark) | 1 GiB stored, 50k reads + 20k writes / day | pennies per 100k ops |
-| API compute | Azure App Service **F1** | 60 CPU-min / day, sleeps when idle | £0 (goes to sleep instead) |
-| Heavy compute | The M4 MacBook | — | electricity |
+### ✅ Phase 0–3: research + verdict pipeline (DONE)
 
-Single-user load is orders of magnitude below every free-tier limit, so
-realistic monthly bill is £0. The two real constraints:
-- App Service F1 sleeps after ~20 min idle → first request after a cold
-  period takes 5–10s. Fine for a personal tool.
-- F1 has no custom-domain SSL. Hit it from `*.azurewebsites.net` or put
-  Cloudflare in front if you need the `api.showmesoldprice.com` subdomain.
+The platform now answers "today, should I BUY / WAIT / AVOID, and
+which ETF" with backtest evidence, regime survival, decision trace,
+and analyst cross-check.
 
-**Upgrade path when F1 bites:**
-- Azure App Service B1 (~£10/mo): always-on, custom-domain SSL.
-- Azure Functions Consumption plan: pay only for invocations (first 1M
-  free/mo), cold starts but no sleep. Rewriting the minimal API as Functions
-  is straightforward — each endpoint becomes one function.
+### Phase 4 — Robust ETF execution (NEXT)
 
-## UK-specific considerations
+The output is correct. The plumbing isn't yet trustworthy enough for
+a daily decision tool.
 
-- **Currency:** default is GBP; the fee model in both backtesters applies the
-  0.5% UK stamp duty to buys on LSE main-market shares. AIM-listed shares are
-  exempt — override `stampDutyRate` to `0` for them.
-- **Symbols:** Yahoo uses `.L` suffix for LSE equities (`BARC.L`, `LLOY.L`);
-  `^FTSE` / `^FTMC` for the FTSE 100 / 250 indices.
-- **Tax wrapper:** when simulations drive real decisions, add an ISA mode that
-  ignores CGT on sell-side and caps new contributions at the £20,000/year
-  annual allowance.
-- **Brokers:** Trading212, Freetrade, IG, and Hargreaves Lansdown are the
-  obvious integration targets (read-only first — see Phase 5).
+- [ ] **Persistence**: replace `InMemoryCompareStore` with a
+      file-backed (`~/.tradepro/server-cache/<universe>.json`) or
+      Firestore-backed store so the API doesn't lose data on restart.
+- [ ] **Scheduled refresh**: a `launchd` plist on the Mac that runs
+      `tradepro-compare --watchlist etf_all --push` once per day after
+      the US close. Frontend always has fresh data without operator
+      action.
+- [ ] **Stale-data warning**: amber/red banner on `/compare` if
+      `generated_at` > 24h. Beginners never act on stale numbers.
+- [ ] **Per-symbol fetch error reporting**: instead of dropping
+      symbols silently when Yahoo fails, surface them in the UI as
+      "data unavailable — last known: 2026-04-25".
+- [ ] **Currency awareness**: when `etf_all` mixes UK + US, label
+      each row's currency in the matrix and warn against absolute-
+      fee comparisons across currencies.
+- [ ] **Traceability + observability** *(your stated priority)*:
+  - Run history page: list past comparator runs with `run_id`,
+    timestamp, universe, row count, strategies, status.
+  - Click a `run_id` → view the full event log (the JSONL emitted
+    by `RunLogger`) and the manifest (inputs + stats).
+  - Per-decision audit trail: from a Compare row, click "why this
+    verdict" → land on a page that shows every input + every rule
+    that ran, with a permalink stable across re-runs.
+  - Structured backend logs with correlation ID per ingest request.
+  - Health probe + freshness probe exposed on `/health/details`.
 
-## Running heavy work locally (M4 MacBook)
+### Phase 5 — Fundamentals + market news
 
-- Python backtester is designed for vectorised runs over the full universe.
-- For neural models, `torch` auto-detects MPS on Apple Silicon. Set
-  `device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")`.
-- Results are emitted as JSON (`scripts/run_backtest.py --out …`), which the
-  .NET API can ingest and serve to the UI — no GPU hosting required.
+Cheap, high-signal additions before going to LLM:
 
-## Data storage (layered, minimal)
+- [ ] **ETF fundamentals** from Yahoo's quote summary: dividend
+      yield, expense ratio, AUM, top-10 holdings, average duration
+      (for bond ETFs). Refresh weekly. Render in the expand panel.
+- [ ] **Per-symbol news headlines** from Yahoo's news feed
+      (`yfinance.Ticker.news`). No sentiment scoring yet — just
+      visibility. Render in the expand panel as a list with
+      timestamps and source links.
+- [ ] **Manual news flag**: operator can mark a news item as
+      "material" (e.g., earnings beat, guidance cut) so it
+      influences the verdict.
 
-The guiding rule: **the Mac is the source of truth for raw + computed data;
-the server only stores what the UI needs to show.**
+### Phase 6 — LLM-based sentiment + macro overlay
 
-- **Local cache (Mac):** Parquet files under `strategies/.cache/` keyed by
-  `(provider, symbol, interval)`. A DuckDB file (`strategies/.cache/tradepro.duckdb`)
-  indexes them so ad-hoc SQL queries over the whole universe are fast. This
-  removes the per-run hit on free providers and makes backtests reproducible.
-- **Server DB (Firestore — free tier):** Firestore on the Spark plan covers
-  the whole single-user use case at £0/month. Free tier is 1 GiB stored,
-  50k reads / 20k writes per day — ~100× more than we need. Documents stored:
-  - `watchlists/{name}` — user-defined lists (replaces the in-memory preset).
-  - `scans/{yyyy-mm-dd_strategy}` — every scan's BUY/SELL/HOLD buckets.
-  - `backtests/{runId}` — input config + summary stats (equity curve stays as
-    blob storage or kept local if it gets large).
-  - `journal/{tradeId}` — user notes / decisions attached to signals.
-  Firestore has a client-side SDK so the React app can subscribe and update
-  in real-time — no extra API calls needed for read-heavy views. Only
-  move to Postgres if you ever outgrow the daily read/write quotas.
-- **Flow:** Mac runs backtests / model training → writes a result JSON →
-  `POST /api/backtests/ingest` stores the summary → UI reads it back. Raw
-  candles stay on the Mac; the API re-fetches live prices on demand.
+Local-first; no paid API.
 
-### How the website talks to the Mac (answer: it doesn't)
+- [ ] **Local LLM** via Ollama (`llama-3` or `phi-3` on M-series MPS)
+      reads the news headlines + earnings transcripts and emits a
+      sentiment score per symbol per day.
+- [ ] **Sector + macro narrative**: weekly LLM-generated 200-word
+      "what's going on in this sector" blurb, attached to each
+      sector card.
+- [ ] **Bucket demotion rule**: if sentiment score is sharply
+      negative and a BUY is in play, demote to WAIT with the
+      reason surfaced. The Iran-war / tariff-shock case lands here.
+- [ ] **Bias guard**: never auto-promote a verdict on positive
+      sentiment alone — the rule-based check has to also pass.
 
-Never expose the laptop to the internet. Instead the Mac pushes:
+### Phase 7 — Live signals + alerts
+
+- [ ] Daily signal evaluation across all watchlists.
+- [ ] Email / push (Firebase Cloud Messaging) when a row's verdict
+      changes (e.g., BUY → WAIT).
+- [ ] Per-user notification rules ("only alert me on BUY in
+      `etf_uk_core`").
+
+### Phase 8 — Paper trading + journal
+
+- [ ] In-app portfolio ledger (no broker integration yet).
+- [ ] When the user clicks BUY on a card, log a paper trade with the
+      exact `run_id` it came from — full traceability from decision
+      back to the data that supported it.
+- [ ] P&L roll-up per strategy and per regime.
+
+### Phase 9 — Broker integration (read-only first)
+
+- [ ] Read-only broker connection (Trading212 / Freetrade / IBKR).
+- [ ] Reconcile real holdings against paper positions.
+- [ ] Manual order placement with confirmation guardrails.
+- [ ] Audit log of every order and the signal that led to it.
+
+### Phase 10 — Production hardening
+
+- [ ] Real OpenTelemetry → Azure Monitor (or AWS CloudWatch post-
+      migration). Trace ID propagated from frontend → API → Python
+      worker.
+- [ ] AWS migration (see A10). Code is already portable.
+- [ ] Cost dashboard: a small `/api/health/cost` endpoint that
+      reports current usage vs free-tier limits.
+
+---
+
+## Non-goals (still — for now)
+
+- Real money execution before Phase 9.
+- HFT / sub-second strategies.
+- Multi-tenant SaaS.
+- Regulated investment advice (we're a decision aid, with the
+  disclaimer in the UI).
+
+---
+
+## Cost-effective stack (£0 / month)
+
+Default path until single-user usage justifies paid tiers:
+
+| Layer | Service | Free-tier limit |
+|---|---|---|
+| UI hosting | Firebase Hosting (Spark) | 10 GB bandwidth / mo |
+| Database | Firestore (Spark) | 1 GiB stored, 50k reads + 20k writes / day |
+| API compute | Azure App Service **F1** | 60 CPU-min / day, sleeps when idle |
+| Heavy compute | The M-series Mac | electricity only |
+
+**Upgrade triggers:**
+- F1 sleep is annoying for active dev → B1 (~£10/mo): always-on,
+  custom-domain SSL.
+- Firestore quotas hit (unlikely single-user) → Postgres on
+  CockroachDB Serverless or Neon.
+
+---
+
+## UK-specific defaults
+
+- Currency GBP; UK 0.5% stamp duty on LSE main-market shares (AIM /
+  ETFs exempt — `--stamp-duty 0`).
+- Yahoo `.L` suffix (`BARC.L`, `LLOY.L`); `^FTSE` / `^FTMC` indices.
+- Tax wrapper (Phase 8): ISA mode = no CGT on sell side, £20k/yr
+  contribution cap.
+- Brokers (Phase 9): Trading212 / Freetrade / Hargreaves Lansdown.
+
+---
+
+## Push pipeline
 
 ```
- ┌───────────────┐   HTTPS + bearer token   ┌────────────────┐    ┌──────────────┐
- │  Mac (Python) │ ───────────────────────▶ │ Azure API      │ ──▶│ Azure DB /   │
- │  scheduled    │   POST /api/ingest/...   │ .NET 8         │    │ blob storage │
- │  cron/launchd │                          └───────┬────────┘    └──────────────┘
- └───────────────┘                                  │
-                                                    ▼
-                                          ┌──────────────────┐
-                                          │ Firebase Hosting │ (reads from API)
-                                          │ React UI         │
-                                          └──────────────────┘
+ ┌───────────────┐   POST /api/ingest/<kind>   ┌────────────────┐
+ │  Mac (Python) │ ──────────────────────────▶ │ Azure / AWS    │
+ │  scheduled    │   Authorization: Bearer     │ .NET 8 API     │
+ │  launchd      │                             └───────┬────────┘
+ └───────────────┘                                     │ GET /api/compare/...
+                                                       ▼
+                                             ┌──────────────────┐
+                                             │ Firebase Hosting │
+                                             │ React UI         │
+                                             └──────────────────┘
 ```
 
-- Endpoints (Phase 1): `POST /api/ingest/scan`, `POST /api/ingest/backtest`,
-  `POST /api/ingest/model-prediction`. All require a shared secret header.
-- Secret is stored on the Mac in `~/.tradepro/credentials` (chmod 600) and
-  on Azure as an App Service config value.
-- Scheduling on the Mac: `launchd` plist invoking `strategies/scripts/push.py`.
-  Cron works too but `launchd` survives reboots cleanly.
-- If a push fails, retry with exponential backoff and keep the last N JSON
-  payloads on disk so nothing is lost.
-
-## Perplexity Comet hook (optional)
-
-Comet can be scheduled to do targeted research (earnings recaps, news
-sentiment, macro context) and POST the output to a TradePro enrichment
-endpoint. Wire-up pattern:
-1. Expose `POST /api/enrichments` on the backend (Phase 1).
-2. Configure a Comet task to hit that endpoint on a schedule with a JSON
-   payload keyed by symbol.
-3. The backtester / signal engine reads enrichments as an additional feature.
-
-## Non-goals (for now)
-
-- Real money execution before Phase 5.
-- HFT / sub-second strategies — the data layer is EOD + intraday at best.
-- Multi-tenant SaaS — this is a personal platform first.
+- Auth: ingest token (single static value) on `/api/ingest/*`,
+  Firebase ID token on everything else.
+- Secret on the Mac: `~/.tradepro/credentials` (chmod 600).
+- Server: `Ingest__Token` env var, set in Azure App Service config
+  (will move to AWS Secrets Manager post-migration).
+- Failure mode: `tradepro-push` retries with exponential backoff;
+  payloads are kept on disk under `~/.tradepro/artefacts/<run_id>/`
+  so nothing is lost.
