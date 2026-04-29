@@ -1,0 +1,31 @@
+# Dev-only image. Production deploys via Azure App Service from the publish
+# step in azure-api-deploy.yml — this Dockerfile is purely so `docker compose
+# up` gives you a hot-reloading API locally.
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+WORKDIR /src
+
+# `dotnet watch` on macOS through a bind-mount needs polling — kqueue events
+# don't propagate from the host filesystem into the container.
+ENV DOTNET_USE_POLLING_FILE_WATCHER=1 \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    ASPNETCORE_ENVIRONMENT=Development \
+    ASPNETCORE_URLS=http://+:5080
+
+# Restore in a layer that only invalidates when csproj/sln changes — keeps
+# `docker compose build` fast on routine code edits.
+COPY TradePro.sln ./
+COPY TradePro.Api/TradePro.Api.csproj TradePro.Api/
+RUN dotnet restore TradePro.sln
+
+# Source comes in via the bind-mount at runtime; copy here so first-build
+# users get a working image without compose.
+COPY . .
+
+EXPOSE 5080
+
+# `--non-interactive` stops dotnet watch from prompting on rude edits;
+# `--no-launch-profile` ignores Properties/launchSettings.json so the
+# ASPNETCORE_URLS env var actually wins.
+CMD ["dotnet", "watch", "--project", "TradePro.Api/TradePro.Api.csproj", "run", \
+     "--non-interactive", "--no-launch-profile"]

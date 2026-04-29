@@ -42,6 +42,27 @@ ROADMAP.md       phased build plan
 Works out of the box — no Firebase project or Azure subscription needed. Auth
 is automatically bypassed in development (`ASPNETCORE_ENVIRONMENT=Development`).
 
+### Everything in one shot — Docker Compose
+
+```bash
+cp .env.compose.example .env       # tweak INGEST_TOKEN if you care
+docker compose up                  # API on :5080, frontend on :5173
+```
+
+Both services hot-reload from your working tree (`dotnet watch run` for the
+API, Vite HMR for the frontend). Edit a `.cs` or `.tsx` file and the change
+is live in seconds — no rebuild needed.
+
+For breakpoint debugging the API, run it natively (`dotnet run` or via your
+IDE) and start only the frontend in a container:
+
+```bash
+docker compose up frontend
+```
+
+The Python research package (`strategies/`) intentionally isn't a service —
+run `uv run tradepro-compare` natively so you keep the M-series perf.
+
 ### Backend (.NET 8)
 ```bash
 cd backend/TradePro.Api

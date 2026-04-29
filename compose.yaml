@@ -1,0 +1,80 @@
+# Local dev stack — `docker compose up` gives you a hot-reloading API and
+# frontend with the same URLs the browser would see in prod (just on
+# localhost). The Python research package is intentionally NOT a service:
+# you run `uv run tradepro-compare` natively on the host so the M-series
+# perf advantage isn't wrapped in a container.
+#
+# Quick reference:
+#   docker compose up                # both, foreground
+#   docker compose up -d             # both, background
+#   docker compose up frontend       # only frontend (run API natively for breakpoints)
+#   docker compose logs -f api       # tail one service
+#   docker compose down              # stop everything
+#
+# Hot reload:
+#   - API uses `dotnet watch run` — edit a .cs file and it rebuilds in ~2s.
+#   - Frontend uses Vite HMR — edit .tsx and the browser updates instantly.
+#
+# Env config:
+#   Copy .env.compose.example to .env at the repo root, set the values you
+#   care about. The .env file is gitignored.
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: tradepro-api
+    ports:
+      - "${API_PORT:-5080}:5080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5080
+      # In dev the FirebaseAuth helper defaults RequireAuth to false, so
+      # /api/* is open without a token — matches `dotnet run` natively.
+      Firebase__RequireAuth: "false"
+      # Static-token auth for /api/ingest/*. Falls back to a dev value if
+      # the host hasn't set one.
+      Ingest__Token: "${INGEST_TOKEN:-dev-ingest-token}"
+      # Open up CORS to the local frontend. The default config already
+      # allows http://localhost:5173 — this just makes it explicit if the
+      # operator overrides API_PORT.
+      Cors__AllowedOrigins__0: "http://localhost:5173"
+    volumes:
+      # Bind-mount source so dotnet watch picks up edits.
+      - ./backend:/src
+      # Anonymous volumes shadow the host's bin/obj — otherwise macOS
+      # restore + container build clash and you get FileNotFoundException
+      # on TradePro.Api.dll.
+      - /src/TradePro.Api/bin
+      - /src/TradePro.Api/obj
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: tradepro-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      # Vite reads .env.development at build/start, but if the operator
+      # wants to override the API URL (e.g. point at a Codespace tunnel),
+      # they can set VITE_API_BASE_URL in compose .env.
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:5080}"
+    volumes:
+      - ./frontend:/app
+      # Keep node_modules inside the container — host's macOS arm64
+      # node_modules can't be reused by the linux container.
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  frontend_node_modules:
