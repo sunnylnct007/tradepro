@@ -94,6 +94,8 @@ def _row_for(
             "current_action": "HOLD",
             "latest_signal": 0,
             "latest_bar": None,
+            "in_position": False,
+            "position_since": None,
             "market_state": state.to_dict(),
             "error": "no_data",
         }
@@ -118,6 +120,8 @@ def _row_for(
             "current_action": "HOLD",
             "latest_signal": 0,
             "latest_bar": None,
+            "in_position": False,
+            "position_since": None,
             "market_state": state.to_dict(),
             "error": str(e),
         }
@@ -129,6 +133,19 @@ def _row_for(
     full_signals = signal_fn(adjusted).reindex(adjusted.index).fillna(0).astype(int)
     latest_signal = int(full_signals.iloc[-1]) if not full_signals.empty else 0
     latest_bar = adjusted.index[-1].isoformat() if not adjusted.empty else None
+
+    # "Is the strategy currently long this asset?" — find the most recent
+    # non-zero signal and look at its sign. This is what a multi-strategy
+    # consensus vote ("more than half are long → BUY") needs, since the
+    # latest-bar signal alone is mostly 0/HOLD on cross-event strategies.
+    in_position = False
+    position_since: str | None = None
+    nonzero = full_signals[full_signals != 0]
+    if not nonzero.empty:
+        last_idx = nonzero.index[-1]
+        last_kind = int(nonzero.iloc[-1])
+        in_position = last_kind == 1
+        position_since = last_idx.isoformat()
 
     regime_df = all_regime_stats(result.equity_curve)
     regime_rows = [
@@ -155,6 +172,8 @@ def _row_for(
         "current_action": _action_from_signal(latest_signal),
         "latest_signal": latest_signal,
         "latest_bar": latest_bar,
+        "in_position": bool(in_position),
+        "position_since": position_since,
         "market_state": state.to_dict(),
         "error": None,
     }

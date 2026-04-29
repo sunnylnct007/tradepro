@@ -211,6 +211,11 @@ export interface CompareRow {
   current_action: "BUY" | "SELL" | "HOLD";
   latest_signal: number;
   latest_bar: string | null;
+  /** True if this strategy's most recent fired signal was BUY (i.e. it would
+   * currently be holding the asset). Buy-and-hold is always true after the
+   * first bar. Used for >50% strategy consensus voting. */
+  in_position: boolean;
+  position_since: string | null;
   market_state: CompareMarketState;
   rank: number;
   error: string | null;

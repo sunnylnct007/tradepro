@@ -8,25 +8,41 @@ import type {
   EntrySignal,
 } from "../api/types";
 import { Info } from "../components/Info";
-import type { HELP } from "../docs/tooltips";
 
-/** "Where should I put money for the long term?" page.
+/** "Should I invest today, and if yes, in what?" page.
  *
- * Renders the latest ranked-comparison payload pushed in from the local
- * Mac via tradepro-compare. Each row carries (a) backtest stats, (b) a
- * per-row "now or wait" market-state verdict, and (c) per-regime stress
- * breakdowns. The page picks the universe + presents the headline + a
- * compact ranked table; clicking a row reveals the regime evidence. */
+ * Triages the comparator output (5 strategies × N ETFs) down to one card
+ * per ETF, bucketed BUY / WAIT / AVOID, with a strategy-consensus vote
+ * ("4 of 5 strategies are currently long") and the per-symbol entry
+ * verdict from market_state. Click a card to see all 5 strategies'
+ * stats and the per-regime stress breakdown.
+ *
+ * Bucket assignment uses BOTH the price-based market_state and the
+ * strategy vote: a confident BUY needs both an entry-friendly price
+ * setup and a majority of strategies already in position. */
+
+const PRICE_VERDICTS: EntrySignal[] = ["BUY", "HOLD", "WAIT", "AVOID"];
+
+interface SymbolView {
+  symbol: string;
+  rows: CompareRow[];           // sorted by rank ascending (best first)
+  bestRow: CompareRow;
+  marketSignal: EntrySignal;    // from market_state.entry_signal (per-symbol)
+  marketReason: string;
+  longCount: number;            // # strategies currently in position
+  total: number;
+  bucket: "BUY" | "WAIT" | "AVOID";
+  bucketReason: string;
+}
+
 export function Compare() {
   const [universes, setUniverses] = useState<CompareUniverseSummary[]>([]);
   const [universe, setUniverse] = useState<string>("");
   const [data, setData] = useState<CompareLatestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
-  const [openRow, setOpenRow] = useState<string | null>(null);
+  const [openSymbol, setOpenSymbol] = useState<string | null>(null);
 
-  // Initial load — list available universes.
   useEffect(() => {
     api.compareUniverses()
       .then((r) => {
@@ -38,12 +54,11 @@ export function Compare() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  // Fetch the chosen universe's payload.
   useEffect(() => {
     if (!universe) return;
     setLoading(true);
     setError(null);
-    setOpenRow(null);
+    setOpenSymbol(null);
     api.compareLatest(universe)
       .then(setData)
       .catch((e) => {
@@ -53,22 +68,27 @@ export function Compare() {
       .finally(() => setLoading(false));
   }, [universe]);
 
-  const top = data?.payload?.rows ?? [];
-  const visibleRows = useMemo(() => (showAll ? top : top.slice(0, 10)), [top, showAll]);
-  const bestRow = top[0];
+  const views: SymbolView[] = useMemo(() => buildSymbolViews(data?.payload?.rows ?? []), [data]);
+  const buys = views.filter((v) => v.bucket === "BUY");
+  const waits = views.filter((v) => v.bucket === "WAIT");
+  const avoids = views.filter((v) => v.bucket === "AVOID");
+  const rankMetric = data?.rankMetric ?? data?.payload?.rank_metric ?? "sharpe";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Best ETF to invest in (long horizon)</h1>
+        <h1 style={{ margin: 0, fontSize: 24 }}>Should I invest today?</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
-          Heavy comparison runs on a Mac and gets pushed here. For each ETF the
-          ranker reports backtest stats (CAGR, Sharpe, max drawdown), a per-row
-          <em> now-or-wait</em> verdict, and how each instrument fared through
-          historical stress windows (2008 GFC, 2020 COVID, 2022 rate shock, …).
-          Use this when you have months-to-years to invest, not days.
+          For long-horizon (months-to-years) ETF investing. Each ETF goes
+          into <strong style={{ color: "var(--up)" }}>BUY today</strong>,{" "}
+          <strong style={{ color: "var(--neutral)" }}>WAIT</strong>, or{" "}
+          <strong style={{ color: "var(--down)" }}>AVOID</strong> based on the
+          combination of (a) price action — uptrend, RSI, drawdown — and
+          (b) how many of the 5 strategies are currently long the asset.
         </p>
       </div>
+
+      <ProvenanceBar data={data} loading={loading} />
 
       <section
         className="card"
@@ -92,81 +112,200 @@ export function Compare() {
         </label>
         {data && (
           <>
-            <Stat label="Last computed" value={fmtAge(data.generatedAtUtc)} />
             <Stat label="Ranked by" value={data.rankMetric ?? "—"} />
-            <Stat
-              label="Window"
-              value={`${data.payload.from} → ${data.payload.to}`}
-            />
+            <Stat label="Window" value={`${data.payload.from} → ${data.payload.to}`} />
+            <Stat label="ETFs × strategies" value={`${views.length} × ${views[0]?.total ?? 0}`} />
           </>
         )}
       </section>
 
-      {loading && <div style={{ color: "var(--text-dim)" }}>Loading…</div>}
+      {error && <EmptyState error={error} />}
 
-      {error && (
-        <EmptyState error={error} />
-      )}
+      {data && views.length > 0 && (
+        <>
+          <VerdictHeadline
+            buys={buys}
+            waits={waits}
+            avoids={avoids}
+            rankMetric={rankMetric}
+          />
 
-      {data && bestRow && (
-        <BestPickCard row={bestRow} rankMetric={data.rankMetric ?? data.payload.rank_metric} />
-      )}
-
-      {data && top.length > 0 && (
-        <section className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: "var(--bg-hover)", color: "var(--text-dim)", textAlign: "left" }}>
-                <Th>#</Th>
-                <Th>Symbol</Th>
-                <Th help="strategy">Strategy</Th>
-                <Th align="right" help="cagr">CAGR %</Th>
-                <Th align="right" help="sharpe">Sharpe</Th>
-                <Th align="right" help="max_drawdown">Max DD %</Th>
-                <Th align="right" help="off_52w">Off 52w</Th>
-                <Th align="right" help="rsi14">RSI</Th>
-                <Th align="right" help="entry_signal">Now?</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRows.map((row) => {
-                const key = `${row.symbol}-${row.strategy}`;
-                const open = openRow === key;
-                return (
-                  <RowGroup
-                    key={key}
-                    row={row}
-                    open={open}
-                    onToggle={() => setOpenRow(open ? null : key)}
-                  />
-                );
-              })}
-            </tbody>
-          </table>
-          {top.length > 10 && (
-            <div style={{ padding: 12, textAlign: "center", borderTop: "1px solid var(--border)" }}>
-              <button onClick={() => setShowAll((v) => !v)}>
-                {showAll ? `Show top 10` : `Show all ${top.length} rows`}
-              </button>
-            </div>
-          )}
-        </section>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: 16,
+            }}
+          >
+            <Bucket
+              title="Buy today"
+              tone="up"
+              items={buys}
+              openSymbol={openSymbol}
+              setOpen={setOpenSymbol}
+              rankMetric={rankMetric}
+            />
+            <Bucket
+              title="Wait"
+              tone="neutral"
+              items={waits}
+              openSymbol={openSymbol}
+              setOpen={setOpenSymbol}
+              rankMetric={rankMetric}
+            />
+            <Bucket
+              title="Avoid"
+              tone="down"
+              items={avoids}
+              openSymbol={openSymbol}
+              setOpen={setOpenSymbol}
+              rankMetric={rankMetric}
+            />
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-function BestPickCard({
-  row,
+// --------------------------------------------------------------------------
+// Bucket assignment + per-symbol aggregation
+// --------------------------------------------------------------------------
+
+function buildSymbolViews(rows: CompareRow[]): SymbolView[] {
+  if (rows.length === 0) return [];
+  const groups = new Map<string, CompareRow[]>();
+  for (const row of rows) {
+    const arr = groups.get(row.symbol) ?? [];
+    arr.push(row);
+    groups.set(row.symbol, arr);
+  }
+
+  const views: SymbolView[] = [];
+  for (const [symbol, rs] of groups) {
+    const sorted = [...rs].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+    const best = sorted[0];
+    const ms = best.market_state;
+    const longCount = sorted.filter((r) => r.in_position).length;
+    const total = sorted.length;
+    const majorityLong = longCount > total / 2;
+    const priceVerdict: EntrySignal = (PRICE_VERDICTS as string[]).includes(ms?.entry_signal ?? "")
+      ? (ms.entry_signal as EntrySignal)
+      : "HOLD";
+
+    let bucket: SymbolView["bucket"];
+    let reason: string;
+    if (priceVerdict === "AVOID") {
+      bucket = "AVOID";
+      reason = ms?.entry_reason || "Confirmed downtrend.";
+    } else if (priceVerdict === "WAIT") {
+      bucket = "WAIT";
+      reason = ms?.entry_reason || "Better entries likely soon.";
+    } else if (majorityLong && (priceVerdict === "BUY" || priceVerdict === "HOLD")) {
+      bucket = "BUY";
+      reason = ms?.entry_reason ||
+        `${longCount} of ${total} strategies currently long; price action supports entry.`;
+    } else {
+      // Price OK but strategies don't yet agree — wait for confirmation.
+      bucket = "WAIT";
+      reason = `Only ${longCount} of ${total} strategies are currently long — wait for more confirmation.`;
+    }
+
+    views.push({
+      symbol, rows: sorted, bestRow: best,
+      marketSignal: priceVerdict, marketReason: ms?.entry_reason ?? "",
+      longCount, total, bucket, bucketReason: reason,
+    });
+  }
+  views.sort((a, b) => (a.bestRow.rank ?? 1e9) - (b.bestRow.rank ?? 1e9));
+  return views;
+}
+
+// --------------------------------------------------------------------------
+// Realness / provenance banner
+// --------------------------------------------------------------------------
+
+function ProvenanceBar({
+  data,
+  loading,
+}: {
+  data: CompareLatestResponse | null;
+  loading: boolean;
+}) {
+  if (loading) return <div style={{ color: "var(--text-dim)" }}>Loading…</div>;
+  if (!data) return null;
+  const generated = new Date(data.generatedAtUtc);
+  const received = new Date(data.receivedAtUtc);
+  const ageMin = Math.max(1, Math.round((Date.now() - generated.getTime()) / 60000));
+  const ageStr = ageMin < 60
+    ? `${ageMin} min ago`
+    : ageMin < 60 * 24
+      ? `${Math.round(ageMin / 60)} h ago`
+      : `${Math.round(ageMin / 1440)} d ago`;
+  return (
+    <div
+      className="card"
+      style={{
+        display: "flex",
+        gap: 14,
+        flexWrap: "wrap",
+        alignItems: "center",
+        borderLeft: "3px solid var(--up)",
+        padding: "10px 14px",
+      }}
+    >
+      <span
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          color: "var(--up)",
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+        }}
+      >
+        ● Live
+      </span>
+      <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
+        Real Yahoo Finance prices, computed in Python locally{" "}
+        <strong style={{ color: "var(--text)" }}>{ageStr}</strong>.
+      </span>
+      <span
+        style={{
+          marginLeft: "auto",
+          fontSize: 11,
+          color: "var(--text-muted)",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        }}
+      >
+        run {data.runId?.slice(0, 8) ?? "—"} ·{" "}
+        gen {generated.toLocaleString()} ·{" "}
+        recv {received.toLocaleTimeString()} ·{" "}
+        {data.rowCount} rows
+      </span>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Verdict headline + buckets
+// --------------------------------------------------------------------------
+
+function VerdictHeadline({
+  buys,
+  waits,
+  avoids,
   rankMetric,
 }: {
-  row: CompareRow;
+  buys: SymbolView[];
+  waits: SymbolView[];
+  avoids: SymbolView[];
   rankMetric: string;
 }) {
-  const ms = row.market_state;
-  const verdict = ms?.entry_signal ?? "HOLD";
-  const verdictColour = signalColour(verdict);
-  const metricValue = row.stats?.[rankMetric];
+  const top = buys[0] ?? waits[0] ?? avoids[0];
+  const verdict =
+    buys.length === 0
+      ? "No clear buys today — let the market come to you."
+      : `${buys.length} BUY · ${waits.length} WAIT · ${avoids.length} AVOID`;
   return (
     <section
       className="card"
@@ -176,101 +315,236 @@ function BestPickCard({
         display: "flex",
         gap: 18,
         flexWrap: "wrap",
+        alignItems: "center",
       }}
     >
       <div style={{ minWidth: 220 }}>
-        <div className="stat-label">Top pick</div>
-        <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
-          <Link to={`/signals?symbol=${encodeURIComponent(row.symbol)}`} style={{ color: "var(--text)" }}>
-            {row.symbol}
-          </Link>
-          <span style={{ color: "var(--text-dim)", fontWeight: 400, marginLeft: 8, fontSize: 14 }}>
-            via {row.strategy_label}
-          </span>
-        </div>
-        <div style={{ marginTop: 6, color: "var(--text-dim)", fontSize: 13 }}>
-          {rankMetric}: <strong style={{ color: "var(--text)" }}>{fmtNum(metricValue)}</strong>
-          {" · "}
-          CAGR {fmtNum(row.stats?.cagr_pct)}%
-          {" · "}
-          max DD {fmtNum(row.stats?.max_drawdown_pct)}%
-        </div>
+        <div className="stat-label">Today's verdict</div>
+        <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{verdict}</div>
       </div>
-      <div
-        style={{
-          flex: 1,
-          minWidth: 280,
-          padding: "10px 14px",
-          borderRadius: 8,
-          background: "rgba(255,255,255,0.02)",
-          borderLeft: `3px solid ${verdictColour}`,
-        }}
-      >
-        <div className="stat-label">Now or wait?</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: verdictColour, marginTop: 4 }}>
-          {verdict}
+      {top && (
+        <div
+          style={{
+            flex: 1,
+            minWidth: 280,
+            padding: "10px 14px",
+            borderRadius: 8,
+            background: "rgba(255,255,255,0.02)",
+            borderLeft: `3px solid ${bucketColour(top.bucket)}`,
+          }}
+        >
+          <div className="stat-label">Top {top.bucket === "BUY" ? "buy" : "candidate"}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+            <Link to={`/signals?symbol=${encodeURIComponent(top.symbol)}`} style={{ color: "var(--text)" }}>
+              {top.symbol}
+            </Link>{" "}
+            <span style={{ color: "var(--text-dim)", fontWeight: 400, fontSize: 13 }}>
+              · {top.bestRow.strategy_label} ({rankMetric}{" "}
+              {fmtNum(top.bestRow.stats?.[rankMetric])})
+            </span>
+          </div>
+          <div style={{ marginTop: 4, color: "var(--text-dim)", fontSize: 13 }}>
+            {top.longCount} of {top.total} strategies currently long. {top.bucketReason}
+          </div>
         </div>
-        <div style={{ marginTop: 4, color: "var(--text-dim)", fontSize: 13 }}>
-          {ms?.entry_reason}
-        </div>
-      </div>
+      )}
     </section>
   );
 }
 
-function RowGroup({
-  row,
-  open,
-  onToggle,
+function Bucket({
+  title,
+  tone,
+  items,
+  openSymbol,
+  setOpen,
+  rankMetric,
 }: {
-  row: CompareRow;
-  open: boolean;
-  onToggle: () => void;
+  title: string;
+  tone: "up" | "down" | "neutral";
+  items: SymbolView[];
+  openSymbol: string | null;
+  setOpen: (s: string | null) => void;
+  rankMetric: string;
 }) {
-  const ms = row.market_state;
-  const colour = signalColour(ms?.entry_signal);
+  const colour = toneColour(tone);
   return (
-    <>
-      <tr
-        style={{ cursor: "pointer", borderTop: "1px solid var(--border)" }}
-        onClick={onToggle}
-      >
-        <Td>{row.rank}</Td>
-        <Td><strong>{row.symbol}</strong></Td>
-        <Td style={{ color: "var(--text-dim)" }}>{row.strategy_label}</Td>
-        <Td align="right" className="num">{fmtNum(row.stats?.cagr_pct)}</Td>
-        <Td align="right" className="num">{fmtNum(row.stats?.sharpe)}</Td>
-        <Td align="right" className="num">{fmtNum(row.stats?.max_drawdown_pct)}</Td>
-        <Td align="right" className="num">{fmtNum(ms?.pct_off_52w_high_pct)}</Td>
-        <Td align="right" className="num">{fmtNum(ms?.rsi_14, 0)}</Td>
-        <Td align="right" style={{ color: colour, fontWeight: 600 }}>
-          {ms?.entry_signal ?? "—"}
-        </Td>
-      </tr>
-      {open && (
-        <tr style={{ background: "var(--bg-hover)" }}>
-          <td colSpan={9} style={{ padding: "10px 16px", color: "var(--text-dim)", fontSize: 12 }}>
-            <div style={{ marginBottom: 6 }}>
-              <strong style={{ color: colour }}>{ms?.entry_signal}</strong> — {ms?.entry_reason}
-            </div>
-            {row.regimes.length > 0 ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                {row.regimes.map((r) => (
-                  <div key={r.key} style={{ borderLeft: `2px solid ${regimeColour(r.kind)}`, paddingLeft: 8 }}>
-                    <div style={{ color: "var(--text)", fontSize: 12, fontWeight: 600 }}>{r.name}</div>
-                    <div className="num">return {fmtNum(r.return_pct)}% · max DD {fmtNum(r.max_drawdown_pct)}%</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div>No historical regime overlap for this row.</div>
-            )}
-          </td>
-        </tr>
+    <div className="card" style={{ borderTop: `3px solid ${colour}`, paddingTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+        <h3
+          style={{
+            margin: 0,
+            color: colour,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            fontSize: 12,
+          }}
+        >
+          {title}
+          {tone === "up" && <Info k="entry_signal" />}
+        </h3>
+        <span className="num" style={{ color: "var(--text-muted)", fontSize: 12 }}>
+          {items.length}
+        </span>
+      </div>
+      {items.length === 0 && (
+        <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Nothing here.</div>
       )}
-    </>
+      <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+        {items.map((v) => (
+          <SymbolCard
+            key={v.symbol}
+            view={v}
+            colour={colour}
+            open={openSymbol === v.symbol}
+            onToggle={() => setOpen(openSymbol === v.symbol ? null : v.symbol)}
+            rankMetric={rankMetric}
+          />
+        ))}
+      </ul>
+    </div>
   );
 }
+
+function SymbolCard({
+  view,
+  colour,
+  open,
+  onToggle,
+  rankMetric,
+}: {
+  view: SymbolView;
+  colour: string;
+  open: boolean;
+  onToggle: () => void;
+  rankMetric: string;
+}) {
+  const ms = view.bestRow.market_state;
+  return (
+    <li
+      style={{
+        padding: "10px 0",
+        borderBottom: "1px solid rgba(37, 50, 86, 0.4)",
+      }}
+    >
+      <div
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, cursor: "pointer" }}
+        onClick={onToggle}
+      >
+        <div>
+          <Link
+            to={`/signals?symbol=${encodeURIComponent(view.symbol)}`}
+            style={{ color: "var(--text)", fontWeight: 600 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="num">{view.symbol}</span>
+          </Link>
+          <span style={{ marginLeft: 8, color: "var(--text-dim)", fontSize: 11 }}>
+            best: {view.bestRow.strategy_label}
+          </span>
+        </div>
+        <VoteBar long={view.longCount} total={view.total} colour={colour} />
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+        {rankMetric} {fmtNum(view.bestRow.stats?.[rankMetric])} ·{" "}
+        CAGR {fmtNum(view.bestRow.stats?.cagr_pct)}% ·{" "}
+        max DD {fmtNum(view.bestRow.stats?.max_drawdown_pct)}% ·{" "}
+        RSI {fmtNum(ms?.rsi_14, 0)}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+        {view.bucketReason}
+      </div>
+      {open && <ExpandedDetail view={view} />}
+    </li>
+  );
+}
+
+function VoteBar({ long, total, colour }: { long: number; total: number; colour: string }) {
+  const dots = [];
+  for (let i = 0; i < total; i++) {
+    dots.push(
+      <span
+        key={i}
+        style={{
+          display: "inline-block",
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          marginRight: 2,
+          background: i < long ? colour : "rgba(255,255,255,0.12)",
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+      title={`${long} of ${total} strategies currently long`}
+    >
+      <span style={{ fontSize: 12, color: colour, fontWeight: 600 }}>
+        {long}/{total}
+      </span>
+      <span style={{ display: "inline-flex" }}>{dots}</span>
+    </span>
+  );
+}
+
+function ExpandedDetail({ view }: { view: SymbolView }) {
+  return (
+    <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.18)", borderRadius: 6 }}>
+      <div style={{ marginBottom: 8 }}>
+        <div className="stat-label" style={{ marginBottom: 4 }}>Strategies on {view.symbol}</div>
+        <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ color: "var(--text-muted)", textAlign: "left" }}>
+              <th style={{ padding: "3px 6px" }}>Strategy</th>
+              <th style={{ padding: "3px 6px", textAlign: "right" }}>CAGR %</th>
+              <th style={{ padding: "3px 6px", textAlign: "right" }}>Sharpe</th>
+              <th style={{ padding: "3px 6px", textAlign: "right" }}>Max DD %</th>
+              <th style={{ padding: "3px 6px" }}>Now long?</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view.rows.map((r) => (
+              <tr key={r.strategy} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ padding: "3px 6px", color: "var(--text)" }}>{r.strategy_label}</td>
+                <td className="num" style={{ padding: "3px 6px", textAlign: "right" }}>{fmtNum(r.stats?.cagr_pct)}</td>
+                <td className="num" style={{ padding: "3px 6px", textAlign: "right" }}>{fmtNum(r.stats?.sharpe)}</td>
+                <td className="num" style={{ padding: "3px 6px", textAlign: "right" }}>{fmtNum(r.stats?.max_drawdown_pct)}</td>
+                <td style={{ padding: "3px 6px", color: r.in_position ? "var(--up)" : "var(--text-muted)" }}>
+                  {r.in_position
+                    ? `LONG (since ${r.position_since?.slice(0, 10) ?? "—"})`
+                    : "flat"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {view.bestRow.regimes.length > 0 && (
+        <div>
+          <div className="stat-label" style={{ marginBottom: 4 }}>
+            Stress history (best: {view.bestRow.strategy_label})
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 6 }}>
+            {view.bestRow.regimes.map((r) => (
+              <div key={r.key} style={{ borderLeft: `2px solid ${regimeColour(r.kind)}`, paddingLeft: 6, fontSize: 11 }}>
+                <div style={{ color: "var(--text)", fontWeight: 600 }}>{r.name}</div>
+                <div className="num" style={{ color: "var(--text-dim)" }}>
+                  {fmtNum(r.return_pct)}% · DD {fmtNum(r.max_drawdown_pct)}%
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Helpers
+// --------------------------------------------------------------------------
 
 function EmptyState({ error }: { error: string }) {
   return (
@@ -309,60 +583,16 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Th({
-  children,
-  align,
-  help,
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right";
-  help?: keyof typeof HELP;
-}) {
-  return (
-    <th
-      style={{
-        padding: "10px 12px",
-        fontWeight: 500,
-        fontSize: 11,
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-        textAlign: align ?? "left",
-      }}
-    >
-      {children}
-      {help && <Info k={help} />}
-    </th>
-  );
+function bucketColour(b: SymbolView["bucket"]): string {
+  if (b === "BUY") return "var(--up)";
+  if (b === "AVOID") return "var(--down)";
+  return "var(--neutral)";
 }
 
-function Td({
-  children,
-  align,
-  style,
-  className,
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right";
-  style?: React.CSSProperties;
-  className?: string;
-}) {
-  return (
-    <td
-      className={className}
-      style={{ padding: "10px 12px", textAlign: align ?? "left", ...style }}
-    >
-      {children}
-    </td>
-  );
-}
-
-function signalColour(signal?: EntrySignal | null): string {
-  switch (signal) {
-    case "BUY": return "var(--up)";
-    case "WAIT": return "var(--neutral)";
-    case "AVOID": return "var(--down)";
-    default: return "var(--text-dim)";
-  }
+function toneColour(tone: "up" | "down" | "neutral"): string {
+  if (tone === "up") return "var(--up)";
+  if (tone === "down") return "var(--down)";
+  return "var(--neutral)";
 }
 
 function regimeColour(kind: string): string {
@@ -379,15 +609,4 @@ function fmtNum(x: unknown, digits: number = 2): string {
   const n = Number(x);
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
-}
-
-function fmtAge(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const min = Math.max(1, Math.round((now - then) / 60000));
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 48) return `${hr} h ago`;
-  const days = Math.round(hr / 24);
-  return `${days} d ago`;
 }
