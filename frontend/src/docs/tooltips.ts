@@ -86,9 +86,9 @@ export const HELP: Record<string, HelpEntry> = {
       "How much money the simulation begins with. Fees and position sizing scale off this. Small accounts are more hurt by flat commissions.",
   },
   confidence: {
-    title: "How the confidence score is built",
+    title: "Signal score (0–95) — not a probability",
     body:
-      "Starts at 65% if the strategy fired within the last 3 bars, 40% otherwise. Adds/subtracts 10% when the supporting signals (trend direction, RSI zone) agree or disagree. Clamped to 95% — we never claim certainty.",
+      "A heuristic agreement score: 65 if the strategy fired in the last 3 bars (40 otherwise), ±10 when SMA-trend or RSI confirm/contradict the action. It is NOT a probability of profit and NOT a historical hit rate — for that, see the Hit-rate card on the Signal detail page.",
   },
   cagr: {
     title: "CAGR — compound annual growth rate",

@@ -58,8 +58,12 @@ export function Scanner() {
       <div>
         <h1 style={{ margin: 0, fontSize: 24 }}>What's worth buying or selling today?</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
-          Run a trading strategy across a defined watchlist. Results are ranked by signal
-          strength. This is a decision aid, not advice.
+          Run a trading strategy across a defined watchlist. Each card shows a{" "}
+          <strong>signal score</strong>
+          <Info k="confidence" /> — how strongly the strategy's supporting indicators
+          agree, on a 0–95 scale. It is <em>not</em> a probability of profit and{" "}
+          <em>not</em> a historical hit rate (those live on the Signal detail page).
+          This is a decision aid, not advice.
         </p>
       </div>
 
@@ -197,8 +201,23 @@ function Bucket({ title, tone, items }: { title: string; tone: "up" | "down" | "
               >
                 <span className="num">{i.symbol}</span>
               </Link>
-              <span className="num" style={{ color: colour, fontSize: 12, fontWeight: 600 }}>
-                {Math.round(i.decision.confidence * 100)}%
+              <span
+                className="num"
+                style={{ color: colour, fontSize: 12, fontWeight: 600 }}
+                title="Signal score (0–95) — strategy + indicator agreement, not a probability of profit"
+              >
+                <span
+                  style={{
+                    fontWeight: 400,
+                    opacity: 0.6,
+                    marginRight: 4,
+                    fontSize: 11,
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  score
+                </span>
+                {Math.round(i.decision.confidence * 100)}
               </span>
             </div>
             <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 2 }}>
