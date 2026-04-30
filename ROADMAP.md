@@ -69,7 +69,7 @@ with one, the plan changes.
 | # | Assumption | Implication if it changes |
 |---|---|---|
 | A1 | **Single user.** No multi-tenancy. Auth is "is it me, or someone I let in?" — a static ingest token + a Firebase UID whitelist. | Multi-tenant SaaS would need user IDs everywhere, per-user data partitioning, billing, and rate limiting. |
-| A2 | **UK-resident retail investor.** Defaults: GBP, LSE `.L` symbols, UK 0.5% stamp duty on buys. The system understands USD/EUR symbols too, but the UI lead is UK. | A US-resident default would change fee model, watchlist, and tax-wrapper modelling. |
+| A2 | **UK-resident retail investor; ETF-led, individual stocks layered on later.** Defaults: GBP, LSE `.L` symbols, UK 0.5% stamp duty on buys. ETFs are the lead use-case ("which ETF should I hold for years?"). Individual stocks (FTSE 100, US mega-caps) are in the watchlists today but get a richer treatment in Phase 5b — fundamental ratios + earnings narrative — once ETF execution is solid. | A US-resident default would change fee model, watchlist, and tax-wrapper modelling. Going stocks-first instead of ETF-first changes which signals matter most (P/E + earnings vs Sharpe + drawdown). |
 | A3 | **Daily bars today, real-time feed planned.** Currently EOD only — strategies fire on close-to-close events. Phase 7 introduces an optional intraday/real-time feed (Alpaca, IBKR, Polygon) for the symbols a user actively holds, gated per-watchlist so we don't burn quota on the whole universe. | When real-time lands: data layer adds streaming source(s), a new "live" tab on Compare, and bucket assignments refresh on tick rather than once per day. |
 | A4 | **The Mac is the source of truth for compute.** Heavy work (backtests, model training) runs locally on the M-series. The API only stores + serves the JSON the Mac pushes. | Moving compute to the cloud means provisioned infra costs, GPU/CPU plans, and probably AWS Lambda or a managed batch service. |
 | A5 | **Yahoo Finance is primary, best-effort.** Free, no key, but rate-limited and subject to upstream changes. Failures are tolerated (return empty rather than crash). | If Yahoo gets blocked or sunsets the unofficial API, we'd need Alpha Vantage / Finnhub / IBKR with API keys + paid tiers. |
@@ -127,36 +127,125 @@ a daily decision tool.
   - Structured backend logs with correlation ID per ingest request.
   - Health probe + freshness probe exposed on `/health/details`.
 
-### Phase 5 — Fundamentals + market news
+### Phase 5a — ETF fundamentals + market news (DONE part 1)
 
-Cheap, high-signal additions before going to LLM:
-
-- [ ] **ETF fundamentals** from Yahoo's quote summary: dividend
-      yield, expense ratio, AUM, top-10 holdings, average duration
-      (for bond ETFs). Refresh weekly. Render in the expand panel.
-- [ ] **Per-symbol news headlines** from Yahoo's news feed
-      (`yfinance.Ticker.news`). No sentiment scoring yet — just
-      visibility. Render in the expand panel as a list with
-      timestamps and source links.
+- [x] **ETF fundamentals** from Yahoo's quote summary: dividend
+      yield, expense ratio, AUM, top-10 holdings with weights,
+      sector mix, inception date. Bond ETFs additionally surface
+      yield-to-maturity + duration. Rendered in the Compare expand
+      panel.
+- [x] **Per-symbol news headlines** from Yahoo's news feed
+      (`yfinance.Ticker.news`). Top 5 in the expand panel —
+      clickable to source, publisher + relative timestamp. No
+      sentiment scoring yet (Phase 6).
 - [ ] **Manual news flag**: operator can mark a news item as
       "material" (e.g., earnings beat, guidance cut) so it
-      influences the verdict.
+      influences the verdict. Belongs after Phase 6's automatic
+      sentiment so manual flags only override the model when the
+      operator disagrees with it — not the primary input.
 
-### Phase 6 — LLM-based sentiment + macro overlay
+### Phase 5b — Extending to individual stocks (gated on ETF being solid)
 
-Local-first; no paid API.
+ETFs answer "which basket should I own". Individual stocks need a
+different signal set: fundamental ratios + earnings narrative
+matter, not just price action. This phase **starts only after Phase
+4 + 5a leftovers are clean** for ETFs — we don't fork the focus
+mid-ETF.
 
-- [ ] **Local LLM** via Ollama (`llama-3` or `phi-3` on M-series MPS)
-      reads the news headlines + earnings transcripts and emits a
-      sentiment score per symbol per day.
-- [ ] **Sector + macro narrative**: weekly LLM-generated 200-word
-      "what's going on in this sector" blurb, attached to each
-      sector card.
-- [ ] **Bucket demotion rule**: if sentiment score is sharply
-      negative and a BUY is in play, demote to WAIT with the
-      reason surfaced. The Iran-war / tariff-shock case lands here.
-- [ ] **Bias guard**: never auto-promote a verdict on positive
+- [ ] **Fundamental ratios per stock** from `Ticker.info` /
+      `.financials` / `.balance_sheet` / `.cashflow`: P/E,
+      forward P/E, PEG, P/B, ROE, debt/equity, free-cash-flow
+      yield, revenue growth (3y / 5y), gross / operating / net
+      margins, margin trend. All free, daily refresh, deterministic.
+- [ ] **Per-stock decision_trace checks**: "P/E vs sector median",
+      "ROE > 15% (quality)", "FCF yield > 5% (cheap)",
+      "Debt/equity < 1 (balance-sheet clean)". Plug into the
+      existing `_classify` rule chain — same transparency contract.
+- [ ] **Stock-specific Compare page** (or universe-aware mode on
+      the existing one): show ratios alongside CAGR / Sharpe in
+      the matrix. Top holdings is replaced by sector + competitor
+      peers.
+- [ ] **Stock watchlists**: keep the existing `uk_ftse100_sample`
+      and `us_megacap_sample`; add curated thematic lists
+      (defensives, dividend aristocrats, UK quality compounders).
+- [ ] **Cross-asset universe**: an option to compare a target
+      stock vs the ETF that holds it ("VOO vs MSFT") so a user
+      can decide whether to pick the company or just buy the
+      basket.
+
+### Phase 6 — LLM-derived qualitative signals
+
+Strict principle: **the LLM produces context and explanation, never
+the verdict.** The decision stays rule-based and transparent;
+otherwise we throw away every transparency win we've built. LLM
+outputs go in as additional `decision_trace` checks (with their own
+status), not as overrides.
+
+#### Phase 6 architecture
+
+- [ ] **`LlmProvider` abstraction** in a new `strategies/
+      tradepro_strategies/llm/` module. Implementations:
+  - `OllamaProvider` — local M-series MPS, free, private, default
+    for high-frequency / low-stakes tasks.
+  - `ClaudeProvider` — Anthropic API, used for high-value /
+    nuanced tasks where 8B-parameter models fall short. ~£1-5/mo
+    at single-user volume.
+- [ ] Every LLM call has a strict JSON output schema; parse
+      failures → `null` / "no signal" rather than crashing the
+      run. Outputs are cached by `hash(prompt + input)` so we
+      never re-score the same headline twice.
+- [ ] Telemetry: tokens-in, tokens-out, latency, parse-success
+      rate per task — exposed on `/api/health/llm` for the same
+      observability story as the worker badge.
+
+#### Phase 6a — News sentiment (lowest stakes, highest frequency)
+
+- [ ] Local Ollama scores each headline already in the news
+      pull: `{sentiment: -1..+1, themes: [string], material: bool}`.
+- [ ] Aggregate to a **7-day rolling sentiment trend per symbol**.
+      Add a new check to `decision_trace`:
+      "Sentiment trend (7d)" → pass / warn / fail.
+- [ ] **Bucket demotion rule**: BUY → WAIT when sentiment trend is
+      sharply negative AND material headlines are present. The
+      Iran-war / tariff-shock case lands here.
+- [ ] **Bias guard**: never *promote* a verdict on positive
       sentiment alone — the rule-based check has to also pass.
+
+#### Phase 6b — Earnings call + 10-K narrative analysis (stock-only)
+
+Depends on Phase 5b. Likely uses Claude API (Anthropic) — the
+analysis is more nuanced than 8B Ollama can reliably handle.
+
+- [ ] Ingest earnings-call transcripts and 10-K MD&A / risk-factors
+      sections. Source: SEC EDGAR (free), Yahoo earnings tab, or
+      paid transcript provider later.
+- [ ] LLM extracts a structured tag set:
+      `{guidance_direction, management_emphasis: [string],
+      new_risks: [string], segment_highlights: [string],
+      tone: bullish|neutral|cautious}`.
+- [ ] Render a "Fundamental narrative" panel on the stock
+      detail page. Tags are surfaced as filter chips so a user
+      can scan for "guidance cut" across the watchlist.
+
+#### Phase 6c — Decision rationale rewrite
+
+- [ ] Take the existing rule-based `decision_trace` and an LLM
+      writes a 1-paragraph plain-English summary
+      ("QQQ is BUY because price is healthily uptrending, RSI is
+      not overbought, and 4 of 5 strategies are currently long.
+      The tech-heavy tilt does mean it's the most exposed to a
+      rate shock — see GFC -55%, 2022 -25% in the regime panel.").
+- [ ] Cached aggressively — the rationale only re-generates when
+      the rule outputs actually change.
+
+#### Phase 6d — Q&A chat (last, lowest priority)
+
+- [ ] Free-form chat ("should I be worried about TLT?") backed by
+      a tool-using LLM that has read access to the platform's data
+      (compare cache, regimes, fundamentals, news).
+- [ ] **Hard rule**: the chat NEVER outputs a buy/sell decision.
+      It explains, summarises, points the user at the relevant
+      panels. The decision stays in the rule-based flow.
 
 ### Phase 7 — Live signals + alerts (incl. optional real-time feed)
 
