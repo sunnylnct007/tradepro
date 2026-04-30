@@ -142,4 +142,49 @@ export const HELP: Record<string, HelpEntry> = {
     body:
       "How far today's price is below the highest price of the past year, in %. Near 0% means it's at or near all-time-ish highs — potentially extended. A larger number means the asset has corrected and may be a better entry, if the trend recovers.",
   },
+  vix: {
+    title: "VIX — fear gauge",
+    body:
+      "30-day expected volatility of the S&P 500, derived from option prices. <15 = calm. 15-25 = normal. ≥25 = stressed (markets are pricing fear, drawdowns more likely).",
+  },
+  treasury_yield: {
+    title: "10-year Treasury yield",
+    body:
+      "Annual interest rate on US 10-year government debt. Rising = rate-shock risk for long-duration bonds and growth stocks; falling = recession or flight-to-safety. Direction over 30d is more informative than the absolute level.",
+  },
+  sp_drawdown: {
+    title: "S&P 500 drawdown from peak",
+    body:
+      "How far the broad US market is below its all-time high, in %. >5% = pullback. >10% = correction. >20% = bear market. Use it to read context — buying ETFs in a -15% S&P drawdown is different from buying at all-time highs.",
+  },
+  active_stress_regime: {
+    title: "Active stress regime",
+    body:
+      "Whether today falls inside any of the 13 named historical stress windows tracked by the system (GFC, COVID, 2022 rate shock, 2025 tariff shock, …). When active, treat BUYs with extra caution.",
+  },
+  strategy_vote: {
+    title: "Strategy consensus (X / N)",
+    body:
+      "How many of the system's strategies are currently 'long' this asset (their last fired signal was BUY, not SELL). >50% = the BUY bucket requires it; otherwise the asset goes to WAIT. Buy-and-hold is always long after the first bar — it's the baseline.",
+  },
+  in_position: {
+    title: "Strategy currently long",
+    body:
+      "True if the strategy's most recent fired signal on this asset was a BUY that hasn't been closed by a later SELL. 'flat' means it would currently not be holding the asset.",
+  },
+  wall_street_consensus: {
+    title: "Wall Street analyst consensus (Yahoo)",
+    body:
+      "Aggregated rating from the analysts Yahoo tracks. Mean is on a 1-5 scale (1 = strong buy, 5 = strong sell). Most ETFs aren't rated because analysts cover companies, not baskets — that's normal.",
+  },
+  target_price: {
+    title: "Analyst price target",
+    body:
+      "The mean of all analysts' 12-month price targets. The % vs current is more useful than the absolute level — +10% means analysts collectively expect 10% upside over the next year.",
+  },
+  freshness: {
+    title: "Data freshness",
+    body:
+      "How long ago this comparison was computed on the Mac and pushed to the API. <24h = green (Live). 24-72h = amber (Stale — refresh recommended). >72h = red (Very stale — refresh before deciding). The scheduled launchd job runs daily at 22:30 UTC.",
+  },
 };

@@ -223,6 +223,25 @@ function ProvenanceBar({
     : ageMin < 60 * 24
       ? `${Math.round(ageMin / 60)} h ago`
       : `${Math.round(ageMin / 1440)} d ago`;
+
+  // Freshness traffic light:
+  //   <24h  green ● Live  — fresh, act on it
+  //   <72h  amber ● Stale — still recent enough, but refresh
+  //   >=72h red   ● Very stale — refresh before deciding
+  const ageHr = ageMin / 60;
+  const tone =
+    ageHr < 24 ? "fresh" : ageHr < 72 ? "stale" : "very_stale";
+  const colour =
+    tone === "fresh" ? "var(--up)" : tone === "stale" ? "var(--neutral)" : "var(--down)";
+  const label =
+    tone === "fresh" ? "● Live" : tone === "stale" ? "● Stale" : "● Very stale";
+  const message =
+    tone === "fresh"
+      ? <>Real Yahoo Finance prices, computed in Python locally <strong style={{ color: "var(--text)" }}>{ageStr}</strong>.</>
+      : tone === "stale"
+        ? <>Last computed <strong style={{ color: "var(--text)" }}>{ageStr}</strong> — recent but a refresh is recommended before acting.</>
+        : <>Last computed <strong style={{ color: "var(--text)" }}>{ageStr}</strong> — <strong style={{ color: "var(--down)" }}>refresh before deciding</strong>.</>;
+
   return (
     <div
       className="card"
@@ -231,7 +250,7 @@ function ProvenanceBar({
         gap: 14,
         flexWrap: "wrap",
         alignItems: "center",
-        borderLeft: "3px solid var(--up)",
+        borderLeft: `3px solid ${colour}`,
         padding: "10px 14px",
       }}
     >
@@ -239,17 +258,28 @@ function ProvenanceBar({
         style={{
           fontSize: 11,
           fontWeight: 700,
-          color: "var(--up)",
+          color: colour,
           letterSpacing: "0.06em",
           textTransform: "uppercase",
         }}
       >
-        ● Live
+        {label}
       </span>
-      <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
-        Real Yahoo Finance prices, computed in Python locally{" "}
-        <strong style={{ color: "var(--text)" }}>{ageStr}</strong>.
-      </span>
+      <span style={{ fontSize: 12, color: "var(--text-dim)" }}>{message}</span>
+      {tone !== "fresh" && (
+        <code
+          style={{
+            fontSize: 11,
+            padding: "3px 6px",
+            background: "rgba(0,0,0,0.3)",
+            borderRadius: 4,
+            color: "var(--text-dim)",
+          }}
+          title="Run this on the Mac to push fresh data"
+        >
+          uv run tradepro-compare --watchlist {data.universe} --push
+        </code>
+      )}
       <span
         style={{
           marginLeft: "auto",
@@ -399,7 +429,7 @@ function StrategyMatrix({
                   {stratHeader(s.label)}
                 </Th>
               ))}
-              <Th align="center">Vote</Th>
+              <Th align="center" help="strategy_vote">Vote</Th>
               <Th align="center" help="entry_signal">Verdict</Th>
               <Th align="right" help={rankMetric === "sharpe" ? "sharpe" : rankMetric === "cagr_pct" ? "cagr" : undefined}>
                 Best {rankMetric}
@@ -883,17 +913,20 @@ function MarketContextBar({ ctx }: { ctx: CompareMarketContext }) {
       </div>
       <ContextStat
         label="VIX"
+        help="vix"
         value={ctx.vix !== null ? ctx.vix.toFixed(1) : "—"}
         sub={ctx.vix_regime ?? "—"}
         colour={vixColour}
       />
       <ContextStat
         label="10Y yield"
+        help="treasury_yield"
         value={ctx.tnx !== null ? `${ctx.tnx.toFixed(2)}%` : "—"}
         sub={ctx.tnx_trend ?? "—"}
       />
       <ContextStat
         label="S&P off peak"
+        help="sp_drawdown"
         value={ctx.spy_drawdown_pct !== null ? `${ctx.spy_drawdown_pct.toFixed(1)}%` : "—"}
         sub={
           ctx.spy_drawdown_pct !== null && ctx.spy_drawdown_pct < -10
@@ -905,6 +938,7 @@ function MarketContextBar({ ctx }: { ctx: CompareMarketContext }) {
       />
       <ContextStat
         label="Active stress regime"
+        help="active_stress_regime"
         value={ctx.active_stress_regimes.length ? ctx.active_stress_regimes.join(", ") : "none"}
         sub={ctx.active_stress_regimes.length ? "elevated risk" : "no flag"}
         colour={ctx.active_stress_regimes.length ? "var(--down)" : "var(--text-muted)"}
@@ -921,15 +955,20 @@ function ContextStat({
   value,
   sub,
   colour,
+  help,
 }: {
   label: string;
   value: string;
   sub: string;
   colour?: string;
+  help?: string;
 }) {
   return (
     <div style={{ minWidth: 100 }}>
-      <div className="stat-label">{label}</div>
+      <div className="stat-label">
+        {label}
+        {help && <Info k={help as Parameters<typeof Info>[0]["k"]} />}
+      </div>
       <div className="num" style={{ marginTop: 2, fontSize: 14, fontWeight: 600, color: colour ?? "var(--text)" }}>
         {value}
       </div>

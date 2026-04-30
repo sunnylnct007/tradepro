@@ -70,7 +70,7 @@ with one, the plan changes.
 |---|---|---|
 | A1 | **Single user.** No multi-tenancy. Auth is "is it me, or someone I let in?" — a static ingest token + a Firebase UID whitelist. | Multi-tenant SaaS would need user IDs everywhere, per-user data partitioning, billing, and rate limiting. |
 | A2 | **UK-resident retail investor.** Defaults: GBP, LSE `.L` symbols, UK 0.5% stamp duty on buys. The system understands USD/EUR symbols too, but the UI lead is UK. | A US-resident default would change fee model, watchlist, and tax-wrapper modelling. |
-| A3 | **Daily bars, end-of-day decisions.** No intraday, no HFT. Strategies fire on close-to-close events. | Going intraday means a different data layer (1m bars, real-time feeds, streaming). |
+| A3 | **Daily bars today, real-time feed planned.** Currently EOD only — strategies fire on close-to-close events. Phase 7 introduces an optional intraday/real-time feed (Alpaca, IBKR, Polygon) for the symbols a user actively holds, gated per-watchlist so we don't burn quota on the whole universe. | When real-time lands: data layer adds streaming source(s), a new "live" tab on Compare, and bucket assignments refresh on tick rather than once per day. |
 | A4 | **The Mac is the source of truth for compute.** Heavy work (backtests, model training) runs locally on the M-series. The API only stores + serves the JSON the Mac pushes. | Moving compute to the cloud means provisioned infra costs, GPU/CPU plans, and probably AWS Lambda or a managed batch service. |
 | A5 | **Yahoo Finance is primary, best-effort.** Free, no key, but rate-limited and subject to upstream changes. Failures are tolerated (return empty rather than crash). | If Yahoo gets blocked or sunsets the unofficial API, we'd need Alpha Vantage / Finnhub / IBKR with API keys + paid tiers. |
 | A6 | **Rule-based strategies, not ML — yet.** Every verdict is explainable: a human can read the rules in `market_state.py:_classify`. | Adding ML means model-versioning, training pipelines, drift monitoring, and a different transparency story (feature importance instead of an `if`-ladder). |
@@ -91,20 +91,25 @@ The platform now answers "today, should I BUY / WAIT / AVOID, and
 which ETF" with backtest evidence, regime survival, decision trace,
 and analyst cross-check.
 
-### Phase 4 — Robust ETF execution (NEXT)
+### Phase 4 — Robust ETF execution (IN PROGRESS)
 
 The output is correct. The plumbing isn't yet trustworthy enough for
 a daily decision tool.
 
-- [ ] **Persistence**: replace `InMemoryCompareStore` with a
-      file-backed (`~/.tradepro/server-cache/<universe>.json`) or
-      Firestore-backed store so the API doesn't lose data on restart.
-- [ ] **Scheduled refresh**: a `launchd` plist on the Mac that runs
-      `tradepro-compare --watchlist etf_all --push` once per day after
-      the US close. Frontend always has fresh data without operator
-      action.
-- [ ] **Stale-data warning**: amber/red banner on `/compare` if
-      `generated_at` > 24h. Beginners never act on stale numbers.
+- [x] **Persistence**: `FileCompareStore` reads/writes
+      `<Compare:StorePath>/<universe>.json` (default `/data/compare`
+      in containers, named-volume in compose). Atomic writes
+      (tmp + rename + fsync). Hydrates from disk on startup.
+      Survives restarts and deploys.
+- [x] **Scheduled refresh**: `strategies/scripts/refresh.sh` +
+      `com.tradepro.refresh.plist` + `install-launchd.sh`. One-shot
+      install runs every ETF universe daily at 22:30 UTC, logs to
+      `~/.tradepro/logs/refresh-<date>.log`, exits non-zero on any
+      failure.
+- [x] **Stale-data banner**: traffic light on `/compare` —
+      green ●&nbsp;Live <24h, amber ●&nbsp;Stale 24-72h with the exact
+      `tradepro-compare` command shown, red ●&nbsp;Very stale >72h
+      with a "refresh before deciding" warning.
 - [ ] **Per-symbol fetch error reporting**: instead of dropping
       symbols silently when Yahoo fails, surface them in the UI as
       "data unavailable — last known: 2026-04-25".
@@ -153,13 +158,24 @@ Local-first; no paid API.
 - [ ] **Bias guard**: never auto-promote a verdict on positive
       sentiment alone — the rule-based check has to also pass.
 
-### Phase 7 — Live signals + alerts
+### Phase 7 — Live signals + alerts (incl. optional real-time feed)
 
 - [ ] Daily signal evaluation across all watchlists.
 - [ ] Email / push (Firebase Cloud Messaging) when a row's verdict
       changes (e.g., BUY → WAIT).
 - [ ] Per-user notification rules ("only alert me on BUY in
       `etf_uk_core`").
+- [ ] **Real-time / intraday feed (opt-in)**. Cheapest credible
+      providers:
+  - Alpaca: free tier, 200 calls/min, IEX-only quotes (US equities).
+  - IBKR Gateway: delayed (free with account) or real-time (per-
+      exchange sub) via `ib_insync` from the Mac.
+  - Polygon: starter tier ~$30/mo for end-of-day-with-snapshots.
+  Strategy: keep daily bars as the universe-wide truth, layer a
+  per-symbol streaming source on top for "live" mode on the symbols
+  a user actually holds. Bucket assignments refresh on tick instead
+  of once per day. Stays opt-in to keep free-tier costs at zero
+  for users who don't need it.
 
 ### Phase 8 — Paper trading + journal
 

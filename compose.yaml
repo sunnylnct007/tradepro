@@ -36,6 +36,8 @@ services:
       # Static-token auth for /api/ingest/*. Falls back to a dev value if
       # the host hasn't set one.
       Ingest__Token: "${INGEST_TOKEN:-dev-ingest-token}"
+      # Persisted compare cache — pushes survive `docker compose down`.
+      Compare__StorePath: "/data/compare"
       # Open up CORS to the local frontend. The default config already
       # allows http://localhost:5173 — this just makes it explicit if the
       # operator overrides API_PORT.
@@ -48,6 +50,11 @@ services:
       # on TradePro.Api.dll.
       - /src/TradePro.Api/bin
       - /src/TradePro.Api/obj
+      # Persisted compare cache. Survives `docker compose down` because
+      # it's a named volume; survives image rebuilds for the same reason.
+      # Switch to a bind-mount of ~/.tradepro/server-cache if you want
+      # to inspect the JSON files from the host.
+      - api_compare_cache:/data/compare
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5080/health"]
       interval: 10s
@@ -83,3 +90,4 @@ services:
 
 volumes:
   frontend_node_modules:
+  api_compare_cache:

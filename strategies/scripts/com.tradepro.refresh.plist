@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job definition: refresh every ETF universe once per day at
+  22:30 UTC (after the US close at 21:00 UTC). Logs go to ~/.tradepro/
+  logs/refresh-<date>.log.
+
+  Install:
+
+    bash strategies/scripts/install-launchd.sh
+
+  The installer rewrites the {{HOME}} and {{PROJECT_DIR}} placeholders
+  with the user's actual paths and copies the result to
+  ~/Library/LaunchAgents/, then `launchctl load`s it.
+
+  Manual run (for testing):
+    launchctl start com.tradepro.refresh
+
+  Stop / unload:
+    launchctl unload ~/Library/LaunchAgents/com.tradepro.refresh.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.refresh</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{PROJECT_DIR}}/scripts/refresh.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+  </dict>
+
+  <!-- Run daily at 22:30 UTC. Adjust if your timezone or US close moves
+       (DST + half-day sessions don't matter here — Yahoo bars are EOD,
+       this just decides when 'today' is final enough to act on). -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>22</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/launchd-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/launchd-stderr.log</string>
+
+  <!-- Don't run if the laptop is closed or asleep at fire time;
+       launchd will fire as soon as it wakes back up. -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

@@ -57,7 +57,10 @@ builder.Services.AddScoped<ISignalEngine, SignalEngine>();
 builder.Services.AddScoped<ISignalScanner, SignalScanner>();
 builder.Services.AddScoped<IHitRateEngine, HitRateEngine>();
 builder.Services.AddSingleton<IWatchlistStore, InMemoryWatchlistStore>();
-builder.Services.AddSingleton<ICompareStore, InMemoryCompareStore>();
+// File-backed compare store survives API restarts + deploys. The path
+// (Compare:StorePath, default /data/compare in containers, ~/.tradepro/
+// server-cache locally) is mounted into the container by compose.
+builder.Services.AddSingleton<ICompareStore, FileCompareStore>();
 
 var app = builder.Build();
 
