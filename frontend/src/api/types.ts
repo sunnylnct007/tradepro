@@ -272,6 +272,40 @@ export interface CompareNewsItem {
   link: string | null;
   published_at: string | null;
   thumbnail: string | null;
+  /** -1.0 to 1.0; null if scoring failed for this headline. */
+  sentiment?: number | null;
+  sentiment_themes?: string[];
+  sentiment_material?: boolean;
+  sentiment_model?: string | null;
+  sentiment_error?: string | null;
+}
+
+export interface CompareSentimentSummary {
+  items_considered: number;
+  mean_sentiment: number | null;
+  very_negative_count: number;
+  material_negative_count: number;
+  most_negative: string | null;
+}
+
+export type SentimentStatus =
+  | "scored"
+  | "partial"
+  | "all_failed"
+  | "no_news"
+  | "provider_down";
+
+export interface CompareLlmInfo {
+  provider: string;
+  model: string;
+  healthy: boolean;
+  prompt_version: string;
+  demotion_rule: {
+    mean_sentiment_threshold: number;
+    min_material_negative_count: number;
+    lookback_days: number;
+    description: string;
+  };
 }
 
 export interface CompareRow {
@@ -294,6 +328,8 @@ export interface CompareRow {
   external_consensus?: CompareExternalConsensus;
   fundamentals?: CompareFundamentals;
   news?: CompareNewsItem[];
+  sentiment_summary?: CompareSentimentSummary;
+  sentiment_status?: SentimentStatus;
   /** ISO currency code derived from the ticker venue (.L=GBP, no suffix=USD, …). */
   currency?: string;
   /** How many days behind the requested `to` date the latest bar is. 0 means
@@ -346,6 +382,7 @@ export interface ComparePayload {
   market_context?: CompareMarketContext;
   currency_mix?: CompareCurrencyMix;
   errors?: CompareError[];
+  llm?: CompareLlmInfo;
 }
 
 export interface CompareUniverseSummary {

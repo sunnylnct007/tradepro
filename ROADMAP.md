@@ -91,6 +91,48 @@ The platform now answers "today, should I BUY / WAIT / AVOID, and
 which ETF" with backtest evidence, regime survival, decision trace,
 and analyst cross-check.
 
+### Phase 4.5 — Data model formalisation + UI-editable config
+
+The compare payload has grown organically (rows, regimes, market_state,
+fundamentals, news, sentiment, currency, errors, llm). Time to make it
+a first-class contract.
+
+- [ ] **Versioned schema**: every payload carries `schema_version`
+      (semver). Bumps when fields are removed or semantics change;
+      compatible additions don't bump.
+- [ ] **Pydantic / dataclass models** in `tradepro_strategies/schema.py`
+      replace ad-hoc dicts. The comparator + ingest endpoint validate
+      against the same schema. Renders as JSON Schema for free.
+- [ ] **Generated TypeScript types**: `npm run gen-types` reads the
+      Python schema and writes `frontend/src/api/types.generated.ts`.
+      Eliminates the manual TS↔Python drift that already cost us one
+      missing-import build break.
+- [ ] **Storage shape mirrors API shape**: `FileCompareStore` writes
+      the same envelope it returns over HTTP — already true, but lock
+      it in by serialising via the schema, not by hand.
+
+### Phase 7 (extended) — UI-editable configuration
+
+The user has called out that thresholds, watchlists, regimes, and fee
+preferences should be tunable without a code change. Today they're
+all in code. This phase moves them server-side and exposes a Settings
+page.
+
+- [ ] **Watchlists**: editable from the UI, persisted in Firestore
+      (or the file-backed store as a simpler bridge). Replaces the
+      hard-coded `WATCHLISTS` dict.
+- [ ] **Sentiment thresholds**: `SENTIMENT_DEMOTION_THRESHOLD` and
+      `SENTIMENT_MIN_MATERIAL` editable from the UI. Each compare run
+      reads the active values; the payload's `llm.demotion_rule`
+      already exposes them so the change is visible.
+- [ ] **Regime windows**: add custom regimes from the UI ("Brexit
+      vote 2016-06-23 → 2016-07-08").
+- [ ] **Fee model**: per-broker presets (Trading212, Freetrade, IBKR
+      tiers) editable, default applied by region.
+- [ ] **LLM provider/model**: choose via UI (drop-down of installed
+      Ollama models + 'use Anthropic API' toggle with key entered in
+      Settings).
+
 ### Phase 4 — Robust ETF execution (IN PROGRESS)
 
 The output is correct. The plumbing isn't yet trustworthy enough for
@@ -139,6 +181,12 @@ a daily decision tool.
       correlation ID per ingest request through every log line.
       **Deferred** — invisible to users without log access; lower
       priority than the visible Phase 4 items above.
+- [ ] **Verbose run logging on the Mac side**: every comparator run
+      should emit an event JSONL with per-symbol fetch latency,
+      LLM-call latency + cache hit/miss, sentiment-scoring totals,
+      and failure reasons — already partial, formalise into the
+      `RunLogger` so the run history page can render a full
+      timeline. Pairs with traceability above.
 
 ### Phase 5a — ETF fundamentals + market news (DONE part 1)
 

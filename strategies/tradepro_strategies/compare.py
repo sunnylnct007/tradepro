@@ -25,11 +25,22 @@ from .backtest import BacktestConfig, FeeModel, run_backtest
 from .cache import ensure_cached
 from .external_consensus import ExternalConsensus, _fetch_info, fetch_consensus
 from .fundamentals import Fundamentals, fetch_fundamentals
+from .llm import get_provider as get_llm_provider
 from .market_context import market_context
 from .market_state import MarketState, market_state
 from .news import NewsItem, fetch_news
+from .news_sentiment import (
+    SentimentSummary, ScoredHeadline, score_news, summarise_recent,
+)
 from .regimes import REGIMES, all_regime_stats
 from .strategies import resolve as resolve_strategy
+
+# Sentiment thresholds — surfaced explicitly in the payload so the
+# frontend can show the user *what rule fired* rather than a magic
+# number. Tweak here, the UI updates on next push.
+SENTIMENT_DEMOTION_THRESHOLD = -0.30        # mean_sentiment ≤ this triggers demotion
+SENTIMENT_MIN_MATERIAL = 2                  # AND at least N material-negative items
+SENTIMENT_PROMPT_VERSION = "v1"             # bump when the scoring prompt changes
 
 
 @dataclass
@@ -136,12 +147,20 @@ def _row_for(
     consensus: ExternalConsensus,
     fundamentals: Fundamentals,
     news: list[NewsItem],
+    scored_news: list[ScoredHeadline],
+    sentiment_summary: SentimentSummary,
+    sentiment_status: str,
     end: datetime,
     cfg: CompareConfig,
 ) -> dict:
     """Run one (symbol, strategy) backtest and return a JSON-ready row."""
     currency = _symbol_currency(symbol)
     data_age_days = _data_age_days(prices, end)
+    # Augment each NewsItem with its sentiment score + reason (or None
+    # + sentiment_error so the UI can show why scoring failed). Always
+    # produced — even on backtest failure paths — so news rendering
+    # doesn't depend on the rest of the pipeline succeeding.
+    enriched_news = _merge_scored(news, scored_news)
     if prices.empty:
         return {
             "symbol": symbol,
@@ -159,7 +178,9 @@ def _row_for(
             "market_state": state.to_dict(),
             "external_consensus": consensus.to_dict(),
             "fundamentals": fundamentals.to_dict(),
-            "news": [n.to_dict() for n in news],
+            "news": enriched_news,
+            "sentiment_summary": sentiment_summary.to_dict(),
+            "sentiment_status": sentiment_status,
             "currency": currency,
             "data_age_days": data_age_days,
             "error": "no_data",
@@ -190,7 +211,9 @@ def _row_for(
             "market_state": state.to_dict(),
             "external_consensus": consensus.to_dict(),
             "fundamentals": fundamentals.to_dict(),
-            "news": [n.to_dict() for n in news],
+            "news": enriched_news,
+            "sentiment_summary": sentiment_summary.to_dict(),
+            "sentiment_status": sentiment_status,
             "currency": currency,
             "data_age_days": data_age_days,
             "error": str(e),
@@ -247,11 +270,38 @@ def _row_for(
         "market_state": state.to_dict(),
         "external_consensus": consensus.to_dict(),
         "fundamentals": fundamentals.to_dict(),
-        "news": [n.to_dict() for n in news],
+        "news": enriched_news,
+        "sentiment_summary": sentiment_summary.to_dict(),
+        "sentiment_status": sentiment_status,
         "currency": currency,
         "data_age_days": data_age_days,
         "error": None,
     }
+
+
+def _merge_scored(news: list[NewsItem], scored: list[ScoredHeadline]) -> list[dict]:
+    """Pair news items with their sentiment scores. The list lengths
+    are guaranteed equal (score_news preserves order), but defensively
+    handle drift via title match."""
+    out: list[dict] = []
+    by_title = {s.title: s for s in scored}
+    for raw, paired in zip(news, scored + [None] * (len(news) - len(scored))):
+        d = raw.to_dict()
+        s = paired if (paired and paired.title == raw.title) else by_title.get(raw.title)
+        if s is None:
+            d["sentiment"] = None
+            d["sentiment_themes"] = []
+            d["sentiment_material"] = False
+            d["sentiment_model"] = None
+            d["sentiment_error"] = "no scoring attempt"
+        else:
+            d["sentiment"] = s.sentiment
+            d["sentiment_themes"] = list(s.themes)
+            d["sentiment_material"] = bool(s.material)
+            d["sentiment_model"] = s.model
+            d["sentiment_error"] = s.error
+        out.append(d)
+    return out
 
 
 def _rank_value(row: dict, metric: str) -> float:
@@ -287,10 +337,20 @@ def compare(
     consensus_cache: dict[str, ExternalConsensus] = {}
     fundamentals_cache: dict[str, Fundamentals] = {}
     news_cache: dict[str, list[NewsItem]] = {}
+    scored_news_cache: dict[str, list[ScoredHeadline]] = {}
+    sentiment_summary_cache: dict[str, SentimentSummary] = {}
+    sentiment_status_cache: dict[str, str] = {}
     # Top-level errors list — surfaces symbols that failed to fetch or
     # came back empty, so the UI can show 'data unavailable for X' rather
     # than silently dropping them.
     errors: list[dict] = []
+
+    # Resolve LLM provider once per run. NoOpProvider is returned silently
+    # when nothing's configured / Ollama is down, so the rest of the loop
+    # doesn't need to care — the per-row `sentiment_status` makes that
+    # transparent on the frontend.
+    llm = get_llm_provider()
+    llm_healthy = llm.healthy()
 
     for symbol in symbols:
         if symbol not in price_cache:
@@ -307,6 +367,35 @@ def compare(
             consensus_cache[symbol] = fetch_consensus(symbol, info)
             fundamentals_cache[symbol] = fetch_fundamentals(symbol, info)
             news_cache[symbol] = fetch_news(symbol)
+            # Sentiment scoring is best-effort and visible: every row
+            # carries a status flag explaining what happened.
+            if not llm_healthy:
+                scored_news_cache[symbol] = []
+                sentiment_summary_cache[symbol] = summarise_recent([], [], days=7)
+                sentiment_status_cache[symbol] = "provider_down"
+            elif not news_cache[symbol]:
+                scored_news_cache[symbol] = []
+                sentiment_summary_cache[symbol] = summarise_recent([], [], days=7)
+                sentiment_status_cache[symbol] = "no_news"
+            else:
+                scored = score_news(news_cache[symbol], llm)
+                scored_news_cache[symbol] = scored
+                sentiment_summary_cache[symbol] = summarise_recent(
+                    scored, news_cache[symbol], days=7,
+                )
+                failed = sum(1 for s in scored if s.error is not None)
+                if failed == 0:
+                    sentiment_status_cache[symbol] = "scored"
+                elif failed < len(scored):
+                    sentiment_status_cache[symbol] = "partial"
+                else:
+                    sentiment_status_cache[symbol] = "all_failed"
+                if failed > 0:
+                    errors.append({
+                        "symbol": symbol,
+                        "stage": "sentiment",
+                        "error": f"{failed} of {len(scored)} headlines failed to score",
+                    })
             if price_cache[symbol].empty:
                 errors.append({"symbol": symbol, "stage": "no_data",
                                "error": "no bars returned for the requested window"})
@@ -315,9 +404,13 @@ def compare(
         consensus = consensus_cache[symbol]
         fundamentals = fundamentals_cache[symbol]
         news = news_cache[symbol]
+        scored_news = scored_news_cache[symbol]
+        sentiment_summary = sentiment_summary_cache[symbol]
+        sentiment_status = sentiment_status_cache[symbol]
         for strat in strategies:
             rows.append(_row_for(symbol, strat, prices, state, consensus,
-                                 fundamentals, news, end, cfg))
+                                 fundamentals, news, scored_news,
+                                 sentiment_summary, sentiment_status, end, cfg))
 
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)
     for i, row in enumerate(rows, start=1):
@@ -370,6 +463,25 @@ def compare(
             "is_mixed": is_mixed_currency,
             "primary": primary_currency,
             "currencies": sorted(currencies),
+        },
+        # Surface every parameter of the sentiment pipeline so the UI
+        # can render exactly what rule applied and what model produced
+        # the scores — no hidden behaviour.
+        "llm": {
+            "provider": llm.name,
+            "model": llm.model,
+            "healthy": llm_healthy,
+            "prompt_version": SENTIMENT_PROMPT_VERSION,
+            "demotion_rule": {
+                "mean_sentiment_threshold": SENTIMENT_DEMOTION_THRESHOLD,
+                "min_material_negative_count": SENTIMENT_MIN_MATERIAL,
+                "lookback_days": 7,
+                "description": (
+                    "BUY → WAIT when 7-day rolling mean sentiment ≤ "
+                    f"{SENTIMENT_DEMOTION_THRESHOLD} AND ≥ "
+                    f"{SENTIMENT_MIN_MATERIAL} material-negative headlines."
+                ),
+            },
         },
         "rows": rows,
         "errors": errors,

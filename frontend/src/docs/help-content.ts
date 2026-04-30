@@ -542,6 +542,118 @@ that's coming, but is informational, not decisive.
   },
 
   {
+    slug: "llm-pipeline",
+    title: "How the LLM helps (and where it doesn't)",
+    summary: "Sentiment scoring, the demotion rule, and the strict principle that the LLM never decides.",
+    emoji: "🤖",
+    sections: [
+      {
+        heading: "What the LLM does",
+        body: `
+TradePro runs a small **local language model** (default
+\`llama3.1:8b\` via Ollama on your Mac) over each news headline
+attached to an ETF. For each headline it returns:
+
+- **sentiment** — a number from -1 (very negative) to +1 (very
+  positive)
+- **themes** — short tags like \`["earnings", "guidance"]\` or
+  \`["geopolitics", "regulation"]\`
+- **material** — a boolean: would this plausibly move the price,
+  or is it filler ("3 ETFs to consider in May")?
+
+These are aggregated into a 7-day rolling **mean sentiment** and a
+count of **material-negative headlines** per ETF.
+        `,
+      },
+      {
+        heading: "What the LLM does NOT do",
+        body: `
+**The LLM never produces the buy/sell decision.** That stays in the
+rule-based engine — price vs 200-day SMA, RSI, drawdown, strategy
+consensus. The LLM output only adds *one extra check* to the
+decision trace ("Sentiment trend (7d)") and applies one demotion
+rule.
+
+This is deliberate: an LLM can hallucinate, change its mind across
+runs, and quietly drift. We wrote the rule chain on purpose so a
+human can argue with each step. The LLM just *contextualises* —
+it doesn't override.
+        `,
+      },
+      {
+        heading: "The demotion rule",
+        body: `
+The only place sentiment changes a verdict is the **BUY → WAIT
+demotion**:
+
+> If a verdict would be BUY by price + strategy consensus,
+> AND the 7-day rolling mean sentiment is ≤ **−0.30**,
+> AND there are ≥ **2 material-negative headlines**,
+> the verdict is downgraded to WAIT.
+
+Both thresholds and the lookback window ride in the JSON payload
+(\`payload.llm.demotion_rule\`), so the UI shows the *exact* rule
+that fired — no hidden numbers. When a row gets demoted you see a
+banner in its expand panel saying which condition triggered.
+
+A BUY is **never promoted** by positive sentiment alone. The
+rule-based engine has to also pass — sentiment is a brake, not an
+accelerator.
+        `,
+      },
+      {
+        heading: "Failure handling",
+        body: `
+LLM calls fail (network down, model parses garbage, Ollama not
+running). When that happens the comparator does **not** crash —
+each row carries a \`sentiment_status\` flag:
+
+- **scored** — every headline scored cleanly
+- **partial** — some succeeded, some failed (visible per item)
+- **all_failed** — none scored (the trace check goes to "warn")
+- **no_news** — no recent headlines to score
+- **provider_down** — LLM unavailable, sentiment didn't influence
+  the verdict at all
+
+The status pill at the top of /compare shows whether the LLM is
+healthy. When it's not, verdicts run on rules-only — never silently.
+        `,
+      },
+      {
+        heading: "Picking a different model",
+        body: `
+The default is \`llama3.1:8b\` — fast and accurate enough for
+sentiment scoring. To swap models, set an env var on the Mac:
+
+\`\`\`bash
+export TRADEPRO_OLLAMA_MODEL=qwen3.5:latest    # broader knowledge
+export TRADEPRO_OLLAMA_MODEL=phi4              # stronger reasoning
+\`\`\`
+
+The model name is captured in the payload alongside every score so
+you can A/B-test prompts and compare quality across models without
+re-running the comparator (the cache is keyed by hash of headline +
+model, so each model has its own cache slice).
+        `,
+      },
+      {
+        heading: "Caching",
+        body: `
+Headlines repeat across runs (Yahoo's news feed for QQQ today
+mostly overlaps tomorrow's). Scored results live in
+\`~/.tradepro/cache/llm-sentiment.json\`, keyed by
+\`hash(model + headline)\` — each headline costs **one** LLM call
+total, not one per refresh.
+
+To force a re-score, delete the cache file. To pick a different
+model, the cache lookup automatically misses (different key) so
+you don't have to clear anything.
+        `,
+      },
+    ],
+  },
+
+  {
     slug: "how-it-works",
     title: "How TradePro works under the hood",
     summary: "The push pipeline, the Mac → API → frontend flow, and the full architecture doc.",

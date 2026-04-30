@@ -6,6 +6,7 @@ import type {
   CompareExternalConsensus,
   CompareFundamentals,
   CompareLatestResponse,
+  CompareLlmInfo,
   CompareMarketContext,
   CompareNewsItem,
   CompareRow,
@@ -40,6 +41,11 @@ interface SymbolView {
   total: number;
   bucket: "BUY" | "WAIT" | "AVOID";
   bucketReason: string;
+  /** True when the bucket would have been BUY by price + strategy
+   * consensus, but was demoted to WAIT because of sentiment data. The
+   * UI surfaces this explicitly so the user sees the rule fire. */
+  sentimentDemoted?: boolean;
+  sentimentDemotionReason?: string;
 }
 
 export function Compare() {
@@ -75,7 +81,13 @@ export function Compare() {
       .finally(() => setLoading(false));
   }, [universe]);
 
-  const views: SymbolView[] = useMemo(() => buildSymbolViews(data?.payload?.rows ?? []), [data]);
+  const views: SymbolView[] = useMemo(
+    () => buildSymbolViews(
+      data?.payload?.rows ?? [],
+      data?.payload?.llm?.demotion_rule,
+    ),
+    [data],
+  );
   const buys = views.filter((v) => v.bucket === "BUY");
   const waits = views.filter((v) => v.bucket === "WAIT");
   const avoids = views.filter((v) => v.bucket === "AVOID");
@@ -105,6 +117,8 @@ export function Compare() {
       {data?.payload?.market_context && (
         <MarketContextBar ctx={data.payload.market_context} />
       )}
+
+      {data?.payload?.llm && <LlmStatusBar llm={data.payload.llm} />}
 
       <section
         className="card"
@@ -173,7 +187,10 @@ export function Compare() {
 // Bucket assignment + per-symbol aggregation
 // --------------------------------------------------------------------------
 
-function buildSymbolViews(rows: CompareRow[]): SymbolView[] {
+function buildSymbolViews(
+  rows: CompareRow[],
+  demotionRule: CompareLlmInfo["demotion_rule"] | undefined,
+): SymbolView[] {
   if (rows.length === 0) return [];
   const groups = new Map<string, CompareRow[]>();
   for (const row of rows) {
@@ -212,10 +229,33 @@ function buildSymbolViews(rows: CompareRow[]): SymbolView[] {
       reason = `Only ${longCount} of ${total} strategies are currently long — wait for more confirmation.`;
     }
 
+    // Sentiment demotion. Pure data + thresholds out of the payload —
+    // no hidden behaviour. The user can read demotionRule.description
+    // in the LLM badge to see the exact rule that ran.
+    let demoted = false;
+    let demotionReason: string | undefined;
+    if (bucket === "BUY" && demotionRule) {
+      const s = best.sentiment_summary;
+      if (s && s.mean_sentiment !== null
+          && s.mean_sentiment <= demotionRule.mean_sentiment_threshold
+          && s.material_negative_count >= demotionRule.min_material_negative_count) {
+        demoted = true;
+        demotionReason =
+          `Sentiment demotion: 7d mean ${s.mean_sentiment.toFixed(2)} ` +
+          `≤ threshold ${demotionRule.mean_sentiment_threshold} ` +
+          `AND ${s.material_negative_count} material-negative headlines ` +
+          `(threshold ≥ ${demotionRule.min_material_negative_count}).`;
+        bucket = "WAIT";
+        reason = demotionReason;
+      }
+    }
+
     views.push({
       symbol, rows: sorted, bestRow: best,
       marketSignal: priceVerdict, marketReason: ms?.entry_reason ?? "",
       longCount, total, bucket, bucketReason: reason,
+      sentimentDemoted: demoted,
+      sentimentDemotionReason: demotionReason,
     });
   }
   views.sort((a, b) => (a.bestRow.rank ?? 1e9) - (b.bestRow.rank ?? 1e9));
@@ -378,6 +418,51 @@ function VerdictHeadline({
             {top.longCount} of {top.total} strategies currently long. {top.bucketReason}
           </div>
         </div>
+      )}
+    </section>
+  );
+}
+
+function LlmStatusBar({ llm }: { llm: CompareLlmInfo }) {
+  const colour = llm.healthy ? "var(--up)" : "var(--down)";
+  return (
+    <section
+      className="card"
+      style={{
+        padding: "8px 12px",
+        borderLeft: `3px solid ${colour}`,
+        fontSize: 12,
+        display: "flex",
+        gap: 14,
+        flexWrap: "wrap",
+        alignItems: "center",
+      }}
+    >
+      <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{
+          display: "inline-block", width: 8, height: 8, borderRadius: 4,
+          background: colour,
+        }} />
+        <strong style={{ color: "var(--text)", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+          LLM
+        </strong>
+      </span>
+      <span style={{ color: "var(--text-dim)" }}>
+        {llm.healthy ? (
+          <>Sentiment scoring by <code>{llm.provider}</code> /{" "}
+          <code>{llm.model}</code> · prompt {llm.prompt_version}</>
+        ) : (
+          <>LLM unavailable — sentiment is <em>not</em> influencing
+            today's verdicts. Verdicts ran on price + strategy rules only.</>
+        )}
+      </span>
+      {llm.healthy && (
+        <span style={{
+          marginLeft: "auto", color: "var(--text-muted)", fontSize: 11,
+          maxWidth: 480,
+        }}>
+          {llm.demotion_rule.description}
+        </span>
       )}
     </section>
   );
@@ -631,12 +716,30 @@ function StrategyCell({ row }: { row?: CompareRow }) {
 }
 
 function ExpandedDetail({ view }: { view: SymbolView }) {
-  const trace = view.bestRow.market_state?.decision_trace ?? [];
+  const baseTrace = view.bestRow.market_state?.decision_trace ?? [];
   const consensus = view.bestRow.external_consensus;
   const fundamentals = view.bestRow.fundamentals;
   const news = view.bestRow.news ?? [];
+  // Append the sentiment check to the trace so the rules ladder shows
+  // the LLM-derived signal alongside the price-based ones.
+  const trace = [...baseTrace, sentimentCheck(view)];
   return (
     <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.18)", borderRadius: 6 }}>
+      {view.sentimentDemoted && view.sentimentDemotionReason && (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: "8px 10px",
+            borderLeft: "3px solid var(--neutral)",
+            background: "rgba(255,200,80,0.06)",
+            fontSize: 12,
+            color: "var(--text)",
+          }}
+        >
+          <strong style={{ color: "var(--neutral)" }}>BUY → WAIT (sentiment demotion)</strong>{" "}
+          <span style={{ color: "var(--text-dim)" }}>{view.sentimentDemotionReason}</span>
+        </div>
+      )}
       {fundamentals && <FundDetails f={fundamentals} />}
       {consensus && <CrossCheck view={view} consensus={consensus} />}
       {news.length > 0 && <NewsList items={news} symbol={view.symbol} />}
@@ -837,35 +940,126 @@ function NewsList({ items, symbol }: { items: CompareNewsItem[]; symbol: string 
       <div className="stat-label" style={{ marginBottom: 4 }}>
         Recent headlines on {symbol}{" "}
         <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
-          (informational — not used by the verdict)
+          (sentiment scored by the LLM — fed into the verdict via the trend rule)
         </span>
       </div>
       <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex",
                    flexDirection: "column", gap: 4 }}>
         {items.slice(0, 5).map((item, i) => (
           <li key={i} style={{ fontSize: 12, lineHeight: 1.45 }}>
+            <SentimentBadge item={item} />
             {item.link ? (
               <a
                 href={item.link}
                 target="_blank"
                 rel="noreferrer"
-                style={{ color: "var(--text)", textDecoration: "none" }}
+                style={{ color: "var(--text)", textDecoration: "none", marginLeft: 6 }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {item.title}
               </a>
             ) : (
-              <span style={{ color: "var(--text)" }}>{item.title}</span>
+              <span style={{ color: "var(--text)", marginLeft: 6 }}>{item.title}</span>
             )}
             <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: 6 }}>
               {item.publisher ?? "—"}
               {item.published_at && ` · ${fmtNewsAge(item.published_at)}`}
+              {item.sentiment_themes && item.sentiment_themes.length > 0 && (
+                <> · <em>{item.sentiment_themes.join(", ")}</em></>
+              )}
+              {item.sentiment_error && (
+                <> · <span style={{ color: "var(--down)" }}>scoring failed: {item.sentiment_error}</span></>
+              )}
             </span>
           </li>
         ))}
       </ul>
     </div>
   );
+}
+
+function SentimentBadge({ item }: { item: CompareNewsItem }) {
+  const s = item.sentiment;
+  if (s === null || s === undefined) {
+    return (
+      <span
+        title={item.sentiment_error ?? "not scored"}
+        style={{
+          display: "inline-block", padding: "0px 4px", borderRadius: 3,
+          background: "rgba(255,255,255,0.06)", color: "var(--text-muted)",
+          fontSize: 10, minWidth: 30, textAlign: "center",
+        }}
+      >
+        —
+      </span>
+    );
+  }
+  const colour = s >= 0.2 ? "var(--up)" : s <= -0.2 ? "var(--down)" : "var(--text-muted)";
+  const sign = s > 0 ? "+" : "";
+  return (
+    <span
+      title={`Sentiment ${sign}${s.toFixed(2)}${item.sentiment_material ? " · material" : ""}${item.sentiment_model ? ` · ${item.sentiment_model}` : ""}`}
+      style={{
+        display: "inline-block", padding: "0px 4px", borderRadius: 3,
+        background: "rgba(255,255,255,0.04)",
+        color: colour,
+        fontSize: 10, minWidth: 30, textAlign: "center", fontWeight: 600,
+      }}
+    >
+      {item.sentiment_material ? "★ " : ""}
+      {sign}{s.toFixed(2)}
+    </span>
+  );
+}
+
+/** Build the sentiment trend check entry for the rules ladder. */
+function sentimentCheck(view: SymbolView): DecisionCheck {
+  const s = view.bestRow.sentiment_summary;
+  const status = view.bestRow.sentiment_status;
+
+  if (status === "provider_down") {
+    return {
+      name: "Sentiment trend (7d)",
+      status: "warn",
+      detail: "LLM unavailable — sentiment did not factor into the verdict.",
+    };
+  }
+  if (status === "no_news" || !s || s.items_considered === 0) {
+    return {
+      name: "Sentiment trend (7d)",
+      status: "warn",
+      detail: "no recent headlines",
+    };
+  }
+  if (status === "all_failed") {
+    return {
+      name: "Sentiment trend (7d)",
+      status: "warn",
+      detail: "every headline failed to score — verdict ran without sentiment",
+    };
+  }
+
+  const mean = s.mean_sentiment ?? 0;
+  const meanFmt = `${mean >= 0 ? "+" : ""}${mean.toFixed(2)}`;
+  if (view.sentimentDemoted) {
+    return {
+      name: "Sentiment trend (7d)",
+      status: "fail",
+      detail: `${meanFmt} mean · ${s.material_negative_count} material-negative — triggered BUY → WAIT demotion`,
+    };
+  }
+  if (mean <= -0.15) {
+    return {
+      name: "Sentiment trend (7d)",
+      status: "warn",
+      detail: `${meanFmt} mean over ${s.items_considered} items — slightly negative but below demotion threshold`,
+    };
+  }
+  return {
+    name: "Sentiment trend (7d)",
+    status: "pass",
+    detail: `${meanFmt} mean · ${s.items_considered} items considered${status === "partial" ? " (some failed)" : ""}`,
+  };
 }
 
 function fmtAum(usd: number): string {
