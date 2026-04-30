@@ -13,18 +13,24 @@ Aggregation: per symbol, take all items in the last 7 days and
 compute (mean_sentiment, material_count, very_negative_count). The
 comparator turns this into a 'Sentiment trend (7d)' check on the
 decision_trace.
+
+Observability: every scoring decision (cache hit, LLM call, parse
+failure) emits a structured event via the optional RunLogger so the
+event log becomes a complete audit trail of what the model did and
+when.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from .llm import LlmProvider, get_provider
 from .news import NewsItem
+from .observability import RunLogger
 
 
 CACHE_PATH = Path.home() / ".tradepro" / "cache" / "llm-sentiment.json"
@@ -47,6 +53,46 @@ class ScoredHeadline:
             "material": self.material,
             "model": self.model,
             "error": self.error,
+        }
+
+
+@dataclass
+class SentimentTelemetry:
+    """Per-run aggregate of LLM activity. Surfaced in the compare
+    payload so the UI can show 'scored 56 · 12 from cache · 2.3s avg'
+    and the user knows the cost / freshness of each refresh."""
+    calls_attempted: int = 0       # times we asked the provider
+    calls_succeeded: int = 0
+    calls_failed: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    latencies_ms: list[int] = field(default_factory=list)
+
+    def record_cache_hit(self) -> None:
+        self.cache_hits += 1
+
+    def record_call(self, ok: bool, latency_ms: int | None) -> None:
+        self.calls_attempted += 1
+        self.cache_misses += 1
+        if ok:
+            self.calls_succeeded += 1
+        else:
+            self.calls_failed += 1
+        if latency_ms is not None:
+            self.latencies_ms.append(latency_ms)
+
+    def to_dict(self) -> dict:
+        n = len(self.latencies_ms)
+        avg = int(sum(self.latencies_ms) / n) if n > 0 else None
+        return {
+            "calls_attempted": self.calls_attempted,
+            "calls_succeeded": self.calls_succeeded,
+            "calls_failed": self.calls_failed,
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+            "avg_latency_ms": avg,
+            "max_latency_ms": max(self.latencies_ms) if self.latencies_ms else None,
+            "total_scored": self.calls_succeeded + self.cache_hits,
         }
 
 
@@ -145,10 +191,25 @@ _SCHEMA_HINT = {
 }
 
 
-def _score_one(item: NewsItem, provider: LlmProvider) -> ScoredHeadline:
+def _score_one(
+    item: NewsItem,
+    provider: LlmProvider,
+    telemetry: SentimentTelemetry | None = None,
+    logger: RunLogger | None = None,
+    symbol: str | None = None,
+) -> ScoredHeadline:
     """LLM call for one headline. Cached aggressively — same headline
-    won't get re-scored within OR across runs."""
+    won't get re-scored within OR across runs.
+
+    Emits structured events at every interesting boundary so the run
+    log is a full audit trail of what the LLM did. Telemetry counters
+    feed the per-run summary block in the compare payload."""
+    title_short = item.title[:80]
+
     if not provider.healthy():
+        if logger:
+            logger.emit("llm.score.skip", reason="provider_unavailable",
+                        symbol=symbol, title=title_short)
         return ScoredHeadline(
             title=item.title, sentiment=None, themes=[], material=False,
             model=None, error="provider unavailable",
@@ -157,6 +218,11 @@ def _score_one(item: NewsItem, provider: LlmProvider) -> ScoredHeadline:
     cache_key = _key(item.title, provider.model)
     cached = _cache.get(cache_key)
     if cached is not None:
+        if telemetry:
+            telemetry.record_cache_hit()
+        if logger:
+            logger.emit("llm.score.cache_hit",
+                        symbol=symbol, title=title_short, model=provider.model)
         return ScoredHeadline(
             title=item.title,
             sentiment=cached.get("sentiment"),
@@ -170,13 +236,23 @@ def _score_one(item: NewsItem, provider: LlmProvider) -> ScoredHeadline:
         headline=item.title,
         publisher=item.publisher or "Unknown",
     )
+    if logger:
+        logger.emit("llm.score.call_start",
+                    symbol=symbol, title=title_short, model=provider.model)
     result = provider.complete_json(prompt, schema_hint=_SCHEMA_HINT, max_tokens=120)
+
+    if telemetry:
+        telemetry.record_call(ok=result.ok, latency_ms=result.latency_ms)
 
     if not result.ok:
         scored = ScoredHeadline(
             title=item.title, sentiment=None, themes=[], material=False,
             model=provider.model, error=result.error,
         )
+        if logger:
+            logger.emit("llm.score.call_failed",
+                        symbol=symbol, title=title_short,
+                        error=result.error, latency_ms=result.latency_ms)
     else:
         d = result.data
         sentiment = _coerce_float(d.get("sentiment"))
@@ -192,6 +268,11 @@ def _score_one(item: NewsItem, provider: LlmProvider) -> ScoredHeadline:
             material=material,
             model=provider.model,
         )
+        if logger:
+            logger.emit("llm.score.call_done",
+                        symbol=symbol, title=title_short,
+                        sentiment=sentiment, material=material,
+                        latency_ms=result.latency_ms, model=provider.model)
 
     _cache.put(cache_key, scored.to_dict())
     return scored
@@ -214,9 +295,12 @@ def _coerce_float(x: Any) -> float | None:
 def score_news(
     items: Iterable[NewsItem],
     provider: LlmProvider | None = None,
+    telemetry: SentimentTelemetry | None = None,
+    logger: RunLogger | None = None,
+    symbol: str | None = None,
 ) -> list[ScoredHeadline]:
     p = provider or get_provider()
-    return [_score_one(item, p) for item in items]
+    return [_score_one(item, p, telemetry, logger, symbol) for item in items]
 
 
 def summarise_recent(

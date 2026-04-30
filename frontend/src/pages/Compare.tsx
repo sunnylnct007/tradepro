@@ -456,10 +456,34 @@ function LlmStatusBar({ llm }: { llm: CompareLlmInfo }) {
             today's verdicts. Verdicts ran on price + strategy rules only.</>
         )}
       </span>
+      {llm.healthy && llm.telemetry && (
+        <span
+          style={{
+            color: "var(--text-muted)",
+            fontSize: 11,
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          }}
+          title={
+            `attempted ${llm.telemetry.calls_attempted}, ` +
+            `cache hits ${llm.telemetry.cache_hits}, ` +
+            `failures ${llm.telemetry.calls_failed}, ` +
+            `max latency ${llm.telemetry.max_latency_ms}ms`
+          }
+        >
+          {llm.telemetry.total_scored} scored ·{" "}
+          {llm.telemetry.cache_hits} cached ·{" "}
+          {llm.telemetry.avg_latency_ms ?? 0}ms avg
+          {llm.telemetry.calls_failed > 0 && (
+            <span style={{ color: "var(--down)" }}>
+              {" "}· {llm.telemetry.calls_failed} failed
+            </span>
+          )}
+        </span>
+      )}
       {llm.healthy && (
         <span style={{
           marginLeft: "auto", color: "var(--text-muted)", fontSize: 11,
-          maxWidth: 480,
+          maxWidth: 360,
         }}>
           {llm.demotion_rule.description}
         </span>

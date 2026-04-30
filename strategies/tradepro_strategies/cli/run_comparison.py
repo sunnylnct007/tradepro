@@ -117,7 +117,9 @@ def main() -> None:
     heartbeat.send()
     try:
         runstate.update_phase("backtesting")
-        payload = compare(symbols, strategies, start, end, cfg)
+        # Pass the logger through so every fetch + scoring boundary
+        # gets a structured event in ~/.tradepro/logs/<date>/<run_id>.jsonl.
+        payload = compare(symbols, strategies, start, end, cfg, logger=logger)
         payload["universe"] = universe_label
         payload["run_id"] = logger.run_id
 

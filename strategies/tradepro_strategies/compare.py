@@ -30,8 +30,10 @@ from .market_context import market_context
 from .market_state import MarketState, market_state
 from .news import NewsItem, fetch_news
 from .news_sentiment import (
-    SentimentSummary, ScoredHeadline, score_news, summarise_recent,
+    ScoredHeadline, SentimentSummary, SentimentTelemetry,
+    score_news, summarise_recent,
 )
+from .observability import RunLogger
 from .regimes import REGIMES, all_regime_stats
 from .strategies import resolve as resolve_strategy
 
@@ -323,13 +325,21 @@ def compare(
     start: datetime,
     end: datetime,
     cfg: CompareConfig | None = None,
+    logger: RunLogger | None = None,
 ) -> dict:
     """Run every (symbol × strategy) backtest and return a ranked payload.
 
     The returned dict is the JSON we want to ship to the website — see
     `cli/run_comparison.py` for the wire format.
+
+    `logger` is optional — when passed, the comparator emits a stream
+    of structured events (per-symbol fetch + scoring boundaries, per-
+    LLM-call latency / cache hit-miss / parse failures) into the run's
+    JSONL event log. Without a logger the run is silent but still
+    works.
     """
     cfg = cfg or CompareConfig()
+    telemetry = SentimentTelemetry()
 
     rows: list[dict] = []
     price_cache: dict[str, pd.DataFrame] = {}
@@ -351,14 +361,23 @@ def compare(
     # transparent on the frontend.
     llm = get_llm_provider()
     llm_healthy = llm.healthy()
+    if logger:
+        logger.emit("llm.provider", name=llm.name, model=llm.model, healthy=llm_healthy)
+
+    import time as _time
 
     for symbol in symbols:
         if symbol not in price_cache:
+            sym_start = _time.time()
+            if logger:
+                logger.emit("compare.symbol.start", symbol=symbol)
             try:
                 price_cache[symbol] = ensure_cached(cfg.provider, symbol, start, end)
             except Exception as e:  # noqa: BLE001
                 price_cache[symbol] = pd.DataFrame()
                 errors.append({"symbol": symbol, "stage": "fetch", "error": str(e)})
+                if logger:
+                    logger.emit("compare.symbol.fetch_failed", symbol=symbol, error=str(e))
             state_cache[symbol] = market_state(symbol, price_cache[symbol])
             # Yahoo quote summary fetched once per symbol, shared across
             # consensus + fundamentals — saves a 1-2s round-trip per
@@ -367,6 +386,11 @@ def compare(
             consensus_cache[symbol] = fetch_consensus(symbol, info)
             fundamentals_cache[symbol] = fetch_fundamentals(symbol, info)
             news_cache[symbol] = fetch_news(symbol)
+            if logger:
+                logger.emit("compare.symbol.fetched",
+                            symbol=symbol,
+                            bars=len(price_cache[symbol]),
+                            news_items=len(news_cache[symbol]))
             # Sentiment scoring is best-effort and visible: every row
             # carries a status flag explaining what happened.
             if not llm_healthy:
@@ -378,7 +402,11 @@ def compare(
                 sentiment_summary_cache[symbol] = summarise_recent([], [], days=7)
                 sentiment_status_cache[symbol] = "no_news"
             else:
-                scored = score_news(news_cache[symbol], llm)
+                scoring_t0 = _time.time()
+                scored = score_news(
+                    news_cache[symbol], llm,
+                    telemetry=telemetry, logger=logger, symbol=symbol,
+                )
                 scored_news_cache[symbol] = scored
                 sentiment_summary_cache[symbol] = summarise_recent(
                     scored, news_cache[symbol], days=7,
@@ -396,9 +424,19 @@ def compare(
                         "stage": "sentiment",
                         "error": f"{failed} of {len(scored)} headlines failed to score",
                     })
+                if logger:
+                    logger.emit("compare.symbol.scored",
+                                symbol=symbol,
+                                items=len(scored),
+                                failed=failed,
+                                ms=int((_time.time() - scoring_t0) * 1000))
             if price_cache[symbol].empty:
                 errors.append({"symbol": symbol, "stage": "no_data",
                                "error": "no bars returned for the requested window"})
+            if logger:
+                logger.emit("compare.symbol.done",
+                            symbol=symbol,
+                            ms=int((_time.time() - sym_start) * 1000))
         prices = price_cache[symbol]
         state = state_cache[symbol]
         consensus = consensus_cache[symbol]
@@ -482,6 +520,11 @@ def compare(
                     f"{SENTIMENT_MIN_MATERIAL} material-negative headlines."
                 ),
             },
+            # Per-run aggregate of LLM activity — calls made, cache hit
+            # rate, latencies. Lets the UI show "scored 56 · 12 from
+            # cache · 2.3s avg" so users see the cost / freshness of
+            # each refresh.
+            "telemetry": telemetry.to_dict(),
         },
         "rows": rows,
         "errors": errors,

@@ -295,6 +295,17 @@ export type SentimentStatus =
   | "no_news"
   | "provider_down";
 
+export interface CompareLlmTelemetry {
+  calls_attempted: number;
+  calls_succeeded: number;
+  calls_failed: number;
+  cache_hits: number;
+  cache_misses: number;
+  avg_latency_ms: number | null;
+  max_latency_ms: number | null;
+  total_scored: number;
+}
+
 export interface CompareLlmInfo {
   provider: string;
   model: string;
@@ -306,6 +317,7 @@ export interface CompareLlmInfo {
     lookback_days: number;
     description: string;
   };
+  telemetry?: CompareLlmTelemetry;
 }
 
 export interface CompareRow {

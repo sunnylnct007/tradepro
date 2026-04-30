@@ -315,14 +315,53 @@ analysis is more nuanced than 8B Ollama can reliably handle.
 - [ ] Cached aggressively — the rationale only re-generates when
       the rule outputs actually change.
 
-#### Phase 6d — Q&A chat (last, lowest priority)
+#### Phase 6d — Q&A chat as an MCP server (Anthropic's Model Context Protocol)
 
-- [ ] Free-form chat ("should I be worried about TLT?") backed by
-      a tool-using LLM that has read access to the platform's data
-      (compare cache, regimes, fundamentals, news).
-- [ ] **Hard rule**: the chat NEVER outputs a buy/sell decision.
-      It explains, summarises, points the user at the relevant
-      panels. The decision stays in the rule-based flow.
+User insight (2026-04-30): the Q&A use-case is **literally the MCP
+server pattern** — "I ask a question, a server with tools and
+resources runs simulations / fetches data / formats the answer via
+an LLM". MCP standardises exactly this shape; using it gives us a
+free integration with Claude Desktop, Cursor, and any future
+MCP-aware client without a custom chat protocol.
+
+- [ ] **`tradepro-mcp` server** — a small Python service using the
+      official `mcp` SDK (or `fastmcp`). Exposes the platform as
+      tools + resources + prompts:
+  - **Resources** (read-only):
+    - `tradepro://compare/{universe}` — latest ranked-comparison
+      payload (the JSON we already store).
+    - `tradepro://watchlists` — defined universes.
+    - `tradepro://regimes` — the 13 historical stress windows.
+    - `tradepro://settings` — current sentiment thresholds + rule
+      configuration (Phase 7 / 4.5 territory).
+  - **Tools** (the LLM can invoke):
+    - `run_comparison(universe, strategies?)` — kick a fresh run
+      on the Mac, push, return the new payload.
+    - `get_market_state(symbol)` — price, RSI, SMA, drawdown,
+      decision_trace.
+    - `get_regime_history(symbol, strategy)` — per-regime stats.
+    - `get_news_with_sentiment(symbol)` — news + LLM scores.
+    - `get_health()` — system + worker status.
+  - **Prompts** (one-click templates):
+    - `analyse_etf(symbol)` — "Should I invest in {symbol}? Use
+      compare data, regime history, and current news to answer."
+    - `compare_etfs(symbols)` — side-by-side analysis.
+- [ ] **Strict-decision contract** *(unchanged)*: the LLM in the
+      MCP client (Claude Desktop or our own chat UI) is allowed
+      to summarise + cite + explain. The actual BUY/SELL/HOLD
+      verdict comes from the rule-based payload — the MCP tools
+      *return* it, the LLM doesn't compute it. Citations make
+      this auditable: every claim is traceable to a tool call.
+- [ ] **Two consumers** out of the box:
+  1. **Claude Desktop** integration — drop a config in `~/Library/
+     Application Support/Claude/claude_desktop_config.json` and
+     ask questions of your own portfolio.
+  2. **In-app `/chat` page** — same MCP server, accessed via a
+     thin frontend chat using either Claude API or local Ollama
+     as the conversational LLM (the MCP server is provider-
+     agnostic).
+- [ ] Telemetry: every MCP tool invocation gets a structured event
+      in the run log so the same observability story applies.
 
 #### Phase 6e — Macro / sector narrative (ETF + stock)
 
