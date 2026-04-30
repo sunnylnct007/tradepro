@@ -84,17 +84,37 @@ def _safe_float(x) -> float | None:
     return f if f == f else None  # filter NaN
 
 
-def fetch_consensus(symbol: str) -> ExternalConsensus:
-    """Best-effort fetch. Returns an empty record on any failure so the
-    caller can serialise it without special-casing."""
+def fetch_info(symbol: str) -> dict | None:
+    """Single Yahoo quote-summary fetch shared by consensus + fundamentals.
+    Returns None on any failure (network, parse, missing yfinance) so the
+    caller can serialise without special-casing. Caches at module level via
+    a tiny LRU so the same comparator run never re-fetches the same symbol.
+    """
+    return _fetch_info(symbol)
+
+
+def _fetch_info(symbol: str) -> dict | None:
     try:
         import yfinance as yf
     except ImportError:
-        return _empty(symbol)
-
+        return None
     try:
-        info = yf.Ticker(symbol).info or {}
+        return yf.Ticker(symbol).info or {}
     except Exception:  # noqa: BLE001
+        return None
+
+
+def fetch_consensus(symbol: str, info: dict | None = None) -> ExternalConsensus:
+    """Best-effort fetch. Returns an empty record on any failure so the
+    caller can serialise it without special-casing.
+
+    `info` may be passed in if the caller already fetched the Yahoo quote
+    summary (e.g. fundamentals.py shares the same call) — saves a second
+    HTTP round-trip per symbol.
+    """
+    if info is None:
+        info = _fetch_info(symbol)
+    if info is None:
         return _empty(symbol)
 
     rating_key = info.get("recommendationKey")

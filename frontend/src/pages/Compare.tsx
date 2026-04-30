@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   CompareExternalConsensus,
+  CompareFundamentals,
   CompareLatestResponse,
   CompareMarketContext,
+  CompareNewsItem,
   CompareRow,
   CompareUniverseSummary,
   DecisionCheck,
@@ -549,9 +551,13 @@ function StrategyCell({ row }: { row?: CompareRow }) {
 function ExpandedDetail({ view }: { view: SymbolView }) {
   const trace = view.bestRow.market_state?.decision_trace ?? [];
   const consensus = view.bestRow.external_consensus;
+  const fundamentals = view.bestRow.fundamentals;
+  const news = view.bestRow.news ?? [];
   return (
     <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.18)", borderRadius: 6 }}>
+      {fundamentals && <FundDetails f={fundamentals} />}
       {consensus && <CrossCheck view={view} consensus={consensus} />}
+      {news.length > 0 && <NewsList items={news} symbol={view.symbol} />}
       {trace.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <div className="stat-label" style={{ marginBottom: 4 }}>
@@ -616,6 +622,187 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
       )}
     </div>
   );
+}
+
+/** Fund-level fundamentals: family, expense ratio, AUM, yield, top
+ * holdings, sector mix. Hides rows that aren't applicable to the ETF
+ * (e.g. duration only shows on bond ETFs). */
+function FundDetails({ f }: { f: CompareFundamentals }) {
+  const haveCore =
+    f.expense_ratio_pct !== null
+    || f.aum_usd !== null
+    || f.dividend_yield_pct !== null
+    || (f.fund_family && f.fund_family.length > 0);
+  if (!haveCore && f.top_holdings.length === 0 && Object.keys(f.sector_weights).length === 0) {
+    return null;
+  }
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div className="stat-label" style={{ marginBottom: 4 }}>
+        Fund details{" "}
+        <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+          (Yahoo Finance, refreshed each run)
+        </span>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          gap: 8,
+          padding: "6px 8px",
+          background: "rgba(255,255,255,0.02)",
+          borderRadius: 4,
+          marginBottom: 8,
+        }}
+      >
+        {f.fund_family && <ConsensusStat label="Issuer" value={f.fund_family} />}
+        {f.category && <ConsensusStat label="Category" value={f.category} />}
+        {f.expense_ratio_pct !== null && (
+          <ConsensusStat
+            label="Expense ratio"
+            value={`${f.expense_ratio_pct.toFixed(2)}%`}
+            sub="annual fee"
+          />
+        )}
+        {f.aum_usd !== null && (
+          <ConsensusStat
+            label="AUM"
+            value={fmtAum(f.aum_usd)}
+            sub="assets under mgmt"
+          />
+        )}
+        {f.dividend_yield_pct !== null && (
+          <ConsensusStat
+            label="Dividend yield"
+            value={`${f.dividend_yield_pct.toFixed(2)}%`}
+            sub="trailing 12m"
+          />
+        )}
+        {f.distribution_yield_pct !== null
+          && f.distribution_yield_pct !== f.dividend_yield_pct && (
+          <ConsensusStat
+            label="Distribution yld"
+            value={`${f.distribution_yield_pct.toFixed(2)}%`}
+          />
+        )}
+        {f.yield_to_maturity_pct !== null && (
+          <ConsensusStat
+            label="Yield to maturity"
+            value={`${f.yield_to_maturity_pct.toFixed(2)}%`}
+            sub="bond ETF"
+          />
+        )}
+        {f.duration_years !== null && (
+          <ConsensusStat
+            label="Duration"
+            value={`${f.duration_years.toFixed(1)}y`}
+            sub="rate sensitivity"
+          />
+        )}
+        {f.inception_date && (
+          <ConsensusStat label="Inception" value={f.inception_date} />
+        )}
+      </div>
+
+      {f.top_holdings.length > 0 && (
+        <div style={{ fontSize: 11 }}>
+          <div className="stat-label" style={{ marginBottom: 4 }}>
+            Top {f.top_holdings.length} holdings
+          </div>
+          <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid",
+                       gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 4 }}>
+            {f.top_holdings.map((h, i) => (
+              <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {h.symbol ? `${h.symbol} · ` : ""}{h.name}
+                </span>
+                {h.weight_pct !== null && (
+                  <span className="num" style={{ color: "var(--text)", fontWeight: 600, flexShrink: 0 }}>
+                    {h.weight_pct.toFixed(2)}%
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {Object.keys(f.sector_weights).length > 0 && (
+        <div style={{ fontSize: 11, marginTop: 8 }}>
+          <div className="stat-label" style={{ marginBottom: 4 }}>Sector mix</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 4 }}>
+            {Object.entries(f.sector_weights)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 12)
+              .map(([sector, pct]) => (
+                <div key={sector} style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-dim)" }}>{sector}</span>
+                  <span className="num" style={{ color: "var(--text)" }}>
+                    {(pct * (Math.abs(pct) <= 1.5 ? 100 : 1)).toFixed(1)}%
+                  </span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewsList({ items, symbol }: { items: CompareNewsItem[]; symbol: string }) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="stat-label" style={{ marginBottom: 4 }}>
+        Recent headlines on {symbol}{" "}
+        <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+          (informational — not used by the verdict)
+        </span>
+      </div>
+      <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex",
+                   flexDirection: "column", gap: 4 }}>
+        {items.slice(0, 5).map((item, i) => (
+          <li key={i} style={{ fontSize: 12, lineHeight: 1.45 }}>
+            {item.link ? (
+              <a
+                href={item.link}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "var(--text)", textDecoration: "none" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {item.title}
+              </a>
+            ) : (
+              <span style={{ color: "var(--text)" }}>{item.title}</span>
+            )}
+            <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: 6 }}>
+              {item.publisher ?? "—"}
+              {item.published_at && ` · ${fmtNewsAge(item.published_at)}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function fmtAum(usd: number): string {
+  const abs = Math.abs(usd);
+  if (abs >= 1e12) return `$${(usd / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `$${(usd / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `$${(usd / 1e6).toFixed(0)}M`;
+  return `$${usd.toFixed(0)}`;
+}
+
+function fmtNewsAge(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const min = Math.max(1, Math.round((Date.now() - t) / 60000));
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const days = Math.round(hr / 24);
+  return `${days}d ago`;
 }
 
 /** Side-by-side: our verdict vs Wall Street's published consensus.

@@ -23,9 +23,11 @@ import pandas as pd
 
 from .backtest import BacktestConfig, FeeModel, run_backtest
 from .cache import ensure_cached
-from .external_consensus import ExternalConsensus, fetch_consensus
+from .external_consensus import ExternalConsensus, _fetch_info, fetch_consensus
+from .fundamentals import Fundamentals, fetch_fundamentals
 from .market_context import market_context
 from .market_state import MarketState, market_state
+from .news import NewsItem, fetch_news
 from .regimes import REGIMES, all_regime_stats
 from .strategies import resolve as resolve_strategy
 
@@ -82,6 +84,8 @@ def _row_for(
     prices: pd.DataFrame,
     state: MarketState,
     consensus: ExternalConsensus,
+    fundamentals: Fundamentals,
+    news: list[NewsItem],
     cfg: CompareConfig,
 ) -> dict:
     """Run one (symbol, strategy) backtest and return a JSON-ready row."""
@@ -101,6 +105,8 @@ def _row_for(
             "position_since": None,
             "market_state": state.to_dict(),
             "external_consensus": consensus.to_dict(),
+            "fundamentals": fundamentals.to_dict(),
+            "news": [n.to_dict() for n in news],
             "error": "no_data",
         }
 
@@ -128,6 +134,8 @@ def _row_for(
             "position_since": None,
             "market_state": state.to_dict(),
             "external_consensus": consensus.to_dict(),
+            "fundamentals": fundamentals.to_dict(),
+            "news": [n.to_dict() for n in news],
             "error": str(e),
         }
 
@@ -181,6 +189,8 @@ def _row_for(
         "position_since": position_since,
         "market_state": state.to_dict(),
         "external_consensus": consensus.to_dict(),
+        "fundamentals": fundamentals.to_dict(),
+        "news": [n.to_dict() for n in news],
         "error": None,
     }
 
@@ -216,19 +226,28 @@ def compare(
     price_cache: dict[str, pd.DataFrame] = {}
     state_cache: dict[str, MarketState] = {}
     consensus_cache: dict[str, ExternalConsensus] = {}
+    fundamentals_cache: dict[str, Fundamentals] = {}
+    news_cache: dict[str, list[NewsItem]] = {}
 
     for symbol in symbols:
         if symbol not in price_cache:
             price_cache[symbol] = ensure_cached(cfg.provider, symbol, start, end)
             state_cache[symbol] = market_state(symbol, price_cache[symbol])
-            # Fetch Wall Street consensus once per symbol — slow (Yahoo
-            # quote summary is ~1-2s) but per-symbol, not per-strategy.
-            consensus_cache[symbol] = fetch_consensus(symbol)
+            # Yahoo quote summary fetched once per symbol, shared across
+            # consensus + fundamentals — saves a 1-2s round-trip per
+            # symbol vs fetching twice. News is a separate API call.
+            info = _fetch_info(symbol)
+            consensus_cache[symbol] = fetch_consensus(symbol, info)
+            fundamentals_cache[symbol] = fetch_fundamentals(symbol, info)
+            news_cache[symbol] = fetch_news(symbol)
         prices = price_cache[symbol]
         state = state_cache[symbol]
         consensus = consensus_cache[symbol]
+        fundamentals = fundamentals_cache[symbol]
+        news = news_cache[symbol]
         for strat in strategies:
-            rows.append(_row_for(symbol, strat, prices, state, consensus, cfg))
+            rows.append(_row_for(symbol, strat, prices, state, consensus,
+                                 fundamentals, news, cfg))
 
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)
     for i, row in enumerate(rows, start=1):

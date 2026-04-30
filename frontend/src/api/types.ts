@@ -238,6 +238,42 @@ export interface CompareExternalConsensus {
   source: string;
 }
 
+export interface CompareTopHolding {
+  symbol: string | null;
+  name: string;
+  weight_pct: number | null;
+}
+
+export interface CompareFundamentals {
+  symbol: string;
+  fetched_at: string;
+  fund_family: string | null;
+  category: string | null;
+  legal_type: string | null;
+  inception_date: string | null;
+  expense_ratio_pct: number | null;
+  aum_usd: number | null;
+  dividend_yield_pct: number | null;
+  distribution_yield_pct: number | null;
+  ytd_return_pct: number | null;
+  three_year_return_pct: number | null;
+  five_year_return_pct: number | null;
+  yield_to_maturity_pct: number | null;
+  duration_years: number | null;
+  top_holdings: CompareTopHolding[];
+  sector_weights: Record<string, number>;
+  summary: string | null;
+  source: string;
+}
+
+export interface CompareNewsItem {
+  title: string;
+  publisher: string | null;
+  link: string | null;
+  published_at: string | null;
+  thumbnail: string | null;
+}
+
 export interface CompareRow {
   symbol: string;
   strategy: string;
@@ -256,6 +292,8 @@ export interface CompareRow {
   position_since: string | null;
   market_state: CompareMarketState;
   external_consensus?: CompareExternalConsensus;
+  fundamentals?: CompareFundamentals;
+  news?: CompareNewsItem[];
   rank: number;
   error: string | null;
 }
