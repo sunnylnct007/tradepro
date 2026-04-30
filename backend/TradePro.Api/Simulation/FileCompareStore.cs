@@ -36,8 +36,30 @@ public sealed class FileCompareStore : ICompareStore
     public FileCompareStore(IConfiguration config, ILogger<FileCompareStore> logger)
     {
         _logger = logger;
-        _root = config["Compare:StorePath"] ?? "/data/compare";
-        Directory.CreateDirectory(_root);
+        // Default to a path that's always writable so the API never fails to
+        // start over a missing volume mount. Operators set Compare:StorePath
+        // (env Compare__StorePath) for a durable location:
+        //   - compose dev: /data/compare (named volume)
+        //   - Azure App Service: /home/data/compare (persistent storage)
+        //   - AWS Fargate: an EFS mount
+        var configured = config["Compare:StorePath"];
+        _root = !string.IsNullOrWhiteSpace(configured)
+            ? configured
+            : Path.Combine(Path.GetTempPath(), "tradepro-compare");
+
+        try
+        {
+            Directory.CreateDirectory(_root);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to create compare cache directory {Root}; falling back to temp",
+                _root);
+            _root = Path.Combine(Path.GetTempPath(), "tradepro-compare");
+            Directory.CreateDirectory(_root);
+        }
+
         Hydrate();
     }
 
