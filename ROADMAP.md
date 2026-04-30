@@ -175,6 +175,22 @@ mid-ETF.
 
 ### Phase 6 — LLM-derived qualitative signals
 
+**Most of Phase 6 applies to ETFs too — not just stocks.** Only
+Phase 6b (earnings/10-K narrative analysis) is stock-only by
+nature. Sentiment, macro/sector narrative, prospectus summaries,
+rationale rewrite, and Q&A chat all apply directly to the ETF
+flow and don't depend on Phase 5b shipping first.
+
+| Sub-phase | ETFs | Stocks | Description |
+|---|---|---|---|
+| 6a — News sentiment | ✅ | ✅ | The Iran-war / tariff-shock demotion case |
+| 6b — Earnings / 10-K analysis | ❌ | ✅ | Depends on Phase 5b |
+| 6c — Decision rationale rewrite | ✅ | ✅ | Plain-English summary of `decision_trace` |
+| 6d — Q&A chat | ✅ | ✅ | "Is GLD a good hedge?", "VWRP vs VUSA?" |
+| 6e — Macro / sector narrative | ✅ | ✅ | Weekly 200-word digest per universe / sector |
+| 6f — ETF prospectus summary | ✅ | — | Methodology, top weights, rebalance rules |
+| 6g — Holdings-aware ETF news | ✅ | — | "What's affecting QQQ this week" via its top 5 |
+
 Strict principle: **the LLM produces context and explanation, never
 the verdict.** The decision stays rule-based and transparent;
 otherwise we throw away every transparency win we've built. LLM
@@ -246,6 +262,45 @@ analysis is more nuanced than 8B Ollama can reliably handle.
 - [ ] **Hard rule**: the chat NEVER outputs a buy/sell decision.
       It explains, summarises, points the user at the relevant
       panels. The decision stays in the rule-based flow.
+
+#### Phase 6e — Macro / sector narrative (ETF + stock)
+
+- [ ] Weekly 200-word LLM-generated digest per ETF universe and
+      per sector ("what's going on in tech / fixed income /
+      emerging markets this week"). Inputs: macro context bar,
+      regime overlap, recent news headlines, sector returns.
+- [ ] Surfaced at the top of `/compare` as a context paragraph
+      below the macro context bar — the qualitative companion to
+      the quantitative VIX / 10Y / S&P-drawdown numbers.
+- [ ] Refresh weekly; cached aggressively.
+
+#### Phase 6f — ETF prospectus summary
+
+- [ ] Pull the official prospectus (PDF or methodology page) for
+      each ETF in the universe.
+- [ ] LLM extracts: index it tracks, rebalance cadence, top
+      country / sector / factor weights, replication method
+      (physical vs synthetic), holdings concentration (% in top
+      10), securities lending policy, ESG screens if any.
+- [ ] Render in the expand panel as a one-paragraph "what's in
+      this ETF" summary above the holdings list. Beats reading 80
+      pages — a beginner can grok the structural exposure in 30
+      seconds.
+- [ ] Cached for the lifetime of the prospectus version (months).
+
+#### Phase 6g — Holdings-aware ETF news synthesis
+
+The bridge between ETF-level analysis and the stock-level news +
+fundamentals pipeline (Phase 5b + 6b).
+
+- [ ] For each ETF in a universe, take the news + sentiment of
+      its top 5-10 holdings (already pulled in Phase 5/5b).
+- [ ] LLM synthesises into a single "what's affecting QQQ this
+      week" paragraph — weighted by holding weight, focused on
+      material news.
+- [ ] Surfaced in the expand panel as "Underlying news synthesis".
+      An ETF investor sees the company-level signals without
+      drilling into 10 different stocks.
 
 ### Phase 7 — Live signals + alerts (incl. optional real-time feed)
 
