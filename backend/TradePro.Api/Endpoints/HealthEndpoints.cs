@@ -29,6 +29,7 @@ public static class HealthEndpoints
                 links = new
                 {
                     health = "/health",
+                    health_details = "/health/details",
                     swagger = env.IsDevelopment() ? "/swagger" : null,
                     compare_universes = "/api/compare/universes",
                     compare_latest = "/api/compare/latest?universe=etf_us_core",
@@ -37,6 +38,93 @@ public static class HealthEndpoints
                 {
                     universes = summaries.Count,
                     items = summaries,
+                },
+            });
+        });
+
+        // Single 'is the system OK?' view — combines API liveness, the
+        // compare cache state, and the Mac heartbeat into one payload
+        // the Health page can render. Public (no auth) so a user with a
+        // broken dev login can still see what's wrong.
+        app.MapGet("/health/details",
+            (ICompareStore compareStore, IHeartbeatStore heartbeatStore, IHostEnvironment env) =>
+        {
+            var summaries = compareStore.ListUniverses();
+            var hb = heartbeatStore.GetLatest();
+
+            // Per-universe freshness: green <24h, amber 24-72h, red >72h.
+            var freshness = summaries
+                .Select(s =>
+                {
+                    var age = DateTime.UtcNow - s.GeneratedAtUtc;
+                    var tone =
+                        age.TotalHours < 24 ? "fresh"
+                        : age.TotalHours < 72 ? "stale"
+                        : "very_stale";
+                    return new
+                    {
+                        universe = s.Universe,
+                        runId = s.RunId,
+                        ageHours = (int)age.TotalHours,
+                        rowCount = s.RowCount,
+                        rankMetric = s.RankMetric,
+                        tone,
+                        generatedAtUtc = s.GeneratedAtUtc,
+                    };
+                })
+                .ToArray();
+
+            string workerLiveness = "down";
+            int? sinceLastPing = null;
+            if (hb is not null)
+            {
+                var since = DateTime.UtcNow - hb.SentAtUtc;
+                sinceLastPing = (int)since.TotalSeconds;
+                workerLiveness =
+                    since.TotalMinutes <= 30 ? "alive"
+                    : since.TotalHours <= 24 ? "late"
+                    : "down";
+            }
+
+            // Coarse 'is anything red' verdict for the badge at the top
+            // of the Health page.
+            var anyVeryStale = freshness.Any(f => f.tone == "very_stale");
+            var verdict =
+                workerLiveness == "down" || anyVeryStale ? "needs_attention"
+                : workerLiveness == "late" || freshness.Any(f => f.tone == "stale") ? "warn"
+                : "ok";
+
+            return Results.Ok(new
+            {
+                verdict,
+                utc = DateTime.UtcNow,
+                environment = env.EnvironmentName,
+                gitSha = Environment.GetEnvironmentVariable("GIT_SHA")
+                    ?? Environment.GetEnvironmentVariable("GITHUB_SHA")
+                    ?? "unknown",
+                api = new
+                {
+                    status = "ok",
+                    uptimeSeconds =
+                        (int)(DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds,
+                },
+                worker = new
+                {
+                    liveness = workerLiveness,
+                    sinceLastPingSeconds = sinceLastPing,
+                    host = hb?.Host,
+                    isProcessing = hb?.CurrentTask is not null,
+                    currentTask = hb?.CurrentTask is null ? null : new
+                    {
+                        task = hb.CurrentTask,
+                        detail = hb.CurrentTaskDetail,
+                        phase = hb.CurrentTaskPhase,
+                    },
+                },
+                compareCache = new
+                {
+                    universes = freshness.Length,
+                    freshness,
                 },
             });
         });

@@ -294,8 +294,25 @@ export interface CompareRow {
   external_consensus?: CompareExternalConsensus;
   fundamentals?: CompareFundamentals;
   news?: CompareNewsItem[];
+  /** ISO currency code derived from the ticker venue (.L=GBP, no suffix=USD, …). */
+  currency?: string;
+  /** How many days behind the requested `to` date the latest bar is. 0 means
+   * we have a bar for today; >7 means the price feed is stale for this row. */
+  data_age_days?: number | null;
   rank: number;
   error: string | null;
+}
+
+export interface CompareCurrencyMix {
+  is_mixed: boolean;
+  primary: string;
+  currencies: string[];
+}
+
+export interface CompareError {
+  symbol: string;
+  stage: string;
+  error: string;
 }
 
 export interface ComparePayload {
@@ -327,6 +344,8 @@ export interface ComparePayload {
     value: number | null;
   } | null;
   market_context?: CompareMarketContext;
+  currency_mix?: CompareCurrencyMix;
+  errors?: CompareError[];
 }
 
 export interface CompareUniverseSummary {

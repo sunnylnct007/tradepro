@@ -3,6 +3,7 @@ import { AuthProvider } from "./auth/AuthProvider";
 import { Layout } from "./components/Layout";
 import { Compare } from "./pages/Compare";
 import { Dashboard } from "./pages/Dashboard";
+import { HealthPage } from "./pages/HealthPage";
 import { Help } from "./pages/Help";
 import { HelpTopic } from "./pages/HelpTopic";
 import { Scanner } from "./pages/Scanner";
@@ -19,6 +20,7 @@ const router = createBrowserRouter([
       { path: "signals", element: <Signals /> },
       { path: "simulations", element: <Simulations /> },
       { path: "charts", element: <Dashboard /> },
+      { path: "health", element: <HealthPage /> },
       { path: "help", element: <Help /> },
       { path: "help/:topic", element: <HelpTopic /> },
     ],

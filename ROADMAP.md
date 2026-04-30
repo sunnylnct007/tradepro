@@ -110,22 +110,35 @@ a daily decision tool.
       green ●&nbsp;Live <24h, amber ●&nbsp;Stale 24-72h with the exact
       `tradepro-compare` command shown, red ●&nbsp;Very stale >72h
       with a "refresh before deciding" warning.
-- [ ] **Per-symbol fetch error reporting**: instead of dropping
-      symbols silently when Yahoo fails, surface them in the UI as
-      "data unavailable — last known: 2026-04-25".
-- [ ] **Currency awareness**: when `etf_all` mixes UK + US, label
-      each row's currency in the matrix and warn against absolute-
-      fee comparisons across currencies.
-- [ ] **Traceability + observability** *(your stated priority)*:
-  - Run history page: list past comparator runs with `run_id`,
-    timestamp, universe, row count, strategies, status.
-  - Click a `run_id` → view the full event log (the JSONL emitted
-    by `RunLogger`) and the manifest (inputs + stats).
-  - Per-decision audit trail: from a Compare row, click "why this
-    verdict" → land on a page that shows every input + every rule
-    that ran, with a permalink stable across re-runs.
-  - Structured backend logs with correlation ID per ingest request.
-  - Health probe + freshness probe exposed on `/health/details`.
+- [x] **Per-symbol fetch error reporting**: comparator emits a
+      top-level `errors` array (symbols that failed to fetch or
+      came back empty); each row carries `data_age_days` so a stale
+      price gets a visible 'Nd stale' badge in the matrix instead
+      of silently feeding the rule chain.
+- [x] **Currency awareness**: each row carries the venue-derived
+      currency (`.L`→GBP, `.DE`→EUR, default USD). The payload
+      flags mixed-currency runs (`currency_mix.is_mixed`); the UI
+      shows a per-row Ccy column + a warning above the matrix
+      when the universe spans more than one currency.
+- [x] **Health/details endpoint + page**: `/health/details`
+      returns API status, Mac heartbeat liveness, and per-universe
+      cache freshness in one payload. New /health page polls every
+      30s and shows a single 'is the system OK?' verdict (ok /
+      warn / needs_attention) with three cards underneath.
+- [ ] **Run history page**: list past comparator runs with
+      `run_id`, timestamp, universe, row count, strategies, status.
+      Click a `run_id` → view the full event log (the JSONL
+      emitted by `RunLogger`) and the manifest. **Deferred** —
+      requires keeping multiple runs per universe in the store
+      (currently latest-only).
+- [ ] **Per-decision audit trail**: from a Compare row, click "why
+      this verdict" → land on a page with every input + every rule
+      that ran, with a permalink stable across re-runs. **Deferred**
+      — depends on run history.
+- [ ] **Correlation-ID logs**: structured backend logs threading a
+      correlation ID per ingest request through every log line.
+      **Deferred** — invisible to users without log access; lower
+      priority than the visible Phase 4 items above.
 
 ### Phase 5a — ETF fundamentals + market news (DONE part 1)
 

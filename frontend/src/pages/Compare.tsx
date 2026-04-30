@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type {
+  CompareError,
   CompareExternalConsensus,
   CompareFundamentals,
   CompareLatestResponse,
@@ -136,6 +137,16 @@ export function Compare() {
 
       {error && <EmptyState error={error} />}
 
+      {data?.payload?.currency_mix?.is_mixed && (
+        <CurrencyMixWarning
+          currencies={data.payload.currency_mix.currencies}
+        />
+      )}
+
+      {data?.payload?.errors && data.payload.errors.length > 0 && (
+        <DataIssuesPanel errors={data.payload.errors} />
+      )}
+
       {data && views.length > 0 && (
         <>
           <VerdictHeadline
@@ -150,6 +161,7 @@ export function Compare() {
             rankMetric={rankMetric}
             openSymbol={openSymbol}
             setOpen={setOpenSymbol}
+            showCurrency={data.payload.currency_mix?.is_mixed ?? false}
           />
         </>
       )}
@@ -371,6 +383,47 @@ function VerdictHeadline({
   );
 }
 
+function CurrencyMixWarning({ currencies }: { currencies: string[] }) {
+  return (
+    <div
+      className="card"
+      style={{
+        borderLeft: "3px solid var(--neutral)",
+        padding: "8px 12px",
+        fontSize: 12,
+        color: "var(--text-dim)",
+      }}
+    >
+      <strong style={{ color: "var(--text)" }}>Mixed currency universe.</strong>{" "}
+      Rows trade in {currencies.join(" + ")}. Sharpe, CAGR % and max-DD % are
+      currency-neutral so the ranking is honest, but absolute fees and
+      portfolio sizing differ — read the currency tag on each row before
+      comparing positions you'd actually take.
+    </div>
+  );
+}
+
+function DataIssuesPanel({ errors }: { errors: CompareError[] }) {
+  return (
+    <details
+      className="card"
+      style={{ borderLeft: "3px solid var(--down)", padding: "8px 12px" }}
+    >
+      <summary style={{ cursor: "pointer", color: "var(--down)", fontWeight: 600, fontSize: 12 }}>
+        {errors.length} symbol{errors.length === 1 ? "" : "s"} couldn't be priced
+      </summary>
+      <ul style={{ margin: "6px 0 0 0", paddingLeft: 16, fontSize: 12, color: "var(--text-dim)" }}>
+        {errors.map((e, i) => (
+          <li key={i}>
+            <code style={{ color: "var(--text)" }}>{e.symbol}</code>{" "}
+            <span style={{ color: "var(--text-muted)" }}>({e.stage})</span> — {e.error}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 /** One row per ETF, one column per strategy. Cell = is that strategy
  * currently long this ETF? Plus a Vote column (count/total) and a
  * Verdict column (BUY / WAIT / AVOID — the bucket assignment). Rows
@@ -382,12 +435,14 @@ function StrategyMatrix({
   rankMetric,
   openSymbol,
   setOpen,
+  showCurrency,
 }: {
   views: SymbolView[];
   strategies: { name: string; label: string }[];
   rankMetric: string;
   openSymbol: string | null;
   setOpen: (s: string | null) => void;
+  showCurrency: boolean;
 }) {
   const bucketOrder = (b: SymbolView["bucket"]) =>
     b === "BUY" ? 0 : b === "WAIT" ? 1 : 2;
@@ -432,6 +487,7 @@ function StrategyMatrix({
           <thead>
             <tr style={{ background: "var(--bg-hover)", color: "var(--text-dim)", textAlign: "left" }}>
               <Th>Symbol</Th>
+              {showCurrency && <Th align="center">Ccy</Th>}
               {strategies.map((s) => (
                 <Th key={s.name} align="center" title={s.label}>
                   {stratHeader(s.label)}
@@ -455,6 +511,7 @@ function StrategyMatrix({
                   rankMetric={rankMetric}
                   open={open}
                   onToggle={() => setOpen(open ? null : v.symbol)}
+                  showCurrency={showCurrency}
                 />
               );
             })}
@@ -471,15 +528,20 @@ function MatrixRow({
   rankMetric,
   open,
   onToggle,
+  showCurrency,
 }: {
   view: SymbolView;
   strategies: { name: string; label: string }[];
   rankMetric: string;
   open: boolean;
   onToggle: () => void;
+  showCurrency: boolean;
 }) {
   const verdictColour = bucketColour(view.bucket);
   const cellByStrategy = new Map(view.rows.map((r) => [r.strategy, r] as const));
+  const ccy = view.bestRow.currency;
+  const dataAge = view.bestRow.data_age_days ?? 0;
+  const isStale = dataAge >= 7;
   return (
     <>
       <tr
@@ -494,7 +556,27 @@ function MatrixRow({
           >
             {view.symbol}
           </Link>
+          {isStale && (
+            <span
+              title={`Latest price is ${dataAge} days behind — verdict uses possibly stale data`}
+              style={{
+                marginLeft: 6,
+                fontSize: 10,
+                color: "var(--down)",
+                background: "rgba(255,80,80,0.1)",
+                padding: "1px 5px",
+                borderRadius: 3,
+              }}
+            >
+              {dataAge}d stale
+            </span>
+          )}
         </Td>
+        {showCurrency && (
+          <Td align="center">
+            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{ccy ?? "—"}</span>
+          </Td>
+        )}
         {strategies.map((s) => {
           const row = cellByStrategy.get(s.name);
           return (
@@ -520,7 +602,7 @@ function MatrixRow({
       </tr>
       {open && (
         <tr style={{ background: "var(--bg-hover)" }}>
-          <td colSpan={strategies.length + 4} style={{ padding: 12 }}>
+          <td colSpan={strategies.length + 4 + (showCurrency ? 1 : 0)} style={{ padding: 12 }}>
             <ExpandedDetail view={view} />
           </td>
         </tr>

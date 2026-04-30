@@ -56,6 +56,56 @@ class CompareConfig:
 
 _NAN = float("nan")
 
+# Yahoo ticker suffix → trading currency. The map is conservative: we
+# return None for unknown suffixes rather than guess, so the row gets
+# labelled '—' in the UI and the user knows we don't know.
+_SUFFIX_CURRENCY: dict[str, str] = {
+    "L": "GBP",     # London Stock Exchange (.L)
+    "DE": "EUR",    # Deutsche Börse XETRA
+    "PA": "EUR",    # Paris (Euronext)
+    "AS": "EUR",    # Amsterdam
+    "MI": "EUR",    # Milan
+    "MC": "EUR",    # Madrid
+    "SW": "CHF",    # SIX Swiss
+    "T": "JPY",     # Tokyo
+    "HK": "HKD",    # Hong Kong
+    "TO": "CAD",    # Toronto
+    "AX": "AUD",    # ASX
+    "NS": "INR",    # NSE India
+    "BO": "INR",    # BSE India
+}
+
+
+def _symbol_currency(symbol: str) -> str:
+    """Best-effort native trading currency for a Yahoo ticker. Defaults to
+    USD for tickers without a known venue suffix (US-listed default)."""
+    if not symbol:
+        return "USD"
+    if "." in symbol:
+        suffix = symbol.rsplit(".", 1)[-1].upper()
+        return _SUFFIX_CURRENCY.get(suffix, "USD")
+    if symbol.startswith("^"):
+        # Indices — use a coarse heuristic; ^FTSE/^FTMC are GBP, others
+        # default to USD.
+        return "GBP" if symbol in ("^FTSE", "^FTMC") else "USD"
+    return "USD"
+
+
+def _data_age_days(prices: pd.DataFrame, end: datetime) -> int | None:
+    """How stale is the latest bar relative to the requested `end` date?
+    Useful so the UI can flag 'this row's price is from 9 days ago, take
+    the verdict with a pinch of salt'."""
+    if prices.empty:
+        return None
+    last = prices.index[-1]
+    end_ts = pd.Timestamp(end)
+    if end_ts.tzinfo is None and last.tzinfo is not None:
+        end_ts = end_ts.tz_localize("UTC")
+    if last.tzinfo is None and end_ts.tzinfo is not None:
+        last = last.tz_localize("UTC")
+    delta = (end_ts - last).days
+    return max(0, int(delta))
+
 
 def _action_from_signal(latest_signal: int) -> str:
     if latest_signal == 1:
@@ -86,9 +136,12 @@ def _row_for(
     consensus: ExternalConsensus,
     fundamentals: Fundamentals,
     news: list[NewsItem],
+    end: datetime,
     cfg: CompareConfig,
 ) -> dict:
     """Run one (symbol, strategy) backtest and return a JSON-ready row."""
+    currency = _symbol_currency(symbol)
+    data_age_days = _data_age_days(prices, end)
     if prices.empty:
         return {
             "symbol": symbol,
@@ -107,6 +160,8 @@ def _row_for(
             "external_consensus": consensus.to_dict(),
             "fundamentals": fundamentals.to_dict(),
             "news": [n.to_dict() for n in news],
+            "currency": currency,
+            "data_age_days": data_age_days,
             "error": "no_data",
         }
 
@@ -136,6 +191,8 @@ def _row_for(
             "external_consensus": consensus.to_dict(),
             "fundamentals": fundamentals.to_dict(),
             "news": [n.to_dict() for n in news],
+            "currency": currency,
+            "data_age_days": data_age_days,
             "error": str(e),
         }
 
@@ -191,6 +248,8 @@ def _row_for(
         "external_consensus": consensus.to_dict(),
         "fundamentals": fundamentals.to_dict(),
         "news": [n.to_dict() for n in news],
+        "currency": currency,
+        "data_age_days": data_age_days,
         "error": None,
     }
 
@@ -228,10 +287,18 @@ def compare(
     consensus_cache: dict[str, ExternalConsensus] = {}
     fundamentals_cache: dict[str, Fundamentals] = {}
     news_cache: dict[str, list[NewsItem]] = {}
+    # Top-level errors list — surfaces symbols that failed to fetch or
+    # came back empty, so the UI can show 'data unavailable for X' rather
+    # than silently dropping them.
+    errors: list[dict] = []
 
     for symbol in symbols:
         if symbol not in price_cache:
-            price_cache[symbol] = ensure_cached(cfg.provider, symbol, start, end)
+            try:
+                price_cache[symbol] = ensure_cached(cfg.provider, symbol, start, end)
+            except Exception as e:  # noqa: BLE001
+                price_cache[symbol] = pd.DataFrame()
+                errors.append({"symbol": symbol, "stage": "fetch", "error": str(e)})
             state_cache[symbol] = market_state(symbol, price_cache[symbol])
             # Yahoo quote summary fetched once per symbol, shared across
             # consensus + fundamentals — saves a 1-2s round-trip per
@@ -240,6 +307,9 @@ def compare(
             consensus_cache[symbol] = fetch_consensus(symbol, info)
             fundamentals_cache[symbol] = fetch_fundamentals(symbol, info)
             news_cache[symbol] = fetch_news(symbol)
+            if price_cache[symbol].empty:
+                errors.append({"symbol": symbol, "stage": "no_data",
+                               "error": "no bars returned for the requested window"})
         prices = price_cache[symbol]
         state = state_cache[symbol]
         consensus = consensus_cache[symbol]
@@ -247,7 +317,7 @@ def compare(
         news = news_cache[symbol]
         for strat in strategies:
             rows.append(_row_for(symbol, strat, prices, state, consensus,
-                                 fundamentals, news, cfg))
+                                 fundamentals, news, end, cfg))
 
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)
     for i, row in enumerate(rows, start=1):
@@ -264,6 +334,17 @@ def compare(
     # Macro / sentiment proxy fetched once per run, not per symbol — VIX
     # and 10Y move at index level, not per-ticker.
     ctx = market_context(start, end).to_dict()
+
+    # Currency-mix flag — false when every row trades in the same currency,
+    # true when the universe spans more than one (e.g. etf_all). Frontend
+    # uses this to decide whether to show currency tags and a warning
+    # against absolute-fee comparisons across rows.
+    currencies = {r.get("currency") for r in rows if r.get("currency")}
+    is_mixed_currency = len(currencies) > 1
+    primary_currency = (
+        max(currencies, key=lambda c: sum(1 for r in rows if r.get("currency") == c))
+        if currencies else cfg.currency
+    )
 
     return {
         "kind": "compare",
@@ -285,7 +366,13 @@ def compare(
             for r in REGIMES
         ],
         "market_context": ctx,
+        "currency_mix": {
+            "is_mixed": is_mixed_currency,
+            "primary": primary_currency,
+            "currencies": sorted(currencies),
+        },
         "rows": rows,
+        "errors": errors,
         "best_per_strategy": best_per_strategy,
         "best_overall": (
             {"symbol": best_overall["symbol"], "strategy": best_overall["strategy"],
