@@ -21,11 +21,13 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .. import runstate
 from ..backtest import FeeModel
 from ..compare import CompareConfig, StrategySpec, compare
 from ..observability import RunLogger
 from ..strategies import available
 from ..watchlists import WATCHLISTS, resolve as resolve_watchlist
+from . import heartbeat
 from .push_to_api import load_credentials, push
 
 DEFAULT_STRATEGIES = ["buy_and_hold", "sma_crossover", "rsi_mean_reversion",
@@ -100,23 +102,41 @@ def main() -> None:
                       stamp_duty_rate=args.stamp_duty),
     )
 
-    payload = compare(symbols, strategies, start, end, cfg)
-    payload["universe"] = args.watchlist or "custom"
-    payload["run_id"] = logger.run_id
+    # Mark the Mac as 'currently processing X' so the UI can render a
+    # live status badge instead of just last-seen time. Heartbeat at
+    # start so the UI updates within seconds; heartbeat at end so the
+    # last_refresh stats are captured immediately on completion.
+    universe_label = args.watchlist or "custom"
+    detail = f"{universe_label} ({len(symbols)} symbols × {len(strategies)} strategies)"
+    runstate.write(
+        task="compare",
+        detail=detail,
+        phase="starting",
+        run_id=logger.run_id,
+    )
+    heartbeat.send()
+    try:
+        runstate.update_phase("backtesting")
+        payload = compare(symbols, strategies, start, end, cfg)
+        payload["universe"] = universe_label
+        payload["run_id"] = logger.run_id
 
-    out_path = args.out or (logger.artefact_dir / "compare.json")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, default=str, indent=2))
+        out_path = args.out or (logger.artefact_dir / "compare.json")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(payload, default=str, indent=2))
 
-    logger.emit("compare.done",
-                rows=len(payload["rows"]),
-                out=str(out_path))
+        logger.emit("compare.done",
+                    rows=len(payload["rows"]),
+                    out=str(out_path))
 
-    _print_summary(payload)
-    print()
-    print(f"run_id:     {logger.run_id}")
-    print(f"wrote:      {out_path}")
-    print(f"artefacts:  {logger.artefact_dir}")
+        _print_summary(payload)
+        print()
+        print(f"run_id:     {logger.run_id}")
+        print(f"wrote:      {out_path}")
+        print(f"artefacts:  {logger.artefact_dir}")
+    finally:
+        runstate.clear()
+        heartbeat.send()
 
     if args.push:
         base, token = load_credentials()

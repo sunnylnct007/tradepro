@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job: ping the API every 15 min so the UI knows the Mac is
+  alive even when no comparator run is due. The compare CLI itself
+  pings at start + end, so this is the 'between runs' heartbeat.
+
+  Install:
+    bash strategies/scripts/install-launchd.sh
+  (which now installs both refresh.plist + heartbeat.plist)
+
+  Manual run / debug:
+    launchctl start com.tradepro.heartbeat
+    uv run tradepro-heartbeat --dry-run   # see the payload
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.heartbeat</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>cd "{{PROJECT_DIR}}" &amp;&amp; "$(command -v uv || echo /opt/homebrew/bin/uv)" run tradepro-heartbeat</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+  </dict>
+
+  <!-- Every 15 min. launchd skips firings while the laptop is asleep
+       and runs the pending one as soon as it wakes back up. -->
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/heartbeat-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/heartbeat-stderr.log</string>
+
+  <!-- Fire once on load too, so a fresh install lights up the UI
+       without waiting for the first 15-min mark. -->
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>

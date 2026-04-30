@@ -61,6 +61,7 @@ builder.Services.AddSingleton<IWatchlistStore, InMemoryWatchlistStore>();
 // (Compare:StorePath, default /data/compare in containers, ~/.tradepro/
 // server-cache locally) is mounted into the container by compose.
 builder.Services.AddSingleton<ICompareStore, FileCompareStore>();
+builder.Services.AddSingleton<IHeartbeatStore, InMemoryHeartbeatStore>();
 
 var app = builder.Build();
 
@@ -87,6 +88,7 @@ api.MapSimulationEndpoints();
 api.MapSignalEndpoints();
 api.MapWatchlistEndpoints();
 api.MapCompareEndpoints();
+api.MapWorkerHealthEndpoints();
 
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");

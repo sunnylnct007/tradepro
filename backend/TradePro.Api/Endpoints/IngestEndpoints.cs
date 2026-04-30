@@ -36,6 +36,25 @@ public static class IngestEndpoints
             });
         });
 
+        // Mac → API liveness ping. Cheap (~1 KB), called every 15 min by
+        // launchd and opportunistically at the start + end of each
+        // tradepro-compare run so the UI sees state changes in real time.
+        group.MapPost("/heartbeat", (JsonElement payload, IHeartbeatStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+            {
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            }
+            var env = store.Put(payload);
+            return Results.Ok(new
+            {
+                accepted = true,
+                host = env.Host,
+                receivedAtUtc = env.ReceivedAtUtc,
+                currentTask = env.CurrentTask,
+            });
+        });
+
         return app;
     }
 }

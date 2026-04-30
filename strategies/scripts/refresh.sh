@@ -66,4 +66,9 @@ while read -r watchlist currency stamp_duty; do
 done <<< "$UNIVERSES"
 
 echo "[$run_id] done — $failures failure(s)" >>"$LOG_FILE"
+
+# Final heartbeat so the UI sees the refresh's last_refresh stats land
+# without waiting for the next 15-min periodic ping. Best-effort.
+"$UV" run tradepro-heartbeat >>"$LOG_FILE" 2>&1 || true
+
 exit "$failures"

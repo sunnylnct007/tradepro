@@ -14,6 +14,7 @@ import type {
   SimulationRequest,
   SimulationResult,
   Watchlist,
+  WorkerHealth,
 } from "./types";
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -64,4 +65,5 @@ export const api = {
     get<{ universes: CompareUniverseSummary[] }>("/api/compare/universes"),
   compareLatest: (universe: string) =>
     get<CompareLatestResponse>("/api/compare/latest", { universe }),
+  workerHealth: () => get<WorkerHealth>("/api/health/worker"),
 };

@@ -24,7 +24,7 @@ from pathlib import Path
 import requests
 
 CRED_PATH = Path.home() / ".tradepro" / "credentials"
-VALID_KINDS = {"backtest", "scan", "model_prediction", "compare"}
+VALID_KINDS = {"backtest", "scan", "model_prediction", "compare", "heartbeat"}
 
 
 def load_credentials() -> tuple[str, str]:

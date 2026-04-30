@@ -310,6 +310,32 @@ export interface CompareLatestResponse {
   payload: ComparePayload;
 }
 
+// ---- Mac liveness signal --------------------------------------------------
+
+export type WorkerLiveness = "alive" | "late" | "down";
+
+export interface WorkerCurrentTask {
+  task: string;
+  detail: string | null;
+  phase: string | null;
+  startedAtUtc: string | null;
+  elapsedSeconds: number | null;
+}
+
+export interface WorkerHealth {
+  liveness: WorkerLiveness;
+  sinceLastPingSeconds: number | null;
+  isProcessing: boolean;
+  summary: string;
+  host?: string;
+  gitSha?: string;
+  sentAtUtc?: string;
+  receivedAtUtc?: string;
+  uptimeSeconds?: number | null;
+  currentTask?: WorkerCurrentTask | null;
+  payload?: unknown;
+}
+
 export interface HitRateResult {
   symbol: string;
   strategy: string;

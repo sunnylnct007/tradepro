@@ -11,6 +11,7 @@ import type {
   EntrySignal,
 } from "../api/types";
 import { Info } from "../components/Info";
+import { WorkerStatusBadge } from "../components/WorkerStatusBadge";
 
 /** "Should I invest today, and if yes, in what?" page.
  *
@@ -89,6 +90,11 @@ export function Compare() {
           combination of (a) price action — uptrend, RSI, drawdown — and
           (b) how many of the 5 strategies are currently long the asset.
         </p>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <WorkerStatusBadge />
+        <span style={{ flex: 1 }} />
       </div>
 
       <ProvenanceBar data={data} loading={loading} />
