@@ -25,6 +25,7 @@ accordingly. Document the change at the top of compare.py.
 """
 from .compare import (
     SCHEMA_VERSION,
+    CompareBest,
     ComparePayload,
     CompareRow,
     CompareStrategySpec,
@@ -55,6 +56,7 @@ from .external_consensus import ExternalConsensus
 
 __all__ = [
     "SCHEMA_VERSION",
+    "CompareBest",
     "ComparePayload",
     "CompareRow",
     "CompareStrategySpec",

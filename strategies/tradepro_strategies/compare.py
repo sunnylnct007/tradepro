@@ -35,14 +35,16 @@ from .news_sentiment import (
 )
 from .observability import RunLogger
 from .regimes import REGIMES, all_regime_stats
+from .remote_settings import (
+    DEFAULT_LOOKBACK_DAYS, DEFAULT_MEAN_SENTIMENT_THRESHOLD,
+    DEFAULT_MIN_MATERIAL_NEGATIVE, fetch_sentiment_settings,
+)
 from .schema import SCHEMA_VERSION, ComparePayload
 from .strategies import resolve as resolve_strategy
 
-# Sentiment thresholds — surfaced explicitly in the payload so the
-# frontend can show the user *what rule fired* rather than a magic
-# number. Tweak here, the UI updates on next push.
-SENTIMENT_DEMOTION_THRESHOLD = -0.30        # mean_sentiment ≤ this triggers demotion
-SENTIMENT_MIN_MATERIAL = 2                  # AND at least N material-negative items
+# Compile-time fallback for the prompt version. The thresholds are
+# fetched from the API at run start (so the user can tune them via
+# the Settings page) but the prompt itself is shipped with the code.
 SENTIMENT_PROMPT_VERSION = "v1"             # bump when the scoring prompt changes
 
 
@@ -342,6 +344,20 @@ def compare(
     cfg = cfg or CompareConfig()
     telemetry = SentimentTelemetry()
 
+    # Fetch live demotion settings from the API. Falls back to compiled
+    # defaults if the API is unreachable; the source is captured in the
+    # log so the run is auditable.
+    settings = fetch_sentiment_settings()
+    if logger:
+        logger.emit(
+            "compare.settings_loaded",
+            source=settings.source,
+            mean_sentiment_threshold=settings.mean_sentiment_threshold,
+            min_material_negative_count=settings.min_material_negative_count,
+            lookback_days=settings.lookback_days,
+            updated_at=settings.updated_at,
+        )
+
     rows: list[dict] = []
     price_cache: dict[str, pd.DataFrame] = {}
     state_cache: dict[str, MarketState] = {}
@@ -513,13 +529,16 @@ def compare(
             "healthy": llm_healthy,
             "prompt_version": SENTIMENT_PROMPT_VERSION,
             "demotion_rule": {
-                "mean_sentiment_threshold": SENTIMENT_DEMOTION_THRESHOLD,
-                "min_material_negative_count": SENTIMENT_MIN_MATERIAL,
-                "lookback_days": 7,
+                "mean_sentiment_threshold": settings.mean_sentiment_threshold,
+                "min_material_negative_count": settings.min_material_negative_count,
+                "lookback_days": settings.lookback_days,
+                "source": settings.source,         # "api" or "defaults"
+                "settings_updated_at": settings.updated_at,
                 "description": (
-                    "BUY → WAIT when 7-day rolling mean sentiment ≤ "
-                    f"{SENTIMENT_DEMOTION_THRESHOLD} AND ≥ "
-                    f"{SENTIMENT_MIN_MATERIAL} material-negative headlines."
+                    f"BUY → WAIT when {settings.lookback_days}-day rolling "
+                    f"mean sentiment ≤ {settings.mean_sentiment_threshold} "
+                    f"AND ≥ {settings.min_material_negative_count} "
+                    f"material-negative headlines."
                 ),
             },
             # Per-run aggregate of LLM activity — calls made, cache hit

@@ -7,6 +7,7 @@ import { HealthPage } from "./pages/HealthPage";
 import { Help } from "./pages/Help";
 import { HelpTopic } from "./pages/HelpTopic";
 import { Scanner } from "./pages/Scanner";
+import { Settings } from "./pages/Settings";
 import { Signals } from "./pages/Signals";
 import { Simulations } from "./pages/Simulations";
 
@@ -21,6 +22,7 @@ const router = createBrowserRouter([
       { path: "simulations", element: <Simulations /> },
       { path: "charts", element: <Dashboard /> },
       { path: "health", element: <HealthPage /> },
+      { path: "settings", element: <Settings /> },
       { path: "help", element: <Help /> },
       { path: "help/:topic", element: <HelpTopic /> },
     ],

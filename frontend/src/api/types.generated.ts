@@ -1,9 +1,16 @@
 // AUTO-GENERATED — do not edit by hand.
 // Regenerate with: uv run python tools/gen_ts_types.py
-// Generated at:   2026-05-01T07:30:18.288467+00:00
+// Generated at:   2026-05-01T14:06:06.674459+00:00
 // Source:         tradepro_strategies.schema (Pydantic)
 
 export const SCHEMA_VERSION = '1.0.0';
+
+export interface CompareBest {
+  symbol: string;
+  strategy: string;
+  rank_metric: string;
+  value?: number | null;
+}
 
 export interface CompareCurrencyMix {
   is_mixed: boolean;
