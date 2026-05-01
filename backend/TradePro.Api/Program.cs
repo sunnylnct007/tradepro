@@ -62,6 +62,7 @@ builder.Services.AddSingleton<IWatchlistStore, InMemoryWatchlistStore>();
 // server-cache locally) is mounted into the container by compose.
 builder.Services.AddSingleton<ICompareStore, FileCompareStore>();
 builder.Services.AddSingleton<IHeartbeatStore, InMemoryHeartbeatStore>();
+builder.Services.AddSingleton<ISettingsStore, FileSettingsStore>();
 
 var app = builder.Build();
 
@@ -89,6 +90,7 @@ api.MapSignalEndpoints();
 api.MapWatchlistEndpoints();
 api.MapCompareEndpoints();
 api.MapWorkerHealthEndpoints();
+api.MapSettingsEndpoints();
 
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");
