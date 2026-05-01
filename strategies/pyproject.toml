@@ -16,6 +16,7 @@ dependencies = [
     "pyarrow>=17.0",          # parquet cache
     "duckdb>=1.1",            # ad-hoc queries over the cache
     "firebase-admin>=6.5",    # push results to Firestore from the Mac
+    "mcp>=1.27.0",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,7 @@ dev = [
 tradepro-backtest = "tradepro_strategies.cli.run_backtest:main"
 tradepro-compare = "tradepro_strategies.cli.run_comparison:main"
 tradepro-heartbeat = "tradepro_strategies.cli.heartbeat:main"
+tradepro-mcp = "tradepro_strategies.cli.mcp_server:main"
 tradepro-push = "tradepro_strategies.cli.push_to_api:main"
 tradepro-refresh = "tradepro_strategies.cli.refresh:main"
 tradepro-worker = "tradepro_strategies.cli.worker:main"

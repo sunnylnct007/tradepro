@@ -96,6 +96,41 @@ npm run dev                     # -> http://localhost:5173
 If `.env.local` has no `VITE_FIREBASE_*` values, the UI runs in "local mode"
 (no sign-in button, no token on API calls) and the backend accepts it.
 
+### Ask Claude about your portfolio (MCP server)
+
+`tradepro-mcp` exposes the platform over Anthropic's Model Context Protocol
+so any MCP-aware client — **Claude Desktop**, Cursor, or our own future
+/chat page — can query your data with strict citation tracking and
+fail-closed verification.
+
+```bash
+# In Claude Desktop's config (~/Library/Application Support/Claude/claude_desktop_config.json):
+{
+  "mcpServers": {
+    "tradepro": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/tradepro/strategies", "tradepro-mcp"],
+      "env": { "TRADEPRO_API_URL": "http://localhost:5080" }
+    }
+  }
+}
+```
+
+Then in Claude Desktop:
+
+```
+@tradepro analyse_etf("QQQ")
+@tradepro should_i_buy_today("etf_us_core")
+@tradepro compare_etfs("VOO,VWRP.L")
+```
+
+The decomposition prompt forces tool-use before answering; the
+`verify_answer` tool blocks any claim that doesn't trace to a tool
+output. Every Q&A leaves a full trace at
+`~/.tradepro/traces/<trace_id>.json` for audit. See
+[Help → Ask Claude about your portfolio](https://github.com/sunnylnct007/tradepro/blob/main/frontend/src/docs/help-content.ts)
+for the accuracy contract.
+
 ### Strategies (Python + uv, M-series friendly)
 
 Install [uv](https://docs.astral.sh/uv/) once (`brew install uv` or

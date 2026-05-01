@@ -654,6 +654,137 @@ you don't have to clear anything.
   },
 
   {
+    slug: "ask-claude",
+    title: "Ask Claude about your portfolio",
+    summary: "Use the MCP server to query your TradePro data from Claude Desktop, Cursor, or our /chat page — with strict citation tracking and fail-closed verification.",
+    emoji: "💬",
+    sections: [
+      {
+        heading: "What is the MCP server?",
+        body: `
+TradePro ships an **MCP (Model Context Protocol) server** —
+\`tradepro-mcp\` — that exposes the platform as a set of tools and
+resources an LLM can call. Any MCP-aware client (Claude Desktop,
+Cursor, our future /chat page) can ask questions of your portfolio
+and get answers grounded in your actual data, not hallucinated.
+
+The server is a thin layer over what you already have: the comparator,
+market_state, news + sentiment, regimes, health. Each tool returns
+structured JSON with a \`_source\` URI for every fact, so the LLM
+must cite when it claims a number.
+        `,
+      },
+      {
+        heading: "Three accuracy guarantees",
+        body: `
+This is a financial-decision tool. Hallucinated numbers about
+returns or drawdowns are dangerous. The MCP server is built around
+three non-negotiable guarantees:
+
+1. **Citation tracking.** Every tool output includes \`_source\`
+   paths like \`tradepro://compare/etf_us_core/rows[0]/stats/sharpe\`.
+   The decomposition prompt requires the LLM to cite by source on
+   every quantitative claim.
+
+2. **Fail-closed verification.** Before delivering any answer, the
+   LLM must call \`verify_answer\`, which extracts each claim and
+   checks it against the tool outputs. If \`should_refuse=true\`,
+   the LLM either rewrites and re-verifies once, or refuses with
+   the specific failure reasons. **No unverified number is ever
+   delivered.**
+
+3. **Full traceability.** Every Q&A leaves a JSON trace at
+   \`~/.tradepro/traces/<trace_id>.json\` capturing the
+   decomposition, every tool call (with inputs + outputs +
+   latency), every LLM call (prompt hash + raw response), the
+   draft answer, the verification verdicts, and the outcome
+   (\`delivered\` / \`refused\`). The same trace is exposed at
+   \`tradepro://trace/<trace_id>\` for inspection.
+        `,
+      },
+      {
+        heading: "Setting up Claude Desktop",
+        body: `
+Drop this into \`~/Library/Application Support/Claude/claude_desktop_config.json\`:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "tradepro": {
+      "command": "uv",
+      "args": ["run",
+               "--project", "/path/to/tradepro/strategies",
+               "tradepro-mcp"],
+      "env": {
+        "TRADEPRO_API_URL": "http://localhost:5080",
+        "TRADEPRO_OLLAMA_MODEL": "llama3.1:8b"
+      }
+    }
+  }
+}
+\`\`\`
+
+Restart Claude Desktop. You'll see a 🔌 icon in the bottom-left of
+the chat — click it and you should see "tradepro" with its tools
+listed. Try one of the prompts:
+
+- \`@tradepro analyse_etf("QQQ")\`
+- \`@tradepro should_i_buy_today("etf_us_core")\`
+- \`@tradepro compare_etfs("VOO,VWRP.L")\`
+
+The decomposition prompt fires automatically — Claude will plan
+sub-questions, call tools, draft, verify, and either answer
+(with citations) or refuse with explicit reasons.
+        `,
+      },
+      {
+        heading: "What it can and can't do",
+        body: `
+**Can:**
+- Pull current and historical compare data for any cached universe
+- Show how a symbol survived past stress windows (GFC, COVID, 2022)
+- Read recent news + LLM-scored sentiment per symbol
+- Trigger a fresh comparator run (slow — only on explicit ask)
+- Show system health + Mac liveness
+- Verify any answer against tool outputs
+
+**Cannot:**
+- **Override the BUY/SELL/HOLD verdict.** That comes from the rule
+  engine. The LLM may explain *why* the engine said BUY; it cannot
+  disagree.
+- Make up a number that's not in a tool response. The verifier
+  catches this — \`should_refuse\` goes true and the answer is
+  blocked.
+- Place an order. There is no broker integration in MCP.
+        `,
+      },
+      {
+        heading: "Inspecting a refused answer",
+        body: `
+When the verifier blocks an answer, the trace contains everything
+you need to debug:
+
+\`\`\`bash
+ls -t ~/.tradepro/traces/ | head
+cat ~/.tradepro/traces/<trace_id>.json | jq '.verification.verdicts'
+\`\`\`
+
+Each verdict shows:
+- the exact claim text
+- status: supported / contradicted / unsupported
+- the citation path (if it was supported)
+- the evidence found (or null)
+- model confidence
+
+If a claim was \`unsupported\`, it means the LLM's output mentioned
+a number not present in any tool response — exactly the kind of
+hallucination this whole layer exists to prevent.
+        `,
+      },
+    ],
+  },
+
+  {
     slug: "how-it-works",
     title: "How TradePro works under the hood",
     summary: "The push pipeline, the Mac → API → frontend flow, and the full architecture doc.",
