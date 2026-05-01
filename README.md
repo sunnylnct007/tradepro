@@ -131,6 +131,25 @@ output. Every Q&A leaves a full trace at
 [Help → Ask Claude about your portfolio](https://github.com/sunnylnct007/tradepro/blob/main/frontend/src/docs/help-content.ts)
 for the accuracy contract.
 
+### Data model
+
+The comparator payload is now a versioned, validated schema —
+`strategies/tradepro_strategies/schema/`. Every payload carries
+`schema_version` (currently `1.0.0`); the producer-side validation
+hook in `compare()` catches drift the moment a field changes shape
+rather than waiting for a CI build to fail later.
+
+TypeScript types are generated from the Python schema. After changing
+a model, run:
+
+```bash
+uv run python tools/gen_ts_types.py    # writes frontend/src/api/types.generated.ts
+```
+
+Versioning policy: compatible additions don't bump (frontend keeps
+working); breaking changes (field removed, type changed, semantics
+shifted) bump the major.
+
 ### Strategies (Python + uv, M-series friendly)
 
 Install [uv](https://docs.astral.sh/uv/) once (`brew install uv` or

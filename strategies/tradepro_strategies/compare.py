@@ -35,6 +35,7 @@ from .news_sentiment import (
 )
 from .observability import RunLogger
 from .regimes import REGIMES, all_regime_stats
+from .schema import SCHEMA_VERSION, ComparePayload
 from .strategies import resolve as resolve_strategy
 
 # Sentiment thresholds — surfaced explicitly in the payload so the
@@ -477,7 +478,8 @@ def compare(
         if currencies else cfg.currency
     )
 
-    return {
+    payload = {
+        "schema_version": SCHEMA_VERSION,
         "kind": "compare",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "from": start.date().isoformat(),
@@ -536,3 +538,29 @@ def compare(
             if best_overall else None
         ),
     }
+
+    # Validate-on-emit. Catches drift the moment a field changes shape
+    # rather than waiting for the frontend prod build to TypeScript-fail
+    # in CI three commits later. Pydantic is tolerant (extra="allow")
+    # so adding a new field doesn't break — only changing semantics does.
+    try:
+        ComparePayload.from_payload_dict(payload)
+        if logger:
+            logger.emit("compare.schema_validated", schema_version=SCHEMA_VERSION)
+    except Exception as e:  # noqa: BLE001
+        # Don't block emission — a single misbehaving row shouldn't kill
+        # the whole run. Log loudly so a CI smoke-test or the run history
+        # page surfaces it.
+        if logger:
+            logger.emit("compare.schema_validation_failed",
+                        schema_version=SCHEMA_VERSION,
+                        error=str(e)[:1000])
+        # Always include the failure in the payload's errors list — the
+        # UI then renders 'schema validation failed' as a visible issue.
+        payload.setdefault("errors", []).append({
+            "symbol": "*payload*",
+            "stage": "schema_validation",
+            "error": str(e)[:500],
+        })
+
+    return payload
