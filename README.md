@@ -131,6 +131,23 @@ output. Every Q&A leaves a full trace at
 [Help → Ask Claude about your portfolio](https://github.com/sunnylnct007/tradepro/blob/main/frontend/src/docs/help-content.ts)
 for the accuracy contract.
 
+### Tests (Behave / BDD)
+
+Local-only smoke tests for the rule layer (bucket logic, sentiment
+demotion, schema validation, rationale fallback). The end-to-end
+Yahoo + Ollama pipeline is intentionally **not** in the BDD suite —
+it's a manual smoke test (`uv run tradepro-compare`).
+
+```bash
+cd strategies
+uv run behave                              # 2 features, 6 scenarios, ~3ms
+uv run behave features/schema.feature      # one file
+```
+
+Tests force `TRADEPRO_LLM=noop` so they're deterministic + network-free.
+Pattern mirrors the SpecFlow / Gherkin style from the Volue / SWERVE
+reference uploads — Given / When / Then, one file per concern.
+
 ### Data model
 
 The comparator payload is now a versioned, validated schema —
