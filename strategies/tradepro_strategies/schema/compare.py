@@ -9,6 +9,7 @@ from .fundamentals import Fundamentals
 from .market_context import MarketContext
 from .market_state import MarketState
 from .news import NewsItem, SentimentSummary
+from .rationale import Rationale
 from .regimes import RegimeRow, RegimeSpec
 
 
@@ -102,6 +103,10 @@ class CompareRow(TPModel):
     news: list[NewsItem] = []
     sentiment_summary: SentimentSummary | None = None
     sentiment_status: SentimentStatus | None = None
+    rationale: Rationale | None = None
+    bucket: Literal["BUY", "WAIT", "AVOID"] | None = None
+    bucket_reason: str | None = None
+    sentiment_demoted: bool = False
     currency: str | None = None
     data_age_days: int | None = None
     rank: int = 0

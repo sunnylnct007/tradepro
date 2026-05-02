@@ -205,6 +205,112 @@ a daily decision tool.
       sentiment so manual flags only override the model when the
       operator disagrees with it — not the primary input.
 
+### Phase 5c — Information sources expansion (live + historical news + uploads)
+
+User-stated requirement (2026-05-02): the platform must factor in
+live news, historical news, financial reports, and user-uploaded
+documents into its decisions. Today's news pull is a snapshot from
+Yahoo's per-symbol feed; this phase makes the information layer
+first-class and extensible. **No-hallucination contract still
+applies** — anything fed in here gets cited like any other source,
+and an LLM rationale that references it must verify against it.
+
+#### 5c-i — Live news (real-time signal)
+
+- [ ] **RSS / Atom ingestion**: per-watchlist feed registry. Defaults:
+      Yahoo per-symbol news (already pulling), Reuters/AP/FT business
+      RSS, sector-specific feeds (FT Markets, Bloomberg open RSS).
+- [ ] **Polling worker**: Mac-side scheduled job (launchd) that
+      checks each feed every N minutes; deduplicates by URL hash;
+      writes new items to a local store keyed by (symbol, fetched_at).
+- [ ] **Webhook receiver** *(optional, paid feeds)*: a small endpoint
+      on the API that accepts pushed news items from a service like
+      Polygon, Finnhub, or a custom Comet task. Same auth pattern as
+      `/api/ingest/compare`.
+- [ ] **Rate-of-arrival signal**: when a symbol's news rate spikes
+      (e.g. 5× the 30-day average) the comparator surfaces a "news
+      surge" flag on the row. Material event detector — surfaces
+      *before* the LLM reads anything.
+
+#### 5c-ii — Historical news archive
+
+- [ ] **Cumulative store** of every fetched news item, keyed by
+      (symbol, published_at, source). Survives restarts; queryable
+      by date range. Lives at `~/.tradepro/news/<symbol>.parquet`
+      (one Parquet per symbol, append-only, compressed).
+- [ ] **Backfill from Yahoo `Ticker.news` history** + free tier
+      providers (NewsAPI free tier, GDELT) — best-effort; gaps in
+      coverage are fine and tagged as such.
+- [ ] **Historical-context retrieval at decision time**: for a given
+      verdict, surface "the last 5 BUY signals on this symbol came
+      with these headlines" — connects the rationale to past
+      precedents.
+
+#### 5c-iii — Document upload (PDF / HTML / TXT)
+
+The thing that makes the platform research-aware. User uploads a
+prospectus, an analyst report, a press release; the system extracts
+text, chunks, embeds, and retrieves at decision time.
+
+- [ ] **Upload endpoint**: `POST /api/documents/upload` accepting
+      multipart form-data (PDF / HTML / TXT / MD up to 25MB).
+      Stored at `~/.tradepro/documents/<doc_id>/{original,
+      extracted.txt, chunks.parquet, embeddings.npy}` with a
+      manifest at `<doc_id>/manifest.json` (title, source URL if
+      any, uploaded_at, sha256, linked_symbols).
+- [ ] **Text extraction**:
+  - PDF: `pdfplumber` (preserves layout, tables) + fallback to
+    `pypdf` for simple text.
+  - HTML: `trafilatura` (boilerplate removal that keeps article
+    content cleanly) + fallback to `readability-lxml`.
+  - TXT/MD: pass-through.
+- [ ] **Chunking**: 800-token windows with 150-token overlap;
+      preserves section headers as metadata so retrieved chunks
+      cite "from section: <heading>" not just a page number.
+- [ ] **Embeddings**: local default
+      `mxbai-embed-large` via Ollama (free, 1024-dim);
+      override via `TRADEPRO_EMBED_MODEL`. Optional Anthropic /
+      OpenAI embeddings for higher quality at cost.
+- [ ] **Vector store**: DuckDB with the FTS extension OR
+      `sqlite-vec`. Single-user volume; vector store doesn't need
+      to be distributed. Indexed by symbol mappings (a doc tagged
+      with QQQ shows up only when QQQ is in scope).
+- [ ] **Retrieval at decision time**: when generating a rationale
+      for a symbol, retrieve the top-K most relevant chunks from
+      every uploaded doc tagged for that symbol; pass them as
+      additional `allowed facts` to the LLM (still subject to the
+      verifier — uploaded text must be cited as
+      `tradepro://documents/<doc_id>#chunk-N`).
+- [ ] **Frontend `/documents` page**:
+  - Drag-and-drop upload
+  - List of uploaded docs with title, size, linked symbols, date
+  - Click to view extracted text + chunks + which decisions it
+    has been retrieved into
+
+#### 5c-iv — Document discovery (automated)
+
+- [ ] **Edgar (SEC) feed**: ingest 10-K, 10-Q, 8-K filings for
+      tickers in any watchlist automatically. SEC's full-text
+      search is free.
+- [ ] **Earnings transcripts**: pull from Yahoo's earnings tab
+      (free) where available; otherwise prompt user to upload.
+- [ ] **Per-ETF prospectus auto-fetch**: for each ETF in a
+      watchlist, follow the Yahoo `summaryProfile.fundFamily` →
+      issuer URL → prospectus PDF link. One-off per ETF; doc is
+      cached forever.
+
+#### 5c-v — Verifier integration with retrieved evidence
+
+When the rationale builder pulls in retrieved chunks as facts, the
+verifier MUST be able to follow citations back to the chunk's text.
+This means:
+- [ ] Every chunk has a stable URI (`tradepro://documents/<doc_id>
+      #chunk-<n>`) that the LLM cites.
+- [ ] The verifier compares claims against the *concatenated* fact
+      bundle (structured row data + retrieved text). If a citation
+      doesn't trace, the rationale is rejected (template fallback
+      kicks in, same contract as today).
+
 ### Phase 5b — Extending to individual stocks (gated on ETF being solid)
 
 ETFs answer "which basket should I own". Individual stocks need a

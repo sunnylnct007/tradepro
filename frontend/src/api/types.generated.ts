@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit by hand.
 // Regenerate with: uv run python tools/gen_ts_types.py
-// Generated at:   2026-05-01T14:06:06.674459+00:00
+// Generated at:   2026-05-02T22:25:27.416069+00:00
 // Source:         tradepro_strategies.schema (Pydantic)
 
 export const SCHEMA_VERSION = '1.0.0';
@@ -93,6 +93,10 @@ export interface CompareRow {
   news?: NewsItem[];
   sentiment_summary?: SentimentSummary | null;
   sentiment_status?: 'scored' | 'partial' | 'all_failed' | 'no_news' | 'provider_down' | null;
+  rationale?: Rationale | null;
+  bucket?: 'BUY' | 'WAIT' | 'AVOID' | null;
+  bucket_reason?: string | null;
+  sentiment_demoted?: boolean;
   currency?: string | null;
   data_age_days?: number | null;
   rank?: number;
@@ -189,6 +193,18 @@ export interface NewsItem {
   sentiment_material?: boolean;
   sentiment_model?: string | null;
   sentiment_error?: string | null;
+}
+
+export interface Rationale {
+  summary: string;
+  key_factors?: string[];
+  caveats?: string[];
+  source?: 'llm' | 'template' | 'template_no_llm' | 'template_llm_failed' | 'template_empty_llm' | 'template_llm_unverified';
+  model?: string | null;
+  prompt_version?: string;
+  verified?: boolean;
+  verification_notes?: string[];
+  generated_at?: string | null;
 }
 
 export interface RegimeRow {

@@ -654,6 +654,102 @@ you don't have to clear anything.
   },
 
   {
+    slug: "rationale",
+    title: "Plain-English rationale (no hallucination)",
+    summary: "How the per-verdict prose summary is generated, verified, and rejected when it's wrong.",
+    emoji: "📝",
+    sections: [
+      {
+        heading: "What the rationale is",
+        body: `
+On every ETF in the Compare expand panel you'll see a green-bar
+**In plain English** block — a 2-3 sentence summary explaining the
+verdict in everyday language, plus a short "Why" list and a "Caveats"
+list.
+
+It is **not** a new decision. The verdict comes from the rule engine
+(price action + strategy consensus + sentiment thresholds, all
+visible in the rules ladder above the rationale). The rationale just
+*explains* what the rules already decided.
+        `,
+      },
+      {
+        heading: "Two sources, both honest",
+        body: `
+The badge in the top-right of the rationale block tells you which
+path produced the prose:
+
+- **LLM ✓ verified** — the LLM (Ollama / Claude depending on config)
+  wrote the summary, AND every numerical claim in the summary was
+  found verbatim in the input facts. Safe to read.
+- **template (deterministic)** — built mechanically from the same
+  facts using a fixed sentence template. No LLM creativity. Less
+  elegant prose but factually 100% correct.
+- **template (LLM hallucinated)** — the LLM produced a summary, but
+  it referenced a number that wasn't in the inputs (e.g. invented a
+  year, a percentage, a holding name). The verifier rejected it and
+  the deterministic template ran instead.
+- **template (LLM unavailable / failed / empty)** — the LLM wasn't
+  reachable or returned nothing. Template kicked in.
+
+In **none** of these cases does the user see fabricated content.
+        `,
+      },
+      {
+        heading: "Why we do this",
+        body: `
+Hallucinated numbers in a financial-decision tool are dangerous.
+The LLM sometimes writes "QQQ lost 55% in 2008" — which is
+historically true — but our facts only include the regime name
+"GFC", not the year "2008". The LLM is using outside knowledge,
+which we *cannot* verify against our pipeline.
+
+Strict rule: **if a number doesn't trace to the input facts, we
+don't show the LLM's version.** The template is built from the
+same facts and produces a summary that's slightly clunkier but
+provably correct — every word maps back.
+
+This is the same accuracy contract we use in the MCP server (Ask
+Claude topic). LLM produces context, never decides; verifier
+catches every claim; doubt → fallback to safe path.
+        `,
+      },
+      {
+        heading: "Picking which LLM",
+        body: `
+Sentiment scoring uses the cheap local model (\`llama3.1:8b\` via
+Ollama) — it's running 8 headlines per ETF, speed matters more than
+nuance. Rationale generation is per-symbol (much fewer calls) and
+prose quality matters more, so by default it can use a stronger
+model.
+
+Override per task via env vars:
+
+\`\`\`bash
+export TRADEPRO_LLM_RATIONALE=claude   # use Claude API for rationale
+export ANTHROPIC_API_KEY=sk-...
+export TRADEPRO_LLM_SENTIMENT=ollama   # keep sentiment local
+\`\`\`
+
+Either way the verifier still runs. Better model = more rationales
+that pass verification (more LLM-source rather than template-source
+badges) — but never the difference between accurate and inaccurate.
+        `,
+      },
+      {
+        heading: "Verification notes",
+        body: `
+If the rationale's badge says "LLM hallucinated" or "LLM failed",
+expand the **Verification notes** disclosure to see exactly what
+went wrong: which numbers couldn't be traced, what error the LLM
+threw. This is pure transparency — every fallback decision is
+auditable.
+        `,
+      },
+    ],
+  },
+
+  {
     slug: "ask-claude",
     title: "Ask Claude about your portfolio",
     summary: "Use the MCP server to query your TradePro data from Claude Desktop, Cursor, or our /chat page — with strict citation tracking and fail-closed verification.",

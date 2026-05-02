@@ -53,6 +53,7 @@ from .fundamentals import (
     TopHolding,
 )
 from .external_consensus import ExternalConsensus
+from .rationale import Rationale
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -65,6 +66,7 @@ __all__ = [
     "CompareLlmInfo",
     "CompareLlmTelemetry",
     "CompareLlmDemotionRule",
+    "Rationale",
     "DecisionCheck",
     "MarketState",
     "MarketContext",

@@ -316,8 +316,33 @@ export interface CompareLlmInfo {
     min_material_negative_count: number;
     lookback_days: number;
     description: string;
+    source?: string;
+    settings_updated_at?: string | null;
   };
   telemetry?: CompareLlmTelemetry;
+}
+
+/** Plain-English rationale for a symbol's verdict.
+ * `source` distinguishes LLM-generated (verified) prose from
+ * deterministic template fallbacks. The UI shows the badge so a user
+ * knows whether what they're reading was AI-written or built
+ * mechanically from the input facts. */
+export interface CompareRationale {
+  summary: string;
+  key_factors?: string[];
+  caveats?: string[];
+  source?:
+    | "llm"
+    | "template"
+    | "template_no_llm"
+    | "template_llm_failed"
+    | "template_empty_llm"
+    | "template_llm_unverified";
+  model?: string | null;
+  prompt_version?: string;
+  verified?: boolean;
+  verification_notes?: string[];
+  generated_at?: string | null;
 }
 
 export interface CompareRow {
@@ -342,6 +367,10 @@ export interface CompareRow {
   news?: CompareNewsItem[];
   sentiment_summary?: CompareSentimentSummary;
   sentiment_status?: SentimentStatus;
+  rationale?: CompareRationale;
+  bucket?: "BUY" | "WAIT" | "AVOID";
+  bucket_reason?: string;
+  sentiment_demoted?: boolean;
   /** ISO currency code derived from the ticker venue (.L=GBP, no suffix=USD, …). */
   currency?: string;
   /** How many days behind the requested `to` date the latest bar is. 0 means

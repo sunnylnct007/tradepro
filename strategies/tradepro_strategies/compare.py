@@ -34,6 +34,7 @@ from .news_sentiment import (
     score_news, summarise_recent,
 )
 from .observability import RunLogger
+from .rationale import Rationale, build_rationale, gather_facts
 from .regimes import REGIMES, all_regime_stats
 from .remote_settings import (
     DEFAULT_LOOKBACK_DAYS, DEFAULT_MEAN_SENTIMENT_THRESHOLD,
@@ -284,6 +285,110 @@ def _row_for(
     }
 
 
+def _attach_bucket_and_rationale(
+    rows: list[dict],
+    mean_threshold: float,
+    min_material: int,
+    logger: RunLogger | None = None,
+) -> None:
+    """Compute the per-symbol bucket (BUY/WAIT/AVOID), apply the
+    sentiment demotion rule, then generate a plain-English rationale
+    for each symbol. The result is attached to every row that shares
+    the symbol — same pattern as market_state."""
+    by_symbol: dict[str, list[dict]] = {}
+    for r in rows:
+        by_symbol.setdefault(r["symbol"], []).append(r)
+
+    for symbol, sym_rows in by_symbol.items():
+        sym_rows.sort(key=lambda r: r.get("rank", 1e9))
+        best = sym_rows[0]
+
+        ms = best.get("market_state") or {}
+        price_verdict = ms.get("entry_signal", "HOLD")
+        long_count = sum(1 for r in sym_rows if r.get("in_position"))
+        total = len(sym_rows)
+        majority_long = long_count > total / 2
+
+        # Same rule the frontend was using; now lives server-side too.
+        if price_verdict == "AVOID":
+            bucket = "AVOID"
+            reason = ms.get("entry_reason") or "Confirmed downtrend."
+        elif price_verdict == "WAIT":
+            bucket = "WAIT"
+            reason = ms.get("entry_reason") or "Better entries likely soon."
+        elif majority_long and price_verdict in ("BUY", "HOLD"):
+            bucket = "BUY"
+            reason = (
+                ms.get("entry_reason")
+                or f"{long_count} of {total} strategies currently long; "
+                   f"price action supports entry."
+            )
+        else:
+            bucket = "WAIT"
+            reason = (
+                f"Only {long_count} of {total} strategies are currently long "
+                f"— wait for more confirmation."
+            )
+
+        # Sentiment demotion. Same thresholds the LLM bar shows.
+        sentiment_demoted = False
+        if bucket == "BUY":
+            ss = best.get("sentiment_summary") or {}
+            mean = ss.get("mean_sentiment")
+            mat_neg = ss.get("material_negative_count", 0)
+            if (mean is not None
+                    and mean <= mean_threshold
+                    and mat_neg >= min_material):
+                sentiment_demoted = True
+                bucket = "WAIT"
+                reason = (
+                    f"Sentiment demotion: 7d mean {mean:.2f} ≤ "
+                    f"threshold {mean_threshold} AND {mat_neg} "
+                    f"material-negative headlines (≥ {min_material})."
+                )
+
+        # Build the rationale once per symbol from the best row's data.
+        try:
+            facts = gather_facts(
+                symbol=symbol,
+                bucket=bucket,
+                bucket_reason=reason,
+                long_count=long_count,
+                total_strategies=total,
+                market_state=ms,
+                sentiment_summary=best.get("sentiment_summary"),
+                sentiment_status=best.get("sentiment_status"),
+                best_strategy_label=best.get("strategy_label", best.get("strategy", "")),
+                best_stats=best.get("stats") or {},
+                regimes=best.get("regimes") or [],
+                fundamentals=best.get("fundamentals"),
+                sentiment_demoted=sentiment_demoted,
+            )
+            rat = build_rationale(facts)
+            if logger:
+                logger.emit(
+                    "compare.rationale_generated",
+                    symbol=symbol, bucket=bucket,
+                    source=rat.source, verified=rat.verified,
+                    model=rat.model,
+                )
+            rationale_dict = rat.to_dict()
+        except Exception as e:  # noqa: BLE001
+            if logger:
+                logger.emit("compare.rationale_failed", symbol=symbol, error=str(e))
+            rationale_dict = None
+
+        # Copy bucket + reason + sentiment-demoted flag + rationale onto
+        # every row for this symbol so the frontend can render any row's
+        # expand panel without re-deriving.
+        for r in sym_rows:
+            r["bucket"] = bucket
+            r["bucket_reason"] = reason
+            r["sentiment_demoted"] = sentiment_demoted
+            if rationale_dict is not None:
+                r["rationale"] = rationale_dict
+
+
 def _merge_scored(news: list[NewsItem], scored: list[ScoredHeadline]) -> list[dict]:
     """Pair news items with their sentiment scores. The list lengths
     are guaranteed equal (score_news preserves order), but defensively
@@ -470,6 +575,15 @@ def compare(
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)
     for i, row in enumerate(rows, start=1):
         row["rank"] = i
+
+    # Per-symbol bucket computation + rationale generation. Both are
+    # symbol-level (not per-row) so we compute once and copy onto every
+    # row for that symbol — matches what the frontend was already doing
+    # client-side, but now visible in the JSON payload too.
+    _attach_bucket_and_rationale(
+        rows, settings.mean_sentiment_threshold,
+        settings.min_material_negative_count, logger=logger,
+    )
 
     best_per_strategy: dict[str, dict] = {}
     for row in rows:

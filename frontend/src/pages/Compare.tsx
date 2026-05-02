@@ -9,6 +9,7 @@ import type {
   CompareLlmInfo,
   CompareMarketContext,
   CompareNewsItem,
+  CompareRationale,
   CompareRow,
   CompareUniverseSummary,
   DecisionCheck,
@@ -744,11 +745,13 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
   const consensus = view.bestRow.external_consensus;
   const fundamentals = view.bestRow.fundamentals;
   const news = view.bestRow.news ?? [];
+  const rationale = view.bestRow.rationale;
   // Append the sentiment check to the trace so the rules ladder shows
   // the LLM-derived signal alongside the price-based ones.
   const trace = [...baseTrace, sentimentCheck(view)];
   return (
     <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.18)", borderRadius: 6 }}>
+      {rationale && <RationalePanel rationale={rationale} />}
       {view.sentimentDemoted && view.sentimentDemotionReason && (
         <div
           style={{
@@ -831,6 +834,98 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
       )}
     </div>
   );
+}
+
+/** Plain-English summary of why this symbol's verdict is what it is.
+ * Source badge tells the user whether the prose came from an LLM
+ * (verified against input facts) or a deterministic template (used
+ * when the LLM rationale couldn't be verified or the LLM was
+ * unavailable). Either way the content is factually safe — every
+ * number traces to the input facts. */
+function RationalePanel({ rationale }: { rationale: CompareRationale }) {
+  const sourceColour = rationale.source === "llm"
+    ? "var(--up)"
+    : rationale.source?.startsWith("template")
+      ? "var(--neutral)"
+      : "var(--text-muted)";
+  const sourceLabel = sourceLabelFor(rationale.source);
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: "10px 12px",
+        background: "rgba(31, 193, 107, 0.04)",
+        borderLeft: `3px solid ${sourceColour}`,
+        borderRadius: 4,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 6,
+        }}
+      >
+        <span className="stat-label">In plain English</span>
+        <span
+          style={{ fontSize: 10, color: sourceColour, fontWeight: 600 }}
+          title={
+            rationale.source === "llm"
+              ? `LLM-generated, verified against input facts. Model: ${rationale.model ?? "—"}`
+              : "Built mechanically from the input facts (template fallback) — never from LLM creativity."
+          }
+        >
+          {sourceLabel}
+          {rationale.verified ? " ✓" : ""}
+        </span>
+      </div>
+      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
+        {rationale.summary}
+      </p>
+      {rationale.key_factors && rationale.key_factors.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div className="stat-label" style={{ fontSize: 10, marginBottom: 2 }}>Why</div>
+          <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 12, color: "var(--text-dim)" }}>
+            {rationale.key_factors.map((f, i) => <li key={i}>{f}</li>)}
+          </ul>
+        </div>
+      )}
+      {rationale.caveats && rationale.caveats.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div className="stat-label" style={{ fontSize: 10, marginBottom: 2, color: "var(--down)" }}>
+            Caveats
+          </div>
+          <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 12, color: "var(--text-dim)" }}>
+            {rationale.caveats.map((c, i) => <li key={i}>{c}</li>)}
+          </ul>
+        </div>
+      )}
+      {rationale.verification_notes && rationale.verification_notes.length > 0 && (
+        <details style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
+          <summary style={{ cursor: "pointer" }}>
+            Verification notes ({rationale.verification_notes.length})
+          </summary>
+          <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+            {rationale.verification_notes.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function sourceLabelFor(source?: CompareRationale["source"]): string {
+  switch (source) {
+    case "llm": return "LLM ✓ verified";
+    case "template": return "template (deterministic)";
+    case "template_no_llm": return "template (LLM unavailable)";
+    case "template_llm_failed": return "template (LLM failed)";
+    case "template_empty_llm": return "template (LLM empty)";
+    case "template_llm_unverified": return "template (LLM hallucinated)";
+    default: return "—";
+  }
 }
 
 /** Fund-level fundamentals: family, expense ratio, AUM, yield, top
