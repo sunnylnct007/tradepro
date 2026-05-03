@@ -11,6 +11,7 @@ from typing import Any
 
 from . import tools as t
 from . import verify as v
+from .session import instrumented, session, session_path
 from .trace import new_trace, AnswerTrace, TRACE_ROOT
 
 
@@ -20,10 +21,15 @@ def build_server():
     from mcp.server.fastmcp import FastMCP
 
     mcp = FastMCP("tradepro")
+    # Touch the session so its file exists from process start, even
+    # before the LLM has called anything — gives the operator something
+    # to tail while waiting for the first tool call.
+    session()
 
     # ---- TOOLS (LLM-callable functions) -----------------------------------
 
     @mcp.tool()
+    @instrumented("list_universes")
     def list_universes() -> str:
         """Available comparator universes (etf_us_core, etf_uk_core, etc.)
         with their freshness. Call this first if you don't know which
@@ -31,6 +37,7 @@ def build_server():
         return _json(t.list_universes())
 
     @mcp.tool()
+    @instrumented("get_compare")
     def get_compare(universe: str) -> str:
         """Full ranked-comparison payload for a universe.
         Includes per-row stats, regime history, sentiment, and
@@ -40,6 +47,7 @@ def build_server():
         return _json(t.get_compare(universe))
 
     @mcp.tool()
+    @instrumented("get_market_state")
     def get_market_state(symbol: str, lookback_days: int = 365) -> str:
         """Live market state for any ticker on demand — price vs
         SMA200, RSI, drawdown, 52w-high distance, momentum, plus the
@@ -49,6 +57,7 @@ def build_server():
         return _json(t.get_market_state(symbol, lookback_days))
 
     @mcp.tool()
+    @instrumented("get_news_with_sentiment")
     def get_news_with_sentiment(symbol: str, limit: int = 8) -> str:
         """Recent headlines + LLM-scored sentiment per headline.
         7-day rolling summary included. Cite individual headlines as
@@ -56,6 +65,7 @@ def build_server():
         return _json(t.get_news_with_sentiment(symbol, limit))
 
     @mcp.tool()
+    @instrumented("get_regime_history")
     def get_regime_history(
         universe: str,
         symbol: str,
@@ -67,6 +77,7 @@ def build_server():
         return _json(t.get_regime_history(universe, symbol, strategy))
 
     @mcp.tool()
+    @instrumented("get_health")
     def get_health() -> str:
         """API + Mac worker liveness + per-universe cache freshness.
         Always call this first if you suspect data might be stale —
@@ -74,6 +85,7 @@ def build_server():
         return _json(t.get_health())
 
     @mcp.tool()
+    @instrumented("run_comparison")
     def run_comparison(
         universe: str,
         rank_metric: str = "sharpe",
@@ -85,6 +97,7 @@ def build_server():
         return _json(t.run_comparison(universe, rank_metric))
 
     @mcp.tool()
+    @instrumented("verify_answer")
     def verify_answer(answer: str, tool_outputs_json: str) -> str:
         """Verify a draft answer against the tool outputs that should
         support it. Returns a per-claim verdict — supported /
@@ -101,6 +114,7 @@ def build_server():
         return _json(v.verify_answer(answer, outputs))
 
     @mcp.tool()
+    @instrumented("begin_trace")
     def begin_trace(question: str) -> str:
         """Start a new Q&A trace. Returns a trace_id you should pass
         to record_step / finalize_trace as you work through the
@@ -124,6 +138,7 @@ def build_server():
         })
 
     @mcp.tool()
+    @instrumented("record_step")
     def record_step(
         trace_id: str,
         kind: str,
@@ -152,6 +167,7 @@ def build_server():
         return _json({"ok": True, "trace_id": trace_id, "step_count": len(tr.steps)})
 
     @mcp.tool()
+    @instrumented("finalize_trace")
     def finalize_trace(
         trace_id: str,
         outcome: str,
@@ -248,6 +264,29 @@ def build_server():
                           "ok": False, "error": "trace not found"})
         return _json({"_source": f"tradepro://trace/{trace_id}",
                       "ok": True, "trace": tr.to_dict()})
+
+    @mcp.resource("tradepro://session/current")
+    def session_resource() -> str:
+        """Live process-scoped trace — every tool/resource invocation
+        in this MCP server process, regardless of whether the LLM
+        called begin_trace. Useful for post-hoc audit of any Q&A,
+        even casual chat turns."""
+        s = session()
+        try:
+            data = json.loads(s.path.read_text()) if s.path.exists() else {
+                "kind": "session_trace",
+                "session_id": s.session_id,
+                "started_at": s.started_at,
+                "step_count": 0,
+                "steps": [],
+            }
+        except (FileNotFoundError, json.JSONDecodeError):
+            data = {"session_id": s.session_id, "step_count": 0, "steps": []}
+        return _json({
+            "_source": "tradepro://session/current",
+            "path": str(s.path),
+            "session": data,
+        })
 
     @mcp.resource("tradepro://traces")
     def traces_index_resource() -> str:
