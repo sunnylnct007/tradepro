@@ -71,7 +71,46 @@ WATCHLISTS: dict[str, list[str]] = {
         "USMV",     # Low Volatility
         "SIZE",     # Size (small-cap factor)
     ],
+    # Macro / event-impact proxies — curated for DISPERSION, not for
+    # ranking. The axis labels live in MACRO_PROXIES_BY_AXIS below so
+    # callers (the get_returns tool, the analyse_event prompt, the
+    # rationale layer) can cite each move with its axis instead of
+    # treating the basket as an undifferentiated bag of tickers.
+    "etf_macro_proxies": [
+        "SPY", "QQQ", "EFA", "EEM",
+        "TLT", "AGG", "GLD",
+        "USO", "DBA",
+        "XLE", "ITA", "XLU",
+        "UUP", "FXY",
+        "VIXY",
+    ],
 }
+
+
+# Macro-basket axis labels. Keep this side-by-side with the watchlist
+# so an edit there + here travels together. Axes are deliberately
+# uncorrelated — that's what makes the basket useful for surfacing
+# dispersion when the user asks 'what's the impact of <event>?'.
+MACRO_PROXIES_BY_AXIS: dict[str, list[str]] = {
+    "risk_on_equity":  ["SPY", "QQQ", "EFA", "EEM"],
+    "risk_off_bonds":  ["TLT", "AGG"],
+    "risk_off_metal":  ["GLD"],
+    "commodity":       ["USO", "DBA"],
+    "sector_event":    ["XLE", "ITA", "XLU"],
+    "currency":        ["UUP", "FXY"],
+    "volatility":      ["VIXY"],
+}
+
+
+def macro_axis_for(symbol: str) -> str | None:
+    """Inverse of MACRO_PROXIES_BY_AXIS — returns the axis label for a
+    macro-proxy symbol, or None if the symbol isn't part of the basket.
+    Cheap O(N) but the basket is small."""
+    sym = symbol.upper()
+    for axis, members in MACRO_PROXIES_BY_AXIS.items():
+        if sym in members:
+            return axis
+    return None
 
 
 def _all_etfs() -> list[str]:
@@ -82,7 +121,8 @@ def _all_etfs() -> list[str]:
     treat fees as a per-broker concern."""
     seen: list[str] = []
     deduped: list[str] = []
-    for key in ("etf_uk_core", "etf_us_core", "etf_us_sector", "etf_factor"):
+    for key in ("etf_uk_core", "etf_us_core", "etf_us_sector", "etf_factor",
+                "etf_macro_proxies"):
         for s in WATCHLISTS[key]:
             if s not in seen:
                 seen.append(s)

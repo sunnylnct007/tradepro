@@ -191,6 +191,107 @@ def get_health() -> dict:
         return _err("get_health", str(e))
 
 
+def get_returns(symbols_csv: str, periods: str = "1d,5d,30d,90d,ytd") -> dict:
+    """Multi-period total returns for a basket — fast (no backtest, just
+    price math). Use this to surface DISPERSION across uncorrelated
+    proxies when answering 'what's the impact of <event>?'. Returns a
+    sorted table per period so the LLM (and the user) can see who's
+    up, who's down, and by how much.
+
+    `symbols_csv` is comma-separated. `periods` is comma-separated from
+    {1d, 5d, 30d, 90d, 180d, 1y, ytd}.
+    """
+    if not symbols_csv or not symbols_csv.strip():
+        return _err("get_returns", "symbols_csv is required")
+    symbols = [s.strip().upper() for s in symbols_csv.split(",") if s.strip()]
+    period_codes = [p.strip().lower() for p in periods.split(",") if p.strip()]
+    if not symbols:
+        return _err("get_returns", "no symbols parsed")
+    if not period_codes:
+        period_codes = ["1d", "5d", "30d", "90d", "ytd"]
+
+    try:
+        from datetime import timedelta
+        from ..cache import ensure_cached
+        from ..watchlists import macro_axis_for
+    except Exception as e:  # noqa: BLE001
+        return _err("get_returns", f"import failed: {e}")
+
+    end = datetime.now(timezone.utc)
+    # Pull enough history to compute a 1y or ytd return regardless of
+    # which periods the caller wants — cheap relative to a backtest.
+    start = end - timedelta(days=400)
+
+    rows: list[dict] = []
+    for sym in symbols:
+        try:
+            prices = ensure_cached("yahoo", sym, start, end)
+        except Exception as e:  # noqa: BLE001
+            rows.append({
+                "_source": f"error://returns/{sym}",
+                "symbol": sym, "ok": False,
+                "error": f"price fetch failed: {e}",
+            })
+            continue
+        if prices.empty:
+            rows.append({
+                "_source": f"error://returns/{sym}",
+                "symbol": sym, "ok": False,
+                "error": "no price data",
+            })
+            continue
+        series = prices["adj_close"] if "adj_close" in prices.columns else prices["close"]
+        last = float(series.iloc[-1])
+        last_dt = prices.index[-1]
+        out: dict = {
+            "_source": f"live://returns/{sym}",
+            "symbol": sym, "ok": True,
+            "macro_axis": macro_axis_for(sym),
+            "as_of": last_dt.isoformat(),
+            "last_price": last,
+        }
+        for code in period_codes:
+            ref = _ref_price(series, code, last_dt)
+            if ref is None or ref == 0:
+                out[f"return_{code}_pct"] = None
+            else:
+                out[f"return_{code}_pct"] = (last - ref) / ref * 100.0
+        rows.append(out)
+
+    return {
+        "_source": "live://returns",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "symbols": symbols,
+        "periods": period_codes,
+        "rows": rows,
+    }
+
+
+def _ref_price(series, code: str, last_dt) -> float | None:
+    """Look up the reference close for a period code. Walks backwards
+    on weekends/holidays so a Saturday request still anchors on
+    Friday's bar."""
+    from datetime import timedelta
+    if code == "ytd":
+        # First trading day of the current calendar year.
+        year = last_dt.year
+        ytd = series[series.index.year == year]
+        return float(ytd.iloc[0]) if not ytd.empty else None
+    days_map = {
+        "1d": 1, "5d": 5, "30d": 30, "90d": 90, "180d": 180, "1y": 365,
+    }
+    n = days_map.get(code)
+    if n is None:
+        return None
+    target = last_dt - timedelta(days=n)
+    # Pick the closest bar at or before the target date.
+    sub = series[series.index <= target]
+    if sub.empty:
+        return None
+    return float(sub.iloc[-1])
+
+
 def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
     """Run every available strategy against any one or more tickers —
     no universe required. Mirrors what the Compare page shows for a

@@ -85,6 +85,19 @@ def build_server():
         return _json(t.get_health())
 
     @mcp.tool()
+    @instrumented("get_returns")
+    def get_returns(symbols: str, periods: str = "1d,5d,30d,90d,ytd") -> str:
+        """Multi-period total returns (no backtest, just price math) for
+        any basket. Returns dispersion across the basket so the user
+        can see who moved how much over 1d / 5d / 30d / 90d / ytd.
+        Pair with the `etf_macro_proxies` watchlist for event-impact
+        questions ('what's the impact of war/Fed/election?'); a basket
+        of correlated S&P-overlap ETFs will give monolithic up-only
+        answers and miss the true picture.
+        """
+        return _json(t.get_returns(symbols, periods))
+
+    @mcp.tool()
     @instrumented("evaluate_symbols")
     def evaluate_symbols(symbols: str, lookback_years: int = 5) -> str:
         """Run every available strategy on any ETF or stock — no
@@ -232,14 +245,17 @@ def build_server():
 
     @mcp.resource("tradepro://watchlists")
     def watchlists_resource() -> str:
-        """Defined symbol universes (etf_us_core, etf_uk_core, …)."""
-        from ..watchlists import WATCHLISTS
+        """Defined symbol universes (etf_us_core, etf_uk_core, …).
+        Includes the macro_proxies_by_axis breakdown so callers can
+        request "all risk-off proxies" without re-deriving the labels."""
+        from ..watchlists import MACRO_PROXIES_BY_AXIS, WATCHLISTS
         return _json({
             "_source": "tradepro://watchlists",
             "watchlists": {
                 name: {"symbols": symbols, "size": len(symbols)}
                 for name, symbols in WATCHLISTS.items()
             },
+            "macro_proxies_by_axis": MACRO_PROXIES_BY_AXIS,
         })
 
     @mcp.resource("tradepro://regimes")
@@ -366,6 +382,14 @@ def build_server():
         )
 
     @mcp.prompt()
+    def analyse_event(event: str) -> str:
+        """Decompose a 'what's the market impact of <event>?' question.
+        Forces dispersion-first analysis using the etf_macro_proxies
+        watchlist so the answer surfaces who moved up vs down — not a
+        monolithic "everything's up" from sampling correlated ETFs."""
+        return _DISPERSION_TEMPLATE.format(event=event)
+
+    @mcp.prompt()
     def should_i_buy_today(universe: str = "etf_us_core") -> str:
         """What's worth buying *today*? Reads the verdict bucket."""
         return _DECOMPOSE_TEMPLATE.format(
@@ -381,6 +405,63 @@ def build_server():
         )
 
     return mcp
+
+
+_DISPERSION_TEMPLATE = """You are a careful, evidence-grounded
+financial-research assistant. The user asked about the market impact
+of: {event}.
+
+**Why this prompt exists:** the lazy answer is to pull two or three
+broad-market ETFs (SPY, VWRP, SWDA), see they're all up, and conclude
+"the event hasn't moved markets". That's wrong. Those funds share
+~70% of their constituents — they will always agree. The real
+picture lives in DISPERSION across uncorrelated proxies.
+
+**Process — non-negotiable:**
+
+Step 1. Read the canonical macro basket from the watchlists resource
+so this prompt never drifts from the codebase definition:
+    Read resource `tradepro://watchlists`. Use the `etf_macro_proxies`
+    list as your symbols, and the `macro_proxies_by_axis` map to
+    label each result with its axis (risk_on_equity, risk_off_bonds,
+    risk_off_metal, commodity, sector_event, currency, volatility).
+Then call:
+    get_returns(symbols=<comma-joined etf_macro_proxies>,
+                periods="1d,5d,30d,90d,ytd")
+get_returns already includes a `macro_axis` field on each row — use
+it verbatim; do NOT re-classify symbols from memory.
+
+Step 2. From that table, build the dispersion picture:
+  - Identify the 3 biggest gainers and 3 biggest losers over the
+    relevant horizon (5d for an acute event, 30d for a slow burn).
+  - For each, name the axis (`macro_axis` from get_returns row) and
+    quote the percentage with its `_source` URI:
+    "GLD (risk_off_metal) +6.2% [live://returns/GLD/return_30d_pct]".
+  - Flag any axis pair that moved oppositely — risk_off_metal up +
+    risk_on_equity down is classic risk-off rotation; sector_event
+    (XLE/ITA) up + risk_on_equity (EEM) down is geopolitical stress.
+
+Step 3. Pull recent news + sentiment for the proxies that moved most:
+  get_news_with_sentiment(symbol=<biggest mover>) for the top 2-3.
+
+Step 4. Draft the answer. Lead with the dispersion table — concrete
+numbers, every one cited. Only after the data is on the page may you
+add interpretation (why oil is up, why bonds rallied, etc.). The
+news provides the *narrative*; the returns provide the *evidence*.
+
+Step 5. Verify. Call `verify_answer(answer=<draft>, ...)` against the
+returns + news outputs. If `should_refuse=true`, rewrite to remove
+the unsupported claim.
+
+**Hard rules:**
+- NEVER answer an event-impact question by sampling only broad-market
+  ETFs (SPY/VWRP/SWDA/VUSA/QQQ alone). They're correlated; they will
+  lie by omission.
+- NEVER lead with the narrative. Lead with the data; let the user
+  read it before you frame it.
+- Every percentage MUST cite a `_source` URI from get_returns. Numbers
+  without sources are grounds for refusal.
+"""
 
 
 _DECOMPOSE_TEMPLATE = """You are a careful, evidence-grounded financial-
