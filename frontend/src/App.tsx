@@ -3,6 +3,8 @@ import { AuthProvider } from "./auth/AuthProvider";
 import { Layout } from "./components/Layout";
 import { Compare } from "./pages/Compare";
 import { Dashboard } from "./pages/Dashboard";
+import { DocumentDetail } from "./pages/DocumentDetail";
+import { Documents } from "./pages/Documents";
 import { HealthPage } from "./pages/HealthPage";
 import { Help } from "./pages/Help";
 import { HelpTopic } from "./pages/HelpTopic";
@@ -18,6 +20,8 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Scanner /> },
       { path: "compare", element: <Compare /> },
+      { path: "documents", element: <Documents /> },
+      { path: "documents/:docId", element: <DocumentDetail /> },
       { path: "signals", element: <Signals /> },
       { path: "simulations", element: <Simulations /> },
       { path: "charts", element: <Dashboard /> },

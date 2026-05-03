@@ -288,6 +288,43 @@ export interface CompareSentimentSummary {
   most_negative: string | null;
 }
 
+// ---- Documents (Phase 5c-iii) ---------------------------------------------
+
+export interface DocumentSummary {
+  docId: string;
+  title: string;
+  sourceUrl: string | null;
+  linkedSymbols: string[];
+  fileKind: string;
+  charCount: number;
+  pageCount: number | null;
+  uploadedAtUtc: string;
+  receivedAtUtc: string;
+}
+
+export interface DocumentSection {
+  heading: string | null;
+  text: string;
+  page: number | null;
+}
+
+export interface DocumentEnvelope {
+  docId: string;
+  title: string;
+  sourceUrl: string | null;
+  linkedSymbols: string[];
+  fileKind: string;
+  sha256: string;
+  charCount: number;
+  pageCount: number | null;
+  extractedAtUtc: string;
+  extractor: string;
+  uploadedAtUtc: string;
+  receivedAtUtc: string;
+  uploader: string | null;
+  sections: DocumentSection[];
+}
+
 export type SentimentStatus =
   | "scored"
   | "partial"

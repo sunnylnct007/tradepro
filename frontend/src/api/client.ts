@@ -4,6 +4,8 @@ import type {
   CandleSeries,
   CompareLatestResponse,
   CompareUniverseSummary,
+  DocumentEnvelope,
+  DocumentSummary,
   HitRateRequest,
   HitRateResult,
   ScanRequest,
@@ -66,4 +68,23 @@ export const api = {
   compareLatest: (universe: string) =>
     get<CompareLatestResponse>("/api/compare/latest", { universe }),
   workerHealth: () => get<WorkerHealth>("/api/health/worker"),
+  documents: (symbol?: string) =>
+    get<{ documents: DocumentSummary[] }>("/api/documents",
+      symbol ? { symbol } : undefined),
+  document: (docId: string) =>
+    get<DocumentEnvelope>(`/api/documents/${encodeURIComponent(docId)}`),
+  documentText: async (docId: string): Promise<string> => {
+    const url = new URL(
+      `/api/documents/${encodeURIComponent(docId)}/text`,
+      config.apiBaseUrl,
+    );
+    const token = await getIdToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.authorization = `Bearer ${token}`;
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) {
+      throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    }
+    return resp.text();
+  },
 };
