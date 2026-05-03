@@ -526,3 +526,18 @@ export interface HitRateResult {
   totalReturnPct: number;
   trades: HitRateTrade[];
 }
+
+export interface InstrumentMatch {
+  symbol: string;
+  name: string;
+  exchange: string | null;
+  type: string | null;
+  currency: string | null;
+  source: string;
+}
+
+export interface InstrumentSearchResponse {
+  query: string;
+  count: number;
+  items: InstrumentMatch[];
+}

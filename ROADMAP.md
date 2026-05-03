@@ -239,14 +239,21 @@ public API exposes portfolio + orders + instruments-search but NOT
 streaming quotes — for live prices we still need a streaming
 provider. Two-track plan:
 
-- [ ] **Trading212 portfolio sync**: `/equity/portfolio`,
-      `/equity/account/cash`, `/equity/orders`. Read-only, API-key
-      auth. Used for the paper-trading reconciliation in Phase 8 +
-      'highlight what you actually own' on the Compare page. Doc
-      link: https://t212public-api-docs.redoc.ly/.
+- [x] **Trading212 config + status probe** *(2026-04-28)*: `Trading212Options`
+      bound from config (`Mode=disabled|demo|live`, key/secret), typed
+      `Trading212Client` with Basic auth + rate-limit headers, and
+      `GET /api/integrations/trading212/status` to confirm a key pair
+      reaches the broker. Off by default; live spec at
+      `strategies/docs/api.json`. Important: T212 has **no OHLC** — Yahoo
+      stays for prices.
+- [ ] **Trading212 portfolio sync**: `/equity/positions`,
+      `/equity/account/summary`. Read-only first. Used for paper-trading
+      reconciliation in Phase 8 + 'highlight what you actually own'
+      badge on the Compare page.
 - [ ] **Trading212 instruments registry**: `/equity/metadata/instruments`
-      gives ~12k symbols with tickers, currencies, venues, ISINs.
-      Becomes the autocomplete source for the symbol picker (Phase 7).
+      gives the full T212 universe (tickers, currencies, venues, ISINs,
+      tradeability flags). Becomes the autocomplete source for the
+      symbol picker (Phase 7).
 - [ ] **Live price stream** *(separate from T212)*: Alpaca free tier
       (US equities, IEX-only, 200 req/min) OR IBKR Gateway delayed
       quotes via `ib_insync`. WebSocket for active symbols, fallback

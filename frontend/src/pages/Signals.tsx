@@ -6,6 +6,7 @@ import type { HitRateResult, SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
 import { StrategyPicker } from "../components/StrategyPicker";
+import { SymbolPicker } from "../components/SymbolPicker";
 
 const actionToneVar: Record<SignalDecision["action"], string> = {
   BUY: "var(--up)",
@@ -106,7 +107,7 @@ export function Signals() {
           </Labelled>
         )}
         <Labelled label="Symbol">
-          <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
+          <SymbolPicker value={symbol} onChange={setSymbol} />
         </Labelled>
         <Labelled label="Strategy" help="strategy">
           <StrategyPicker value={strategy} onChange={setStrategy} />

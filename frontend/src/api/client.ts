@@ -8,6 +8,7 @@ import type {
   DocumentSummary,
   HitRateRequest,
   HitRateResult,
+  InstrumentSearchResponse,
   ScanRequest,
   StrategyCatalogResponse,
   ScanResult,
@@ -68,6 +69,8 @@ export const api = {
   compareLatest: (universe: string) =>
     get<CompareLatestResponse>("/api/compare/latest", { universe }),
   workerHealth: () => get<WorkerHealth>("/api/health/worker"),
+  searchInstruments: (q: string, limit = 10) =>
+    get<InstrumentSearchResponse>("/api/instruments/search", { q, limit }),
   documents: (symbol?: string) =>
     get<{ documents: DocumentSummary[] }>("/api/documents",
       symbol ? { symbol } : undefined),

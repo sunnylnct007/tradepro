@@ -1,6 +1,7 @@
 using TradePro.Api.Auth;
 using TradePro.Api.Endpoints;
 using TradePro.Api.Providers;
+using TradePro.Api.Providers.Trading212;
 using TradePro.Api.Simulation;
 using TradePro.Api.Watchlists;
 
@@ -41,10 +42,27 @@ builder.Services.AddHttpClient<BinanceProvider>(c =>
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
     c.Timeout = TimeSpan.FromSeconds(15);
 });
+builder.Services.AddHttpClient<YahooSearchProvider>(c =>
+{
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
+    c.Timeout = TimeSpan.FromSeconds(8);
+});
 
 // Only Yahoo Finance is advertised to the registry today.
 builder.Services.AddScoped<IMarketDataProvider>(sp => sp.GetRequiredService<YahooFinanceProvider>());
 builder.Services.AddScoped<IMarketDataRegistry, MarketDataRegistry>();
+
+// Trading 212 integration — read-only portfolio + instruments registry.
+// Off by default; enable by setting Trading212:Mode=demo|live and supplying
+// API key/secret via env (TRADEPRO_T212_API_KEY / TRADEPRO_T212_API_SECRET).
+// T212 has no OHLC endpoint, so this is *not* a Yahoo replacement.
+builder.Services
+    .AddOptions<Trading212Options>()
+    .Bind(builder.Configuration.GetSection(Trading212Options.SectionName));
+builder.Services.AddHttpClient<Trading212Client>(c =>
+{
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
+});
 
 builder.Services.AddScoped<ISignalStrategy, BuyAndHoldStrategy>();
 builder.Services.AddScoped<ISignalStrategy, SmaCrossoverStrategy>();
@@ -93,6 +111,8 @@ api.MapCompareEndpoints();
 api.MapWorkerHealthEndpoints();
 api.MapSettingsEndpoints();
 api.MapDocumentEndpoints();
+api.MapIntegrationsEndpoints();
+api.MapInstrumentEndpoints();
 
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");
