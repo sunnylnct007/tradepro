@@ -99,12 +99,17 @@ export function Compare() {
       <div>
         <h1 style={{ margin: 0, fontSize: 24 }}>Should I invest today?</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
-          For long-horizon (months-to-years) ETF investing. Each ETF goes
-          into <strong style={{ color: "var(--up)" }}>BUY today</strong>,{" "}
+          For long-horizon (months-to-years) investing. Each asset in the
+          selected universe — ETF (e.g. <code>etf_us_core</code>) or
+          single-stock basket (e.g. <code>us_megacap_sample</code>) —
+          lands in <strong style={{ color: "var(--up)" }}>BUY today</strong>,{" "}
           <strong style={{ color: "var(--neutral)" }}>WAIT</strong>, or{" "}
           <strong style={{ color: "var(--down)" }}>AVOID</strong> based on the
           combination of (a) price action — uptrend, RSI, drawdown — and
           (b) how many of the 5 strategies are currently long the asset.
+          The rule chain is identical for ETFs and stocks; ETF-specific
+          fundamentals (expense ratio, AUM, top holdings) only show when
+          they apply.
         </p>
       </div>
 
@@ -145,7 +150,7 @@ export function Compare() {
           <>
             <Stat label="Ranked by" value={data.rankMetric ?? "—"} />
             <Stat label="Window" value={`${data.payload.from} → ${data.payload.to}`} />
-            <Stat label="ETFs × strategies" value={`${views.length} × ${views[0]?.total ?? 0}`} />
+            <Stat label="Assets × strategies" value={`${views.length} × ${views[0]?.total ?? 0}`} />
           </>
         )}
       </section>
@@ -586,7 +591,7 @@ function StrategyMatrix({
           flexWrap: "wrap",
         }}
       >
-        <strong style={{ fontSize: 13 }}>Strategies vote on each ETF</strong>
+        <strong style={{ fontSize: 13 }}>Strategies vote on each asset</strong>
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           Cell = is the strategy currently long this asset (last fired BUY newer than its last SELL)?
           Click a row to see why and the regime history.
@@ -1250,8 +1255,9 @@ function CrossCheck({
       </div>
       {!isRated ? (
         <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "6px 0" }}>
-          Not rated. ETFs and index trackers usually don't have analyst
-          consensus — analysts rate the underlying companies, not the basket.
+          Not rated. ETFs, index trackers, and most baskets don't have
+          analyst consensus — analysts rate the underlying companies, not
+          the basket.
         </div>
       ) : (
         <div
