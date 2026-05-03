@@ -114,6 +114,26 @@ public sealed class FileCompareStore : ICompareStore
                     var root = doc.RootElement;
                     if (root.ValueKind != JsonValueKind.Object) continue;
 
+                    // A genuine compare payload always has either an
+                    // explicit `universe` string OR an inner `payload`
+                    // object with one + a top-level `kind` of 'compare'.
+                    // Skip anything else — settings.json, ad-hoc files
+                    // an operator dropped in, etc — to avoid surfacing
+                    // ghost universes on /health/details.
+                    var hasUniverse = root.TryGetProperty("universe", out var uvRaw)
+                                      && uvRaw.ValueKind == JsonValueKind.String;
+                    var hasPayloadUniverse = root.TryGetProperty("payload", out var pl)
+                                             && pl.ValueKind == JsonValueKind.Object
+                                             && pl.TryGetProperty("universe", out var pluv)
+                                             && pluv.ValueKind == JsonValueKind.String;
+                    if (!hasUniverse && !hasPayloadUniverse)
+                    {
+                        _logger.LogInformation(
+                            "Skipping {File} — not a compare payload (no universe field).",
+                            Path.GetFileName(file));
+                        continue;
+                    }
+
                     var universe = ReadString(root, "universe") ?? Path.GetFileNameWithoutExtension(file);
                     var runId = ReadString(root, "runId") ?? ReadString(root, "run_id");
                     var generatedAt = ReadDate(root, "generatedAtUtc")

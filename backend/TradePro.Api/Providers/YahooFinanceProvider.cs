@@ -35,9 +35,27 @@ public sealed class YahooFinanceProvider : IMarketDataProvider
         }
 
         var first = result[0];
-        var timestamps = first.GetProperty("timestamp").EnumerateArray().Select(e => e.GetInt64()).ToArray();
-        var indicators = first.GetProperty("indicators");
-        var quote = indicators.GetProperty("quote")[0];
+        // Yahoo returns the result entry without `timestamp` when the
+        // symbol is invalid / has no bars — surface that as an empty
+        // CandleSeries so the caller (SignalEngine, etc.) can return a
+        // graceful 'no data' decision instead of 500-ing the user.
+        if (!first.TryGetProperty("timestamp", out var tsRaw)
+            || tsRaw.ValueKind != JsonValueKind.Array)
+        {
+            return new CandleSeries(symbol, interval, Name, Array.Empty<Candle>());
+        }
+        var timestamps = tsRaw.EnumerateArray().Select(e => e.GetInt64()).ToArray();
+        if (!first.TryGetProperty("indicators", out var indicators))
+        {
+            return new CandleSeries(symbol, interval, Name, Array.Empty<Candle>());
+        }
+        if (!indicators.TryGetProperty("quote", out var quoteArr)
+            || quoteArr.ValueKind != JsonValueKind.Array
+            || quoteArr.GetArrayLength() == 0)
+        {
+            return new CandleSeries(symbol, interval, Name, Array.Empty<Candle>());
+        }
+        var quote = quoteArr[0];
 
         var opens = ReadNullableDecimals(quote, "open");
         var highs = ReadNullableDecimals(quote, "high");

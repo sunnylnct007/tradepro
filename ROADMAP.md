@@ -132,6 +132,22 @@ page.
 - [ ] **LLM provider/model**: choose via UI (drop-down of installed
       Ollama models + 'use Anthropic API' toggle with key entered in
       Settings).
+- [ ] **Custom watchlists from the UI** *(user-stated 2026-05-03)*:
+      "create watchlist like any other trading app". Settings page
+      gets a Watchlists section with: list existing universes
+      (pre-built + user-created), create with a name + symbol
+      autocomplete, edit / delete. Server-side store sits next to
+      compare cache (`<Compare:StorePath>/watchlists/<name>.json`).
+      Mac comparator picks them up by name from the same `--watchlist`
+      flag — no code change to add a new universe.
+- [ ] **Symbol autocomplete** *(user-stated 2026-05-03)*: any free-
+      text symbol input (Signals, Watchlist editor) gets a dropdown
+      backed by `/api/marketdata/search` → Yahoo's symbol search
+      endpoint. Filters by ticker + company name; preview shows
+      currency / venue. Stops the "I typed NV instead of NVDA"
+      class of error; today that returns a 500 (now hardened to a
+      graceful 'no data' but autocomplete prevents the trip
+      entirely).
 
 ### Phase 4 — Robust ETF execution (IN PROGRESS)
 
@@ -215,8 +231,28 @@ first-class and extensible. **No-hallucination contract still
 applies** — anything fed in here gets cited like any other source,
 and an LLM rationale that references it must verify against it.
 
-#### 5c-i — Live news (real-time signal)
+#### 5c-i — Live news + price feeds (real-time signal)
 
+User-stated (2026-05-03): "got Trading212 application access. We can
+get real live data which will be up-to-date then Yahoo." T212's
+public API exposes portfolio + orders + instruments-search but NOT
+streaming quotes — for live prices we still need a streaming
+provider. Two-track plan:
+
+- [ ] **Trading212 portfolio sync**: `/equity/portfolio`,
+      `/equity/account/cash`, `/equity/orders`. Read-only, API-key
+      auth. Used for the paper-trading reconciliation in Phase 8 +
+      'highlight what you actually own' on the Compare page. Doc
+      link: https://t212public-api-docs.redoc.ly/.
+- [ ] **Trading212 instruments registry**: `/equity/metadata/instruments`
+      gives ~12k symbols with tickers, currencies, venues, ISINs.
+      Becomes the autocomplete source for the symbol picker (Phase 7).
+- [ ] **Live price stream** *(separate from T212)*: Alpaca free tier
+      (US equities, IEX-only, 200 req/min) OR IBKR Gateway delayed
+      quotes via `ib_insync`. WebSocket for active symbols, fallback
+      to REST polling. Bucket assignments refresh on tick rather
+      than once per day. **Opt-in per universe** so free-tier users
+      pay nothing.
 - [ ] **RSS / Atom ingestion**: per-watchlist feed registry. Defaults:
       Yahoo per-symbol news (already pulling), Reuters/AP/FT business
       RSS, sector-specific feeds (FT Markets, Bloomberg open RSS).
@@ -279,23 +315,35 @@ text, chunks, embeds, and retrieves at decision time.
   - List of uploaded docs with title, size, linked symbols, date
   - Click to view extracted text + which decisions it has been
     retrieved into
-- [ ] **Chunking**: 800-token windows with 150-token overlap;
-      preserves section headers as metadata so retrieved chunks
-      cite "from section: <heading>" not just a page number.
-- [ ] **Embeddings**: local default
-      `mxbai-embed-large` via Ollama (free, 1024-dim);
-      override via `TRADEPRO_EMBED_MODEL`. Optional Anthropic /
-      OpenAI embeddings for higher quality at cost.
-- [ ] **Vector store**: DuckDB with the FTS extension OR
-      `sqlite-vec`. Single-user volume; vector store doesn't need
-      to be distributed. Indexed by symbol mappings (a doc tagged
-      with QQQ shows up only when QQQ is in scope).
-- [ ] **Retrieval at decision time**: when generating a rationale
-      for a symbol, retrieve the top-K most relevant chunks from
-      every uploaded doc tagged for that symbol; pass them as
-      additional `allowed facts` to the LLM (still subject to the
-      verifier — uploaded text must be cited as
-      `tradepro://documents/<doc_id>#chunk-N`).
+- [x] **Chunking**: section-aware sliding window
+      (`tradepro_strategies/embeddings/chunker.py`). Default
+      ~500-token windows / ~100-token overlap, never crosses
+      section boundaries (PDF page = section). Stable
+      `chunk_id = sha1(doc_id, section, chunk_idx, prefix)` so
+      re-chunking is idempotent and embeddings only re-run when
+      content actually changes.
+- [x] **Embeddings**: `OllamaEmbedder` (default
+      `mxbai-embed-large`, 1024-dim, ~700 MB). Override via
+      `TRADEPRO_EMBED_MODEL`. Failures (model not pulled / Ollama
+      down) surface visibly via `embed.failed` events, never
+      crash the comparator.
+- [x] **Vector store**: Parquet at
+      `~/.tradepro/cache/embeddings.parquet`, brute-force cosine
+      similarity in numpy. Plenty for single-user volume (dozens
+      of docs, hundreds of chunks); upgrade to DuckDB-VSS or
+      sqlite-vec when we cross ~10k chunks.
+- [x] **Retrieval at decision time**: comparator calls
+      `update_embeddings()` at run start (catches up new docs),
+      then per-symbol queries the store for top-5 chunks with
+      score ≥ 0. Chunks land in the rationale's
+      `retrieved_evidence` block; the LLM treats them as allowed
+      facts subject to the same verifier (claims unsupported by
+      either structured row OR retrieved chunk text → template
+      fallback).
+- [x] **Citation URI scheme**: every chunk has
+      `tradepro://documents/<doc_id>#chunk-<chunk_id>` — stable,
+      cite-able, and surfaced on every Rationale.retrieved_chunks
+      entry so the frontend can deep-link the source.
 
 #### 5c-iv — Document discovery (automated)
 

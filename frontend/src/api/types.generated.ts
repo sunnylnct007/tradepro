@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit by hand.
 // Regenerate with: uv run python tools/gen_ts_types.py
-// Generated at:   2026-05-02T22:25:27.416069+00:00
+// Generated at:   2026-05-03T16:35:56.690071+00:00
 // Source:         tradepro_strategies.schema (Pydantic)
 
 export const SCHEMA_VERSION = '1.0.0';
