@@ -127,21 +127,48 @@ def build_payload() -> dict:
     }
 
 
+def _local_target() -> tuple[str, str] | None:
+    """If a local API is reachable on localhost:5080, return target +
+    dev token so the launchd-installed heartbeat job lights up the
+    local UI in addition to whatever's in the creds file. Skipped
+    silently when localhost isn't running (i.e., normal prod machine
+    with nothing on :5080)."""
+    import requests
+    base = os.environ.get("TRADEPRO_LOCAL_API_URL", "http://localhost:5080")
+    try:
+        r = requests.get(f"{base.rstrip('/')}/health", timeout=1.0)
+        if r.status_code != 200:
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    token = os.environ.get("TRADEPRO_LOCAL_API_TOKEN", "dev-ingest-token")
+    return base.rstrip("/"), token
+
+
+def _push_to(target: str, token: str, payload: dict) -> None:
+    """Best-effort POST that never raises — heartbeat is a fire-and-
+    forget signal."""
+    try:
+        push("heartbeat", payload, target, token)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def send() -> None:
-    """Build + POST a heartbeat. Other CLIs (run_comparison) call this
-    directly at task start/end so the UI gets updates without waiting for
-    the periodic launchd job. Failures are swallowed — a missed heartbeat
-    is never important enough to fail the calling job."""
+    """Build + POST a heartbeat. Dual-target: file-creds (typically
+    prod) AND localhost when reachable. Other CLIs (run_comparison)
+    call this directly at task start/end so the UI gets updates
+    without waiting for the periodic launchd job. Failures swallowed —
+    a missed heartbeat never fails the calling job."""
+    payload = build_payload()
     try:
         base, token = load_credentials()
+        _push_to(base, token, payload)
     except SystemExit:
-        return
-    try:
-        push("heartbeat", build_payload(), base, token)
-    except Exception:
-        # The heartbeat is best-effort. If the network's down, the next
-        # one will land — don't propagate.
         pass
+    local = _local_target()
+    if local is not None:
+        _push_to(local[0], local[1], payload)
 
 
 def main() -> None:
@@ -151,6 +178,11 @@ def main() -> None:
         action="store_true",
         help="print the payload, do not POST",
     )
+    p.add_argument(
+        "--no-local",
+        action="store_true",
+        help="skip the localhost fallback target",
+    )
     args = p.parse_args()
 
     payload = build_payload()
@@ -158,15 +190,30 @@ def main() -> None:
         print(json.dumps(payload, indent=2, default=str))
         return
 
+    targets: list[tuple[str, str, str]] = []  # (label, base, token)
     try:
         base, token = load_credentials()
+        targets.append(("file-creds", base, token))
     except SystemExit:
-        # load_credentials() exits the process on missing config; for a
-        # heartbeat we want to fail quietly so launchd doesn't fill up
-        # the error log on a fresh machine without creds yet.
-        print("heartbeat skipped: no credentials configured", file=sys.stderr)
+        print("heartbeat: no file credentials configured", file=sys.stderr)
+
+    if not args.no_local:
+        local = _local_target()
+        if local is not None:
+            targets.append(("localhost", local[0], local[1]))
+
+    if not targets:
+        print("heartbeat: no reachable targets", file=sys.stderr)
         sys.exit(0)
-    push("heartbeat", payload, base, token)
+
+    for label, base, token in targets:
+        try:
+            push("heartbeat", payload, base, token)
+            print(f"heartbeat → {label} ({base}): ok", file=sys.stderr)
+        except SystemExit:
+            # push() exits on persistent failure; don't let one
+            # target's failure stop the next.
+            print(f"heartbeat → {label} ({base}): failed", file=sys.stderr)
 
 
 if __name__ == "__main__":

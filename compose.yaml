@@ -65,9 +65,10 @@ services:
       timeout: 3s
       retries: 12
       start_period: 30s
-    depends_on:
-      extractor:
-        condition: service_healthy
+    # Note: extractor is *not* in depends_on — it lives behind the
+    # `upload` profile and is only needed when the user uploads a doc
+    # via the browser. Letting the API start without it keeps the
+    # baseline stack at ~500MB instead of ~720MB.
 
   frontend:
     build:
@@ -100,7 +101,18 @@ services:
   # robust), trafilatura for HTML (boilerplate stripping), pass-
   # through for TXT / MD. Stateless: the service writes nothing
   # to disk except the per-request temp file (deleted in handler).
+  #
+  # On-demand only: gated behind the `upload` profile so the
+  # baseline stack doesn't pay the ~220MB resident cost just to
+  # keep an idle Python service alive. Start it when you want to
+  # upload:
+  #     docker compose --profile upload up -d extractor
+  # Stop when you're done:
+  #     docker compose stop extractor
+  # The API returns a friendly 502 with these instructions if a
+  # browser upload arrives while the extractor is down.
   extractor:
+    profiles: ["upload"]
     build:
       context: ./strategies
       dockerfile: Dockerfile.extractor

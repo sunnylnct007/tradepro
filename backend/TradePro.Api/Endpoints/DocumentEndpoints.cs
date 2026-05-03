@@ -74,7 +74,11 @@ public static class DocumentEndpoints
                 {
                     log.LogError(ex, "extractor unreachable at {Url}", extractorUrl);
                     return Results.Problem(
-                        $"extractor unreachable: {ex.Message}", statusCode: 502);
+                        $"Extractor sidecar is not running. It's on-demand to " +
+                        $"keep memory low — start it with " +
+                        $"`docker compose --profile upload up -d extractor` " +
+                        $"and retry the upload. ({ex.Message})",
+                        statusCode: 502);
                 }
 
                 var body = await extractorResp.Content.ReadAsStringAsync();
