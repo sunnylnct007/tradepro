@@ -31,7 +31,7 @@ public sealed class SmaCrossoverStrategy : ISignalStrategy
     {
         var fast = (int)(@params.TryGetValue("fast", out var f) ? f : 20);
         var slow = (int)(@params.TryGetValue("slow", out var s) ? s : 50);
-        var closes = candles.Select(c => c.Close).ToArray();
+        var closes = candles.Select(c => c.AdjOrClose).ToArray();
         var fastSma = Indicators.Sma(closes, fast);
         var slowSma = Indicators.Sma(closes, slow);
 
@@ -64,7 +64,7 @@ public sealed class RsiMeanReversionStrategy : ISignalStrategy
         var low = (decimal)(@params.TryGetValue("low", out var lo) ? lo : 30);
         var high = (decimal)(@params.TryGetValue("high", out var hi) ? hi : 70);
 
-        var closes = candles.Select(c => c.Close).ToArray();
+        var closes = candles.Select(c => c.AdjOrClose).ToArray();
         var rsi = Indicators.Rsi(closes, period);
 
         var signals = new Signal[candles.Count];
@@ -99,7 +99,7 @@ public sealed class MacdSignalCrossStrategy : ISignalStrategy
         var slow = (int)(@params.TryGetValue("slow", out var s) ? s : 26);
         var sigP = (int)(@params.TryGetValue("signal", out var g) ? g : 9);
 
-        var closes = candles.Select(c => c.Close).ToArray();
+        var closes = candles.Select(c => c.AdjOrClose).ToArray();
         var (macd, signalLine, _) = Indicators.Macd(closes, fast, slow, sigP);
 
         var signals = new Signal[candles.Count];
@@ -129,7 +129,7 @@ public sealed class DonchianBreakoutStrategy : ISignalStrategy
     public Signal[] Generate(IReadOnlyList<Candle> candles, IReadOnlyDictionary<string, double> @params)
     {
         var lookback = (int)(@params.TryGetValue("lookback", out var lb) ? lb : 20);
-        var closes = candles.Select(c => c.Close).ToArray();
+        var closes = candles.Select(c => c.AdjOrClose).ToArray();
         var (high, low) = Indicators.Donchian(closes, lookback);
 
         var signals = new Signal[candles.Count];

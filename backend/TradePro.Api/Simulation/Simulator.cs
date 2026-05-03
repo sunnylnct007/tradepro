@@ -41,7 +41,7 @@ public sealed class Simulator : ISimulator
 
         for (var i = 0; i < candles.Count; i++)
         {
-            var price = candles[i].Close;
+            var price = candles[i].AdjOrClose;
 
             if (signals[i] == Signal.Buy && qty == 0m && cash > 0m)
             {
@@ -72,7 +72,7 @@ public sealed class Simulator : ISimulator
         // Close any open position at the last close so the PnL is realised.
         if (qty > 0m && candles.Count > 0)
         {
-            var lastPrice = candles[^1].Close;
+            var lastPrice = candles[^1].AdjOrClose;
             var proceeds = qty * lastPrice - fees.CommissionPerTrade;
             cash += proceeds;
             trades.Add(new Trade(candles[^1].Timestamp, "SELL", lastPrice, qty, fees.CommissionPerTrade, "close_at_end"));

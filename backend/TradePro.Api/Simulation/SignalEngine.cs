@@ -42,7 +42,11 @@ public sealed class SignalEngine : ISignalEngine
                 null, null);
         }
 
-        var closes = candles.Select(c => c.Close).ToList();
+        // Use split/distribution-adjusted prices throughout — see
+        // Candle.AdjOrClose. Without this, a single distribution turns
+        // a flat year into a fake 20% drawdown vs 52w high (SWDA.L
+        // exhibited exactly this in the Claude Desktop ETF Q&A).
+        var closes = candles.Select(c => c.AdjOrClose).ToList();
         var signals = strategy.Generate(candles, req.Params ?? new Dictionary<string, double>());
 
         // Find the most recent non-hold signal within the lookback window.
@@ -94,7 +98,7 @@ public sealed class SignalEngine : ISignalEngine
             action = "HOLD";
             if (inPosition)
             {
-                var entry = candles[lastActionIdx].Close;
+                var entry = candles[lastActionIdx].AdjOrClose;
                 var pnlPct = entry > 0 ? (lastClose - entry) / entry * 100m : 0m;
                 var pnlSign = pnlPct >= 0 ? "+" : "";
                 reasons.Add(

@@ -54,11 +54,11 @@ public sealed class HitRateEngine : IHitRateEngine
             if (signals[i] == Signal.Buy && entryDate is null)
             {
                 entryDate = candles[i].Timestamp;
-                entryPrice = candles[i].Close;
+                entryPrice = candles[i].AdjOrClose;
             }
             else if (signals[i] == Signal.Sell && entryDate is not null)
             {
-                var exit = candles[i].Close;
+                var exit = candles[i].AdjOrClose;
                 var ret = entryPrice > 0m ? (exit - entryPrice) / entryPrice * 100m : 0m;
                 var days = (int)(candles[i].Timestamp - entryDate.Value).TotalDays;
                 trades.Add(new HitRateTrade(
