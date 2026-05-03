@@ -252,18 +252,33 @@ The thing that makes the platform research-aware. User uploads a
 prospectus, an analyst report, a press release; the system extracts
 text, chunks, embeds, and retrieves at decision time.
 
-- [ ] **Upload endpoint**: `POST /api/documents/upload` accepting
-      multipart form-data (PDF / HTML / TXT / MD up to 25MB).
-      Stored at `~/.tradepro/documents/<doc_id>/{original,
-      extracted.txt, chunks.parquet, embeddings.npy}` with a
-      manifest at `<doc_id>/manifest.json` (title, source URL if
-      any, uploaded_at, sha256, linked_symbols).
-- [ ] **Text extraction**:
-  - PDF: `pdfplumber` (preserves layout, tables) + fallback to
-    `pypdf` for simple text.
-  - HTML: `trafilatura` (boilerplate removal that keeps article
-    content cleanly) + fallback to `readability-lxml`.
-  - TXT/MD: pass-through.
+- [x] **Mac-side extractor** (`tradepro_strategies.documents`):
+      pdfplumber for PDFs (per-page sections), trafilatura for
+      HTML (boilerplate-stripped), pass-through for TXT / MD.
+      Returns ExtractedDocument with sha256 + char_count +
+      structured sections.
+- [x] **Ingest CLI**: `tradepro-doc-upload <file> --symbols QQQ,VOO
+      --title "..."` extracts locally, builds a manifest, pushes
+      via the existing `/api/ingest/document` token-auth endpoint.
+      Raw files stay on the Mac — only structured text + manifest
+      cross the wire.
+- [x] **API document store + endpoints**: `FileDocumentStore`
+      mirrors `FileCompareStore` (file-backed, atomic-rename,
+      hydrates on startup). Read endpoints:
+      `GET /api/documents` (list, optional ?symbol= filter),
+      `GET /api/documents/{id}` (full envelope),
+      `GET /api/documents/{id}/text` (extracted text — used by the
+      Mac comparator at decision time).
+- [x] **Behave coverage**: features/documents.feature verifies
+      extraction shape, manifest building (uppercase symbols, uuid
+      doc_id), and rejection of unsupported extensions.
+- [ ] **Frontend `/documents` page**:
+  - Drag-and-drop upload (forwards to /api/ingest/document via the
+    Mac CLI initially; native browser upload in a follow-up that
+    pipes raw bytes to the Mac for extraction)
+  - List of uploaded docs with title, size, linked symbols, date
+  - Click to view extracted text + which decisions it has been
+    retrieved into
 - [ ] **Chunking**: 800-token windows with 150-token overlap;
       preserves section headers as metadata so retrieved chunks
       cite "from section: <heading>" not just a page number.
@@ -281,11 +296,6 @@ text, chunks, embeds, and retrieves at decision time.
       additional `allowed facts` to the LLM (still subject to the
       verifier — uploaded text must be cited as
       `tradepro://documents/<doc_id>#chunk-N`).
-- [ ] **Frontend `/documents` page**:
-  - Drag-and-drop upload
-  - List of uploaded docs with title, size, linked symbols, date
-  - Click to view extracted text + chunks + which decisions it
-    has been retrieved into
 
 #### 5c-iv — Document discovery (automated)
 

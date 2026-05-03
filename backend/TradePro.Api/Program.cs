@@ -63,6 +63,7 @@ builder.Services.AddSingleton<IWatchlistStore, InMemoryWatchlistStore>();
 builder.Services.AddSingleton<ICompareStore, FileCompareStore>();
 builder.Services.AddSingleton<IHeartbeatStore, InMemoryHeartbeatStore>();
 builder.Services.AddSingleton<ISettingsStore, FileSettingsStore>();
+builder.Services.AddSingleton<IDocumentStore, FileDocumentStore>();
 
 var app = builder.Build();
 
@@ -91,6 +92,7 @@ api.MapWatchlistEndpoints();
 api.MapCompareEndpoints();
 api.MapWorkerHealthEndpoints();
 api.MapSettingsEndpoints();
+api.MapDocumentEndpoints();
 
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");

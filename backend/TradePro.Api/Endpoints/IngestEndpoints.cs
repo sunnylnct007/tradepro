@@ -55,6 +55,27 @@ public static class IngestEndpoints
             });
         });
 
+        // Document upload — Mac extracts the file (PDF / HTML / TXT) and
+        // pushes the structured manifest. Raw files stay on the Mac;
+        // only the extracted text + structural metadata ship to the API.
+        group.MapPost("/document", (JsonElement payload, IDocumentStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+            {
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            }
+            var env = store.Put(payload);
+            return Results.Ok(new
+            {
+                accepted = true,
+                docId = env.DocId,
+                title = env.Title,
+                charCount = env.CharCount,
+                linkedSymbols = env.LinkedSymbols,
+                receivedAtUtc = env.ReceivedAtUtc,
+            });
+        });
+
         return app;
     }
 }
