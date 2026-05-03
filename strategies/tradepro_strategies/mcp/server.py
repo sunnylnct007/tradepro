@@ -85,6 +85,19 @@ def build_server():
         return _json(t.get_health())
 
     @mcp.tool()
+    @instrumented("evaluate_symbols")
+    def evaluate_symbols(symbols: str, lookback_years: int = 5) -> str:
+        """Run every available strategy on any ETF or stock — no
+        universe required. `symbols` is a comma-separated ticker list
+        (e.g. "VWRP.L,SWDA.L,VUSA.L"). Returns the multi-strategy
+        bucket vote (BUY / WAIT / AVOID) per symbol, with per-strategy
+        stats + position state, and the now-or-wait market state.
+        Slow (~10-15s per symbol). Use this when the user asks about
+        a ticker that isn't in any cached universe (call
+        `list_universes` first to check)."""
+        return _json(t.evaluate_symbols(symbols, lookback_years))
+
+    @mcp.tool()
     @instrumented("run_comparison")
     def run_comparison(
         universe: str,

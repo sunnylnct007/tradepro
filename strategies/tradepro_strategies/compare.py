@@ -285,6 +285,38 @@ def _row_for(
     }
 
 
+def compute_bucket(
+    *,
+    price_verdict: str,
+    price_reason: str | None,
+    long_count: int,
+    total: int,
+) -> tuple[str, str]:
+    """Pure helper: roll the now-or-wait verdict + the per-strategy
+    long/flat votes into a single bucket (BUY/WAIT/AVOID) and a
+    one-line reason. Sentiment demotion is layered on by callers that
+    have news data; this helper stays sentiment-free so on-demand
+    paths (the MCP `evaluate_symbols` tool) can use it without paying
+    the news-fetching latency."""
+    majority_long = long_count > total / 2 if total > 0 else False
+    if price_verdict == "AVOID":
+        return "AVOID", price_reason or "Confirmed downtrend."
+    if price_verdict == "WAIT":
+        return "WAIT", price_reason or "Better entries likely soon."
+    if majority_long and price_verdict in ("BUY", "HOLD"):
+        return (
+            "BUY",
+            price_reason
+            or f"{long_count} of {total} strategies currently long; "
+               f"price action supports entry.",
+        )
+    return (
+        "WAIT",
+        f"Only {long_count} of {total} strategies are currently long "
+        f"— wait for more confirmation.",
+    )
+
+
 def _attach_bucket_and_rationale(
     rows: list[dict],
     mean_threshold: float,
@@ -307,28 +339,12 @@ def _attach_bucket_and_rationale(
         price_verdict = ms.get("entry_signal", "HOLD")
         long_count = sum(1 for r in sym_rows if r.get("in_position"))
         total = len(sym_rows)
-        majority_long = long_count > total / 2
-
-        # Same rule the frontend was using; now lives server-side too.
-        if price_verdict == "AVOID":
-            bucket = "AVOID"
-            reason = ms.get("entry_reason") or "Confirmed downtrend."
-        elif price_verdict == "WAIT":
-            bucket = "WAIT"
-            reason = ms.get("entry_reason") or "Better entries likely soon."
-        elif majority_long and price_verdict in ("BUY", "HOLD"):
-            bucket = "BUY"
-            reason = (
-                ms.get("entry_reason")
-                or f"{long_count} of {total} strategies currently long; "
-                   f"price action supports entry."
-            )
-        else:
-            bucket = "WAIT"
-            reason = (
-                f"Only {long_count} of {total} strategies are currently long "
-                f"— wait for more confirmation."
-            )
+        bucket, reason = compute_bucket(
+            price_verdict=price_verdict,
+            price_reason=ms.get("entry_reason"),
+            long_count=long_count,
+            total=total,
+        )
 
         # Sentiment demotion. Same thresholds the LLM bar shows.
         sentiment_demoted = False

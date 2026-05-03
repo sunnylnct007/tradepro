@@ -191,6 +191,132 @@ def get_health() -> dict:
         return _err("get_health", str(e))
 
 
+def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
+    """Run every available strategy against any one or more tickers —
+    no universe required. Mirrors what the Compare page shows for a
+    universe row, but ad-hoc and for symbols Claude Desktop names on
+    the fly. ~10-15s per symbol (5 backtests + market_state per ticker).
+    News, sentiment, fundamentals, and consensus are intentionally
+    skipped here — they're slow and need not block the multi-strategy
+    bucket vote, which is the primary signal an investor cares about.
+    """
+    if not symbols_csv or not symbols_csv.strip():
+        return _err("evaluate_symbols", "symbols_csv is required (e.g. 'VWRP.L,SWDA.L')")
+    symbols = [s.strip().upper() for s in symbols_csv.split(",") if s.strip()]
+    if not symbols:
+        return _err("evaluate_symbols", "no symbols parsed from input")
+
+    try:
+        from datetime import timedelta
+        from ..backtest import BacktestConfig, FeeModel, run_backtest
+        from ..cache import ensure_cached
+        from ..compare import compute_bucket
+        from ..market_state import market_state
+        from ..strategies import available as available_strategies
+        from ..strategies import resolve as resolve_strategy
+    except Exception as e:  # noqa: BLE001
+        return _err("evaluate_symbols", f"import failed: {e}")
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=365 * max(int(lookback_years), 1))
+    fees = FeeModel(commission_per_trade=0.0, stamp_duty_rate=0.0)
+    bt_cfg = BacktestConfig(
+        initial_capital=10_000.0, currency="USD", fees=fees,
+    )
+    strategy_names = available_strategies()
+
+    results: list[dict] = []
+    for sym in symbols:
+        try:
+            prices = ensure_cached("yahoo", sym, start, end)
+        except Exception as e:  # noqa: BLE001
+            results.append({
+                "_source": f"error://evaluate/{sym}",
+                "symbol": sym, "ok": False,
+                "error": f"price fetch failed: {e}",
+            })
+            continue
+
+        if prices.empty:
+            results.append({
+                "_source": f"error://evaluate/{sym}",
+                "symbol": sym, "ok": False,
+                "error": "no price data returned (invalid ticker?)",
+            })
+            continue
+
+        ms = market_state(sym, prices)
+        # run_backtest applies the close <- adj_close swap internally;
+        # the latest-signal recompute below has to mirror it so what
+        # we report as 'in_position' is what the executor saw.
+        adjusted = (
+            prices.assign(close=prices["adj_close"])
+            if "adj_close" in prices.columns else prices
+        )
+
+        strat_rows: list[dict] = []
+        for sname in strategy_names:
+            try:
+                signal_fn = resolve_strategy(sname, {})
+                bt = run_backtest(prices, signal_fn, bt_cfg)
+                signals = (
+                    signal_fn(adjusted).reindex(adjusted.index)
+                    .fillna(0).astype(int)
+                )
+                latest = int(signals.iloc[-1]) if not signals.empty else 0
+                nonzero = signals[signals != 0]
+                in_pos = bool(nonzero.iloc[-1] == 1) if not nonzero.empty else False
+                position_since = nonzero.index[-1].isoformat() if not nonzero.empty else None
+                strat_rows.append({
+                    "_source": f"live://evaluate/{sym}/strategies/{sname}",
+                    "strategy": sname,
+                    "in_position": in_pos,
+                    "position_since": position_since,
+                    "latest_signal": latest,
+                    "stats": {
+                        k: (float(v) if isinstance(v, (int, float)) else v)
+                        for k, v in (bt.stats or {}).items()
+                    },
+                    "error": None,
+                })
+            except Exception as e:  # noqa: BLE001
+                strat_rows.append({
+                    "_source": f"error://evaluate/{sym}/strategies/{sname}",
+                    "strategy": sname,
+                    "in_position": False,
+                    "error": str(e),
+                })
+
+        long_count = sum(1 for r in strat_rows if r.get("in_position"))
+        total = len(strat_rows)
+        bucket, bucket_reason = compute_bucket(
+            price_verdict=ms.entry_signal,
+            price_reason=ms.entry_reason,
+            long_count=long_count,
+            total=total,
+        )
+        results.append({
+            "_source": f"live://evaluate/{sym}",
+            "symbol": sym,
+            "ok": True,
+            "bucket": bucket,
+            "bucket_reason": bucket_reason,
+            "long_count": long_count,
+            "total_strategies": total,
+            "market_state": ms.to_dict(),
+            "strategies": strat_rows,
+        })
+
+    return {
+        "_source": "live://evaluate",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "lookback_years": lookback_years,
+        "symbols": symbols,
+        "results": results,
+    }
+
+
 def run_comparison(
     universe: str,
     rank_metric: str = "sharpe",
