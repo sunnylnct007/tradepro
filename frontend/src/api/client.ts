@@ -87,4 +87,33 @@ export const api = {
     }
     return resp.text();
   },
+  uploadDocument: async (
+    file: File,
+    title: string,
+    symbols: string,
+    sourceUrl?: string,
+  ): Promise<{
+    docId: string;
+    title: string;
+    fileKind: string;
+    extractor: string;
+    charCount: number;
+    pageCount: number | null;
+    linkedSymbols: string[];
+  }> => {
+    const url = new URL("/api/documents/upload", config.apiBaseUrl);
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("title", title);
+    fd.append("symbols", symbols);
+    if (sourceUrl) fd.append("sourceUrl", sourceUrl);
+    const token = await getIdToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.authorization = `Bearer ${token}`;
+    const resp = await fetch(url, { method: "POST", headers, body: fd });
+    if (!resp.ok) {
+      throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    }
+    return resp.json();
+  },
 };

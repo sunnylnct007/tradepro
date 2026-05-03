@@ -42,6 +42,10 @@ services:
       # allows http://localhost:5173 — this just makes it explicit if the
       # operator overrides API_PORT.
       Cors__AllowedOrigins__0: "http://localhost:5173"
+      # Browser uploads land here, the API forwards multipart payloads
+      # to the Python sidecar at this URL. Inside compose the service
+      # name 'extractor' resolves over the default network.
+      Extractor__Url: "http://extractor:8000"
     volumes:
       # Bind-mount source so dotnet watch picks up edits.
       - ./backend:/src
@@ -61,6 +65,9 @@ services:
       timeout: 3s
       retries: 12
       start_period: 30s
+    depends_on:
+      extractor:
+        condition: service_healthy
 
   frontend:
     build:
@@ -87,6 +94,31 @@ services:
     depends_on:
       api:
         condition: service_started
+
+  # Document extractor sidecar — small FastAPI service the API
+  # forwards browser-uploaded files to. PyMuPDF for PDFs (fast,
+  # robust), trafilatura for HTML (boilerplate stripping), pass-
+  # through for TXT / MD. Stateless: the service writes nothing
+  # to disk except the per-request temp file (deleted in handler).
+  extractor:
+    build:
+      context: ./strategies
+      dockerfile: Dockerfile.extractor
+    container_name: tradepro-extractor
+    ports:
+      # Host-exposed mainly for ad-hoc curl testing; the API talks
+      # to it over the compose network not via host:port.
+      - "${EXTRACTOR_PORT:-8001}:8000"
+    environment:
+      TRADEPRO_EXTRACTOR_PORT: "8000"
+      TRADEPRO_EXTRACTOR_HOST: "0.0.0.0"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
 
 volumes:
   frontend_node_modules:

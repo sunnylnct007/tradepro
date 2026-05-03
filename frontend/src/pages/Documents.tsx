@@ -1,25 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { DocumentSummary } from "../api/types";
 
 /** Document library — uploaded research, prospectuses, analyst notes.
  *
- * Today's flow is push-from-Mac via the `tradepro-doc-upload` CLI
- * (extraction lives in Python, with pdfplumber + trafilatura — too
- * heavy to put in the .NET API directly). This page surfaces the
- * existing library + the CLI command. Native browser upload comes
- * with a Mac-side extraction HTTP endpoint in a follow-up slice. */
+ * Browser upload posts multipart to /api/documents/upload, which
+ * forwards to the Python extractor sidecar (PyMuPDF for PDFs,
+ * trafilatura for HTML, pass-through for TXT/MD). The CLI route
+ * (`tradepro-doc-upload`) still works for batch ingestion from the
+ * Mac. */
 export function Documents() {
   const [docs, setDocs] = useState<DocumentSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("");
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     api.documents()
-      .then((r) => setDocs(r.documents))
+      .then((r) => { setDocs(r.documents); setError(null); })
       .catch((e) => setError(String(e)));
   }, []);
+
+  useEffect(() => { reload(); }, [reload]);
 
   const filtered = useMemo(() => {
     if (!docs) return [];
@@ -36,14 +38,14 @@ export function Documents() {
       <div>
         <h1 style={{ margin: 0, fontSize: 24 }}>Documents</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 760 }}>
-          Research uploaded from the Mac for use at decision time. PDFs
-          extracted with pdfplumber, HTML with trafilatura, TXT/MD
-          pass-through. Each document is linked to one or more symbols
-          and the extracted text is queryable by the comparator.
+          Research uploaded for use at decision time. PDFs extracted with{" "}
+          <strong>PyMuPDF</strong>, HTML with <strong>trafilatura</strong>,
+          TXT/MD pass-through. Each document is linked to one or more
+          symbols and the extracted text is queryable by the comparator.
         </p>
       </div>
 
-      <UploadInstructions />
+      <UploadDropZone onUploaded={reload} />
 
       <section className="card" style={{ padding: "12px 16px" }}>
         <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -70,7 +72,7 @@ export function Documents() {
       {docs && filtered.length === 0 && !error && (
         <div className="card" style={{ color: "var(--text-dim)", padding: "16px 18px" }}>
           {docs.length === 0
-            ? "No documents uploaded yet. Use the CLI command above to add one."
+            ? "No documents uploaded yet. Drop one above to get started."
             : `No documents matched "${filter}".`}
         </div>
       )}
@@ -133,38 +135,197 @@ function DocCard({ doc }: { doc: DocumentSummary }) {
   );
 }
 
-function UploadInstructions() {
+/** Drag-and-drop / picker upload. Posts to /api/documents/upload
+ * (multipart) which forwards to the extractor sidecar. Shows progress
+ * + the resulting doc summary. */
+function UploadDropZone({ onUploaded }: { onUploaded: () => void }) {
+  const [drag, setDrag] = useState(false);
+  const [pending, setPending] = useState<File | null>(null);
+  const [title, setTitle] = useState("");
+  const [symbols, setSymbols] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [last, setLast] = useState<{ docId: string; title: string; charCount: number; extractor: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+
+  function pickFile(f: File) {
+    setPending(f);
+    setLast(null);
+    setError(null);
+    if (!title) {
+      const base = f.name.replace(/\.[^.]+$/, "");
+      setTitle(base);
+    }
+  }
+
+  async function upload() {
+    if (!pending) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.uploadDocument(
+        pending,
+        title || pending.name,
+        symbols,
+        sourceUrl || undefined,
+      );
+      setLast(result);
+      setPending(null);
+      setTitle("");
+      setSymbols("");
+      setSourceUrl("");
+      if (fileRef.current) fileRef.current.value = "";
+      onUploaded();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <details
+    <section
       className="card"
-      style={{ borderLeft: "3px solid var(--neutral)", padding: "10px 14px" }}
+      style={{
+        padding: 0,
+        overflow: "hidden",
+        borderColor: drag ? "var(--up)" : undefined,
+        borderStyle: drag ? "dashed" : "solid",
+        transition: "border-color 0.1s ease",
+      }}
     >
-      <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
-        Upload a new document (CLI)
-      </summary>
-      <p style={{ margin: "8px 0 4px 0", fontSize: 12, color: "var(--text-dim)" }}>
-        Run this on the Mac. PDFs are extracted with pdfplumber, HTML
-        with trafilatura, TXT/MD pass through. Browser drag-and-drop
-        coming in a follow-up.
-      </p>
-      <pre style={{
-        margin: "6px 0 0 0",
-        padding: "8px 10px",
-        background: "rgba(0,0,0,0.3)",
-        borderRadius: 4,
-        fontSize: 12,
-        overflowX: "auto",
-        color: "var(--text)",
-      }}>
-{`uv run tradepro-doc-upload prospectus.pdf \\
-    --symbols QQQ,VOO \\
-    --title "Vanguard S&P 500 prospectus 2026" \\
-    --source-url https://...`}
-      </pre>
-      <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
-        Supported: <code>.pdf</code> · <code>.html</code> · <code>.htm</code>{" "}
-        · <code>.txt</code> · <code>.md</code>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(e) => {
+          e.preventDefault(); setDrag(false);
+          const f = e.dataTransfer.files?.[0];
+          if (f) pickFile(f);
+        }}
+        style={{
+          padding: "20px 22px",
+          background: drag ? "rgba(31,193,107,0.06)" : "transparent",
+          textAlign: "center",
+          cursor: "pointer",
+        }}
+        onClick={() => fileRef.current?.click()}
+      >
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.html,.htm,.txt,.md"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) pickFile(f);
+          }}
+        />
+        {pending ? (
+          <div style={{ color: "var(--text)" }}>
+            <strong>{pending.name}</strong>{" "}
+            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+              ({Math.round(pending.size / 1024)} KB) — fill in details + click Upload, or drop another to replace
+            </span>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 14, color: "var(--text)" }}>
+              Drop a file here, or click to choose
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
+              Supported: <code>.pdf</code> · <code>.html</code> · <code>.htm</code>{" "}
+              · <code>.txt</code> · <code>.md</code> &nbsp;·&nbsp;
+              PDF via PyMuPDF, HTML via trafilatura
+            </div>
+          </div>
+        )}
       </div>
-    </details>
+
+      {pending && (
+        <div style={{
+          padding: "12px 16px",
+          borderTop: "1px solid var(--border)",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 10,
+        }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span className="stat-label">Title</span>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={pending.name}
+            />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span className="stat-label">Linked symbols (comma-sep)</span>
+            <input
+              type="text"
+              value={symbols}
+              onChange={(e) => setSymbols(e.target.value)}
+              placeholder="QQQ,VOO"
+            />
+          </label>
+          <label style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 3 }}>
+            <span className="stat-label">Source URL (optional)</span>
+            <input
+              type="url"
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder="https://example.com/research-paper.pdf"
+            />
+          </label>
+          <div style={{ gridColumn: "1 / -1", display: "flex", gap: 8 }}>
+            <button className="primary" onClick={upload} disabled={busy}>
+              {busy ? "Uploading + extracting…" : "Upload"}
+            </button>
+            <button onClick={() => { setPending(null); setError(null); if (fileRef.current) fileRef.current.value = ""; }} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div style={{
+          padding: "10px 16px",
+          borderTop: "1px solid var(--border)",
+          color: "var(--down)",
+          fontSize: 12,
+        }}>
+          Upload failed: {error}
+        </div>
+      )}
+
+      {last && (
+        <div style={{
+          padding: "10px 16px",
+          borderTop: "1px solid var(--border)",
+          color: "var(--text-dim)",
+          fontSize: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+        }}>
+          <span style={{ color: "var(--up)", fontWeight: 600 }}>
+            ✓ Uploaded
+          </span>
+          <span>
+            <strong style={{ color: "var(--text)" }}>{last.title}</strong> —{" "}
+            {last.charCount.toLocaleString()} chars via {last.extractor}
+          </span>
+          <button
+            style={{ marginLeft: "auto" }}
+            onClick={() => navigate(`/documents/${encodeURIComponent(last.docId)}`)}
+          >
+            Open →
+          </button>
+        </div>
+      )}
+    </section>
   );
 }

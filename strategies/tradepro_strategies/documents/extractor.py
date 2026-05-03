@@ -82,8 +82,57 @@ def _now_iso() -> str:
 
 
 def extract_pdf(path: Path) -> ExtractedDocument:
-    """PDF via pdfplumber. Each page becomes a section with heading
-    'page <n>' so a citation can later say chunk-X (page 12)."""
+    """PDF extraction. PyMuPDF (fitz) is the primary engine — faster
+    and more reliable across messy PDFs than pdfplumber, which we
+    keep as a fallback when fitz can't import (env-specific)."""
+    try:
+        return _extract_pdf_pymupdf(path)
+    except (ImportError, RuntimeError):
+        return _extract_pdf_pdfplumber(path)
+
+
+def _extract_pdf_pymupdf(path: Path) -> ExtractedDocument:
+    """Primary PDF path. PyMuPDF (pymupdf) — 5-10x faster than
+    pdfplumber on large prospectuses, handles columnar layouts
+    cleanly, copes with mixed-encoding text where pdfplumber drops
+    glyphs."""
+    try:
+        import pymupdf  # noqa: F401  — modern import name
+        import fitz     # legacy alias still exposed by pymupdf
+    except ImportError as e:
+        raise RuntimeError(f"pymupdf not installed: {e}")
+
+    sections: list[ExtractedSection] = []
+    page_count = 0
+    with fitz.open(path) as doc:
+        for i, page in enumerate(doc, start=1):
+            txt = page.get_text("text") or ""
+            txt = txt.strip()
+            if not txt:
+                continue
+            sections.append(ExtractedSection(
+                heading=f"page {i}",
+                text=txt,
+                page=i,
+            ))
+            page_count += 1
+
+    char_count = sum(len(s.text) for s in sections)
+    return ExtractedDocument(
+        file_path=str(path),
+        file_kind="pdf",
+        sha256=_sha256(path),
+        char_count=char_count,
+        page_count=page_count,
+        sections=sections,
+        extracted_at=_now_iso(),
+        extractor="pymupdf",
+    )
+
+
+def _extract_pdf_pdfplumber(path: Path) -> ExtractedDocument:
+    """Fallback PDF path. Slower but pure-Python (BSD-licensed).
+    Useful when fitz can't load — corner cases on weird PDF formats."""
     try:
         import pdfplumber
     except ImportError as e:
