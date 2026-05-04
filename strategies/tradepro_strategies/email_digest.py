@@ -119,6 +119,10 @@ def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
                 "max_drawdown_pct": stats.get("max_drawdown_pct"),
                 "max_drawdown_recovery_days": stats.get("max_drawdown_recovery_days"),
                 "max_drawdown_still_recovering": stats.get("max_drawdown_still_recovering"),
+                # Cross-basket signals — surfaced in the digest so the
+                # email shows the multi-family view, not just Family-1.
+                "cross_sectional_momentum": best.get("cross_sectional_momentum"),
+                "valuation_flag": best.get("valuation_flag"),
             })
     return items
 
@@ -148,6 +152,34 @@ def _format_dd_recovery(item: dict) -> str:
     return base
 
 
+def _format_cross_basket(item: dict) -> str | None:
+    """Compact one-liner for the cross-basket signals — Family-2
+    valuation flag and Family-3 momentum rank. Returns None when
+    neither is present so the caller can skip the line. Format:
+
+        Momentum rank 3/13 (top quartile) · Valuation cheap
+
+    Each piece independently optional — partial data still produces
+    something useful."""
+    cs = item.get("cross_sectional_momentum") or {}
+    val = item.get("valuation_flag") or {}
+    parts: list[str] = []
+    if cs.get("rank") is not None:
+        peer_count = cs.get("peer_count")
+        if isinstance(peer_count, int):
+            total = peer_count + 1
+            piece = f"Momentum rank {cs['rank']}/{total}"
+        else:
+            piece = f"Momentum rank {cs['rank']}"
+        if cs.get("is_top_quartile"):
+            piece += " (top quartile)"
+        parts.append(piece)
+    flag = val.get("flag")
+    if flag in ("cheap", "expensive"):
+        parts.append(f"Valuation {flag}")
+    return " · ".join(parts) if parts else None
+
+
 def _text_block(items: list[dict], heading: str) -> str:
     lines = [heading, "─" * len(heading)]
     if not items:
@@ -175,6 +207,9 @@ def _text_block(items: list[dict], heading: str) -> str:
             f"  RSI {rsi} · {off_high} off 52w · "
             f"CAGR {cagr} · Sharpe {sharpe} · MaxDD {max_dd}"
         )
+        cross = _format_cross_basket(it)
+        if cross:
+            lines.append(f"  {cross}")
         lines.append("")
     return "\n".join(lines).rstrip()
 

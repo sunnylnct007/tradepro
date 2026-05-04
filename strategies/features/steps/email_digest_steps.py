@@ -77,6 +77,41 @@ def step_stale(context):
     context.payloads = [_envelope("etf_uk_core", [row])]
 
 
+@given("a compare payload with one BUY symbol that ranks top in basket on momentum")
+def step_top_momentum(context):
+    row = _row("VUKE.L", "BUY")
+    row["cross_sectional_momentum"] = {
+        "rank": 1, "peer_count": 4, "zscore": 1.5,
+        "is_top_quartile": True, "value": 22.0, "basket_median": 12.0,
+    }
+    context.payloads = [_envelope("etf_uk_core", [row])]
+
+
+@given("a compare payload with one BUY symbol flagged cheap")
+def step_flagged_cheap(context):
+    row = _row("VUKE.L", "BUY")
+    row["valuation_flag"] = {
+        "flag": "cheap", "yield_pct": 5.5,
+        "basket_median_yield_pct": 2.8,
+        "basis": "yield 5.50% vs basket median 2.80%",
+    }
+    context.payloads = [_envelope("etf_uk_core", [row])]
+
+
+@given("a compare payload with one BUY symbol that has no cross-basket annotations")
+def step_no_annotations(context):
+    row = _row("VUKE.L", "BUY")
+    # Explicitly nothing on cross_sectional_momentum / valuation_flag.
+    context.payloads = [_envelope("etf_uk_core", [row])]
+
+
+@then('the text body does not contain "{snippet}"')
+def step_text_not_contains(context, snippet: str):
+    assert snippet not in context.digest.text_body, (
+        f"text body unexpectedly contains {snippet!r}"
+    )
+
+
 @then('the html body contains "{snippet}"')
 def step_html_contains(context, snippet: str):
     assert snippet in context.digest.html_body, (

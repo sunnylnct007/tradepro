@@ -41,3 +41,21 @@ Feature: Daily email digest builder
     When I build the email digest
     Then the text body contains "markets closed today"
     And the html body contains "markets closed today"
+
+  Scenario: cross-basket momentum rank surfaces in the BUY block
+    Given a compare payload with one BUY symbol that ranks top in basket on momentum
+    When I build the email digest
+    Then the text body contains "Momentum rank 1/5"
+    And the text body contains "top quartile"
+
+  Scenario: valuation flag surfaces in the BUY block
+    Given a compare payload with one BUY symbol flagged cheap
+    When I build the email digest
+    Then the text body contains "Valuation cheap"
+
+  Scenario: a row with neither cross-basket signal omits the line cleanly
+    Given a compare payload with one BUY symbol that has no cross-basket annotations
+    When I build the email digest
+    Then the text body contains "VUKE.L"
+    And the text body does not contain "Momentum rank"
+    And the text body does not contain "Valuation cheap"
