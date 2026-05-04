@@ -34,3 +34,21 @@ Feature: Cross-sectional momentum ranks within the basket
     Given a basket of one symbol
     When I rank the basket by momentum
     Then the single symbol has zscore 0.0
+
+  Scenario: yield-quartile valuation flag — top quartile is cheap
+    Given the yield basket json {"A": 5.0, "B": 4.0, "C": 3.0, "D": 2.0, "E": 1.0}
+    When I bucket the basket by yield quartile
+    Then "A" has flag "cheap"
+    And "E" has flag "expensive"
+    And the basis for "A" mentions the basket median
+
+  Scenario: missing yield gets n/a flag
+    Given the yield basket json {"A": 4.0, "B": null, "C": 2.0}
+    When I bucket the basket by yield quartile
+    Then "B" has flag "n/a"
+
+  Scenario: empty yield basket falls back gracefully
+    Given the yield basket json {"A": null, "B": null}
+    When I bucket the basket by yield quartile
+    Then "A" has flag "n/a"
+    And "B" has flag "n/a"

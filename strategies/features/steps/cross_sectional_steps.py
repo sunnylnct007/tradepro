@@ -79,3 +79,26 @@ def step_top_quartile_count(context, n: int):
 def step_single_zero(context):
     only = next(iter(context.ranks.values()))
     assert only["zscore"] == 0.0, only
+
+
+@given("the yield basket json {payload}")
+def step_yield_basket(context, payload: str):
+    context.yields = json.loads(payload)
+
+
+@when("I bucket the basket by yield quartile")
+def step_yield_bucket(context):
+    from tradepro_strategies.cross_sectional import bucket_by_yield_quartile
+    context.flags = bucket_by_yield_quartile(context.yields)
+
+
+@then('"{symbol}" has flag "{expected}"')
+def step_assert_flag(context, symbol: str, expected: str):
+    actual = context.flags[symbol]["flag"]
+    assert actual == expected, f"{symbol}: expected {expected!r}, got {actual!r}"
+
+
+@then('the basis for "{symbol}" mentions the basket median')
+def step_basis_mentions_median(context, symbol: str):
+    basis = context.flags[symbol].get("basis", "")
+    assert "median" in basis, f"basis for {symbol} missing 'median': {basis!r}"

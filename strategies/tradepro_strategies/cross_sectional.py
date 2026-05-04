@@ -103,3 +103,76 @@ def _empty(metric_name: str, **base: object) -> dict:
     }
     out.update(base)
     return out
+
+
+def bucket_by_yield_quartile(
+    symbol_yields: dict[str, float | None],
+) -> dict[str, dict]:
+    """Cheap-vs-basket valuation flag (Family 2 starter) using
+    dividend yield as a proxy. Higher yield within the basket → more
+    likely to be cheap; lower yield → more likely expensive.
+
+    Why dividend yield as a proxy: it's the only valuation-flavoured
+    field we currently store in fundamentals. True historical P/E
+    vs 10-year median needs a fundamentals snapshot store we haven't
+    built. This is the 80%-of-the-value Family-2 starter; replace
+    with real P/E-vs-history once that store exists.
+
+    Caveat: yield can be elevated for a structurally distressed asset
+    (the dividend hasn't been cut yet but the price already fell).
+    The flag is descriptive, not prescriptive — pair with the
+    technical bucket vote.
+
+    Quartile rules (per basket):
+      Q1 (top 25% by yield)    → "cheap"
+      Q2-Q3 (middle 50%)        → "fair"
+      Q4 (bottom 25%)           → "expensive"
+      missing yield             → "n/a"
+    """
+    valid = [(s, v) for s, v in symbol_yields.items()
+             if v is not None and isinstance(v, (int, float))]
+    if not valid:
+        return {s: {
+            "flag": "n/a",
+            "yield_pct": None,
+            "basket_median_yield_pct": None,
+            "basis": "no dividend yield data in basket",
+            "metric": "dividend_yield_pct",
+        } for s in symbol_yields}
+
+    sorted_desc = sorted(valid, key=lambda kv: kv[1], reverse=True)
+    n = len(sorted_desc)
+    rank: dict[str, int] = {s: i + 1 for i, (s, _) in enumerate(sorted_desc)}
+    median = _median([v for _, v in valid])
+    q1_cutoff = max(1, n // 4)
+    q4_cutoff = n - max(1, n // 4) + 1
+
+    out: dict[str, dict] = {}
+    for sym, val in symbol_yields.items():
+        if sym not in rank:
+            out[sym] = {
+                "flag": "n/a",
+                "yield_pct": None,
+                "basket_median_yield_pct": median,
+                "basis": "no dividend yield data for this symbol",
+                "metric": "dividend_yield_pct",
+            }
+            continue
+        r = rank[sym]
+        if r <= q1_cutoff:
+            flag = "cheap"
+        elif r >= q4_cutoff:
+            flag = "expensive"
+        else:
+            flag = "fair"
+        out[sym] = {
+            "flag": flag,
+            "yield_pct": float(val),
+            "basket_median_yield_pct": median,
+            "basis": (
+                f"yield {float(val):.2f}% vs basket median "
+                f"{median:.2f}% (rank {r} of {n})"
+            ),
+            "metric": "dividend_yield_pct",
+        }
+    return out

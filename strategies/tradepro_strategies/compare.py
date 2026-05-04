@@ -637,7 +637,7 @@ def compare(
     # callers can see whether a symbol's apparent strength is actually
     # standout vs the basket or just basket-wide enthusiasm. Currently
     # annotation only; bucket vote uses Family-1 only. See Phase 3 memory.
-    from .cross_sectional import rank_by_momentum
+    from .cross_sectional import bucket_by_yield_quartile, rank_by_momentum
     momentum_inputs = {
         r["symbol"]: (r.get("market_state") or {}).get("momentum_12m_pct")
         for r in rows
@@ -645,6 +645,19 @@ def compare(
     cs_ranks = rank_by_momentum(momentum_inputs)
     for r in rows:
         r["cross_sectional_momentum"] = cs_ranks.get(r["symbol"])
+
+    # Valuation flag (Family-2 starter). Quartile-bucket the basket
+    # by dividend yield as a cheap-vs-history proxy. Real historical-
+    # P/E-vs-10y-median needs a fundamentals snapshot store we
+    # haven't built; this gives 80% of the value with data already
+    # on every row. Annotation only; not yet a bucket-vote driver.
+    yield_inputs = {
+        r["symbol"]: (r.get("fundamentals") or {}).get("dividend_yield_pct")
+        for r in rows
+    }
+    val_flags = bucket_by_yield_quartile(yield_inputs)
+    for r in rows:
+        r["valuation_flag"] = val_flags.get(r["symbol"])
 
     best_per_strategy: dict[str, dict] = {}
     for row in rows:

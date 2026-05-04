@@ -237,4 +237,10 @@ export const HELP: Record<string, HelpEntry> = {
     body:
       "Runs before the slow backtest to verify Ollama is reachable AND the configured model is pulled. Three states: ok → sentiment scoring will run; daemon_down → start `ollama serve`; model_missing → run `ollama pull <model>`. Without it, missing models silently produced null sentiment columns.",
   },
+  valuation_flag: {
+    title: "Valuation flag (cheap / fair / expensive)",
+    body:
+      "Quartile-bucket of this symbol's dividend yield vs basket peers. Top quartile (highest yield) → 'cheap'; bottom quartile → 'expensive'; middle 50% → 'fair'. Family-2 starter signal — proxy for value until we have a fundamentals snapshot store with historical-P/E-vs-10y-median. Caveat: a high yield can also flag a structurally distressed asset whose dividend hasn't been cut yet; pair with the technical bucket vote.",
+    href: "#valuation-flag",
+  },
 };
