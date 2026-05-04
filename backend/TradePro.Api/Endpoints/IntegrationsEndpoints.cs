@@ -57,6 +57,57 @@ public static class IntegrationsEndpoints
                 });
             });
 
+        // Open T212 positions with computed unrealised P&L per row
+        // and totals. T212's currentPrice is included so the operator
+        // can reconcile against the Yahoo close that drives our
+        // indicators (handy when the two diverge after a corporate
+        // action or a stale Yahoo bar).
+        app.MapGet("/integrations/trading212/positions",
+            async (Trading212Client client, CancellationToken ct) =>
+            {
+                if (!client.IsEnabled)
+                {
+                    return Results.Ok(new
+                    {
+                        enabled = false,
+                        message = "Trading212 integration is disabled. Set Trading212:Mode and credentials.",
+                        positions = Array.Empty<object>(),
+                    });
+                }
+                var raw = await client.GetPositionsAsync(ct);
+                var rows = raw.Select(p =>
+                {
+                    decimal? unrealisedPct = null;
+                    decimal? unrealisedAbs = null;
+                    if (p.AveragePricePaid is decimal avg && avg > 0
+                        && p.CurrentPrice is decimal cur)
+                    {
+                        unrealisedPct = (cur - avg) / avg * 100m;
+                        unrealisedAbs = (cur - avg) * p.Quantity;
+                    }
+                    return new
+                    {
+                        ticker = p.Ticker,
+                        instrumentName = p.Instrument?.Name,
+                        currency = p.Instrument?.Currency,
+                        isin = p.Instrument?.Isin,
+                        quantity = p.Quantity,
+                        averagePricePaid = p.AveragePricePaid,
+                        currentPrice = p.CurrentPrice,
+                        unrealisedPct,
+                        unrealisedAbs,
+                        createdAt = p.CreatedAt,
+                    };
+                }).ToList();
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    fetchedAtUtc = DateTime.UtcNow,
+                    positionCount = rows.Count,
+                    positions = rows,
+                });
+            });
+
         return app;
     }
 }

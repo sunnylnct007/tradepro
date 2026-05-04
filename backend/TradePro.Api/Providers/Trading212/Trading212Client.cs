@@ -42,6 +42,39 @@ public sealed class Trading212Client
     public bool IsEnabled => _options.IsEnabled;
     public string Mode => _options.Mode;
 
+    /// <summary>Open positions for the authenticated account.
+    /// Rate limit is 1 req / 1s per T212 docs. Returns an empty list
+    /// on transport / auth errors so the caller can render an "off"
+    /// state cleanly.</summary>
+    public async Task<IReadOnlyList<Trading212Position>> GetPositionsAsync(
+        CancellationToken ct)
+    {
+        if (!_options.IsEnabled)
+        {
+            return Array.Empty<Trading212Position>();
+        }
+        try
+        {
+            using var resp = await _http.GetAsync("equity/positions", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning(
+                    "Trading212 positions fetch returned HTTP {Status}",
+                    (int)resp.StatusCode);
+                return Array.Empty<Trading212Position>();
+            }
+            var items = await resp.Content
+                .ReadFromJsonAsync<List<Trading212Position>>(cancellationToken: ct);
+            return (IReadOnlyList<Trading212Position>?)items
+                ?? Array.Empty<Trading212Position>();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Trading212 positions fetch failed");
+            return Array.Empty<Trading212Position>();
+        }
+    }
+
     /// <summary>Pulls the full instruments registry. Rate limit is
     /// 1 req / 50s per T212 docs — callers should cache aggressively.
     /// Returns an empty list (not a throw) on auth or transport errors
@@ -156,3 +189,26 @@ public sealed record Trading212Instrument(
     string? Type,
     string? Isin,
     DateTime? AddedOn);
+
+/// <summary>Embedded instrument reference inside a Position. Smaller
+/// than Trading212Instrument — T212 strips it down on the positions
+/// payload. Just enough to label the row.</summary>
+public sealed record Trading212InstrumentRef(
+    string? Ticker,
+    string? Name,
+    string? Currency,
+    string? Isin);
+
+/// <summary>One open position from /equity/positions. Notable: T212
+/// returns its OWN currentPrice here (different from Yahoo) — useful
+/// for reconciling the price the user sees in the broker app vs the
+/// Yahoo close that drives our indicators.</summary>
+public sealed record Trading212Position(
+    string Ticker,
+    decimal Quantity,
+    decimal? QuantityAvailableForTrading,
+    decimal? QuantityInPies,
+    decimal? AveragePricePaid,
+    decimal? CurrentPrice,
+    DateTime? CreatedAt,
+    Trading212InstrumentRef? Instrument);
