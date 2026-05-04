@@ -1,7 +1,29 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 
-const navLinkStyle = ({ isActive }: { isActive: boolean }) => ({
+// Primary nav reflects the actual decision flow: pick what to invest in
+// (Decide), drill into a single symbol (Research), test a strategy
+// (Backtest), or read the underlying research notes (Docs). Utility
+// pages (Scanner, Charts, Health, Settings, Help) sit behind a thinner
+// visual treatment so they don't compete with the four primary entry
+// points. Routes themselves haven't changed — only the labels and
+// grouping — so bookmarks and the deployed CI URL maps still resolve.
+const primaryNav: { to: string; label: string; end?: boolean }[] = [
+  { to: "/compare", label: "Decide" },
+  { to: "/signals", label: "Research" },
+  { to: "/simulations", label: "Backtest" },
+  { to: "/documents", label: "Docs" },
+];
+
+const utilityNav: { to: string; label: string; end?: boolean }[] = [
+  { to: "/", label: "Scanner", end: true },
+  { to: "/charts", label: "Charts" },
+  { to: "/health", label: "Health" },
+  { to: "/settings", label: "Settings" },
+  { to: "/help", label: "Help" },
+];
+
+const primaryLinkStyle = ({ isActive }: { isActive: boolean }) => ({
   padding: "6px 12px",
   borderRadius: 8,
   textDecoration: "none",
@@ -9,6 +31,18 @@ const navLinkStyle = ({ isActive }: { isActive: boolean }) => ({
   background: isActive ? "var(--bg-hover)" : "transparent",
   fontWeight: isActive ? 600 : 500,
   fontSize: 13,
+  transition: "background 0.15s ease, color 0.15s ease",
+});
+
+const utilityLinkStyle = ({ isActive }: { isActive: boolean }) => ({
+  padding: "5px 9px",
+  borderRadius: 6,
+  textDecoration: "none",
+  color: isActive ? "var(--text)" : "var(--text-muted)",
+  background: isActive ? "var(--bg-hover)" : "transparent",
+  fontWeight: isActive ? 600 : 400,
+  fontSize: 11,
+  letterSpacing: "0.02em",
   transition: "background 0.15s ease, color 0.15s ease",
 });
 
@@ -59,16 +93,26 @@ export function Layout() {
           </span>
           TradePro
         </div>
-        <nav style={{ display: "flex", gap: 4 }}>
-          <NavLink to="/" end style={navLinkStyle}>Scanner</NavLink>
-          <NavLink to="/compare" style={navLinkStyle}>Compare</NavLink>
-          <NavLink to="/documents" style={navLinkStyle}>Docs</NavLink>
-          <NavLink to="/signals" style={navLinkStyle}>Signal</NavLink>
-          <NavLink to="/simulations" style={navLinkStyle}>Simulations</NavLink>
-          <NavLink to="/charts" style={navLinkStyle}>Charts</NavLink>
-          <NavLink to="/health" style={navLinkStyle}>Health</NavLink>
-          <NavLink to="/settings" style={navLinkStyle}>Settings</NavLink>
-          <NavLink to="/help" style={navLinkStyle}>Help</NavLink>
+        <nav style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {primaryNav.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end} style={primaryLinkStyle}>
+              {item.label}
+            </NavLink>
+          ))}
+          <span
+            aria-hidden
+            style={{
+              width: 1,
+              height: 18,
+              background: "var(--border)",
+              margin: "0 8px",
+            }}
+          />
+          {utilityNav.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end} style={utilityLinkStyle}>
+              {item.label}
+            </NavLink>
+          ))}
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           <span
