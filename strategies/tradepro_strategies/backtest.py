@@ -119,10 +119,35 @@ def _compute_stats(equity: pd.Series, initial: float) -> dict:
     drawdown = (equity - peak) / peak
     max_dd = float(drawdown.min())
 
+    # Recovery time: from the bar of the deepest drawdown trough,
+    # how many calendar days until equity reclaimed the prior peak?
+    # null when the curve hasn't recovered by the end of the series
+    # (still in drawdown), with `still_in_drawdown=True` so callers
+    # can render "still recovering — N days and counting" honestly.
+    # Per the design review: max-DD is half the story; a 30% DD
+    # that recovered in 9 months is very different from a 30% DD
+    # that took 7 years.
+    recovery_days: int | None = None
+    still_in_drawdown = False
+    days_since_trough: int | None = None
+    if not drawdown.empty:
+        trough_idx = drawdown.idxmin()
+        prior_peak = float(peak.loc[trough_idx])
+        post = equity.loc[trough_idx:]
+        recovered = post[post >= prior_peak]
+        if not recovered.empty:
+            recovery_days = int((recovered.index[0] - trough_idx).days)
+        else:
+            still_in_drawdown = True
+            days_since_trough = int((equity.index[-1] - trough_idx).days)
+
     return dict(
         final_equity=final,
         total_return_pct=total_return * 100.0,
         cagr_pct=cagr * 100.0,
         sharpe=sharpe,
         max_drawdown_pct=max_dd * 100.0,
+        max_drawdown_recovery_days=recovery_days,
+        max_drawdown_still_recovering=still_in_drawdown,
+        days_since_max_dd_trough=days_since_trough,
     )
