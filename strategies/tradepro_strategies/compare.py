@@ -410,6 +410,8 @@ def _attach_bucket_and_rationale(
                 regimes=best.get("regimes") or [],
                 fundamentals=best.get("fundamentals"),
                 sentiment_demoted=sentiment_demoted,
+                cross_sectional_momentum=best.get("cross_sectional_momentum"),
+                valuation_flag=best.get("valuation_flag"),
             )
             rat = build_rationale(facts)
             if logger:
@@ -623,41 +625,36 @@ def compare(
     for i, row in enumerate(rows, start=1):
         row["rank"] = i
 
-    # Per-symbol bucket computation + rationale generation. Both are
-    # symbol-level (not per-row) so we compute once and copy onto every
-    # row for that symbol — matches what the frontend was already doing
-    # client-side, but now visible in the JSON payload too.
-    _attach_bucket_and_rationale(
-        rows, settings.mean_sentiment_threshold,
-        settings.min_material_negative_count, logger=logger,
-    )
-
-    # Cross-sectional momentum (Family-3 signal). Annotates each row
-    # with its rank + zscore vs basket peers on 12-month return — so
-    # callers can see whether a symbol's apparent strength is actually
-    # standout vs the basket or just basket-wide enthusiasm. Currently
-    # annotation only; bucket vote uses Family-1 only. See Phase 3 memory.
+    # Cross-basket signals (Family-2 + Family-3) computed BEFORE the
+    # bucket/rationale attach so the rationale layer can quote them.
+    # Family 3 (cross-sectional momentum): rank + zscore vs basket
+    # peers on 12-month return. Family 2 (valuation): cheap/fair/
+    # expensive quartile by dividend yield. Annotation only — not
+    # yet bucket-vote drivers (see Phase X).
     from .cross_sectional import bucket_by_yield_quartile, rank_by_momentum
     momentum_inputs = {
         r["symbol"]: (r.get("market_state") or {}).get("momentum_12m_pct")
         for r in rows
     }
     cs_ranks = rank_by_momentum(momentum_inputs)
-    for r in rows:
-        r["cross_sectional_momentum"] = cs_ranks.get(r["symbol"])
-
-    # Valuation flag (Family-2 starter). Quartile-bucket the basket
-    # by dividend yield as a cheap-vs-history proxy. Real historical-
-    # P/E-vs-10y-median needs a fundamentals snapshot store we
-    # haven't built; this gives 80% of the value with data already
-    # on every row. Annotation only; not yet a bucket-vote driver.
     yield_inputs = {
         r["symbol"]: (r.get("fundamentals") or {}).get("dividend_yield_pct")
         for r in rows
     }
     val_flags = bucket_by_yield_quartile(yield_inputs)
     for r in rows:
+        r["cross_sectional_momentum"] = cs_ranks.get(r["symbol"])
         r["valuation_flag"] = val_flags.get(r["symbol"])
+
+    # Per-symbol bucket computation + rationale generation. Both are
+    # symbol-level (not per-row) so we compute once and copy onto every
+    # row for that symbol — matches what the frontend was already doing
+    # client-side, but now visible in the JSON payload too. Cross-basket
+    # signals are now in the row dict so gather_facts can pull them.
+    _attach_bucket_and_rationale(
+        rows, settings.mean_sentiment_threshold,
+        settings.min_material_negative_count, logger=logger,
+    )
 
     best_per_strategy: dict[str, dict] = {}
     for row in rows:

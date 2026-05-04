@@ -122,6 +122,8 @@ def gather_facts(
     regimes: list[dict],
     fundamentals: dict | None,
     sentiment_demoted: bool,
+    cross_sectional_momentum: dict | None = None,
+    valuation_flag: dict | None = None,
 ) -> dict:
     """Build the strict fact bundle the LLM is allowed to reference.
 
@@ -184,6 +186,27 @@ def gather_facts(
             "expense_ratio_pct": fundamentals.get("expense_ratio_pct"),
             "aum_usd": fundamentals.get("aum_usd"),
             "dividend_yield_pct": fundamentals.get("dividend_yield_pct"),
+        }
+    # Cross-basket signals (Family 2 + 3). Surfaced into the fact
+    # bundle so the rationale can quote "rank 3 of 13 on momentum"
+    # or "in the cheap quartile" — and the verifier can prove the
+    # numbers came from real input. Keys are renamed for prompt
+    # clarity ('peer_count' → 'peers', etc.).
+    if cross_sectional_momentum and cross_sectional_momentum.get("rank") is not None:
+        facts["cross_basket_momentum"] = {
+            "rank": cross_sectional_momentum.get("rank"),
+            "peers": cross_sectional_momentum.get("peer_count"),
+            "zscore": cross_sectional_momentum.get("zscore"),
+            "is_top_quartile": cross_sectional_momentum.get("is_top_quartile"),
+            "value_pct": cross_sectional_momentum.get("value"),
+            "basket_median_pct": cross_sectional_momentum.get("basket_median"),
+        }
+    if valuation_flag and valuation_flag.get("flag") and valuation_flag["flag"] != "n/a":
+        facts["cross_basket_valuation"] = {
+            "flag": valuation_flag.get("flag"),
+            "yield_pct": valuation_flag.get("yield_pct"),
+            "basket_median_yield_pct": valuation_flag.get("basket_median_yield_pct"),
+            "basis": valuation_flag.get("basis"),
         }
     return facts
 
@@ -315,6 +338,20 @@ def _template_rationale(facts: dict) -> Rationale:
         factors.append(f"RSI {ms['rsi_14']:.0f}")
     if ms.get("pct_off_52w_high_pct") is not None:
         factors.append(f"{ms['pct_off_52w_high_pct']:.1f}% off 52w high")
+    # Cross-basket signals — surface in the deterministic template too,
+    # so a verifier-rejected LLM rationale still falls back to facts
+    # that include the basket-relative context.
+    cs_mom = facts.get("cross_basket_momentum")
+    if cs_mom and cs_mom.get("rank") is not None:
+        rank = cs_mom["rank"]
+        peers = cs_mom.get("peers")
+        if peers is not None:
+            factors.append(f"Momentum rank {rank} of {peers + 1} in basket")
+        if cs_mom.get("is_top_quartile"):
+            factors.append("Top-quartile basket momentum")
+    cs_val = facts.get("cross_basket_valuation")
+    if cs_val and cs_val.get("flag") in ("cheap", "expensive"):
+        factors.append(f"Valuation flag: {cs_val['flag']}")
 
     caveats: list[str] = []
     if max_dd is not None:
