@@ -51,7 +51,15 @@ def parse_args() -> argparse.Namespace:
                    default=datetime.utcnow().strftime("%Y-%m-%d"))
     p.add_argument("--capital", type=float, default=10_000.0)
     p.add_argument("--currency", default="GBP")
-    p.add_argument("--stamp-duty", type=float, default=0.005)
+    p.add_argument(
+        "--stamp-duty",
+        default="auto",
+        help=(
+            "SDRT rate. Default 'auto': 0%% for UCITS ETFs, 0.5%% for LSE "
+            "shares, 0%% for non-UK. Pass a float (e.g. 0.005) to force a "
+            "flat rate across every symbol in the run."
+        ),
+    )
     p.add_argument("--commission", type=float, default=0.0)
     p.add_argument("--rank", default="sharpe",
                    choices=["sharpe", "cagr_pct", "total_return_pct",
@@ -93,13 +101,32 @@ def main() -> None:
                 strategies=[s.name for s in strategies],
                 start=start, end=end, rank=args.rank)
 
+    # Stamp-duty: "auto" (default) → per-symbol via fees.py; a numeric
+    # override forces a flat rate across the basket.
+    stamp_duty_auto = isinstance(args.stamp_duty, str) and args.stamp_duty == "auto"
+    if stamp_duty_auto:
+        from ..fees import stamp_duty_summary
+        summary = stamp_duty_summary(symbols)
+        groups_desc = ", ".join(
+            f"{g['count']} @ {g['rate_pct']:.1f}%" for g in summary["groups"]
+        ) or "—"
+        print(f"Stamp duty: auto ({groups_desc})")
+        flat_rate = 0.0  # not used when auto=True; kept for fees.commission only
+    else:
+        try:
+            flat_rate = float(args.stamp_duty)
+        except (TypeError, ValueError) as e:
+            raise SystemExit(f"--stamp-duty: expected 'auto' or a float, got {args.stamp_duty!r}") from e
+        print(f"Stamp duty: flat {flat_rate * 100:.2f}% (override; auto-detection bypassed)")
+
     cfg = CompareConfig(
         provider=args.provider,
         initial_capital=args.capital,
         currency=args.currency,
         rank_metric=args.rank,
         fees=FeeModel(commission_per_trade=args.commission,
-                      stamp_duty_rate=args.stamp_duty),
+                      stamp_duty_rate=flat_rate),
+        stamp_duty_auto=stamp_duty_auto,
     )
 
     # Mark the Mac as 'currently processing X' so the UI can render a

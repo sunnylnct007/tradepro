@@ -69,6 +69,12 @@ class CompareConfig:
     currency: str = "GBP"
     fees: FeeModel = field(default_factory=FeeModel)
     rank_metric: str = "sharpe"  # one of: sharpe, cagr_pct, total_return_pct, max_drawdown_pct
+    # When True, override fees.stamp_duty_rate per-symbol via
+    # tradepro_strategies.fees.stamp_duty_for_symbol — 0% for UCITS
+    # ETFs, 0.5% for LSE shares, 0% for everything else. Default in
+    # the CLI; set to False (with an explicit fees.stamp_duty_rate)
+    # only when you specifically want a flat rate across the basket.
+    stamp_duty_auto: bool = True
 
 
 _NAN = float("nan")
@@ -194,10 +200,23 @@ def _row_for(
 
     try:
         signal_fn = resolve_strategy(strategy.name, strategy.params)
+        # Resolve fees per-symbol when stamp_duty_auto is on so the
+        # right SDRT rate (0% for UCITS ETFs, 0.5% for LSE shares,
+        # 0% for everything else) hits the backtest. Avoids the
+        # silent-Sharpe-bias bug a user can no longer hit by
+        # forgetting --stamp-duty 0.
+        if cfg.stamp_duty_auto:
+            from .fees import stamp_duty_for_symbol
+            symbol_fees = FeeModel(
+                commission_per_trade=cfg.fees.commission_per_trade,
+                stamp_duty_rate=stamp_duty_for_symbol(symbol),
+            )
+        else:
+            symbol_fees = cfg.fees
         bt_cfg = BacktestConfig(
             initial_capital=cfg.initial_capital,
             currency=cfg.currency,
-            fees=cfg.fees,
+            fees=symbol_fees,
         )
         result = run_backtest(prices, signal_fn, bt_cfg)
     except Exception as e:  # noqa: BLE001
