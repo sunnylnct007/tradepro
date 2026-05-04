@@ -54,6 +54,41 @@ def step_drawdown_zero(context):
     assert abs(dd) < 1.0, f"expected ~0%, got {dd:.2f}%"
 
 
+@given("a 5y price series with a peak in year 1 and a flat recent 12 months at the recovered level")
+def step_inrg_pattern(context):
+    import numpy as np
+    rng = np.random.default_rng(42)
+    idx = pd.bdate_range("2021-05-01", periods=1260)
+    prices = np.concatenate([
+        np.linspace(100, 140, 200),
+        np.linspace(140, 50, 500),
+        np.linspace(50, 105, 300),
+        np.full(260, 105.0) + rng.normal(0, 0.5, 260),
+    ])
+    df = pd.DataFrame(
+        {"open": prices, "high": prices, "low": prices,
+         "close": prices, "adj_close": prices, "volume": [1] * len(prices)},
+        index=idx[: len(prices)],
+    )
+    context.prices = df
+
+
+@then("the entry signal is not BUY because of long-term drawdown alone")
+def step_not_buy(context):
+    sig = context.state.entry_signal
+    assert sig != "BUY", (
+        f"INRG-pattern incorrectly classified as BUY: {context.state.entry_reason!r}"
+    )
+
+
+@then('the entry reason does not claim "historical bounce zone" off the 5y peak')
+def step_no_historical_bounce(context):
+    reason = context.state.entry_reason or ""
+    assert "historical bounce zone" not in reason, (
+        f"reason still uses 5y-peak language: {reason!r}"
+    )
+
+
 @given("a price series that peaked 6 months ago and recovered partially")
 def step_peak_then_recovery(context):
     import numpy as np

@@ -16,6 +16,12 @@ Feature: Indicators must use adjusted close (split-aware)
     When I compute the market_state for it
     Then the percentage off the 52w high is approximately 0%
 
+  Scenario: INRG-pattern (5y peak old, 52w peak today) does NOT trigger BUY
+    Given a 5y price series with a peak in year 1 and a flat recent 12 months at the recovered level
+    When I compute the market_state for it
+    Then the entry signal is not BUY because of long-term drawdown alone
+    And the entry reason does not claim "historical bounce zone" off the 5y peak
+
   Scenario: 52w-high date + peak date are surfaced for traceability
     Given a price series that peaked 6 months ago and recovered partially
     When I compute the market_state for it

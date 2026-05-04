@@ -355,6 +355,7 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
         from ..cache import ensure_cached
         from ..compare import compute_bucket
         from ..market_state import market_state
+        from ..regimes import all_regime_stats
         from ..strategies import available as available_strategies
         from ..strategies import resolve as resolve_strategy
     except Exception as e:  # noqa: BLE001
@@ -410,6 +411,33 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
                 nonzero = signals[signals != 0]
                 in_pos = bool(nonzero.iloc[-1] == 1) if not nonzero.empty else False
                 position_since = nonzero.index[-1].isoformat() if not nonzero.empty else None
+                # Regime stats per strategy run — same view get_regime_history
+                # would surface for a universe member. Attaching here makes
+                # ad-hoc tickers stress-testable without a pre-built universe
+                # cache, which was the gap that pushed Claude Desktop to
+                # web search when asked about VUKE.L's regime history.
+                regime_rows: list[dict] = []
+                try:
+                    regime_df = all_regime_stats(bt.equity_curve)
+                    for r in regime_df.to_dict(orient="records"):
+                        bars = int(r.get("bars") or 0)
+                        if bars <= 0:
+                            continue
+                        regime_rows.append({
+                            "key": r.get("regime_key"),
+                            "name": r.get("regime_name"),
+                            "kind": r.get("kind"),
+                            "bars": bars,
+                            "return_pct": _safe_num(r.get("return_pct")),
+                            "max_drawdown_pct": _safe_num(r.get("max_drawdown_pct")),
+                            "_source": (
+                                f"live://evaluate/{sym}/strategies/{sname}"
+                                f"/regimes/{r.get('regime_key')}"
+                            ),
+                        })
+                except Exception:  # noqa: BLE001
+                    # Regime stats are nice-to-have, never gate the row.
+                    regime_rows = []
                 strat_rows.append({
                     "_source": f"live://evaluate/{sym}/strategies/{sname}",
                     "strategy": sname,
@@ -420,6 +448,7 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
                         k: (float(v) if isinstance(v, (int, float)) else v)
                         for k, v in (bt.stats or {}).items()
                     },
+                    "regimes": regime_rows,
                     "error": None,
                 })
             except Exception as e:  # noqa: BLE001
@@ -595,6 +624,20 @@ def run_comparison(
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_num(x: Any) -> float | None:
+    """Coerce a numeric to a JSON-safe float; returns None for NaN /
+    inf / non-numeric values so the regime envelope never breaks JSON
+    serialisation downstream."""
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return None
+    import math as _math
+    if _math.isnan(f) or _math.isinf(f):
+        return None
+    return f
 
 
 def _err(tool: str, message: str, **fields: Any) -> dict:
