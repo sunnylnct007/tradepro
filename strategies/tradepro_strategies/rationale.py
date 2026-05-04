@@ -193,9 +193,16 @@ def gather_facts(
     # numbers came from real input. Keys are renamed for prompt
     # clarity ('peer_count' → 'peers', etc.).
     if cross_sectional_momentum and cross_sectional_momentum.get("rank") is not None:
+        peers = cross_sectional_momentum.get("peer_count")
+        # Surface BOTH peers (excluding self) and total (peers + self)
+        # so the rationale can quote "rank 3 of 13" — the 13 must
+        # appear verbatim in the facts blob for the local verifier
+        # to accept the number, otherwise it's flagged as fabricated.
+        total = (peers + 1) if isinstance(peers, int) else None
         facts["cross_basket_momentum"] = {
             "rank": cross_sectional_momentum.get("rank"),
-            "peers": cross_sectional_momentum.get("peer_count"),
+            "peers": peers,
+            "total": total,
             "zscore": cross_sectional_momentum.get("zscore"),
             "is_top_quartile": cross_sectional_momentum.get("is_top_quartile"),
             "value_pct": cross_sectional_momentum.get("value"),
@@ -329,7 +336,32 @@ def _template_rationale(facts: dict) -> Rationale:
             f"Best historical fit was {best} (Sharpe {sharpe:.2f}, CAGR {cagr:.1f}%)."
         )
 
+    # Order matters — factors gets clipped to 4 by `factors[:4]` below.
+    # Lead with the strategy consensus (every row has it), then the
+    # multi-family signals when present (they add information the rule
+    # chain doesn't), then Family-1 detail. This way a row with
+    # cross-basket signals doesn't lose them to the cap.
     factors: list[str] = [consensus]
+
+    # Cross-basket signals (Family 2 + 3) — promoted ahead of Family-1
+    # detail. Surface them in the deterministic template too, so a
+    # verifier-rejected LLM rationale still falls back to facts that
+    # include the basket-relative context.
+    cs_mom = facts.get("cross_basket_momentum")
+    if cs_mom and cs_mom.get("rank") is not None:
+        rank = cs_mom["rank"]
+        total = cs_mom.get("total")
+        if total is not None:
+            factors.append(f"Momentum rank {rank} of {total} in basket")
+        if cs_mom.get("is_top_quartile"):
+            factors.append("Top-quartile basket momentum")
+    cs_val = facts.get("cross_basket_valuation")
+    if cs_val and cs_val.get("flag") in ("cheap", "expensive"):
+        factors.append(f"Valuation flag: {cs_val['flag']}")
+
+    # Family-1 detail — these duplicate parts of the rule_chain, so
+    # they go last and may get clipped by [:4] when cross-basket
+    # signals are present (acceptable; the rule_chain shows them anyway).
     if ms.get("above_sma_200") is True:
         factors.append("Above 200-day SMA")
     elif ms.get("above_sma_200") is False:
@@ -338,20 +370,6 @@ def _template_rationale(facts: dict) -> Rationale:
         factors.append(f"RSI {ms['rsi_14']:.0f}")
     if ms.get("pct_off_52w_high_pct") is not None:
         factors.append(f"{ms['pct_off_52w_high_pct']:.1f}% off 52w high")
-    # Cross-basket signals — surface in the deterministic template too,
-    # so a verifier-rejected LLM rationale still falls back to facts
-    # that include the basket-relative context.
-    cs_mom = facts.get("cross_basket_momentum")
-    if cs_mom and cs_mom.get("rank") is not None:
-        rank = cs_mom["rank"]
-        peers = cs_mom.get("peers")
-        if peers is not None:
-            factors.append(f"Momentum rank {rank} of {peers + 1} in basket")
-        if cs_mom.get("is_top_quartile"):
-            factors.append("Top-quartile basket momentum")
-    cs_val = facts.get("cross_basket_valuation")
-    if cs_val and cs_val.get("flag") in ("cheap", "expensive"):
-        factors.append(f"Valuation flag: {cs_val['flag']}")
 
     caveats: list[str] = []
     if max_dd is not None:

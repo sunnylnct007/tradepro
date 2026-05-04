@@ -24,3 +24,29 @@ Feature: Plain-English rationale (no hallucination)
     Given a fact bundle for AVOID with reason "below 200-day SMA"
     When I build a rationale for it
     Then the rationale summary mentions the bucket name AVOID
+
+  Scenario: Cross-basket momentum rank surfaces in the template factors
+    Given a fact bundle for VUKE.L in BUY bucket
+    And the symbol's basket-relative momentum rank is 3 of 13 with top quartile
+    When I build a rationale for it
+    Then a key factor mentions "Momentum rank 3 of 13"
+    And a key factor mentions "Top-quartile basket momentum"
+    And every number in the rationale appears in the input facts
+
+  Scenario: Cross-basket valuation flag surfaces in the template factors
+    Given a fact bundle for VUKE.L in BUY bucket
+    And the symbol's basket-relative valuation flag is "cheap"
+    When I build a rationale for it
+    Then a key factor mentions "Valuation flag: cheap"
+
+  Scenario: Fair valuation does NOT add a factor (only cheap or expensive do)
+    Given a fact bundle for VUKE.L in BUY bucket
+    And the symbol's basket-relative valuation flag is "fair"
+    When I build a rationale for it
+    Then no key factor mentions "Valuation flag"
+
+  Scenario: Missing cross-basket data leaves the rationale clean
+    Given a fact bundle for QQQ in BUY bucket
+    When I build a rationale for it
+    Then no key factor mentions "Momentum rank"
+    And no key factor mentions "Valuation flag"

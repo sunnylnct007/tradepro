@@ -148,6 +148,48 @@ def step_rejected(context) -> None:
     )
 
 
+@given("the symbol's basket-relative momentum rank is {rank:d} of {total:d} with top quartile")
+def step_attach_cs_momentum(context, rank: int, total: int) -> None:
+    # Mutate the existing facts dict so the next build_rationale call
+    # sees the cross_basket_momentum block. Mirrors what gather_facts
+    # produces when handed cross_sectional_momentum from compare.py.
+    context.facts["cross_basket_momentum"] = {
+        "rank": rank,
+        "peers": total - 1,  # gather_facts stores peer_count = N-1 (excluding self)
+        "total": total,      # peers + self — what the rationale quotes
+        "zscore": 0.85,
+        "is_top_quartile": True,
+        "value_pct": 18.5,
+        "basket_median_pct": 12.0,
+    }
+
+
+@given('the symbol\'s basket-relative valuation flag is "{flag}"')
+def step_attach_valuation(context, flag: str) -> None:
+    context.facts["cross_basket_valuation"] = {
+        "flag": flag,
+        "yield_pct": 4.2,
+        "basket_median_yield_pct": 2.8,
+        "basis": f"yield 4.20% vs basket median 2.80% (rank 2 of 13)",
+    }
+
+
+@then('a key factor mentions "{snippet}"')
+def step_factor_mentions(context, snippet: str) -> None:
+    factors = context.rationale.key_factors or []
+    matched = [f for f in factors if snippet in f]
+    assert matched, (
+        f"no key factor contains {snippet!r}; got: {factors}"
+    )
+
+
+@then('no key factor mentions "{snippet}"')
+def step_no_factor_mentions(context, snippet: str) -> None:
+    factors = context.rationale.key_factors or []
+    bad = [f for f in factors if snippet in f]
+    assert not bad, f"unexpected factor with {snippet!r}: {bad}"
+
+
 @then("the rationale summary mentions the bucket name {bucket}")
 def step_summary_mentions_bucket(context, bucket: str) -> None:
     assert bucket in context.rationale.summary, (
