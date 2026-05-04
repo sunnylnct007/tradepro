@@ -115,12 +115,19 @@ def build_server():
     def run_comparison(
         universe: str,
         rank_metric: str = "sharpe",
+        push: bool = False,
     ) -> str:
         """Force a fresh comparator run for a universe — fetches
         prices, runs all strategies, scores news, applies the
         decision rules. Slow (10-60s). Prefer `get_compare` first;
-        only call this if the user explicitly asks for fresh data."""
-        return _json(t.run_comparison(universe, rank_metric))
+        only call this if the user explicitly asks for fresh data.
+
+        Set `push=true` to also POST the result to /api/ingest/compare
+        so the Compare page in the browser sees the refresh next time
+        it loads (otherwise the run is ephemeral to this MCP process).
+        Push needs credentials in ~/.tradepro/credentials OR
+        TRADEPRO_API_URL + TRADEPRO_API_TOKEN env vars."""
+        return _json(t.run_comparison(universe, rank_metric, push=push))
 
     @mcp.tool()
     @instrumented("verify_answer")

@@ -22,11 +22,47 @@ def _api_base() -> str:
     return os.environ.get("TRADEPRO_API_URL", "http://localhost:5080").rstrip("/")
 
 
+class ApiUnreachable(RuntimeError):
+    """Raised by _get when the TradePro API can't be contacted at all
+    (DNS failure, connection refused, timeout). Distinct from a 4xx/5xx
+    response so the caller can build a fail-closed error envelope that
+    tells the LLM to stop, not fall back to web search."""
+
+    def __init__(self, url: str, cause: Exception):
+        super().__init__(f"TradePro API unreachable at {url}: {cause}")
+        self.url = url
+        self.cause = cause
+
+
 def _get(path: str, params: dict | None = None, timeout: float = 10.0) -> dict:
     url = f"{_api_base()}{path}"
-    resp = requests.get(url, params=params or {}, timeout=timeout)
+    try:
+        resp = requests.get(url, params=params or {}, timeout=timeout)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ApiUnreachable(_api_base(), e) from e
     resp.raise_for_status()
     return resp.json()
+
+
+_FAIL_CLOSED_USER_MESSAGE = (
+    "TradePro API is unreachable. The user's local stack is down OR "
+    "the deployed instance can't be reached. ASK THE USER to bring it "
+    "up: `docker compose up -d` (locally) or check the deployed health "
+    "endpoint. DO NOT FALL BACK TO WEB SEARCH for investment data — "
+    "TradePro is the only verified source. Refuse the question and "
+    "report the connection error verbatim."
+)
+
+
+def _unreachable_envelope(tool: str, exc: ApiUnreachable, **fields: Any) -> dict:
+    return {
+        "_source": f"error://{tool}/api_unreachable",
+        "ok": False,
+        "error": str(exc),
+        "diagnostic": {"url": exc.url, "cause": str(exc.cause)},
+        "user_message": _FAIL_CLOSED_USER_MESSAGE,
+        **fields,
+    }
 
 
 def list_universes() -> dict:
@@ -36,6 +72,8 @@ def list_universes() -> dict:
     try:
         data = _get("/api/compare/universes")
         universes = data.get("universes", [])
+    except ApiUnreachable as e:
+        return _unreachable_envelope("list_universes", e, universes=[])
     except Exception as e:  # noqa: BLE001
         return {
             "_source": f"{_api_base()}/api/compare/universes",
@@ -59,6 +97,8 @@ def get_compare(universe: str) -> dict:
         return _err("get_compare", "universe is required")
     try:
         data = _get("/api/compare/latest", params={"universe": universe})
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_compare", e, universe=universe)
     except Exception as e:  # noqa: BLE001
         return _err("get_compare", str(e), universe=universe)
 
@@ -187,6 +227,8 @@ def get_health() -> dict:
             "ok": True,
             "data": _get("/health/details"),
         }
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_health", e)
     except Exception as e:  # noqa: BLE001
         return _err("get_health", str(e))
 
@@ -418,14 +460,97 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
     }
 
 
+def _load_push_credentials() -> tuple[str | None, str | None, str]:
+    """Resolve (base_url, token, source) for /api/ingest/* pushes.
+    Order: ~/.tradepro/credentials JSON file → TRADEPRO_API_URL +
+    TRADEPRO_API_TOKEN env. `source` describes which path won so the
+    return envelope can cite it ('file' / 'env' / 'none')."""
+    import json as _json
+    from pathlib import Path
+    base: str | None = None
+    token: str | None = None
+    source = "none"
+    cred_path = Path.home() / ".tradepro" / "credentials"
+    if cred_path.is_file():
+        try:
+            data = _json.loads(cred_path.read_text())
+            base = data.get("api_base_url")
+            token = data.get("api_token")
+            if base or token:
+                source = "file"
+        except (_json.JSONDecodeError, OSError):
+            pass
+    if not base:
+        base = os.environ.get("TRADEPRO_API_URL")
+        if base and source == "none":
+            source = "env"
+    if not token:
+        token = os.environ.get("TRADEPRO_API_TOKEN")
+        if token and source != "file":
+            source = "env" if source == "none" else source
+    return (base.rstrip("/") if base else None, token, source)
+
+
+def _push_compare(payload: dict) -> dict:
+    """POST a compare payload to /api/ingest/compare so the UI sees
+    the refresh on its next page load. Returns a structured envelope
+    instead of raising; caller stitches it into the run_comparison
+    response."""
+    base, token, source = _load_push_credentials()
+    if not base or not token:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": (
+                "no push credentials — set TRADEPRO_API_URL + "
+                "TRADEPRO_API_TOKEN in the MCP env, or write "
+                "~/.tradepro/credentials as JSON. The comparison still "
+                "ran and the payload is in the response; only the "
+                "cache push was skipped."
+            ),
+            "source": source,
+        }
+    url = f"{base}/api/ingest/compare"
+    try:
+        resp = requests.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        return {
+            "ok": False,
+            "url": url,
+            "source": source,
+            "error": str(e),
+        }
+    return {
+        "ok": 200 <= resp.status_code < 300,
+        "url": url,
+        "http_status": resp.status_code,
+        "response_preview": (resp.text or "")[:200],
+        "source": source,
+    }
+
+
 def run_comparison(
     universe: str,
     rank_metric: str = "sharpe",
     strategies: list[str] | None = None,
+    push: bool = False,
 ) -> dict:
     """Fire a fresh comparator run and return the new payload. Slow
     (10–60s depending on universe size). Use sparingly — usually the
-    cached `get_compare` is enough."""
+    cached `get_compare` is enough.
+
+    When `push=True`, the resulting payload is also POSTed to
+    /api/ingest/compare so the Compare page reflects the refresh
+    on its next load (otherwise the run is ephemeral to the MCP
+    process). Push uses the same creds path as `tradepro-push`."""
     if not universe:
         return _err("run_comparison", "universe is required")
     try:
@@ -449,6 +574,10 @@ def run_comparison(
         payload = compare(symbols, specs, start, end, cfg)
     except Exception as e:  # noqa: BLE001
         return _err("run_comparison", str(e), universe=universe)
+
+    push_result: dict | None = None
+    if push:
+        push_result = _push_compare(payload)
     return {
         "_source": f"live://compare/{universe}/run",
         "fetched_at": _now_iso(),
@@ -456,6 +585,7 @@ def run_comparison(
         "ok": True,
         "row_count": len(payload.get("rows", [])),
         "best_overall": payload.get("best_overall"),
+        "push_result": push_result,
         "envelope": payload,
     }
 
