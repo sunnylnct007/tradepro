@@ -772,6 +772,7 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
           <span style={{ color: "var(--text-dim)" }}>{view.sentimentDemotionReason}</span>
         </div>
       )}
+      <CrossBasketSignals view={view} />
       {fundamentals && <FundDetails f={fundamentals} />}
       {consensus && <CrossCheck view={view} consensus={consensus} />}
       {news.length > 0 && <NewsList items={news} symbol={view.symbol} />}
@@ -931,6 +932,116 @@ function sourceLabelFor(source?: CompareRationale["source"]): string {
     case "template_llm_unverified": return "template (LLM hallucinated)";
     default: return "—";
   }
+}
+
+/** Family-2 (valuation) + Family-3 (cross-sectional momentum)
+ * annotations on the best-row. Both are basket-relative — they
+ * compare this symbol to its peers in the same universe — so they
+ * surface signals the per-symbol Family-1 strategies can't see.
+ * Annotation only: NOT a verdict driver yet (see Phase X). */
+function CrossBasketSignals({ view }: { view: SymbolView }) {
+  const cs = view.bestRow.cross_sectional_momentum;
+  const val = view.bestRow.valuation_flag;
+  const haveCs = cs && cs.rank !== null;
+  const haveVal = val && val.flag !== "n/a";
+  if (!haveCs && !haveVal) return null;
+
+  const flagColour = (flag?: string) =>
+    flag === "cheap" ? "var(--up)"
+      : flag === "expensive" ? "var(--down)"
+      : "var(--text-dim)";
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div className="stat-label" style={{ marginBottom: 6 }}>
+        Cross-basket signals — how this symbol stacks vs its peers
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {haveCs && cs && (
+          <div
+            style={{
+              padding: "8px 10px",
+              borderLeft: `3px solid ${cs.is_top_quartile ? "var(--up)" : "var(--text-dim)"}`,
+              background: "rgba(0,0,0,0.18)",
+              borderRadius: 4,
+              fontSize: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <strong>Momentum rank</strong>
+              <Info k="cross_sectional_momentum" />
+            </div>
+            <div style={{ marginTop: 4 }}>
+              <span className="num" style={{ fontWeight: 700, fontSize: 14 }}>
+                {cs.rank} of {(cs.peer_count ?? 0) + 1}
+              </span>
+              {cs.is_top_quartile && (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    fontSize: 10,
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                    background: "rgba(31,193,107,0.15)",
+                    color: "var(--up)",
+                  }}
+                >
+                  TOP QUARTILE
+                </span>
+              )}
+            </div>
+            <div style={{ marginTop: 4, color: "var(--text-dim)", fontSize: 11 }}>
+              z-score{" "}
+              <span className="num">
+                {cs.zscore !== null ? cs.zscore.toFixed(2) : "—"}
+              </span>{" "}
+              · 12m return{" "}
+              <span className="num">
+                {cs.value !== null ? `${cs.value.toFixed(1)}%` : "—"}
+              </span>{" "}
+              · basket median{" "}
+              <span className="num">
+                {cs.basket_median !== null
+                  ? `${cs.basket_median.toFixed(1)}%`
+                  : "—"}
+              </span>
+            </div>
+          </div>
+        )}
+        {haveVal && val && (
+          <div
+            style={{
+              padding: "8px 10px",
+              borderLeft: `3px solid ${flagColour(val.flag)}`,
+              background: "rgba(0,0,0,0.18)",
+              borderRadius: 4,
+              fontSize: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <strong>Valuation flag</strong>
+              <Info k="valuation_flag" />
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 14,
+                fontWeight: 700,
+                color: flagColour(val.flag),
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
+              {val.flag}
+            </div>
+            <div style={{ marginTop: 4, color: "var(--text-dim)", fontSize: 11 }}>
+              {val.basis}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Fund-level fundamentals: family, expense ratio, AUM, yield, top

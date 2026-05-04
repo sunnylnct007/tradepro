@@ -415,6 +415,34 @@ export interface CompareRow {
   data_age_days?: number | null;
   rank: number;
   error: string | null;
+  /** Family-3 signal: rank + zscore vs basket peers on 12-month return.
+   * Annotation only — does not yet feed the bucket vote. Distinguishes
+   * "this symbol is strong" from "the whole basket is strong". */
+  cross_sectional_momentum?: CrossSectionalMomentum | null;
+  /** Family-2 starter: cheap / fair / expensive based on dividend-yield
+   * quartile vs basket peers. Proxy until we have a fundamentals
+   * snapshot store with historical-P/E-vs-10y-median. */
+  valuation_flag?: ValuationFlag | null;
+}
+
+export interface CrossSectionalMomentum {
+  metric_name: string;
+  value: number | null;
+  rank: number | null;
+  rank_pct: number | null;
+  zscore: number | null;
+  peer_count: number | null;
+  basket_mean: number | null;
+  basket_median: number | null;
+  is_top_quartile: boolean;
+}
+
+export interface ValuationFlag {
+  flag: "cheap" | "fair" | "expensive" | "n/a";
+  yield_pct: number | null;
+  basket_median_yield_pct: number | null;
+  basis: string;
+  metric: string;
 }
 
 export interface CompareCurrencyMix {
