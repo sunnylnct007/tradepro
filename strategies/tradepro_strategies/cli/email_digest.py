@@ -111,15 +111,22 @@ def _applescript_quote(s: str) -> str:
 
 
 def send_via_outlook_mac(digest: EmailDigest, recipients: list[str]) -> None:
-    """Drive Microsoft Outlook for Mac via AppleScript. Outlook must
-    be installed and signed into at least one account. macOS will
-    prompt for Automation permission on first run."""
+    """Drive Microsoft Outlook for Mac via AppleScript. Sends the
+    PLAIN-TEXT body — the HTML body would arrive as raw markup in
+    most Outlook for Mac versions because the AppleScript `content`
+    property is interpreted as plain text by the Outlook side
+    (verified in the wild). The plain-text body is structured to
+    read well without HTML rendering — sections, indentation,
+    ASCII rules.
+
+    Outlook must be installed and signed into at least one account.
+    macOS prompts for Automation permission on first run."""
     if not recipients:
         raise RuntimeError("Outlook transport: no recipients.")
     if sys.platform != "darwin":
         raise RuntimeError("Outlook transport requires macOS.")
     subject = _applescript_quote(digest.subject)
-    html = _applescript_quote(digest.html_body)
+    body = _applescript_quote(digest.text_body)
     add_recipients = "\n".join(
         f'  make new recipient at theMessage with properties '
         f'{{email address:{{address:"{_applescript_quote(r)}"}}}}'
@@ -127,7 +134,7 @@ def send_via_outlook_mac(digest: EmailDigest, recipients: list[str]) -> None:
     )
     script = f"""
 tell application "Microsoft Outlook"
-  set theMessage to make new outgoing message with properties {{subject:"{subject}", content:"{html}"}}
+  set theMessage to make new outgoing message with properties {{subject:"{subject}", content:"{body}"}}
 {add_recipients}
   send theMessage
 end tell
