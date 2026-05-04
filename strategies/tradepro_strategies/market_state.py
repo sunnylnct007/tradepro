@@ -32,8 +32,14 @@ RSI_OVERBOUGHT = 70.0
 RSI_OVERSOLD = 30.0
 EXTENDED_PCT_FROM_HIGH = 1.0       # within 1% of 52w high → "extended"
 MID_DRAWDOWN_PCT = -10.0           # in active drawdown ≥ 10% → "wait for stabilisation"
-DEEP_DRAWDOWN_PCT = -20.0          # ≥ 20% drawdown → "potential opportunity if trend recovers"
+DEEP_DRAWDOWN_PCT = -20.0          # ≥ 20% drawdown → long-term-valuation signal only
 WEAK_MOMENTUM_PCT = -10.0          # 12m return < -10% → downtrend confirmation
+# Recent-dip threshold: how far off the 52w high we want before the
+# bounce-zone BUY rule fires. Distinct from DEEP_DRAWDOWN_PCT, which
+# is a 5y/full-series number — that's a long-term valuation signal,
+# not a short-term entry trigger. Conflating the two led to BUY
+# verdicts on INRG.L (−0% off 52w high but −22% off 2021 peak).
+MEANINGFUL_52W_DROP_PCT = 8.0      # ≥ 8% off the 52w high counts as a real recent dip
 
 
 @dataclass
@@ -164,19 +170,33 @@ def _build_trace(state: MarketState) -> list[dict[str, Any]]:
         trace.append({"name": "Distance from 52w high", "status": "pass",
                       "detail": f"{pct:.1f}% off{high_suffix} — room to run"})
 
-    # Drawdown from peak
+    # Long-term valuation: drawdown from full-series running peak.
+    # Reported separately from the 52w-high distance so the user can
+    # see both timeframes — "−0% off 52w high (near-term peak) but
+    # −22% off 2021 peak (long-term cheap)" is a meaningful pair of
+    # facts; collapsing them into a single 'drawdown' line is what
+    # made INRG.L misread as a short-term BUY.
     dd = state.drawdown_from_peak_pct
+    peak_when = (state.peak_date or "")[:10]
+    peak_suffix = f" (peak {peak_when})" if peak_when else ""
     if dd is None:
-        trace.append({"name": "Drawdown from peak", "status": "warn", "detail": "—"})
+        trace.append({"name": "Long-term valuation (5y peak)",
+                      "status": "warn", "detail": "—"})
     elif dd <= DEEP_DRAWDOWN_PCT:
-        trace.append({"name": "Drawdown from peak", "status": "warn",
-                      "detail": f"{dd:.1f}% — deep correction, classic bounce zone if trend recovers"})
+        trace.append({
+            "name": "Long-term valuation (5y peak)",
+            "status": "pass",
+            "detail": (
+                f"{dd:.1f}% from peak{peak_suffix} — structurally cheap "
+                f"vs own history (long-term signal, not a timing trigger)"
+            ),
+        })
     elif dd <= MID_DRAWDOWN_PCT:
-        trace.append({"name": "Drawdown from peak", "status": "fail",
-                      "detail": f"{dd:.1f}% — mid-drawdown, trend not stabilised"})
+        trace.append({"name": "Long-term valuation (5y peak)", "status": "warn",
+                      "detail": f"{dd:.1f}% from peak{peak_suffix} — mid-cycle"})
     else:
-        trace.append({"name": "Drawdown from peak", "status": "pass",
-                      "detail": f"{dd:.1f}% from peak — minimal"})
+        trace.append({"name": "Long-term valuation (5y peak)", "status": "warn",
+                      "detail": f"{dd:.1f}% from peak{peak_suffix} — near long-term highs"})
 
     # 12-month momentum
     mom12 = state.momentum_12m_pct
@@ -212,18 +232,36 @@ def _classify(state: MarketState) -> tuple[str, str]:
         return ("WAIT",
                 f"at 52w high with RSI {rsi_v:.0f} (overbought) — let it cool before adding.")
 
-    # WAIT: mid-drawdown, trend not yet stabilised.
+    # BUY: meaningful 52w drawdown but RSI bouncing — short-term
+    # mean-reversion entry. Uses pct_off_52w_high (recent context),
+    # NOT drawdown_from_peak (5y / full-series). The full-series
+    # drawdown remains in the trace as a long-term valuation signal,
+    # but cannot trigger a BUY on its own — a 5y-old peak does not
+    # give you a near-term entry edge. (Fix: INRG.L was BUY-flagged
+    # because its 2021 peak yielded −22% even though the 52w high is
+    # today; the 5y signal was masquerading as a timing signal.)
+    #
+    # Fires BEFORE the WAIT-mid-drawdown rule so a real recent dip
+    # with momentum doesn't get incorrectly demoted by a coincidental
+    # 5y dd in the mid-zone.
+    if (
+        pct_off_high is not None
+        and pct_off_high >= MEANINGFUL_52W_DROP_PCT
+        and rsi_v is not None
+        and rsi_v > RSI_OVERSOLD
+    ):
+        high_when = (state.pct_off_52w_high_date or "")[:10]
+        high_suffix = f" (52w high {high_when})" if high_when else ""
+        return ("BUY",
+                f"{pct_off_high:.1f}% off 52w high{high_suffix} with RSI "
+                f"{rsi_v:.0f} recovering — short-term bounce zone.")
+
+    # WAIT: mid-drawdown, trend not yet stabilised. Still uses the
+    # full-series dd because we want to flag deep-but-not-recovering
+    # situations even when the 52w-window is too narrow to see them.
     if dd is not None and DEEP_DRAWDOWN_PCT < dd <= MID_DRAWDOWN_PCT:
         return ("WAIT",
                 f"in {dd:.1f}% drawdown — wait for trend stabilisation before averaging in.")
-
-    # BUY: deeper drawdown but RSI bouncing — classic mean-reversion entry.
-    if dd is not None and dd <= DEEP_DRAWDOWN_PCT and rsi_v is not None and rsi_v > RSI_OVERSOLD:
-        peak_when = (state.peak_date or "")[:10]
-        peak_suffix = f" (peak set {peak_when})" if peak_when else ""
-        return ("BUY",
-                f"{dd:.1f}% drawdown{peak_suffix} with RSI {rsi_v:.0f} "
-                f"recovering — historical bounce zone.")
 
     # BUY: clean uptrend (above SMA200, not overbought, not extended).
     if above is True:
