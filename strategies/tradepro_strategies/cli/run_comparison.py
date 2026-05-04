@@ -119,6 +119,20 @@ def main() -> None:
             raise SystemExit(f"--stamp-duty: expected 'auto' or a float, got {args.stamp_duty!r}") from e
         print(f"Stamp duty: flat {flat_rate * 100:.2f}% (override; auto-detection bypassed)")
 
+    # LLM preflight — run BEFORE the slow backtest so a missing
+    # Ollama model fails fast with a clear banner, not silently as
+    # null sentiment columns 60 seconds later.
+    try:
+        from ..llm.ollama_provider import OllamaProvider
+        llm_health = OllamaProvider().health_summary()
+        if llm_health["ok"]:
+            print(f"LLM:        {llm_health['message']}")
+        else:
+            print(f"⚠ LLM:      {llm_health['message']}")
+            print(f"            Sentiment scoring will be skipped this run.")
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠ LLM:      preflight check failed: {e}")
+
     cfg = CompareConfig(
         provider=args.provider,
         initial_capital=args.capital,

@@ -44,6 +44,64 @@ class OllamaProvider(LlmProvider):
         except requests.RequestException:
             return False
 
+    def available_models(self) -> list[str]:
+        """The list of model names the local Ollama daemon reports.
+        Empty list when the daemon is unreachable. Used by callers to
+        diagnose 'model X not pulled' before paying for a long
+        backtest run that would silently get empty completions."""
+        try:
+            r = requests.get(f"{self._host}/api/tags", timeout=2)
+            r.raise_for_status()
+            data = r.json() or {}
+        except requests.RequestException:
+            return []
+        return [m.get("name") for m in (data.get("models") or []) if m.get("name")]
+
+    def model_available(self) -> bool:
+        """Strong health check: daemon up AND the configured model is
+        present. Distinguishes 'Ollama not running' from 'model not
+        pulled' — both are silent killers of sentiment scoring."""
+        return self._model in self.available_models()
+
+    def health_summary(self) -> dict:
+        """Structured health report. Returns one of three states with
+        an actionable message:
+          daemon_down       — Ollama isn't running (start it)
+          model_missing     — daemon ok, model not pulled (ollama pull X)
+          ok                — daemon up + model present
+        """
+        if not self.healthy():
+            return {
+                "ok": False,
+                "state": "daemon_down",
+                "host": self._host,
+                "model": self._model,
+                "message": (
+                    f"Ollama not reachable at {self._host}. "
+                    f"Start it with `ollama serve` (it usually auto-starts)."
+                ),
+            }
+        avail = self.available_models()
+        if self._model not in avail:
+            return {
+                "ok": False,
+                "state": "model_missing",
+                "host": self._host,
+                "model": self._model,
+                "available_models": avail,
+                "message": (
+                    f"Ollama is running but model '{self._model}' is not pulled. "
+                    f"Run: ollama pull {self._model}"
+                ),
+            }
+        return {
+            "ok": True,
+            "state": "ok",
+            "host": self._host,
+            "model": self._model,
+            "message": f"Ollama healthy with {self._model}",
+        }
+
     def complete_json(self, prompt: str, *, schema_hint: dict | None = None,
                       max_tokens: int = 256, temperature: float = 0.0) -> LlmResult:
         # Two-stage prompt: schema first, then the task. Ollama's `format=json`
