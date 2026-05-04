@@ -187,4 +187,54 @@ export const HELP: Record<string, HelpEntry> = {
     body:
       "How long ago this comparison was computed on the Mac and pushed to the API. <24h = green (Live). 24-72h = amber (Stale — refresh recommended). >72h = red (Very stale — refresh before deciding). The scheduled launchd job runs daily at 22:30 UTC.",
   },
+
+  // ---- Recent additions — keep these in sync with the helpers in
+  // strategies/tradepro_strategies/{market_state,fees,cross_sectional}.py
+  // and the `feedback_explainability_required` memory.
+  pct_off_52w_high: {
+    title: "% off 52-week high",
+    body:
+      "How far below the highest close of the last 252 trading days the price is. Anchored to today's UTC date — rolls daily. Always paired with the date the high was set, so 'down 22% off Jan high' is distinct from 'down 22% from yesterday'.",
+    href: "#52-week-high-vs-all-time-peak",
+  },
+  drawdown_from_5y_peak: {
+    title: "Drawdown from 5-year peak (long-term valuation)",
+    body:
+      "How far below the running cumulative max over the entire price window the price is. Different from the 52-week number — captures multi-year peaks. Use as a structural-cheap-vs-history signal, NOT as a short-term entry trigger (a 5-year-old peak doesn't tell you about today's mean-reversion edge).",
+    href: "#5y-peak-vs-52w-high",
+  },
+  max_drawdown_recovery_days: {
+    title: "Drawdown recovery time",
+    body:
+      "How many days the equity curve took to climb back to its prior peak after the deepest drawdown. 'Still recovering' means it hasn't gotten back yet — paired with a days-since-trough count. Half the picture max-DD alone misses; two -30% drawdowns are very different if one took 9 months to come back and the other took 7 years.",
+    href: "#drawdown-recovery",
+  },
+  cross_sectional_momentum: {
+    title: "Cross-sectional momentum rank",
+    body:
+      "This symbol's rank vs basket peers on 12-month return. 1 = highest momentum in the basket. Z-score is how many standard deviations above (positive) or below (negative) the basket mean. Distinguishes 'this symbol is strong' from 'the whole basket is strong' — Family-3 signal complementing the Family-1 (price-vs-MA) strategies.",
+    href: "#multi-family-signal-stack",
+  },
+  stamp_duty_auto: {
+    title: "UK stamp duty (auto)",
+    body:
+      "0.5% SDRT applies to LSE main-market share BUYS only. UCITS ETFs are exempt; non-UK securities pay no UK SDRT. The comparator now resolves the rate per-symbol (auto), so high-turnover strategies on ETFs aren't silently penalised. Pass --stamp-duty <number> to force a flat rate.",
+    href: "#uk-stamp-duty",
+  },
+  bucket_consensus_elevated: {
+    title: "BUY from strategy consensus",
+    body:
+      "When the price-side rule says HOLD but a majority of strategies are currently long, the bucket lifts to BUY. The reason text reads 'N of M strategies currently long; price: <hold reason>' so you can see both the consensus push and the price-side caveat. Disagree with the system? Trust the price-side text; it's the more conservative read.",
+    href: "#bucket-vote",
+  },
+  market_closed_banner: {
+    title: "Markets closed today",
+    body:
+      "When the latest available bar across the basket is older than today (UK bank holiday, weekend, or pre-close run), the digest shows a banner with the actual data date. No external calendar — the data tells us the market wasn't open.",
+  },
+  llm_preflight: {
+    title: "LLM (Ollama) preflight check",
+    body:
+      "Runs before the slow backtest to verify Ollama is reachable AND the configured model is pulled. Three states: ok → sentiment scoring will run; daemon_down → start `ollama serve`; model_missing → run `ollama pull <model>`. Without it, missing models silently produced null sentiment columns.",
+  },
 };
