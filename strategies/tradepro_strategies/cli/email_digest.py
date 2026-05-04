@@ -1,13 +1,21 @@
 """tradepro-email — pull the latest compare cache and email a digest.
 
-Designed to be invoked by launchd after the daily refresh job. The
-digest content comes from the API (so this works whether the API
-is local or deployed); credentials for SMTP come from
-~/.tradepro/email-creds.json or env vars.
+Designed to be invoked by launchd after the daily refresh job. Three
+transports:
 
-    uv run tradepro-email                 # send via configured creds
-    uv run tradepro-email --dry-run       # build + print, don't send
-    uv run tradepro-email --to me@x.com   # one-off override
+    smtp     (default) credentials in ~/.tradepro/email-creds.json
+    outlook  (macOS)   AppleScript drives Microsoft Outlook — no creds
+    mail     (macOS)   AppleScript drives Apple Mail.app — no creds
+
+The osascript transports require macOS + the target app installed and
+signed in; first run prompts for permission. They're convenient for
+personal daily digests on a single Mac. SMTP is the only choice for
+non-Mac deployments (AWS, CI, etc.).
+
+    uv run tradepro-email                                   # SMTP
+    uv run tradepro-email --transport outlook               # Outlook on Mac
+    uv run tradepro-email --transport mail --to me@x.com    # Apple Mail
+    uv run tradepro-email --dry-run                         # preview
 """
 from __future__ import annotations
 
@@ -16,6 +24,7 @@ import json
 import os
 import smtplib
 import ssl
+import subprocess
 import sys
 from email.message import EmailMessage
 from pathlib import Path
@@ -34,6 +43,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--api-token", default=os.environ.get("TRADEPRO_API_TOKEN"))
     p.add_argument("--to", action="append", help="Override recipient (repeatable)")
     p.add_argument("--dry-run", action="store_true", help="Build + print to stdout, do not send")
+    p.add_argument(
+        "--transport",
+        choices=("smtp", "outlook", "mail"),
+        default=os.environ.get("TRADEPRO_EMAIL_TRANSPORT", "smtp"),
+        help=(
+            "Transport: smtp (default), outlook (macOS Outlook via "
+            "AppleScript, no creds needed), mail (macOS Apple Mail "
+            "via AppleScript, no creds needed)."
+        ),
+    )
     return p.parse_args()
 
 
@@ -83,6 +102,84 @@ def fetch_payloads(api_base: str, token: str | None) -> list[dict]:
     return payloads
 
 
+def _applescript_quote(s: str) -> str:
+    """Escape a Python string for safe interpolation into an
+    AppleScript string literal. AppleScript needs backslash and
+    double-quote escaping; tabs/newlines stay as-is inside the
+    literal."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def send_via_outlook_mac(digest: EmailDigest, recipients: list[str]) -> None:
+    """Drive Microsoft Outlook for Mac via AppleScript. Outlook must
+    be installed and signed into at least one account. macOS will
+    prompt for Automation permission on first run."""
+    if not recipients:
+        raise RuntimeError("Outlook transport: no recipients.")
+    if sys.platform != "darwin":
+        raise RuntimeError("Outlook transport requires macOS.")
+    subject = _applescript_quote(digest.subject)
+    html = _applescript_quote(digest.html_body)
+    add_recipients = "\n".join(
+        f'  make new recipient at theMessage with properties '
+        f'{{email address:{{address:"{_applescript_quote(r)}"}}}}'
+        for r in recipients
+    )
+    script = f"""
+tell application "Microsoft Outlook"
+  set theMessage to make new outgoing message with properties {{subject:"{subject}", content:"{html}"}}
+{add_recipients}
+  send theMessage
+end tell
+"""
+    proc = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True, text=True, timeout=60,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"Outlook AppleScript failed (exit {proc.returncode}): "
+            f"{proc.stderr.strip() or proc.stdout.strip()}"
+        )
+
+
+def send_via_mail_app(digest: EmailDigest, recipients: list[str]) -> None:
+    """Drive Apple Mail.app via AppleScript. Same prerequisites as
+    Outlook: app installed, an account configured, automation
+    permission granted (one-time prompt)."""
+    if not recipients:
+        raise RuntimeError("Mail transport: no recipients.")
+    if sys.platform != "darwin":
+        raise RuntimeError("Mail transport requires macOS.")
+    subject = _applescript_quote(digest.subject)
+    # Mail.app's `content` accepts plain text reliably; HTML works
+    # but display varies. Send the text body for simplicity.
+    body = _applescript_quote(digest.text_body)
+    add_recipients = "\n".join(
+        f'  make new to recipient at end of to recipients with properties '
+        f'{{address:"{_applescript_quote(r)}"}}'
+        for r in recipients
+    )
+    script = f"""
+tell application "Mail"
+  set theMessage to make new outgoing message with properties {{subject:"{subject}", content:"{body}", visible:false}}
+  tell theMessage
+{add_recipients}
+  end tell
+  send theMessage
+end tell
+"""
+    proc = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True, text=True, timeout=60,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"Mail AppleScript failed (exit {proc.returncode}): "
+            f"{proc.stderr.strip() or proc.stdout.strip()}"
+        )
+
+
 def send_email(digest: EmailDigest, cfg: dict) -> None:
     missing = [k for k in ("smtp_host", "smtp_user", "smtp_password", "from") if not cfg.get(k)]
     if missing:
@@ -118,16 +215,24 @@ def main() -> None:
     digest = build_digest(payloads)
     cfg = load_smtp_creds(args)
 
+    recipients = cfg.get("to") or []
     if args.dry_run:
-        print(f"# Subject: {digest.subject}")
-        print(f"# To:      {', '.join(cfg.get('to') or []) or '(unset)'}")
-        print(f"# Sender:  {cfg.get('from') or '(unset)'}")
+        print(f"# Subject:   {digest.subject}")
+        print(f"# To:        {', '.join(recipients) or '(unset)'}")
+        print(f"# Transport: {args.transport}")
+        if args.transport == "smtp":
+            print(f"# Sender:    {cfg.get('from') or '(unset)'}")
         print()
         print(digest.text_body)
         return
 
-    send_email(digest, cfg)
-    print(f"sent: {digest.subject} → {', '.join(cfg['to'])}")
+    if args.transport == "outlook":
+        send_via_outlook_mac(digest, recipients)
+    elif args.transport == "mail":
+        send_via_mail_app(digest, recipients)
+    else:
+        send_email(digest, cfg)
+    print(f"sent via {args.transport}: {digest.subject} → {', '.join(recipients)}")
 
 
 if __name__ == "__main__":
