@@ -160,7 +160,15 @@ def gather_facts(
             "rsi_14": market_state.get("rsi_14"),
             "above_sma_200": market_state.get("above_sma_200"),
             "pct_off_52w_high_pct": market_state.get("pct_off_52w_high_pct"),
+            # When the 52w high was set + price at that bar. Surfaced
+            # so the rationale can read "−20% off 52w high (set
+            # 2026-01-28)" and the verifier sees the date in the
+            # input facts (so the LLM can't fabricate a date).
+            "pct_off_52w_high_date": market_state.get("pct_off_52w_high_date"),
+            "pct_off_52w_high_price": market_state.get("pct_off_52w_high_price"),
             "drawdown_from_peak_pct": market_state.get("drawdown_from_peak_pct"),
+            "peak_date": market_state.get("peak_date"),
+            "peak_price": market_state.get("peak_price"),
             "momentum_12m_pct": market_state.get("momentum_12m_pct"),
         },
         "sentiment": {

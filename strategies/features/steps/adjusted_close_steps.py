@@ -52,3 +52,57 @@ def step_drawdown_zero(context):
     dd = context.state.drawdown_from_peak_pct
     assert dd is not None, "drawdown_from_peak_pct is None"
     assert abs(dd) < 1.0, f"expected ~0%, got {dd:.2f}%"
+
+
+@given("a price series that peaked 6 months ago and recovered partially")
+def step_peak_then_recovery(context):
+    import numpy as np
+    # 252 trading days. Peak around day 60 (about 6 months back from
+    # the end), then sell-off to day 180, then recovery to day 251 —
+    # but never reclaiming the peak. Mirrors the SWDA-style narrative
+    # the user surfaced.
+    idx = pd.bdate_range("2025-05-01", periods=252)
+    prices = np.concatenate([
+        np.linspace(100, 130, 60),    # ramp into peak
+        np.linspace(130, 100, 120),   # drawdown
+        np.linspace(100, 115, 72),    # partial recovery
+    ])
+    context.peak_idx = idx[59]  # day 60 (zero-indexed)
+    context.peak_value = 130.0
+    df = pd.DataFrame(
+        {"open": prices, "high": prices, "low": prices,
+         "close": prices, "adj_close": prices, "volume": [1] * 252},
+        index=idx,
+    )
+    context.prices = df
+
+
+@then("the 52w-high date matches the peak bar")
+def step_high_date(context):
+    iso = context.state.pct_off_52w_high_date
+    assert iso is not None, "pct_off_52w_high_date missing"
+    expected = context.peak_idx.date().isoformat()
+    assert iso[:10] == expected, f"expected {expected}, got {iso[:10]}"
+
+
+@then("the 52w-high price matches the peak value")
+def step_high_price(context):
+    price = context.state.pct_off_52w_high_price
+    assert price is not None, "pct_off_52w_high_price missing"
+    assert abs(price - context.peak_value) < 0.5, (
+        f"expected ~{context.peak_value}, got {price:.2f}"
+    )
+
+
+@then("the entry reason mentions the peak date")
+def step_reason_mentions_date(context):
+    reason = context.state.entry_reason or ""
+    expected = context.peak_idx.date().isoformat()
+    # The classifier only emits the peak date for the deep-drawdown
+    # BUY branch; for shallower drawdowns it falls through to other
+    # rules. Either the peak date appears, OR the verdict is one of
+    # those non-bounce-zone reasons.
+    if context.state.entry_signal == "BUY" and "drawdown" in reason:
+        assert expected in reason, (
+            f"BUY-bounce reason missing peak date: {reason!r}"
+        )

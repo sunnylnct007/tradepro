@@ -55,6 +55,16 @@ class MarketState:
     # The trace is the audit trail behind entry_signal — every check the
     # classifier looked at, not just the one that fired.
     decision_trace: list[dict[str, Any]]
+    # When + at what price the 52w high and running peak were set.
+    # These give a percentage like "−20.7% off 52w high" the context
+    # it needs ("set 11 months ago, before the April crash") so the
+    # user (or the LLM) doesn't conflate a recovery rally with an
+    # all-time-high entry. Optional so callers that don't need them
+    # can still construct a MarketState positionally.
+    pct_off_52w_high_date: str | None = None
+    pct_off_52w_high_price: float | None = None
+    peak_price: float | None = None
+    peak_date: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -64,7 +74,11 @@ class MarketState:
             "sma_200": self.sma_200,
             "above_sma_200": self.above_sma_200,
             "pct_off_52w_high_pct": self.pct_off_52w_high_pct,
+            "pct_off_52w_high_date": self.pct_off_52w_high_date,
+            "pct_off_52w_high_price": self.pct_off_52w_high_price,
             "drawdown_from_peak_pct": self.drawdown_from_peak_pct,
+            "peak_price": self.peak_price,
+            "peak_date": self.peak_date,
             "rsi_14": self.rsi_14,
             "momentum_3m_pct": self.momentum_3m_pct,
             "momentum_12m_pct": self.momentum_12m_pct,
@@ -135,16 +149,20 @@ def _build_trace(state: MarketState) -> list[dict[str, Any]]:
         trace.append({"name": "RSI (14-day)", "status": "pass",
                       "detail": f"{rsi_v:.0f} — healthy zone"})
 
-    # Distance from 52w high
+    # Distance from 52w high — include the date so a "20% drawdown"
+    # against an 11-month-old high doesn't read like the symbol fell
+    # 20% yesterday.
     pct = state.pct_off_52w_high_pct
+    high_when = (state.pct_off_52w_high_date or "")[:10]
+    high_suffix = f" (high set {high_when})" if high_when else ""
     if pct is None:
         trace.append({"name": "Distance from 52w high", "status": "warn", "detail": "—"})
     elif pct < EXTENDED_PCT_FROM_HIGH:
         trace.append({"name": "Distance from 52w high", "status": "warn",
-                      "detail": f"{pct:.1f}% off — at the highs, potentially extended"})
+                      "detail": f"{pct:.1f}% off{high_suffix} — at the highs, potentially extended"})
     else:
         trace.append({"name": "Distance from 52w high", "status": "pass",
-                      "detail": f"{pct:.1f}% off — room to run"})
+                      "detail": f"{pct:.1f}% off{high_suffix} — room to run"})
 
     # Drawdown from peak
     dd = state.drawdown_from_peak_pct
@@ -201,8 +219,11 @@ def _classify(state: MarketState) -> tuple[str, str]:
 
     # BUY: deeper drawdown but RSI bouncing — classic mean-reversion entry.
     if dd is not None and dd <= DEEP_DRAWDOWN_PCT and rsi_v is not None and rsi_v > RSI_OVERSOLD:
+        peak_when = (state.peak_date or "")[:10]
+        peak_suffix = f" (peak set {peak_when})" if peak_when else ""
         return ("BUY",
-                f"{dd:.1f}% drawdown with RSI {rsi_v:.0f} recovering — historical bounce zone.")
+                f"{dd:.1f}% drawdown{peak_suffix} with RSI {rsi_v:.0f} "
+                f"recovering — historical bounce zone.")
 
     # BUY: clean uptrend (above SMA200, not overbought, not extended).
     if above is True:
@@ -241,9 +262,20 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
     sma_200 = _safe_float(sma_series.iloc[-1])
     above = None if sma_200 is None or last_price is None else bool(last_price > sma_200)
 
-    # 52-week high / drawdown — use trailing 252 trading days.
+    # 52-week high / drawdown — use trailing 252 trading days. We
+    # capture both the date and the price of the high so a user
+    # reading "−20% off 52w high" can immediately see *when* that
+    # high was set and reconcile against what their broker shows
+    # (recent rally peak vs. pre-crash high are different things).
     window_252 = series.tail(252)
     high_52w = _safe_float(window_252.max())
+    high_52w_date: str | None = None
+    if not window_252.empty and high_52w is not None:
+        idx = window_252.idxmax()
+        try:
+            high_52w_date = idx.isoformat() if hasattr(idx, "isoformat") else str(idx)
+        except Exception:  # noqa: BLE001
+            high_52w_date = str(idx)
     pct_off_high = (
         (1.0 - last_price / high_52w) * 100.0
         if last_price is not None and high_52w not in (None, 0)
@@ -252,9 +284,23 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
 
     # Drawdown from running peak, full-series. This is the more honest
     # measure of "are we mid-correction?" than just the 52-week notion.
+    # Capture peak date too — same rationale as the 52w-high date.
     peak = series.cummax()
     dd_series = (series - peak) / peak
     dd = _safe_float(dd_series.iloc[-1] * 100.0)
+    peak_price = _safe_float(peak.iloc[-1]) if not peak.empty else None
+    peak_date: str | None = None
+    if not series.empty:
+        # The most recent index where price equalled the running peak
+        # is the date the peak was last touched. For a clean uptrend
+        # this is "today"; for a correction it's the pre-correction high.
+        peak_idx = series[series == peak].index
+        if len(peak_idx) > 0:
+            last_peak = peak_idx[-1]
+            try:
+                peak_date = last_peak.isoformat() if hasattr(last_peak, "isoformat") else str(last_peak)
+            except Exception:  # noqa: BLE001
+                peak_date = str(last_peak)
 
     rsi_14 = _safe_float(rsi(series, 14).iloc[-1])
     mom_3m = _momentum_pct(series, 63)
@@ -268,6 +314,10 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         rsi_14=rsi_14, momentum_3m_pct=mom_3m, momentum_12m_pct=mom_12m,
         vol_30d_annual_pct=vol_30d,
         entry_signal="HOLD", entry_reason="", decision_trace=[],
+        pct_off_52w_high_date=high_52w_date,
+        pct_off_52w_high_price=high_52w,
+        peak_price=peak_price,
+        peak_date=peak_date,
     )
     state.entry_signal, state.entry_reason = _classify(state)
     state.decision_trace = _build_trace(state)

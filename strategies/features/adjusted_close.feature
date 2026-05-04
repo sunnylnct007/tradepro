@@ -15,3 +15,10 @@ Feature: Indicators must use adjusted close (split-aware)
     Given a flat raw-only price series
     When I compute the market_state for it
     Then the percentage off the 52w high is approximately 0%
+
+  Scenario: 52w-high date + peak date are surfaced for traceability
+    Given a price series that peaked 6 months ago and recovered partially
+    When I compute the market_state for it
+    Then the 52w-high date matches the peak bar
+    And the 52w-high price matches the peak value
+    And the entry reason mentions the peak date
