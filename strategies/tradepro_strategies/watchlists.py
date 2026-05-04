@@ -27,14 +27,17 @@ WATCHLISTS: dict[str, list[str]] = {
     "etf_uk_core": [
         "VWRP.L",   # Vanguard FTSE All-World (acc)
         "VUSA.L",   # Vanguard S&P 500
+        "SWDA.L",   # iShares Core MSCI World (acc) — most-held LSE ETF
         "VUKE.L",   # Vanguard FTSE 100
         "VMID.L",   # Vanguard FTSE 250
         "ISF.L",    # iShares Core FTSE 100
         "VEUR.L",   # Vanguard FTSE Developed Europe ex-UK
         "VJPN.L",   # Vanguard FTSE Japan
         "VFEM.L",   # Vanguard FTSE Emerging Markets
+        "EIMI.L",   # iShares Core MSCI Emerging Markets IMI
         "VAGP.L",   # Vanguard Global Aggregate Bond (GBP-hedged)
         "IGLN.L",   # iShares Physical Gold
+        "INRG.L",   # iShares Global Clean Energy — popular thematic
     ],
     # US-listed core ETFs — broader/cheaper, but US tax + FX considerations
     # for a UK investor.

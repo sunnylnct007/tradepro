@@ -85,6 +85,19 @@ def build_server():
         return _json(t.get_health())
 
     @mcp.tool()
+    @instrumented("get_fundamentals")
+    def get_fundamentals(symbol: str) -> str:
+        """Fundamentals for a single ETF or stock — expense ratio,
+        AUM, dividend yield, top-10 holdings, sector weights,
+        inception date, summary. Pulls live; cite each field as
+        `live://fundamentals/<SYMBOL>/<field>`. Use this to answer
+        the long-term-investing questions the BUY/WAIT classifier
+        deliberately doesn't ('is this fund expensive?', 'what am I
+        actually exposed to?'). Pair with `evaluate_symbols` for the
+        full structural-vs-timing picture."""
+        return _json(t.get_fundamentals(symbol))
+
+    @mcp.tool()
     @instrumented("get_returns")
     def get_returns(symbols: str, periods: str = "1d,5d,30d,90d,ytd") -> str:
         """Multi-period total returns (no backtest, just price math) for

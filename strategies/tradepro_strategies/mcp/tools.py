@@ -233,6 +233,30 @@ def get_health() -> dict:
         return _err("get_health", str(e))
 
 
+def get_fundamentals(symbol: str) -> dict:
+    """Fundamentals snapshot for a single ticker — expense ratio, AUM,
+    dividend yield, top-10 holdings, sector weights, fund family,
+    inception date, summary text. ETF-flavoured fields (distribution
+    yield) and bond-flavoured fields (YTM, duration) populate when
+    Yahoo has them. Pulls live; no caching beyond the request scope.
+
+    Use this to answer the long-term-investing questions the BUY/WAIT
+    classifier deliberately doesn't: 'is this fund expensive?', 'what
+    am I actually exposed to?', 'is the dividend yield holding up?'.
+    """
+    if not symbol or not symbol.strip():
+        return _err("get_fundamentals", "symbol is required")
+    sym = symbol.strip().upper()
+    try:
+        from ..fundamentals import fetch_fundamentals
+        f = fetch_fundamentals(sym)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_fundamentals", str(e), symbol=sym)
+    out = f.to_dict()
+    out["_source"] = f"live://fundamentals/{sym}"
+    return out
+
+
 def get_returns(symbols_csv: str, periods: str = "1d,5d,30d,90d,ytd") -> dict:
     """Multi-period total returns for a basket — fast (no backtest, just
     price math). Use this to surface DISPERSION across uncorrelated
