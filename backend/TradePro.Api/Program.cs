@@ -63,6 +63,10 @@ builder.Services.AddHttpClient<Trading212Client>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
 });
+// Singleton — the instruments cache lives for the life of the
+// process. The cache loads from disk on construction and refreshes
+// lazily on first access if older than 24h.
+builder.Services.AddSingleton<Trading212InstrumentsService>();
 
 builder.Services.AddScoped<ISignalStrategy, BuyAndHoldStrategy>();
 builder.Services.AddScoped<ISignalStrategy, SmaCrossoverStrategy>();

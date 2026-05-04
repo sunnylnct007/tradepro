@@ -42,6 +42,39 @@ public sealed class Trading212Client
     public bool IsEnabled => _options.IsEnabled;
     public string Mode => _options.Mode;
 
+    /// <summary>Pulls the full instruments registry. Rate limit is
+    /// 1 req / 50s per T212 docs — callers should cache aggressively.
+    /// Returns an empty list (not a throw) on auth or transport errors
+    /// so the caller can fall back to a stale cache.</summary>
+    public async Task<IReadOnlyList<Trading212Instrument>> GetInstrumentsAsync(
+        CancellationToken ct)
+    {
+        if (!_options.IsEnabled)
+        {
+            return Array.Empty<Trading212Instrument>();
+        }
+        try
+        {
+            using var resp = await _http.GetAsync("equity/metadata/instruments", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning(
+                    "Trading212 instruments fetch returned HTTP {Status}",
+                    (int)resp.StatusCode);
+                return Array.Empty<Trading212Instrument>();
+            }
+            var items = await resp.Content
+                .ReadFromJsonAsync<List<Trading212Instrument>>(cancellationToken: ct);
+            return (IReadOnlyList<Trading212Instrument>?)items
+                ?? Array.Empty<Trading212Instrument>();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Trading212 instruments fetch failed");
+            return Array.Empty<Trading212Instrument>();
+        }
+    }
+
     /// <summary>Hits <c>/equity/account/cash</c> — smallest authenticated
     /// call we can make to prove credentials and connectivity.</summary>
     public async Task<Trading212Status> GetStatusAsync(CancellationToken ct)
@@ -109,3 +142,17 @@ public sealed record Trading212Status(
     bool Authenticated,
     string Detail,
     int? RateLimitRemaining = null);
+
+/// <summary>One row from /equity/metadata/instruments. T212 ticker
+/// format is &lt;ROOT&gt;_&lt;EXCHANGE&gt;_&lt;TYPE&gt; (e.g. "AAPL_US_EQ"); we keep
+/// it as-is and rely on shortName + currencyCode for the user-facing
+/// label. Yahoo-side mapping (T212 "AAPL_US_EQ" → Yahoo "AAPL") is
+/// non-trivial for non-US venues — we don't do it here.</summary>
+public sealed record Trading212Instrument(
+    string Ticker,
+    string? ShortName,
+    string? Name,
+    string? CurrencyCode,
+    string? Type,
+    string? Isin,
+    DateTime? AddedOn);
