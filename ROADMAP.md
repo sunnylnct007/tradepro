@@ -85,6 +85,45 @@ with one, the plan changes.
 
 ## Roadmap
 
+### Phase X — Multi-family signal stack + swing-trading composite (NEXT MAJOR)
+
+Diagnosis (2026-05-04): every existing strategy (`sma_crossover`,
+`macd_signal_cross`, `rsi_mean_reversion`, `donchian_breakout`,
+`buy_and_hold`) is a price-vs-its-own-moving-average indicator.
+Same family. They agree most of the time, so the bucket vote can't
+distinguish "broadly strong basket" from "this one outperforming
+peers". To get genuine alpha we need uncorrelated signal families.
+
+| Family | What it asks | Status |
+|---|---|---|
+| 1. Price / technical | Is price above its own MA? | ✅ have 5 strategies |
+| 2. Valuation | Is this cheap vs its own history? | ⚠️ data exists, no signal yet |
+| 3. Cross-sectional / factor | How does this rank vs peers? | ✅ annotation landed (rank + zscore on each row) |
+| 4. Event-driven | Recent earnings beat + retreat? | ❌ needs earnings calendar feed |
+| 5. Macro overlay | What regime are we in? | ⚠️ partial via etf_macro_proxies |
+| 6. Sentiment | What's the news saying? | ✅ demotion only (BUY → WAIT) |
+
+**Build order:**
+1. ✅ Cross-sectional momentum rank (annotation, not yet a verdict driver)
+2. Valuation flag using `dividend_yield_pct` as cheap-proxy until we
+   build a fundamentals snapshot store for true historical-P/E-vs-median
+3. Earnings calendar via Finnhub free tier + recent-beat-and-retreat detection
+4. `evaluate_swing(symbol, capital_gbp)` composite scorer 0–8 across
+   quality / valuation / event / price layers; only STRONG_BUY at ≥6
+5. Tranche-based position sizing: T1=40% now, T2=30% on RSI ≤ 35,
+   T3=30% on RSI ≤ 30; max 20% per name; cash sleeve for reserves
+6. Exit rules: profit target T1×1.20 (sell 40%), stop T1×0.85 (full),
+   trailing 12% off local high once price > T1×1.10
+
+**Why park the big composite:** building `evaluate_swing` right
+needs position state (which tranches deployed, cost basis,
+days-since-beat per symbol). That's the Phase 2 portfolio-aware
+engine territory; ship together as one cohesive feature once T212
+positions sync is wired into the rationale layer.
+
+Memory anchors: `project_phase3_multifamily_signals.md`,
+`project_phase2_portfolio_aware.md`.
+
 ### ✅ Phase 0–3: research + verdict pipeline (DONE)
 
 The platform now answers "today, should I BUY / WAIT / AVOID, and

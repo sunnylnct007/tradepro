@@ -632,6 +632,20 @@ def compare(
         settings.min_material_negative_count, logger=logger,
     )
 
+    # Cross-sectional momentum (Family-3 signal). Annotates each row
+    # with its rank + zscore vs basket peers on 12-month return — so
+    # callers can see whether a symbol's apparent strength is actually
+    # standout vs the basket or just basket-wide enthusiasm. Currently
+    # annotation only; bucket vote uses Family-1 only. See Phase 3 memory.
+    from .cross_sectional import rank_by_momentum
+    momentum_inputs = {
+        r["symbol"]: (r.get("market_state") or {}).get("momentum_12m_pct")
+        for r in rows
+    }
+    cs_ranks = rank_by_momentum(momentum_inputs)
+    for r in rows:
+        r["cross_sectional_momentum"] = cs_ranks.get(r["symbol"])
+
     best_per_strategy: dict[str, dict] = {}
     for row in rows:
         s = row["strategy"]
