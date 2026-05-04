@@ -631,7 +631,11 @@ def compare(
     # peers on 12-month return. Family 2 (valuation): cheap/fair/
     # expensive quartile by dividend yield. Annotation only — not
     # yet bucket-vote drivers (see Phase X).
-    from .cross_sectional import bucket_by_yield_quartile, rank_by_momentum
+    from .cross_sectional import (
+        bucket_by_yield_quartile,
+        cross_basket_trace_rows,
+        rank_by_momentum,
+    )
     momentum_inputs = {
         r["symbol"]: (r.get("market_state") or {}).get("momentum_12m_pct")
         for r in rows
@@ -643,8 +647,20 @@ def compare(
     }
     val_flags = bucket_by_yield_quartile(yield_inputs)
     for r in rows:
-        r["cross_sectional_momentum"] = cs_ranks.get(r["symbol"])
-        r["valuation_flag"] = val_flags.get(r["symbol"])
+        cs = cs_ranks.get(r["symbol"])
+        val = val_flags.get(r["symbol"])
+        r["cross_sectional_momentum"] = cs
+        r["valuation_flag"] = val
+        # Append cross-basket signals to the decision_trace so they
+        # show up as first-class checks in the Compare expand panel's
+        # "Why the verdict" ladder. The rationale's rule_chain reads
+        # the same field, so the LLM sees them too.
+        ms = r.get("market_state") or {}
+        existing_trace = list(ms.get("decision_trace") or [])
+        cb_rows = cross_basket_trace_rows(cs, val)
+        if cb_rows:
+            ms["decision_trace"] = existing_trace + cb_rows
+            r["market_state"] = ms
 
     # Per-symbol bucket computation + rationale generation. Both are
     # symbol-level (not per-row) so we compute once and copy onto every

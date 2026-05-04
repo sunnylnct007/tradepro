@@ -105,6 +105,57 @@ def _empty(metric_name: str, **base: object) -> dict:
     return out
 
 
+def cross_basket_trace_rows(
+    cs_momentum: dict | None,
+    valuation: dict | None,
+) -> list[dict]:
+    """Build decision-trace rows for the cross-basket signals so they
+    show up in the Compare expand panel's "Why the verdict" ladder
+    next to RSI / SMA / etc. Each row matches the existing trace
+    shape: {"name", "status" ∈ pass|warn|fail, "detail"}.
+
+    Status semantics for momentum:
+      pass = top quartile in basket
+      warn = above-median but not top quartile
+      fail = bottom half (below basket median)
+
+    Status semantics for valuation:
+      pass = cheap (yield in top quartile)
+      warn = fair (middle 50%)
+      fail = expensive (bottom quartile)
+      (omitted entirely when n/a — no synthetic warn for missing data)
+    """
+    rows: list[dict] = []
+
+    if cs_momentum and cs_momentum.get("rank") is not None:
+        rank = cs_momentum["rank"]
+        peer_count = cs_momentum.get("peer_count")
+        total = peer_count + 1 if isinstance(peer_count, int) else None
+        z = cs_momentum.get("zscore")
+        is_top = bool(cs_momentum.get("is_top_quartile"))
+        below_median = isinstance(z, (int, float)) and z < 0
+        status = "pass" if is_top else ("fail" if below_median else "warn")
+        of_str = f" of {total}" if total is not None else ""
+        z_str = f", z={z:+.2f}" if isinstance(z, (int, float)) else ""
+        rows.append({
+            "name": "Cross-basket momentum",
+            "status": status,
+            "detail": f"rank {rank}{of_str}{z_str}",
+        })
+
+    if valuation and valuation.get("flag") in ("cheap", "fair", "expensive"):
+        flag = valuation["flag"]
+        status = {"cheap": "pass", "fair": "warn", "expensive": "fail"}[flag]
+        basis = valuation.get("basis") or ""
+        rows.append({
+            "name": "Cross-basket valuation",
+            "status": status,
+            "detail": f"{flag} — {basis}" if basis else flag,
+        })
+
+    return rows
+
+
 def bucket_by_yield_quartile(
     symbol_yields: dict[str, float | None],
 ) -> dict[str, dict]:

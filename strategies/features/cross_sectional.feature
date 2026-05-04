@@ -52,3 +52,31 @@ Feature: Cross-sectional momentum ranks within the basket
     When I bucket the basket by yield quartile
     Then "A" has flag "n/a"
     And "B" has flag "n/a"
+
+  Scenario: trace rows — top-quartile momentum + cheap valuation = both pass
+    Given a top-quartile momentum signal with zscore 1.2
+    And a cheap valuation flag
+    When I build cross-basket trace rows
+    Then there are 2 trace rows
+    And the momentum row has status "pass"
+    And the valuation row has status "pass"
+    And the momentum row detail mentions "rank"
+
+  Scenario: below-median momentum + expensive = both fail
+    Given a below-median momentum signal with zscore -0.8
+    And an expensive valuation flag
+    When I build cross-basket trace rows
+    Then the momentum row has status "fail"
+    And the valuation row has status "fail"
+
+  Scenario: middle-of-pack momentum is warn, fair valuation is warn
+    Given a mid-basket momentum signal with zscore 0.3
+    And a fair valuation flag
+    When I build cross-basket trace rows
+    Then the momentum row has status "warn"
+    And the valuation row has status "warn"
+
+  Scenario: missing data omits trace rows entirely
+    Given no cross-basket signals
+    When I build cross-basket trace rows
+    Then there are 0 trace rows

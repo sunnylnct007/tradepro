@@ -102,3 +102,91 @@ def step_assert_flag(context, symbol: str, expected: str):
 def step_basis_mentions_median(context, symbol: str):
     basis = context.flags[symbol].get("basis", "")
     assert "median" in basis, f"basis for {symbol} missing 'median': {basis!r}"
+
+
+# ---- Trace rows ----
+
+@given("a top-quartile momentum signal with zscore {z:f}")
+def step_top_q_mom(context, z: float):
+    context.cs_momentum = {
+        "rank": 1, "peer_count": 4, "zscore": z, "is_top_quartile": True,
+        "value": 22.0, "basket_median": 12.0, "metric_name": "momentum_12m_pct",
+    }
+
+
+@given("a below-median momentum signal with zscore {z:f}")
+def step_below_median_mom(context, z: float):
+    context.cs_momentum = {
+        "rank": 4, "peer_count": 4, "zscore": z, "is_top_quartile": False,
+        "value": 5.0, "basket_median": 12.0, "metric_name": "momentum_12m_pct",
+    }
+
+
+@given("a mid-basket momentum signal with zscore {z:f}")
+def step_mid_mom(context, z: float):
+    context.cs_momentum = {
+        "rank": 2, "peer_count": 4, "zscore": z, "is_top_quartile": False,
+        "value": 14.0, "basket_median": 12.0, "metric_name": "momentum_12m_pct",
+    }
+
+
+@given("a cheap valuation flag")
+def step_cheap_val(context):
+    context.val_flag = {"flag": "cheap", "yield_pct": 5.0,
+                        "basket_median_yield_pct": 2.5,
+                        "basis": "yield 5.00% vs basket median 2.50%"}
+
+
+@given("an expensive valuation flag")
+def step_expensive_val(context):
+    context.val_flag = {"flag": "expensive", "yield_pct": 0.5,
+                        "basket_median_yield_pct": 2.5,
+                        "basis": "yield 0.50% vs basket median 2.50%"}
+
+
+@given("a fair valuation flag")
+def step_fair_val(context):
+    context.val_flag = {"flag": "fair", "yield_pct": 2.5,
+                        "basket_median_yield_pct": 2.5,
+                        "basis": "yield 2.50% vs basket median 2.50%"}
+
+
+@given("no cross-basket signals")
+def step_no_cs(context):
+    context.cs_momentum = None
+    context.val_flag = None
+
+
+@when("I build cross-basket trace rows")
+def step_build_trace(context):
+    from tradepro_strategies.cross_sectional import cross_basket_trace_rows
+    context.trace_rows = cross_basket_trace_rows(
+        getattr(context, "cs_momentum", None),
+        getattr(context, "val_flag", None),
+    )
+
+
+@then("there are {n:d} trace rows")
+def step_trace_count(context, n: int):
+    assert len(context.trace_rows) == n, f"expected {n}, got {len(context.trace_rows)}"
+
+
+@then('the momentum row has status "{expected}"')
+def step_momentum_status(context, expected: str):
+    matching = [r for r in context.trace_rows if "momentum" in r["name"].lower()]
+    assert matching, "no momentum trace row"
+    assert matching[0]["status"] == expected, matching[0]
+
+
+@then('the valuation row has status "{expected}"')
+def step_valuation_status(context, expected: str):
+    matching = [r for r in context.trace_rows if "valuation" in r["name"].lower()]
+    assert matching, "no valuation trace row"
+    assert matching[0]["status"] == expected, matching[0]
+
+
+@then('the momentum row detail mentions "{snippet}"')
+def step_momentum_detail(context, snippet: str):
+    matching = [r for r in context.trace_rows if "momentum" in r["name"].lower()]
+    assert matching, "no momentum trace row"
+    assert snippet in matching[0]["detail"], matching[0]["detail"]
