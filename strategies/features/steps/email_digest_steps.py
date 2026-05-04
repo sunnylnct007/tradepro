@@ -68,6 +68,22 @@ def step_empty(context):
     context.payloads = []
 
 
+@given("a compare payload whose latest bar is 2 days old")
+def step_stale(context):
+    from datetime import datetime, timedelta, timezone
+    stale_date = (datetime.now(timezone.utc) - timedelta(days=2)).date().isoformat()
+    row = _row("STALE", "BUY")
+    row["market_state"]["as_of"] = stale_date
+    context.payloads = [_envelope("etf_uk_core", [row])]
+
+
+@then('the html body contains "{snippet}"')
+def step_html_contains(context, snippet: str):
+    assert snippet in context.digest.html_body, (
+        f"html body missing {snippet!r}"
+    )
+
+
 @when("I build the email digest")
 def step_build(context):
     context.digest = build_digest(context.payloads)

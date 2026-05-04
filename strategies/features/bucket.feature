@@ -24,12 +24,13 @@ Feature: Multi-strategy bucket vote (BUY / WAIT / AVOID)
     When I compute the bucket
     Then the bucket is BUY
 
-  Scenario: HOLD with majority long becomes BUY (price reason wins when supplied)
-    Given price verdict HOLD with reason "neutral"
+  Scenario: HOLD with majority long becomes BUY (consensus + price reason both surface)
+    Given price verdict HOLD with reason "no fresh entry edge"
     And 3 of 5 strategies currently long
     When I compute the bucket
     Then the bucket is BUY
-    And the reason mentions "neutral"
+    And the reason mentions "3 of 5 strategies currently long"
+    And the reason mentions "no fresh entry edge"
 
   Scenario: HOLD with majority long and no price reason — count surfaces
     Given price verdict HOLD with no reason

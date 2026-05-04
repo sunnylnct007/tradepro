@@ -297,19 +297,31 @@ def compute_bucket(
     one-line reason. Sentiment demotion is layered on by callers that
     have news data; this helper stays sentiment-free so on-demand
     paths (the MCP `evaluate_symbols` tool) can use it without paying
-    the news-fetching latency."""
+    the news-fetching latency.
+
+    When price_verdict is HOLD but strategy consensus elevates the
+    bucket to BUY, the reason text combines both signals so the
+    user sees why a BUY is paired with a HOLD-style "no fresh entry
+    edge" caveat — without that, the digest reads contradictorily
+    ("BUY: no rush to add").
+    """
     majority_long = long_count > total / 2 if total > 0 else False
     if price_verdict == "AVOID":
         return "AVOID", price_reason or "Confirmed downtrend."
     if price_verdict == "WAIT":
         return "WAIT", price_reason or "Better entries likely soon."
-    if majority_long and price_verdict in ("BUY", "HOLD"):
+    if majority_long and price_verdict == "BUY":
         return (
             "BUY",
             price_reason
             or f"{long_count} of {total} strategies currently long; "
                f"price action supports entry.",
         )
+    if majority_long and price_verdict == "HOLD":
+        consensus = f"{long_count} of {total} strategies currently long"
+        if price_reason:
+            return ("BUY", f"{consensus}; price: {price_reason}")
+        return ("BUY", f"{consensus}; price action supports entry.")
     return (
         "WAIT",
         f"Only {long_count} of {total} strategies are currently long "

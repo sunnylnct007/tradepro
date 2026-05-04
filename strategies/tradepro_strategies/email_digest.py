@@ -36,6 +36,39 @@ def _now_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _latest_data_date(payloads: list[dict]) -> str | None:
+    """Walk every row's market_state.as_of and return the latest YYYY-MM-DD
+    seen. None when the data is empty or carries no as_of stamps."""
+    latest: str | None = None
+    for env in payloads:
+        rows = env.get("payload", {}).get("rows") or env.get("rows") or []
+        for r in rows:
+            ms = r.get("market_state") or {}
+            as_of = ms.get("as_of")
+            if not as_of:
+                continue
+            stamp = as_of[:10]
+            if latest is None or stamp > latest:
+                latest = stamp
+    return latest
+
+
+def _staleness_banner(payloads: list[dict]) -> str | None:
+    """Returns a one-line note when the data is older than today.
+    Lets the digest ship on bank holidays / weekends without
+    pretending that today's prices exist. None when data is fresh."""
+    latest = _latest_data_date(payloads)
+    if not latest:
+        return None
+    today = _now_str()
+    if latest >= today:
+        return None
+    return (
+        f"Data as of {latest} — markets closed today (bank holiday / "
+        f"weekend or run before today's close)."
+    )
+
+
 def _best_row_for_symbol(rows: list[dict]) -> dict | None:
     """The comparator pushes one row per (symbol, strategy). Pick the
     rank-1 row for each symbol — that's what the Compare page shows."""
@@ -199,8 +232,12 @@ def build_digest(payloads: list[dict]) -> EmailDigest:
         f"{len(waits)} WAIT · {len(avoids)} AVOID"
     )
 
+    banner = _staleness_banner(payloads)
+    header_lines = [f"TradePro Daily Digest — {today}"]
+    if banner:
+        header_lines.append(banner)
     text_body = "\n\n".join([
-        f"TradePro Daily Digest — {today}",
+        "\n".join(header_lines),
         f"BUY candidates ({len(buys)})",
         _text_block(buys, "BUY") if buys else "(none today)",
         f"AVOID ({len(avoids)})",
@@ -211,10 +248,16 @@ def build_digest(payloads: list[dict]) -> EmailDigest:
         "every number traces to a structured fact in the API.",
     ])
 
+    banner_html = (
+        f"<div style='background:#fff7e0;border-left:3px solid #e8a23a;"
+        f"padding:8px 12px;margin-bottom:16px;font-size:12px;color:#7a4f00'>"
+        f"{escape(banner)}</div>"
+    ) if banner else ""
     html_body = (
         f"<div style='font-family:-apple-system,Helvetica,sans-serif;max-width:780px'>"
         f"<h2 style='margin-bottom:0'>TradePro Daily Digest</h2>"
         f"<div style='color:#666;font-size:12px;margin-bottom:16px'>{today} UTC</div>"
+        f"{banner_html}"
         f"{_html_block(buys, f'BUY candidates ({len(buys)})', '#1fc16b')}"
         f"{_html_block(avoids, f'AVOID ({len(avoids)})', '#e2483a')}"
         f"{_html_block(waits, f'WAIT ({len(waits)})', '#e8a23a')}"

@@ -35,3 +35,9 @@ Feature: Daily email digest builder
     When I build the email digest
     Then the subject mentions "0 BUY"
     And the text body contains "(none today)"
+
+  Scenario: stale data (market closed) surfaces a banner in both bodies
+    Given a compare payload whose latest bar is 2 days old
+    When I build the email digest
+    Then the text body contains "markets closed today"
+    And the html body contains "markets closed today"
