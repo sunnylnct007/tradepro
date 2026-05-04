@@ -16,12 +16,33 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
 from pathlib import Path
 
 import requests
+
+
+def scrub_for_json(obj):
+    """Recursively replace NaN / +-Inf floats with None so a payload
+    serialises to RFC 8259 JSON. The comparator emits NaN as a
+    'missing stat' sentinel via _safe_float (in compare.py); without
+    this scrub, requests' JSON serializer raises 'Out of range float
+    values are not JSON compliant: nan' and the push retries to
+    exhaustion. The .NET API rejects NaN literals too, so emitting
+    null is the only correct wire shape."""
+    if isinstance(obj, dict):
+        return {k: scrub_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [scrub_for_json(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [scrub_for_json(v) for v in obj]
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+    return obj
 
 CRED_PATH = Path.home() / ".tradepro" / "credentials"
 VALID_KINDS = {"backtest", "scan", "model_prediction", "compare", "heartbeat", "document"}
@@ -43,9 +64,10 @@ def load_credentials() -> tuple[str, str]:
 def push(kind: str, payload: dict, base_url: str, token: str, retries: int = 4) -> None:
     url = f"{base_url}/api/ingest/{kind}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    safe_payload = scrub_for_json(payload)
     for attempt in range(retries + 1):
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            resp = requests.post(url, headers=headers, json=safe_payload, timeout=30)
             if 200 <= resp.status_code < 300:
                 print(f"ok: {resp.status_code}")
                 return
