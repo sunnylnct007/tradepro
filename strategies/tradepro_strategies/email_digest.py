@@ -53,6 +53,95 @@ def _latest_data_date(payloads: list[dict]) -> str | None:
     return latest
 
 
+_BOX_WIDTH = 68  # interior width between the ║ borders
+
+
+def _box_line(text: str) -> str:
+    """One row of the summary box — pads/truncates the interior to
+    _BOX_WIDTH so the right border always lines up."""
+    interior = text[: _BOX_WIDTH].ljust(_BOX_WIDTH)
+    return f"║{interior}║"
+
+
+def _summary_card(
+    buys: list[dict], waits: list[dict], avoids: list[dict],
+    holdings: list[dict] | None,
+    banner: str | None,
+) -> str:
+    """Top-of-email stat block with box-drawing borders. Quick read
+    of what's in the digest before scanning the per-row cards."""
+    today = _now_str()
+    rule_top = "╔" + "═" * _BOX_WIDTH + "╗"
+    rule_mid = "╠" + "═" * _BOX_WIDTH + "╣"
+    rule_bot = "╚" + "═" * _BOX_WIDTH + "╝"
+    lines = [
+        rule_top,
+        _box_line(f" TRADEPRO DAILY DIGEST · {today}"),
+        rule_mid,
+        _box_line(
+            f"  BUY {len(buys):3d}   WAIT {len(waits):3d}   AVOID {len(avoids):3d}"
+        ),
+    ]
+    if holdings:
+        total = 0.0
+        for h in holdings:
+            v = h.get("unrealisedAbs")
+            if isinstance(v, (int, float)):
+                total += v
+        ccy_set = {h.get("currency") for h in holdings if h.get("currency")}
+        ccy = next(iter(ccy_set), "") if len(ccy_set) == 1 else "mixed"
+        sign = "+" if total >= 0 else ""
+        lines.append(_box_line(
+            f"  HOLDINGS: {len(holdings):2d} positions · "
+            f"unrealised {sign}{total:.2f} {ccy}"
+        ))
+    if banner:
+        for chunk in _wrap(banner, _BOX_WIDTH - 4):
+            lines.append(_box_line(f"  {chunk}"))
+    lines.append(rule_bot)
+    return "\n".join(lines)
+
+
+def _wrap(text: str, width: int) -> list[str]:
+    out: list[str] = []
+    line = ""
+    for word in text.split():
+        if len(line) + 1 + len(word) <= width:
+            line = (line + " " + word).strip()
+        else:
+            out.append(line)
+            line = word
+    if line:
+        out.append(line)
+    return out
+
+
+def _top_n_bar_chart(items: list[dict], n: int = 5) -> str:
+    """ASCII horizontal bar chart of the top-N items by Sharpe.
+    Read at-a-glance ranking without scrolling through each card."""
+    candidates = [it for it in items if isinstance(it.get("sharpe"), (int, float))]
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda it: it.get("sharpe") or 0, reverse=True)
+    top = candidates[:n]
+    if not top:
+        return ""
+    sym_width = max(8, max(len(it["symbol"]) for it in top))
+    lo = min(it["sharpe"] for it in top)
+    hi = max(it["sharpe"] for it in top)
+    rng = hi - lo if hi > lo else max(abs(hi), 0.01)
+    lines = [f"Top {len(top)} BUY by Sharpe (best → worst):"]
+    bar_width = 24
+    for it in top:
+        sharpe = it["sharpe"]
+        filled = int((sharpe - lo) / rng * bar_width) if rng else bar_width
+        filled = max(1, filled)
+        bar = "█" * filled + "·" * (bar_width - filled)
+        sym = it["symbol"].ljust(sym_width)
+        lines.append(f"  {sym}  │{bar}│ Sharpe {sharpe:+.2f}")
+    return "\n".join(lines)
+
+
 def _staleness_banner(payloads: list[dict]) -> str | None:
     """Returns a one-line note when the data is older than today.
     Lets the digest ship on bank holidays / weekends without
@@ -644,11 +733,12 @@ def build_digest(
     )
 
     banner = _staleness_banner(payloads)
-    header_lines = [f"TradePro Daily Digest — {today}"]
-    if banner:
-        header_lines.append(banner)
+    summary = _summary_card(buys, waits, avoids, holdings or [], banner)
+    bar_chart = _top_n_bar_chart(buys, n=5)
     holdings_block = _format_holdings_block(holdings or [], payloads)
-    sections = ["\n".join(header_lines)]
+    sections = [summary]
+    if bar_chart:
+        sections.append(bar_chart)
     if holdings_block:
         sections.append(holdings_block)
     sections.extend([
@@ -659,7 +749,10 @@ def build_digest(
         f"WAIT ({len(waits)})",
         _text_block(waits, "WAIT") if waits else "(none today)",
         "Verdicts come from the rule engine + multi-strategy vote;\n"
-        "every number traces to a structured fact in the API.",
+        "every number traces to a structured fact in the API.\n"
+        "For the full HTML version with colour + tables, run:\n"
+        "  uv run tradepro-email --save-html ~/digest.html\n"
+        "and open the file in your browser.",
     ])
     text_body = "\n\n".join(sections)
 

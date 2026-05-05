@@ -44,6 +44,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--to", action="append", help="Override recipient (repeatable)")
     p.add_argument("--dry-run", action="store_true", help="Build + print to stdout, do not send")
     p.add_argument(
+        "--save-html",
+        metavar="PATH",
+        help=(
+            "Write the rendered HTML body to PATH (e.g. ~/digest.html). "
+            "Opens cleanly in any browser with the full table + colour "
+            "treatment that AppleScript transports can't render. "
+            "Combines with --dry-run to skip the send step entirely."
+        ),
+    )
+    p.add_argument(
         "--transport",
         choices=("smtp", "outlook", "mail"),
         default=os.environ.get("TRADEPRO_EMAIL_TRANSPORT", "smtp"),
@@ -246,6 +256,18 @@ def main() -> None:
     cfg = load_smtp_creds(args)
 
     recipients = cfg.get("to") or []
+
+    # Save the HTML body to disk on demand. Useful when the active
+    # transport (Outlook AppleScript) only carries plain text but
+    # the user wants the full coloured/tabled rendering — open the
+    # saved file in a browser for the rich view.
+    if args.save_html:
+        html_path = os.path.expanduser(args.save_html)
+        os.makedirs(os.path.dirname(html_path) or ".", exist_ok=True)
+        with open(html_path, "w") as f:
+            f.write(digest.html_body)
+        print(f"saved HTML: file://{html_path}")
+
     if args.dry_run:
         print(f"# Subject:   {digest.subject}")
         print(f"# To:        {', '.join(recipients) or '(unset)'}")
