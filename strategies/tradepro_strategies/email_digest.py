@@ -144,6 +144,7 @@ def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
                 "cross_sectional_momentum": best.get("cross_sectional_momentum"),
                 "valuation_flag": best.get("valuation_flag"),
                 "earnings_signal": best.get("earnings_signal"),
+                "swing_score": best.get("swing_score"),
                 # Sentiment summary
                 "sentiment_mean_7d": sentiment.get("mean_sentiment"),
                 "sentiment_material_negative_count": sentiment.get("material_negative_count"),
@@ -262,6 +263,24 @@ def _text_block(items: list[dict], heading: str) -> str:
         lines.append(f"┌─ {sym}  ·  {univ}  ·  {bucket}  ·  {consensus} long")
         if it.get("bucket_reason"):
             lines.append(f"│  WHY: {it['bucket_reason']}")
+        # Swing composite score — the headline 0-8 reading that
+        # combines all four families (quality / valuation / event /
+        # price). Sits right under WHY so the user sees both the
+        # rule-engine bucket AND the multi-family score next to each
+        # other (they can disagree — that's the design).
+        sw = it.get("swing_score") or {}
+        if sw.get("total") is not None:
+            layers = sw.get("layers") or {}
+            layer_str = (
+                f"Q{layers.get('quality', 0)}·"
+                f"V{layers.get('valuation', 0)}·"
+                f"E{layers.get('event', 0)}·"
+                f"P{layers.get('price', 0)}"
+            )
+            lines.append(
+                f"│  SWING:  {sw['total']}/8  →  {sw.get('verdict', '')}  "
+                f"[{layer_str}]"
+            )
         lines.append("│")
 
         # ── Price + reference levels ────────────────────────────

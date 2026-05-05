@@ -684,11 +684,30 @@ def compare(
         for r in rows
     }
     val_flags = bucket_by_yield_quartile(yield_inputs)
+    # Per-symbol consensus needs a count over ALL strategy rows for
+    # this symbol — compute once per symbol so the swing scorer
+    # below sees long_count even on rows beyond rank 1.
+    symbol_long_counts: dict[str, dict] = {}
+    for r in rows:
+        sym = r["symbol"]
+        if sym not in symbol_long_counts:
+            symbol_rows = [x for x in rows if x["symbol"] == sym]
+            symbol_long_counts[sym] = {
+                "long": sum(1 for x in symbol_rows if x.get("in_position")),
+                "total": len(symbol_rows),
+            }
+
     for r in rows:
         cs = cs_ranks.get(r["symbol"])
         val = val_flags.get(r["symbol"])
         r["cross_sectional_momentum"] = cs
         r["valuation_flag"] = val
+        # Inject long_count + total_strategies for the swing scorer
+        # below; bucket-vote already attaches them per symbol but
+        # not per row.
+        counts = symbol_long_counts.get(r["symbol"], {})
+        r.setdefault("long_count", counts.get("long"))
+        r.setdefault("total_strategies", counts.get("total"))
         # Append Family-2/3/4 signals to the decision_trace so they
         # show up as first-class checks in the Compare expand panel's
         # "Why the verdict" ladder. The rationale's rule_chain reads
@@ -705,6 +724,19 @@ def compare(
         if appended:
             ms["decision_trace"] = existing_trace + appended
             r["market_state"] = ms
+
+    # Phase-X composite swing-trade scorer (0-8 across four families).
+    # Computed AFTER all signal annotations are attached so each layer
+    # sees the same row shape the rationale and email digest see.
+    from .swing import evaluate_swing
+    for r in rows:
+        try:
+            r["swing_score"] = evaluate_swing(r).to_dict()
+        except Exception as e:  # noqa: BLE001
+            if logger:
+                logger.emit("compare.swing_scorer_failed",
+                            symbol=r.get("symbol"), error=str(e))
+            r["swing_score"] = None
 
     # Per-symbol bucket computation + rationale generation. Both are
     # symbol-level (not per-row) so we compute once and copy onto every
