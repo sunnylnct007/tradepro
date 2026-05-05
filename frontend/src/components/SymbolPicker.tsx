@@ -165,7 +165,25 @@ export function SymbolPicker({ value, onChange, placeholder }: Props) {
                 alignItems: "baseline",
               }}
             >
-              <span style={{ fontWeight: 600 }}>{m.symbol}</span>
+              <span style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                {m.symbol}
+                {m.source === "trading212" && (
+                  <span
+                    title="Tradeable in your Trading 212 account"
+                    style={{
+                      fontSize: 9,
+                      padding: "1px 5px",
+                      borderRadius: 3,
+                      background: "rgba(31,193,107,0.15)",
+                      color: "var(--up)",
+                      letterSpacing: "0.04em",
+                      fontWeight: 600,
+                    }}
+                  >
+                    T212
+                  </span>
+                )}
+              </span>
               <span style={{ color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {m.name}
               </span>
