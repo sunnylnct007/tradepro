@@ -152,13 +152,21 @@ class OllamaProvider(LlmProvider):
         if not raw_text:
             return LlmResult.fail("empty response", raw=str(outer))
 
+        # Some models — qwen3.5, deepseek-r1, etc. — emit a
+        # <think>...</think> reasoning block BEFORE the JSON answer.
+        # Ollama's format=json doesn't suppress this on every model.
+        # Strip the block so the JSON parser sees only the answer;
+        # without this, sentiment scoring silently returns "empty
+        # response" because json.loads chokes on the leading prose.
+        cleaned = _strip_thinking_blocks(raw_text)
+
         # When format=json is requested, Ollama returns a JSON string in
         # `response` — parse it. If the model misbehaves and returns
         # text, we still try a best-effort substring extraction.
         try:
-            data: Any = json.loads(raw_text)
+            data: Any = json.loads(cleaned)
         except json.JSONDecodeError:
-            data = _extract_first_json(raw_text)
+            data = _extract_first_json(cleaned)
             if data is None:
                 return LlmResult.fail("response wasn't valid JSON", raw=raw_text)
 
@@ -173,6 +181,33 @@ class OllamaProvider(LlmProvider):
             latency_ms=latency_ms,
             model=self._model,
         )
+
+
+def _strip_thinking_blocks(text: str) -> str:
+    """Remove leading <think>...</think> reasoning blocks emitted by
+    chain-of-thought models (qwen3.5, deepseek-r1, etc.). Also
+    handles the variants `<thinking>` and ```think``` fenced blocks
+    seen on some forks. Conservative: only strips at the start so
+    we don't accidentally drop content from a JSON payload that
+    legitimately contains the substring '<think'."""
+    import re
+    # Strip a leading <think>...</think> (case-insensitive, multi-line).
+    cleaned = re.sub(
+        r"^\s*<think(?:ing)?>.*?</think(?:ing)?>\s*",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    # Some forks use markdown-fenced think blocks: ```think\n...\n```
+    cleaned = re.sub(
+        r"^\s*```(?:think|thinking|reasoning)\s*\n.*?\n```\s*",
+        "",
+        cleaned,
+        count=1,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return cleaned.strip()
 
 
 def _extract_first_json(text: str) -> dict | None:

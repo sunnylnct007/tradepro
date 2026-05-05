@@ -521,6 +521,10 @@ def compare(
     scored_news_cache: dict[str, list[ScoredHeadline]] = {}
     sentiment_summary_cache: dict[str, SentimentSummary] = {}
     sentiment_status_cache: dict[str, str] = {}
+    # Family-4 (event-driven): post-earnings beat-and-retreat per symbol.
+    # Best-effort — yfinance fetch failure produces a no-signal envelope,
+    # never blocks the run.
+    earnings_signal_cache: dict[str, dict] = {}
     # Top-level errors list — surfaces symbols that failed to fetch or
     # came back empty, so the UI can show 'data unavailable for X' rather
     # than silently dropping them.
@@ -557,6 +561,21 @@ def compare(
             consensus_cache[symbol] = fetch_consensus(symbol, info)
             fundamentals_cache[symbol] = fetch_fundamentals(symbol, info)
             news_cache[symbol] = fetch_news(symbol)
+            # Family-4: beat-and-retreat. yfinance under the hood;
+            # any fetch failure returns NO_RECENT in the envelope so
+            # this never blocks the run.
+            try:
+                from .earnings import beat_and_retreat_signal
+                earnings_signal_cache[symbol] = beat_and_retreat_signal(
+                    symbol, price_cache[symbol],
+                )
+            except Exception as e:  # noqa: BLE001
+                if logger:
+                    logger.emit("compare.earnings_failed", symbol=symbol, error=str(e))
+                earnings_signal_cache[symbol] = {
+                    "_source": f"live://earnings/{symbol}",
+                    "fired": False, "verdict": "NO_RECENT",
+                }
             if logger:
                 logger.emit("compare.symbol.fetched",
                             symbol=symbol,
@@ -616,10 +635,17 @@ def compare(
         scored_news = scored_news_cache[symbol]
         sentiment_summary = sentiment_summary_cache[symbol]
         sentiment_status = sentiment_status_cache[symbol]
+        earnings_signal = earnings_signal_cache.get(symbol, {})
         for strat in strategies:
-            rows.append(_row_for(symbol, strat, prices, state, consensus,
-                                 fundamentals, news, scored_news,
-                                 sentiment_summary, sentiment_status, end, cfg))
+            row = _row_for(symbol, strat, prices, state, consensus,
+                           fundamentals, news, scored_news,
+                           sentiment_summary, sentiment_status, end, cfg)
+            # Attach the per-symbol earnings signal to every (symbol,
+            # strategy) row — same pattern as market_state. Family-4
+            # is symbol-level not strategy-level.
+            if earnings_signal:
+                row["earnings_signal"] = earnings_signal
+            rows.append(row)
 
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)
     for i, row in enumerate(rows, start=1):
@@ -651,15 +677,21 @@ def compare(
         val = val_flags.get(r["symbol"])
         r["cross_sectional_momentum"] = cs
         r["valuation_flag"] = val
-        # Append cross-basket signals to the decision_trace so they
+        # Append Family-2/3/4 signals to the decision_trace so they
         # show up as first-class checks in the Compare expand panel's
         # "Why the verdict" ladder. The rationale's rule_chain reads
         # the same field, so the LLM sees them too.
         ms = r.get("market_state") or {}
         existing_trace = list(ms.get("decision_trace") or [])
         cb_rows = cross_basket_trace_rows(cs, val)
-        if cb_rows:
-            ms["decision_trace"] = existing_trace + cb_rows
+        # Family-4 trace row from the earnings signal (when one fires).
+        from .earnings import earnings_trace_row
+        ev_row = earnings_trace_row(r.get("earnings_signal"))
+        appended = list(cb_rows)
+        if ev_row:
+            appended.append(ev_row)
+        if appended:
+            ms["decision_trace"] = existing_trace + appended
             r["market_state"] = ms
 
     # Per-symbol bucket computation + rationale generation. Both are
