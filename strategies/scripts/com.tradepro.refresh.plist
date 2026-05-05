@@ -1,8 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  launchd job definition: refresh every ETF universe once per day at
-  22:30 UTC (after the US close at 21:00 UTC). Logs go to ~/.tradepro/
-  logs/refresh-<date>.log.
+  launchd job definition: refresh every ETF universe four times per
+  day so the data behind the Compare page / digest is rarely more
+  than a few hours stale. The 22:30 UTC slot is the canonical "after
+  US close" run; the others fire around the open and close of the
+  London + US sessions so a midday glance always sees data within
+  the same trading day.
+
+  Why 4× and not 1×: the audit (2026-05-05) noted the worker
+  appearing offline because the heartbeat-staleness threshold is
+  30 min, but the only refresh fires once per day. The user had to
+  manually trigger compares to keep the cache fresh. Bumping the
+  schedule to 4× covers a UK trader's natural check-in points
+  without burning Yahoo quota — each run is ~60s on etf_uk_core,
+  trivial vs the 6-hour gaps between fires.
+
+  StartCalendarInterval with an array fires at every listed time:
+    07:00 UTC — UK pre-open (08:00 BST)
+    12:00 UTC — UK lunch / US pre-open
+    17:00 UTC — UK close (18:00 BST), US mid-session
+    22:30 UTC — after US close, definitive end-of-day
+
+  Logs go to ~/.tradepro/logs/refresh-<date>.log.
 
   Install:
 
@@ -10,7 +29,11 @@
 
   The installer rewrites the {{HOME}} and {{PROJECT_DIR}} placeholders
   with the user's actual paths and copies the result to
-  ~/Library/LaunchAgents/, then `launchctl load`s it.
+  ~/Library/LaunchAgents/, then `launchctl load`s it. To pick up a
+  schedule change, unload + reload:
+
+    launchctl unload ~/Library/LaunchAgents/com.tradepro.refresh.plist
+    launchctl load ~/Library/LaunchAgents/com.tradepro.refresh.plist
 
   Manual run (for testing):
     launchctl start com.tradepro.refresh
@@ -41,16 +64,36 @@
     <string>{{PROJECT_DIR}}</string>
   </dict>
 
-  <!-- Run daily at 22:30 UTC. Adjust if your timezone or US close moves
-       (DST + half-day sessions don't matter here — Yahoo bars are EOD,
-       this just decides when 'today' is final enough to act on). -->
+  <!-- Fire 4× / day. UTC times — adjust if you want them anchored to
+       your local timezone instead. Skip times you don't care about by
+       deleting the corresponding <dict>. -->
   <key>StartCalendarInterval</key>
-  <dict>
-    <key>Hour</key>
-    <integer>22</integer>
-    <key>Minute</key>
-    <integer>30</integer>
-  </dict>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>7</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>12</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>17</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>22</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+  </array>
 
   <key>StandardOutPath</key>
   <string>{{HOME}}/.tradepro/logs/launchd-stdout.log</string>
