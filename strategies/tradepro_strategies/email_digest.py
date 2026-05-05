@@ -413,16 +413,18 @@ def _html_block(items: list[dict], heading: str, accent: str) -> str:
 
 def _verdict_for_symbol(symbol: str, payloads: list[dict]) -> dict | None:
     """Look up a symbol's best-rank row across all compare payloads,
-    return the bucket + reason. Used to cross-reference T212 holdings
-    against today's BUY/WAIT/AVOID verdict so the digest can highlight
-    'YOU OWN THIS, system says X today'. None when the symbol isn't
-    in any tracked universe."""
+    return the bucket + reason + swing composite. Used to cross-
+    reference T212 holdings against today's verdict so the digest
+    can highlight 'YOU OWN THIS, system says X today'. None when
+    the symbol isn't in any tracked universe."""
     if not symbol:
         return None
     target = symbol.upper()
     best_match: dict | None = None
+    best_universe = ""
     best_rank = 1e9
     for env in payloads:
+        universe = env.get("payload", {}).get("universe") or env.get("universe", "")
         rows = env.get("payload", {}).get("rows") or env.get("rows") or []
         for r in rows:
             if (r.get("symbol") or "").upper() != target:
@@ -431,16 +433,18 @@ def _verdict_for_symbol(symbol: str, payloads: list[dict]) -> dict | None:
             if rank < best_rank:
                 best_rank = rank
                 best_match = r
+                best_universe = universe
     if not best_match:
         return None
     ms = best_match.get("market_state") or {}
     return {
         "symbol": target,
-        "universe": (env.get("payload", {}).get("universe") or env.get("universe", "")),
+        "universe": best_universe,
         "bucket": best_match.get("bucket"),
         "bucket_reason": best_match.get("bucket_reason"),
         "rsi_14": ms.get("rsi_14"),
         "pct_off_52w_high_pct": ms.get("pct_off_52w_high_pct"),
+        "swing_score": best_match.get("swing_score"),
     }
 
 
@@ -486,8 +490,21 @@ def _format_holdings_block(holdings: list[dict], payloads: list[dict]) -> str:
             )
             if verdict.get("bucket_reason"):
                 lines.append(f"│              {verdict['bucket_reason']}")
-            # Action hint based on bucket + position direction
-            action = _holdings_action_hint(verdict["bucket"], upct_raw)
+            # Phase-X composite swing score — the multi-family number
+            # next to the rule-engine bucket. They can disagree (by
+            # design) so the user sees both lenses.
+            sw = verdict.get("swing_score") or {}
+            if sw.get("total") is not None:
+                layers = sw.get("layers") or {}
+                lines.append(
+                    f"│  SWING     {sw['total']}/8 → {sw.get('verdict', '')}  "
+                    f"[Q{layers.get('quality',0)}·V{layers.get('valuation',0)}"
+                    f"·E{layers.get('event',0)}·P{layers.get('price',0)}]"
+                )
+            # Action hint based on bucket + swing + position direction
+            action = _holdings_action_hint(
+                verdict["bucket"], upct_raw, swing_total=sw.get("total"),
+            )
             lines.append(f"│  HINT      {action}")
         else:
             lines.append(
@@ -499,27 +516,47 @@ def _format_holdings_block(holdings: list[dict], payloads: list[dict]) -> str:
     return "\n".join(lines).rstrip()
 
 
-def _holdings_action_hint(bucket: str | None, unrealised_pct: float | None) -> str:
+def _holdings_action_hint(
+    bucket: str | None,
+    unrealised_pct: float | None,
+    *,
+    swing_total: int | None = None,
+) -> str:
     """Plain-English action hint combining today's bucket with the
     user's current P&L on the position. Conservative — never says
     'sell' explicitly; uses 'consider trimming' / 'hold' / 'add'
     language so the hint is a prompt, not a directive.
 
-    Caveat: this is rule-based on (bucket, P&L) only. The richer
-    'horizon-weighted swing-trade composite' lives in Phase 2 — see
-    project_phase2_portfolio_aware memory."""
+    When `swing_total` is supplied, it sharpens the hint: a STRONG_BUY
+    bucket paired with a low swing score is less convincing than the
+    same bucket with a 7/8 composite, and the prose says so.
+
+    Caveat: this is rule-based on (bucket, swing, P&L) — still NOT
+    horizon-weighted. Phase 2 (portfolio-aware engine) layers
+    user-supplied horizon + cost-basis state on top."""
+    swing_qualifier = ""
+    if swing_total is not None:
+        if swing_total >= 6:
+            swing_qualifier = " (swing composite agrees strongly, ≥6/8)"
+        elif swing_total >= 4:
+            swing_qualifier = " (swing composite supports, 4-5/8)"
+        elif swing_total >= 2:
+            swing_qualifier = " (swing composite mixed, 2-3/8)"
+        else:
+            swing_qualifier = " (swing composite weak, ≤1/8)"
+
     if bucket == "AVOID":
         if unrealised_pct is not None and unrealised_pct < -10.0:
-            return "AVOID + position down >10%: consider exit; trend is broken"
-        return "AVOID: do not add; consider trimming on strength"
+            return f"AVOID + position down >10%: consider exit; trend is broken{swing_qualifier}"
+        return f"AVOID: do not add; consider trimming on strength{swing_qualifier}"
     if bucket == "WAIT":
         if unrealised_pct is not None and unrealised_pct > 15.0:
-            return "WAIT + position up >15%: consider taking partial profits"
-        return "WAIT: hold what you have; don't add until trend confirms"
+            return f"WAIT + position up >15%: consider taking partial profits{swing_qualifier}"
+        return f"WAIT: hold what you have; don't add until trend confirms{swing_qualifier}"
     if bucket == "BUY":
         if unrealised_pct is not None and unrealised_pct < -5.0:
-            return "BUY + position down: classic average-down zone"
-        return "BUY: structurally fine to add on weakness"
+            return f"BUY + position down: classic average-down zone{swing_qualifier}"
+        return f"BUY: structurally fine to add on weakness{swing_qualifier}"
     return "no clear hint without a current verdict"
 
 
