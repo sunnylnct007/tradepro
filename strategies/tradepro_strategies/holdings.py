@@ -31,14 +31,55 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# Zone thresholds — calibrated against the existing rule layer. Keep
-# them explicit so a future change has one place to argue with.
-AVG_DOWN_RSI_MAX = 35.0       # RSI ≤ 35 → near oversold; classic average-down trigger
+# Zone thresholds — calibrated for the default 1y horizon. The
+# horizon profile dict below shifts these tighter (short horizon →
+# react faster) or looser (long horizon → ride out noise) so a 5y
+# investor doesn't get TRIM signals on a single overbought RSI day
+# while a 6mo trader doesn't sit through every drawdown.
 AVG_DOWN_LOSS_PCT = -3.0      # position must be down at least 3% before "average down" makes sense
-TAKE_PROFIT_RSI_MIN = 65.0    # RSI ≥ 65 → into overbought territory
 TAKE_PROFIT_GAIN_PCT = 15.0   # only call "take profits" when up 15%+
-STRUCT_INTACT_SWING_MIN = 4   # swing composite ≥ 4 (BUY/STRONG_BUY) → thesis intact
-STRUCT_BROKEN_SWING_MAX = 1   # swing composite ≤ 1 (AVOID) → thesis broken
+
+
+# Per-horizon threshold profile. Picked at evaluate-time from the
+# horizon arg. Keys:
+#   trim_rsi_min  — RSI threshold for the take-profit zone
+#   avg_down_rsi  — RSI threshold for the average-down zone
+#   intact_swing  — minimum swing total for "structurally intact"
+#   broken_swing  — maximum swing total for "structurally broken"
+#   tolerate_wait — when True, WAIT bucket on a position doesn't
+#                   block average-down (long-term holders look
+#                   through short-term WAITs)
+HORIZON_PROFILES: dict[str, dict] = {
+    "6mo": {
+        "trim_rsi_min": 60.0,
+        "avg_down_rsi": 35.0,
+        "intact_swing": 5,         # need a stronger composite to add aggressively
+        "broken_swing": 2,         # quicker to trim
+        "tolerate_wait": False,
+    },
+    "1y": {
+        "trim_rsi_min": 65.0,
+        "avg_down_rsi": 35.0,
+        "intact_swing": 4,
+        "broken_swing": 1,
+        "tolerate_wait": False,
+    },
+    "3y": {
+        "trim_rsi_min": 75.0,
+        "avg_down_rsi": 30.0,
+        "intact_swing": 3,
+        "broken_swing": 1,
+        "tolerate_wait": True,
+    },
+    "5y": {
+        "trim_rsi_min": 80.0,
+        "avg_down_rsi": 30.0,
+        "intact_swing": 2,
+        "broken_swing": 0,
+        "tolerate_wait": True,
+    },
+}
+DEFAULT_HORIZON = "1y"
 
 
 @dataclass
@@ -46,6 +87,7 @@ class HoldingRecommendation:
     symbol: str
     action: str                       # BUY_MORE / HOLD / TRIM
     narrative: str                    # plain-English headline (≤2 sentences)
+    horizon: str = DEFAULT_HORIZON    # which profile drove the decision
     evidence: list[str] = field(default_factory=list)
     avg_cost_after_equal_tranche: float | None = None  # only set when BUY_MORE
 
@@ -54,12 +96,18 @@ class HoldingRecommendation:
             "symbol": self.symbol,
             "action": self.action,
             "narrative": self.narrative,
+            "horizon": self.horizon,
             "evidence": list(self.evidence),
             "avg_cost_after_equal_tranche": self.avg_cost_after_equal_tranche,
         }
 
 
-def analyse_holding(holding: dict, row: dict | None) -> HoldingRecommendation:
+def analyse_holding(
+    holding: dict,
+    row: dict | None,
+    *,
+    horizon: str = DEFAULT_HORIZON,
+) -> HoldingRecommendation:
     """Combine position state with today's verdict.
 
     `holding` shape (matches the T212 positions endpoint output):
@@ -78,12 +126,18 @@ def analyse_holding(holding: dict, row: dict | None) -> HoldingRecommendation:
     current = _safe(holding.get("currentPrice"))
     qty = _safe(holding.get("quantity"))
 
+    # Resolve horizon profile — unknown values fall back to the
+    # default so a stray flag doesn't break analysis.
+    profile = HORIZON_PROFILES.get(horizon) or HORIZON_PROFILES[DEFAULT_HORIZON]
+    horizon_used = horizon if horizon in HORIZON_PROFILES else DEFAULT_HORIZON
+
     # When there's no current verdict at all, fall back to neutral —
     # the email already shows a "run evaluate_symbols" prompt for these.
     if row is None:
         return HoldingRecommendation(
             symbol=sym,
             action="HOLD",
+            horizon=horizon_used,
             narrative=(
                 "Not in any tracked universe — no action recommendation; "
                 "run evaluate_symbols(\"{}\") for an ad-hoc verdict."
@@ -98,25 +152,26 @@ def analyse_holding(holding: dict, row: dict | None) -> HoldingRecommendation:
     rsi = _safe(ms.get("rsi_14"))
     above_sma = ms.get("above_sma_200")
 
-    # ---- Zone detection ----
+    # ---- Zone detection (horizon-weighted) ----
     in_avg_down_zone = (
         upct is not None and upct <= AVG_DOWN_LOSS_PCT
-        and rsi is not None and rsi <= AVG_DOWN_RSI_MAX
+        and rsi is not None and rsi <= profile["avg_down_rsi"]
     )
     in_take_profit_zone = (
         upct is not None and upct >= TAKE_PROFIT_GAIN_PCT
-        and rsi is not None and rsi >= TAKE_PROFIT_RSI_MIN
+        and rsi is not None and rsi >= profile["trim_rsi_min"]
     )
     structurally_intact = (
         bucket in ("BUY",)
-        or (swing_total is not None and swing_total >= STRUCT_INTACT_SWING_MIN)
+        or (profile["tolerate_wait"] and bucket == "WAIT")
+        or (swing_total is not None and swing_total >= profile["intact_swing"])
     )
     structurally_broken = (
         bucket == "AVOID"
-        or (swing_total is not None and swing_total <= STRUCT_BROKEN_SWING_MAX)
+        or (swing_total is not None and swing_total <= profile["broken_swing"])
     )
 
-    evidence: list[str] = []
+    evidence: list[str] = [f"horizon {horizon_used}"]
     if upct is not None:
         evidence.append(f"position {upct:+.2f}% vs cost")
     if rsi is not None:
@@ -141,7 +196,8 @@ def analyse_holding(holding: dict, row: dict | None) -> HoldingRecommendation:
             f"the trend gives back what you've earned."
         )
         return HoldingRecommendation(
-            symbol=sym, action="TRIM", narrative=narrative, evidence=evidence,
+            symbol=sym, action="TRIM", narrative=narrative,
+            horizon=horizon_used, evidence=evidence,
         )
 
     # 2. Take-profit zone → TRIM regardless of structural state
@@ -152,7 +208,8 @@ def analyse_holding(holding: dict, row: dict | None) -> HoldingRecommendation:
             f"position to lock in gains."
         )
         return HoldingRecommendation(
-            symbol=sym, action="TRIM", narrative=narrative, evidence=evidence,
+            symbol=sym, action="TRIM", narrative=narrative,
+            horizon=horizon_used, evidence=evidence,
         )
 
     # 3. Average-down zone + thesis intact → BUY_MORE
@@ -176,6 +233,7 @@ def analyse_holding(holding: dict, row: dict | None) -> HoldingRecommendation:
         return HoldingRecommendation(
             symbol=sym, action="BUY_MORE",
             narrative=" ".join(narrative_parts),
+            horizon=horizon_used,
             evidence=evidence,
             avg_cost_after_equal_tranche=avg_after,
         )
@@ -196,7 +254,8 @@ def analyse_holding(holding: dict, row: dict | None) -> HoldingRecommendation:
         qual = "no fresh edge in either direction; hold the line."
     narrative = f"{sym}: {qual}"
     return HoldingRecommendation(
-        symbol=sym, action="HOLD", narrative=narrative, evidence=evidence,
+        symbol=sym, action="HOLD", narrative=narrative,
+        horizon=horizon_used, evidence=evidence,
     )
 
 

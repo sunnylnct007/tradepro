@@ -80,6 +80,13 @@ def step_analyse(context):
     context.rec = analyse_holding(context.holding, getattr(context, "row", None))
 
 
+@when('I analyse the holding with horizon "{horizon}"')
+def step_analyse_horizon(context, horizon: str):
+    context.rec = analyse_holding(
+        context.holding, getattr(context, "row", None), horizon=horizon,
+    )
+
+
 @then('the action is "{expected}"')
 def step_action(context, expected: str):
     assert context.rec.action == expected, (

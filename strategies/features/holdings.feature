@@ -53,3 +53,25 @@ Feature: Phase-2 holdings recommendation engine
     When I analyse the holding
     Then the action is "HOLD"
     And the narrative mentions "evaluate_symbols"
+
+  Scenario: 5y horizon tolerates a WAIT bucket on an oversold dip → BUY_MORE
+    Given today's row says WAIT with swing 3/8 HOLD
+    And the row's RSI is 28 below 200d SMA
+    And the holding is down 8%
+    When I analyse the holding with horizon "5y"
+    Then the action is "BUY_MORE"
+    And the narrative mentions "thesis is intact"
+
+  Scenario: 6mo horizon trims earlier on overbought RSI than 1y does
+    Given today's row says BUY with swing 6/8 STRONG_BUY
+    And the row's RSI is 62 above 200d SMA
+    And the holding is up 18%
+    When I analyse the holding with horizon "6mo"
+    Then the action is "TRIM"
+
+  Scenario: 1y horizon (the default) doesn't trim at RSI 62
+    Given today's row says BUY with swing 6/8 STRONG_BUY
+    And the row's RSI is 62 above 200d SMA
+    And the holding is up 18%
+    When I analyse the holding
+    Then the action is "HOLD"
