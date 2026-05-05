@@ -103,6 +103,12 @@ def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
             seen.add(sym)
             ms = best.get("market_state") or {}
             stats = best.get("stats") or {}
+            sentiment = best.get("sentiment_summary") or {}
+            # Per-strategy long/flat map for the consensus dot row.
+            strategy_states = [
+                {"name": r.get("strategy"), "in_position": bool(r.get("in_position"))}
+                for r in sorted(sym_rows, key=lambda r: r.get("strategy") or "")
+            ]
             items.append({
                 "symbol": sym,
                 "universe": universe,
@@ -111,18 +117,40 @@ def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
                 "long_count": sum(1 for r in sym_rows if r.get("in_position")),
                 "total_strategies": len(sym_rows),
                 "strategy": best.get("strategy"),
+                "strategy_states": strategy_states,
+                # Price + reference levels with full context
+                "last_price": ms.get("last_price"),
+                "currency": best.get("currency"),
+                "as_of": ms.get("as_of"),
                 "rsi_14": ms.get("rsi_14"),
+                "above_sma_200": ms.get("above_sma_200"),
+                "sma_200": ms.get("sma_200"),
                 "pct_off_52w_high_pct": ms.get("pct_off_52w_high_pct"),
+                "pct_off_52w_high_date": ms.get("pct_off_52w_high_date"),
+                "pct_off_52w_high_price": ms.get("pct_off_52w_high_price"),
                 "drawdown_from_peak_pct": ms.get("drawdown_from_peak_pct"),
+                "peak_date": ms.get("peak_date"),
+                "peak_price": ms.get("peak_price"),
+                "momentum_3m_pct": ms.get("momentum_3m_pct"),
+                "momentum_12m_pct": ms.get("momentum_12m_pct"),
+                "vol_30d_annual_pct": ms.get("vol_30d_annual_pct"),
+                # Performance stats
                 "cagr_pct": stats.get("cagr_pct"),
                 "sharpe": stats.get("sharpe"),
                 "max_drawdown_pct": stats.get("max_drawdown_pct"),
                 "max_drawdown_recovery_days": stats.get("max_drawdown_recovery_days"),
                 "max_drawdown_still_recovering": stats.get("max_drawdown_still_recovering"),
-                # Cross-basket signals — surfaced in the digest so the
-                # email shows the multi-family view, not just Family-1.
+                # Multi-family signals
                 "cross_sectional_momentum": best.get("cross_sectional_momentum"),
                 "valuation_flag": best.get("valuation_flag"),
+                "earnings_signal": best.get("earnings_signal"),
+                # Sentiment summary
+                "sentiment_mean_7d": sentiment.get("mean_sentiment"),
+                "sentiment_material_negative_count": sentiment.get("material_negative_count"),
+                "sentiment_status": best.get("sentiment_status"),
+                "sentiment_demoted": best.get("sentiment_demoted"),
+                # Decision trace for evidence
+                "decision_trace": ms.get("decision_trace") or [],
             })
     return items
 
@@ -150,6 +178,38 @@ def _format_dd_recovery(item: dict) -> str:
     if days is not None:
         return f"{base} (recovered {int(days)}d)"
     return base
+
+
+def _ascii_sparkline(values: list[float] | None) -> str:
+    """Compact 8-block Unicode bar chart of recent values. Plain text
+    by design — renders consistently across mail clients without HTML.
+    Returns empty string when there's nothing to plot."""
+    if not values or len(values) < 2:
+        return ""
+    blocks = "▁▂▃▄▅▆▇█"
+    lo, hi = min(values), max(values)
+    rng = hi - lo if hi > lo else 1.0
+    return "".join(blocks[min(7, max(0, int((v - lo) / rng * 7)))] for v in values)
+
+
+def _consensus_dots(states: list[dict]) -> str:
+    """Render the per-strategy long/flat votes as a single line:
+        sma_crossover ●  rsi_meanrev ○  macd ●  donchian ●  bnh ●
+    ● = currently long, ○ = currently flat. Compact alias for each
+    strategy name."""
+    aliases = {
+        "sma_crossover": "sma",
+        "rsi_mean_reversion": "rsi",
+        "macd_signal_cross": "macd",
+        "donchian_breakout": "donchian",
+        "buy_and_hold": "bnh",
+    }
+    bits = []
+    for s in states:
+        name = aliases.get(s.get("name", ""), s.get("name", ""))
+        marker = "●" if s.get("in_position") else "○"
+        bits.append(f"{name}{marker}")
+    return "  ".join(bits)
 
 
 def _format_cross_basket(item: dict) -> str | None:
@@ -181,6 +241,12 @@ def _format_cross_basket(item: dict) -> str | None:
 
 
 def _text_block(items: list[dict], heading: str) -> str:
+    """Detailed per-row evidence card. Each row reads top-to-bottom
+    like a research note — price + reference levels, the full
+    consensus dots, multi-family signals, regime-tested stats, and
+    the citable bucket reason. Designed for plain text but with
+    enough visual hierarchy that an investor can skim 10 BUY rows
+    in 60 seconds and pick the 2-3 worth a deeper look."""
     lines = [heading, "─" * len(heading)]
     if not items:
         lines.append("(none)")
@@ -188,28 +254,101 @@ def _text_block(items: list[dict], heading: str) -> str:
     for it in items:
         sym = it["symbol"]
         univ = it.get("universe") or "—"
+        bucket = it["bucket"]
         long = it.get("long_count")
         total = it.get("total_strategies")
-        consensus = (
-            f"{long} of {total} strategies long"
-            if long is not None and total
-            else "—"
-        )
-        lines.append(f"{sym}  ·  {univ}  ·  {it['bucket']}  ·  {consensus}")
+        consensus = f"{long}/{total}" if long is not None and total else "—"
+        # ── Header line ──────────────────────────────────────────
+        lines.append(f"┌─ {sym}  ·  {univ}  ·  {bucket}  ·  {consensus} long")
         if it.get("bucket_reason"):
-            lines.append(f"  {it['bucket_reason']}")
-        rsi = _fmt(it.get("rsi_14"), digits=0)
+            lines.append(f"│  WHY: {it['bucket_reason']}")
+        lines.append("│")
+
+        # ── Price + reference levels ────────────────────────────
+        ccy = it.get("currency") or ""
+        last = _fmt(it.get("last_price"), "", 2)
+        sma_200 = _fmt(it.get("sma_200"), "", 2)
+        above = it.get("above_sma_200")
+        trend_label = "above" if above is True else ("below" if above is False else "—")
+        lines.append(f"│  PRICE     {last} {ccy}  (as of {(it.get('as_of') or '')[:10]})")
+        lines.append(f"│  TREND     {trend_label} 200d SMA ({sma_200})")
+
+        # 52w-high reference with date
         off_high = _fmt(it.get("pct_off_52w_high_pct"), "%", 1)
+        high_date = (it.get("pct_off_52w_high_date") or "")[:10]
+        high_price = _fmt(it.get("pct_off_52w_high_price"), "", 2)
+        if high_date:
+            lines.append(f"│  52W HIGH  {high_price} on {high_date}  (today: -{off_high} off)")
+
+        # 5y peak as the long-term valuation reference
+        dd = it.get("drawdown_from_peak_pct")
+        peak_date = (it.get("peak_date") or "")[:10]
+        peak_price = _fmt(it.get("peak_price"), "", 2)
+        if dd is not None and peak_date:
+            dd_str = _fmt(dd, "%", 1)
+            lines.append(f"│  5Y PEAK   {peak_price} on {peak_date}  (today: {dd_str} from peak)")
+
+        # ── Indicators ──────────────────────────────────────────
+        rsi = _fmt(it.get("rsi_14"), digits=0)
+        mom_3m = _fmt(it.get("momentum_3m_pct"), "%", 1)
+        mom_12m = _fmt(it.get("momentum_12m_pct"), "%", 1)
+        vol = _fmt(it.get("vol_30d_annual_pct"), "%", 1)
+        lines.append(
+            f"│  INDICATORS  RSI {rsi}  ·  3m mom {mom_3m}  ·  "
+            f"12m mom {mom_12m}  ·  vol {vol}"
+        )
+
+        # ── Strategy consensus (full dot row) ──────────────────
+        states = it.get("strategy_states") or []
+        if states:
+            lines.append(f"│  CONSENSUS  {_consensus_dots(states)}")
+
+        # ── Cross-basket signals ───────────────────────────────
+        cross = _format_cross_basket(it)
+        if cross:
+            lines.append(f"│  PEERS     {cross}")
+
+        # ── Earnings signal (Family 4) ─────────────────────────
+        ev = it.get("earnings_signal") or {}
+        verdict = ev.get("verdict")
+        if verdict and verdict not in ("NO_RECENT", "NOT_APPLICABLE"):
+            ev_data = ev.get("earnings") or {}
+            surprise = ev_data.get("surprise_pct")
+            days_since = ev.get("days_since_earnings")
+            days_left = ev.get("days_remaining_in_window")
+            retreat = ev.get("retreat_from_post_earnings_peak_pct")
+            ev_bits = [verdict.lower().replace("_", " ")]
+            if surprise is not None:
+                ev_bits.append(f"beat {surprise:+.1f}%")
+            if days_since is not None:
+                ev_bits.append(f"day {days_since}/60")
+            if retreat is not None:
+                ev_bits.append(f"retreat {retreat:.1f}%")
+            lines.append(f"│  EARNINGS  {' · '.join(ev_bits)}")
+
+        # ── Sentiment ──────────────────────────────────────────
+        sent_mean = it.get("sentiment_mean_7d")
+        sent_neg = it.get("sentiment_material_negative_count")
+        sent_status = it.get("sentiment_status")
+        if sent_status and sent_status != "no_news":
+            mean_str = _fmt(sent_mean, digits=2) if sent_mean is not None else "—"
+            neg = sent_neg if sent_neg is not None else 0
+            lines.append(
+                f"│  NEWS 7D   mean sentiment {mean_str}, "
+                f"{neg} material-negative ({sent_status})"
+            )
+            if it.get("sentiment_demoted"):
+                lines.append("│             (BUY → WAIT demotion fired)")
+
+        # ── Performance stats ──────────────────────────────────
         cagr = _fmt(it.get("cagr_pct"), "%", 1)
         sharpe = _fmt(it.get("sharpe"), digits=2)
         max_dd = _format_dd_recovery(it)
         lines.append(
-            f"  RSI {rsi} · {off_high} off 52w · "
+            f"│  STATS     {it.get('strategy', '')}: "
             f"CAGR {cagr} · Sharpe {sharpe} · MaxDD {max_dd}"
         )
-        cross = _format_cross_basket(it)
-        if cross:
-            lines.append(f"  {cross}")
+        lines.append("└─")
         lines.append("")
     return "\n".join(lines).rstrip()
 
