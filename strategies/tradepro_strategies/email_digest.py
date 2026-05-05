@@ -392,10 +392,128 @@ def _html_block(items: list[dict], heading: str, accent: str) -> str:
     )
 
 
-def build_digest(payloads: list[dict]) -> EmailDigest:
+def _verdict_for_symbol(symbol: str, payloads: list[dict]) -> dict | None:
+    """Look up a symbol's best-rank row across all compare payloads,
+    return the bucket + reason. Used to cross-reference T212 holdings
+    against today's BUY/WAIT/AVOID verdict so the digest can highlight
+    'YOU OWN THIS, system says X today'. None when the symbol isn't
+    in any tracked universe."""
+    if not symbol:
+        return None
+    target = symbol.upper()
+    best_match: dict | None = None
+    best_rank = 1e9
+    for env in payloads:
+        rows = env.get("payload", {}).get("rows") or env.get("rows") or []
+        for r in rows:
+            if (r.get("symbol") or "").upper() != target:
+                continue
+            rank = r.get("rank") or 1e9
+            if rank < best_rank:
+                best_rank = rank
+                best_match = r
+    if not best_match:
+        return None
+    ms = best_match.get("market_state") or {}
+    return {
+        "symbol": target,
+        "universe": (env.get("payload", {}).get("universe") or env.get("universe", "")),
+        "bucket": best_match.get("bucket"),
+        "bucket_reason": best_match.get("bucket_reason"),
+        "rsi_14": ms.get("rsi_14"),
+        "pct_off_52w_high_pct": ms.get("pct_off_52w_high_pct"),
+    }
+
+
+def _format_holdings_block(holdings: list[dict], payloads: list[dict]) -> str:
+    """Render the 'What You Hold' section — what's in your T212
+    portfolio, what each position cost vs is now, and what today's
+    verdict says about it."""
+    if not holdings:
+        return ""
+    lines = [
+        "What You Hold (T212)",
+        "─" * 20,
+        "Cross-references each position against today's verdict — so you",
+        "can see whether the system thinks now is the time to add, hold,",
+        "or trim what you already own.",
+        "",
+    ]
+    for h in holdings:
+        ticker = h.get("ticker") or "—"
+        yahoo_sym = h.get("yahooSymbol") or h.get("yahoo_symbol")
+        name = h.get("instrumentName") or "—"
+        qty = _fmt(h.get("quantity"), digits=4)
+        ccy = h.get("currency") or ""
+        avg = _fmt(h.get("averagePricePaid"), digits=2)
+        cur = _fmt(h.get("currentPrice"), digits=2)
+        upct = _fmt(h.get("unrealisedPct"), "%", 2)
+        uabs = _fmt(h.get("unrealisedAbs"), digits=2)
+        upct_raw = h.get("unrealisedPct")
+        sign = "+" if upct_raw is not None and upct_raw >= 0 else ""
+
+        verdict = _verdict_for_symbol(yahoo_sym or "", payloads) if yahoo_sym else None
+
+        lines.append(f"┌─ {name} ({ticker})")
+        lines.append(
+            f"│  POSITION  {qty} shares @ avg {avg} {ccy} → now {cur} {ccy}"
+        )
+        lines.append(
+            f"│  P&L       {sign}{upct} ({sign}{uabs} {ccy})"
+        )
+        if verdict:
+            lines.append(
+                f"│  TODAY     {verdict['bucket']} per {verdict['universe']} compare"
+            )
+            if verdict.get("bucket_reason"):
+                lines.append(f"│              {verdict['bucket_reason']}")
+            # Action hint based on bucket + position direction
+            action = _holdings_action_hint(verdict["bucket"], upct_raw)
+            lines.append(f"│  HINT      {action}")
+        else:
+            lines.append(
+                f"│  TODAY     not in any tracked universe — run "
+                f"`evaluate_symbols(\"{yahoo_sym or ticker}\")` for an ad-hoc verdict"
+            )
+        lines.append("└─")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _holdings_action_hint(bucket: str | None, unrealised_pct: float | None) -> str:
+    """Plain-English action hint combining today's bucket with the
+    user's current P&L on the position. Conservative — never says
+    'sell' explicitly; uses 'consider trimming' / 'hold' / 'add'
+    language so the hint is a prompt, not a directive.
+
+    Caveat: this is rule-based on (bucket, P&L) only. The richer
+    'horizon-weighted swing-trade composite' lives in Phase 2 — see
+    project_phase2_portfolio_aware memory."""
+    if bucket == "AVOID":
+        if unrealised_pct is not None and unrealised_pct < -10.0:
+            return "AVOID + position down >10%: consider exit; trend is broken"
+        return "AVOID: do not add; consider trimming on strength"
+    if bucket == "WAIT":
+        if unrealised_pct is not None and unrealised_pct > 15.0:
+            return "WAIT + position up >15%: consider taking partial profits"
+        return "WAIT: hold what you have; don't add until trend confirms"
+    if bucket == "BUY":
+        if unrealised_pct is not None and unrealised_pct < -5.0:
+            return "BUY + position down: classic average-down zone"
+        return "BUY: structurally fine to add on weakness"
+    return "no clear hint without a current verdict"
+
+
+def build_digest(
+    payloads: list[dict],
+    *,
+    holdings: list[dict] | None = None,
+) -> EmailDigest:
     """Build the digest. `payloads` is a list of compare envelopes —
     one per universe — matching the shape the API returns from
-    /api/compare/latest."""
+    /api/compare/latest. `holdings` is the optional T212 positions
+    list; when supplied, a 'What You Hold' section appears at the
+    top with each position cross-referenced against today's verdict."""
     buys = _filter_bucket(payloads, "BUY")
     avoids = _filter_bucket(payloads, "AVOID")
     waits = _filter_bucket(payloads, "WAIT")
@@ -410,8 +528,11 @@ def build_digest(payloads: list[dict]) -> EmailDigest:
     header_lines = [f"TradePro Daily Digest — {today}"]
     if banner:
         header_lines.append(banner)
-    text_body = "\n\n".join([
-        "\n".join(header_lines),
+    holdings_block = _format_holdings_block(holdings or [], payloads)
+    sections = ["\n".join(header_lines)]
+    if holdings_block:
+        sections.append(holdings_block)
+    sections.extend([
         f"BUY candidates ({len(buys)})",
         _text_block(buys, "BUY") if buys else "(none today)",
         f"AVOID ({len(avoids)})",
@@ -421,6 +542,7 @@ def build_digest(payloads: list[dict]) -> EmailDigest:
         "Verdicts come from the rule engine + multi-strategy vote;\n"
         "every number traces to a structured fact in the API.",
     ])
+    text_body = "\n\n".join(sections)
 
     banner_html = (
         f"<div style='background:#fff7e0;border-left:3px solid #e8a23a;"

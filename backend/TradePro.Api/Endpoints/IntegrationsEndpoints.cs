@@ -85,9 +85,22 @@ public static class IntegrationsEndpoints
                         unrealisedPct = (cur - avg) / avg * 100m;
                         unrealisedAbs = (cur - avg) * p.Quantity;
                     }
+                    // T212 nests the ticker inside `instrument` on the
+                    // /equity/positions response; the top-level Ticker
+                    // we modelled isn't populated, hence the null seen
+                    // in the wild. Fall back to it just in case a future
+                    // shape change moves it back.
+                    var t212Ticker = p.Instrument?.Ticker ?? p.Ticker;
                     return new
                     {
-                        ticker = p.Ticker,
+                        ticker = t212Ticker,
+                        // Best-effort Yahoo-symbol derivation. T212
+                        // tickers look like "AMZN_US_EQ"; we split on
+                        // underscore and take the first part for US
+                        // tickers (verified mapping). Other venues need
+                        // explicit mapping; null tells the caller to
+                        // not cross-reference against the compare cache.
+                        yahooSymbol = DeriveYahooSymbol(t212Ticker),
                         instrumentName = p.Instrument?.Name,
                         currency = p.Instrument?.Currency,
                         isin = p.Instrument?.Isin,
@@ -109,5 +122,21 @@ public static class IntegrationsEndpoints
             });
 
         return app;
+    }
+
+    /// <summary>
+    /// T212 ticker → Yahoo Finance symbol for cross-reference against
+    /// the compare cache. US-only mapping is reliable; non-US returns
+    /// null so the caller skips the lookup rather than guessing.
+    /// </summary>
+    private static string? DeriveYahooSymbol(string? t212Ticker)
+    {
+        if (string.IsNullOrWhiteSpace(t212Ticker)) return null;
+        var parts = t212Ticker.Split('_');
+        if (parts.Length >= 2 && parts[1].Equals("US", StringComparison.OrdinalIgnoreCase))
+        {
+            return parts[0]; // AMZN_US_EQ → AMZN
+        }
+        return null;
     }
 }

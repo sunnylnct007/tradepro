@@ -102,6 +102,28 @@ def fetch_payloads(api_base: str, token: str | None) -> list[dict]:
     return payloads
 
 
+def fetch_holdings(api_base: str, token: str | None) -> list[dict]:
+    """Pull the T212 positions list from the API. Returns an empty
+    list when T212 isn't configured — never raises so the digest
+    still ships."""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    base = api_base.rstrip("/")
+    try:
+        resp = requests.get(
+            f"{base}/api/integrations/trading212/positions",
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except requests.RequestException as e:
+        print(f"warning: could not fetch T212 positions: {e}", file=sys.stderr)
+        return []
+    if not data.get("enabled"):
+        return []
+    return data.get("positions") or []
+
+
 def _applescript_quote(s: str) -> str:
     """Escape a Python string for safe interpolation into an
     AppleScript string literal. AppleScript needs backslash and
@@ -219,7 +241,8 @@ def send_email(digest: EmailDigest, cfg: dict) -> None:
 def main() -> None:
     args = parse_args()
     payloads = fetch_payloads(args.api_base, args.api_token)
-    digest = build_digest(payloads)
+    holdings = fetch_holdings(args.api_base, args.api_token)
+    digest = build_digest(payloads, holdings=holdings)
     cfg = load_smtp_creds(args)
 
     recipients = cfg.get("to") or []
