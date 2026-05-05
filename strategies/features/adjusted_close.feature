@@ -28,3 +28,15 @@ Feature: Indicators must use adjusted close (split-aware)
     Then the 52w-high date matches the peak bar
     And the 52w-high price matches the peak value
     And the entry reason mentions the peak date
+
+  Scenario: at multi-year highs — peak_within_52w_window is True with explicit trace
+    Given a price series that grinds steadily upward over 252 days
+    When I compute the market_state for it
+    Then peak_within_52w_window is True
+    And the long-term valuation trace mentions "multi-year highs"
+
+  Scenario: pre-correction peak (older than 52w) — peak_within_52w_window is False
+    Given a 5y price series with a year-1 peak and recent flat at the recovered level
+    When I compute the market_state for it
+    Then peak_within_52w_window is False
+    And the long-term valuation trace mentions "structurally cheap"

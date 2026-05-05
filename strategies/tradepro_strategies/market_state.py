@@ -71,6 +71,12 @@ class MarketState:
     pct_off_52w_high_price: float | None = None
     peak_price: float | None = None
     peak_date: str | None = None
+    # True when the 5y running-peak bar is INSIDE the trailing 252-bar
+    # window. When true the 52w high IS the 5y peak — both metrics
+    # legitimately read 0% off, NOT a data conflation bug. Surfaced
+    # so the UI / rationale can render "at multi-year highs" instead
+    # of looking like the two metrics are stuck together.
+    peak_within_52w_window: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,6 +91,7 @@ class MarketState:
             "drawdown_from_peak_pct": self.drawdown_from_peak_pct,
             "peak_price": self.peak_price,
             "peak_date": self.peak_date,
+            "peak_within_52w_window": self.peak_within_52w_window,
             "rsi_14": self.rsi_14,
             "momentum_3m_pct": self.momentum_3m_pct,
             "momentum_12m_pct": self.momentum_12m_pct,
@@ -176,19 +183,40 @@ def _build_trace(state: MarketState) -> list[dict[str, Any]]:
     # −22% off 2021 peak (long-term cheap)" is a meaningful pair of
     # facts; collapsing them into a single 'drawdown' line is what
     # made INRG.L misread as a short-term BUY.
+    #
+    # When the 5y peak is INSIDE the trailing 52w window, the two
+    # metrics legitimately read the same number — symbol is at
+    # multi-year highs. The trace says so explicitly so it doesn't
+    # look like a conflation bug.
     dd = state.drawdown_from_peak_pct
     peak_when = (state.peak_date or "")[:10]
     peak_suffix = f" (peak {peak_when})" if peak_when else ""
+    coincides = state.peak_within_52w_window
     if dd is None:
         trace.append({"name": "Long-term valuation (5y peak)",
                       "status": "warn", "detail": "—"})
+    elif coincides and (dd is None or dd >= -1.0):
+        # Peak is within 52w AND price is essentially at peak →
+        # at all-time highs in the 5y window
+        trace.append({
+            "name": "Long-term valuation (5y peak)",
+            "status": "warn",
+            "detail": (
+                f"{dd:.1f}% from peak{peak_suffix} — peak is within 52w window, "
+                f"symbol is at multi-year highs (52w high = 5y peak)"
+            ),
+        })
     elif dd <= DEEP_DRAWDOWN_PCT:
+        coincide_note = (
+            "" if not coincides else " (peak still within 52w — recent setback)"
+        )
         trace.append({
             "name": "Long-term valuation (5y peak)",
             "status": "pass",
             "detail": (
-                f"{dd:.1f}% from peak{peak_suffix} — structurally cheap "
-                f"vs own history (long-term signal, not a timing trigger)"
+                f"{dd:.1f}% from peak{peak_suffix}{coincide_note} — "
+                f"structurally cheap vs own history "
+                f"(long-term signal, not a timing trigger)"
             ),
         })
     elif dd <= MID_DRAWDOWN_PCT:
@@ -328,6 +356,7 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
     dd = _safe_float(dd_series.iloc[-1] * 100.0)
     peak_price = _safe_float(peak.iloc[-1]) if not peak.empty else None
     peak_date: str | None = None
+    peak_within_52w = False
     if not series.empty:
         # The most recent index where price equalled the running peak
         # is the date the peak was last touched. For a clean uptrend
@@ -339,6 +368,11 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
                 peak_date = last_peak.isoformat() if hasattr(last_peak, "isoformat") else str(last_peak)
             except Exception:  # noqa: BLE001
                 peak_date = str(last_peak)
+            # Is the running peak inside the trailing 252-bar window?
+            # If yes, the 52w high IS the 5y peak — both metrics
+            # legitimately read the same number, NOT a conflation bug.
+            if not window_252.empty:
+                peak_within_52w = bool(last_peak >= window_252.index[0])
 
     rsi_14 = _safe_float(rsi(series, 14).iloc[-1])
     mom_3m = _momentum_pct(series, 63)
@@ -354,6 +388,7 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         entry_signal="HOLD", entry_reason="", decision_trace=[],
         pct_off_52w_high_date=high_52w_date,
         pct_off_52w_high_price=high_52w,
+        peak_within_52w_window=peak_within_52w,
         peak_price=peak_price,
         peak_date=peak_date,
     )

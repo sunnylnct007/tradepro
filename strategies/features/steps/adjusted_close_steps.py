@@ -141,3 +141,53 @@ def step_reason_mentions_date(context):
         assert expected in reason, (
             f"BUY-bounce reason missing peak date: {reason!r}"
         )
+
+
+@given("a price series that grinds steadily upward over 252 days")
+def step_steady_uptrend(context):
+    import numpy as np
+    rng = np.random.default_rng(7)
+    idx = pd.bdate_range("2025-05-01", periods=252)
+    prices = np.linspace(100.0, 130.0, 252) + rng.normal(0, 0.5, 252)
+    df = pd.DataFrame(
+        {"open": prices, "high": prices, "low": prices,
+         "close": prices, "adj_close": prices, "volume": [1] * 252},
+        index=idx,
+    )
+    context.prices = df
+
+
+@given("a 5y price series with a year-1 peak and recent flat at the recovered level")
+def step_old_peak(context):
+    import numpy as np
+    rng = np.random.default_rng(11)
+    idx = pd.bdate_range("2021-05-01", periods=1260)
+    prices = np.concatenate([
+        np.linspace(100, 140, 200),
+        np.linspace(140, 50, 500),
+        np.linspace(50, 105, 300),
+        np.full(260, 105.0) + rng.normal(0, 0.3, 260),
+    ])
+    df = pd.DataFrame(
+        {"open": prices, "high": prices, "low": prices,
+         "close": prices, "adj_close": prices, "volume": [1] * len(prices)},
+        index=idx[: len(prices)],
+    )
+    context.prices = df
+
+
+@then("peak_within_52w_window is {expected}")
+def step_peak_within(context, expected: str):
+    expected_bool = {"True": True, "False": False}[expected]
+    assert context.state.peak_within_52w_window is expected_bool, (
+        f"expected peak_within_52w_window={expected_bool}, got "
+        f"{context.state.peak_within_52w_window!r}"
+    )
+
+
+@then('the long-term valuation trace mentions "{snippet}"')
+def step_valuation_trace_mentions(context, snippet: str):
+    rows = [r for r in context.state.decision_trace if "valuation" in r["name"].lower()]
+    assert rows, "no long-term valuation trace row"
+    detail = rows[0].get("detail", "")
+    assert snippet in detail, f"detail missing {snippet!r}: {detail!r}"
