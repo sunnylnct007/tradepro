@@ -120,6 +120,14 @@ class OllamaProvider(LlmProvider):
             "prompt": full_prompt,
             "format": "json",
             "stream": False,
+            # `think: false` disables the chain-of-thought reasoning
+            # phase on models that have one (qwen3.x, deepseek-r1).
+            # Ignored by models that don't think (llama3.x, gemma).
+            # Cleaner + faster than letting the model emit a
+            # <think>...</think> block and stripping it after the
+            # fact — but we keep the strip helper as defense-in-depth
+            # for forks that don't honour the parameter.
+            "think": False,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
