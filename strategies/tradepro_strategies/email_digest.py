@@ -501,16 +501,30 @@ def _format_holdings_block(holdings: list[dict], payloads: list[dict]) -> str:
                     f"[Q{layers.get('quality',0)}·V{layers.get('valuation',0)}"
                     f"·E{layers.get('event',0)}·P{layers.get('price',0)}]"
                 )
-            # Action hint based on bucket + swing + position direction
-            action = _holdings_action_hint(
-                verdict["bucket"], upct_raw, swing_total=sw.get("total"),
-            )
-            lines.append(f"│  HINT      {action}")
+            # Phase-2 holdings recommendation: BUY_MORE / HOLD / TRIM
+            # with concrete narrative. Sees market_state + swing_score
+            # off the full row, so the prose can quote RSI / cost-basis
+            # / new-cost-after-tranche. Replaces the old _holdings_
+            # action_hint string.
+            from .holdings import analyse_holding
+            full_row = _row_for_symbol(yahoo_sym or "", payloads) if yahoo_sym else None
+            rec = analyse_holding(h, full_row)
+            lines.append(f"│  ACTION    {rec.action}")
+            lines.append(f"│  WHY       {rec.narrative}")
+            if rec.avg_cost_after_equal_tranche is not None:
+                lines.append(
+                    f"│             new cost after equal tranche: "
+                    f"{rec.avg_cost_after_equal_tranche:.2f} {ccy}"
+                )
         else:
+            from .holdings import analyse_holding
+            rec = analyse_holding(h, None)
             lines.append(
                 f"│  TODAY     not in any tracked universe — run "
                 f"`evaluate_symbols(\"{yahoo_sym or ticker}\")` for an ad-hoc verdict"
             )
+            lines.append(f"│  ACTION    {rec.action}")
+            lines.append(f"│  WHY       {rec.narrative}")
         lines.append("└─")
         lines.append("")
     return "\n".join(lines).rstrip()
