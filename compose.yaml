@@ -46,6 +46,14 @@ services:
       # to the Python sidecar at this URL. Inside compose the service
       # name 'extractor' resolves over the default network.
       Extractor__Url: "http://extractor:8000"
+      # Trading 212 integration — off by default; flip TRADEPRO_T212_MODE
+      # to `demo` (paper) or `live` (real money) in your .env file along
+      # with the API key/secret pair from your T212 app. The integration
+      # only enables read-only endpoints (status, instruments, positions);
+      # order placement is intentionally not exposed.
+      Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
+      Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
+      Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
     volumes:
       # Bind-mount source so dotnet watch picks up edits.
       - ./backend:/src
