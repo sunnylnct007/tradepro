@@ -7,11 +7,19 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 from behave import given, then, when
+from behave.matchers import use_step_matcher
 
 from tradepro_strategies.earnings import (
     beat_and_retreat_signal,
     earnings_trace_row,
 )
+
+# `{pct:f}` would have required a literal decimal point in the
+# matched scenario text — so "surprise 5%" wouldn't match but
+# "surprise 5.0%" would. `:g` is the general-number type that
+# accepts both. Picked here so scenario authors don't have to
+# remember to write 5.0 instead of 5.
+use_step_matcher("parse")
 
 
 class _FakeTicker:
@@ -75,13 +83,13 @@ def _price_series_kept_rallying(announce_date):
     )
 
 
-@given("an earnings beat {days_ago:d} days ago with surprise {pct:f}%")
+@given("an earnings beat {days_ago:d} days ago with surprise {pct:g}%")
 def step_beat(context, days_ago: int, pct: float):
     context.earnings_df = _earnings_df(days_ago, pct)
     context.announce = context.earnings_df.index[0]
 
 
-@given("an earnings miss {days_ago:d} days ago with surprise -{pct:f}%")
+@given("an earnings miss {days_ago:d} days ago with surprise -{pct:g}%")
 def step_miss(context, days_ago: int, pct: float):
     context.earnings_df = _earnings_df(days_ago, -pct)
     context.announce = context.earnings_df.index[0]
@@ -96,7 +104,7 @@ def step_no_recent(context, n: int):
     context.announce = None
 
 
-@given("post-earnings prices that retreated {pct:f}% from peak")
+@given("post-earnings prices that retreated {pct:g}% from peak")
 def step_retreat(context, pct: float):
     context.prices = _price_series_with_retreat(context.announce, -pct)
 
