@@ -57,3 +57,14 @@ Feature: Family-4 earnings BEAT_AND_RETREAT signal
     Then the trace status is "pass"
     And the trace detail mentions "beat"
     And the trace detail mentions "retreat"
+
+  Scenario: upcoming earnings within 14 days escalates the trace to warn
+    Given a STRONG beat-and-retreat signal envelope with upcoming earnings in 8 days
+    When I build the earnings trace row
+    Then the trace status is "warn"
+    And the trace detail mentions "NEXT EPS in 8d"
+
+  Scenario: upcoming earnings on a NO_RECENT row still surfaces a trace
+    Given a NO_RECENT envelope with upcoming earnings in 5 days
+    When I build the earnings trace row
+    Then the trace detail mentions "reports in 5d"

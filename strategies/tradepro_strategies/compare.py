@@ -578,10 +578,23 @@ def compare(
                 }
             else:
                 try:
-                    from .earnings import beat_and_retreat_signal
-                    earnings_signal_cache[symbol] = beat_and_retreat_signal(
+                    from .earnings import beat_and_retreat_signal, fetch_upcoming_earnings
+                    sig = beat_and_retreat_signal(
                         symbol, price_cache[symbol],
                     )
+                    # Attach the next upcoming earnings (Finnhub) so
+                    # the digest can warn about position-into-earnings
+                    # volatility. Off-by-default: returns None when
+                    # Finnhub isn't configured. Best-effort, never
+                    # blocks the run.
+                    import os as _os
+                    api_base = _os.environ.get(
+                        "TRADEPRO_API_URL", "http://localhost:5080",
+                    )
+                    upcoming = fetch_upcoming_earnings(symbol, api_base)
+                    if upcoming:
+                        sig["upcoming"] = upcoming
+                    earnings_signal_cache[symbol] = sig
                 except Exception as e:  # noqa: BLE001
                     if logger:
                         logger.emit("compare.earnings_failed", symbol=symbol, error=str(e))

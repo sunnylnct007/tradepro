@@ -157,6 +157,31 @@ def step_strong_envelope(context):
     }
 
 
+@given("a STRONG beat-and-retreat signal envelope with upcoming earnings in {days:d} days")
+def step_strong_envelope_with_upcoming(context, days: int):
+    step_strong_envelope(context)
+    context.signal["upcoming"] = {
+        "date": "2026-08-12",
+        "days_until": days,
+        "hour": "amc",
+    }
+
+
+@given("a NO_RECENT envelope with upcoming earnings in {days:d} days")
+def step_no_recent_with_upcoming(context, days: int):
+    context.signal = {
+        "_source": "live://earnings/TEST",
+        "fired": False,
+        "verdict": "NO_RECENT",
+        "earnings": None,
+        "upcoming": {
+            "date": "2026-08-12",
+            "days_until": days,
+            "hour": "bmo",
+        },
+    }
+
+
 @when("I build the earnings trace row")
 def step_build_trace(context):
     context.trace_row = earnings_trace_row(context.signal)

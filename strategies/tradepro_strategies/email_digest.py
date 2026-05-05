@@ -344,6 +344,19 @@ def _text_block(items: list[dict], heading: str) -> str:
             if retreat is not None:
                 ev_bits.append(f"retreat {retreat:.1f}%")
             lines.append(f"│  EARNINGS  {' · '.join(ev_bits)}")
+        # ── Upcoming earnings (Finnhub) ────────────────────────
+        upcoming = ev.get("upcoming") or {}
+        days_until = upcoming.get("days_until")
+        if days_until is not None:
+            warn = "⚠ " if days_until <= 14 else ""
+            hour = upcoming.get("hour") or ""
+            hour_text = f" ({hour})" if hour in ("bmo", "amc") else ""
+            est = upcoming.get("eps_estimate")
+            est_text = f", EPS est {est:.2f}" if isinstance(est, (int, float)) else ""
+            lines.append(
+                f"│  NEXT EPS  {warn}reports in {days_until}d on "
+                f"{upcoming.get('date', '')}{hour_text}{est_text}"
+            )
 
         # ── Sentiment ──────────────────────────────────────────
         sent_mean = it.get("sentiment_mean_7d")
@@ -531,6 +544,20 @@ def _format_holdings_block(holdings: list[dict], payloads: list[dict]) -> str:
             from .holdings import analyse_holding
             full_row = _row_for_symbol(yahoo_sym or "", payloads) if yahoo_sym else None
             rec = analyse_holding(h, full_row)
+            # Position-into-earnings warning. When Finnhub flagged an
+            # upcoming announcement within ~14 days, surface it
+            # ABOVE the action hint — pre-earnings vol can override
+            # the structural recommendation.
+            if full_row:
+                upc = (full_row.get("earnings_signal") or {}).get("upcoming") or {}
+                du = upc.get("days_until")
+                if isinstance(du, int) and du <= 14:
+                    hour = upc.get("hour") or ""
+                    hour_text = f" ({hour})" if hour in ("bmo", "amc") else ""
+                    lines.append(
+                        f"│  ⚠ EPS     reports in {du}d on "
+                        f"{upc.get('date', '')}{hour_text} — expect volatility"
+                    )
             lines.append(f"│  ACTION    {rec.action}")
             lines.append(f"│  WHY       {rec.narrative}")
             if rec.avg_cost_after_equal_tranche is not None:

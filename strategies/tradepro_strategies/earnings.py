@@ -185,14 +185,86 @@ def beat_and_retreat_signal(
     return base
 
 
+def fetch_upcoming_earnings(
+    symbol: str,
+    api_base: str,
+    *,
+    days: int = 30,
+    timeout: float = 10.0,
+) -> dict | None:
+    """Hit the local API's Finnhub-backed earnings calendar for the
+    next N days. Returns the *next* upcoming announcement event (or
+    None when nothing is scheduled / Finnhub is disabled / call
+    fails). The API endpoint itself returns {enabled: false} when
+    Finnhub isn't configured — we treat that as None rather than an
+    error so a missing config never breaks the compare run.
+
+    Output shape:
+        {
+            "date": "2026-07-29",
+            "days_until": 85,
+            "hour": "amc",          # "bmo" / "amc" / "" / null
+            "eps_estimate": 4.22,
+            "revenue_estimate": 73000000000,
+        }
+    """
+    import requests
+    from datetime import date
+
+    url = f"{api_base.rstrip('/')}/api/integrations/finnhub/earnings-calendar"
+    try:
+        resp = requests.get(
+            url,
+            params={"symbol": symbol, "days": days},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except requests.RequestException:
+        return None
+
+    if not data.get("enabled"):
+        return None
+    events = data.get("events") or []
+    today = date.today()
+    upcoming = []
+    for ev in events:
+        d = ev.get("date")
+        if not d:
+            continue
+        try:
+            ev_date = date.fromisoformat(d[:10])
+        except ValueError:
+            continue
+        if ev_date < today:
+            # Already reported — skip; the BEAT_AND_RETREAT path
+            # already covers historical events via yfinance.
+            continue
+        upcoming.append((ev_date, ev))
+    if not upcoming:
+        return None
+    upcoming.sort(key=lambda kv: kv[0])
+    next_date, next_ev = upcoming[0]
+    return {
+        "date": next_date.isoformat(),
+        "days_until": (next_date - today).days,
+        "hour": next_ev.get("hour"),
+        "eps_estimate": next_ev.get("epsEstimate"),
+        "revenue_estimate": next_ev.get("revenueEstimate"),
+        "_source": f"live://earnings_calendar/{symbol.upper()}",
+    }
+
+
 def earnings_trace_row(signal: dict) -> dict | None:
     """Decision-trace row representation of the earnings signal so it
     surfaces in the same Compare-expand-panel ladder as RSI / SMA /
-    cross-basket. None when there's no recent earnings to discuss."""
+    cross-basket. None when there's no recent earnings to discuss
+    AND no upcoming earnings within the Finnhub lookahead window."""
     if not signal:
         return None
     verdict = signal.get("verdict")
-    if verdict in (None, "NO_RECENT", "NOT_APPLICABLE"):
+    has_upcoming = (signal.get("upcoming") or {}).get("days_until") is not None
+    if verdict in (None, "NO_RECENT", "NOT_APPLICABLE") and not has_upcoming:
         return None
     days_since = signal.get("days_since_earnings")
     days_left = signal.get("days_remaining_in_window")
@@ -209,6 +281,15 @@ def earnings_trace_row(signal: dict) -> dict | None:
     else:
         status = "warn"
 
+    # Forward-earnings warning — when Finnhub gave us an upcoming
+    # announcement within the lookahead window, escalate the trace
+    # row to "warn" status because position-into-earnings volatility
+    # is a real risk a long-term holder should know about.
+    upcoming = signal.get("upcoming") or {}
+    next_in_days = upcoming.get("days_until")
+    if isinstance(next_in_days, int) and next_in_days <= 14:
+        status = "warn"  # near-term reports outweigh a stale BEAT_AND_RETREAT
+
     bits: list[str] = []
     if surprise is not None:
         bits.append(f"beat {surprise:+.1f}%")
@@ -218,10 +299,16 @@ def earnings_trace_row(signal: dict) -> dict | None:
         bits.append(f"{days_left}d remaining")
     if retreat is not None:
         bits.append(f"retreat {retreat:.1f}%")
+    if isinstance(next_in_days, int):
+        bits.append(f"NEXT EPS in {next_in_days}d")
     detail = (
         f"{verdict.lower().replace('_', ' ')} — " + ", ".join(bits)
         if bits else verdict.lower().replace("_", " ")
     )
+    if verdict in (None, "NO_RECENT", "NOT_APPLICABLE") and isinstance(next_in_days, int):
+        # No historic event but we DO have a forward report — render
+        # the upcoming-only case cleanly instead of "no recent — NEXT in 5d"
+        detail = f"reports in {next_in_days}d on {upcoming.get('date', '')}"
 
     return {
         "name": "Earnings beat-and-retreat",
