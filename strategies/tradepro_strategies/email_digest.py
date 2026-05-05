@@ -411,6 +411,28 @@ def _html_block(items: list[dict], heading: str, accent: str) -> str:
     )
 
 
+def _row_for_symbol(symbol: str, payloads: list[dict]) -> dict | None:
+    """Best-rank compare row for a symbol across all payloads —
+    returns the FULL row (market_state, swing_score, etc.), not the
+    summary the digest cards render. Used by the Phase-2 holdings
+    analyser. None when symbol isn't tracked in any universe."""
+    if not symbol:
+        return None
+    target = symbol.upper()
+    best_match: dict | None = None
+    best_rank = 1e9
+    for env in payloads:
+        rows = env.get("payload", {}).get("rows") or env.get("rows") or []
+        for r in rows:
+            if (r.get("symbol") or "").upper() != target:
+                continue
+            rank = r.get("rank") or 1e9
+            if rank < best_rank:
+                best_rank = rank
+                best_match = r
+    return best_match
+
+
 def _verdict_for_symbol(symbol: str, payloads: list[dict]) -> dict | None:
     """Look up a symbol's best-rank row across all compare payloads,
     return the bucket + reason + swing composite. Used to cross-
