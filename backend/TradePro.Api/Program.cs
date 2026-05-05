@@ -1,6 +1,7 @@
 using TradePro.Api.Auth;
 using TradePro.Api.Endpoints;
 using TradePro.Api.Providers;
+using TradePro.Api.Providers.Finnhub;
 using TradePro.Api.Providers.Trading212;
 using TradePro.Api.Simulation;
 using TradePro.Api.Watchlists;
@@ -67,6 +68,17 @@ builder.Services.AddHttpClient<Trading212Client>(c =>
 // process. The cache loads from disk on construction and refreshes
 // lazily on first access if older than 24h.
 builder.Services.AddSingleton<Trading212InstrumentsService>();
+
+// Finnhub — off-by-default earnings-calendar provider. Free tier
+// signup gives 60 req/min which is plenty for occasional checks.
+// Set Finnhub__ApiKey in env / appsettings to enable.
+builder.Services
+    .AddOptions<FinnhubOptions>()
+    .Bind(builder.Configuration.GetSection(FinnhubOptions.SectionName));
+builder.Services.AddHttpClient<FinnhubClient>(c =>
+{
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
+});
 
 builder.Services.AddScoped<ISignalStrategy, BuyAndHoldStrategy>();
 builder.Services.AddScoped<ISignalStrategy, SmaCrossoverStrategy>();

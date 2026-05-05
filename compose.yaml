@@ -54,6 +54,9 @@ services:
       Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
       Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
       Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
+      # Finnhub earnings-calendar feed. Off until you set the key —
+      # free tier signup at finnhub.io (60 req/min, no card needed).
+      Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
     volumes:
       # Bind-mount source so dotnet watch picks up edits.
       - ./backend:/src

@@ -1,3 +1,4 @@
+using TradePro.Api.Providers.Finnhub;
 using TradePro.Api.Providers.Trading212;
 
 namespace TradePro.Api.Endpoints;
@@ -118,6 +119,45 @@ public static class IntegrationsEndpoints
                     fetchedAtUtc = DateTime.UtcNow,
                     positionCount = rows.Count,
                     positions = rows,
+                });
+            });
+
+        // Finnhub forward earnings calendar (next ~30 days by default,
+        // overridable via `days`). Off by default — returns
+        // {enabled: false} until Finnhub__ApiKey is set in config.
+        // Used to flag "MSFT reports in 5 days" so the digest can warn
+        // the user about position-into-earnings volatility risk.
+        app.MapGet("/integrations/finnhub/earnings-calendar",
+            async (
+                string? symbol,
+                int? days,
+                FinnhubClient client,
+                CancellationToken ct) =>
+            {
+                if (!client.IsEnabled)
+                {
+                    return Results.Ok(new
+                    {
+                        enabled = false,
+                        message = "Finnhub integration is disabled. Set Finnhub:ApiKey in config (free tier signup at finnhub.io).",
+                        events = Array.Empty<FinnhubEarningsEvent>(),
+                    });
+                }
+                if (string.IsNullOrWhiteSpace(symbol))
+                {
+                    return Results.BadRequest(new { error = "symbol is required" });
+                }
+                var from = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+                var to = from.AddDays(Math.Clamp(days ?? 30, 1, 90));
+                var events = await client.GetEarningsCalendarAsync(symbol, from, to, ct);
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    symbol = symbol.ToUpperInvariant(),
+                    from = from.ToString("yyyy-MM-dd"),
+                    to = to.ToString("yyyy-MM-dd"),
+                    eventCount = events.Count,
+                    events,
                 });
             });
 
