@@ -610,6 +610,7 @@ function StrategyMatrix({
               ))}
               <Th align="center" help="strategy_vote">Vote</Th>
               <Th align="center" help="entry_signal">Verdict</Th>
+              <Th align="center" help="swing_score">Swing</Th>
               <Th align="right" help={rankMetric === "sharpe" ? "sharpe" : rankMetric === "cagr_pct" ? "cagr" : undefined}>
                 Best {rankMetric}
               </Th>
@@ -711,13 +712,16 @@ function MatrixRow({
         <Td align="center" style={{ color: verdictColour, fontWeight: 700 }}>
           {view.bucket}
         </Td>
+        <Td align="center">
+          <SwingBadge swing={view.bestRow.swing_score ?? null} />
+        </Td>
         <Td align="right" className="num">
           {fmtNum(view.bestRow.stats?.[rankMetric])}
         </Td>
       </tr>
       {open && (
         <tr style={{ background: "var(--bg-hover)" }}>
-          <td colSpan={strategies.length + 4 + (showCurrency ? 1 : 0)} style={{ padding: 12 }}>
+          <td colSpan={strategies.length + 5 + (showCurrency ? 1 : 0)} style={{ padding: 12 }}>
             <ExpandedDetail view={view} />
           </td>
         </tr>
@@ -933,6 +937,45 @@ function sourceLabelFor(source?: CompareRationale["source"]): string {
     case "template_llm_unverified": return "template (LLM hallucinated)";
     default: return "—";
   }
+}
+
+/** Compact at-a-glance swing-score badge for the matrix row.
+ * Renders "7/8" with a colour matching the verdict; a hover title
+ * explains the per-layer breakdown so a user can decide to expand
+ * the row for the full SwingScoreCard. */
+function SwingBadge({ swing }: { swing: import("../api/types").SwingScore | null }) {
+  if (!swing || swing.total === null || swing.total === undefined) {
+    return <span style={{ color: "var(--text-muted)" }}>—</span>;
+  }
+  const colour =
+    swing.verdict === "STRONG_BUY" ? "var(--up)"
+    : swing.verdict === "BUY" ? "#4f8cff"
+    : swing.verdict === "AVOID" ? "var(--down)"
+    : "var(--neutral)";
+  const layers = swing.layers;
+  const title = (
+    `Swing composite ${swing.total}/8 → ${swing.verdict}\n` +
+    `  Quality   ${layers.quality}/2 — ${swing.reasons.quality ?? "—"}\n` +
+    `  Valuation ${layers.valuation}/2 — ${swing.reasons.valuation ?? "—"}\n` +
+    `  Event     ${layers.event}/2 — ${swing.reasons.event ?? "—"}\n` +
+    `  Price     ${layers.price}/2 — ${swing.reasons.price ?? "—"}`
+  );
+  return (
+    <span
+      title={title}
+      style={{
+        color: colour,
+        fontWeight: 700,
+        fontSize: 12,
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: 3,
+      }}
+    >
+      {swing.total}
+      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>/8</span>
+    </span>
+  );
 }
 
 /** Phase-X composite swing-trade scorer card. Shows the 0-8 total +
