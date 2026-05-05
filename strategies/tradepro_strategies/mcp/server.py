@@ -77,6 +77,32 @@ def build_server():
         return _json(t.get_regime_history(universe, symbol, strategy))
 
     @mcp.tool()
+    @instrumented("get_portfolio")
+    def get_portfolio() -> str:
+        """User's open Trading 212 positions with unrealised P&L per
+        row. Each position carries `yahooSymbol` so you can chain
+        into get_compare / evaluate_symbols for today's verdict on
+        the same ticker. Returns enabled=false when T212 isn't
+        configured — surface that to the user instead of guessing."""
+        return _json(t.get_portfolio())
+
+    @mcp.tool()
+    @instrumented("get_portfolio_status")
+    def get_portfolio_status() -> str:
+        """Trading 212 connection health: configured / reachable /
+        authenticated / mode (demo|live). Use this when get_portfolio
+        looks empty to distinguish 'no positions' from 'creds missing'."""
+        return _json(t.get_portfolio_status())
+
+    @mcp.tool()
+    @instrumented("search_t212_instruments")
+    def search_t212_instruments(query: str, limit: int = 10) -> str:
+        """Search Trading 212's instruments registry — verifies a
+        symbol is tradeable in the user's T212 account. Use before
+        recommending a ticker the user might want to actually buy."""
+        return _json(t.search_t212_instruments(query, limit))
+
+    @mcp.tool()
     @instrumented("get_health")
     def get_health() -> str:
         """API + Mac worker liveness + per-universe cache freshness.

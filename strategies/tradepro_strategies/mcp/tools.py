@@ -216,6 +216,91 @@ def get_regime_history(universe: str, symbol: str, strategy: str | None = None) 
     }
 
 
+def get_portfolio() -> dict:
+    """User's open Trading 212 positions with computed unrealised
+    P&L per row + cross-reference to today's compare verdict.
+
+    Off when Trading 212 isn't configured — returns
+    {ok: true, enabled: false, positions: []} so the LLM can
+    cleanly say "T212 isn't wired" without needing to handle a
+    network error.
+
+    Each position carries:
+      ticker / yahooSymbol / instrumentName / currency / isin
+      quantity / averagePricePaid / currentPrice
+      unrealisedPct / unrealisedAbs / createdAt
+
+    The yahooSymbol field bridges to the cached compare rows so
+    follow-up calls can pull today's bucket / swing score for the
+    same symbol via get_compare or evaluate_symbols.
+    """
+    try:
+        data = _get("/api/integrations/trading212/positions")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_portfolio", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_portfolio", str(e))
+    enabled = bool(data.get("enabled"))
+    positions = data.get("positions") or []
+    return {
+        "_source": f"{_api_base()}/api/integrations/trading212/positions",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "enabled": enabled,
+        "message": data.get("message"),
+        "positionCount": data.get("positionCount", len(positions)),
+        "positions": positions,
+        "fetchedAtUtc": data.get("fetchedAtUtc"),
+    }
+
+
+def get_portfolio_status() -> dict:
+    """Trading 212 connection health probe — confirms the API key
+    pair reaches the broker. Useful diagnostic before get_portfolio
+    when positions look unexpected.
+
+    Returns: {configured, mode (demo|live|disabled), reachable,
+    authenticated, detail, rateLimitRemaining}.
+    """
+    try:
+        data = _get("/api/integrations/trading212/status")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_portfolio_status", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_portfolio_status", str(e))
+    return {
+        "_source": f"{_api_base()}/api/integrations/trading212/status",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **data,
+    }
+
+
+def search_t212_instruments(query: str, limit: int = 10) -> dict:
+    """Search the cached Trading 212 instruments registry by ticker /
+    short-name / full-name. Used to verify whether a symbol is
+    actually tradeable in the user's T212 account before recommending
+    it. Off when T212 isn't configured."""
+    if not query or not query.strip():
+        return _err("search_t212_instruments", "query is required")
+    try:
+        data = _get(
+            "/api/integrations/trading212/instruments",
+            params={"q": query.strip(), "limit": max(1, min(int(limit), 50))},
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("search_t212_instruments", e, query=query)
+    except Exception as e:  # noqa: BLE001
+        return _err("search_t212_instruments", str(e), query=query)
+    return {
+        "_source": f"{_api_base()}/api/integrations/trading212/instruments",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "query": query,
+        **data,
+    }
+
+
 def get_health() -> dict:
     """System health — API + Mac heartbeat + cache freshness. Useful
     first call to tell the user 'data is stale, take with a pinch of
