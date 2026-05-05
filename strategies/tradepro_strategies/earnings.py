@@ -192,7 +192,7 @@ def earnings_trace_row(signal: dict) -> dict | None:
     if not signal:
         return None
     verdict = signal.get("verdict")
-    if verdict in (None, "NO_RECENT"):
+    if verdict in (None, "NO_RECENT", "NOT_APPLICABLE"):
         return None
     days_since = signal.get("days_since_earnings")
     days_left = signal.get("days_remaining_in_window")

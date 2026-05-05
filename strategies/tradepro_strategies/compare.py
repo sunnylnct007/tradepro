@@ -561,21 +561,33 @@ def compare(
             consensus_cache[symbol] = fetch_consensus(symbol, info)
             fundamentals_cache[symbol] = fetch_fundamentals(symbol, info)
             news_cache[symbol] = fetch_news(symbol)
-            # Family-4: beat-and-retreat. yfinance under the hood;
-            # any fetch failure returns NO_RECENT in the envelope so
-            # this never blocks the run.
-            try:
-                from .earnings import beat_and_retreat_signal
-                earnings_signal_cache[symbol] = beat_and_retreat_signal(
-                    symbol, price_cache[symbol],
-                )
-            except Exception as e:  # noqa: BLE001
-                if logger:
-                    logger.emit("compare.earnings_failed", symbol=symbol, error=str(e))
+            # Family-4: beat-and-retreat. ETFs don't have earnings
+            # (they're funds, not companies), so skip them entirely
+            # — saves a yfinance call per ETF and stops the noisy
+            # "No earnings dates found, symbol may be delisted"
+            # warning yfinance emits for every fund. Only stocks
+            # get the BEAT_AND_RETREAT classification.
+            from .fees import is_known_etf
+            if is_known_etf(symbol):
                 earnings_signal_cache[symbol] = {
                     "_source": f"live://earnings/{symbol}",
-                    "fired": False, "verdict": "NO_RECENT",
+                    "fired": False,
+                    "verdict": "NOT_APPLICABLE",
+                    "reason": "ETF — earnings signals are stock-only",
                 }
+            else:
+                try:
+                    from .earnings import beat_and_retreat_signal
+                    earnings_signal_cache[symbol] = beat_and_retreat_signal(
+                        symbol, price_cache[symbol],
+                    )
+                except Exception as e:  # noqa: BLE001
+                    if logger:
+                        logger.emit("compare.earnings_failed", symbol=symbol, error=str(e))
+                    earnings_signal_cache[symbol] = {
+                        "_source": f"live://earnings/{symbol}",
+                        "fired": False, "verdict": "NO_RECENT",
+                    }
             if logger:
                 logger.emit("compare.symbol.fetched",
                             symbol=symbol,
