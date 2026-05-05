@@ -412,6 +412,7 @@ def _attach_bucket_and_rationale(
                 sentiment_demoted=sentiment_demoted,
                 cross_sectional_momentum=best.get("cross_sectional_momentum"),
                 valuation_flag=best.get("valuation_flag"),
+                swing_score=best.get("swing_score"),
             )
             rat = build_rationale(facts)
             if logger:

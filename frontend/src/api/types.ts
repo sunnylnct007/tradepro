@@ -423,6 +423,10 @@ export interface CompareRow {
    * quartile vs basket peers. Proxy until we have a fundamentals
    * snapshot store with historical-P/E-vs-10y-median. */
   valuation_flag?: ValuationFlag | null;
+  /** Phase-X composite swing-trade score 0-8 across four families.
+   * Verdict bands: ≥6 STRONG_BUY, 4-5 BUY, 2-3 HOLD, 0-1 AVOID.
+   * Computed AFTER all per-family annotations are attached. */
+  swing_score?: SwingScore | null;
 }
 
 export interface CrossSectionalMomentum {
@@ -443,6 +447,20 @@ export interface ValuationFlag {
   basket_median_yield_pct: number | null;
   basis: string;
   metric: string;
+}
+
+export interface SwingScore {
+  /** 0-8, sum of 0-2 from each layer. */
+  total: number;
+  verdict: "STRONG_BUY" | "BUY" | "HOLD" | "AVOID";
+  layers: {
+    quality: number;
+    valuation: number;
+    event: number;
+    price: number;
+  };
+  /** Per-layer one-liner explaining how that score was reached. */
+  reasons: Record<string, string>;
 }
 
 export interface CompareCurrencyMix {

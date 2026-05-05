@@ -50,3 +50,11 @@ Feature: Plain-English rationale (no hallucination)
     When I build a rationale for it
     Then no key factor mentions "Momentum rank"
     And no key factor mentions "Valuation flag"
+
+  Scenario: Swing composite total surfaces in template factors
+    Given a fact bundle for VUKE.L in BUY bucket
+    And the symbol's swing composite score is 6 with verdict STRONG_BUY
+    When I build a rationale for it
+    Then a key factor mentions "Swing composite 6/8"
+    And a key factor mentions "STRONG_BUY"
+    And every number in the rationale appears in the input facts

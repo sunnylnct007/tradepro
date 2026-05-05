@@ -243,4 +243,10 @@ export const HELP: Record<string, HelpEntry> = {
       "Quartile-bucket of this symbol's dividend yield vs basket peers. Top quartile (highest yield) → 'cheap'; bottom quartile → 'expensive'; middle 50% → 'fair'. Family-2 starter signal — proxy for value until we have a fundamentals snapshot store with historical-P/E-vs-10y-median. Caveat: a high yield can also flag a structurally distressed asset whose dividend hasn't been cut yet; pair with the technical bucket vote.",
     href: "#valuation-flag",
   },
+  swing_score: {
+    title: "Swing composite score (0-8)",
+    body:
+      "Phase-X scorer combining all four signal families into one number: Quality (Sharpe + max-DD recovery time), Valuation (cheap/fair/expensive vs basket), Event (earnings beat-and-retreat), Price (strategy consensus + RSI/SMA). Each layer is 0-2 max. Verdict mapping: ≥6 STRONG_BUY · 4-5 BUY · 2-3 HOLD · 0-1 AVOID. The composite can disagree with the bucket vote — that's the design (different lenses).",
+    href: "#swing-composite",
+  },
 };

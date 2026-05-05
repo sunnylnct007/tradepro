@@ -124,6 +124,7 @@ def gather_facts(
     sentiment_demoted: bool,
     cross_sectional_momentum: dict | None = None,
     valuation_flag: dict | None = None,
+    swing_score: dict | None = None,
 ) -> dict:
     """Build the strict fact bundle the LLM is allowed to reference.
 
@@ -214,6 +215,16 @@ def gather_facts(
             "yield_pct": valuation_flag.get("yield_pct"),
             "basket_median_yield_pct": valuation_flag.get("basket_median_yield_pct"),
             "basis": valuation_flag.get("basis"),
+        }
+    # Phase-X composite — the 0-8 score and per-layer breakdown.
+    # Surfaced so the LLM can say "swing-scored 7/8 (STRONG_BUY)"
+    # AND so the verifier sees the integer score in the facts blob.
+    if swing_score and swing_score.get("total") is not None:
+        facts["swing_composite"] = {
+            "total": swing_score.get("total"),
+            "verdict": swing_score.get("verdict"),
+            "layers": dict(swing_score.get("layers") or {}),
+            "reasons": dict(swing_score.get("reasons") or {}),
         }
     return facts
 
@@ -358,6 +369,12 @@ def _template_rationale(facts: dict) -> Rationale:
     cs_val = facts.get("cross_basket_valuation")
     if cs_val and cs_val.get("flag") in ("cheap", "expensive"):
         factors.append(f"Valuation flag: {cs_val['flag']}")
+    # Composite swing score. Surfaced as a single line because
+    # individual layer reasons are already covered by the other
+    # factors above; the composite adds the headline number.
+    sw = facts.get("swing_composite")
+    if sw and sw.get("total") is not None:
+        factors.append(f"Swing composite {sw['total']}/8 ({sw.get('verdict', '')})")
 
     # Family-1 detail — these duplicate parts of the rule_chain, so
     # they go last and may get clipped by [:4] when cross-basket

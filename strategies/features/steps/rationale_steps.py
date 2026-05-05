@@ -164,6 +164,21 @@ def step_attach_cs_momentum(context, rank: int, total: int) -> None:
     }
 
 
+@given("the symbol's swing composite score is {total:d} with verdict {verdict}")
+def step_attach_swing(context, total: int, verdict: str) -> None:
+    context.facts["swing_composite"] = {
+        "total": total,
+        "verdict": verdict,
+        "layers": {"quality": 2, "valuation": 1, "event": 2, "price": 1},
+        "reasons": {
+            "quality": "Sharpe 0.85 ≥ 0.7; recovered in 200d (fast)",
+            "valuation": "mid-basket yield",
+            "event": "no recent earnings event",
+            "price": "4/5 strategies long",
+        },
+    }
+
+
 @given('the symbol\'s basket-relative valuation flag is "{flag}"')
 def step_attach_valuation(context, flag: str) -> None:
     context.facts["cross_basket_valuation"] = {

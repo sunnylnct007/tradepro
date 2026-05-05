@@ -772,6 +772,7 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
           <span style={{ color: "var(--text-dim)" }}>{view.sentimentDemotionReason}</span>
         </div>
       )}
+      <SwingScoreCard view={view} />
       <CrossBasketSignals view={view} />
       {fundamentals && <FundDetails f={fundamentals} />}
       {consensus && <CrossCheck view={view} consensus={consensus} />}
@@ -932,6 +933,58 @@ function sourceLabelFor(source?: CompareRationale["source"]): string {
     case "template_llm_unverified": return "template (LLM hallucinated)";
     default: return "—";
   }
+}
+
+/** Phase-X composite swing-trade scorer card. Shows the 0-8 total +
+ * verdict, with the per-layer breakdown (quality / valuation / event
+ * / price) so the user sees where the points came from. */
+function SwingScoreCard({ view }: { view: SymbolView }) {
+  const sw = view.bestRow.swing_score;
+  if (!sw || sw.total === null || sw.total === undefined) return null;
+  const colour =
+    sw.verdict === "STRONG_BUY" ? "var(--up)"
+    : sw.verdict === "BUY" ? "var(--up-soft, #4f8cff)"
+    : sw.verdict === "AVOID" ? "var(--down)"
+    : "var(--neutral)";
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div className="stat-label" style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+        <span>Swing composite — all four families in one number</span>
+        <Info k="swing_score" />
+      </div>
+      <div
+        style={{
+          padding: "10px 14px",
+          borderLeft: `3px solid ${colour}`,
+          background: "rgba(0,0,0,0.18)",
+          borderRadius: 4,
+          fontSize: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 22, fontWeight: 700, color: colour }}>
+            {sw.total}/8
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: colour }}>
+            {sw.verdict.replace("_", " ")}
+          </span>
+          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
+            Q{sw.layers.quality} · V{sw.layers.valuation} · E{sw.layers.event} · P{sw.layers.price}
+          </span>
+        </div>
+        <ul style={{ margin: "8px 0 0 0", padding: 0, listStyle: "none", color: "var(--text-dim)" }}>
+          {Object.entries(sw.reasons).map(([layer, reason]) => (
+            <li key={layer} style={{ padding: "2px 0", fontSize: 11 }}>
+              <span style={{ display: "inline-block", width: 70, color: "var(--text-muted)", textTransform: "uppercase", fontSize: 10, letterSpacing: "0.04em" }}>
+                {layer}
+              </span>
+              {reason}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
 }
 
 /** Family-2 (valuation) + Family-3 (cross-sectional momentum)
