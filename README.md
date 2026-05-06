@@ -44,7 +44,7 @@ is automatically bypassed in development (`ASPNETCORE_ENVIRONMENT=Development`).
 
 ### Everything in one shot — Docker Compose
 
-Start the whole local stack (API + frontend) in one command:
+Start the whole local stack (API + frontend + persistent worker) in one command:
 
 ```bash
 cp .env.compose.example .env        # one-off, before the first run
@@ -53,24 +53,93 @@ open http://localhost:5173          # frontend
 open http://localhost:5080/health   # API health
 ```
 
+The worker container runs `tradepro-compare --push` every 30 minutes for every
+ETF universe and heartbeats the API every 5 minutes — so the "Mac alive" badge
+on the Health page stays green continuously and the Compare cache is rarely
+more than half an hour stale. No launchd needed for the daily-driver case.
+
 Other commands you'll want:
 
 ```bash
 docker compose logs -f api          # tail API logs
 docker compose logs -f frontend     # tail frontend logs
+docker compose logs -f worker       # tail the compare loop
 docker compose restart api          # nudge the API after a failed reload
+docker compose up -d --build worker # rebuild + restart worker after code changes
 docker compose down                 # stop everything (keeps node_modules volume)
-docker compose down -v              # stop + drop the node_modules volume
+docker compose down -v              # stop + drop volumes (compare cache, worker state)
 docker compose up frontend          # frontend only (run API natively for breakpoints)
+docker compose up -d api frontend   # api + frontend only (skip the worker)
 ```
 
-Both services hot-reload from your working tree (`dotnet watch run` for the
-API, Vite HMR for the frontend). Edit a `.cs` or `.tsx` file and the change
-is live in seconds — no rebuild needed.
+Both api + frontend hot-reload from your working tree (`dotnet watch run` for
+the API, Vite HMR for the frontend). The worker rebuilds on demand —
+`docker compose up -d --build worker` after a Python code change picks up
+the new image.
 
-The Python research package (`strategies/`) intentionally isn't a service —
-run `uv run tradepro-compare` natively so you keep the M-series perf
-advantage; it pushes results to the API container over `localhost:5080`.
+The host's Ollama (running natively at `localhost:11434` for the M-series perf
+advantage) is reached from inside the worker via `host.docker.internal:11434`.
+Set `TRADEPRO_OLLAMA_HOST` in `.env` if you're on Linux without that alias.
+
+#### Trading 212 + Finnhub integrations
+
+Both off by default. Add to `.env` to enable:
+
+```bash
+# Trading 212 portfolio + instruments
+TRADEPRO_T212_MODE=demo            # or `live` for real money
+TRADEPRO_T212_API_KEY=<key>        # T212 app → Settings → API (Beta)
+TRADEPRO_T212_API_SECRET=<secret>
+
+# Finnhub forward-earnings calendar
+TRADEPRO_FINNHUB_API_KEY=<key>     # finnhub.io free tier (60 req/min)
+```
+
+Then `docker compose up -d --force-recreate api worker`. The Portfolio tab
+in the UI lights up automatically; the daily digest gains a "What You Hold"
+section cross-referenced against today's verdicts.
+
+#### Email digest
+
+The `tradepro-email` CLI sends a structured daily digest. Local Outlook on
+macOS works out of the box (AppleScript transport, plain text only). For
+HTML rendering (colour, tables, charts), use Gmail SMTP:
+
+```bash
+# Gmail App Password setup: myaccount.google.com → Security → 2-Step
+# Verification on → App passwords → generate one for "TradePro".
+python3 -c '
+import json, os
+p = os.path.expanduser("~/.tradepro/email-creds.json")
+open(p, "w").write(json.dumps({
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 465,
+    "smtp_user": "your.gmail@gmail.com",
+    "smtp_password": "PASTE_THE_16_CHAR_APP_PASSWORD",
+    "from": "your.gmail@gmail.com",
+    "to": ["recipient@example.com"]
+}, indent=2))
+os.chmod(p, 0o600)
+'
+
+uv run --project strategies tradepro-email   # sends via SMTP (default)
+```
+
+#### Production deployment (Azure) — parked
+
+The platform is portable enough to deploy to Azure App Service (backend) +
+Firebase Hosting (frontend) — workflows already wired in `.github/workflows/`.
+Three Azure App Service config knobs are needed for full feature parity with
+the local stack:
+
+| Setting | Why |
+|---|---|
+| `Ingest__Token` | Mac → API push auth for the deployed compare cache |
+| `Trading212__Mode` / `Trading212__ApiKey` / `Trading212__ApiSecret` | Enables Portfolio tab + T212 endpoints on the deployed API |
+| `Finnhub__ApiKey` | Enables forward-earnings warnings on the deployed digest |
+
+Deferred until the local flow is fully sound — see the [Roadmap](./ROADMAP.md)
+"Phase A — Production Azure deployment" entry for the step-by-step.
 
 ### Backend (.NET 8)
 ```bash

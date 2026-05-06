@@ -85,6 +85,39 @@ with one, the plan changes.
 
 ## Roadmap
 
+### Phase A — Production Azure deployment (PARKED, low effort)
+
+Local stack is the daily driver — everything works end-to-end on
+`docker compose up -d`. The deployed Azure + Firebase URLs exist
+and CI is wired (`azure-api-deploy.yml`, `firebase-hosting-deploy.yml`)
+but three config gaps prevent feature parity with local:
+
+1. **Ingest token** — Azure App Service → Configuration → Application
+   settings → add `Ingest__Token` = a long random secret
+   (`openssl rand -hex 32`). Mirror in `~/.tradepro/credentials.prod`
+   so a Mac-side `tradepro-compare --push` against the prod URL
+   actually populates the deployed Compare page. Without this the
+   public site shows an empty cache forever.
+
+2. **Trading 212 keys (optional)** — same Azure config page:
+   `Trading212__Mode=demo`, `Trading212__ApiKey`, `Trading212__ApiSecret`.
+   When set the deployed Portfolio tab + T212 endpoints light up;
+   skipped, they return the same `enabled: false` envelope the local
+   stack does.
+
+3. **Finnhub key (optional)** — `Finnhub__ApiKey` from finnhub.io free
+   tier. Enables forward-earnings warnings on the deployed daily
+   digest. No-op until set.
+
+After all three are in place, the deployed UI mirrors local feature-
+for-feature. Until then: local-only is the supported path; the public
+site renders a stale or empty cache. Reactivate when the local flow
+has a stable user pattern worth sharing.
+
+Estimated effort: 30 minutes of Azure Portal clicking + one
+`tradepro-compare --push` against the prod URL to populate the cache.
+No code changes required — env-var driven.
+
 ### Phase X — Multi-family signal stack + swing-trading composite (NEXT MAJOR)
 
 Diagnosis (2026-05-04): every existing strategy (`sma_crossover`,
