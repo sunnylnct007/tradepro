@@ -8,6 +8,7 @@ import { Documents } from "./pages/Documents";
 import { HealthPage } from "./pages/HealthPage";
 import { Help } from "./pages/Help";
 import { HelpTopic } from "./pages/HelpTopic";
+import { Portfolio } from "./pages/Portfolio";
 import { Scanner } from "./pages/Scanner";
 import { Settings } from "./pages/Settings";
 import { Signals } from "./pages/Signals";
@@ -20,6 +21,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Scanner /> },
       { path: "compare", element: <Compare /> },
+      { path: "portfolio", element: <Portfolio /> },
       { path: "documents", element: <Documents /> },
       { path: "documents/:docId", element: <DocumentDetail /> },
       { path: "signals", element: <Signals /> },

@@ -11,6 +11,7 @@ import { T212ModeBadge } from "./T212ModeBadge";
 // grouping — so bookmarks and the deployed CI URL maps still resolve.
 const primaryNav: { to: string; label: string; end?: boolean }[] = [
   { to: "/compare", label: "Decide" },
+  { to: "/portfolio", label: "Portfolio" },
   { to: "/signals", label: "Research" },
   { to: "/simulations", label: "Backtest" },
   { to: "/documents", label: "Docs" },
