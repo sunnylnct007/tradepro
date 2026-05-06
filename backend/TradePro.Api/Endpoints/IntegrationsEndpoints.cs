@@ -62,7 +62,10 @@ public static class IntegrationsEndpoints
         // and totals. T212's currentPrice is included so the operator
         // can reconcile against the Yahoo close that drives our
         // indicators (handy when the two diverge after a corporate
-        // action or a stale Yahoo bar).
+        // action or a stale Yahoo bar). Also surfaces `mode` on
+        // every response — `demo` for paper trading, `live` for real
+        // money — so every consumer (UI, email, MCP) can show the
+        // user which world they're looking at.
         app.MapGet("/integrations/trading212/positions",
             async (Trading212Client client, CancellationToken ct) =>
             {
@@ -71,6 +74,7 @@ public static class IntegrationsEndpoints
                     return Results.Ok(new
                     {
                         enabled = false,
+                        mode = client.Mode,
                         message = "Trading212 integration is disabled. Set Trading212:Mode and credentials.",
                         positions = Array.Empty<object>(),
                     });
@@ -116,6 +120,7 @@ public static class IntegrationsEndpoints
                 return Results.Ok(new
                 {
                     enabled = true,
+                    mode = client.Mode,
                     fetchedAtUtc = DateTime.UtcNow,
                     positionCount = rows.Count,
                     positions = rows,

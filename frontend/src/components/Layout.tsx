@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import { T212ModeBadge } from "./T212ModeBadge";
 
 // Primary nav reflects the actual decision flow: pick what to invest in
 // (Decide), drill into a single symbol (Research), test a strategy
@@ -115,6 +116,10 @@ export function Layout() {
           ))}
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+          {/* T212 broker mode chip — visible on every page so a user
+           * can never confuse demo with real money. Hidden when
+           * T212 isn't configured. */}
+          <T212ModeBadge />
           <span
             className="num"
             style={{

@@ -67,9 +67,14 @@ def _summary_card(
     buys: list[dict], waits: list[dict], avoids: list[dict],
     holdings: list[dict] | None,
     banner: str | None,
+    *,
+    portfolio_mode: str | None = None,
 ) -> str:
     """Top-of-email stat block with box-drawing borders. Quick read
-    of what's in the digest before scanning the per-row cards."""
+    of what's in the digest before scanning the per-row cards.
+    `portfolio_mode` shows the T212 environment (demo / live) so a
+    user reading recommendations on a mobile screen can't confuse
+    paper-trading positions for real money."""
     today = _now_str()
     rule_top = "╔" + "═" * _BOX_WIDTH + "╗"
     rule_mid = "╠" + "═" * _BOX_WIDTH + "╣"
@@ -95,6 +100,19 @@ def _summary_card(
             f"  HOLDINGS: {len(holdings):2d} positions · "
             f"unrealised {sign}{total:.2f} {ccy}"
         ))
+        # T212 mode is critical context — DEMO means paper trading;
+        # LIVE means real money. Surface it loud so a user scanning
+        # the inbox can never confuse the two.
+        if portfolio_mode:
+            mode_upper = portfolio_mode.upper()
+            mode_text = (
+                f"  T212 MODE: {mode_upper} (PAPER TRADING — simulated)"
+                if portfolio_mode == "demo" else
+                f"  T212 MODE: {mode_upper} (LIVE — REAL MONEY)"
+                if portfolio_mode == "live" else
+                f"  T212 MODE: {mode_upper}"
+            )
+            lines.append(_box_line(mode_text))
     if banner:
         for chunk in _wrap(banner, _BOX_WIDTH - 4):
             lines.append(_box_line(f"  {chunk}"))
@@ -716,12 +734,15 @@ def build_digest(
     payloads: list[dict],
     *,
     holdings: list[dict] | None = None,
+    portfolio_mode: str | None = None,
 ) -> EmailDigest:
     """Build the digest. `payloads` is a list of compare envelopes —
     one per universe — matching the shape the API returns from
     /api/compare/latest. `holdings` is the optional T212 positions
     list; when supplied, a 'What You Hold' section appears at the
-    top with each position cross-referenced against today's verdict."""
+    top with each position cross-referenced against today's verdict.
+    `portfolio_mode` is "demo" / "live" / None — surfaces in the
+    summary card so the user can see broker mode at a glance."""
     buys = _filter_bucket(payloads, "BUY")
     avoids = _filter_bucket(payloads, "AVOID")
     waits = _filter_bucket(payloads, "WAIT")
@@ -733,7 +754,10 @@ def build_digest(
     )
 
     banner = _staleness_banner(payloads)
-    summary = _summary_card(buys, waits, avoids, holdings or [], banner)
+    summary = _summary_card(
+        buys, waits, avoids, holdings or [], banner,
+        portfolio_mode=portfolio_mode,
+    )
     bar_chart = _top_n_bar_chart(buys, n=5)
     holdings_block = _format_holdings_block(holdings or [], payloads)
     sections = [summary]

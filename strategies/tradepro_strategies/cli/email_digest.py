@@ -112,10 +112,11 @@ def fetch_payloads(api_base: str, token: str | None) -> list[dict]:
     return payloads
 
 
-def fetch_holdings(api_base: str, token: str | None) -> list[dict]:
-    """Pull the T212 positions list from the API. Returns an empty
-    list when T212 isn't configured — never raises so the digest
-    still ships."""
+def fetch_holdings(api_base: str, token: str | None) -> tuple[list[dict], str | None]:
+    """Pull the T212 positions list + broker mode from the API.
+    Returns (positions, mode). mode is "demo" / "live" / None.
+    Never raises — empty list + None when T212 isn't configured or
+    the API is unreachable."""
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     base = api_base.rstrip("/")
     try:
@@ -128,10 +129,10 @@ def fetch_holdings(api_base: str, token: str | None) -> list[dict]:
         data = resp.json() or {}
     except requests.RequestException as e:
         print(f"warning: could not fetch T212 positions: {e}", file=sys.stderr)
-        return []
+        return [], None
     if not data.get("enabled"):
-        return []
-    return data.get("positions") or []
+        return [], data.get("mode")
+    return (data.get("positions") or []), data.get("mode")
 
 
 def _applescript_quote(s: str) -> str:
@@ -251,8 +252,10 @@ def send_email(digest: EmailDigest, cfg: dict) -> None:
 def main() -> None:
     args = parse_args()
     payloads = fetch_payloads(args.api_base, args.api_token)
-    holdings = fetch_holdings(args.api_base, args.api_token)
-    digest = build_digest(payloads, holdings=holdings)
+    holdings, portfolio_mode = fetch_holdings(args.api_base, args.api_token)
+    digest = build_digest(
+        payloads, holdings=holdings, portfolio_mode=portfolio_mode,
+    )
     cfg = load_smtp_creds(args)
 
     recipients = cfg.get("to") or []
