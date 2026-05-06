@@ -1,19 +1,18 @@
-# Local dev stack — `docker compose up` gives you a hot-reloading API and
-# frontend with the same URLs the browser would see in prod (just on
-# localhost). The Python research package is intentionally NOT a service:
-# you run `uv run tradepro-compare` natively on the host so the M-series
-# perf advantage isn't wrapped in a container.
+# Local dev stack. `docker compose up -d` brings up the api,
+# frontend, and worker — one command, the whole rig.
 #
 # Quick reference:
-#   docker compose up                # both, foreground
-#   docker compose up -d             # both, background
-#   docker compose up frontend       # only frontend (run API natively for breakpoints)
-#   docker compose logs -f api       # tail one service
+#   docker compose up -d             # api + frontend + worker (default)
+#   docker compose up -d api frontend  # without the worker
+#   docker compose --profile upload up -d extractor   # add doc upload sidecar
+#   docker compose logs -f worker    # tail the compare loop
 #   docker compose down              # stop everything
 #
 # Hot reload:
 #   - API uses `dotnet watch run` — edit a .cs file and it rebuilds in ~2s.
 #   - Frontend uses Vite HMR — edit .tsx and the browser updates instantly.
+#   - Worker requires a rebuild for code changes:
+#       docker compose up -d --build worker
 #
 # Env config:
 #   Copy .env.compose.example to .env at the repo root, set the values you
@@ -107,6 +106,47 @@ services:
       api:
         condition: service_started
 
+  # Persistent TradePro worker — runs `tradepro-compare --push`
+  # every WORKER_INTERVAL_SECONDS (default 30 min) and heartbeats
+  # the api every HEARTBEAT_INTERVAL_SECONDS (default 5 min) so
+  # the Mac never goes "offline" between cycles. Replaces the
+  # macOS launchd setup with a single compose service.
+  #
+  # Talks to the api over the compose default network at
+  # http://api:5080 — internal DNS resolves the service name.
+  # Talks to Ollama on the host at host.docker.internal:11434
+  # (Ollama runs natively for M-series perf; we don't containerise
+  # it). The worker pushes via the same Ingest__Token the api
+  # accepts, propagated through TRADEPRO_API_TOKEN env.
+  worker:
+    build:
+      context: ./strategies
+      dockerfile: Dockerfile.worker
+    container_name: tradepro-worker
+    environment:
+      # Where to push compare results + heartbeat pings. The api
+      # service name resolves over the compose network.
+      TRADEPRO_API_URL: "http://api:5080"
+      TRADEPRO_API_TOKEN: "${INGEST_TOKEN:-dev-ingest-token}"
+      # Ollama runs on the macOS host (NOT in compose). The
+      # special host.docker.internal hostname routes from the
+      # container to the host. If you're on Linux without that
+      # alias, set TRADEPRO_OLLAMA_HOST in .env to your host IP.
+      TRADEPRO_OLLAMA_HOST: "${TRADEPRO_OLLAMA_HOST:-http://host.docker.internal:11434}"
+      # Cadence overrides — same vars worker.sh reads.
+      WORKER_INTERVAL_SECONDS: "${WORKER_INTERVAL_SECONDS:-1800}"
+      HEARTBEAT_INTERVAL_SECONDS: "${HEARTBEAT_INTERVAL_SECONDS:-300}"
+    volumes:
+      # Persist compare artefacts + cache across rebuilds, same
+      # spot the host script writes to. Matches the launchd
+      # path so a host-side `tradepro-compare` and the worker
+      # share state cleanly.
+      - worker_state:/root/.tradepro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Document extractor sidecar — small FastAPI service the API
   # forwards browser-uploaded files to. PyMuPDF for PDFs (fast,
   # robust), trafilatura for HTML (boilerplate stripping), pass-
@@ -146,3 +186,4 @@ services:
 volumes:
   frontend_node_modules:
   api_compare_cache:
+  worker_state:

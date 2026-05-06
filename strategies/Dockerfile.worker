@@ -1,0 +1,35 @@
+# Persistent TradePro worker — runs `tradepro-compare --push` on a
+# loop, heartbeats the API every 5 min, and writes the broker
+# digest payload back into the API cache so the Compare page sees
+# fresh data without the user touching anything.
+#
+# Replaces the macOS launchd setup with a single docker-compose
+# service. One command (`docker compose up -d`) brings the entire
+# stack — api, frontend, worker — up together.
+FROM python:3.12-slim
+
+# uv: same single-binary tool the host uses, mirrors the dev story.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Project + deps layer first so iteration on tradepro_strategies/
+# doesn't bust the wheel cache.
+COPY pyproject.toml uv.lock ./
+COPY tradepro_strategies/ tradepro_strategies/
+COPY tools/ tools/
+COPY README.md ./
+COPY scripts/ scripts/
+
+# --no-dev keeps behave/ruff/mypy out of the runtime image.
+RUN uv sync --frozen --no-dev
+
+# Worker loop config — overridable via compose env.
+ENV WORKER_INTERVAL_SECONDS=1800
+ENV HEARTBEAT_INTERVAL_SECONDS=300
+ENV TRADEPRO_PROJECT_DIR=/app
+
+# refresh.sh + worker.sh need to be executable.
+RUN chmod +x scripts/refresh.sh scripts/worker.sh
+
+CMD ["bash", "scripts/worker.sh"]
