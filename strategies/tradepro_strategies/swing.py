@@ -119,16 +119,25 @@ def _score_quality(row: dict) -> tuple[int, str]:
 
 
 def _score_valuation(row: dict) -> tuple[int, str]:
+    """Score the valuation layer — metric-aware so the reason string
+    quotes the lens that was actually used (P/E vs basket for stocks,
+    yield vs basket for ETFs). Avoids the old NVDA-style false
+    'expensive' that flowed from yield-only ranking on growth names."""
     flag_obj = row.get("valuation_flag") or {}
     flag = flag_obj.get("flag")
+    lens = flag_obj.get("lens_used") or (
+        "yield" if flag_obj.get("metric") == "dividend_yield_pct" else
+        "pe" if flag_obj.get("metric") == "forward_pe" else None
+    )
     if not flag or flag == "n/a":
         return 0, "no valuation data"
+    metric_label = "P/E" if lens == "pe" else "yield"
     if flag == "cheap":
-        return 2, "top-quartile yield (cheap vs basket)"
+        return 2, f"top-quartile {metric_label} (cheap vs basket)"
     if flag == "fair":
-        return 1, "mid-basket yield"
+        return 1, f"mid-basket {metric_label}"
     if flag == "expensive":
-        return 0, "bottom-quartile yield (expensive vs basket)"
+        return 0, f"bottom-quartile {metric_label} (expensive vs basket)"
     return 0, f"unknown flag {flag!r}"
 
 

@@ -53,6 +53,39 @@ Feature: Cross-sectional momentum ranks within the basket
     Then "A" has flag "n/a"
     And "B" has flag "n/a"
 
+  # NVDA-style growth name with near-zero dividend used to flag
+  # "expensive" under yield-only ranking — wrong signal. P/E lens
+  # ranks ascending so lowest P/E in basket is cheapest.
+  Scenario: P/E quartile valuation flag — lowest P/E is cheap
+    Given the pe basket json {"NVDA": 28.0, "MSFT": 32.0, "AMZN": 45.0, "META": 24.0}
+    When I bucket the basket by P/E ratio
+    Then "META" has flag "cheap"
+    And "AMZN" has flag "expensive"
+    And the basis for "META" mentions "P/E"
+
+  Scenario: P/E quartile drops loss-making (negative P/E) symbols
+    Given the pe basket json {"A": 20.0, "B": -5.0, "C": 30.0, "D": 40.0}
+    When I bucket the basket by P/E ratio
+    Then "B" has flag "n/a"
+
+  # Hybrid orchestrator: stocks have P/E coverage, prefers P/E lens.
+  Scenario: hybrid valuation picks P/E when basket has P/E coverage
+    Given the pe basket json {"NVDA": 28.0, "MSFT": 32.0, "AMZN": 45.0, "META": 24.0}
+    And the yield basket json {"NVDA": 0.02, "MSFT": 1.1, "AMZN": 0.0, "META": 0.5}
+    When I bucket the basket by valuation
+    Then the lens used is "pe"
+    And "META" has flag "cheap"
+
+  # ETF basket: no P/E reported, falls back to yield lens (legacy
+  # behaviour preserved).
+  Scenario: hybrid valuation falls back to yield when P/E missing
+    Given the pe basket json {"VUKE.L": null, "VUSA.L": null, "INRG.L": null, "AGGG.L": null}
+    And the yield basket json {"VUKE.L": 3.5, "VUSA.L": 1.4, "INRG.L": 0.5, "AGGG.L": 4.2}
+    When I bucket the basket by valuation
+    Then the lens used is "yield"
+    And "AGGG.L" has flag "cheap"
+    And "INRG.L" has flag "expensive"
+
   Scenario: trace rows — top-quartile momentum + cheap valuation = both pass
     Given a top-quartile momentum signal with zscore 1.2
     And a cheap valuation flag

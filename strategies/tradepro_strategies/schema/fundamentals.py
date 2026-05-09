@@ -24,9 +24,12 @@ class Fundamentals(TPModel):
     ytd_return_pct: float | None = None
     three_year_return_pct: float | None = None
     five_year_return_pct: float | None = None
+    forward_pe: float | None = None
+    trailing_pe: float | None = None
     yield_to_maturity_pct: float | None = None
     duration_years: float | None = None
     top_holdings: list[TopHolding] = []
     sector_weights: dict[str, float] = {}
+    n_holdings: int | None = None
     summary: str | None = None
     source: str = "yahoo"

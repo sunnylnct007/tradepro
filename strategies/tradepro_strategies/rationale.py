@@ -210,10 +210,22 @@ def gather_facts(
             "basket_median_pct": cross_sectional_momentum.get("basket_median"),
         }
     if valuation_flag and valuation_flag.get("flag") and valuation_flag["flag"] != "n/a":
+        # Lens-aware fact emission — yield_pct / basket_median_yield_pct
+        # are only populated when lens=yield (legacy ETF path), and
+        # pe_ratio / basket_median_pe when lens=pe (stock basket).
+        # Always emit the generic value/basket_median pair so the
+        # verifier can quote whichever number actually drove the
+        # decision, plus the lens label so the LLM can pick the
+        # right phrasing ("P/E 28×" vs "yield 4.2%").
         facts["cross_basket_valuation"] = {
             "flag": valuation_flag.get("flag"),
+            "lens_used": valuation_flag.get("lens_used"),
+            "value": valuation_flag.get("value"),
+            "basket_median": valuation_flag.get("basket_median"),
             "yield_pct": valuation_flag.get("yield_pct"),
             "basket_median_yield_pct": valuation_flag.get("basket_median_yield_pct"),
+            "pe_ratio": valuation_flag.get("pe_ratio"),
+            "basket_median_pe": valuation_flag.get("basket_median_pe"),
             "basis": valuation_flag.get("basis"),
         }
     # Phase-X composite — the 0-8 score and per-layer breakdown.

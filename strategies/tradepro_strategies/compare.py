@@ -377,12 +377,32 @@ def _attach_bucket_and_rationale(
             total=total,
         )
 
-        # Sentiment demotion. Same thresholds the LLM bar shows.
+        # Two-tier sentiment demotion. Same -0.30 / 2-material rule
+        # demotes BUY → WAIT (kept). At a stronger threshold we go
+        # all the way to AVOID — this differentiates "negative news
+        # backdrop, sit out" (WAIT) from "really bad news flow, get
+        # out" (AVOID). Without the second tier a name like AMZN
+        # at mean -0.475 lands in the same bucket as a benignly
+        # overbought-RSI WAIT, which conflates the two situations.
+        AVOID_MEAN_THRESHOLD = -0.45
+        AVOID_MIN_MATERIAL = 3
         sentiment_demoted = False
-        if bucket == "BUY":
-            ss = best.get("sentiment_summary") or {}
-            mean = ss.get("mean_sentiment")
-            mat_neg = ss.get("material_negative_count", 0)
+        ss = best.get("sentiment_summary") or {}
+        mean = ss.get("mean_sentiment")
+        mat_neg = ss.get("material_negative_count", 0)
+        if (mean is not None
+                and mean <= AVOID_MEAN_THRESHOLD
+                and mat_neg >= AVOID_MIN_MATERIAL
+                and bucket != "AVOID"):
+            sentiment_demoted = True
+            bucket = "AVOID"
+            reason = (
+                f"Sentiment demotion to AVOID: 7d mean {mean:.2f} ≤ "
+                f"{AVOID_MEAN_THRESHOLD} AND {mat_neg} material-negative "
+                f"headlines (≥ {AVOID_MIN_MATERIAL}) — news flow is "
+                f"materially worse than a routine WAIT."
+            )
+        elif bucket == "BUY":
             if (mean is not None
                     and mean <= mean_threshold
                     and mat_neg >= min_material):
@@ -680,11 +700,15 @@ def compare(
     # Cross-basket signals (Family-2 + Family-3) computed BEFORE the
     # bucket/rationale attach so the rationale layer can quote them.
     # Family 3 (cross-sectional momentum): rank + zscore vs basket
-    # peers on 12-month return. Family 2 (valuation): cheap/fair/
-    # expensive quartile by dividend yield. Annotation only — not
-    # yet bucket-vote drivers (see Phase X).
+    # peers on 12-month return.
+    # Family 2 (valuation): cheap/fair/expensive — uses P/E quartile
+    # for stock baskets (lower P/E = cheaper) and falls back to
+    # dividend-yield quartile for ETF baskets where P/E isn't
+    # reported. The hybrid orchestrator picks per basket so growth
+    # stocks like NVDA aren't mislabeled "expensive" purely because
+    # they don't pay a dividend.
     from .cross_sectional import (
-        bucket_by_yield_quartile,
+        bucket_by_valuation,
         cross_basket_trace_rows,
         rank_by_momentum,
     )
@@ -697,7 +721,12 @@ def compare(
         r["symbol"]: (r.get("fundamentals") or {}).get("dividend_yield_pct")
         for r in rows
     }
-    val_flags = bucket_by_yield_quartile(yield_inputs)
+    pe_inputs = {
+        r["symbol"]: (r.get("fundamentals") or {}).get("forward_pe")
+            or (r.get("fundamentals") or {}).get("trailing_pe")
+        for r in rows
+    }
+    val_flags = bucket_by_valuation(pe_inputs, yield_inputs)
     # Per-symbol consensus needs a count over ALL strategy rows for
     # this symbol — compute once per symbol so the swing scorer
     # below sees long_count even on rows beyond rank 1.
@@ -751,6 +780,26 @@ def compare(
                 logger.emit("compare.swing_scorer_failed",
                             symbol=r.get("symbol"), error=str(e))
             r["swing_score"] = None
+
+    # Horizon Classification Engine (TRADEPRO-SPEC-001 §6.2).
+    # Runs LAST — needs swing_score (event layer → has_catalyst),
+    # valuation_flag, cross_sectional_momentum and the market_state
+    # decision_trace already attached. Output is a sibling field, not
+    # a modifier on existing fields, so the bucket vote is unchanged.
+    from .horizons import classify_horizons
+    for r in rows:
+        try:
+            hz = classify_horizons(r)
+            r["horizon_classification"] = hz.to_dict()
+            # Also surface range_pct at row top-level so the frontend
+            # can read it without descending into the nested object.
+            if hz.range_pct is not None:
+                r.setdefault("range_pct", hz.range_pct)
+        except Exception as e:  # noqa: BLE001
+            if logger:
+                logger.emit("compare.horizons_failed",
+                            symbol=r.get("symbol"), error=str(e))
+            r["horizon_classification"] = None
 
     # Per-symbol bucket computation + rationale generation. Both are
     # symbol-level (not per-row) so we compute once and copy onto every
@@ -823,13 +872,21 @@ def compare(
                 "mean_sentiment_threshold": settings.mean_sentiment_threshold,
                 "min_material_negative_count": settings.min_material_negative_count,
                 "lookback_days": settings.lookback_days,
+                # Stronger tier: any bucket → AVOID when news flow is
+                # materially negative (AMZN-class). Hardcoded for now;
+                # add to remote_settings when the user wants to tune.
+                "avoid_mean_threshold": -0.45,
+                "avoid_min_material_negative_count": 3,
                 "source": settings.source,         # "api" or "defaults"
                 "settings_updated_at": settings.updated_at,
                 "description": (
                     f"BUY → WAIT when {settings.lookback_days}-day rolling "
                     f"mean sentiment ≤ {settings.mean_sentiment_threshold} "
                     f"AND ≥ {settings.min_material_negative_count} "
-                    f"material-negative headlines."
+                    f"material-negative headlines. "
+                    f"Any → AVOID when mean ≤ -0.45 AND ≥ 3 material-"
+                    f"negative headlines (separates 'news backdrop is "
+                    f"bad' from 'news flow is genuinely hostile')."
                 ),
             },
             # Per-run aggregate of LLM activity — calls made, cache hit

@@ -86,10 +86,27 @@ def step_yield_basket(context, payload: str):
     context.yields = json.loads(payload)
 
 
+@given("the pe basket json {payload}")
+def step_pe_basket(context, payload: str):
+    context.pes = json.loads(payload)
+
+
 @when("I bucket the basket by yield quartile")
 def step_yield_bucket(context):
     from tradepro_strategies.cross_sectional import bucket_by_yield_quartile
     context.flags = bucket_by_yield_quartile(context.yields)
+
+
+@when("I bucket the basket by P/E ratio")
+def step_pe_bucket(context):
+    from tradepro_strategies.cross_sectional import bucket_by_pe_ratio
+    context.flags = bucket_by_pe_ratio(context.pes)
+
+
+@when("I bucket the basket by valuation")
+def step_valuation_bucket(context):
+    from tradepro_strategies.cross_sectional import bucket_by_valuation
+    context.flags = bucket_by_valuation(context.pes, context.yields)
 
 
 @then('"{symbol}" has flag "{expected}"')
@@ -102,6 +119,20 @@ def step_assert_flag(context, symbol: str, expected: str):
 def step_basis_mentions_median(context, symbol: str):
     basis = context.flags[symbol].get("basis", "")
     assert "median" in basis, f"basis for {symbol} missing 'median': {basis!r}"
+
+
+@then('the basis for "{symbol}" mentions "{snippet}"')
+def step_basis_mentions(context, symbol: str, snippet: str):
+    basis = context.flags[symbol].get("basis", "")
+    assert snippet in basis, f"basis for {symbol} missing {snippet!r}: {basis!r}"
+
+
+@then('the lens used is "{expected}"')
+def step_lens_used(context, expected: str):
+    # All entries in a single-orchestrator output share the same lens.
+    sample = next(iter(context.flags.values()))
+    actual = sample.get("lens_used")
+    assert actual == expected, f"expected lens_used={expected!r}, got {actual!r}"
 
 
 # ---- Trace rows ----

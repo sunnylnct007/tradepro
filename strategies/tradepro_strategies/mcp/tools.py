@@ -34,10 +34,31 @@ class ApiUnreachable(RuntimeError):
         self.cause = cause
 
 
-def _get(path: str, params: dict | None = None, timeout: float = 10.0) -> dict:
+def _default_timeout() -> float:
+    """Per-call HTTP timeout for the MCP layer. Default 30s — generous
+    enough to survive a worker mid-refresh + cold compare cache, tight
+    enough that Claude Desktop doesn't sit on a dead tool call. Tune
+    via `TRADEPRO_MCP_TIMEOUT` env if a deployment hits genuinely slow
+    upstream services."""
+    raw = os.environ.get("TRADEPRO_MCP_TIMEOUT")
+    if raw:
+        try:
+            v = float(raw)
+            if 1.0 <= v <= 120.0:
+                return v
+        except ValueError:
+            pass
+    return 30.0
+
+
+def _get(path: str, params: dict | None = None,
+         timeout: float | None = None) -> dict:
     url = f"{_api_base()}{path}"
     try:
-        resp = requests.get(url, params=params or {}, timeout=timeout)
+        resp = requests.get(
+            url, params=params or {},
+            timeout=timeout if timeout is not None else _default_timeout(),
+        )
     except (requests.ConnectionError, requests.Timeout) as e:
         raise ApiUnreachable(_api_base(), e) from e
     resp.raise_for_status()
@@ -273,6 +294,235 @@ def get_portfolio_status() -> dict:
         "fetched_at": _now_iso(),
         "ok": True,
         **data,
+    }
+
+
+def get_portfolio_signals(horizon: str = "1y") -> dict:
+    """Per-position BUY_MORE / HOLD / TRIM recommendation across the
+    user's T212 portfolio.
+
+    Combines `get_portfolio` (positions) with the cached compare
+    payload (per-symbol bucket + swing score + market_state) and
+    runs `analyse_holding` per position. The same engine the email
+    digest and dashboard use, so all three surfaces hand out
+    identical advice.
+
+    Args:
+        horizon: One of "6mo" / "1y" / "3y" / "5y". Picks the
+            threshold profile — 6mo reacts fastest, 5y rides through
+            short-term noise. Default "1y" matches the dashboard.
+
+    Returns: list of recommendations with action, narrative, evidence,
+    and (for BUY_MORE) the new average cost basis after an equal
+    tranche.
+    """
+    from ..holdings import HORIZON_PROFILES, analyse_holding
+
+    if horizon not in HORIZON_PROFILES:
+        return _err(
+            "get_portfolio_signals",
+            f"unknown horizon {horizon!r}; valid: "
+            f"{sorted(HORIZON_PROFILES.keys())}",
+        )
+
+    # Pull positions first — without them there's nothing to score.
+    portfolio = get_portfolio()
+    if not portfolio.get("ok") or not portfolio.get("enabled"):
+        return {
+            "_source": "get_portfolio_signals",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "enabled": portfolio.get("enabled", False),
+            "message": portfolio.get("message")
+                or "Trading 212 not configured — set Trading212__Mode + ApiKey.",
+            "horizon": horizon,
+            "recommendations": [],
+        }
+    positions = portfolio.get("positions") or []
+    if not positions:
+        return {
+            "_source": "get_portfolio_signals",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "enabled": True,
+            "horizon": horizon,
+            "recommendations": [],
+            "message": "No open positions in your T212 account.",
+        }
+
+    # Collect every cached compare row across universes — same logic
+    # the dashboard uses. Best-rank wins per symbol. Fetched in
+    # parallel because Claude Desktop's per-tool timeout doesn't
+    # tolerate N serial round-trips when N gets to 5+ universes.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    universes_envelope = list_universes()
+    universes = universes_envelope.get("universes") or []
+    universe_names = [
+        (u.get("universe") if isinstance(u, dict) else u)
+        for u in universes
+    ]
+    universe_names = [n for n in universe_names if n]
+
+    def _fetch_one(name: str):
+        try:
+            return name, _get("/api/compare/latest", params={"universe": name})
+        except Exception:  # noqa: BLE001
+            return name, None
+
+    verdict_by_symbol: dict[str, dict] = {}
+    if universe_names:
+        with ThreadPoolExecutor(max_workers=min(8, len(universe_names))) as ex:
+            futures = [ex.submit(_fetch_one, n) for n in universe_names]
+            for fut in as_completed(futures):
+                _, payload_env = fut.result()
+                rows = ((payload_env or {}).get("payload") or {}).get("rows") or []
+                for r in rows:
+                    sym = (r.get("symbol") or "").upper()
+                    if not sym:
+                        continue
+                    existing = verdict_by_symbol.get(sym)
+                    if not existing or (r.get("rank") or 1e9) < (existing.get("rank") or 1e9):
+                        verdict_by_symbol[sym] = r
+
+    recommendations = []
+    for p in positions:
+        yahoo = (p.get("yahooSymbol") or p.get("ticker") or "").upper()
+        row = verdict_by_symbol.get(yahoo)
+        rec = analyse_holding(p, row, horizon=horizon)
+        recommendations.append({
+            **rec.to_dict(),
+            "yahooSymbol": yahoo,
+            "ticker": p.get("ticker"),
+            "instrumentName": p.get("instrumentName"),
+            "currency": p.get("currency"),
+            "quantity": p.get("quantity"),
+            "averagePricePaid": p.get("averagePricePaid"),
+            "currentPrice": p.get("currentPrice"),
+            "unrealisedPct": p.get("unrealisedPct"),
+            "unrealisedAbs": p.get("unrealisedAbs"),
+            "today_bucket": (row or {}).get("bucket"),
+            "today_swing_score": ((row or {}).get("swing_score") or {}).get("total"),
+        })
+
+    # Sort to match the dashboard / email digest ordering: TRIM →
+    # BUY_MORE → HOLD, then by |P&L %| desc.
+    priority = {"TRIM": 0, "BUY_MORE": 1, "HOLD": 2}
+    recommendations.sort(
+        key=lambda r: (
+            priority.get(r["action"], 9),
+            -abs(float(r.get("unrealisedPct") or 0.0)),
+        ),
+    )
+
+    counts = {a: 0 for a in ("BUY_MORE", "HOLD", "TRIM")}
+    for r in recommendations:
+        counts[r["action"]] = counts.get(r["action"], 0) + 1
+
+    return {
+        "_source": "get_portfolio_signals",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "enabled": True,
+        "horizon": horizon,
+        "counts": counts,
+        "recommendations": recommendations,
+    }
+
+
+def get_horizon_signals(symbol: str) -> dict:
+    """Three independent horizon verdicts (swing / long-term / passive)
+    for a single symbol — TRADEPRO-SPEC-001 §6.3.
+
+    Looks up the symbol's most-recent compare row across cached
+    universes (best-rank wins, same as the dashboard) and runs
+    `classify_horizons` on it. Returns each horizon's signal grade
+    (BUY / WATCH / AVOID / N/A), 0-8 score, reasons list, optional
+    entry note, plus the `range_pct` percentile.
+
+    When the symbol isn't in any cached universe, falls back to a
+    fresh on-demand evaluate via the existing `evaluate_symbols`
+    pathway so the tool can still answer for one-offs.
+
+    Target: returns in <2s per spec acceptance criterion.
+    """
+    if not symbol or not symbol.strip():
+        return _err("get_horizon_signals", "symbol is required")
+    sym_u = symbol.strip().upper()
+
+    # Walk cached universes for the best-rank row. Reuses the same
+    # logic get_portfolio_signals uses — single source of truth.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    universes_envelope = list_universes()
+    universes = universes_envelope.get("universes") or []
+    universe_names = [
+        (u.get("universe") if isinstance(u, dict) else u)
+        for u in universes
+    ]
+    universe_names = [n for n in universe_names if n]
+
+    def _fetch(name: str):
+        try:
+            return _get("/api/compare/latest", params={"universe": name})
+        except Exception:  # noqa: BLE001
+            return None
+
+    best_row: dict | None = None
+    best_rank = 1e9
+    found_universe: str | None = None
+    if universe_names:
+        with ThreadPoolExecutor(max_workers=min(8, len(universe_names))) as ex:
+            future_to_name = {
+                ex.submit(_fetch, n): n for n in universe_names
+            }
+            for fut in as_completed(future_to_name):
+                payload_env = fut.result()
+                rows = ((payload_env or {}).get("payload") or {}).get("rows") or []
+                for r in rows:
+                    if (r.get("symbol") or "").upper() != sym_u:
+                        continue
+                    rank = r.get("rank") or 1e9
+                    if rank < best_rank:
+                        best_rank = rank
+                        best_row = r
+                        found_universe = future_to_name[fut]
+
+    if best_row is None:
+        return {
+            "_source": "get_horizon_signals",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "symbol": sym_u,
+            "in_cache": False,
+            "message": (
+                f"{sym_u} isn't in any cached universe. Run "
+                f"evaluate_symbols([\"{sym_u}\"]) for an ad-hoc verdict, "
+                f"then re-call this tool."
+            ),
+            "horizons": None,
+        }
+
+    # Use the row's existing horizon_classification field when the
+    # comparator already attached one — saves a recompute. Fall back
+    # to live classification when running against an old cache.
+    payload: dict
+    if best_row.get("horizon_classification"):
+        payload = best_row["horizon_classification"]
+    else:
+        from ..horizons import classify_horizons
+        payload = classify_horizons(best_row).to_dict()
+
+    return {
+        "_source": "get_horizon_signals",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "symbol": sym_u,
+        "in_cache": True,
+        "universe": found_universe,
+        "rank_in_universe": best_row.get("rank"),
+        "today_bucket": best_row.get("bucket"),
+        "today_swing_score": (best_row.get("swing_score") or {}).get("total"),
+        "horizons": payload,
     }
 
 

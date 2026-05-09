@@ -132,10 +132,20 @@ def beat_and_retreat_signal(
         "post_earnings_peak": None,
         "current_price": None,
         "retreat_from_post_earnings_peak_pct": None,
+        # Diagnostic: explains *why* the verdict isn't STRONG. Empty
+        # on a successful fire. Used to be implicit — now surfaced so
+        # "all stocks NO_RECENT" mysteries can be debugged from the
+        # compare envelope alone instead of guessing yfinance shape.
+        "diagnostic": None,
     }
 
     ev = fetch_recent_earnings(symbol, ticker_factory=ticker_factory)
     if ev is None:
+        base["diagnostic"] = (
+            "yfinance returned no recent earnings rows within the "
+            "90-day lookback (Ticker.earnings_dates empty or "
+            "all rows missing Reported EPS)."
+        )
         return base
     base["earnings"] = ev.to_dict()
     days_since = (
@@ -146,9 +156,23 @@ def beat_and_retreat_signal(
 
     if ev.beat is False:
         base["verdict"] = "NO_BEAT"
+        base["diagnostic"] = (
+            f"Earnings {days_since}d ago: actual {ev.eps_actual} ≤ "
+            f"estimate {ev.eps_estimate} (missed)."
+        )
         return base
     if ev.beat is None:
-        base["verdict"] = "NO_RECENT"
+        # We have a date but Yahoo hasn't published the actual or
+        # estimate — common right after a release before the data
+        # propagates. Use a distinct verdict so the user can tell
+        # this apart from "no earnings at all in lookback".
+        base["verdict"] = "MISSING_DATA"
+        base["diagnostic"] = (
+            f"Earnings event found {days_since}d ago but Yahoo's "
+            f"Reported EPS / Estimate fields are null — surprise pct "
+            f"can't be computed yet. Will populate within ~24h of "
+            f"the release."
+        )
         return base
 
     # We have a beat. Slice price history to bars after the announce.
@@ -173,6 +197,10 @@ def beat_and_retreat_signal(
 
     if base["days_remaining_in_window"] == 0:
         base["verdict"] = "EXPIRED"
+        base["diagnostic"] = (
+            f"Earnings beat confirmed {days_since}d ago but the "
+            f"{window_days}-day post-earnings window has elapsed."
+        )
         return base
 
     # The beat-and-retreat sweet spot: -15% ≤ retreat ≤ -5%.
@@ -182,6 +210,13 @@ def beat_and_retreat_signal(
         base["fired"] = True
     else:
         base["verdict"] = "MODERATE"
+        base["diagnostic"] = (
+            f"Beat {days_since}d ago, retreat {retreat_pct:+.1f}% — "
+            f"outside the {-MAX_RETREAT_PCT}% to {-MIN_RETREAT_PCT}% "
+            f"entry zone "
+            + ("(not enough pullback yet)" if retreat_pct > -MIN_RETREAT_PCT
+               else "(thesis breaking — too steep)")
+        )
     return base
 
 

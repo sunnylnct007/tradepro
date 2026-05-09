@@ -53,13 +53,25 @@ class Fundamentals:
     ytd_return_pct: float | None
     three_year_return_pct: float | None
     five_year_return_pct: float | None
+    # Valuation (single-stock-flavoured — usually null on ETFs).
+    # forward_pe is forward 12m EPS, trailing_pe is last 12m. Lower
+    # = cheaper, basket-relative. Replaces dividend yield as the
+    # primary cross-sectional valuation lens since dividend yield
+    # gives garbage on growth names that don't pay much (NVDA, AMZN).
+    forward_pe: float | None
+    trailing_pe: float | None
     # Bond ETF flavour
     yield_to_maturity_pct: float | None
     duration_years: float | None
     # Composition
     top_holdings: list[TopHolding]
     sector_weights: dict[str, float]    # name → weight as fraction (0.18 = 18%)
-    summary: str | None                 # one-paragraph description
+    # Total number of underlying holdings in the fund. Used by the
+    # passive-horizon scorer per TRADEPRO-SPEC-001 §4.3 — broad
+    # diversification (>200 holdings) earns 2 points; <50 earns 0.
+    # Stocks (legal_type == "EQUITY") naturally have n_holdings == 1.
+    n_holdings: int | None = None
+    summary: str | None = None          # one-paragraph description
     source: str = "yahoo"
 
     def to_dict(self) -> dict[str, Any]:
@@ -77,10 +89,13 @@ class Fundamentals:
             "ytd_return_pct": self.ytd_return_pct,
             "three_year_return_pct": self.three_year_return_pct,
             "five_year_return_pct": self.five_year_return_pct,
+            "forward_pe": self.forward_pe,
+            "trailing_pe": self.trailing_pe,
             "yield_to_maturity_pct": self.yield_to_maturity_pct,
             "duration_years": self.duration_years,
             "top_holdings": [h.to_dict() for h in self.top_holdings],
             "sector_weights": self.sector_weights,
+            "n_holdings": self.n_holdings,
             "summary": self.summary,
             "source": self.source,
         }
@@ -94,8 +109,9 @@ def _empty(symbol: str) -> Fundamentals:
         expense_ratio_pct=None, aum_usd=None,
         dividend_yield_pct=None, distribution_yield_pct=None,
         ytd_return_pct=None, three_year_return_pct=None, five_year_return_pct=None,
+        forward_pe=None, trailing_pe=None,
         yield_to_maturity_pct=None, duration_years=None,
-        top_holdings=[], sector_weights={}, summary=None,
+        top_holdings=[], sector_weights={}, n_holdings=None, summary=None,
     )
 
 
@@ -105,6 +121,40 @@ def _safe_float(x) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if math.isnan(f) or math.isinf(f) else f
+
+
+def _safe_int(x) -> int | None:
+    """Same as _safe_float but for integer-typed Yahoo fields. Yahoo
+    occasionally returns ints as strings or floats; normalise to int
+    when the value is sensibly representable, else None."""
+    f = _safe_float(x)
+    if f is None or f < 0:
+        return None
+    return int(f)
+
+
+def _funds_data_holdings_count(symbol: str) -> int | None:
+    """Newer yfinance exposes a fund's full holdings DataFrame via
+    Ticker.funds_data.equity_holdings or similar. Where available we
+    can read the row count to populate n_holdings even when Yahoo's
+    inline `holdingsCount` is missing. Best-effort — returns None on
+    any error so a flaky data fetch never fails the comparator."""
+    try:
+        import yfinance as yf
+        t = yf.Ticker(symbol)
+        funds_data = getattr(t, "funds_data", None)
+        if funds_data is None:
+            return None
+        # Newer yfinance versions expose `equity_holdings` (full table)
+        # OR `top_holdings` (capped at 10). Prefer the full table when
+        # present so we get the real basket size, not the head capped count.
+        for attr in ("equity_holdings", "asset_classes"):
+            df = getattr(funds_data, attr, None)
+            if df is not None and getattr(df, "shape", (0,))[0] > 0:
+                return int(df.shape[0])
+    except Exception:  # noqa: BLE001
+        return None
+    return None
 
 
 def _frac_to_pct(x) -> float | None:
@@ -235,6 +285,23 @@ def fetch_fundamentals(symbol: str, info: dict | None = None) -> Fundamentals:
     if not holdings:
         holdings = _holdings_via_funds_data(symbol)
 
+    # n_holdings: total underlying constituents in the fund. Used by
+    # the passive-horizon scorer (TRADEPRO-SPEC-001 §4.3 — diversification).
+    # Resolution order: explicit Yahoo `holdingsCount` field → top-level
+    # holdings list count from funds_data (when caller didn't fetch top
+    # holdings, the API often still reports the total count) → 1 when
+    # the asset is an individual equity → None for unknown.
+    legal_type = (info.get("legalType") or info.get("quoteType") or "").upper()
+    n_holdings = _safe_int(
+        info.get("holdingsCount")
+        or info.get("totalHoldings")
+        or info.get("numberOfHoldings")
+    )
+    if n_holdings is None:
+        n_holdings = _funds_data_holdings_count(symbol)
+    if n_holdings is None and legal_type in {"EQUITY", "COMMON STOCK"}:
+        n_holdings = 1
+
     return Fundamentals(
         symbol=symbol,
         fetched_at=datetime.now(timezone.utc).isoformat(),
@@ -256,9 +323,14 @@ def fetch_fundamentals(symbol: str, info: dict | None = None) -> Fundamentals:
         ytd_return_pct=_frac_to_pct(info.get("ytdReturn")),
         three_year_return_pct=_frac_to_pct(info.get("threeYearAverageReturn")),
         five_year_return_pct=_frac_to_pct(info.get("fiveYearAverageReturn")),
+        # P/E is a raw ratio in Yahoo's payload — do NOT run through
+        # _frac_to_pct (which would mis-scale a 28× P/E to 28%).
+        forward_pe=_safe_float(info.get("forwardPE")),
+        trailing_pe=_safe_float(info.get("trailingPE")),
         yield_to_maturity_pct=_frac_to_pct(info.get("yieldToMaturity")),
         duration_years=_safe_float(info.get("duration") or info.get("modifiedDuration")),
         top_holdings=holdings,
         sector_weights=_extract_sector_weights(info),
+        n_holdings=n_holdings,
         summary=info.get("longBusinessSummary"),
     )

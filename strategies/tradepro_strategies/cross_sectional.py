@@ -159,20 +159,18 @@ def cross_basket_trace_rows(
 def bucket_by_yield_quartile(
     symbol_yields: dict[str, float | None],
 ) -> dict[str, dict]:
-    """Cheap-vs-basket valuation flag (Family 2 starter) using
-    dividend yield as a proxy. Higher yield within the basket → more
-    likely to be cheap; lower yield → more likely expensive.
-
-    Why dividend yield as a proxy: it's the only valuation-flavoured
-    field we currently store in fundamentals. True historical P/E
-    vs 10-year median needs a fundamentals snapshot store we haven't
-    built. This is the 80%-of-the-value Family-2 starter; replace
-    with real P/E-vs-history once that store exists.
+    """Cheap-vs-basket valuation flag using dividend yield as a proxy.
+    Higher yield → more likely cheap; lower yield → more likely
+    expensive. Best for ETF / dividend-paying-stock baskets where P/E
+    isn't reported (most ETFs) or means little.
 
     Caveat: yield can be elevated for a structurally distressed asset
     (the dividend hasn't been cut yet but the price already fell).
     The flag is descriptive, not prescriptive — pair with the
     technical bucket vote.
+
+    For mixed / growth-stock baskets (NVDA, AMZN don't pay much),
+    prefer `bucket_by_valuation` which falls back to P/E.
 
     Quartile rules (per basket):
       Q1 (top 25% by yield)    → "cheap"
@@ -180,34 +178,158 @@ def bucket_by_yield_quartile(
       Q4 (bottom 25%)           → "expensive"
       missing yield             → "n/a"
     """
-    valid = [(s, v) for s, v in symbol_yields.items()
+    return _quartile_bucket(
+        symbol_yields,
+        cheaper_when="higher",
+        metric_name="dividend_yield_pct",
+        units="%",
+        value_label="yield",
+    )
+
+
+def bucket_by_pe_ratio(
+    symbol_pes: dict[str, float | None],
+) -> dict[str, dict]:
+    """Cheap-vs-basket valuation flag using forward (or trailing) P/E.
+    Lower P/E → cheaper; higher P/E → more expensive.
+
+    Best for growth / non-dividend-paying stocks where dividend yield
+    is uninformative (NVDA dividend ≈ 0.02% — yield-quartile gives
+    "expensive" purely because it doesn't pay, which is a wrong signal).
+
+    Caveat: a low P/E can also mean broken thesis (value trap). The
+    flag is cross-sectional vs basket peers, not absolute. Truly
+    historical P/E vs the symbol's own 10y median requires a
+    fundamentals snapshot store — parked.
+
+    Quartile rules (per basket, ascending by P/E):
+      Q1 (lowest P/E quartile)  → "cheap"
+      Q2-Q3 (middle 50%)         → "fair"
+      Q4 (highest P/E quartile)  → "expensive"
+      missing P/E                → "n/a"
+    """
+    # Negative or zero P/E (loss-making companies) is meaningless for
+    # ranking — drop those from the comparison rather than rank them
+    # as "cheapest". They get "n/a" with an explanatory basis.
+    cleaned: dict[str, float | None] = {}
+    for s, v in symbol_pes.items():
+        if v is None or not isinstance(v, (int, float)) or v <= 0:
+            cleaned[s] = None
+        else:
+            cleaned[s] = v
+    return _quartile_bucket(
+        cleaned,
+        cheaper_when="lower",
+        metric_name="forward_pe",
+        units="×",
+        value_label="P/E",
+    )
+
+
+def bucket_by_valuation(
+    symbol_pes: dict[str, float | None],
+    symbol_yields: dict[str, float | None],
+    *,
+    pe_density_threshold: float = 0.5,
+) -> dict[str, dict]:
+    """Pick the right valuation lens based on basket composition.
+
+    If at least `pe_density_threshold` (default 50%) of the basket
+    has a positive P/E, use P/E-quartile (better for stocks). Else
+    fall back to dividend-yield-quartile (better for ETF baskets
+    where P/E is rarely reported).
+
+    Why a hybrid: a pure stocks basket like (NVDA, MSFT, AMZN, META)
+    has good P/E coverage and bad dividend coverage — yield ranks
+    NVDA expensive only because it doesn't pay. A pure ETF basket
+    (VUSA.L, VUKE.L, INRG.L) has the opposite: yield is the only
+    valuation-flavoured field Yahoo returns. The orchestrator picks
+    automatically so callers don't have to.
+
+    Output shape matches both primitives — adds a `lens_used` field
+    ('pe' or 'yield') so the rationale layer can render the
+    metric-aware reason string.
+    """
+    pe_valid = sum(
+        1 for v in symbol_pes.values()
+        if v is not None and isinstance(v, (int, float)) and v > 0
+    )
+    n = len(symbol_pes) or 1
+    use_pe = (pe_valid / n) >= pe_density_threshold
+
+    if use_pe:
+        out = bucket_by_pe_ratio(symbol_pes)
+        lens = "pe"
+    else:
+        out = bucket_by_yield_quartile(symbol_yields)
+        lens = "yield"
+    for v in out.values():
+        v["lens_used"] = lens
+    return out
+
+
+def _quartile_bucket(
+    symbol_values: dict[str, float | None],
+    *,
+    cheaper_when: str,         # "higher" or "lower"
+    metric_name: str,
+    units: str,                # "%" or "×"
+    value_label: str,          # "yield" / "P/E"
+) -> dict[str, dict]:
+    """Generic quartile bucketing, parameterised by which direction is
+    cheap. Used by both yield-quartile (cheaper when higher) and
+    P/E-quartile (cheaper when lower).
+
+    Output preserves legacy `yield_pct` / `basket_median_yield_pct`
+    field names when the lens is yield (downstream consumers read
+    them). Adds metric-aware `value` / `basket_median` fields the
+    new P/E lens uses, plus a `pe_ratio` mirror when the lens is P/E.
+    """
+    is_yield = metric_name == "dividend_yield_pct"
+    is_pe = metric_name == "forward_pe"
+
+    def _shape(flag: str, val: float | None, median: float | None, basis: str) -> dict:
+        out = {
+            "flag": flag,
+            "value": val,
+            "basket_median": median,
+            "basis": basis,
+            "metric": metric_name,
+        }
+        if is_yield:
+            # Legacy aliases — rationale.py / frontend / step files all
+            # read these and rely on them. Keep populated even after
+            # we add the metric-aware names above.
+            out["yield_pct"] = val
+            out["basket_median_yield_pct"] = median
+        if is_pe:
+            out["pe_ratio"] = val
+            out["basket_median_pe"] = median
+        return out
+
+    valid = [(s, v) for s, v in symbol_values.items()
              if v is not None and isinstance(v, (int, float))]
     if not valid:
-        return {s: {
-            "flag": "n/a",
-            "yield_pct": None,
-            "basket_median_yield_pct": None,
-            "basis": "no dividend yield data in basket",
-            "metric": "dividend_yield_pct",
-        } for s in symbol_yields}
+        return {
+            s: _shape("n/a", None, None, f"no {value_label} data in basket")
+            for s in symbol_values
+        }
 
-    sorted_desc = sorted(valid, key=lambda kv: kv[1], reverse=True)
-    n = len(sorted_desc)
-    rank: dict[str, int] = {s: i + 1 for i, (s, _) in enumerate(sorted_desc)}
+    reverse = (cheaper_when == "higher")  # higher = cheaper → desc; lower = cheaper → asc
+    sorted_for_rank = sorted(valid, key=lambda kv: kv[1], reverse=reverse)
+    n = len(sorted_for_rank)
+    rank: dict[str, int] = {s: i + 1 for i, (s, _) in enumerate(sorted_for_rank)}
     median = _median([v for _, v in valid])
-    q1_cutoff = max(1, n // 4)
-    q4_cutoff = n - max(1, n // 4) + 1
+    q1_cutoff = max(1, n // 4)            # rank ≤ this → cheap (rank=1 means "most cheap")
+    q4_cutoff = n - max(1, n // 4) + 1    # rank ≥ this → expensive
 
     out: dict[str, dict] = {}
-    for sym, val in symbol_yields.items():
+    for sym, val in symbol_values.items():
         if sym not in rank:
-            out[sym] = {
-                "flag": "n/a",
-                "yield_pct": None,
-                "basket_median_yield_pct": median,
-                "basis": "no dividend yield data for this symbol",
-                "metric": "dividend_yield_pct",
-            }
+            out[sym] = _shape(
+                "n/a", None, median,
+                f"no {value_label} data for this symbol",
+            )
             continue
         r = rank[sym]
         if r <= q1_cutoff:
@@ -216,14 +338,9 @@ def bucket_by_yield_quartile(
             flag = "expensive"
         else:
             flag = "fair"
-        out[sym] = {
-            "flag": flag,
-            "yield_pct": float(val),
-            "basket_median_yield_pct": median,
-            "basis": (
-                f"yield {float(val):.2f}% vs basket median "
-                f"{median:.2f}% (rank {r} of {n})"
-            ),
-            "metric": "dividend_yield_pct",
-        }
+        basis = (
+            f"{value_label} {float(val):.2f}{units} vs basket median "
+            f"{median:.2f}{units} (rank {r} of {n})"
+        )
+        out[sym] = _shape(flag, float(val), median, basis)
     return out

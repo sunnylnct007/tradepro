@@ -40,6 +40,14 @@ WEAK_MOMENTUM_PCT = -10.0          # 12m return < -10% → downtrend confirmatio
 # not a short-term entry trigger. Conflating the two led to BUY
 # verdicts on INRG.L (−0% off 52w high but −22% off 2021 peak).
 MEANINGFUL_52W_DROP_PCT = 8.0      # ≥ 8% off the 52w high counts as a real recent dip
+# Range position thresholds — where the current price sits as a
+# percentile of the 52w (low → high) range. Used to demote BUY
+# signals when the symbol is sitting near the top of its annual
+# range despite passing the other gates (RSI, SMA, drawdown). The
+# VUKE-class case: 5% off 52w high after a +24% YoY run is NOT a
+# dip — risk/reward is asymmetric (3p of upside, 8p of downside).
+RANGE_HIGH_PCTILE = 70.0           # ≥ 70th pctile of 52w range → downgrade BUY → HOLD
+RANGE_LOW_PCTILE = 40.0            # ≤ 40th pctile → confirms "dip" status
 
 
 @dataclass
@@ -77,6 +85,14 @@ class MarketState:
     # so the UI / rationale can render "at multi-year highs" instead
     # of looking like the two metrics are stuck together.
     peak_within_52w_window: bool = False
+    # 52w low (mirror of pct_off_52w_high_price) and the percentile
+    # the current price sits at within the (low → high) range. 100 =
+    # at the 52w high, 0 = at the 52w low. Surfaces "you're near the
+    # top of the year" cleanly so the BUY gate can downgrade when
+    # the symbol is at 70th+ pctile despite passing other criteria.
+    low_52w_price: float | None = None
+    low_52w_date: str | None = None
+    range_position_pct: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -92,6 +108,16 @@ class MarketState:
             "peak_price": self.peak_price,
             "peak_date": self.peak_date,
             "peak_within_52w_window": self.peak_within_52w_window,
+            "low_52w_price": self.low_52w_price,
+            "low_52w_date": self.low_52w_date,
+            "range_position_pct": self.range_position_pct,
+            # Spec-canonical aliases (TRADEPRO-SPEC-001 §6.1).
+            # classify_horizons() reads these names verbatim from the
+            # market_state payload. Kept alongside the existing
+            # `*_price` fields so older consumers don't break.
+            "high_52w": self.pct_off_52w_high_price,
+            "low_52w": self.low_52w_price,
+            "range_pct": self.range_position_pct,
             "rsi_14": self.rsi_14,
             "momentum_3m_pct": self.momentum_3m_pct,
             "momentum_12m_pct": self.momentum_12m_pct,
@@ -226,6 +252,32 @@ def _build_trace(state: MarketState) -> list[dict[str, Any]]:
         trace.append({"name": "Long-term valuation (5y peak)", "status": "warn",
                       "detail": f"{dd:.1f}% from peak{peak_suffix} — near long-term highs"})
 
+    # Range position within 52w high/low — where the current price
+    # sits as a percentile of the annual range. The 52w-high distance
+    # (above) tells you "how much room to recover"; this tells you
+    # "where in the year are you actually sitting". A symbol 5% off
+    # its 52w high but at the 72nd percentile of its range is NOT a
+    # dip (VUKE case): downside-to-low far exceeds upside-to-high.
+    rp = state.range_position_pct
+    if rp is None:
+        trace.append({"name": "Range position (52w)", "status": "warn",
+                      "detail": "—"})
+    elif rp >= RANGE_HIGH_PCTILE:
+        trace.append({"name": "Range position (52w)", "status": "fail",
+                      "detail": (
+                          f"{rp:.0f}th percentile — near 52w highs, "
+                          f"asymmetric risk/reward for a swing entry"
+                      )})
+    elif rp <= RANGE_LOW_PCTILE:
+        trace.append({"name": "Range position (52w)", "status": "pass",
+                      "detail": (
+                          f"{rp:.0f}th percentile — closer to 52w lows, "
+                          f"genuine dip territory"
+                      )})
+    else:
+        trace.append({"name": "Range position (52w)", "status": "warn",
+                      "detail": f"{rp:.0f}th percentile — mid-range"})
+
     # 12-month momentum
     mom12 = state.momentum_12m_pct
     if mom12 is None:
@@ -292,9 +344,20 @@ def _classify(state: MarketState) -> tuple[str, str]:
                 f"in {dd:.1f}% drawdown — wait for trend stabilisation before averaging in.")
 
     # BUY: clean uptrend (above SMA200, not overbought, not extended).
+    # Plus a range-position guard: if the price is in the upper 30%
+    # of its 52w range, the technical BUY is a misleading "buy near
+    # highs" — downgrade to HOLD with an explicit reason. This is
+    # the VUKE-class fix: 5% off 52w high after a +24% YoY run is
+    # not a swing entry.
     if above is True:
         if rsi_v is None or rsi_v < RSI_OVERBOUGHT:
             if pct_off_high is None or pct_off_high >= EXTENDED_PCT_FROM_HIGH:
+                rp = state.range_position_pct
+                if rp is not None and rp >= RANGE_HIGH_PCTILE:
+                    return ("HOLD",
+                            f"above 200-day SMA but at {rp:.0f}th percentile "
+                            f"of 52w range — near the highs, asymmetric risk/"
+                            f"reward for a fresh entry. Wait for a pullback.")
                 return ("BUY",
                         f"above 200-day SMA, RSI {rsi_v:.0f} healthy" if rsi_v is not None else
                         "above 200-day SMA, healthy entry zone.")
@@ -348,6 +411,26 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         else None
     )
 
+    # 52w low + range position. The position is a percentile within
+    # the (low → high) range. 100 = at high, 0 = at low. The classify
+    # rules use this to demote a near-the-highs BUY to HOLD even when
+    # the technical gates pass.
+    low_52w = _safe_float(window_252.min())
+    low_52w_date: str | None = None
+    if not window_252.empty and low_52w is not None:
+        idx = window_252.idxmin()
+        try:
+            low_52w_date = idx.isoformat() if hasattr(idx, "isoformat") else str(idx)
+        except Exception:  # noqa: BLE001
+            low_52w_date = str(idx)
+    range_position_pct: float | None = None
+    if (last_price is not None and high_52w is not None
+            and low_52w is not None and high_52w > low_52w):
+        range_position_pct = (last_price - low_52w) / (high_52w - low_52w) * 100.0
+        # Clamp to [0, 100] in case last_price drifts outside the
+        # window (corporate action, stale bar, etc.).
+        range_position_pct = max(0.0, min(100.0, range_position_pct))
+
     # Drawdown from running peak, full-series. This is the more honest
     # measure of "are we mid-correction?" than just the 52-week notion.
     # Capture peak date too — same rationale as the 52w-high date.
@@ -391,6 +474,9 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         peak_within_52w_window=peak_within_52w,
         peak_price=peak_price,
         peak_date=peak_date,
+        low_52w_price=low_52w,
+        low_52w_date=low_52w_date,
+        range_position_pct=range_position_pct,
     )
     state.entry_signal, state.entry_reason = _classify(state)
     state.decision_trace = _build_trace(state)

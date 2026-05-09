@@ -95,6 +95,34 @@ def build_server():
         return _json(t.get_portfolio_status())
 
     @mcp.tool()
+    @instrumented("get_portfolio_signals")
+    def get_portfolio_signals(horizon: str = "1y") -> str:
+        """Per-position BUY_MORE / HOLD / TRIM recommendations across
+        the user's T212 portfolio. Combines current positions (from
+        get_portfolio) with today's compare verdict per symbol and
+        runs the analyse_holding engine — same logic the dashboard
+        and email digest use. Sorted TRIM → BUY_MORE → HOLD so the
+        most time-sensitive calls come first.
+
+        horizon ∈ {"6mo", "1y", "3y", "5y"} — picks the threshold
+        profile (6mo is most reactive, 5y most patient). Default 1y."""
+        return _json(t.get_portfolio_signals(horizon))
+
+    @mcp.tool()
+    @instrumented("get_horizon_signals")
+    def get_horizon_signals(symbol: str) -> str:
+        """Three independent horizon verdicts for one symbol — swing
+        (1-8w), long-term (6-18mo), passive (3-5y). Each has its own
+        0-8 score, BUY/WATCH/AVOID/N/A signal, reasons list and
+        optional entry note. Single-stock symbols return signal
+        N/A on the passive horizon (use long-term instead).
+
+        Use when the user asks 'is X a good buy' WITHOUT specifying
+        timeframe — the answer differs by horizon and this tool
+        surfaces all three in one call. TRADEPRO-SPEC-001 §6.3."""
+        return _json(t.get_horizon_signals(symbol))
+
+    @mcp.tool()
     @instrumented("search_t212_instruments")
     def search_t212_instruments(query: str, limit: int = 10) -> str:
         """Search Trading 212's instruments registry — verifies a
