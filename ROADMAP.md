@@ -93,6 +93,9 @@ out of date. Each entry is one line: what changed and why it mattered.
   Finnhub both expose these and we don't currently use them
 - [ ] **Portfolio simulation engine** — Monte Carlo + stress + DCA on
   live portfolio. New Phase B added below. To be discussed.
+- [x] Research + Backtest "Run all 5 strategies" UX — replaces
+  per-strategy selection friction with a single fan-out + consensus
+  view. Symbol picker autocomplete on both pages. ✅ 2026-05-09
 
 ---
 

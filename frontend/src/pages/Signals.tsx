@@ -33,6 +33,13 @@ export function Signals() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Multi-strategy consensus: results of running all 5 strategies in
+  // parallel against the same symbol so the user gets the same
+  // "consensus across strategies" view the Decide page has, but for
+  // an arbitrary symbol (not just the cached universes).
+  const [multi, setMulti] = useState<MultiResult | null>(null);
+  const [multiLoading, setMultiLoading] = useState(false);
+
   useEffect(() => {
     api.ukWatchlist().then(setWatchlist).catch(() => {});
   }, []);
@@ -44,6 +51,43 @@ export function Signals() {
       case "macd_signal_cross": return { fast: macdFast, slow: macdSlow, signal: macdSignal };
       case "donchian_breakout": return { lookback: donchian };
       default: return null;
+    }
+  }
+
+  async function runAllStrategies() {
+    setMultiLoading(true);
+    setError(null);
+    setMulti(null);
+    // Strategy params reuse the per-strategy state already on the
+    // page (fast/slow, RSI bands, MACD triplet, donchian lookback).
+    // buy_and_hold takes no params.
+    const jobs: { name: string; params: Record<string, number> | null }[] = [
+      { name: "buy_and_hold", params: null },
+      { name: "sma_crossover", params: { fast, slow } },
+      { name: "rsi_mean_reversion", params: { low: rsiLow, high: rsiHigh } },
+      { name: "macd_signal_cross", params: { fast: macdFast, slow: macdSlow, signal: macdSignal } },
+      { name: "donchian_breakout", params: { lookback: donchian } },
+    ];
+    try {
+      const results = await Promise.all(
+        jobs.map(async (j) => {
+          try {
+            const d = await api.evaluateSignal({
+              symbol,
+              provider: config.defaultProvider,
+              strategy: j.name,
+              lookbackDays: 365,
+              params: j.params,
+            });
+            return { strategy: j.name, decision: d, error: null as string | null };
+          } catch (e) {
+            return { strategy: j.name, decision: null, error: String(e) };
+          }
+        }),
+      );
+      setMulti(buildMultiResult(results));
+    } finally {
+      setMultiLoading(false);
     }
   }
 
@@ -150,9 +194,23 @@ export function Signals() {
             <input type="number" value={donchian} onChange={(e) => setDonchian(Number(e.target.value))} />
           </Labelled>
         )}
-        <button className="primary" onClick={evaluate} disabled={loading}>
-          {loading ? "Evaluating…" : "Get signal"}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <button
+            className="primary"
+            onClick={runAllStrategies}
+            disabled={multiLoading || !symbol.trim()}
+            title="Run all 5 strategies on this symbol and show the consensus — same view the Decide page produces for cached universes"
+          >
+            {multiLoading ? "Running 5 strategies…" : "Run all 5 strategies"}
+          </button>
+          <button
+            onClick={evaluate}
+            disabled={loading || !symbol.trim()}
+            style={{ fontSize: 11, padding: "4px 8px" }}
+          >
+            {loading ? "Evaluating…" : "Single strategy (advanced)"}
+          </button>
+        </div>
       </section>
 
       {error && (
@@ -163,6 +221,8 @@ export function Signals() {
           {error}
         </div>
       )}
+
+      {multi && <MultiStrategyCard result={multi} symbol={symbol} />}
 
       {decision && (
         <div
@@ -367,5 +427,130 @@ function Stat({ label, value, tone, help }: { label: string; value: string; tone
       </div>
       <div className="stat-value" style={{ color: colour }}>{value}</div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Multi-strategy consensus — runs all 5 strategies on the chosen symbol in
+// parallel and produces a Decide-page-style verdict for any symbol (not
+// just cached universes). Avoids the friction of "pick a strategy, run it,
+// pick another, run it again" — the engine isn't a single-strategy tool.
+// ---------------------------------------------------------------------------
+
+interface PerStrategyResult {
+  strategy: string;
+  decision: SignalDecision | null;
+  error: string | null;
+}
+
+interface MultiResult {
+  perStrategy: PerStrategyResult[];
+  buys: number;
+  sells: number;
+  holds: number;
+  failed: number;
+  meanConfidence: number | null;
+  consensus: "BUY" | "SELL" | "HOLD" | "MIXED";
+}
+
+function buildMultiResult(perStrategy: PerStrategyResult[]): MultiResult {
+  const buys = perStrategy.filter((r) => r.decision?.action === "BUY").length;
+  const sells = perStrategy.filter((r) => r.decision?.action === "SELL").length;
+  const holds = perStrategy.filter((r) => r.decision?.action === "HOLD").length;
+  const failed = perStrategy.filter((r) => r.decision === null).length;
+  const ok = perStrategy.filter((r) => r.decision !== null);
+  const meanConf = ok.length === 0
+    ? null
+    : ok.reduce((s, r) => s + (r.decision!.confidence || 0), 0) / ok.length;
+  let consensus: MultiResult["consensus"] = "MIXED";
+  // Majority of NON-FAILED votes wins. With ≤3 ok votes the answer
+  // is too noisy to call a consensus, so we report MIXED.
+  if (ok.length >= 3) {
+    if (buys >= Math.ceil(ok.length / 2 + 0.5)) consensus = "BUY";
+    else if (sells >= Math.ceil(ok.length / 2 + 0.5)) consensus = "SELL";
+    else if (holds + buys >= ok.length - 1 && buys === 0) consensus = "HOLD";
+  }
+  return { perStrategy, buys, sells, holds, failed, meanConfidence: meanConf, consensus };
+}
+
+function MultiStrategyCard({ result, symbol }: { result: MultiResult; symbol: string }) {
+  const colour =
+    result.consensus === "BUY" ? "var(--up)"
+    : result.consensus === "SELL" ? "var(--down)"
+    : "var(--neutral)";
+  return (
+    <section className="card" style={{ borderLeft: `4px solid ${colour}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+        <div>
+          <div className="stat-label">Multi-strategy consensus</div>
+          <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 28, fontWeight: 700, color: colour, letterSpacing: "0.04em" }}>
+              {result.consensus}
+            </span>
+            <span style={{ fontSize: 13, color: "var(--text-dim)" }}>
+              <strong>{symbol}</strong> · {result.buys} BUY · {result.sells} SELL · {result.holds} HOLD
+              {result.failed > 0 && ` · ${result.failed} failed`}
+            </span>
+          </div>
+        </div>
+        {result.meanConfidence !== null && (
+          <div style={{ textAlign: "right" }}>
+            <div className="stat-label">Mean confidence</div>
+            <div className="num" style={{ fontSize: 22, color: colour, fontWeight: 600 }}>
+              {Math.round(result.meanConfidence * 100)}%
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+        {result.perStrategy.map((r) => (
+          <div
+            key={r.strategy}
+            style={{
+              padding: "8px 10px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "rgba(0,0,0,0.12)",
+            }}
+          >
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {r.strategy.replace(/_/g, " ")}
+            </div>
+            {r.decision ? (
+              <div style={{ marginTop: 4 }}>
+                <span
+                  className="num"
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: actionToneVar[r.decision.action],
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  {r.decision.action}
+                </span>
+                <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-muted)" }}>
+                  {Math.round(r.decision.confidence * 100)}% conf
+                </span>
+                <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.4 }}>
+                  {r.decision.reasons[0] || "—"}
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: "var(--down)", marginTop: 4 }}>
+                Failed: {(r.error || "").slice(0, 80)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>
+        Decision aid, not advice. Runs all 5 strategies in parallel and counts the votes —
+        same logic the Decide page uses for cached universes. Use the "Single strategy" button
+        below to tune parameters.
+      </div>
+    </section>
   );
 }
