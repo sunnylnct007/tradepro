@@ -134,37 +134,73 @@ def _safe_int(x) -> int | None:
 
 
 def _funds_data_holdings_count(symbol: str) -> int | None:
-    """Newer yfinance exposes a fund's full holdings DataFrame via
-    Ticker.funds_data.equity_holdings or similar. Where available we
-    can read the row count to populate n_holdings even when Yahoo's
-    inline `holdingsCount` is missing. Best-effort — returns None on
-    any error so a flaky data fetch never fails the comparator."""
+    """Try to extract the fund's true basket size (e.g. ~700 for VLUE).
+    yfinance's `funds_data.equity_holdings` is sometimes the full table
+    and sometimes a head-N cap; we can't always tell, so we only return
+    a value when it's CLEARLY the full table — i.e. > 12 rows. Anything
+    in the 6-10 region looks like the head cap and gets None instead
+    (better to omit than mislead the passive scorer with n_holdings=6
+    on a 700-symbol ETF, the bug that shipped in the first cut)."""
     try:
         import yfinance as yf
         t = yf.Ticker(symbol)
         funds_data = getattr(t, "funds_data", None)
         if funds_data is None:
             return None
-        # Newer yfinance versions expose `equity_holdings` (full table)
-        # OR `top_holdings` (capped at 10). Prefer the full table when
-        # present so we get the real basket size, not the head capped count.
         for attr in ("equity_holdings", "asset_classes"):
             df = getattr(funds_data, attr, None)
-            if df is not None and getattr(df, "shape", (0,))[0] > 0:
-                return int(df.shape[0])
+            if df is not None:
+                n_rows = int(getattr(df, "shape", (0,))[0])
+                # Head-cap detection: any value ≤ 12 is suspicious
+                # because yfinance's top_holdings caps at 10 and similar
+                # caps exist for legacy fields. A real fund basket is
+                # usually 30+ holdings.
+                if n_rows > 12:
+                    return n_rows
     except Exception:  # noqa: BLE001
         return None
     return None
 
 
 def _frac_to_pct(x) -> float | None:
-    """Yahoo reports yields and ratios as decimal fractions (0.018 = 1.8%).
-    Convert to percentage. Some legacy fields are already in percent — heuristic:
-    if abs(x) > 1.5 we assume it's already a percent."""
+    """Yahoo reports rates as decimal fractions (0.018 = 1.8%) but
+    occasionally as already-percent (1.8 = 1.8%). Heuristic:
+
+    - abs(f) < 0.3   → fraction (typical 0.0123 → 1.23%)
+    - abs(f) ≥ 0.3   → already a percent (1.46 stays 1.46%)
+
+    No upper bound here because this helper is also used for multi-
+    year returns where ±100% is normal (5y CAGR on a tech stock,
+    drawdown on a crash universe). For yields specifically, use
+    `_yield_pct` which adds a sanity cap.
+
+    The previous 1.5 cutoff caused 1.46% (already a percent) to be
+    multiplied to 146% — the SIZE / QUAL yield bug from May 2026."""
     f = _safe_float(x)
     if f is None:
         return None
-    return f * 100.0 if abs(f) <= 1.5 else f
+    return f * 100.0 if abs(f) < 0.3 else f
+
+
+# Cap for "yield in percent" — anything above this is almost
+# certainly wrong upstream data (Yahoo occasionally returns 91 / 146
+# for SIZE / QUAL when the dividend rate column gets confused with
+# yield). Above the cap we null the field rather than ship a fake
+# 146% yield that scores +1 on the passive horizon.
+_MAX_PLAUSIBLE_YIELD_PCT = 25.0
+
+
+def _yield_pct(x) -> float | None:
+    """Yield-specific wrapper around _frac_to_pct that nulls out
+    obviously corrupted values (>25%). No realistic fund yield is
+    higher than ~12% in current markets; a 90+% reading means
+    Yahoo confused dividend-rate-per-share with yield."""
+    pct = _frac_to_pct(x)
+    if pct is None:
+        return None
+    if abs(pct) > _MAX_PLAUSIBLE_YIELD_PCT:
+        return None
+    return pct
 
 
 def _inception_iso(epoch) -> str | None:
@@ -316,10 +352,10 @@ def fetch_fundamentals(symbol: str, info: dict | None = None) -> Fundamentals:
             info.get("netExpenseRatio") or info.get("expenseRatio") or info.get("annualReportExpenseRatio")
         ),
         aum_usd=_safe_float(info.get("totalAssets") or info.get("netAssets")),
-        dividend_yield_pct=_frac_to_pct(
+        dividend_yield_pct=_yield_pct(
             info.get("trailingAnnualDividendYield") or info.get("dividendYield")
         ),
-        distribution_yield_pct=_frac_to_pct(info.get("yield")),
+        distribution_yield_pct=_yield_pct(info.get("yield")),
         ytd_return_pct=_frac_to_pct(info.get("ytdReturn")),
         three_year_return_pct=_frac_to_pct(info.get("threeYearAverageReturn")),
         five_year_return_pct=_frac_to_pct(info.get("fiveYearAverageReturn")),
@@ -327,7 +363,7 @@ def fetch_fundamentals(symbol: str, info: dict | None = None) -> Fundamentals:
         # _frac_to_pct (which would mis-scale a 28× P/E to 28%).
         forward_pe=_safe_float(info.get("forwardPE")),
         trailing_pe=_safe_float(info.get("trailingPE")),
-        yield_to_maturity_pct=_frac_to_pct(info.get("yieldToMaturity")),
+        yield_to_maturity_pct=_yield_pct(info.get("yieldToMaturity")),
         duration_years=_safe_float(info.get("duration") or info.get("modifiedDuration")),
         top_holdings=holdings,
         sector_weights=_extract_sector_weights(info),
