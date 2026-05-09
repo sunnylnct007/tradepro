@@ -258,6 +258,12 @@ def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
                 "valuation_flag": best.get("valuation_flag"),
                 "earnings_signal": best.get("earnings_signal"),
                 "swing_score": best.get("swing_score"),
+                # Horizon classification — three independent verdicts
+                # per row so the email can show that a "BUY" bucket
+                # might actually be swing-AVOID + long-term-WATCH for
+                # a name sitting near 52w highs.
+                "horizon_classification": best.get("horizon_classification"),
+                "range_pct": best.get("range_pct"),
                 # Sentiment summary
                 "sentiment_mean_7d": sentiment.get("mean_sentiment"),
                 "sentiment_material_negative_count": sentiment.get("material_negative_count"),
@@ -394,6 +400,25 @@ def _text_block(items: list[dict], heading: str) -> str:
                 f"│  SWING:  {sw['total']}/8  →  {sw.get('verdict', '')}  "
                 f"[{layer_str}]"
             )
+        # Horizon classification — three independent holding-period
+        # verdicts (swing 1-8w / long-term 6-18m / passive 3-5y). The
+        # bucket vote above can disagree with these; that's the design
+        # — a name like VUKE.L can be bucket=BUY (3/5 long), swing=AVOID
+        # (near 52w highs), long-term=WATCH (mid quality), passive=BUY
+        # (cheap fund, hold long-term). Surface all three so the user
+        # picks the right line for their holding period.
+        hz = it.get("horizon_classification") or {}
+        if hz:
+            for label, key in (("Swing", "swing"), ("Long ", "long_term"), ("Pass ", "passive")):
+                v = hz.get(key) or {}
+                sig = v.get("signal", "?")
+                score = v.get("score", "?")
+                reasons = v.get("reasons") or []
+                head = ", ".join(reasons[:2]) if reasons else ""
+                lines.append(f"│  {label}:   {sig:<7} {score:<6}{('— ' + head) if head else ''}")
+            rp = it.get("range_pct") or hz.get("range_pct")
+            if rp is not None:
+                lines.append(f"│             range_pct {rp:.0f}th of 52w")
         lines.append("│")
 
         # ── Price + reference levels ────────────────────────────

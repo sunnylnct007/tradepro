@@ -187,16 +187,61 @@ public static class IntegrationsEndpoints
 
     /// <summary>
     /// T212 ticker → Yahoo Finance symbol for cross-reference against
-    /// the compare cache. US-only mapping is reliable; non-US returns
-    /// null so the caller skips the lookup rather than guessing.
+    /// the compare cache. T212 uses a few formats:
+    ///
+    ///   AMZN_US_EQ   → AMZN          (US equity / ETF)
+    ///   VUKEl_EQ     → VUKE.L        (LSE — trailing lowercase 'l' is
+    ///                                  T212's London exchange marker)
+    ///   VOD_L_EQ     → VOD.L         (older LSE format, separate _L_)
+    ///   ABCd_EQ      → ABC.DE        (Xetra, lowercase 'd')
+    ///   ABCp_EQ      → ABC.PA        (Paris, lowercase 'p')
+    ///
+    /// The lowercase-suffix shape covers the modern T212 format users
+    /// see for European listings; the underscore-segment shape covers
+    /// the older format. Returns null for unrecognised venues so the
+    /// caller skips the lookup rather than fabricating a wrong symbol.
     /// </summary>
     private static string? DeriveYahooSymbol(string? t212Ticker)
     {
         if (string.IsNullOrWhiteSpace(t212Ticker)) return null;
         var parts = t212Ticker.Split('_');
-        if (parts.Length >= 2 && parts[1].Equals("US", StringComparison.OrdinalIgnoreCase))
+        if (parts.Length < 1) return null;
+        var head = parts[0];
+
+        // Modern format: trailing lowercase letter on the head encodes
+        // the venue. Example: VUKEl_EQ — root is VUKE, venue is L.
+        // Skip when head is already all-caps (US stocks like AMZN, NVDA).
+        if (head.Length > 1)
         {
-            return parts[0]; // AMZN_US_EQ → AMZN
+            var lastChar = head[^1];
+            if (char.IsLower(lastChar))
+            {
+                var root = head[..^1];
+                var suffix = char.ToUpperInvariant(lastChar);
+                return suffix switch
+                {
+                    'L' => $"{root}.L",     // London Stock Exchange
+                    'D' => $"{root}.DE",    // Xetra
+                    'P' => $"{root}.PA",    // Paris (Euronext)
+                    'F' => $"{root}.AS",    // Amsterdam — heuristic; verify per ticker
+                    _ => null,
+                };
+            }
+        }
+
+        // Legacy underscore-segment format: AMZN_US_EQ, VOD_L_EQ.
+        if (parts.Length >= 2)
+        {
+            var venue = parts[1].ToUpperInvariant();
+            return venue switch
+            {
+                "US" => head,            // AMZN_US_EQ → AMZN
+                "L"  => $"{head}.L",     // VOD_L_EQ → VOD.L
+                "DE" => $"{head}.DE",    // Xetra alternate
+                "PA" => $"{head}.PA",    // Paris alternate
+                "AS" => $"{head}.AS",    // Amsterdam alternate
+                _ => null,
+            };
         }
         return null;
     }
