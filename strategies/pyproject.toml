@@ -24,6 +24,11 @@ dependencies = [
     "fastapi>=0.136.1",
     "uvicorn[standard]>=0.46.0",
     "python-multipart>=0.0.27",
+    # PDF attachment for the daily email digest. Lightweight (single
+    # wheel, no system deps) and produces structured layouts with
+    # text + tables + embedded chart PNGs in one pass. Loaded lazily
+    # in email_pdf.py so it doesn't slow up other imports.
+    "reportlab>=4.2",
 ]
 
 [project.optional-dependencies]

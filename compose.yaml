@@ -23,6 +23,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
+      # NOTE: if `docker compose build` hangs at "resolving provenance
+      # for metadata file", export `BUILDX_NO_DEFAULT_ATTESTATIONS=1`
+      # in the shell before running. Older Compose CLIs reject the
+      # build-level `provenance: false` key, so we use the env path.
     container_name: tradepro-api
     ports:
       - "${API_PORT:-5080}:5080"
@@ -46,10 +50,12 @@ services:
       # name 'extractor' resolves over the default network.
       Extractor__Url: "http://extractor:8000"
       # Trading 212 integration — off by default; flip TRADEPRO_T212_MODE
-      # to `demo` (paper) or `live` (real money) in your .env file along
-      # with the API key/secret pair from your T212 app. The integration
-      # only enables read-only endpoints (status, instruments, positions);
-      # order placement is intentionally not exposed.
+      # to `demo` (paper) or `live` (real money) in your .env file and
+      # set TRADEPRO_T212_API_KEY. T212's public API uses a single key
+      # (no secret); ApiSecret is left for backwards compat and unused.
+      # The integration only enables read-only endpoints (status,
+      # instruments, positions); order placement is intentionally not
+      # exposed.
       Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
       Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
       Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
