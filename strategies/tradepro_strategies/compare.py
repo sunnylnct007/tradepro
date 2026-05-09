@@ -348,6 +348,61 @@ def compute_bucket(
     )
 
 
+def apply_sentiment_demotion(
+    *,
+    bucket: str,
+    reason: str,
+    mean: float | None,
+    material_negative_count: int | None,
+    mean_threshold: float = -0.30,
+    min_material: int = 2,
+    avoid_mean_threshold: float = -0.45,
+    avoid_min_material: int = 3,
+) -> tuple[str, str, bool]:
+    """Two-tier sentiment demotion. Returns (bucket, reason, demoted).
+
+    Tier 1 — STRONGER (any → AVOID): mean ≤ -0.45 AND ≥3 material-
+    negative headlines. News flow is materially worse than a routine
+    WAIT — separates "negative backdrop" (Tier 2) from "genuinely
+    hostile" (Tier 1). Fires regardless of starting bucket so a BUY
+    or WAIT both land in AVOID when the news is this bad.
+
+    Tier 2 — STANDARD (BUY → WAIT): mean ≤ -0.30 AND ≥2 material-
+    negative headlines. The original demotion rule kept for backwards
+    compatibility — flagging a BUY when sentiment is bad enough to
+    warrant sitting out, but not bad enough to call AVOID.
+
+    Pure function — no side effects, no row mutation. Tested
+    directly in features/sentiment_demotion.feature so each tier's
+    behaviour is auditable independent of the wider compare flow.
+    """
+    mat_neg = material_negative_count or 0
+    if (mean is not None
+            and mean <= avoid_mean_threshold
+            and mat_neg >= avoid_min_material
+            and bucket != "AVOID"):
+        return (
+            "AVOID",
+            (f"Sentiment demotion to AVOID: 7d mean {mean:.2f} ≤ "
+             f"{avoid_mean_threshold} AND {mat_neg} material-negative "
+             f"headlines (≥ {avoid_min_material}) — news flow is "
+             f"materially worse than a routine WAIT."),
+            True,
+        )
+    if bucket == "BUY":
+        if (mean is not None
+                and mean <= mean_threshold
+                and mat_neg >= min_material):
+            return (
+                "WAIT",
+                (f"Sentiment demotion: 7d mean {mean:.2f} ≤ "
+                 f"threshold {mean_threshold} AND {mat_neg} "
+                 f"material-negative headlines (≥ {min_material})."),
+                True,
+            )
+    return bucket, reason, False
+
+
 def _attach_bucket_and_rationale(
     rows: list[dict],
     mean_threshold: float,
@@ -377,42 +432,18 @@ def _attach_bucket_and_rationale(
             total=total,
         )
 
-        # Two-tier sentiment demotion. Same -0.30 / 2-material rule
-        # demotes BUY → WAIT (kept). At a stronger threshold we go
-        # all the way to AVOID — this differentiates "negative news
-        # backdrop, sit out" (WAIT) from "really bad news flow, get
-        # out" (AVOID). Without the second tier a name like AMZN
-        # at mean -0.475 lands in the same bucket as a benignly
-        # overbought-RSI WAIT, which conflates the two situations.
-        AVOID_MEAN_THRESHOLD = -0.45
-        AVOID_MIN_MATERIAL = 3
-        sentiment_demoted = False
+        # Two-tier sentiment demotion via the standalone helper —
+        # same logic, now testable in isolation. See
+        # apply_sentiment_demotion docstring for the rule chain.
         ss = best.get("sentiment_summary") or {}
-        mean = ss.get("mean_sentiment")
-        mat_neg = ss.get("material_negative_count", 0)
-        if (mean is not None
-                and mean <= AVOID_MEAN_THRESHOLD
-                and mat_neg >= AVOID_MIN_MATERIAL
-                and bucket != "AVOID"):
-            sentiment_demoted = True
-            bucket = "AVOID"
-            reason = (
-                f"Sentiment demotion to AVOID: 7d mean {mean:.2f} ≤ "
-                f"{AVOID_MEAN_THRESHOLD} AND {mat_neg} material-negative "
-                f"headlines (≥ {AVOID_MIN_MATERIAL}) — news flow is "
-                f"materially worse than a routine WAIT."
-            )
-        elif bucket == "BUY":
-            if (mean is not None
-                    and mean <= mean_threshold
-                    and mat_neg >= min_material):
-                sentiment_demoted = True
-                bucket = "WAIT"
-                reason = (
-                    f"Sentiment demotion: 7d mean {mean:.2f} ≤ "
-                    f"threshold {mean_threshold} AND {mat_neg} "
-                    f"material-negative headlines (≥ {min_material})."
-                )
+        bucket, reason, sentiment_demoted = apply_sentiment_demotion(
+            bucket=bucket,
+            reason=reason,
+            mean=ss.get("mean_sentiment"),
+            material_negative_count=ss.get("material_negative_count", 0),
+            mean_threshold=mean_threshold,
+            min_material=min_material,
+        )
 
         # Build the rationale once per symbol from the best row's data.
         try:

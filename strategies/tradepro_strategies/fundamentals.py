@@ -172,22 +172,26 @@ def _funds_data_holdings_count(symbol: str) -> int | None:
 
 def _frac_to_pct(x) -> float | None:
     """Yahoo reports rates as decimal fractions (0.018 = 1.8%) but
-    occasionally as already-percent (1.8 = 1.8%). Heuristic:
+    occasionally as already-percent (1.46 = 1.46%). Heuristic:
 
-    - abs(f) < 0.3   → fraction (typical 0.0123 → 1.23%)
-    - abs(f) ≥ 0.3   → already a percent (1.46 stays 1.46%)
+    - abs(f) < 1.0   → fraction (0.0123 → 1.23%; 0.45 → 45%)
+    - abs(f) ≥ 1.0   → already a percent (1.46 stays 1.46%; 24.5 stays 24.5%)
 
-    No upper bound here because this helper is also used for multi-
-    year returns where ±100% is normal (5y CAGR on a tech stock,
-    drawdown on a crash universe). For yields specifically, use
-    `_yield_pct` which adds a sanity cap.
+    No upper bound here because this helper is shared with multi-year
+    returns where ±50% is normal (5y CAGR on a tech stock, drawdown
+    on a crash universe). For yields specifically, use `_yield_pct`
+    which adds a 25% sanity cap.
 
-    The previous 1.5 cutoff caused 1.46% (already a percent) to be
-    multiplied to 146% — the SIZE / QUAL yield bug from May 2026."""
+    Threshold history:
+      v1: 1.5 — caused SIZE 1.46% to multiply to 146% (the May 2026 yield bug)
+      v2: 0.3 — fixed yields but broke YTD returns ≥30% (0.45 left as 0.45%)
+      v3: 1.0 — handles yields AND returns. Edge case (multi-year returns
+                stored as fractions ≥ 100%) is not seen in our universes.
+    """
     f = _safe_float(x)
     if f is None:
         return None
-    return f * 100.0 if abs(f) < 0.3 else f
+    return f * 100.0 if abs(f) < 1.0 else f
 
 
 # Cap for "yield in percent" — anything above this is almost
