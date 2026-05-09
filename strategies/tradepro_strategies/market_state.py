@@ -346,15 +346,16 @@ def _classify(state: MarketState) -> tuple[str, str]:
     # BUY: clean uptrend (above SMA200, not overbought, not extended).
     # Plus a range-position guard: if the price is in the upper 30%
     # of its 52w range, the technical BUY is a misleading "buy near
-    # highs" — downgrade to HOLD with an explicit reason. This is
-    # the VUKE-class fix: 5% off 52w high after a +24% YoY run is
-    # not a swing entry.
+    # highs" — return WAIT (not HOLD) so compute_bucket doesn't
+    # promote it back to BUY on strategy consensus. Returning HOLD
+    # here was the bug behind XLY / XLI / XLC / VUKE landing in
+    # BUY candidates with "wait for a pullback" supporting text.
     if above is True:
         if rsi_v is None or rsi_v < RSI_OVERBOUGHT:
             if pct_off_high is None or pct_off_high >= EXTENDED_PCT_FROM_HIGH:
                 rp = state.range_position_pct
                 if rp is not None and rp >= RANGE_HIGH_PCTILE:
-                    return ("HOLD",
+                    return ("WAIT",
                             f"above 200-day SMA but at {rp:.0f}th percentile "
                             f"of 52w range — near the highs, asymmetric risk/"
                             f"reward for a fresh entry. Wait for a pullback.")

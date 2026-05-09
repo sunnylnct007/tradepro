@@ -128,7 +128,12 @@ export function SymbolPicker({ value, onChange, placeholder }: Props) {
             margin: 0,
             padding: 4,
             listStyle: "none",
-            background: "var(--bg-card)",
+            // var(--bg-card) doesn't exist in styles.css; was falling
+            // through to transparent and inheriting the page bg, which
+            // killed contrast on the Backtest page. --bg-panel is the
+            // dedicated elevated-surface colour.
+            background: "var(--bg-panel)",
+            color: "var(--text)",
             border: "1px solid var(--border)",
             borderRadius: 6,
             // Higher z-index than the cards / charts that follow on
@@ -137,7 +142,7 @@ export function SymbolPicker({ value, onChange, placeholder }: Props) {
             zIndex: 200,
             maxHeight: 280,
             overflowY: "auto",
-            boxShadow: "0 4px 14px rgba(0,0,0,0.35)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.55)",
           }}
         >
           {loading && (
@@ -168,7 +173,7 @@ export function SymbolPicker({ value, onChange, placeholder }: Props) {
                 alignItems: "baseline",
               }}
             >
-              <span style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6, color: "var(--text)" }}>
                 {m.symbol}
                 {m.source === "trading212" && (
                   <span

@@ -7,10 +7,13 @@ Feature: Range-position guard on BUY signals
   prevents "5% off 52w high after a +24% YoY run" from being labelled
   a swing entry.
 
-  Scenario: synthetic uptrend ending near the 52w high → HOLD, not BUY
+  Scenario: synthetic uptrend ending near the 52w high → WAIT, not BUY
+    # WAIT (not HOLD) so compute_bucket doesn't promote back to BUY
+    # on strategy consensus. The "Wait for a pullback" semantics
+    # belong in WAIT, not HOLD.
     Given a synthetic VUKE-shaped price series ending at the 70th+ percentile of its 52w range
     When I compute the market state
-    Then the entry signal is "HOLD"
+    Then the entry signal is "WAIT"
     And the entry reason mentions "percentile of 52w range"
     And the decision trace contains a "Range position (52w)" row with status "fail"
 
