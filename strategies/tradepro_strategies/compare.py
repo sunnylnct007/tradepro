@@ -817,6 +817,22 @@ def compare(
                             symbol=r.get("symbol"), error=str(e))
             r["risk_rating"] = None
 
+    # Gem hunter (Phase G). Annotation only — surfaces names that
+    # match the contrarian profile (down ≥25% from 5y peak, in lower
+    # quartile of 52w range, CHEAP valuation, recovery signal firing,
+    # sentiment not hostile). Surfaces alongside the existing bucket
+    # vote so the user gets the trend-following AND mean-reversion
+    # lens on the same data.
+    from .gems import evaluate_gem
+    for r in rows:
+        try:
+            r["gem_verdict"] = evaluate_gem(r).to_dict()
+        except Exception as e:  # noqa: BLE001
+            if logger:
+                logger.emit("compare.gems_failed",
+                            symbol=r.get("symbol"), error=str(e))
+            r["gem_verdict"] = None
+
     # Per-symbol bucket computation + rationale generation. Both are
     # symbol-level (not per-row) so we compute once and copy onto every
     # row for that symbol — matches what the frontend was already doing

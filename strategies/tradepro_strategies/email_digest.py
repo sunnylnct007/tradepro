@@ -199,6 +199,83 @@ def _group_by_symbol(rows: list[dict]) -> dict[str, list[dict]]:
     return out
 
 
+def _filter_gems(payloads: list[dict]) -> list[dict]:
+    """Best-rank row per symbol where gem_verdict.is_gem is True.
+    Mirrors _filter_bucket's de-dup behaviour so a symbol that's a
+    gem in two universes only shows up once."""
+    seen: set[str] = set()
+    items: list[dict] = []
+    for env in payloads:
+        universe = env.get("universe") or env.get("payload", {}).get("universe", "")
+        rows = env.get("payload", {}).get("rows") or env.get("rows") or []
+        for sym, sym_rows in _group_by_symbol(rows).items():
+            if sym in seen:
+                continue
+            best = _best_row_for_symbol(sym_rows)
+            if not best:
+                continue
+            gv = best.get("gem_verdict") or {}
+            if not gv.get("is_gem"):
+                continue
+            seen.add(sym)
+            items.append({
+                "symbol": sym,
+                "universe": universe,
+                "score": gv.get("score"),
+                "passing": (gv.get("reasons") or {}).get("passing") or [],
+                "row": best,  # carry the full row for headline numbers
+            })
+    items.sort(key=lambda x: -(x.get("score") or 0))
+    return items
+
+
+def _gems_text_block(items: list[dict]) -> str:
+    """Per-gem detail card. Each gem gets headline numbers (price,
+    drawdown from 5y peak, range pctile, RSI, valuation flag) plus
+    every passing check from the audit trail."""
+    lines = [
+        "GEMS — contrarian / deep-value picks",
+        "─" * 38,
+        "Names that are down ≥25% from their 5y peak, in the lower",
+        "quartile of their 52w range, valued CHEAP vs basket peers,",
+        "and showing at least one recovery signal (RSI bouncing /",
+        "above SMA200 / outperforming peers). Quality intact: Sharpe",
+        "≥0.5, historically recovered from drawdowns within 24mo.",
+        "Sentiment ≥-0.30 floor (filter out names that are actually broken).",
+        "",
+    ]
+    if not items:
+        lines.append("(no gems matching the profile today)")
+        return "\n".join(lines)
+    for it in items:
+        sym = it["symbol"]
+        univ = it.get("universe") or "—"
+        row = it.get("row") or {}
+        ms = row.get("market_state") or {}
+        last = _fmt(ms.get("last_price"), "", 2)
+        dd = _fmt(ms.get("drawdown_from_peak_pct"), "%", 1)
+        rp = _fmt(ms.get("range_position_pct"), "th", 0)
+        rsi = _fmt(ms.get("rsi_14"), digits=0)
+        risk = ((row.get("risk_rating") or {}).get("rating")) or "—"
+        lines.append(
+            f"┌─ {sym}  ·  {univ}  ·  score {it.get('score', '?')}/8  ·  RISK {risk}"
+        )
+        lines.append(
+            f"│  PRICE     {last}  ·  DD from 5y peak {dd}  ·  range {rp} pctile  ·  RSI {rsi}"
+        )
+        lines.append("│  WHY:")
+        for reason in (it.get("passing") or [])[:6]:
+            lines.append(f"│    ✓ {reason}")
+        lines.append("└─")
+        lines.append("")
+    lines.append(
+        "Caveat: gems can be value traps — quality breakdown, regime "
+        "change, or sector-specific shocks. Pair with the per-symbol "
+        "page in the PDF before sizing a position."
+    )
+    return "\n".join(lines).rstrip()
+
+
 def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
     """Walk every universe payload, return one summary row per symbol
     whose best-rank row matches the requested bucket."""
@@ -807,11 +884,18 @@ def build_digest(
     buys = _filter_bucket(payloads, "BUY")
     avoids = _filter_bucket(payloads, "AVOID")
     waits = _filter_bucket(payloads, "WAIT")
+    # Phase G: gem hunter — surfaces names that match the contrarian
+    # profile (down ≥25% from peak, near 52w low, CHEAP, recovery
+    # signal firing). Built off the same per-row fields the bucket
+    # vote uses; renders as its own section so a reader gets both
+    # the trend-following AND mean-reversion lens in one digest.
+    gems = _filter_gems(payloads)
     today = _now_str()
 
     subject = (
         f"TradePro Digest {today} — {len(buys)} BUY · "
         f"{len(waits)} WAIT · {len(avoids)} AVOID"
+        + (f" · {len(gems)} GEMS" if gems else "")
     )
 
     banner = _staleness_banner(payloads)
@@ -829,6 +913,13 @@ def build_digest(
     sections.extend([
         f"BUY candidates ({len(buys)})",
         _text_block(buys, "BUY") if buys else "(none today)",
+    ])
+    if gems:
+        sections.extend([
+            f"GEMS — contrarian / deep-value picks ({len(gems)})",
+            _gems_text_block(gems),
+        ])
+    sections.extend([
         f"AVOID ({len(avoids)})",
         _text_block(avoids, "AVOID") if avoids else "(none today)",
         f"WAIT ({len(waits)})",
