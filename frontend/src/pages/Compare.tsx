@@ -15,6 +15,7 @@ import type {
   DecisionCheck,
   EntrySignal,
 } from "../api/types";
+import { GemsCard } from "../components/GemsCard";
 import { HoldingsHealthCard } from "../components/HoldingsHealthCard";
 import { Info } from "../components/Info";
 import { RiskPill } from "../components/RiskPill";
@@ -178,6 +179,7 @@ export function Compare() {
             rankMetric={rankMetric}
           />
           <HoldingsHealthCard />
+          <GemsCard />
           <StrategyMatrix
             views={views}
             strategies={data.payload.strategies}

@@ -451,6 +451,9 @@ export interface CompareRow {
   /** Phase R: risk rating + audit trail. Every BUY/WAIT/AVOID
    * carries this so the user can size positions per rating. */
   risk_rating?: RiskRating | null;
+  /** Phase G: gem hunter verdict. Most rows are is_gem=false; the
+   * Decide page renders a GemsCard filtering to is_gem=true. */
+  gem_verdict?: GemVerdict | null;
 }
 
 export interface CrossSectionalMomentum {
@@ -518,6 +521,28 @@ export interface RiskRating {
   baseline: "LOW" | "MEDIUM" | "HIGH" | "EXTREME";
   escalators: number;
   factors: string[];
+}
+
+/** Phase G gem hunter verdict on every compare row. Most rows are
+ * is_gem = false; the dashboard renders a Gems card listing the
+ * subset where is_gem = true. Carries the full audit trail so the
+ * card can show every passing check + which gates failed for a
+ * near-miss. */
+export interface GemVerdict {
+  is_gem: boolean;
+  symbol: string;
+  profile: "stock" | "etf";
+  score: number;
+  /** Auto-bumped to ≥HIGH on every gem regardless of vol baseline.
+   * null when not a gem. */
+  forced_risk: "HIGH" | "EXTREME" | null;
+  /** Advisory cap (% of portfolio); 0 when not a gem. */
+  position_cap_pct: number;
+  reasons: {
+    passing: string[];
+    failed_filters: string[];
+    recovery_signals: string[];
+  };
 }
 
 export interface SwingScore {
