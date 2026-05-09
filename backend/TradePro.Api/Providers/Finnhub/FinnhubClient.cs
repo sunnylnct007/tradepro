@@ -39,6 +39,27 @@ public sealed class FinnhubClient
 
     public bool IsEnabled => _options.IsEnabled;
 
+    /// <summary>Cheap reachability probe — single GET against the
+    /// /quote endpoint (works on any symbol, returns price + change).
+    /// Returns HTTP status code; throws nothing. Used by the
+    /// integrations-health endpoint to distinguish "Finnhub is happy
+    /// but AAPL has no earnings this month" from "Finnhub is 401".</summary>
+    public async Task<int?> ProbeAsync(CancellationToken ct)
+    {
+        if (!_options.IsEnabled) return null;
+        var path = $"quote?symbol=AAPL&token={_options.ApiKey}";
+        try
+        {
+            using var resp = await _http.GetAsync(path, ct);
+            return (int)resp.StatusCode;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Finnhub probe failed");
+            return null;
+        }
+    }
+
     /// <summary>
     /// Earnings calendar for a single symbol over a date window.
     /// Returns the upcoming announcements (and recent history if

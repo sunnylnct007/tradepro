@@ -118,6 +118,10 @@ app.UseAuthorization();
 
 // /health stays public so uptime pings don't need a token.
 app.MapHealthEndpoints();
+// /health/integrations probes T212 + Finnhub live, derives Yahoo +
+// Ollama state from compare-cache freshness. Public so the Health
+// page can poll without auth, same as the rest of /health.
+app.MapIntegrationsHealthEndpoints();
 
 // Everything under /api requires a verified Firebase ID token from one of
 // the allow-listed UIDs. In dev, leaving Firebase:AllowedUserIds empty lets

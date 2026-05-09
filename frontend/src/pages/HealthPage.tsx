@@ -34,20 +34,45 @@ interface HealthDetailsResponse {
   compareCache: { universes: number; freshness: HealthFreshness[] };
 }
 
+interface ProviderHealth {
+  provider: string;
+  label: string;
+  status: "ok" | "degraded" | "down" | "disabled";
+  detail: string;
+  latencyMs: number | null;
+  lastCheckedUtc: string;
+  mode: string | null;
+}
+
+interface IntegrationsHealthResponse {
+  verdict: "ok" | "warn" | "needs_attention";
+  utc: string;
+  providers: ProviderHealth[];
+}
+
 const POLL_MS = 30_000;
 
 export function HealthPage() {
   const [data, setData] = useState<HealthDetailsResponse | null>(null);
+  const [integrations, setIntegrations] = useState<IntegrationsHealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
-    const url = new URL("/health/details", config.apiBaseUrl).toString();
+    const detailsUrl = new URL("/health/details", config.apiBaseUrl).toString();
+    const integrationsUrl = new URL("/health/integrations", config.apiBaseUrl).toString();
     const tick = () => {
-      fetch(url)
+      fetch(detailsUrl)
         .then((r) => r.ok ? r.json() : Promise.reject(`${r.status}`))
         .then((d) => { if (live) { setData(d); setError(null); } })
         .catch((e) => { if (live) setError(String(e)); });
+      // Integrations probe is best-effort — Health page still renders
+      // when /health/integrations is unreachable (older api versions
+      // pre-shipping it).
+      fetch(integrationsUrl)
+        .then((r) => r.ok ? r.json() : Promise.reject(`${r.status}`))
+        .then((d) => { if (live) setIntegrations(d); })
+        .catch(() => {});
     };
     tick();
     const id = setInterval(tick, POLL_MS);
@@ -127,8 +152,97 @@ export function HealthPage() {
           </Card>
         </div>
       )}
+
+      {integrations && <IntegrationsPanel data={integrations} />}
     </div>
   );
+}
+
+/** External-source health: Yahoo / Finnhub / Ollama / T212 with a
+ * status pill, last-success age and the underlying detail. Polled
+ * every 30s same as the rest of the page. Lets the user tell at a
+ * glance whether today's verdicts came from healthy data. */
+function IntegrationsPanel({ data }: { data: IntegrationsHealthResponse }) {
+  return (
+    <section className="card" style={{ padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+        <div className="stat-label">Data sources ({data.providers.length})</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          Polled every 30s · degraded source may compromise today's verdicts
+        </div>
+      </div>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gap: 10,
+      }}>
+        {data.providers.map((p) => (
+          <ProviderTile key={p.provider} p={p} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ProviderTile({ p }: { p: ProviderHealth }) {
+  const colour = providerColour(p.status);
+  return (
+    <div
+      style={{
+        padding: "10px 12px",
+        border: `1px solid var(--border)`,
+        borderLeft: `3px solid ${colour}`,
+        borderRadius: 6,
+        background: "rgba(0,0,0,0.12)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <strong style={{ fontSize: 13, color: "var(--text)" }}>{p.label}</strong>
+        <span
+          style={{
+            fontSize: 10,
+            color: colour,
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+          }}
+        >
+          {p.status}
+          {p.mode ? ` · ${p.mode}` : ""}
+        </span>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.4 }}>
+        {p.detail}
+      </div>
+      {(p.latencyMs !== null || p.lastCheckedUtc) && (
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+          {p.latencyMs !== null && <>latency {p.latencyMs}ms · </>}
+          checked {timeAgo(p.lastCheckedUtc)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function providerColour(status: ProviderHealth["status"]): string {
+  switch (status) {
+    case "ok": return "var(--up)";
+    case "degraded": return "var(--neutral)";
+    case "down": return "var(--down)";
+    case "disabled": return "var(--text-muted)";
+  }
+}
+
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 0) return "now";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
 }
 
 function Verdict({ verdict }: { verdict: HealthDetailsResponse["verdict"] }) {

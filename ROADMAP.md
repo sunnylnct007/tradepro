@@ -77,10 +77,12 @@ out of date. Each entry is one line: what changed and why it mattered.
   specific sentences per symbol per TRADEPRO-SPEC-001 §7)
 - [ ] Help-page strategy visualisations (SMA crossover, RSI bands,
   MACD histogram, Donchian channel, 52w range — visual learners)
-- [ ] Help-page **Data Sources** topic listing every external feed
-  with status, cost, what it provides
-- [ ] Health page **external-source status** card (Yahoo / Finnhub /
+- [x] Help-page **Data Sources** topic listing every external feed
+  with status, cost, what it provides ✅ 2026-05-09
+- [x] Health page **external-source status** card (Yahoo / Finnhub /
   Ollama / T212 with last-success age and degraded indicator)
+  ✅ 2026-05-09 — `/health/integrations` endpoint + Data sources
+  panel on the Health page
 - [ ] **Historical P/E snapshot store** to replace basket-relative as
   the long-term valuation lens (spec §10 Q1)
 - [ ] **SEC EDGAR** integration — free 10-K/10-Q filings, would feed

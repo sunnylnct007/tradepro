@@ -942,6 +942,194 @@ package all stay aligned with.
       },
     ],
   },
+
+  {
+    slug: "data-sources",
+    title: "Data sources",
+    summary: "Every external feed TradePro uses, what it provides, what's free, and how to spot when one is degraded.",
+    emoji: "📡",
+    sections: [
+      {
+        heading: "Why this matters",
+        body: `
+Every BUY / WAIT / AVOID signal sits on top of data from external
+providers. If a provider quietly fails (rate-limit, schema change,
+auth expired), the verdict still renders — but it's based on stale
+or missing inputs. **Always glance at the Data sources card on the
+Health page before trusting today's recommendation.**
+
+This topic lists every feed we use, what's free vs paid, and what
+breaks when each one degrades.
+        `,
+      },
+      {
+        heading: "Yahoo Finance — primary price + fundamentals",
+        body: `
+**What we use:** OHLCV daily bars, 200-day SMA, RSI, distance from
+52-week high, 52-week range position, 5-year drawdown from peak,
+12-month momentum, fundamentals (P/E ratio, dividend yield, expense
+ratio, n_holdings, sector weights, top holdings, AUM, summary text),
+historic earnings dates with EPS surprise, analyst consensus
+(target price, buy/hold/sell counts, upside %).
+
+**Auth:** none. Free, undocumented, rate-limited.
+
+**Cost:** £0.
+
+**Where it shows up:** every single decision. The price chain
+(SMA200, RSI, drawdown) drives the per-symbol BUY/WAIT/AVOID. The
+fundamentals drive the swing-composite valuation layer + the
+horizon classification engine's passive score.
+
+**What breaks if it degrades:** today's prices fall back to the
+last cached close. You'll see the freshness banner go amber, and
+the "Range position (52w)" / "RSI" rows in the decision trace
+will show the stale numbers. Yahoo is the load-bearing dependency
+of the whole platform — if it goes down for >24h the comparator
+emits empty payloads.
+
+**How to spot a degradation:** the Compare page's freshness pill
+(top of /compare) goes from green (<24h) to amber (24-72h) to red
+(>72h). The Health page Data sources card flags Yahoo as
+"degraded" or "down" once the cache is older than 24h / 72h.
+        `,
+      },
+      {
+        heading: "Finnhub — forward earnings calendar",
+        body: `
+**What we use:** upcoming earnings announcements per symbol over
+the next ~60 days. Date + estimate EPS + estimate revenue + when
+it reports (before market open / after close).
+
+**Auth:** API key, passed as \`token\` query parameter.
+
+**Cost:** £0 (free tier 60 req/min, no card needed). Sign up at
+[finnhub.io](https://finnhub.io).
+
+**Where it shows up:** the email digest's "⚠ EPS reports in Xd"
+warning on holdings + BUY candidates. Without it, you get the
+verdict but no advance warning that the position is about to face
+earnings volatility.
+
+**What breaks if it degrades:** EPS warnings disappear from the
+digest + dashboard. The horizon-engine's swing-layer "active
+catalyst" check still fires from yfinance historic earnings, so
+classify_horizons still scores correctly — but you lose the
+forward-looking heads-up.
+
+**Setup:** add \`TRADEPRO_FINNHUB_API_KEY=<key>\` to \`.env\`,
+recreate the api: \`docker compose up -d --force-recreate api\`.
+Confirm with \`curl http://localhost:5080/api/integrations/finnhub/earnings-calendar?symbol=NVDA\` — should return a non-empty events list.
+        `,
+      },
+      {
+        heading: "Trading 212 — your portfolio",
+        body: `
+**What we use:** open positions (qty, average price, current
+price), instruments registry (every symbol your account can
+trade), account summary (cash + equity).
+
+**Auth:** API key. Modern T212 accounts issue a single key —
+NO secret. Older accounts had a key+secret pair (HTTP Basic).
+The client auto-detects which scheme to use.
+
+**Cost:** £0 with any T212 brokerage account.
+
+**Mode:** \`demo\` (paper trading) or \`live\` (real money). Always
+shown as a chip on every page so you can't confuse them.
+
+**Where it shows up:** the "Your portfolio" card on the Decide
+dashboard (BUY MORE / HOLD / TRIM advice per holding), the
+Portfolio page (full table), the email digest's "What you hold"
+section. Three MCP tools expose it to Claude:
+\`get_portfolio\`, \`get_portfolio_signals\`, \`search_t212_instruments\`.
+
+**What breaks if it degrades:** the holdings panel goes empty.
+The error gets surfaced explicitly with the underlying T212
+HTTP status, not silently masquerading as "no positions"
+(that bug shipped briefly and was caught by the user — fixed in
+the May 2026 release).
+
+**Rate limit:** T212 caps \`/equity/portfolio\` at 1 req/1s. We
+cache positions for 30s on the api side so multiple consumers
+(dashboard + portfolio page + MCP) don't trip the limit.
+        `,
+      },
+      {
+        heading: "Ollama — local LLM (sentiment + rationale)",
+        body: `
+**What we use:** \`llama3.1:8b\` by default, runs natively on your
+machine via Ollama. Two jobs: sentiment scoring on every news
+headline (-1 to +1 with theme tags) and rationale generation
+(plain-English "why the engine said BUY" per symbol).
+
+**Auth:** none — runs locally on \`localhost:11434\` (host) or
+\`host.docker.internal:11434\` from inside the worker container.
+
+**Cost:** £0 — your CPU/GPU.
+
+**Where it shows up:** the LLM banner on the Compare page (model
+name + health status), per-row rationale text with verifier
+guard rails, the email digest's per-symbol prose. The sentiment
+demotion rule (BUY → WAIT at -0.30, → AVOID at -0.45) all flows
+from these scores.
+
+**What breaks if it degrades:** sentiment column becomes null.
+The bucket vote still works (it's price-driven) but the demotion
+rule can't fire. Rationale falls back to a templated string. The
+Compare page's LLM banner goes red so you know.
+
+**Switching models:** \`export TRADEPRO_OLLAMA_MODEL=qwen3.5:latest\`
+(or any model you've \`ollama pull\`'d). Sentiment is pinned to
+\`llama3.1:8b\` because qwen returns empty without specific request
+flags — the sentiment-pipeline pins the model per purpose.
+        `,
+      },
+      {
+        heading: "Quick reference — provider × signal layer",
+        body: `
+| Provider | Where in the engine |
+|---|---|
+| **Yahoo Finance** | OHLCV → SMA/RSI/52w/drawdown → market_state ∙ fundamentals → swing-valuation + passive-horizon ∙ historic earnings → swing-event layer ∙ analyst consensus → long-term horizon |
+| **Finnhub** | Forward earnings calendar → digest warnings + position-into-earnings flag |
+| **Trading 212** | Live positions → holdings panel + MCP tools + portfolio email section |
+| **Ollama** | Headline sentiment → demotion rule ∙ rationale prose |
+
+If any row's source goes red on the Health page, that whole
+column of the engine is degraded. The bucket vote remains
+functional from the others — but the user should see the
+warning before acting on a verdict.
+        `,
+      },
+      {
+        heading: "What we'd add next (and why we haven't yet)",
+        body: `
+**SEC EDGAR** — completely free. 10-K, 10-Q, 8-K filings + raw
+earnings transcripts. Would unlock historical-P/E vs own 5-year
+average (the spec wants this; we currently use basket-relative as
+a stand-in). Heavier work — needs a snapshot store. Parked.
+
+**Insider trades** (yfinance \`Ticker.insider_transactions\`) —
+free, 1 line of code to fetch, would feed a "smart money signal"
+layer. Not yet integrated into any scorer. Tracked.
+
+**Recommendation trends** (Finnhub \`/stock/recommendation\`) —
+analyst opinion momentum over months, not just current target.
+Free. Would supplement the long-term-horizon analyst-upside
+score. Tracked.
+
+**FRED** (St Louis Fed) — VIX, 10Y treasury, CPI, unemployment.
+We already inject VIX/TNX into market context but pull from
+yfinance instead of FRED's canonical source. Cleaner if it
+becomes load-bearing. Not blocking.
+
+**Polygon / Alpha Vantage** — paid, real-time / institutional
+grade. Would only matter if the platform moves to intraday
+verdicts. Phase 7+.
+        `,
+      },
+    ],
+  },
 ];
 
 export function topicBySlug(slug: string): HelpTopic | undefined {
