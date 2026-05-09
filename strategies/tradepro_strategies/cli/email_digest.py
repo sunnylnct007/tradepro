@@ -63,6 +63,25 @@ def parse_args() -> argparse.Namespace:
             "via AppleScript, no creds needed)."
         ),
     )
+    p.add_argument(
+        "--setup-gmail",
+        action="store_true",
+        help=(
+            "Interactive Gmail App Password setup wizard. Walks you "
+            "through generating a 16-char app password, prompts for "
+            f"the values, and writes them to {CRED_PATH} with "
+            "permissions 0600. Skips the digest send."
+        ),
+    )
+    p.add_argument(
+        "--check-creds",
+        action="store_true",
+        help=(
+            "Verify SMTP login works against the host:port:user combo "
+            "in ~/.tradepro/email-creds.json without sending mail. "
+            "Exits 0 on success, non-zero with the SMTP error otherwise."
+        ),
+    )
     return p.parse_args()
 
 
@@ -220,6 +239,120 @@ end tell
         )
 
 
+def run_setup_gmail() -> None:
+    """Walk the user through generating a Gmail App Password and write
+    ~/.tradepro/email-creds.json with the answers. App Passwords are
+    16 random characters Google issues for "less-trusted apps" once
+    the account has 2-Step Verification on. They're the only way to
+    SMTP-login to Gmail since Google killed "less secure apps" access.
+
+    The wizard does NOT navigate to Google for you — that has to
+    happen in a browser where the user is already signed in. We
+    print the URL + steps and then capture the result."""
+    print("Gmail App Password setup")
+    print("=" * 60)
+    print(
+        "Gmail SMTP requires a 16-character App Password — NOT your\n"
+        "regular Google password. To generate one:\n"
+        "\n"
+        "  1. Sign in to your Google account in a browser.\n"
+        "  2. Visit:  https://myaccount.google.com/apppasswords\n"
+        "  3. (If the page is missing, you first need 2-Step\n"
+        "      Verification on at https://myaccount.google.com/security)\n"
+        "  4. App name → 'TradePro' (or anything memorable).\n"
+        "  5. Click 'Create'. Google shows a 16-char code with spaces\n"
+        "     (e.g. 'abcd efgh ijkl mnop'). Copy it. The spaces don't\n"
+        "     matter — strip them or keep them, both work.\n"
+        "\n"
+        f"This wizard writes the creds to {CRED_PATH}\n"
+        "with file permissions 0600 (owner-only).\n"
+    )
+    if input("Continue? [Y/n] ").strip().lower() in {"n", "no"}:
+        print("Aborted.")
+        return
+
+    gmail_user = input("Gmail address (e.g. you@gmail.com): ").strip()
+    if "@" not in gmail_user:
+        print(f"That doesn't look like an email address: {gmail_user!r}")
+        sys.exit(1)
+    app_password = input("16-char App Password (spaces ok): ").strip()
+    if len(app_password.replace(" ", "")) < 12:
+        print("App password looks too short — should be 16 chars.")
+        sys.exit(1)
+    app_password = app_password.replace(" ", "")
+    to_addr = input(
+        f"Send digests TO (default = same as From, {gmail_user}): "
+    ).strip() or gmail_user
+
+    creds = {
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 465,
+        "smtp_user": gmail_user,
+        "smtp_password": app_password,
+        "from": gmail_user,
+        "to": [to_addr],
+    }
+    CRED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CRED_PATH.write_text(json.dumps(creds, indent=2) + "\n")
+    try:
+        os.chmod(CRED_PATH, 0o600)
+    except OSError:
+        pass  # Windows / non-POSIX — chmod isn't critical, just nice
+    print(f"\nWrote {CRED_PATH} (permissions 0600)")
+    print(
+        "Verify it works without sending mail:\n"
+        "    uv run tradepro-email --check-creds\n"
+        "Then to send a real digest:\n"
+        "    uv run tradepro-email\n"
+    )
+
+
+def check_smtp_creds(cfg: dict) -> int:
+    """Login to SMTP, immediately QUIT, return exit code. Does NOT
+    send mail. Surfaces the precise SMTP error (e.g. 535 Username and
+    Password not accepted) instead of letting the user wonder why a
+    digest never arrived."""
+    missing = [k for k in ("smtp_host", "smtp_user", "smtp_password") if not cfg.get(k)]
+    if missing:
+        print(f"creds missing: {missing}", file=sys.stderr)
+        print(f"  expected file: {CRED_PATH}", file=sys.stderr)
+        print(
+            "  or set: TRADEPRO_SMTP_HOST / TRADEPRO_SMTP_USER / "
+            "TRADEPRO_SMTP_PASSWORD",
+            file=sys.stderr,
+        )
+        return 2
+    print(
+        f"probing {cfg['smtp_host']}:{cfg['smtp_port']} "
+        f"as {cfg['smtp_user']}…"
+    )
+    ctx = ssl.create_default_context()
+    try:
+        if cfg["smtp_port"] == 465:
+            with smtplib.SMTP_SSL(cfg["smtp_host"], cfg["smtp_port"], context=ctx, timeout=15) as s:
+                s.login(cfg["smtp_user"], cfg["smtp_password"])
+        else:
+            with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"], timeout=15) as s:
+                s.starttls(context=ctx)
+                s.login(cfg["smtp_user"], cfg["smtp_password"])
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"AUTH FAILED: {e}", file=sys.stderr)
+        if cfg["smtp_host"].endswith("gmail.com"):
+            print(
+                "  Gmail rejects regular passwords on SMTP. Did you use\n"
+                "  a 16-char App Password? Run with --setup-gmail to\n"
+                "  regenerate, or visit\n"
+                "  https://myaccount.google.com/apppasswords",
+                file=sys.stderr,
+            )
+        return 1
+    except (OSError, smtplib.SMTPException) as e:
+        print(f"SMTP error: {e}", file=sys.stderr)
+        return 1
+    print("OK — SMTP login succeeded.")
+    return 0
+
+
 def send_email(digest: EmailDigest, cfg: dict) -> None:
     missing = [k for k in ("smtp_host", "smtp_user", "smtp_password", "from") if not cfg.get(k)]
     if missing:
@@ -237,6 +370,20 @@ def send_email(digest: EmailDigest, cfg: dict) -> None:
     msg.set_content(digest.text_body)
     msg.add_alternative(digest.html_body, subtype="html")
 
+    # Attach the PDF deep-dive when build_digest produced one.
+    # Lazy attribute — older callers that built the digest before the
+    # PDF feature shipped won't have `pdf_bytes` and we just skip.
+    pdf_bytes = getattr(digest, "pdf_bytes", None)
+    if pdf_bytes:
+        from datetime import datetime as _dt
+        date_iso = _dt.utcnow().date().isoformat()
+        msg.add_attachment(
+            pdf_bytes,
+            maintype="application",
+            subtype="pdf",
+            filename=f"tradepro-digest-{date_iso}.pdf",
+        )
+
     ctx = ssl.create_default_context()
     if cfg["smtp_port"] == 465:
         with smtplib.SMTP_SSL(cfg["smtp_host"], cfg["smtp_port"], context=ctx, timeout=30) as s:
@@ -251,6 +398,19 @@ def send_email(digest: EmailDigest, cfg: dict) -> None:
 
 def main() -> None:
     args = parse_args()
+
+    # Setup wizard — skip everything below; just write creds and exit.
+    if args.setup_gmail:
+        run_setup_gmail()
+        return
+
+    # Cred probe — short-circuit before hitting the API. Useful right
+    # after running --setup-gmail to confirm the password Google
+    # showed you actually works against smtp.gmail.com.
+    if args.check_creds:
+        cfg = load_smtp_creds(args)
+        sys.exit(check_smtp_creds(cfg))
+
     payloads = fetch_payloads(args.api_base, args.api_token)
     holdings, portfolio_mode = fetch_holdings(args.api_base, args.api_token)
     digest = build_digest(

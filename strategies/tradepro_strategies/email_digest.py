@@ -23,12 +23,18 @@ class EmailDigest:
     subject: str
     text_body: str
     html_body: str
+    # Optional binary PDF attachment — included when reportlab is
+    # installed. The send-mail layer attaches when present; older
+    # callers that don't know about it carry on with text + html.
+    pdf_bytes: bytes | None = None
 
     def to_dict(self) -> dict:
         return {
             "subject": self.subject,
             "text_body": self.text_body,
             "html_body": self.html_body,
+            "has_pdf": self.pdf_bytes is not None,
+            "pdf_size_bytes": len(self.pdf_bytes) if self.pdf_bytes else 0,
         }
 
 
@@ -601,9 +607,28 @@ def _format_holdings_block(holdings: list[dict], payloads: list[dict]) -> str:
         "─" * 20,
         "Cross-references each position against today's verdict — so you",
         "can see whether the system thinks now is the time to add, hold,",
-        "or trim what you already own.",
+        "or trim what you already own. Sorted TRIM → BUY_MORE → HOLD so",
+        "the most time-sensitive calls float to the top.",
         "",
     ]
+    # Sort by action urgency, mirroring the dashboard's HoldingsHealthCard
+    # so the two surfaces always agree. Within each action, biggest |P&L %|
+    # first — the loudest movers float up.
+    from .holdings import analyse_holding
+    _action_priority = {"TRIM": 0, "BUY_MORE": 1, "HOLD": 2}
+
+    def _sort_key(h: dict) -> tuple:
+        sym = h.get("yahooSymbol") or h.get("yahoo_symbol") or ""
+        row = _row_for_symbol(sym, payloads) if sym else None
+        rec = analyse_holding(h, row)
+        upct = h.get("unrealisedPct")
+        try:
+            mag = abs(float(upct)) if upct is not None else 0.0
+        except (TypeError, ValueError):
+            mag = 0.0
+        return (_action_priority.get(rec.action, 9), -mag)
+
+    holdings = sorted(holdings, key=_sort_key)
     for h in holdings:
         ticker = h.get("ticker") or "—"
         yahoo_sym = h.get("yahooSymbol") or h.get("yahoo_symbol")
@@ -785,12 +810,42 @@ def build_digest(
         f"padding:8px 12px;margin-bottom:16px;font-size:12px;color:#7a4f00'>"
         f"{escape(banner)}</div>"
     ) if banner else ""
+
+    # Inline-PNG charts via matplotlib (data URI'd, no attachment
+    # plumbing). Each call returns "" if it has no data, so the
+    # `img_block` helper is safe to chain unconditionally — empty
+    # URIs render as no <img>.
+    try:
+        from .email_charts import (
+            bucket_donut_png, holdings_pnl_bar_png,
+            buy_sparklines_png, img_block,
+        )
+        donut_html = img_block(
+            bucket_donut_png(len(buys), len(waits), len(avoids)),
+            alt="Bucket distribution: BUY / WAIT / AVOID",
+        )
+        holdings_chart_html = img_block(
+            holdings_pnl_bar_png(holdings or []),
+            alt="Your holdings unrealised P&L %",
+        )
+        sparklines_html = img_block(
+            buy_sparklines_png(buys),
+            alt="Recent price action across BUY candidates",
+        )
+    except Exception:  # noqa: BLE001
+        # If matplotlib is missing or chokes, skip charts silently —
+        # the user still gets a fully usable text + HTML digest.
+        donut_html = holdings_chart_html = sparklines_html = ""
+
     html_body = (
         f"<div style='font-family:-apple-system,Helvetica,sans-serif;max-width:780px'>"
         f"<h2 style='margin-bottom:0'>TradePro Daily Digest</h2>"
         f"<div style='color:#666;font-size:12px;margin-bottom:16px'>{today} UTC</div>"
         f"{banner_html}"
+        f"{donut_html}"
+        f"{holdings_chart_html}"
         f"{_html_block(buys, f'BUY candidates ({len(buys)})', '#1fc16b')}"
+        f"{sparklines_html}"
         f"{_html_block(avoids, f'AVOID ({len(avoids)})', '#e2483a')}"
         f"{_html_block(waits, f'WAIT ({len(waits)})', '#e8a23a')}"
         f"<div style='color:#999;font-size:11px;margin-top:24px'>"
@@ -799,4 +854,26 @@ def build_digest(
         f"</div></div>"
     )
 
-    return EmailDigest(subject=subject, text_body=text_body, html_body=html_body)
+    # PDF deep-dive attachment. Lazy import so a deployment without
+    # reportlab still produces a fully-usable text + HTML digest.
+    pdf_bytes: bytes | None = None
+    try:
+        from .email_pdf import build_digest_pdf
+        pdf_bytes = build_digest_pdf(
+            payloads, holdings=holdings, portfolio_mode=portfolio_mode,
+        )
+        if not pdf_bytes:
+            pdf_bytes = None
+    except ImportError:
+        # reportlab not installed — silently skip the attachment.
+        pdf_bytes = None
+    except Exception:  # noqa: BLE001
+        # Any other error rendering the PDF: log nothing here (we
+        # don't have a logger) and skip — the email itself is the
+        # higher-priority surface and shouldn't break.
+        pdf_bytes = None
+
+    return EmailDigest(
+        subject=subject, text_body=text_body, html_body=html_body,
+        pdf_bytes=pdf_bytes,
+    )
