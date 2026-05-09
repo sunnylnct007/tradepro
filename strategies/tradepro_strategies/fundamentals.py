@@ -60,6 +60,11 @@ class Fundamentals:
     # gives garbage on growth names that don't pay much (NVDA, AMZN).
     forward_pe: float | None
     trailing_pe: float | None
+    # Phase G v2 stock-quality floor — debt/equity <1.5 and FCF >0
+    # are the cheap-but-fast signals from Yahoo's info dict that
+    # filter most value traps without needing a full income-stmt parse.
+    debt_to_equity: float | None
+    free_cashflow: float | None
     # Bond ETF flavour
     yield_to_maturity_pct: float | None
     duration_years: float | None
@@ -91,6 +96,8 @@ class Fundamentals:
             "five_year_return_pct": self.five_year_return_pct,
             "forward_pe": self.forward_pe,
             "trailing_pe": self.trailing_pe,
+            "debt_to_equity": self.debt_to_equity,
+            "free_cashflow": self.free_cashflow,
             "yield_to_maturity_pct": self.yield_to_maturity_pct,
             "duration_years": self.duration_years,
             "top_holdings": [h.to_dict() for h in self.top_holdings],
@@ -110,6 +117,7 @@ def _empty(symbol: str) -> Fundamentals:
         dividend_yield_pct=None, distribution_yield_pct=None,
         ytd_return_pct=None, three_year_return_pct=None, five_year_return_pct=None,
         forward_pe=None, trailing_pe=None,
+        debt_to_equity=None, free_cashflow=None,
         yield_to_maturity_pct=None, duration_years=None,
         top_holdings=[], sector_weights={}, n_holdings=None, summary=None,
     )
@@ -363,6 +371,12 @@ def fetch_fundamentals(symbol: str, info: dict | None = None) -> Fundamentals:
         # _frac_to_pct (which would mis-scale a 28× P/E to 28%).
         forward_pe=_safe_float(info.get("forwardPE")),
         trailing_pe=_safe_float(info.get("trailingPE")),
+        # Phase G stock-quality floor inputs. Yahoo's debtToEquity is
+        # already in 1.0-units (e.g. 1.46 = 146%-of-equity in debt);
+        # we keep that scale and rule on it directly. freeCashflow is
+        # absolute USD (or symbol's reporting currency).
+        debt_to_equity=_safe_float(info.get("debtToEquity")),
+        free_cashflow=_safe_float(info.get("freeCashflow")),
         yield_to_maturity_pct=_yield_pct(info.get("yieldToMaturity")),
         duration_years=_safe_float(info.get("duration") or info.get("modifiedDuration")),
         top_holdings=holdings,
