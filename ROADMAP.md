@@ -204,6 +204,184 @@ Estimated effort: 30 minutes of Azure Portal clicking + one
 `tradepro-compare --push` against the prod URL to populate the cache.
 No code changes required — env-var driven.
 
+### Phase D — Data persistence + AWS infra (foundation for everything below)
+
+**The gap:** today everything lives in volatile shapes:
+  - Compare payloads → JSON files in `/data/compare` (lost when the
+    api container is wiped without the named volume).
+  - Fundamentals → fetched fresh on every comparator run; nothing
+    historical is preserved.
+  - Sentiment scores → ephemeral; same headlines re-scored each cycle.
+  - Backtest results → never persisted; user can't compare today's
+    backtest to last week's.
+
+  Several upcoming phases (snapshot store for P/E-vs-history per
+  spec §10 Q1, portfolio simulation Monte Carlo per Phase B, gem
+  hunter recovery tracking per Phase G) all depend on **historical
+  series we don't currently retain**. We need a real data layer.
+
+**The proposal:** stand up AWS infra reusing the existing
+EnergyCosmos account so we don't need a fresh signup or billing
+setup. Three components, layered cheap → expensive:
+
+  **D1 — S3 archive of compare payloads (1 day)**
+  - Every successful `tradepro-compare --push` also uploads the
+    payload to `s3://tradepro-archive/compare/<universe>/<run_id>.json`
+  - Versioned objects + lifecycle policy: keep 90d hot, transition
+    to Glacier IR for older
+  - Cost: pennies/month at our volume. Unblocks "show me how the
+    NVDA verdict changed week-over-week" + audit trail for the
+    decision-trace verifier.
+
+  **D2 — Postgres (RDS) for the snapshot store (3 days)**
+  - Tables: `fundamentals_snapshots` (symbol, fetched_at, P/E,
+    expense_ratio, n_holdings, dividend_yield, …), `analyst_consensus_snapshots`,
+    `sentiment_scores` (headline_id, scored_at, sentiment, themes)
+  - Cron job from the worker writes a snapshot row each refresh
+  - Unblocks the historical-P/E-vs-own-5yr-median lens the spec
+    actually wants (currently using basket-relative as a stand-in)
+  - RDS db.t4g.micro is ~£10/mo; pause when the engine isn't
+    running to halve that
+
+  **D3 — Compute migration: worker → Lambda + EventBridge (3 days)**
+  - Replace the docker worker with a Lambda triggered by EventBridge
+    every 30 min. Same Python codebase, packaged as a layer
+  - Removes the "did you remember to restart the worker container"
+    failure mode that plagued the May 2026 sessions
+  - Macbook strategy run stays as a local-dev convenience (single
+    command, no cloud dependency)
+
+**Why now:** Phase B (portfolio simulation) needs daily price
+history retained. Phase G (gem hunter) needs week-over-week
+recovery signal tracking. Phase R (risk rating) doesn't strictly
+need persistence but benefits from drawdown history. D1 unblocks
+all three; D2 unblocks the snapshot store the spec actually needs;
+D3 fixes the worker reliability gap once and for all.
+
+**Migration path:** D1 first (zero-risk, pure archive). D2 second
+(adds a real query engine without removing anything). D3 last
+(only after D1 + D2 are solid). Local docker stack stays as the
+dev experience throughout — AWS is the **persistence + scheduled
+compute** plane, not a replacement for the local feedback loop.
+
+**Estimated total: 7 days.** Not blocking Phase B (Phase B can run
+on existing in-memory data); blocks the historical-P/E lens that
+the spec currently has as a parked item.
+
+---
+
+### Phase G — Gem Hunter (deep-value mean-reversion scanner)
+
+**The gap:** TradePro's current BUY signals favour instruments
+already in an uptrend (above SMA200, positive 12m momentum). That's
+correct for trend-following but blind to **the asymmetric upside
+of a quality name beaten down to a real entry**. A FTSE 100 stock
+−40% from its 5y peak with intact fundamentals + early RSI recovery
+is the canonical "gem" — and today the engine doesn't surface it
+because Family-1 strategies all read "below SMA200, weak momentum"
+as a sell signal.
+
+**The proposal:** new `find_gems()` scanner that runs after the
+existing comparator and identifies instruments matching a separate
+profile:
+
+  Required (all of):
+  - **Quality intact** — 5y Sharpe ≥ 0.5, max-DD recovery
+    historically ≤ 24mo (i.e. it has come back from drawdowns
+    before, not a permanent value trap)
+  - **Down meaningfully from 5y peak** — drawdown_from_peak_pct
+    ≤ −25% (not a 5% pullback, a real correction)
+  - **In bottom quartile of 52w range** — range_position_pct ≤ 25
+  - **Positive cross-basket valuation flag** — CHEAP per the new
+    P/E hybrid lens (P/E for stocks, yield for ETFs)
+
+  At least one of (recovery signal):
+  - **RSI bouncing** — RSI ≥ 35 AND rising over last 5 bars
+    (mean-reversion entry)
+  - **Above SMA200 just turned** — crossed above in last 20 bars
+  - **Cross-basket momentum z-score improving** — first positive
+    z after a string of negative
+
+  Filters out:
+  - Penny stocks / micro-cap (market cap floor)
+  - Single-stock concentration risk (passive horizon n_holdings
+    handles this for ETFs)
+  - Names with sentiment ≤ −0.30 (something's actually broken)
+
+**Output:** new universe `gems_today` with 5-15 candidates per
+refresh. Surfaced on the Decide page as a dedicated "Gems" tab
+alongside the existing BUY/WAIT/AVOID buckets. Each gem carries
+the same horizon classification as everything else — typically
+swing WATCH (oversold but not yet confirmed) + long-term BUY
++ passive BUY for ETFs.
+
+**Why it matters for the user's stated goal:** "Find a real Gem" —
+the ETF universes already cover S&P 500 / FTSE 100 / sector +
+factor ETFs. Gem hunter gives the user the **contrarian** lens on
+the same data.
+
+**Estimated effort:** 1 day for the scanner + universe wiring,
+half a day for the dashboard tab + email digest section, half a
+day for behave scenarios + tooltip / help-content explainer.
+Total: 2 days.
+
+---
+
+### Phase R — Risk rating per recommendation
+
+**The gap:** every BUY / WAIT / AVOID + horizon classification +
+swing composite tells the user **what to do**. None of them tell
+the user **how risky doing it is**. A BUY on USMV (low-volatility
+factor ETF) and a BUY on TSLA (40%+ annualised vol, 50%+ drawdown
+history) both render as "BUY" in the email — but the position size
+the reader should take is wildly different.
+
+**The proposal:** every row gets a `risk_rating` field — LOW /
+MEDIUM / HIGH / EXTREME — derived from a transparent rule chain
+visible in the decision trace:
+
+  Risk inputs (all sourced from existing fields):
+  - **Annualised volatility** (`vol_30d_annual_pct`) — primary
+    driver. <15% = LOW, 15-25% = MEDIUM, 25-40% = HIGH, >40% =
+    EXTREME.
+  - **Max-DD recovery time** — historically slow recoverer
+    (>3y) bumps the rating one tier.
+  - **Sentiment material-negatives** — ≥3 in last 7d bumps one tier.
+  - **Range position** — at 52w highs (≥80th pctile) bumps one tier
+    (mean-reversion risk).
+  - **Cross-basket dispersion** — symbol's z-score volatility
+    relative to peers; outlier names get a tier bump.
+
+  Cap: rating can move at most ±2 tiers from the volatility
+  baseline so a tame ETF doesn't end up EXTREME from sentiment alone.
+
+**Surfaced as:**
+  - Dashboard: a small pill next to each bucket label (LOW = green,
+    MEDIUM = amber, HIGH = red, EXTREME = magenta)
+  - Email digest: column added to the BUY/WAIT/AVOID tables
+  - PDF: explicit "Risk: HIGH — annualised vol 38%, ≥3y recovery
+    historically" line on every per-symbol page
+  - MCP: `risk_rating` and `risk_factors` fields on every row so
+    Claude can quote them in conversation
+
+**Position-sizing recommendation (optional, Phase R+):** combine
+risk rating with portfolio size to suggest a per-position cap:
+LOW ≤ 25%, MEDIUM ≤ 15%, HIGH ≤ 8%, EXTREME ≤ 4%. Stays advisory,
+honest about being heuristic.
+
+**Why it matters:** the swing composite already mixes quality +
+valuation + event + price. Risk rating is **orthogonal** — it
+asks "if this BUY is wrong, how bad is the downside?" That's the
+question the user has been asking implicitly when they ask "should
+I really hold VUKE if it might go to 36p?"
+
+**Estimated effort:** half a day for the rule chain + per-row
+attachment, half a day for UI surfacing (dashboard pill + email
+column), half a day for behave scenarios + help-content. Total:
+1.5 days.
+
+---
+
 ### Phase B — Portfolio simulation engine (NEXT MAJOR after Phase X)
 
 **The gap:** TradePro tells you what to BUY / WATCH / AVOID right now,

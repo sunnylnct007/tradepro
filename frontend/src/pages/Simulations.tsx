@@ -60,6 +60,10 @@ export function Simulations() {
   // is the realistic default — the engine isn't a single-strategy tool.
   const [multi, setMulti] = useState<MultiBacktest[] | null>(null);
   const [multiRunning, setMultiRunning] = useState(false);
+  // Hide the strategy picker + per-strategy param inputs until the
+  // user opts into advanced mode. Default flow runs all 5 — the
+  // strategy dropdown shouldn't be the first thing the eye lands on.
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   function paramsFor(s: string): Record<string, number> | null {
     switch (s) {
@@ -241,9 +245,6 @@ export function Simulations() {
           alignItems: "end",
         }}
       >
-        <Labelled label="Strategy" help="strategy">
-          <StrategyPicker value={strategy} onChange={setStrategy} />
-        </Labelled>
         <Labelled label="From">
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </Labelled>
@@ -259,44 +260,6 @@ export function Simulations() {
         <Labelled label="Commission / trade" help="commission">
           <input type="number" value={commission} onChange={(e) => setCommission(Number(e.target.value))} />
         </Labelled>
-        {strategy === "sma_crossover" && (
-          <>
-            <Labelled label="Fast SMA" help="fast_sma">
-              <input type="number" value={fast} onChange={(e) => setFast(Number(e.target.value))} />
-            </Labelled>
-            <Labelled label="Slow SMA" help="slow_sma">
-              <input type="number" value={slow} onChange={(e) => setSlow(Number(e.target.value))} />
-            </Labelled>
-          </>
-        )}
-        {strategy === "rsi_mean_reversion" && (
-          <>
-            <Labelled label="Oversold below" help="rsi14">
-              <input type="number" value={rsiLow} onChange={(e) => setRsiLow(Number(e.target.value))} />
-            </Labelled>
-            <Labelled label="Overbought above" help="rsi14">
-              <input type="number" value={rsiHigh} onChange={(e) => setRsiHigh(Number(e.target.value))} />
-            </Labelled>
-          </>
-        )}
-        {strategy === "macd_signal_cross" && (
-          <>
-            <Labelled label="Fast EMA" help="macd_fast">
-              <input type="number" value={macdFast} onChange={(e) => setMacdFast(Number(e.target.value))} />
-            </Labelled>
-            <Labelled label="Slow EMA" help="macd_slow">
-              <input type="number" value={macdSlow} onChange={(e) => setMacdSlow(Number(e.target.value))} />
-            </Labelled>
-            <Labelled label="Signal EMA" help="macd_signal">
-              <input type="number" value={macdSignal} onChange={(e) => setMacdSignal(Number(e.target.value))} />
-            </Labelled>
-          </>
-        )}
-        {strategy === "donchian_breakout" && (
-          <Labelled label="Lookback (bars)" help="donchian_lookback">
-            <input type="number" value={donchian} onChange={(e) => setDonchian(Number(e.target.value))} />
-          </Labelled>
-        )}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <button
             className="primary"
@@ -307,14 +270,76 @@ export function Simulations() {
             {multiRunning ? "Backtesting 5 strategies…" : "Backtest all 5 strategies"}
           </button>
           <button
-            onClick={run}
-            disabled={running || !symbol.trim()}
+            onClick={() => setShowAdvanced((v) => !v)}
             style={{ fontSize: 11, padding: "4px 8px" }}
+            title="Pick one strategy + tune its parameters individually"
           >
-            {running ? "Running…" : "Single strategy (advanced)"}
+            {showAdvanced ? "Hide advanced" : "Single strategy (advanced)"}
           </button>
         </div>
       </section>
+
+      {showAdvanced && (
+        <section
+          className="card"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+            gap: 14,
+            alignItems: "end",
+            borderLeft: "3px solid var(--accent, #4f8cff)",
+          }}
+        >
+          <Labelled label="Strategy" help="strategy">
+            <StrategyPicker value={strategy} onChange={setStrategy} />
+          </Labelled>
+          {strategy === "sma_crossover" && (
+            <>
+              <Labelled label="Fast SMA" help="fast_sma">
+                <input type="number" value={fast} onChange={(e) => setFast(Number(e.target.value))} />
+              </Labelled>
+              <Labelled label="Slow SMA" help="slow_sma">
+                <input type="number" value={slow} onChange={(e) => setSlow(Number(e.target.value))} />
+              </Labelled>
+            </>
+          )}
+          {strategy === "rsi_mean_reversion" && (
+            <>
+              <Labelled label="Oversold below" help="rsi14">
+                <input type="number" value={rsiLow} onChange={(e) => setRsiLow(Number(e.target.value))} />
+              </Labelled>
+              <Labelled label="Overbought above" help="rsi14">
+                <input type="number" value={rsiHigh} onChange={(e) => setRsiHigh(Number(e.target.value))} />
+              </Labelled>
+            </>
+          )}
+          {strategy === "macd_signal_cross" && (
+            <>
+              <Labelled label="Fast EMA" help="macd_fast">
+                <input type="number" value={macdFast} onChange={(e) => setMacdFast(Number(e.target.value))} />
+              </Labelled>
+              <Labelled label="Slow EMA" help="macd_slow">
+                <input type="number" value={macdSlow} onChange={(e) => setMacdSlow(Number(e.target.value))} />
+              </Labelled>
+              <Labelled label="Signal EMA" help="macd_signal">
+                <input type="number" value={macdSignal} onChange={(e) => setMacdSignal(Number(e.target.value))} />
+              </Labelled>
+            </>
+          )}
+          {strategy === "donchian_breakout" && (
+            <Labelled label="Lookback (bars)" help="donchian_lookback">
+              <input type="number" value={donchian} onChange={(e) => setDonchian(Number(e.target.value))} />
+            </Labelled>
+          )}
+          <button
+            className="primary"
+            onClick={run}
+            disabled={running || !symbol.trim()}
+          >
+            {running ? "Running…" : "Backtest this strategy"}
+          </button>
+        </section>
+      )}
 
       {error && (
         <div
