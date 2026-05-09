@@ -648,12 +648,26 @@ def _today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
+def _rows_of(p: dict) -> list[dict]:
+    """Compare-payload envelope shape varies — the api response has
+    rows under `payload.rows` while a direct comparator emit has
+    `rows` at top level. Accept both so the PDF doesn't silently
+    render an empty BUY section because of an envelope mismatch
+    (the bug from 2026-05-09: email said 29 BUY, PDF said 0)."""
+    if not p:
+        return []
+    inner = p.get("payload")
+    if isinstance(inner, dict) and inner.get("rows"):
+        return inner["rows"]
+    return p.get("rows") or []
+
+
 def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
     """Best-rank row per symbol where bucket matches. Same logic as
-    email_digest._filter_bucket."""
+    email_digest._filter_bucket — accepts both envelope shapes."""
     seen: dict[str, dict] = {}
     for p in payloads or []:
-        for r in (p or {}).get("rows") or []:
+        for r in _rows_of(p):
             if (r.get("bucket") or "").upper() != bucket:
                 continue
             sym = r.get("symbol") or ""
@@ -670,7 +684,7 @@ def _row_for_symbol(sym: str, payloads: list[dict]) -> dict | None:
     best: dict | None = None
     best_rank = 1e9
     for p in payloads or []:
-        for r in (p or {}).get("rows") or []:
+        for r in _rows_of(p):
             if (r.get("symbol") or "").upper() != sym_u:
                 continue
             rank = r.get("rank") or 1e9
