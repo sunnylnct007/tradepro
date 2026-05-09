@@ -87,9 +87,13 @@ Both off by default. Add to `.env` to enable:
 
 ```bash
 # Trading 212 portfolio + instruments
+# T212 public API uses a SINGLE API key (no secret). Generate in
+# T212 app → Settings → API (Beta) → "Generate API key", tick the
+# "View portfolio" scope (read-only is enough), copy the key.
 TRADEPRO_T212_MODE=demo            # or `live` for real money
-TRADEPRO_T212_API_KEY=<key>        # T212 app → Settings → API (Beta)
-TRADEPRO_T212_API_SECRET=<secret>
+TRADEPRO_T212_API_KEY=<key>
+# TRADEPRO_T212_API_SECRET — unused, retained for backwards compat
+# with older .env files. T212 has no secret. Leave empty.
 
 # Finnhub forward-earnings calendar
 TRADEPRO_FINNHUB_API_KEY=<key>     # finnhub.io free tier (60 req/min)

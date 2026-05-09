@@ -13,6 +13,83 @@ those assumptions change.
 
 ---
 
+## Recently shipped (May 2026)
+
+Tracks meaningful work that's already in `main` so this doc stops drifting
+out of date. Each entry is one line: what changed and why it mattered.
+
+**Week of 2026-05-06 → 2026-05-09 — horizon engine + portfolio surface:**
+
+- ✅ **Range-position guard on BUY** (`market_state.py`) — VUKE-class
+  fix. Symbols at ≥70th pctile of 52w range get downgraded BUY → HOLD;
+  ≥80th pctile is hard-capped at WATCH. Covers the "5% off the 52w
+  high after a +24% YoY run is not a dip" case the live VUKE.L test
+  surfaced.
+- ✅ **Horizon Classification Engine** (`horizons.py`,
+  TRADEPRO-SPEC-001 §6) — three independent verdicts per symbol:
+  swing (1–8w), long-term (6–18m), passive (3–5y). Each has its own
+  0–8 score, signal grade and reasons. Wired into compare payload as
+  `horizon_classification` + new MCP tool `get_horizon_signals(symbol)`.
+- ✅ **Trading 212 portfolio surface** — live-mode auth fix (single-key
+  vs Basic), 30s positions cache to dodge T212's 1-req/1s rate limit,
+  `HoldingsHealthCard` on the Decide dashboard, full `Portfolio` page,
+  email digest "What you hold" section. New `get_portfolio_signals`
+  MCP tool returning per-position BUY_MORE / HOLD / TRIM with narrative.
+- ✅ **Email digest charts + PDF attachment** — bucket donut, holdings
+  P&L bar, BUY-candidate sparklines inline in HTML body. Multi-page
+  PDF with cover, methodology, holdings, per-symbol detail (decision
+  trace + horizon scores + sentiment + analyst targets), glossary.
+- ✅ **Two-tier sentiment demotion** (`compare.py`) — mean ≤ −0.45 with
+  ≥3 material-negatives demotes any bucket → AVOID, distinct from the
+  existing −0.30 → WAIT. Differentiates "news backdrop is bad" (WAIT)
+  from "news flow is genuinely hostile" (AVOID).
+- ✅ **P/E hybrid valuation lens** (`cross_sectional.py`) —
+  `bucket_by_valuation` orchestrator picks P/E quartiles for stock
+  baskets (NVDA no longer mis-flagged "expensive" purely for not
+  paying a dividend), falls back to dividend-yield quartiles for ETF
+  baskets where P/E isn't reported. Honest gap: still BASKET-relative,
+  not vs symbol's own historical median (snapshot store parked).
+- ✅ **AVOID demotion on extreme negative sentiment** (above) +
+  **AMZN-class fix** for sentiment confused-with-WAIT.
+- ✅ **Worker pushes finally landing** (`push_to_api.py`) — credentials
+  loader fell back to env vars when `~/.tradepro/credentials` is
+  absent (docker worker had `TRADEPRO_API_URL` + `TRADEPRO_API_TOKEN`
+  set in compose env but the loader exited early). Heartbeats now
+  reach the api over the compose network.
+- ✅ **Finnhub forward-earnings calendar wired** — `FinnhubEarningsEvent`
+  parsing fix (Quarter/Year are JSON ints not strings); EPS-warning
+  copy in the digest now fires when a holding has earnings within 14d.
+- ✅ **MCP tool reliability** — `_get` default timeout 10s → 30s,
+  `get_portfolio_signals` parallel-fetches universes; tunable via
+  `TRADEPRO_MCP_TIMEOUT` env. Stops Claude Desktop's visualiser from
+  giving up mid-tool-call.
+- ✅ **UX polish** — Decide is now the index route (Scanner moved to
+  `/scanner`); Mac → Strategy Engine rename in user-visible strings;
+  Backtest page gets the existing `SymbolPicker` autocomplete + a
+  popular-tickers chip row; Help page widened from 820 → 960px.
+- ✅ **Docker build hang fix** — `BUILDX_NO_DEFAULT_ATTESTATIONS=1`
+  documented in compose comments after the buildx provenance step
+  hung during a rebuild.
+
+**Open follow-ups from this week:**
+
+- [ ] Spec P2: LLM rationale prompt with horizon context (3 horizon-
+  specific sentences per symbol per TRADEPRO-SPEC-001 §7)
+- [ ] Help-page strategy visualisations (SMA crossover, RSI bands,
+  MACD histogram, Donchian channel, 52w range — visual learners)
+- [ ] Help-page **Data Sources** topic listing every external feed
+  with status, cost, what it provides
+- [ ] Health page **external-source status** card (Yahoo / Finnhub /
+  Ollama / T212 with last-success age and degraded indicator)
+- [ ] **Historical P/E snapshot store** to replace basket-relative as
+  the long-term valuation lens (spec §10 Q1)
+- [ ] **SEC EDGAR** integration — free 10-K/10-Q filings, would feed
+  the snapshot store and the rationale layer
+- [ ] **Insider trades + recommendation trends** — yfinance +
+  Finnhub both expose these and we don't currently use them
+
+---
+
 ## Where we are now (April 2026)
 
 Concrete, working today on `main`:
@@ -129,23 +206,26 @@ peers". To get genuine alpha we need uncorrelated signal families.
 
 | Family | What it asks | Status |
 |---|---|---|
-| 1. Price / technical | Is price above its own MA? | ✅ have 5 strategies |
-| 2. Valuation | Is this cheap vs its own history? | ⚠️ data exists, no signal yet |
-| 3. Cross-sectional / factor | How does this rank vs peers? | ✅ annotation landed (rank + zscore on each row) |
-| 4. Event-driven | Recent earnings beat + retreat? | ❌ needs earnings calendar feed |
+| 1. Price / technical | Is price above its own MA? | ✅ 5 strategies + range-position guard (May 2026) |
+| 2. Valuation | Is this cheap? | ✅ basket-relative P/E (stocks) + yield (ETFs) hybrid lens. Historical-P/E vs own median still needs snapshot store. |
+| 3. Cross-sectional / factor | How does this rank vs peers? | ✅ rank + zscore annotation per row |
+| 4. Event-driven | Recent earnings beat + retreat? | ✅ `BEAT_AND_RETREAT` signal + Finnhub forward calendar (May 2026) |
 | 5. Macro overlay | What regime are we in? | ⚠️ partial via etf_macro_proxies |
-| 6. Sentiment | What's the news saying? | ✅ demotion only (BUY → WAIT) |
+| 6. Sentiment | What's the news saying? | ✅ two-tier demotion: BUY→WAIT at -0.30, any→AVOID at -0.45 |
 
 **Build order:**
 1. ✅ Cross-sectional momentum rank (annotation, not yet a verdict driver)
-2. Valuation flag using `dividend_yield_pct` as cheap-proxy until we
-   build a fundamentals snapshot store for true historical-P/E-vs-median
-3. Earnings calendar via Finnhub free tier + recent-beat-and-retreat detection
-4. `evaluate_swing(symbol, capital_gbp)` composite scorer 0–8 across
-   quality / valuation / event / price layers; only STRONG_BUY at ≥6
-5. Tranche-based position sizing: T1=40% now, T2=30% on RSI ≤ 35,
+2. ✅ Valuation flag — hybrid P/E (stocks) + yield (ETFs); historical
+   median vs own 5y still parked pending snapshot store
+3. ✅ Earnings calendar via Finnhub free tier + recent-beat-and-retreat detection
+4. ✅ `evaluate_swing(symbol)` composite scorer 0–8 across
+   quality / valuation / event / price layers; STRONG_BUY at ≥6
+5. ✅ **Horizon Classification Engine** (TRADEPRO-SPEC-001 §6) — splits
+   the verdict into swing / long-term / passive horizons so the same
+   instrument gets independently-scored advice per holding period
+6. Tranche-based position sizing: T1=40% now, T2=30% on RSI ≤ 35,
    T3=30% on RSI ≤ 30; max 20% per name; cash sleeve for reserves
-6. Exit rules: profit target T1×1.20 (sell 40%), stop T1×0.85 (full),
+7. Exit rules: profit target T1×1.20 (sell 40%), stop T1×0.85 (full),
    trailing 12% off local high once price > T1×1.10
 
 **Why park the big composite:** building `evaluate_swing` right
