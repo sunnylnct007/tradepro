@@ -11,9 +11,23 @@
  * - Link cross-topic where it helps ("see Risk metrics →").
  */
 
+/** Inline diagram shown above the markdown body. Lets a Help section
+ * say "RSI looks like this" with an actual chart instead of asking
+ * the reader to picture it. Each kind maps to a recharts demo in
+ * components/StrategyDiagrams.tsx — synthetic data, designed to
+ * teach the shape, not to claim any real market period. */
+export type HelpDiagramKind =
+  | "sma_crossover"
+  | "rsi_bands"
+  | "macd_histogram"
+  | "donchian_breakout"
+  | "range_position"
+  | "return_histogram";
+
 export interface HelpSection {
   heading: string;
   body: string; // markdown
+  diagram?: HelpDiagramKind;
 }
 
 export interface HelpTopic {
@@ -201,6 +215,7 @@ knowing which indicator is informative in which context.
       },
       {
         heading: "Simple Moving Average (SMA)",
+        diagram: "sma_crossover",
         body: `
 **SMA(N)** = average of the last N closing prices. Smooths out
 day-to-day noise.
@@ -215,7 +230,10 @@ important sanity check in trend-following.
 
 When a fast SMA (e.g. SMA(20)) crosses **above** a slow SMA
 (SMA(50)), it's called a **golden cross** — a classic buy
-signal. The reverse is a **death cross** — sell.
+signal. The reverse is a **death cross** — sell. The diagram above
+shows both: fast (blue, SMA(8)) tracking faster than slow (purple,
+SMA(20)), with the green dot marking a golden cross and the red
+dot a death cross.
         `,
       },
       {
@@ -228,14 +246,16 @@ and a lot of momentum strategies.
       },
       {
         heading: "RSI — Relative Strength Index",
+        diagram: "rsi_bands",
         body: `
 A number between 0 and 100 measuring how much recent gains
 outweigh recent losses.
 
-- **RSI > 70** = overbought. Price has run hard recently; a
-  pullback is statistically more likely than another big jump.
-- **RSI < 30** = oversold. Price has dropped hard; a bounce is
-  statistically more likely.
+- **RSI > 70** = overbought (red zone above). Price has run hard
+  recently; a pullback is statistically more likely than another
+  big jump.
+- **RSI < 30** = oversold (amber zone below). Price has dropped
+  hard; a bounce is statistically more likely.
 - **RSI 30-70** = neutral. No edge in either direction.
 
 A common pitfall: in a strong trend, RSI can stay above 70 (or
@@ -245,13 +265,16 @@ it alongside a trend check.
       },
       {
         heading: "MACD — Moving Average Convergence Divergence",
+        diagram: "macd_histogram",
         body: `
 Two EMAs (fast 12-day and slow 26-day) subtracted from each other,
 then a 9-day EMA of that line called the **signal line**.
 
-When the MACD line crosses **above** the signal line, momentum is
-turning up — buy. When it crosses below, sell. The further the
-two lines drift apart, the stronger the momentum.
+When the MACD line (blue) crosses **above** the signal line
+(purple), momentum is turning up — buy. When it crosses below,
+sell. The **histogram** is just MACD − Signal — green bars when
+momentum is bullish, red when bearish. The further the lines
+drift apart, the taller the bar and the stronger the momentum.
 
 MACD is good at catching the start of trends; it's bad in flat,
 choppy markets where it whipsaws between buy and sell.
@@ -259,15 +282,43 @@ choppy markets where it whipsaws between buy and sell.
       },
       {
         heading: "Donchian channel — breakout detection",
+        diagram: "donchian_breakout",
         body: `
 Track the highest high and lowest low of the last N days
 (commonly 20). When today's close exceeds the prior 20-day high,
 **breakout — buy**. When it drops below the prior 20-day low,
 **breakdown — sell**.
 
-This is the rule turtles famously used to make millions. Works
-brilliantly when assets are trending; kills you in sideways
-markets.
+The diagram shows a sideways consolidation where price stays
+inside the channel, then a clean breakout (green dot) once price
+punches through the upper band — that's the classic Turtle
+breakout entry.
+
+Works brilliantly when assets are trending; kills you in sideways
+markets where the breakout immediately fails.
+        `,
+      },
+      {
+        heading: "Range position (52w) — where in the year are we?",
+        diagram: "range_position",
+        body: `
+A simple but powerful sanity check the engine added in May 2026
+after a real-world false-positive (VUKE.L flagged BUY at 5% off
+its 52w high after a +24% YoY run — not a dip, just a minor
+cooling near the top).
+
+\`range_position_pct = (current − 52w_low) / (52w_high − 52w_low) × 100\`
+
+- **0–35th** percentile → near the lows. Genuine dip territory;
+  positive modifier on the swing score.
+- **35–65th** → mid-range. Neutral.
+- **65–80th** → near highs. Limited swing upside; demote BUY → HOLD.
+- **80–100th** → at highs. Hard cap on swing signal at WATCH
+  regardless of other criteria.
+
+The diagram above plots all four bands so you can see how a 5%
+pullback can sit in completely different parts of the annual
+range depending on how the year went.
         `,
       },
     ],
@@ -297,6 +348,7 @@ sustained should be treated with extreme suspicion.
       },
       {
         heading: "Sharpe ratio — return per unit of risk",
+        diagram: "return_histogram",
         body: `
 Strategy A returns 12% with 30% volatility. Strategy B returns
 8% with 10% volatility. Which is better?
@@ -304,6 +356,13 @@ Strategy A returns 12% with 30% volatility. Strategy B returns
 Sharpe ratio answers that. Roughly: \`return / volatility\`
 (annualised, with the risk-free rate subtracted out). Higher is
 better.
+
+The histogram above shows daily returns of a sample strategy.
+Sharpe measures both how **far right of zero** the centre sits
+(returns above the risk-free rate) AND how **tight** the
+distribution is around that centre (low volatility). A peaky,
+right-skewed shape gives a high Sharpe; a flat or left-skewed
+shape gives a low one.
 
 - **Sharpe > 1** = good for a long-only equity strategy.
 - **Sharpe > 2** = exceptional, almost always overfit or lucky.

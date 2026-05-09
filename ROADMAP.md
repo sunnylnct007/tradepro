@@ -75,8 +75,10 @@ out of date. Each entry is one line: what changed and why it mattered.
 
 - [x] Spec P2: LLM rationale prompt with horizon context (3 horizon-
   specific sentences per symbol per TRADEPRO-SPEC-001 §7) ✅ 2026-05-09
-- [ ] Help-page strategy visualisations (SMA crossover, RSI bands,
-  MACD histogram, Donchian channel, 52w range — visual learners)
+- [x] Help-page strategy visualisations (SMA crossover, RSI bands,
+  MACD histogram, Donchian channel, 52w range, return distribution —
+  visual learners). 6 inline recharts demos in Indicators + Risk
+  metrics topics. ✅ 2026-05-09
 - [x] Help-page **Data Sources** topic listing every external feed
   with status, cost, what it provides ✅ 2026-05-09
 - [x] Health page **external-source status** card (Yahoo / Finnhub /

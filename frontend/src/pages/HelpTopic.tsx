@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { HELP_TOPICS, topicBySlug } from "../docs/help-content";
+import { StrategyDiagram } from "../components/StrategyDiagrams";
 
 /** Renders a single Help topic — title, summary, all sections.
  *
@@ -66,6 +67,7 @@ export function HelpTopic() {
             >
               {s.heading}
             </h2>
+            {s.diagram && <StrategyDiagram kind={s.diagram} />}
             <div style={{ color: "var(--text-dim)", fontSize: 14, lineHeight: 1.65 }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.body}</ReactMarkdown>
             </div>
