@@ -19,8 +19,14 @@ const router = createBrowserRouter([
     path: "/",
     element: <Layout />,
     children: [
-      { index: true, element: <Scanner /> },
+      // Index lands on the Decide page (Compare). Running strategies
+      // one-by-one via /scanner isn't realistic for the daily workflow
+      // — Compare already aggregates the 5-strategy vote per symbol
+      // and the worker refreshes it on a schedule. /scanner stays
+      // available for single-strategy exploration but isn't the entry.
+      { index: true, element: <Compare /> },
       { path: "compare", element: <Compare /> },
+      { path: "scanner", element: <Scanner /> },
       { path: "portfolio", element: <Portfolio /> },
       { path: "documents", element: <Documents /> },
       { path: "documents/:docId", element: <DocumentDetail /> },

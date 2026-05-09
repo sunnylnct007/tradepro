@@ -14,6 +14,23 @@ import type { SimulationRequest, SimulationResult } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
 import { StrategyPicker } from "../components/StrategyPicker";
+import { SymbolPicker } from "../components/SymbolPicker";
+
+// Popular tickers shown as one-click chips above the symbol box —
+// covers the "I want to test something but don't know what ticker to
+// type" friction the user flagged on the Backtest page. Curated to
+// span equity-index / blue-chip / sector-leader / GBP / USD venues.
+const POPULAR_SYMBOLS: { symbol: string; label: string }[] = [
+  { symbol: "^FTSE", label: "FTSE 100" },
+  { symbol: "^GSPC", label: "S&P 500" },
+  { symbol: "VUKE.L", label: "FTSE 100 ETF" },
+  { symbol: "VUSA.L", label: "S&P 500 ETF" },
+  { symbol: "VOO", label: "S&P 500 (US)" },
+  { symbol: "QQQ", label: "Nasdaq-100" },
+  { symbol: "AAPL", label: "Apple" },
+  { symbol: "MSFT", label: "Microsoft" },
+  { symbol: "NVDA", label: "Nvidia" },
+];
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -96,6 +113,42 @@ export function Simulations() {
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
           How much money would this strategy have made? UK fee model by default (0.5% stamp duty on buys).
         </p>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 6,
+            marginTop: 10,
+            alignItems: "center",
+          }}
+        >
+          <span style={{ fontSize: 11, color: "var(--text-muted)", marginRight: 4 }}>
+            Quick pick:
+          </span>
+          {POPULAR_SYMBOLS.map((p) => (
+            <button
+              key={p.symbol}
+              type="button"
+              onClick={() => setSymbol(p.symbol)}
+              title={p.label}
+              style={{
+                padding: "3px 9px",
+                fontSize: 11,
+                borderRadius: 999,
+                border: `1px solid ${
+                  symbol === p.symbol ? "var(--accent, #4f8cff)" : "var(--border)"
+                }`,
+                background: symbol === p.symbol ? "var(--bg-hover)" : "transparent",
+                color: symbol === p.symbol ? "var(--text)" : "var(--text-dim)",
+                fontWeight: symbol === p.symbol ? 600 : 400,
+                cursor: "pointer",
+                lineHeight: 1.4,
+              }}
+            >
+              {p.symbol}
+            </button>
+          ))}
+        </div>
       </div>
 
       <section
@@ -108,7 +161,7 @@ export function Simulations() {
         }}
       >
         <Labelled label="Symbol">
-          <input className="num" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
+          <SymbolPicker value={symbol} onChange={setSymbol} placeholder="e.g. NVDA, VUKE.L" />
         </Labelled>
         <Labelled label="Strategy" help="strategy">
           <StrategyPicker value={strategy} onChange={setStrategy} />

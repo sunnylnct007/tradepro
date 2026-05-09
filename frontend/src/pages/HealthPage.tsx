@@ -4,9 +4,9 @@ import { config } from "../config";
 /** 'Is the system OK?' single screen.
  *
  * Polls /health/details (public, no auth) and renders a top-level
- * verdict, the API state, the Mac heartbeat, and per-universe data
- * freshness. Beats opening Compare and trying to read provenance bars
- * to figure out whether anything is broken. */
+ * verdict, the API state, the Strategy Engine heartbeat, and per-
+ * universe data freshness. Beats opening Compare and trying to read
+ * provenance bars to figure out whether anything is broken. */
 
 interface HealthFreshness {
   universe: string;
@@ -58,10 +58,10 @@ export function HealthPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div>
         <h1 style={{ margin: 0, fontSize: 24 }}>System health</h1>
-        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 760 }}>
-          Live read of the API, the Mac that produces results, and the data
-          cache it serves. Polls every 30s. Auto-updates when something
-          changes — no need to refresh.
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 880 }}>
+          Live read of the API, the Strategy Engine that produces results,
+          and the data cache it serves. Polls every 30s. Auto-updates when
+          something changes — no need to refresh.
         </p>
       </div>
 
@@ -87,7 +87,7 @@ export function HealthPage() {
             <Row label="Server time" value={new Date(data.utc).toLocaleString()} />
           </Card>
 
-          <Card title="Mac (worker)">
+          <Card title="Strategy Engine">
             <Row
               label="Liveness"
               value={data.worker.liveness}

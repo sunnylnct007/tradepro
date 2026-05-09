@@ -15,6 +15,7 @@ import type {
   DecisionCheck,
   EntrySignal,
 } from "../api/types";
+import { HoldingsHealthCard } from "../components/HoldingsHealthCard";
 import { Info } from "../components/Info";
 import { WorkerStatusBadge } from "../components/WorkerStatusBadge";
 
@@ -175,6 +176,7 @@ export function Compare() {
             avoids={avoids}
             rankMetric={rankMetric}
           />
+          <HoldingsHealthCard />
           <StrategyMatrix
             views={views}
             strategies={data.payload.strategies}
@@ -341,7 +343,7 @@ function ProvenanceBar({
             borderRadius: 4,
             color: "var(--text-dim)",
           }}
-          title="Run this on the Mac to push fresh data"
+          title="Run this on the Strategy Engine to push fresh data"
         >
           uv run tradepro-compare --watchlist {data.universe} --push
         </code>
@@ -1672,7 +1674,7 @@ function EmptyState({ error }: { error: string }) {
           overflowX: "auto",
         }}
       >
-{`# from the Mac (in /strategies):
+{`# from the Strategy Engine (in /strategies):
 uv run tradepro-compare --watchlist etf_us_core --currency USD --stamp-duty 0 --push`}
       </pre>
     </div>

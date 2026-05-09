@@ -187,6 +187,14 @@ export interface CompareMarketState {
   momentum_3m_pct: number | null;
   momentum_12m_pct: number | null;
   vol_30d_annual_pct: number | null;
+  /** Where the current price sits as a percentile within the 52w
+   * (low → high) range. 100 = at high, 0 = at low. Used as a guard
+   * on the BUY signal: ≥70th pctile downgrades BUY → HOLD even when
+   * the technical gates pass. Captures the "near the highs after a
+   * strong run, not a dip" case. */
+  range_position_pct?: number | null;
+  low_52w_price?: number | null;
+  low_52w_date?: string | null;
   entry_signal: EntrySignal;
   entry_reason: string;
   decision_trace?: DecisionCheck[];
@@ -427,6 +435,13 @@ export interface CompareRow {
    * Verdict bands: ≥6 STRONG_BUY, 4-5 BUY, 2-3 HOLD, 0-1 AVOID.
    * Computed AFTER all per-family annotations are attached. */
   swing_score?: SwingScore | null;
+  /** TRADEPRO-SPEC-001 §6.2: three horizon-aware verdicts per row.
+   * Annotation only — does not modify the bucket vote. Single-stock
+   * symbols carry signal "N/A" on the passive horizon. */
+  horizon_classification?: HorizonClassification | null;
+  /** Mirror of market_state.range_position_pct surfaced at the row
+   * top-level for convenience. 0-100; 100 = at 52w high. */
+  range_pct?: number | null;
 }
 
 export interface CrossSectionalMomentum {
@@ -443,10 +458,46 @@ export interface CrossSectionalMomentum {
 
 export interface ValuationFlag {
   flag: "cheap" | "fair" | "expensive" | "n/a";
+  /** Generic value (P/E ratio when lens=pe, yield % when lens=yield). */
+  value?: number | null;
+  basket_median?: number | null;
+  /** Which lens picked this output. "pe" for stock baskets where
+   * forward P/E was available across the basket; "yield" for ETF
+   * baskets falling back to dividend yield. */
+  lens_used?: "pe" | "yield";
+  /** Legacy yield-specific fields — populated only when lens=yield.
+   * Kept for backwards compat with renderers that read them
+   * directly. */
   yield_pct: number | null;
   basket_median_yield_pct: number | null;
+  /** P/E-specific mirrors — populated only when lens=pe. */
+  pe_ratio?: number | null;
+  basket_median_pe?: number | null;
   basis: string;
   metric: string;
+}
+
+export interface HorizonVerdict {
+  signal: "BUY" | "WATCH" | "AVOID" | "N/A";
+  /** "5/8" or "N/A" */
+  score: string;
+  /** Human-readable window: "1-8 weeks" / "6-18 months" / "3-5 years" */
+  horizon: string;
+  reasons: string[];
+  entry_note?: string | null;
+  raw_score?: number | null;
+}
+
+/** TRADEPRO-SPEC-001 — three independent horizon verdicts per row.
+ * Same instrument scored against three different lenses (swing /
+ * long-term / passive). Annotation only; doesn't override the
+ * existing bucket vote. Single-stock symbols return signal "N/A"
+ * on the passive horizon. */
+export interface HorizonClassification {
+  swing: HorizonVerdict;
+  long_term: HorizonVerdict;
+  passive: HorizonVerdict;
+  range_pct: number | null;
 }
 
 export interface SwingScore {

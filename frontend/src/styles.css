@@ -259,8 +259,10 @@ table.trade-table tr:hover td { background: rgba(79, 140, 255, 0.05); }
 .reason.down  .dot { background: var(--down); }
 .reason.neutral .dot { background: var(--neutral); }
 
-/* Markdown content on /help */
-.prose { max-width: 820px; line-height: 1.7; color: var(--text); }
+/* Markdown content on /help. 960px reads comfortably (≈80ch at 14px)
+ * while filling more of the dashboard width — the previous 820px cap
+ * felt squashed inside the 1280px main container. */
+.prose { max-width: 960px; line-height: 1.7; color: var(--text); }
 .prose h1 { font-size: 28px; margin-top: 0; }
 .prose h2 { font-size: 20px; margin-top: 32px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 .prose h3 { font-size: 16px; margin-top: 22px; }

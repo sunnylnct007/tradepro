@@ -10,12 +10,12 @@ export function Help() {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
         <h1 style={{ margin: 0, fontSize: 24 }}>Help & learn</h1>
-        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 760 }}>
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 880 }}>
           Short, plain-English explanations of every concept the app uses —
           from <em>what is an ETF</em> through <em>how a Sharpe ratio works</em>.
           Topics are intentionally bite-sized; pick the one you need.
         </p>
-        <p style={{ color: "var(--text-muted)", margin: "8px 0 0 0", fontSize: 12, maxWidth: 760 }}>
+        <p style={{ color: "var(--text-muted)", margin: "8px 0 0 0", fontSize: 12, maxWidth: 880 }}>
           Tip: hover the <span className="info" style={{ cursor: "default" }}>i</span> icon
           next to any control on the rest of the app for a one-line explanation
           of <em>that specific</em> input.

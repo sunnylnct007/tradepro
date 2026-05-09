@@ -185,7 +185,7 @@ export const HELP: Record<string, HelpEntry> = {
   freshness: {
     title: "Data freshness",
     body:
-      "How long ago this comparison was computed on the Mac and pushed to the API. <24h = green (Live). 24-72h = amber (Stale — refresh recommended). >72h = red (Very stale — refresh before deciding). The scheduled launchd job runs daily at 22:30 UTC.",
+      "How long ago this comparison was computed by the Strategy Engine and pushed to the API. <24h = green (Live). 24-72h = amber (Stale — refresh recommended). >72h = red (Very stale — refresh before deciding). In the docker stack the worker container refreshes every 30 minutes; on a launchd-installed Mac the scheduled job runs daily at 22:30 UTC.",
   },
 
   // ---- Recent additions — keep these in sync with the helpers in
@@ -240,8 +240,14 @@ export const HELP: Record<string, HelpEntry> = {
   valuation_flag: {
     title: "Valuation flag (cheap / fair / expensive)",
     body:
-      "Quartile-bucket of this symbol's dividend yield vs basket peers. Top quartile (highest yield) → 'cheap'; bottom quartile → 'expensive'; middle 50% → 'fair'. Family-2 starter signal — proxy for value until we have a fundamentals snapshot store with historical-P/E-vs-10y-median. Caveat: a high yield can also flag a structurally distressed asset whose dividend hasn't been cut yet; pair with the technical bucket vote.",
+      "Cross-sectional valuation vs basket peers. The lens depends on basket composition: stocks with positive forward P/E use P/E quartiles (lowest P/E in basket → 'cheap'); ETF baskets where P/E isn't reported fall back to dividend-yield quartiles (highest yield → 'cheap'). The basis line under the flag tells you which lens fired and the rank within the basket. Caveat: this is BASKET-relative not absolute; it doesn't compare a symbol to its own historical P/E (snapshot store parked). A low P/E can also flag a value trap — pair with the technical bucket vote.",
     href: "#valuation-flag",
+  },
+  range_position: {
+    title: "Range position (52w)",
+    body:
+      "Where the current price sits as a percentile within its 52-week (low → high) range. 100 = at the 52w high, 0 = at the 52w low. The classifier uses this as a guard on the BUY signal: ≥70th percentile downgrades BUY → HOLD even when SMA/RSI/drawdown all pass. Why: a symbol 5% off its 52w high after a +24% YoY run isn't a dip — risk/reward (small upside, large downside) is asymmetric. ≤40th percentile confirms genuine 'closer to lows' dip territory.",
+    href: "#range-position",
   },
   swing_score: {
     title: "Swing composite score (0-8)",

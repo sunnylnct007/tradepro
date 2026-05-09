@@ -45,7 +45,7 @@ export function HelpTopic() {
           <span style={{ fontSize: 22 }}>{topic.emoji}</span>
           {topic.title}
         </h1>
-        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 760 }}>
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 880 }}>
           {topic.summary}
         </p>
       </div>

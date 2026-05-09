@@ -84,14 +84,14 @@ export function Settings() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 760 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 880 }}>
       <div>
         <h1 style={{ margin: 0, fontSize: 24 }}>Settings</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0" }}>
           Tune the rules the comparator applies. Saved values are picked up
-          on the next <code>tradepro-compare</code> run on the Mac — no
-          redeploy needed. The Compare page's LLM banner shows the literal
-          numbers that fired, so changes are visible immediately.
+          on the next <code>tradepro-compare</code> run by the Strategy
+          Engine — no redeploy needed. The Compare page's LLM banner shows
+          the literal numbers that fired, so changes are visible immediately.
         </p>
       </div>
 

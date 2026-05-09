@@ -28,6 +28,11 @@ interface T212PositionsResponse {
   fetchedAtUtc?: string;
   positionCount?: number;
   positions: T212Position[];
+  /** When the T212 fetch failed (auth, 404, network), this carries
+   * the underlying detail so the UI can stop pretending the user
+   * has 0 positions. Null on a clean fetch. */
+  error?: string | null;
+  httpStatus?: number | null;
 }
 
 /**
@@ -126,6 +131,38 @@ TRADEPRO_T212_API_SECRET=...`}</pre>
     );
   }
   if (!resp.positions.length) {
+    // T212 returned an error — auth or endpoint failure. Surface
+    // the underlying reason instead of silently claiming "no positions",
+    // which had been gaslighting users with funded demo accounts.
+    if (resp.error) {
+      return (
+        <Frame>
+          <div style={{ ...emptyStyle, borderColor: "var(--down)", color: "var(--down)" }}>
+            <h2 style={{ margin: 0, color: "var(--down)" }}>
+              Couldn't reach Trading 212 ({resp.mode})
+            </h2>
+            <p style={{ marginTop: 8, color: "var(--text)" }}>{resp.error}</p>
+            {resp.httpStatus === 401 && (
+              <p style={{ marginTop: 12, fontSize: 13, color: "var(--text-dim)" }}>
+                401 means the API key was rejected. T212 uses a single key
+                in the <code>Authorization</code> header — there is no secret.
+                Generate a fresh key in the T212 app
+                (<b>Settings → API (Beta) → Generate API key</b>),
+                set <code>TRADEPRO_T212_API_KEY</code> in your <code>.env</code>,
+                and restart the api: <code>docker compose up -d --force-recreate api</code>.
+              </p>
+            )}
+            {resp.httpStatus === 403 && (
+              <p style={{ marginTop: 12, fontSize: 13, color: "var(--text-dim)" }}>
+                403 usually means the key is valid but lacks the scope for
+                this endpoint. When generating the key in T212, tick
+                <b> "View portfolio"</b> (read-only is enough).
+              </p>
+            )}
+          </div>
+        </Frame>
+      );
+    }
     return (
       <Frame>
         <div style={emptyStyle}>

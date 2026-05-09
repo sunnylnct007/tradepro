@@ -4,14 +4,14 @@ import type { WorkerHealth } from "../api/types";
 
 const POLL_MS = 15_000;
 
-/** Compact status pill for the Mac that produces all the comparator
- * results. Colours:
+/** Compact status pill for the Strategy Engine that produces all the
+ * comparator results. Colours:
  *
  *   ● green   alive (last ping ≤ 30 min)  + 'processing X' or 'idle'
  *   ● amber   late  (last ping ≤ 24h)     + 'might have missed a heartbeat'
- *   ● red     down  (last ping > 24h)     + 'check the launchd job'
+ *   ● red     down  (last ping > 24h)     + 'check the worker container'
  *
- * When the Mac is processing, the dot pulses and the label shows the
+ * When the engine is processing, the dot pulses and the label shows the
  * task / detail / phase + how long it's been running. That tells the
  * user 'a comparison is in flight, sit tight' instead of 'data is stale'.
  *
@@ -135,9 +135,9 @@ function livenessColour(l: WorkerHealth["liveness"]): string {
 
 function labelFor(l: WorkerHealth["liveness"]): string {
   switch (l) {
-    case "alive": return "Mac alive";
-    case "late": return "Mac late";
-    case "down": return "Mac silent";
+    case "alive": return "Engine alive";
+    case "late": return "Engine late";
+    case "down": return "Engine silent";
   }
 }
 

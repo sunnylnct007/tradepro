@@ -18,7 +18,10 @@ const primaryNav: { to: string; label: string; end?: boolean }[] = [
 ];
 
 const utilityNav: { to: string; label: string; end?: boolean }[] = [
-  { to: "/", label: "Scanner", end: true },
+  // Single-strategy scanner — kept for power-user exploration, but
+  // it's no longer the index. The default workflow runs through
+  // Decide which already aggregates the full 5-strategy vote.
+  { to: "/scanner", label: "Scanner" },
   { to: "/charts", label: "Charts" },
   { to: "/health", label: "Health" },
   { to: "/settings", label: "Settings" },

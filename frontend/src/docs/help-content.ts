@@ -551,7 +551,7 @@ that's coming, but is informational, not decisive.
         heading: "What the LLM does",
         body: `
 TradePro runs a small **local language model** (default
-\`llama3.1:8b\` via Ollama on your Mac) over each news headline
+\`llama3.1:8b\` via Ollama on your machine) over each news headline
 attached to an ETF. For each headline it returns:
 
 - **sentiment** — a number from -1 (very negative) to +1 (very
@@ -623,7 +623,8 @@ healthy. When it's not, verdicts run on rules-only — never silently.
         heading: "Picking a different model",
         body: `
 The default is \`llama3.1:8b\` — fast and accurate enough for
-sentiment scoring. To swap models, set an env var on the Mac:
+sentiment scoring. To swap models, set an env var on the host
+running the Strategy Engine:
 
 \`\`\`bash
 export TRADEPRO_OLLAMA_MODEL=qwen3.5:latest    # broader knowledge
@@ -841,7 +842,7 @@ sub-questions, call tools, draft, verify, and either answer
 - Show how a symbol survived past stress windows (GFC, COVID, 2022)
 - Read recent news + LLM-scored sentiment per symbol
 - Trigger a fresh comparator run (slow — only on explicit ask)
-- Show system health + Mac liveness
+- Show system health + Strategy Engine liveness
 - Verify any answer against tool outputs
 
 **Cannot:**
@@ -883,20 +884,22 @@ hallucination this whole layer exists to prevent.
   {
     slug: "how-it-works",
     title: "How TradePro works under the hood",
-    summary: "The push pipeline, the Mac → API → frontend flow, and the full architecture doc.",
+    summary: "The push pipeline, the Strategy Engine → API → frontend flow, and the full architecture doc.",
     emoji: "🔧",
     sections: [
       {
         heading: "Where the compute happens",
         body: `
-The Mac runs the heavy work. Yahoo Finance prices are fetched,
-five strategies are backtested over multi-year history, regime
-overlaps are sliced, market-state verdicts are computed,
-analyst-consensus snapshots are pulled — all locally, in
-Python, using your machine's CPU.
+The **Strategy Engine** (a Python worker — runs in the
+\`tradepro-worker\` docker container or as a launchd job on a Mac)
+does the heavy work. Yahoo Finance prices are fetched, five
+strategies are backtested over multi-year history, regime overlaps
+are sliced, market-state verdicts are computed, analyst-consensus
+snapshots are pulled — all in Python, using local CPU.
 
-The result is a single JSON payload. The Mac POSTs it to the
-API (auth: a static bearer token set in App Service config).
+The result is a single JSON payload. The Engine POSTs it to the
+API (auth: a static bearer token set in compose env or App Service
+config).
 The API stores the payload to disk (\`/data/compare/<universe>.json\`).
 The frontend GETs the latest payload and renders this page.
 
@@ -909,18 +912,19 @@ last refreshed.
       {
         heading: "Scheduled refresh",
         body: `
-A \`launchd\` job on the Mac fires every day at 22:30 UTC (after
-the US close) and re-runs the comparator across every ETF
-universe. Results push to the API automatically. You should
-never have to think about it — the page is always fresh.
+In the docker stack the \`worker\` service runs a loop:
+re-runs the comparator every \`WORKER_INTERVAL_SECONDS\` (default
+30 min) and heartbeats the API every 5 min. Results push
+automatically — you should never have to think about it.
 
-Install on a new Mac:
+For a Mac launchd install (no Docker), a \`launchd\` job fires every
+day at 22:30 UTC after the US close:
 
 \`\`\`
 bash strategies/scripts/install-launchd.sh
 \`\`\`
 
-Logs land at \`~/.tradepro/logs/refresh-<date>.log\`.
+Either way, logs land at \`~/.tradepro/logs/refresh-<date>.log\`.
         `,
       },
       {
