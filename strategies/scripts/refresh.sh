@@ -28,6 +28,7 @@ etf_us_core  USD 0
 etf_uk_core  GBP 0
 etf_us_sector USD 0
 etf_factor   USD 0
+us_megacap_sample USD 0
 EOF
 
 cd "$PROJECT_DIR" || exit 1
