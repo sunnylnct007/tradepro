@@ -448,6 +448,9 @@ export interface CompareRow {
   /** Mirror of market_state.range_position_pct surfaced at the row
    * top-level for convenience. 0-100; 100 = at 52w high. */
   range_pct?: number | null;
+  /** Phase R: risk rating + audit trail. Every BUY/WAIT/AVOID
+   * carries this so the user can size positions per rating. */
+  risk_rating?: RiskRating | null;
 }
 
 export interface CrossSectionalMomentum {
@@ -504,6 +507,17 @@ export interface HorizonClassification {
   long_term: HorizonVerdict;
   passive: HorizonVerdict;
   range_pct: number | null;
+}
+
+/** Phase R risk rating attached to every compare row. The `rating`
+ * is the headline pill (LOW / MEDIUM / HIGH / EXTREME). `baseline`
+ * is the vol-only tier before escalators applied. `factors` is the
+ * audit trail — every input that drove the rating, in plain English. */
+export interface RiskRating {
+  rating: "LOW" | "MEDIUM" | "HIGH" | "EXTREME";
+  baseline: "LOW" | "MEDIUM" | "HIGH" | "EXTREME";
+  escalators: number;
+  factors: string[];
 }
 
 export interface SwingScore {

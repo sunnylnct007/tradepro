@@ -264,6 +264,8 @@ def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
                 # a name sitting near 52w highs.
                 "horizon_classification": best.get("horizon_classification"),
                 "range_pct": best.get("range_pct"),
+                # Phase R risk rating + audit trail.
+                "risk_rating": best.get("risk_rating"),
                 # Sentiment summary
                 "sentiment_mean_7d": sentiment.get("mean_sentiment"),
                 "sentiment_material_negative_count": sentiment.get("material_negative_count"),
@@ -379,9 +381,18 @@ def _text_block(items: list[dict], heading: str) -> str:
         total = it.get("total_strategies")
         consensus = f"{long}/{total}" if long is not None and total else "—"
         # ── Header line ──────────────────────────────────────────
-        lines.append(f"┌─ {sym}  ·  {univ}  ·  {bucket}  ·  {consensus} long")
+        risk = (it.get("risk_rating") or {}).get("rating")
+        risk_text = f"  ·  RISK {risk}" if risk else ""
+        lines.append(f"┌─ {sym}  ·  {univ}  ·  {bucket}{risk_text}  ·  {consensus} long")
         if it.get("bucket_reason"):
             lines.append(f"│  WHY: {it['bucket_reason']}")
+        # Risk audit trail — every input that drove the rating, in
+        # plain English. Surfaces here so a reader sizing positions
+        # off the digest knows exactly what makes RISK = HIGH.
+        risk_obj = it.get("risk_rating") or {}
+        risk_factors = risk_obj.get("factors") or []
+        if risk and risk_factors:
+            lines.append(f"│  RISK:   {risk} — {' · '.join(risk_factors[:3])}")
         # Swing composite score — the headline 0-8 reading that
         # combines all four families (quality / valuation / event /
         # price). Sits right under WHY so the user sees both the

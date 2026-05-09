@@ -802,6 +802,21 @@ def compare(
                             symbol=r.get("symbol"), error=str(e))
             r["horizon_classification"] = None
 
+    # Risk rating (Phase R). Runs LAST — sees the bucket vote, range
+    # position, sentiment summary, cross-basket z, all attached. Output
+    # is a sibling field carrying rating + audit trail (factors list)
+    # so every surface (dashboard / email / PDF / MCP) can render the
+    # same auditable rationale instead of a black-box pill.
+    from .risk import compute_risk_rating
+    for r in rows:
+        try:
+            r["risk_rating"] = compute_risk_rating(r).to_dict()
+        except Exception as e:  # noqa: BLE001
+            if logger:
+                logger.emit("compare.risk_failed",
+                            symbol=r.get("symbol"), error=str(e))
+            r["risk_rating"] = None
+
     # Per-symbol bucket computation + rationale generation. Both are
     # symbol-level (not per-row) so we compute once and copy onto every
     # row for that symbol — matches what the frontend was already doing

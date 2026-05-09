@@ -17,6 +17,7 @@ import type {
 } from "../api/types";
 import { HoldingsHealthCard } from "../components/HoldingsHealthCard";
 import { Info } from "../components/Info";
+import { RiskPill } from "../components/RiskPill";
 import { WorkerStatusBadge } from "../components/WorkerStatusBadge";
 
 /** "Should I invest today, and if yes, in what?" page.
@@ -712,7 +713,10 @@ function MatrixRow({
           </span>
         </Td>
         <Td align="center" style={{ color: verdictColour, fontWeight: 700 }}>
-          {view.bucket}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+            <span>{view.bucket}</span>
+            <RiskPill rating={view.bestRow.risk_rating ?? null} />
+          </div>
         </Td>
         <Td align="center">
           <SwingBadge swing={view.bestRow.swing_score ?? null} />
