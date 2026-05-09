@@ -13,6 +13,19 @@ namespace TradePro.Api.Providers.Trading212;
 /// Order placement is intentionally off until we have a one-button UI
 /// safety story — the API will happily place a real-money trade with
 /// the wrong key.
+///
+/// Auth: T212's spec (strategies/docs/api.json) declares TWO security
+/// schemes:
+///   • authWithSecretKey — HTTP Basic with API key as username and
+///     API secret as password (older account flow that issued a pair)
+///   • legacyApiKeyHeader — Authorization header carrying the raw
+///     API key with no prefix (newer account flow, issues a single
+///     key only)
+/// We pick the scheme based on what the operator gave us: if both
+/// ApiKey AND ApiSecret are set → Basic; if only ApiKey → raw
+/// header. Misconfiguration earlier was sending Basic with a missing
+/// secret which T212 silently 401'd — masquerading as "no positions"
+/// in the UI.
 /// </summary>
 public sealed class Trading212Client
 {
@@ -31,10 +44,22 @@ public sealed class Trading212Client
         if (_options.IsEnabled)
         {
             _http.BaseAddress = new Uri(_options.BaseUrl);
-            var token = Convert.ToBase64String(
-                Encoding.UTF8.GetBytes($"{_options.ApiKey}:{_options.ApiSecret}"));
-            _http.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Basic", token);
+            if (!string.IsNullOrWhiteSpace(_options.ApiSecret))
+            {
+                // Older T212 accounts: API key + secret pair. HTTP Basic.
+                var token = Convert.ToBase64String(
+                    Encoding.UTF8.GetBytes($"{_options.ApiKey}:{_options.ApiSecret}"));
+                _http.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Basic", token);
+            }
+            else
+            {
+                // Newer T212 accounts: single key, raw in Authorization
+                // header. .NET rejects unprefixed Authorization via the
+                // typed setter — TryAddWithoutValidation gets around it.
+                _http.DefaultRequestHeaders.TryAddWithoutValidation(
+                    "Authorization", _options.ApiKey);
+            }
             _http.Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
         }
     }
@@ -43,35 +68,63 @@ public sealed class Trading212Client
     public string Mode => _options.Mode;
 
     /// <summary>Open positions for the authenticated account.
-    /// Rate limit is 1 req / 1s per T212 docs. Returns an empty list
-    /// on transport / auth errors so the caller can render an "off"
-    /// state cleanly.</summary>
-    public async Task<IReadOnlyList<Trading212Position>> GetPositionsAsync(
+    /// Rate limit is 1 req / 1s per T212 docs.
+    ///
+    /// Returns a result envelope with both the rows AND any error
+    /// so callers can distinguish "really 0 positions" from
+    /// "auth failed / endpoint 404'd / network blew up". Surfacing
+    /// the diagnostic up to the UI prevents the silent-empty bug
+    /// where "Basic" auth made T212 401 and the page just said
+    /// "no open positions in your demo account".</summary>
+    public async Task<Trading212PositionsResult> GetPositionsAsync(
         CancellationToken ct)
     {
         if (!_options.IsEnabled)
         {
-            return Array.Empty<Trading212Position>();
+            return new Trading212PositionsResult(
+                Positions: Array.Empty<Trading212Position>(),
+                Error: "integration disabled");
         }
         try
         {
             using var resp = await _http.GetAsync("equity/positions", ct);
             if (!resp.IsSuccessStatusCode)
             {
+                var body = await SafeReadBodySnippet(resp, ct);
                 _log.LogWarning(
-                    "Trading212 positions fetch returned HTTP {Status}",
-                    (int)resp.StatusCode);
-                return Array.Empty<Trading212Position>();
+                    "Trading212 positions fetch returned HTTP {Status} body={Body}",
+                    (int)resp.StatusCode, body);
+                return new Trading212PositionsResult(
+                    Positions: Array.Empty<Trading212Position>(),
+                    Error: $"HTTP {(int)resp.StatusCode} from T212{(string.IsNullOrEmpty(body) ? "" : ": " + body)}",
+                    HttpStatus: (int)resp.StatusCode);
             }
             var items = await resp.Content
                 .ReadFromJsonAsync<List<Trading212Position>>(cancellationToken: ct);
-            return (IReadOnlyList<Trading212Position>?)items
-                ?? Array.Empty<Trading212Position>();
+            return new Trading212PositionsResult(
+                Positions: items ?? new List<Trading212Position>(),
+                Error: null);
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Trading212 positions fetch failed");
-            return Array.Empty<Trading212Position>();
+            return new Trading212PositionsResult(
+                Positions: Array.Empty<Trading212Position>(),
+                Error: ex.Message);
+        }
+    }
+
+    private static async Task<string> SafeReadBodySnippet(
+        HttpResponseMessage resp, CancellationToken ct)
+    {
+        try
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            return body.Length > 200 ? body[..200] + "…" : body;
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 
@@ -124,7 +177,11 @@ public sealed class Trading212Client
 
         try
         {
-            using var resp = await _http.GetAsync("equity/account/cash", ct);
+            // T212 spec lists /equity/account/summary as the canonical
+            // metadata probe; older code targeted /account/cash which
+            // some accounts now 404 on. Summary always succeeds when
+            // auth is valid.
+            using var resp = await _http.GetAsync("equity/account/summary", ct);
             var rateLimitRemaining = TryHeaderInt(resp, "x-ratelimit-remaining");
             if (resp.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -175,6 +232,23 @@ public sealed record Trading212Status(
     bool Authenticated,
     string Detail,
     int? RateLimitRemaining = null);
+
+/// <summary>Envelope for the positions call so the API endpoint can
+/// pass the failure reason (auth fail, 404, network) up to the UI
+/// instead of swallowing it as an empty list — that silent failure
+/// mode was masquerading as "you have 0 positions" and gaslighting
+/// users into thinking T212 was working when it wasn't.
+///
+/// FromCache + AgeSeconds let the endpoint surface "this is the
+/// last successful response, T212 is currently rate-limiting us"
+/// rather than nuking the dashboard with a 429 banner.</summary>
+public sealed record Trading212PositionsResult(
+    IReadOnlyList<Trading212Position> Positions,
+    string? Error,
+    int? HttpStatus = null,
+    bool FromCache = false,
+    double? AgeSeconds = null,
+    DateTime? FetchedAtUtc = null);
 
 /// <summary>One row from /equity/metadata/instruments. T212 ticker
 /// format is &lt;ROOT&gt;_&lt;EXCHANGE&gt;_&lt;TYPE&gt; (e.g. "AAPL_US_EQ"); we keep

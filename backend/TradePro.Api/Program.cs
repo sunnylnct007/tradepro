@@ -68,6 +68,11 @@ builder.Services.AddHttpClient<Trading212Client>(c =>
 // process. The cache loads from disk on construction and refreshes
 // lazily on first access if older than 24h.
 builder.Services.AddSingleton<Trading212InstrumentsService>();
+// Caches /equity/positions for 30s by default (Trading212:PositionsCacheSeconds
+// to override). Stops dashboard + portfolio page from independently
+// tripping T212's 1 req/1s rate limit on every navigation. On 429
+// the cache serves the last successful response with FromCache=true.
+builder.Services.AddSingleton<Trading212PositionsCache>();
 
 // Finnhub — off-by-default earnings-calendar provider. Free tier
 // signup gives 60 req/min which is plenty for occasional checks.

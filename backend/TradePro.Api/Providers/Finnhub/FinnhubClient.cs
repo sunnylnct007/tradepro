@@ -82,7 +82,10 @@ public sealed class FinnhubClient
     }
 }
 
-/// <summary>One row from the Finnhub /calendar/earnings response.</summary>
+/// <summary>One row from the Finnhub /calendar/earnings response.
+/// Quarter and Year arrive as JSON integers (e.g. "quarter":1, "year":2027) —
+/// modelling them as int? avoids the JsonException that swallowed the
+/// response into an empty list pre-fix.</summary>
 public sealed record FinnhubEarningsEvent(
     string? Symbol,
     string? Date,         // YYYY-MM-DD of the announcement
@@ -91,8 +94,8 @@ public sealed record FinnhubEarningsEvent(
     decimal? RevenueActual,
     decimal? RevenueEstimate,
     string? Hour,         // "bmo" / "amc" / "" — before/after market close
-    string? Quarter,
-    string? Year);
+    int? Quarter,
+    int? Year);
 
 internal sealed record FinnhubEarningsCalendarResponse(
     [property: System.Text.Json.Serialization.JsonPropertyName("earningsCalendar")]

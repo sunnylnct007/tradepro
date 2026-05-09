@@ -67,7 +67,10 @@ public static class IntegrationsEndpoints
         // money — so every consumer (UI, email, MCP) can show the
         // user which world they're looking at.
         app.MapGet("/integrations/trading212/positions",
-            async (Trading212Client client, CancellationToken ct) =>
+            async (
+                Trading212Client client,
+                Trading212PositionsCache cache,
+                CancellationToken ct) =>
             {
                 if (!client.IsEnabled)
                 {
@@ -79,8 +82,13 @@ public static class IntegrationsEndpoints
                         positions = Array.Empty<object>(),
                     });
                 }
-                var raw = await client.GetPositionsAsync(ct);
-                var rows = raw.Select(p =>
+                // Cache wraps the upstream client so multiple consumers
+                // (HoldingsHealthCard + Portfolio page) on the same
+                // session don't trip T212's 1 req/1s limit. Returns a
+                // result envelope carrying FromCache + AgeSeconds so
+                // the UI can show "as of 12s ago" honestly.
+                var result = await cache.GetAsync(ct);
+                var rows = result.Positions.Select(p =>
                 {
                     decimal? unrealisedPct = null;
                     decimal? unrealisedAbs = null;
@@ -91,7 +99,7 @@ public static class IntegrationsEndpoints
                         unrealisedAbs = (cur - avg) * p.Quantity;
                     }
                     // T212 nests the ticker inside `instrument` on the
-                    // /equity/positions response; the top-level Ticker
+                    // /equity/portfolio response; the top-level Ticker
                     // we modelled isn't populated, hence the null seen
                     // in the wild. Fall back to it just in case a future
                     // shape change moves it back.
@@ -124,6 +132,14 @@ public static class IntegrationsEndpoints
                     fetchedAtUtc = DateTime.UtcNow,
                     positionCount = rows.Count,
                     positions = rows,
+                    // Surfaces the underlying T212 failure so the UI
+                    // doesn't silently render "0 positions" when the
+                    // real story is "401 Unauthorized" or "404 not
+                    // found". Null when the call succeeded.
+                    error = result.Error,
+                    httpStatus = result.HttpStatus,
+                    fromCache = result.FromCache,
+                    ageSeconds = result.AgeSeconds,
                 });
             });
 

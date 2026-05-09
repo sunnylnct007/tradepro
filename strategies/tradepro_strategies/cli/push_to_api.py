@@ -49,14 +49,24 @@ VALID_KINDS = {"backtest", "scan", "model_prediction", "compare", "heartbeat", "
 
 
 def load_credentials() -> tuple[str, str]:
-    if not CRED_PATH.exists():
-        print(f"credentials file not found: {CRED_PATH}", file=sys.stderr)
-        sys.exit(2)
-    data = json.loads(CRED_PATH.read_text())
+    """Resolve (api_base_url, api_token). File is preferred when present
+    (matches the macOS / launchd path); env vars fill in when the file
+    is absent (matches the docker-compose worker path). Without either,
+    we exit non-zero so the caller can surface a clean error."""
+    data: dict = {}
+    if CRED_PATH.exists():
+        try:
+            data = json.loads(CRED_PATH.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"warning: could not read {CRED_PATH}: {e}", file=sys.stderr)
     base = data.get("api_base_url") or os.environ.get("TRADEPRO_API_URL")
     token = data.get("api_token") or os.environ.get("TRADEPRO_API_TOKEN")
     if not base or not token:
-        print("credentials must include api_base_url and api_token", file=sys.stderr)
+        print(
+            "credentials must include api_base_url and api_token — "
+            f"checked {CRED_PATH} and TRADEPRO_API_URL / TRADEPRO_API_TOKEN env",
+            file=sys.stderr,
+        )
         sys.exit(2)
     return base.rstrip("/"), token
 
