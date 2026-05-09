@@ -181,31 +181,56 @@ export function Simulations() {
           <span style={{ fontSize: 11, color: "var(--text-muted)", marginRight: 4 }}>
             Quick pick:
           </span>
-          {POPULAR_SYMBOLS.map((p) => (
-            <button
-              key={p.symbol}
-              type="button"
-              onClick={() => setSymbol(p.symbol)}
-              title={p.label}
-              style={{
-                padding: "3px 9px",
-                fontSize: 11,
-                borderRadius: 999,
-                border: `1px solid ${
-                  symbol === p.symbol ? "var(--accent, #4f8cff)" : "var(--border)"
-                }`,
-                background: symbol === p.symbol ? "var(--bg-hover)" : "transparent",
-                color: symbol === p.symbol ? "var(--text)" : "var(--text-dim)",
-                fontWeight: symbol === p.symbol ? 600 : 400,
-                cursor: "pointer",
-                lineHeight: 1.4,
-              }}
-            >
-              {p.symbol}
-            </button>
-          ))}
+          {POPULAR_SYMBOLS.map((p) => {
+            const active = symbol === p.symbol;
+            // Active state uses box-shadow + colour, NOT font-weight,
+            // so flipping it doesn't reflow the row width.
+            return (
+              <button
+                key={p.symbol}
+                type="button"
+                onClick={() => setSymbol(p.symbol)}
+                title={p.label}
+                style={{
+                  padding: "3px 9px",
+                  fontSize: 11,
+                  borderRadius: 999,
+                  border: "1px solid var(--border)",
+                  boxShadow: active ? "inset 0 0 0 1px var(--accent, #4f8cff)" : "none",
+                  background: active ? "var(--bg-hover)" : "transparent",
+                  color: active ? "var(--text)" : "var(--text-dim)",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  lineHeight: 1.4,
+                }}
+              >
+                {p.symbol}
+              </button>
+            );
+          })}
         </div>
       </div>
+
+      {/* Symbol picker on its own row above the parameter grid.
+          Inside the auto-fit grid the picker's dropdown was getting
+          jammed against the date / capital cells and the input was
+          shrinking under 150px on narrow viewports. Promoting it to
+          its own row gives the autocomplete dropdown room to breathe
+          and keeps the rest of the form predictable. */}
+      <section
+        className="card"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          padding: "12px 14px",
+        }}
+      >
+        <span className="stat-label">Symbol</span>
+        <div style={{ maxWidth: 520 }}>
+          <SymbolPicker value={symbol} onChange={setSymbol} placeholder="e.g. NVDA, VUKE.L" />
+        </div>
+      </section>
 
       <section
         className="card"
@@ -216,9 +241,6 @@ export function Simulations() {
           alignItems: "end",
         }}
       >
-        <Labelled label="Symbol">
-          <SymbolPicker value={symbol} onChange={setSymbol} placeholder="e.g. NVDA, VUKE.L" />
-        </Labelled>
         <Labelled label="Strategy" help="strategy">
           <StrategyPicker value={strategy} onChange={setStrategy} />
         </Labelled>

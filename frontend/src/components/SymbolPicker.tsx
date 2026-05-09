@@ -131,7 +131,10 @@ export function SymbolPicker({ value, onChange, placeholder }: Props) {
             background: "var(--bg-card)",
             border: "1px solid var(--border)",
             borderRadius: 6,
-            zIndex: 50,
+            // Higher z-index than the cards / charts that follow on
+            // pages like /simulations and /compare so the dropdown
+            // never gets hidden under recharts SVG layers.
+            zIndex: 200,
             maxHeight: 280,
             overflowY: "auto",
             boxShadow: "0 4px 14px rgba(0,0,0,0.35)",
