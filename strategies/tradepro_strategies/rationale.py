@@ -35,7 +35,11 @@ from .llm import LlmProvider, get_provider
 
 
 CACHE_PATH = Path.home() / ".tradepro" / "cache" / "llm-rationale.json"
-PROMPT_VERSION = "v1"
+# v2: TRADEPRO-SPEC-001 §7 — horizon-aware rationale. Cache key
+# embeds the version so v1 entries auto-invalidate when the model
+# now needs to produce three horizon-specific sentences as well as
+# the existing summary. Bumping invalidates the cache cleanly.
+PROMPT_VERSION = "v2-horizons"
 
 
 @dataclass
@@ -43,6 +47,12 @@ class Rationale:
     summary: str
     key_factors: list[str] = field(default_factory=list)
     caveats: list[str] = field(default_factory=list)
+    # Horizon-specific rationale per spec §7 — one short sentence per
+    # horizon. Optional: older cached entries (v1) won't have them and
+    # the renderer should fall back to the unified `summary`.
+    swing_rationale: str | None = None
+    long_term_rationale: str | None = None
+    passive_rationale: str | None = None
     source: str = "llm"        # "llm" | "template" | "unavailable"
     model: str | None = None
     prompt_version: str = PROMPT_VERSION
@@ -55,6 +65,9 @@ class Rationale:
             "summary": self.summary,
             "key_factors": list(self.key_factors),
             "caveats": list(self.caveats),
+            "swing_rationale": self.swing_rationale,
+            "long_term_rationale": self.long_term_rationale,
+            "passive_rationale": self.passive_rationale,
             "source": self.source,
             "model": self.model,
             "prompt_version": self.prompt_version,
@@ -125,6 +138,7 @@ def gather_facts(
     cross_sectional_momentum: dict | None = None,
     valuation_flag: dict | None = None,
     swing_score: dict | None = None,
+    horizon_classification: dict | None = None,
 ) -> dict:
     """Build the strict fact bundle the LLM is allowed to reference.
 
@@ -238,14 +252,33 @@ def gather_facts(
             "layers": dict(swing_score.get("layers") or {}),
             "reasons": dict(swing_score.get("reasons") or {}),
         }
+    # Horizon classification (TRADEPRO-SPEC-001 §6) — three independent
+    # verdicts per symbol. Each has its own signal grade, score, reasons
+    # and entry note. Surfaced into the facts blob so the prompt can ask
+    # for one rationale per horizon AND so the verifier can prove every
+    # number quoted came from real input.
+    if horizon_classification:
+        # Drop empty `entry_note` keys so the verifier doesn't see null
+        # strings; keeps the prompt blob lean.
+        def _clean(v: dict | None) -> dict | None:
+            if not v:
+                return None
+            return {k: val for k, val in v.items() if val is not None}
+        facts["horizon_classification"] = {
+            "swing": _clean(horizon_classification.get("swing")),
+            "long_term": _clean(horizon_classification.get("long_term")),
+            "passive": _clean(horizon_classification.get("passive")),
+            "range_pct": horizon_classification.get("range_pct"),
+        }
     return facts
 
 
 # ---------- Prompt + parsing ----------
 
 _PROMPT = """You are a careful financial-rationale writer. Your job is to
-produce a 2-3 sentence plain-English summary of why this ETF received
-its verdict, plus 2-4 key factors and 1-2 caveats.
+produce a plain-English explanation of why this ETF received its
+verdict — including a separate one-sentence rationale for EACH
+investment horizon — plus 2-4 key factors and 1-2 caveats.
 
 ETF: {symbol}
 Verdict: {verdict}
@@ -266,11 +299,29 @@ Hard rules:
 - Caveats should be specific, drawn from the stress_history or the
   rule_chain (e.g. "lost 55% in 2008 GFC", "RSI 72 — overbought").
 
+Horizon rationale rules (TRADEPRO-SPEC-001 §7):
+- The `horizon_classification` block has three independent verdicts:
+  swing (1-8 weeks), long-term (6-18 months), passive (3-5 years).
+  Each has its own signal (BUY / WATCH / AVOID / N/A), score, and
+  reasons list.
+- Produce ONE short sentence per horizon explaining its specific
+  verdict. Use numbers from the horizon's `reasons` list AND from
+  the relevant fact blocks (range_pct, RSI, Sharpe, dividend yield,
+  etc.).
+- When a horizon's signal is "N/A" (single-stock on the passive
+  horizon), the rationale should say so explicitly and point the
+  reader at the long-term horizon instead.
+- Each horizon sentence stands alone — a reader who only opens the
+  passive line should still understand the verdict.
+
 Output JSON:
 {{
-  "summary": "2-3 sentences explaining why the verdict is what it is.",
+  "summary": "2-3 sentences explaining the headline verdict in everyday language.",
   "key_factors": ["short phrase", "short phrase", ...],   // 2-4 items
-  "caveats": ["short phrase", "short phrase", ...]         // 1-2 items
+  "caveats": ["short phrase", "short phrase", ...],        // 1-2 items
+  "swing_rationale": "1 sentence on the swing (1-8w) verdict.",
+  "long_term_rationale": "1 sentence on the long-term (6-18m) verdict.",
+  "passive_rationale": "1 sentence on the passive (3-5y) verdict, OR explain the N/A."
 }}
 """
 
@@ -278,6 +329,9 @@ _SCHEMA_HINT = {
     "summary": "string",
     "key_factors": ["string"],
     "caveats": ["string"],
+    "swing_rationale": "string",
+    "long_term_rationale": "string",
+    "passive_rationale": "string",
 }
 
 
@@ -288,6 +342,14 @@ def _build_prompt(facts: dict) -> str:
         verdict_reason=facts["verdict_reason"],
         facts_json=json.dumps(facts, indent=2, default=str),
     )
+
+
+def _opt_str(v: Any) -> str | None:
+    """Normalise an optional LLM string field — strip + None on empty."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
 
 
 # ---------- Verification ----------
@@ -412,13 +474,54 @@ def _template_rationale(facts: dict) -> Rationale:
                 f"{worst['name']}: {worst['return_pct']:.1f}% return"
             )
 
+    # Horizon-specific rationale (template fallback). When the LLM is
+    # unavailable or its output failed verification, the template still
+    # emits one short sentence per horizon so the dashboard / email /
+    # PDF surfaces don't suddenly miss horizon advice.
+    swing_r, lt_r, passive_r = _template_horizon_rationales(facts)
+
     return Rationale(
         summary=" ".join(summary_parts),
         key_factors=factors[:4],
         caveats=caveats[:2],
+        swing_rationale=swing_r,
+        long_term_rationale=lt_r,
+        passive_rationale=passive_r,
         source="template",
         verified=True,         # by construction — built only from facts
         generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def _template_horizon_rationales(
+    facts: dict,
+) -> tuple[str | None, str | None, str | None]:
+    """Build 1-sentence-per-horizon rationales from the same facts blob
+    the LLM sees. Each sentence pulls only verbatim numbers so the
+    template path never quotes anything that isn't in the facts."""
+    hz = facts.get("horizon_classification") or {}
+    sym = facts.get("symbol", "?")
+
+    def _line(verdict: dict | None, horizon: str) -> str | None:
+        if not verdict:
+            return None
+        sig = (verdict.get("signal") or "?").upper()
+        score = verdict.get("score") or "?"
+        reasons = verdict.get("reasons") or []
+        if sig == "N/A":
+            note = verdict.get("entry_note")
+            return (
+                f"Passive ({horizon}): N/A for {sym} — {note}"
+                if note else
+                f"Passive ({horizon}): N/A for single-stock {sym}; see Long-term."
+            )
+        head = ", ".join(reasons[:2]) if reasons else "no flagged drivers"
+        return f"{horizon} ({score}): {sig} — {head}."
+
+    return (
+        _line(hz.get("swing"), "1-8w"),
+        _line(hz.get("long_term"), "6-18m"),
+        _line(hz.get("passive"), "3-5y"),
     )
 
 
@@ -465,6 +568,9 @@ def build_rationale(
     summary = str(d.get("summary", "")).strip()
     factors = [str(x) for x in (d.get("key_factors") or []) if x][:4]
     caveats = [str(x) for x in (d.get("caveats") or []) if x][:2]
+    swing_r = _opt_str(d.get("swing_rationale"))
+    long_term_r = _opt_str(d.get("long_term_rationale"))
+    passive_r = _opt_str(d.get("passive_rationale"))
 
     if not summary:
         rat = _template_rationale(facts)
@@ -476,6 +582,9 @@ def build_rationale(
         summary=summary,
         key_factors=factors,
         caveats=caveats,
+        swing_rationale=swing_r,
+        long_term_rationale=long_term_r,
+        passive_rationale=passive_r,
         source="llm",
         model=p.model,
         generated_at=datetime.now(timezone.utc).isoformat(),

@@ -376,6 +376,12 @@ export interface CompareRationale {
   summary: string;
   key_factors?: string[];
   caveats?: string[];
+  /** Horizon-specific one-sentence rationales — TRADEPRO-SPEC-001 §7.
+   * Optional because cached v1 entries pre-spec won't have them; the
+   * UI should fall back to the unified `summary`. */
+  swing_rationale?: string | null;
+  long_term_rationale?: string | null;
+  passive_rationale?: string | null;
   source?:
     | "llm"
     | "template"

@@ -73,8 +73,8 @@ out of date. Each entry is one line: what changed and why it mattered.
 
 **Open follow-ups from this week:**
 
-- [ ] Spec P2: LLM rationale prompt with horizon context (3 horizon-
-  specific sentences per symbol per TRADEPRO-SPEC-001 §7)
+- [x] Spec P2: LLM rationale prompt with horizon context (3 horizon-
+  specific sentences per symbol per TRADEPRO-SPEC-001 §7) ✅ 2026-05-09
 - [ ] Help-page strategy visualisations (SMA crossover, RSI bands,
   MACD histogram, Donchian channel, 52w range — visual learners)
 - [x] Help-page **Data Sources** topic listing every external feed
@@ -89,6 +89,8 @@ out of date. Each entry is one line: what changed and why it mattered.
   the snapshot store and the rationale layer
 - [ ] **Insider trades + recommendation trends** — yfinance +
   Finnhub both expose these and we don't currently use them
+- [ ] **Portfolio simulation engine** — Monte Carlo + stress + DCA on
+  live portfolio. New Phase B added below. To be discussed.
 
 ---
 
@@ -196,6 +198,88 @@ has a stable user pattern worth sharing.
 Estimated effort: 30 minutes of Azure Portal clicking + one
 `tradepro-compare --push` against the prod URL to populate the cache.
 No code changes required — env-var driven.
+
+### Phase B — Portfolio simulation engine (NEXT MAJOR after Phase X)
+
+**The gap:** TradePro tells you what to BUY / WATCH / AVOID right now,
+across three horizons. But it doesn't yet answer **"if I keep this
+composition (or actioned all the BUY_MORE / TRIM advice), what's my
+likely range of outcomes over 1y / 3y / 5y?"** — and that's the
+question every retail allocator actually has to answer before
+deploying capital.
+
+This phase adds a `simulate_portfolio()` engine that takes the live
+T212 portfolio (or a hypothetical one) and produces an outcome
+distribution using established techniques, layered cheap → expensive:
+
+**Layer 1 — Monte Carlo bootstrap (cheap, lands first)**
+- Resample N=5000 paths from each holding's historical daily returns
+  (block-bootstrap, preserves autocorrelation + fat tails)
+- Output: 5th / 50th / 95th percentile equity curves over 1y/3y/5y
+- Maximum drawdown distribution; probability of −10/−20/−30% DD
+- Sequence-of-returns risk: order of bad years vs good years matters
+  more than mean return on accumulation/retirement glide paths
+
+**Layer 2 — Stress backtest (cheap, lands together)**
+- Apply 2008 GFC, 2020 COVID, 2022 rate-shock daily returns to the
+  CURRENT portfolio weights
+- "If we re-ran the GFC starting today, what's your equity drawdown?"
+- Compare to the bucket-vote AVOID rate during those windows — does
+  the engine catch the bad regime in time?
+
+**Layer 3 — DCA / contribution modelling**
+- £X/month contributions over the horizon
+- Two policies: DCA into current weights vs DCA into engine-advised
+  weights (BUY_MORE → ↑ allocation, TRIM → ↓, HOLD → maintain)
+- Cost-basis tracking + tax-lot estimate so the simulator answers
+  "how much do I have to put in to hit £Y by 2031?"
+
+**Layer 4 — Mean-variance / risk-parity optimisation (heavier)**
+- Markowitz efficient frontier: alternative weight vectors for the
+  same target return at lower variance, or higher return at same
+  variance — bounded by T212 tradeable instruments
+- Risk parity: equal-risk-contribution sizing as a sanity-check baseline
+- Black-Litterman extension if we want to inject the engine's views
+  (BUY = positive view, AVOID = negative)
+- CVaR / Expected Shortfall as the tail-risk metric, not just std-dev
+
+**Layer 5 — Engine-advised portfolio comparison (the headline output)**
+- Side-by-side: "your current" vs "engine-advised" vs "S&P 500 / global
+  index baseline"
+- Same Monte Carlo machinery on each, plot all three on one chart
+- Honest framing: this is hypothetical. Past returns ≠ future. Make
+  the assumption banner LOUD on the simulation page.
+
+**Open design questions for discussion:**
+1. Returns source — yfinance daily returns per holding, or block-
+   bootstrap from a regime-aware index? Affects how realistic tail
+   events look.
+2. Cross-asset correlation — IID resampling underestimates joint
+   drawdowns. Need a copula or a "sample whole-day-row from history"
+   approach to keep correlations alive.
+3. Currency handling — VUKE.L (GBP) and VUSA.L (USD) holdings need
+   FX-adjusted returns; do we treat as one ccy at horizon end, or
+   surface both?
+4. Interface — new Simulations tab "Portfolio Monte Carlo" alongside
+   the existing per-symbol backtest, or fold into the Portfolio page
+   as a "Project forward" panel?
+5. Compute placement — runs in the worker container (Python, has
+   numpy / pandas) vs frontend (recharts can render, but 5000 paths
+   in JS is wasteful)? Worker-side, push the percentile bands to API.
+
+**Why now:** the horizon classification engine just shipped, so for
+the first time the system has **three distinct holding-period
+verdicts per symbol**. Simulating a portfolio across those horizons
+turns the engine's advice into a concrete probability statement — a
+massive uplift over "trust me, BUY this".
+
+**Estimated effort:** 1–2 weeks for layers 1–3 (the headline
+deliverable), 2–3 weeks more for layer 4. Layer 5 is presentation,
+mostly UI work.
+
+**Memory anchor:** new project memory needed. Tag: portfolio-sim.
+
+---
 
 ### Phase X — Multi-family signal stack + swing-trading composite (NEXT MAJOR)
 
