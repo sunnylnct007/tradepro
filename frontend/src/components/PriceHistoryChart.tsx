@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Bar,
+  BarChart,
   Brush,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ReferenceArea,
   ReferenceDot,
   ReferenceLine,
@@ -106,16 +108,28 @@ export function PriceHistoryChart({
       t: c.timestamp.slice(0, 10),
       price: priceOf(c),
       sma200: smaAt(adj, i, 200),
+      volume: c.volume,
     }));
-    // 52w window = last ~252 trading days.
-    const window = candles.slice(Math.max(0, candles.length - 252));
+    // 52w window = last ~252 trading days. Track the dates of both
+    // extremes so the user can tell whether the floor/ceiling was
+    // tested recently (live signal) or months ago (stale).
+    const startIdx = Math.max(0, candles.length - 252);
+    const window = candles.slice(startIdx);
     const high52w = Math.max(...window.map(priceOf));
     const low52w = Math.min(...window.map(priceOf));
+    const high52wIdx = startIdx + window.findIndex((c) => priceOf(c) === high52w);
+    const low52wIdx = startIdx + window.findIndex((c) => priceOf(c) === low52w);
+    const high52wDate = candles[high52wIdx]?.timestamp.slice(0, 10);
+    const low52wDate = candles[low52wIdx]?.timestamp.slice(0, 10);
     const last = priceOf(candles[candles.length - 1]);
     const peak = Math.max(...adj);
     const peakIdx = adj.indexOf(peak);
     const peakDate = candles[peakIdx]?.timestamp.slice(0, 10);
-    return { data, high52w, low52w, last, peak, peakDate };
+    return {
+      data,
+      high52w, low52w, high52wDate, low52wDate,
+      last, peak, peakDate,
+    };
   }, [series]);
 
   // When new data arrives, snap the visible window to the active preset
@@ -150,7 +164,7 @@ export function PriceHistoryChart({
     );
   }
 
-  const { data, high52w, low52w, last, peak, peakDate } = computed;
+  const { data, high52w, low52w, high52wDate, low52wDate, last, peak, peakDate } = computed;
   const tone = last >= (high52w + low52w) / 2 ? "var(--up)" : "var(--neutral)";
   const lastDate = data[data.length - 1].t;
   // Range zones: bottom 35% = "dip" (green tint), middle 30% = neutral,
@@ -178,8 +192,10 @@ export function PriceHistoryChart({
         </div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", display: "flex", gap: 14, flexWrap: "wrap" }}>
           <span>now <strong className="num" style={{ color: tone }}>{last.toFixed(2)}</strong></span>
-          <span>52w high <span className="num">{high52w.toFixed(2)}</span></span>
-          <span>52w low <span className="num">{low52w.toFixed(2)}</span></span>
+          {/* Surface BOTH 52w extreme dates so the user can tell whether
+              the floor/ceiling is "live" (recently tested) or "stale". */}
+          <span>52w high <span className="num">{high52w.toFixed(2)}</span> {high52wDate && <span style={{ color: "var(--text-muted)" }}>· {high52wDate}</span>}</span>
+          <span>52w low <span className="num">{low52w.toFixed(2)}</span> {low52wDate && <span style={{ color: "var(--text-muted)" }}>· {low52wDate}</span>}</span>
           <span>5y peak <span className="num">{peak.toFixed(2)}</span> {peakDate && <span style={{ color: "var(--text-muted)" }}>· {peakDate}</span>}</span>
           <span style={{ borderLeft: "1px solid rgba(155,161,173,0.3)", paddingLeft: 14 }}>
             window <span className="num">{visibleLow.toFixed(2)}</span> – <span className="num">{visibleHigh.toFixed(2)}</span>
@@ -212,7 +228,7 @@ export function PriceHistoryChart({
         ))}
       </div>
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }} syncId="priceHistory">
           <CartesianGrid stroke="rgba(155,161,173,0.15)" strokeDasharray="3 3" />
           <XAxis dataKey="t" tick={{ fill: "#9ba1ad", fontSize: 10 }} minTickGap={48} />
           <YAxis tick={{ fill: "#9ba1ad", fontSize: 10 }} domain={["auto", "auto"]} />
@@ -224,7 +240,9 @@ export function PriceHistoryChart({
               color: "white",
               fontSize: 12,
             }}
-            formatter={(v: number) => v.toFixed(2)}
+            formatter={(v: number, name: string) =>
+              name === "Volume" ? v.toLocaleString() : v.toFixed(2)
+            }
           />
           {/* Range zones: dip / neutral / near-highs bands across the
               52w price range. ifOverflow="hidden" so they only paint
@@ -237,6 +255,15 @@ export function PriceHistoryChart({
               and defeating the zoom. */}
           <ReferenceLine y={high52w} stroke="var(--up)" strokeDasharray="3 3" ifOverflow="hidden" label={{ value: "52w high", position: "right", fill: "var(--up)", fontSize: 10 }} />
           <ReferenceLine y={low52w} stroke="var(--down)" strokeDasharray="3 3" ifOverflow="hidden" label={{ value: "52w low", position: "right", fill: "var(--down)", fontSize: 10 }} />
+          {/* Mark when the 52w extremes were actually hit so the user
+              can tell at a glance whether the floor/ceiling is freshly
+              tested or months stale. */}
+          {high52wDate && (
+            <ReferenceDot x={high52wDate} y={high52w} r={3.5} fill="var(--up)" stroke="white" strokeWidth={0.5} ifOverflow="hidden" />
+          )}
+          {low52wDate && (
+            <ReferenceDot x={low52wDate} y={low52w} r={3.5} fill="var(--down)" stroke="white" strokeWidth={0.5} ifOverflow="hidden" />
+          )}
           {/* "Today" marker: vertical line + dot at the right edge so
               the user can locate the current bar without squinting. */}
           <ReferenceLine x={lastDate} stroke="rgba(255,255,255,0.45)" strokeDasharray="2 4" ifOverflow="hidden" label={{ value: "today", position: "top", fill: "rgba(255,255,255,0.6)", fontSize: 10 }} />
@@ -260,13 +287,38 @@ export function PriceHistoryChart({
               }
             }}
           />
-        </LineChart>
+        </ComposedChart>
+      </ResponsiveContainer>
+      {/* Volume strip — separate chart sharing the same X axis via
+          syncId so the Brush window above slaves this one too. A rally
+          on heavy volume is more meaningful than a rally on thin volume:
+          gives the user a participation read at a glance. */}
+      <ResponsiveContainer width="100%" height={70}>
+        <BarChart data={data} margin={{ top: 0, right: 16, left: 0, bottom: 0 }} syncId="priceHistory">
+          <XAxis dataKey="t" hide />
+          <YAxis hide domain={["auto", "auto"]} />
+          <Tooltip
+            contentStyle={{
+              background: "rgba(20,24,33,0.92)",
+              border: "1px solid rgba(155,161,173,0.3)",
+              borderRadius: 6,
+              color: "white",
+              fontSize: 12,
+            }}
+            formatter={(v: number) => v.toLocaleString()}
+            labelStyle={{ color: "#9ba1ad" }}
+          />
+          <Bar dataKey="volume" name="Volume" fill="#9b6eff" fillOpacity={0.5} isAnimationActive={false} />
+        </BarChart>
       </ResponsiveContainer>
       <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>
         Price line uses split-adjusted close so 4:1 / 2:1 splits don't render as
         fake crashes. SMA(200) is the same line the engine uses for the trend
-        check; 52w reference lines hide when zoomed outside their level. Drag the
-        brush handles below the chart, or click a preset, to zoom.
+        check; 52w reference lines hide when zoomed outside their level. Coloured
+        dots mark when each 52w extreme was hit (live vs stale floor). Volume
+        bars below share the brush window — a rally on thick bars shows broad
+        participation; thin bars suggest a thin rally. Drag the brush handles or
+        click a preset to zoom.
       </div>
     </div>
   );
