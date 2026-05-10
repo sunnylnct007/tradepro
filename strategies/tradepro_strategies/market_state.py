@@ -18,7 +18,7 @@ Each verdict carries a one-line reason so the website can show *why*.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -93,6 +93,11 @@ class MarketState:
     low_52w_price: float | None = None
     low_52w_date: str | None = None
     range_position_pct: float | None = None
+    # Last 30 daily closes (split-adjusted), oldest → newest. Used by
+    # the email digest's BUY-sparkline strip + the PDF per-symbol
+    # page so the user sees recent shape, not just numbers. ~30 floats
+    # per row × 200 rows = ~50KB extra per universe payload — fine.
+    closes_30d: list[float] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +130,7 @@ class MarketState:
             "entry_signal": self.entry_signal,
             "entry_reason": self.entry_reason,
             "decision_trace": list(self.decision_trace),
+            "closes_30d": list(self.closes_30d),
         }
 
 
@@ -462,6 +468,15 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
     mom_3m = _momentum_pct(series, 63)
     mom_12m = _momentum_pct(series, 252)
     vol_30d = _annual_vol_pct(series, 30)
+    # Last 30 daily closes (split-adjusted, since we read adj_close /
+    # close at the top of this function). Used by the email digest's
+    # BUY-sparkline strip + PDF per-symbol charts so the user sees
+    # recent shape, not just numbers.
+    closes_tail = series.tail(30)
+    closes_30d = [
+        float(v) for v in closes_tail.tolist()
+        if isinstance(v, (int, float)) and v == v  # NaN check
+    ]
 
     state = MarketState(
         symbol=symbol, as_of=as_of, last_price=last_price,
@@ -478,6 +493,7 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         low_52w_price=low_52w,
         low_52w_date=low_52w_date,
         range_position_pct=range_position_pct,
+        closes_30d=closes_30d,
     )
     state.entry_signal, state.entry_reason = _classify(state)
     state.decision_trace = _build_trace(state)
