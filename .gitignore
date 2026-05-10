@@ -426,12 +426,19 @@ dist/
 .env.local
 .env.development.local
 .env.production.local
+# Vite/TypeScript incremental build cache
+tsconfig.tsbuildinfo
 
 # Python
 .venv/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+# Hatchling/setuptools build dirs (e.g. strategies/build/)
+build/
+
+# IDE
+.idea/
 
 # Firebase
 .firebase/
