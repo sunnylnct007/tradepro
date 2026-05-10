@@ -61,9 +61,9 @@ Feature: Plain-English rationale (no hallucination)
 
   # ---- Prompt v3: ETF passive guard against the "N/A as single-stock" hallucination ----
 
-  Scenario: PROMPT_VERSION pinned to v3-etf-passive (cache-key invalidation)
+  Scenario: PROMPT_VERSION pinned to v4-precise-numbers (cache-key invalidation)
     When I read the rationale module's PROMPT_VERSION
-    Then PROMPT_VERSION equals "v3-etf-passive"
+    Then PROMPT_VERSION equals "v4-precise-numbers"
 
   Scenario: cache key changes when PROMPT_VERSION changes (so v2 cache entries auto-invalidate)
     Given two cache keys for the same facts but different prompt versions
@@ -73,3 +73,28 @@ Feature: Plain-English rationale (no hallucination)
     When I render the rationale prompt for an ETF
     Then the prompt text contains "Never claim"
     And the prompt text contains "ETFs are quintessential"
+
+  # ---- Prompt v4: precise-numbers guard (35% LLM rejection rate before this) ----
+
+  Scenario: prompt forbids round-number RSI/SMA filler
+    When I render the rationale prompt for an ETF
+    Then the prompt text contains "No round-number filler"
+    And the prompt text contains "RSI 50"
+
+  Scenario: prompt forbids the engine-unused SMA(50)
+    When I render the rationale prompt for an ETF
+    Then the prompt text contains "No SMA(50)"
+
+  Scenario: prompt forbids computing percentages from facts
+    When I render the rationale prompt for an ETF
+    Then the prompt text contains "Quote, never compute"
+
+  # ---- Verifier enrichment: notes carry the offending sentence ----
+
+  Scenario: verifier note carries the sentence containing the offending number
+    Given a rationale that mentions an unsupported "999%" figure
+    And a fact bundle containing no such number
+    When I run the local verifier
+    Then the verification note mentions "unsupported number: 999%"
+    And the verification note mentions "in sentence:"
+    And the verification note quotes the offending sentence

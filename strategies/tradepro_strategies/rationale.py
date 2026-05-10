@@ -35,10 +35,12 @@ from .llm import LlmProvider, get_provider
 
 
 CACHE_PATH = Path.home() / ".tradepro" / "cache" / "llm-rationale.json"
-# v3: tightened the passive-horizon rule so ETFs no longer get the
-# "N/A as single-stock analysis" hallucination. Cache key embeds
-# the version so older entries auto-invalidate.
-PROMPT_VERSION = "v3-etf-passive"
+# v4: hardened the "no invented numbers" rule after a cache audit
+# showed ~35% of LLM outputs were getting rejected for hallucinated
+# round-number RSI/SMA values (50/53/49) and computed percentages
+# (16.94% / -30.9%) the model derived from facts instead of quoting.
+# Cache key embeds the version so older entries auto-invalidate.
+PROMPT_VERSION = "v4-precise-numbers"
 
 
 @dataclass
@@ -290,13 +292,30 @@ invent or paraphrase numbers):
 
 Hard rules:
 - Use ONLY values that appear in the Allowed facts block above. If you
-  cite a number, it must appear there verbatim. NEVER make up returns,
-  drawdowns, percentages, dates, or holdings.
+  cite a number, it must appear there VERBATIM (same digits, same
+  decimal places). NEVER make up returns, drawdowns, percentages,
+  dates, or holdings.
+- **Quote, never compute.** Do not derive percentages by dividing
+  facts (e.g. don't write "16.94%" if 0.1694 isn't in the facts).
+  Don't round (don't write "20%" if the fact is 19.7%). Don't average
+  multiple facts. Just quote the precise value.
+- **No round-number filler.** Specifically: never write "RSI 50",
+  "SMA 50", "P/E 20", "yield 2%" or any other generic-sounding
+  round figure as placeholder. If you can't find the precise value
+  in the facts, OMIT the claim — do not invent.
+- **No SMA(50)** anywhere. The engine uses SMA(200) only; the facts
+  carry `above_sma_200`, not anything 50-day. Never reference a
+  50-day moving average.
+- **Years.** Only mention a year if it appears in the stress_history
+  facts (e.g. "2008 GFC", "2020 COVID"). Don't reference the current
+  year, "this year", or compute year-to-date.
 - Never override the verdict. Explain it in everyday language.
 - If a fact is null / missing, do not mention it. Do not say "data
   unavailable" — silence is better than padding.
 - Caveats should be specific, drawn from the stress_history or the
-  rule_chain (e.g. "lost 55% in 2008 GFC", "RSI 72 — overbought").
+  rule_chain (e.g. "lost 55% in 2008 GFC" — only if 55 + 2008 are
+  both in the facts; "RSI 72 — overbought" — only if 72 is the
+  literal rsi_14 value).
 
 Horizon rationale rules (TRADEPRO-SPEC-001 §7):
 - The `horizon_classification` block has three independent verdicts:
@@ -381,7 +400,11 @@ def _verify_locally(rationale: Rationale, facts: dict) -> tuple[bool, list[str]]
     This is the safety net — even before the LLM-based verifier runs,
     a plain substring check catches blatant hallucinations like '55%'
     when the facts don't contain that figure. Cheap, deterministic,
-    runs every time."""
+    runs every time.
+
+    Notes carry the offending sentence too, so the UI can show
+    "Sentence: '...' — the number X is not in the source data" instead
+    of just the bare number."""
     notes: list[str] = []
     facts_str = _facts_text(facts)
 
@@ -399,9 +422,31 @@ def _verify_locally(rationale: Rationale, facts: dict) -> tuple[bool, list[str]]
                 continue
             # The number must appear as a substring of the facts blob.
             if n not in facts_str and stripped not in facts_str:
-                notes.append(f"unsupported number: {n}")
+                sentence = _sentence_containing(blob, n) or blob.strip()
+                notes.append(
+                    f"unsupported number: {n} — in sentence: \"{sentence}\""
+                )
 
     return (len(notes) == 0, notes)
+
+
+_SENTENCE_SPLIT_RE = None  # lazy-init to avoid an import cost at module load
+
+
+def _sentence_containing(blob: str, needle: str) -> str | None:
+    """Return the first sentence in `blob` that contains `needle`, or
+    None if not found. Sentence = run of text terminated by . ! ? or
+    blob end. Falls back to the whole blob (callers will use that)."""
+    if not blob or not needle:
+        return None
+    import re
+    global _SENTENCE_SPLIT_RE
+    if _SENTENCE_SPLIT_RE is None:
+        _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+    for sentence in _SENTENCE_SPLIT_RE.split(blob):
+        if needle in sentence:
+            return sentence.strip()
+    return None
 
 
 # ---------- Template fallback ----------

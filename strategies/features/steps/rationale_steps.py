@@ -276,3 +276,25 @@ def step_prompt_contains(context, snippet: str) -> None:
     assert snippet in context.prompt_text, (
         f"prompt missing required guard snippet {snippet!r}"
     )
+
+
+# ----- Verifier enrichment: notes carry the offending sentence -----
+
+@then('the verification note mentions "{snippet}"')
+def step_note_mentions(context, snippet: str) -> None:
+    joined = " | ".join(context.verifier_notes)
+    assert snippet in joined, (
+        f"expected note to mention {snippet!r}, got notes={context.verifier_notes}"
+    )
+
+
+@then("the verification note quotes the offending sentence")
+def step_note_quotes_sentence(context) -> None:
+    # The fixture rationale's summary is "QQQ delivered an exceptional
+    # 999% return last quarter." — the verifier should surface that
+    # sentence (or a recognisable fragment of it) inside its note.
+    fragment = "999% return last quarter"
+    assert any(fragment in n for n in context.verifier_notes), (
+        f"expected the offending sentence to be quoted in the note, "
+        f"got notes={context.verifier_notes}"
+    )
