@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { HitRateResult, SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
+import { PriceHistoryChart } from "../components/PriceHistoryChart";
 import { StrategyPicker } from "../components/StrategyPicker";
 import { SymbolPicker } from "../components/SymbolPicker";
 
@@ -268,6 +269,14 @@ export function Signals() {
       )}
 
       {multi && <MultiStrategyCard result={multi} symbol={symbol} />}
+
+      {/* Price history sits BETWEEN the multi-strategy verdict and
+          the single-strategy detail so the user sees the chart
+          context for the verdict they just produced. Split-adjusted
+          adj_close so 4:1 / 2:1 splits don't read as fake crashes. */}
+      {(multi || decision) && symbol && (
+        <PriceHistoryChart symbol={symbol} />
+      )}
 
       {decision && (
         <div

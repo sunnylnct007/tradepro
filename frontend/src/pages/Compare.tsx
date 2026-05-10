@@ -18,6 +18,7 @@ import type {
 import { GemsCard } from "../components/GemsCard";
 import { HoldingsHealthCard } from "../components/HoldingsHealthCard";
 import { Info } from "../components/Info";
+import { PriceHistoryChart } from "../components/PriceHistoryChart";
 import { RiskPill } from "../components/RiskPill";
 import { WorkerStatusBadge } from "../components/WorkerStatusBadge";
 
@@ -768,6 +769,11 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
   const trace = [...baseTrace, sentimentCheck(view)];
   return (
     <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.18)", borderRadius: 6 }}>
+      {/* Price history first so the user has visual context for
+          everything below. Split-adjusted line + SMA(200) + 52w
+          high/low reference levels. The numbers in the rationale
+          and the rule-chain table all map onto this chart. */}
+      <PriceHistoryChart symbol={view.symbol} />
       {rationale && <RationalePanel rationale={rationale} />}
       {view.sentimentDemoted && view.sentimentDemotionReason && (
         <div
