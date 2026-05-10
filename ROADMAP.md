@@ -18,6 +18,63 @@ those assumptions change.
 Tracks meaningful work that's already in `main` so this doc stops drifting
 out of date. Each entry is one line: what changed and why it mattered.
 
+**Week of 2026-05-10 — chart depth + rationale precision:**
+
+- ✅ **Inline `PriceHistoryChart`** on Research + Decide pages — 5y
+  split-adjusted line + SMA(200) overlay + 52w high/low reference.
+  Range presets (1M / 3M / 6M / YTD / 1Y / 5Y / All), recharts `Brush`
+  for free-form zoom, "today" marker, dip/near-highs range zones,
+  volume strip below sharing the brush, dated dots at the 52w extremes
+  so the user can read live-vs-stale floor at a glance.
+- ✅ **Rationale prompt v3 → v4** — guard against the "N/A as
+  single-stock analysis" hallucination for ETFs (v3); ban round-number
+  RSI/SMA filler, ban LLM-computed percentages, ban SMA(50), restrict
+  year mentions (v4). Cache audit: 35% of LLM rationales were getting
+  rejected; v4 targets the recurring offenders.
+- ✅ **Verifier enrichment** — verification notes now carry the
+  offending sentence (`unsupported number: 999% — in sentence: "..."`)
+  so the user can see *which claim* to discount, not just the bare
+  number. Frontend pill goes amber ⚠ when notes > 0 instead of the
+  misleading green ✓.
+- ✅ **`closes_30d` field on `MarketState`** — wires up the
+  already-committed `email_charts.buy_sparklines_png()` so BUY rows in
+  the daily digest get a 30-bar mini-chart per name.
+
+**In-flight / next up (do not lose):**
+
+- ⏳ **AWS deploy** — terraform foundation in `~/sourcecode/ccit-infra`
+  (VPC, S3 archive, OIDC role, energycosmos-demo box at
+  `http://18.132.165.112:8080`). Tradepro-specific EC2 + ECRs not yet
+  added. Decision pending: share the energycosmos box (cheap, couples
+  demos) vs. mirror the `energycosmos-demo` module as `tradepro-demo`
+  (clean separation, ~£10/mo extra when running).
+- ⏳ **Earnings markers on chart** — needs a new
+  `GET /api/marketdata/earnings?symbol=&from=&to=` endpoint exposing
+  `tradepro_strategies/earnings.py:fetch_recent_earnings()` (already
+  reads `yfinance.Ticker.earnings_dates`). Then drop a vertical line
+  per earnings date on the price chart so the user sees event-driven
+  vs trend-driven moves.
+- ⏳ **Split markers on chart** — needs `GET
+  /api/marketdata/corporate-actions?symbol=` exposing
+  `yfinance.Ticker.actions / .splits`. Small "S" marker at each split
+  date so a user can confirm the split-adjusted line *would* handle a
+  split correctly (META hasn't split during the 5y window so today
+  there's nothing to see — but the wire would be tested).
+- ⏳ **Re-audit rationale cache after v4 prompt rolls out** — target
+  rejection rate <10% (currently 35%). If v4 doesn't move the needle,
+  the next move is a *model* audit: which model is producing the
+  round-number filler? Bigger / instruction-tuned models hallucinate
+  these less.
+- ⏳ **UI smoke test of `PriceHistoryChart` enhancements** — the four
+  chart commits (`1dc3186`, `d5e94e7`, `de92e7e`, `135e687`) shipped
+  with `tsc --noEmit` clean but no browser run. Smoke before next
+  deploy: zoom presets work, brush handles drag, today marker visible,
+  range zones tinted correctly, volume strip syncs to the brush.
+- ⏳ **`build/`, `tsconfig.tsbuildinfo`, `.idea/` removal from git
+  history** — added to `.gitignore` in `2b74a26` but if they were
+  previously committed somewhere, a follow-up `git rm --cached` may
+  be needed (probably weren't — was the first time we noticed them).
+
 **Week of 2026-05-06 → 2026-05-09 — horizon engine + portfolio surface:**
 
 - ✅ **Range-position guard on BUY** (`market_state.py`) — VUKE-class
