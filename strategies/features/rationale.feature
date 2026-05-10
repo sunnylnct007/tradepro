@@ -58,3 +58,18 @@ Feature: Plain-English rationale (no hallucination)
     Then a key factor mentions "Swing composite 6/8"
     And a key factor mentions "STRONG_BUY"
     And every number in the rationale appears in the input facts
+
+  # ---- Prompt v3: ETF passive guard against the "N/A as single-stock" hallucination ----
+
+  Scenario: PROMPT_VERSION pinned to v3-etf-passive (cache-key invalidation)
+    When I read the rationale module's PROMPT_VERSION
+    Then PROMPT_VERSION equals "v3-etf-passive"
+
+  Scenario: cache key changes when PROMPT_VERSION changes (so v2 cache entries auto-invalidate)
+    Given two cache keys for the same facts but different prompt versions
+    Then the two cache keys differ
+
+  Scenario: prompt forbids "N/A as single-stock analysis" for ETFs
+    When I render the rationale prompt for an ETF
+    Then the prompt text contains "Never claim"
+    And the prompt text contains "ETFs are quintessential"

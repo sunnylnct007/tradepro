@@ -35,11 +35,10 @@ from .llm import LlmProvider, get_provider
 
 
 CACHE_PATH = Path.home() / ".tradepro" / "cache" / "llm-rationale.json"
-# v2: TRADEPRO-SPEC-001 §7 — horizon-aware rationale. Cache key
-# embeds the version so v1 entries auto-invalidate when the model
-# now needs to produce three horizon-specific sentences as well as
-# the existing summary. Bumping invalidates the cache cleanly.
-PROMPT_VERSION = "v2-horizons"
+# v3: tightened the passive-horizon rule so ETFs no longer get the
+# "N/A as single-stock analysis" hallucination. Cache key embeds
+# the version so older entries auto-invalidate.
+PROMPT_VERSION = "v3-etf-passive"
 
 
 @dataclass
@@ -310,7 +309,15 @@ Horizon rationale rules (TRADEPRO-SPEC-001 §7):
   etc.).
 - When a horizon's signal is "N/A" (single-stock on the passive
   horizon), the rationale should say so explicitly and point the
-  reader at the long-term horizon instead.
+  reader at the long-term horizon instead. **Only say "N/A" when
+  the data ACTUALLY shows signal == "N/A".** Never claim "N/A as
+  single-stock analysis" for an ETF — ETFs are quintessential
+  passive instruments and get a real BUY/WATCH/AVOID verdict.
+- ETF passive rationales should quote the actual reasons (expense
+  ratio, n_holdings if available, Sharpe, CAGR, dividend yield)
+  to explain the verdict — e.g. "Passive: 0.15% expense ratio,
+  Sharpe 0.89, 1.7% yield → solid DCA candidate; verdict WATCH
+  because n_holdings undisclosed by data feed".
 - Each horizon sentence stands alone — a reader who only opens the
   passive line should still understand the verdict.
 

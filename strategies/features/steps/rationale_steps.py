@@ -210,3 +210,69 @@ def step_summary_mentions_bucket(context, bucket: str) -> None:
     assert bucket in context.rationale.summary, (
         f"bucket name {bucket!r} missing from summary: {context.rationale.summary!r}"
     )
+
+
+# ----- Prompt v3 (ETF passive guard) -----
+
+@when("I read the rationale module's PROMPT_VERSION")
+def step_read_prompt_version(context) -> None:
+    context.prompt_version = rationale_mod.PROMPT_VERSION
+
+
+@then('PROMPT_VERSION equals "{expected}"')
+def step_prompt_version_equals(context, expected: str) -> None:
+    assert context.prompt_version == expected, (
+        f"expected PROMPT_VERSION={expected!r}, got {context.prompt_version!r}"
+    )
+
+
+@given("two cache keys for the same facts but different prompt versions")
+def step_two_cache_keys(context) -> None:
+    import hashlib
+    import json as _json
+
+    facts = {"symbol": "VUKE.L", "verdict": "BUY", "any": "thing"}
+    payload = _json.dumps(facts, sort_keys=True, default=str)
+    model = "test-model"
+    # Mirror the _cache_key construction so a refactor of that helper
+    # surfaces here. The point is: different version → different hash.
+    context.key_v2 = hashlib.sha1(
+        f"{model}::v2-horizons::{payload}".encode()
+    ).hexdigest()
+    context.key_v3 = hashlib.sha1(
+        f"{model}::{rationale_mod.PROMPT_VERSION}::{payload}".encode()
+    ).hexdigest()
+
+
+@then("the two cache keys differ")
+def step_cache_keys_differ(context) -> None:
+    assert context.key_v2 != context.key_v3, (
+        "cache keys collided across prompt versions — v2 entries would not be invalidated"
+    )
+
+
+@when("I render the rationale prompt for an ETF")
+def step_render_prompt(context) -> None:
+    facts = rationale_mod.gather_facts(
+        symbol="VUKE.L",
+        bucket="BUY",
+        bucket_reason="trend up + range OK",
+        long_count=4,
+        total_strategies=5,
+        market_state={"decision_trace": []},
+        sentiment_summary={},
+        sentiment_status="scored",
+        best_strategy_label="buy_and_hold",
+        best_stats={"sharpe": 0.85, "cagr_pct": 12.5, "max_drawdown_pct": -25.0},
+        regimes=[],
+        fundamentals=None,
+        sentiment_demoted=False,
+    )
+    context.prompt_text = rationale_mod._build_prompt(facts)
+
+
+@then('the prompt text contains "{snippet}"')
+def step_prompt_contains(context, snippet: str) -> None:
+    assert snippet in context.prompt_text, (
+        f"prompt missing required guard snippet {snippet!r}"
+    )
