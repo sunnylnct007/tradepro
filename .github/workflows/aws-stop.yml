@@ -1,0 +1,51 @@
+# ============================================================
+# Stop the TradePro EC2 instance.
+#
+# Drops the bill from ~£10/mo running to ~£1.30/mo stopped (EBS only).
+# The Elastic IP stays attached and the public URL is preserved.
+#
+# This workflow is a manual fallback — the EventBridge schedule in
+# the terraform module already auto-stops at 22:00 UTC daily.
+# ============================================================
+
+name: aws-stop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find and stop instance
+        run: |
+          ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+                      "Name=instance-state-name,Values=running,pending,stopping" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text | tr -s '\t\n' ' ' | awk '{print $1}')
+          if [ -z "$ID" ]; then
+            echo "No running instance found — already stopped."
+            echo "## Already stopped" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Stopping $ID..."
+          aws ec2 stop-instances --instance-ids "$ID"
+          aws ec2 wait instance-stopped --instance-ids "$ID"
+          echo "## TradePro stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Instance: \`$ID\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,88 @@
+# ============================================================
+# Build the TradePro API image in CI and push to ECR.
+#
+# Pre-built images cut deploy time from 5+ min on the t4g.small (.NET
+# restore + publish are RAM-heavy) to ~30 sec (just `docker pull`).
+#
+# RUNS:
+#   - on push to main, when backend/ or this workflow changes
+#   - manually via Run workflow
+#
+# IMAGES + TAGS:
+#   <ecr>/ccit-dev-tradepro-api:<sha>      → pinned, immutable in spirit
+#   <ecr>/ccit-dev-tradepro-api:latest     → mutable rolling tag
+#
+# After this workflow, run `aws-redeploy` with `image_tag=<sha>` (or
+# leave it as `latest`) to pull + restart the stack on EC2.
+# ============================================================
+
+name: aws-build-push
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/aws-build-push.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  ECR_REGISTRY: 108703420282.dkr.ecr.eu-west-2.amazonaws.com
+  API_REPO:    ccit-dev-tradepro-api
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: aws-prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute tags
+        id: tags
+        run: |
+          SHA=${GITHUB_SHA::8}
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "api_sha=${ECR_REGISTRY}/${API_REPO}:${SHA}"     >> "$GITHUB_OUTPUT"
+          echo "api_latest=${ECR_REGISTRY}/${API_REPO}:latest"  >> "$GITHUB_OUTPUT"
+
+      - name: Build + push API image (linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.api_sha }}
+            ${{ steps.tags.outputs.api_latest }}
+          # Layer cache lives in the ECR repo as the `:cache` tag —
+          # keeps subsequent builds fast without an extra registry.
+          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.API_REPO }}:cache
+          cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.API_REPO }}:cache,mode=max
+
+      - name: Summary
+        run: |
+          echo "## Built + pushed image tags" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`${{ steps.tags.outputs.api_sha }}\`"    >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`${{ steps.tags.outputs.api_latest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Trigger \`aws-redeploy\` with \`image_tag=${{ steps.tags.outputs.sha }}\` to roll out (or leave as \`latest\`)." >> "$GITHUB_STEP_SUMMARY"

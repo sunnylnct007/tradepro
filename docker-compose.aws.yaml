@@ -1,0 +1,53 @@
+# ============================================================
+# Production docker-compose for the AWS host.
+#
+# This file lives at the repo root (cloned to /opt/tradepro by the
+# tradepro-demo terraform module's user-data.sh). The host runs:
+#
+#   docker compose -f docker-compose.aws.yaml up -d
+#
+# Image is pulled from ECR (built in CI by aws-build-push.yml). The
+# .env file at /opt/tradepro/.env supplies ECR_REGISTRY + IMAGE_TAG +
+# all the API runtime config (Trading 212 key, Finnhub key, ingest
+# token, etc.) — see .env.aws.example for the full list.
+#
+# Single service today (just the API). Add `worker:` and `frontend:`
+# stanzas here when those services move to AWS.
+# ============================================================
+
+services:
+  api:
+    image: ${ECR_REGISTRY}/ccit-dev-tradepro-api:${IMAGE_TAG:-latest}
+    container_name: tradepro-api
+    restart: unless-stopped
+    ports:
+      # Host:container — the security group opens API_HOST_PORT (default
+      # 8081) to the world; container always listens on 5080.
+      - "${API_HOST_PORT:-8081}:5080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5080
+      # Persisted compare cache — survives container restarts.
+      Compare__StorePath: /data/compare
+      # Auth / integrations / CORS — all sourced from the .env file.
+      Firebase__RequireAuth: "${FIREBASE_REQUIRE_AUTH:-true}"
+      Ingest__Token: "${INGEST_TOKEN}"
+      Cors__AllowedOrigins__0: "${CORS_ORIGIN_0:-http://localhost:5173}"
+      Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
+      Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
+      Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
+      Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
+    volumes:
+      # Compare cache as a named volume so it survives `compose down`.
+      - api_compare_cache:/data/compare
+    healthcheck:
+      # /health is intentionally public (uptime pings shouldn't need a
+      # token). Matches the dev compose contract.
+      test: ["CMD", "curl", "-fsS", "http://localhost:5080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  api_compare_cache:

@@ -1,0 +1,65 @@
+# ============================================================
+# Show the TradePro EC2 instance state + recent SSM command history.
+#
+# Read-only. Useful when you want to know "is it running and healthy"
+# without opening the AWS console.
+# ============================================================
+
+name: aws-status
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+  API_HOST_PORT: 8081
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Describe instance
+        id: describe
+        run: |
+          aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+            --query 'Reservations[].Instances[?State.Name!=`terminated`][].{ID:InstanceId,State:State.Name,IP:PublicIpAddress,Type:InstanceType,Launch:LaunchTime}' \
+            --output table | tee /tmp/instance.txt
+          IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' --output text 2>/dev/null || echo "")
+          echo "public_ip=$IP" >> "$GITHUB_OUTPUT"
+
+      - name: Probe /health
+        if: steps.describe.outputs.public_ip != '' && steps.describe.outputs.public_ip != 'None'
+        run: |
+          URL="http://${{ steps.describe.outputs.public_ip }}:${API_HOST_PORT}/health"
+          echo "GET $URL"
+          # Don't fail the job if /health is down — surface it instead.
+          curl -sS --max-time 10 "$URL" || echo "(no response)"
+
+      - name: Recent SSM commands (last 10)
+        run: |
+          aws ssm list-commands --max-items 10 \
+            --query 'Commands[].{ID:CommandId,Status:Status,Comment:Comment,Sent:RequestedDateTime}' \
+            --output table || true
+
+      - name: Summary
+        run: |
+          echo "## TradePro status" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/instance.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
