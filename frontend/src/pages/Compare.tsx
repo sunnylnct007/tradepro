@@ -868,12 +868,27 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
  * unavailable). Either way the content is factually safe — every
  * number traces to the input facts. */
 function RationalePanel({ rationale }: { rationale: CompareRationale }) {
-  const sourceColour = rationale.source === "llm"
-    ? "var(--up)"
-    : rationale.source?.startsWith("template")
-      ? "var(--neutral)"
-      : "var(--text-muted)";
+  // Verification status drives the badge colour + icon. The previous
+  // version always showed a green ✓ when `verified=true`, but the
+  // template-fallback rationale is `verified=true` even when the LLM
+  // was rejected — so the green tick was misleading. Now: any
+  // verification_notes flip the badge to amber ⚠️ regardless of source.
+  const noteCount = rationale.verification_notes?.length ?? 0;
+  const hasNotes = noteCount > 0;
+  const sourceColour = hasNotes
+    ? "var(--neutral)"
+    : rationale.source === "llm"
+      ? "var(--up)"
+      : rationale.source?.startsWith("template")
+        ? "var(--text-muted)"
+        : "var(--text-muted)";
   const sourceLabel = sourceLabelFor(rationale.source);
+  const badgeIcon = hasNotes ? " ⚠" : rationale.verified ? " ✓" : "";
+  const badgeTitle = hasNotes
+    ? `${noteCount} verification ${noteCount === 1 ? "note" : "notes"} — see "Verification notes" below for the offending sentence(s).`
+    : rationale.source === "llm"
+      ? `LLM-generated, verified against input facts. Model: ${rationale.model ?? "—"}`
+      : "Built mechanically from the input facts (template fallback) — never from LLM creativity.";
   return (
     <div
       style={{
@@ -896,14 +911,10 @@ function RationalePanel({ rationale }: { rationale: CompareRationale }) {
         <span className="stat-label">In plain English</span>
         <span
           style={{ fontSize: 10, color: sourceColour, fontWeight: 600 }}
-          title={
-            rationale.source === "llm"
-              ? `LLM-generated, verified against input facts. Model: ${rationale.model ?? "—"}`
-              : "Built mechanically from the input facts (template fallback) — never from LLM creativity."
-          }
+          title={badgeTitle}
         >
           {sourceLabel}
-          {rationale.verified ? " ✓" : ""}
+          {badgeIcon}
         </span>
       </div>
       <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
@@ -928,12 +939,12 @@ function RationalePanel({ rationale }: { rationale: CompareRationale }) {
         </div>
       )}
       {rationale.verification_notes && rationale.verification_notes.length > 0 && (
-        <details style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
-          <summary style={{ cursor: "pointer" }}>
-            Verification notes ({rationale.verification_notes.length})
+        <details style={{ marginTop: 8, fontSize: 11, color: "var(--neutral)" }}>
+          <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+            ⚠ Verification notes ({rationale.verification_notes.length})
           </summary>
-          <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
-            {rationale.verification_notes.map((n, i) => <li key={i}>{n}</li>)}
+          <ul style={{ margin: "4px 0 0 16px", padding: 0, color: "var(--text-dim)" }}>
+            {rationale.verification_notes.map((n, i) => <li key={i} style={{ marginBottom: 4 }}>{n}</li>)}
           </ul>
         </details>
       )}
