@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Brush,
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceArea,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -45,6 +48,18 @@ interface Props {
 
 const DEFAULT_LOOKBACK_DAYS = 365 * 5;
 
+// Range presets in approximate trading days — the user clicks one to
+// snap the brush window to that lookback. "All" resets to full data.
+const PRESETS: { label: string; days: number }[] = [
+  { label: "1M", days: 22 },
+  { label: "3M", days: 65 },
+  { label: "6M", days: 130 },
+  { label: "YTD", days: -2 },   // sentinel: compute at apply time
+  { label: "1Y", days: 252 },
+  { label: "5Y", days: 252 * 5 },
+  { label: "All", days: -1 },   // sentinel: full range
+];
+
 export function PriceHistoryChart({
   symbol,
   lookbackDays = DEFAULT_LOOKBACK_DAYS,
@@ -53,6 +68,11 @@ export function PriceHistoryChart({
   const [series, setSeries] = useState<CandleSeries | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Brush-controlled visible window into the full `data` array.
+  // `null` means "show everything"; we set it from PRESETS or by
+  // dragging the brush handles.
+  const [range, setRange] = useState<[number, number] | null>(null);
+  const [activePreset, setActivePreset] = useState<string>("5Y");
 
   useEffect(() => {
     if (!symbol) return;
@@ -98,6 +118,23 @@ export function PriceHistoryChart({
     return { data, high52w, low52w, last, peak, peakDate };
   }, [series]);
 
+  // When new data arrives, snap the visible window to the active preset
+  // (default 5Y / All). Without this the brush handles would point at
+  // stale indices when the user switches symbols.
+  useEffect(() => {
+    if (!computed) return;
+    setRange(presetToRange(activePreset, computed.data));
+    // intentionally not depending on activePreset — preset clicks
+    // already update the range directly via applyPreset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [computed]);
+
+  const applyPreset = (label: string) => {
+    if (!computed) return;
+    setActivePreset(label);
+    setRange(presetToRange(label, computed.data));
+  };
+
   if (error) {
     return (
       <div style={{ color: "var(--down)", fontSize: 12 }}>
@@ -115,19 +152,64 @@ export function PriceHistoryChart({
 
   const { data, high52w, low52w, last, peak, peakDate } = computed;
   const tone = last >= (high52w + low52w) / 2 ? "var(--up)" : "var(--neutral)";
+  const lastDate = data[data.length - 1].t;
+  // Range zones: bottom 35% = "dip" (green tint), middle 30% = neutral,
+  // top 35% = "near highs" (amber tint). Visualises the same percentile
+  // the engine's range-position guard reasons about, so the user can
+  // see at a glance which zone today's price is sitting in.
+  const span = high52w - low52w;
+  const zoneDipTop = low52w + span * 0.35;
+  const zoneAmberBottom = low52w + span * 0.65;
+
+  // Visible-window stats (recomputed when the brush moves) so the
+  // header reflects what the user is actually inspecting. Falls back
+  // to the full series when no range is set.
+  const visible = range
+    ? data.slice(range[0], range[1] + 1)
+    : data;
+  const visibleHigh = visible.length ? Math.max(...visible.map((d) => d.price)) : last;
+  const visibleLow = visible.length ? Math.min(...visible.map((d) => d.price)) : last;
 
   return (
     <div className="card" style={{ padding: "12px 14px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 12, flexWrap: "wrap" }}>
         <div className="stat-label">
-          {symbol} price · {Math.round(lookbackDays / 365)}y · split-adjusted
+          {symbol} price · split-adjusted
         </div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", display: "flex", gap: 14, flexWrap: "wrap" }}>
           <span>now <strong className="num" style={{ color: tone }}>{last.toFixed(2)}</strong></span>
           <span>52w high <span className="num">{high52w.toFixed(2)}</span></span>
           <span>52w low <span className="num">{low52w.toFixed(2)}</span></span>
           <span>5y peak <span className="num">{peak.toFixed(2)}</span> {peakDate && <span style={{ color: "var(--text-muted)" }}>· {peakDate}</span>}</span>
+          <span style={{ borderLeft: "1px solid rgba(155,161,173,0.3)", paddingLeft: 14 }}>
+            window <span className="num">{visibleLow.toFixed(2)}</span> – <span className="num">{visibleHigh.toFixed(2)}</span>
+          </span>
         </div>
+      </div>
+      {/* Range presets: snap the brush to a common lookback in one
+          click. The brush handles below the chart still allow free-form
+          zoom into any sub-window. */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+        {PRESETS.map((p) => (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => applyPreset(p.label)}
+            style={{
+              fontSize: 10,
+              padding: "3px 8px",
+              borderRadius: 999,
+              border: "1px solid rgba(155,161,173,0.3)",
+              background: activePreset === p.label
+                ? "rgba(155,110,255,0.18)"
+                : "rgba(0,0,0,0.18)",
+              color: activePreset === p.label ? "#cbb6ff" : "var(--text-muted)",
+              cursor: "pointer",
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
@@ -144,17 +226,47 @@ export function PriceHistoryChart({
             }}
             formatter={(v: number) => v.toFixed(2)}
           />
-          <ReferenceLine y={high52w} stroke="var(--up)" strokeDasharray="3 3" label={{ value: "52w high", position: "right", fill: "var(--up)", fontSize: 10 }} />
-          <ReferenceLine y={low52w} stroke="var(--down)" strokeDasharray="3 3" label={{ value: "52w low", position: "right", fill: "var(--down)", fontSize: 10 }} />
-          <Line type="monotone" dataKey="price" stroke="#cbd2dc" strokeWidth={1.5} dot={false} name="Price (adj)" />
-          <Line type="monotone" dataKey="sma200" stroke="#9b6eff" strokeWidth={1.4} strokeDasharray="6 3" dot={false} name="SMA(200)" />
+          {/* Range zones: dip / neutral / near-highs bands across the
+              52w price range. ifOverflow="hidden" so they only paint
+              the slice that intersects the visible Y window. */}
+          <ReferenceArea y1={low52w} y2={zoneDipTop} fill="var(--up)" fillOpacity={0.06} ifOverflow="hidden" />
+          <ReferenceArea y1={zoneAmberBottom} y2={high52w} fill="var(--neutral)" fillOpacity={0.06} ifOverflow="hidden" />
+          {/* ifOverflow="hidden" so when the user zooms into a window
+              that doesn't include the 52w extreme, the reference line
+              quietly disappears instead of forcing the Y-axis to expand
+              and defeating the zoom. */}
+          <ReferenceLine y={high52w} stroke="var(--up)" strokeDasharray="3 3" ifOverflow="hidden" label={{ value: "52w high", position: "right", fill: "var(--up)", fontSize: 10 }} />
+          <ReferenceLine y={low52w} stroke="var(--down)" strokeDasharray="3 3" ifOverflow="hidden" label={{ value: "52w low", position: "right", fill: "var(--down)", fontSize: 10 }} />
+          {/* "Today" marker: vertical line + dot at the right edge so
+              the user can locate the current bar without squinting. */}
+          <ReferenceLine x={lastDate} stroke="rgba(255,255,255,0.45)" strokeDasharray="2 4" ifOverflow="hidden" label={{ value: "today", position: "top", fill: "rgba(255,255,255,0.6)", fontSize: 10 }} />
+          <ReferenceDot x={lastDate} y={last} r={4} fill={tone} stroke="white" strokeWidth={1} ifOverflow="hidden" />
+          <Line type="monotone" dataKey="price" stroke="#cbd2dc" strokeWidth={1.5} dot={false} name="Price (adj)" isAnimationActive={false} />
+          <Line type="monotone" dataKey="sma200" stroke="#9b6eff" strokeWidth={1.4} strokeDasharray="6 3" dot={false} name="SMA(200)" isAnimationActive={false} />
+          <Brush
+            dataKey="t"
+            height={26}
+            stroke="#9b6eff"
+            travellerWidth={10}
+            fill="rgba(155,110,255,0.08)"
+            startIndex={range?.[0]}
+            endIndex={range?.[1]}
+            onChange={(e) => {
+              if (typeof e?.startIndex === "number" && typeof e?.endIndex === "number") {
+                // Free-form drag → mark preset as "Custom" so the
+                // selected-pill highlight doesn't lie about state.
+                setRange([e.startIndex, e.endIndex]);
+                setActivePreset("Custom");
+              }
+            }}
+          />
         </LineChart>
       </ResponsiveContainer>
       <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>
         Price line uses split-adjusted close so 4:1 / 2:1 splits don't render as
         fake crashes. SMA(200) is the same line the engine uses for the trend
-        check; reference lines are the 52w extremes used by the range-position
-        guard.
+        check; 52w reference lines hide when zoomed outside their level. Drag the
+        brush handles below the chart, or click a preset, to zoom.
       </div>
     </div>
   );
@@ -176,4 +288,23 @@ function smaAt(prices: number[], idx: number, window: number): number | null {
   let sum = 0;
   for (let i = idx - window + 1; i <= idx; i++) sum += prices[i];
   return sum / window;
+}
+
+function presetToRange(
+  label: string,
+  data: { t: string }[],
+): [number, number] {
+  const total = data.length;
+  if (total === 0) return [0, 0];
+  const last = total - 1;
+  const preset = PRESETS.find((p) => p.label === label);
+  if (!preset || preset.days === -1) return [0, last];
+  if (preset.days === -2) {
+    // YTD: walk backwards until the year changes.
+    const lastYear = data[last].t.slice(0, 4);
+    let i = last;
+    while (i > 0 && data[i].t.slice(0, 4) === lastYear) i--;
+    return [Math.min(i + 1, last), last];
+  }
+  return [Math.max(0, total - preset.days), last];
 }
