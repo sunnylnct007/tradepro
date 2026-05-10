@@ -454,6 +454,11 @@ export interface CompareRow {
   /** Phase G: gem hunter verdict. Most rows are is_gem=false; the
    * Decide page renders a GemsCard filtering to is_gem=true. */
   gem_verdict?: GemVerdict | null;
+  /** Phase G v2: exit triggers (RECLASSIFIED / THESIS_BROKEN /
+   * HOLD). Computed on every row regardless of gem status because
+   * a position the user holds in a non-gem name can still trigger
+   * an exit signal. */
+  gem_exit_verdict?: GemExitVerdict | null;
 }
 
 export interface CrossSectionalMomentum {
@@ -543,6 +548,21 @@ export interface GemVerdict {
     failed_filters: string[];
     recovery_signals: string[];
   };
+}
+
+/** Phase G v2 exit framework — fires on EVERY row (not just gems)
+ * because the user might hold a name that's no longer a gem. Two
+ * triggers ship today (Trigger 2 profit-ladder needs entry-price
+ * persistence which lands with Phase D). */
+export interface GemExitVerdict {
+  /** "RECLASSIFIED" — gem worked: RSI > 65 AND above SMA200 AND
+   * recovered ≥60% of DD. Take profit / re-evaluate.
+   * "THESIS_BROKEN" — sentiment dropped below -0.30 OR debt/equity
+   * spiked OR FCF turned negative OR cross-basket z negative.
+   * "HOLD" — neither trigger fired. */
+  action: "RECLASSIFIED" | "THESIS_BROKEN" | "HOLD";
+  triggered: boolean;
+  reasons: string[];
 }
 
 export interface SwingScore {

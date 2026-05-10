@@ -169,9 +169,21 @@ export function Simulations() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Simulations</h1>
-        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
-          How much money would this strategy have made? UK fee model by default (0.5% stamp duty on buys).
+        <h1 style={{ margin: 0, fontSize: 24 }}>Backtest — historical replay</h1>
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 880, lineHeight: 1.55 }}>
+          <strong style={{ color: "var(--text)" }}>What this page does:</strong>{" "}
+          Replay a strategy on historical data: "if I'd traded symbol X with
+          strategy Y from {from.slice(0, 4)} to {to.slice(0, 4)}, what would my P&L
+          curve look like?" Output: full equity curve, every trade, CAGR, Sharpe,
+          max drawdown, recovery time. UK fee model by default (0.5% stamp duty
+          on buys; 0% for ETFs).
+        </p>
+        <p style={{ color: "var(--text-muted)", margin: "8px 0 0 0", maxWidth: 880, fontSize: 12, lineHeight: 1.55 }}>
+          <strong>Backtest vs Research:</strong> Backtest tells you{" "}
+          <em>"would this strategy have made money historically"</em> — useful to
+          validate a strategy before trusting today's signal. Research tells you{" "}
+          <em>"what's the verdict on this symbol RIGHT NOW"</em>. Use Backtest to
+          decide which strategy you trust; use Research to act on it today.
         </p>
         <div
           style={{

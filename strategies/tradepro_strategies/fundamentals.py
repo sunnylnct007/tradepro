@@ -141,6 +141,45 @@ def _safe_int(x) -> int | None:
     return int(f)
 
 
+# Hand-maintained lookup for the ETFs in our universes. yfinance's
+# free API caps `equity_holdings` / `top_holdings` at 6-10 rows so we
+# can't read the real basket size for popular ETFs. These values are
+# from the issuers' published fact sheets (Vanguard, iShares, SSGA,
+# Invesco) and only need to be approximately right — the passive-
+# horizon scorer thresholds are >200 (=2pts) and >50 (=1pt), so
+# coarse round numbers are fine.
+#
+# Phase D2 (snapshot store) will replace this with nightly scrapes
+# of the issuer fact sheets — proper solution. Until then this is
+# the pragmatic stop-gap that lets passive scoring work for the
+# popular ETFs we track.
+_KNOWN_ETF_HOLDINGS_COUNT: dict[str, int] = {
+    # Vanguard
+    "VOO": 503, "VTI": 3614, "VTV": 339, "VEA": 4014, "VWO": 5870,
+    "VUKE.L": 102, "VUSA.L": 503, "VEUR.L": 1297, "VWRL.L": 3700,
+    # iShares
+    "IVV": 503, "IEFA": 2624, "IEMG": 3023,
+    "ACWI": 2497, "EFA": 720, "AGG": 11000,
+    "SWDA.L": 1395, "INRG.L": 121,
+    # iShares factor ETFs (etf_factor universe)
+    "VLUE": 153, "MTUM": 124, "QUAL": 124, "SIZE": 580, "USMV": 169,
+    # SPDR / SSGA
+    "SPY": 503,
+    "XLE": 25, "XLK": 64, "XLV": 64, "XLF": 73, "XLP": 38,
+    "XLY": 51, "XLI": 78, "XLB": 28, "XLU": 31, "XLC": 23, "XLRE": 31,
+    # Invesco
+    "QQQ": 100,
+}
+
+
+def _known_etf_holdings_count(symbol: str) -> int | None:
+    """Return the issuer-published holdings count for known ETFs.
+    Falls back to None for symbols not in the lookup table."""
+    if not symbol:
+        return None
+    return _KNOWN_ETF_HOLDINGS_COUNT.get(symbol.upper())
+
+
 def _funds_data_holdings_count(symbol: str) -> int | None:
     """Try to extract the fund's true basket size (e.g. ~700 for VLUE).
     yfinance's `funds_data.equity_holdings` is sometimes the full table
@@ -346,7 +385,18 @@ def fetch_fundamentals(symbol: str, info: dict | None = None) -> Fundamentals:
         or info.get("numberOfHoldings")
     )
     if n_holdings is None:
+        # Try yfinance funds_data — useful only when it returns the
+        # full table (>12 rows). Most popular ETFs only return the
+        # top-10 head cap so this falls through.
         n_holdings = _funds_data_holdings_count(symbol)
+    if n_holdings is None:
+        # Pragmatic stop-gap: hand-maintained lookup of the popular
+        # ETFs we track, sourced from issuer fact sheets. yfinance's
+        # free API doesn't expose real basket size; the proper fix
+        # (nightly scrape of fact sheets) lands with Phase D2 snapshot
+        # store. Until then this lets passive scoring work for the
+        # ETFs in our universes.
+        n_holdings = _known_etf_holdings_count(symbol)
     if n_holdings is None and legal_type in {"EQUITY", "COMMON STOCK"}:
         n_holdings = 1
 

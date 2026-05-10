@@ -854,7 +854,12 @@ def compare(
     # sentiment not hostile). Surfaces alongside the existing bucket
     # vote so the user gets the trend-following AND mean-reversion
     # lens on the same data.
-    from .gems import evaluate_gem
+    #
+    # Also evaluates the v2 exit framework on every row (not just
+    # gems) so a position the user already holds in a non-gem name
+    # can still trigger RECLASSIFIED / THESIS_BROKEN signals. The
+    # GemsCard renders these alongside the entry verdict.
+    from .gems import evaluate_gem, evaluate_gem_exit
     for r in rows:
         try:
             r["gem_verdict"] = evaluate_gem(r).to_dict()
@@ -863,6 +868,13 @@ def compare(
                 logger.emit("compare.gems_failed",
                             symbol=r.get("symbol"), error=str(e))
             r["gem_verdict"] = None
+        try:
+            r["gem_exit_verdict"] = evaluate_gem_exit(r).to_dict()
+        except Exception as e:  # noqa: BLE001
+            if logger:
+                logger.emit("compare.gem_exit_failed",
+                            symbol=r.get("symbol"), error=str(e))
+            r["gem_exit_verdict"] = None
 
     # Per-symbol bucket computation + rationale generation. Both are
     # symbol-level (not per-row) so we compute once and copy onto every

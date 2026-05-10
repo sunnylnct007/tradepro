@@ -126,11 +126,68 @@ export function Signals() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Signal detail</h1>
-        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0" }}>
-          Single-symbol recommendation with the indicators behind the call.
+        <h1 style={{ margin: 0, fontSize: 24 }}>Research — single-symbol signal</h1>
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 880, lineHeight: 1.55 }}>
+          <strong style={{ color: "var(--text)" }}>What this page does:</strong>{" "}
+          Pick a symbol, run all 5 strategies in parallel, see the consensus
+          BUY / SELL / HOLD with the live indicators (RSI, SMA20/50/200, distance
+          from 52w high/low) behind the call. Plus a 10-year hit-rate showing how
+          often this strategy combo would have been profitable historically.
+        </p>
+        <p style={{ color: "var(--text-muted)", margin: "8px 0 0 0", maxWidth: 880, fontSize: 12, lineHeight: 1.55 }}>
+          <strong>Research vs Backtest:</strong> Research answers <em>"what's the
+          verdict on this symbol RIGHT NOW?"</em>. Backtest replays a strategy on
+          historical data and shows the equity curve over years. Use Research
+          for live decisions; Backtest to validate a strategy before trusting it.
         </p>
       </div>
+
+      {/* Symbol picker on its own row — same pattern as Backtest. The
+          autocomplete needs space; the strategy-tuning grid below it
+          covers the rest of the inputs. */}
+      <section
+        className="card"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          padding: "12px 14px",
+        }}
+      >
+        <span className="stat-label">Symbol</span>
+        <div style={{ maxWidth: 520 }}>
+          <SymbolPicker value={symbol} onChange={setSymbol} placeholder="e.g. NVDA, VUKE.L" />
+        </div>
+        {watchlist && watchlist.items.length > 0 && (
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <span style={{ marginRight: 4 }}>Or pick from watchlist:</span>
+            {watchlist.items.slice(0, 8).map((i) => {
+              const active = symbol === i.symbol;
+              return (
+                <button
+                  key={i.symbol}
+                  type="button"
+                  onClick={() => setSymbol(i.symbol)}
+                  title={i.label}
+                  style={{
+                    padding: "2px 8px",
+                    fontSize: 11,
+                    borderRadius: 999,
+                    border: "1px solid var(--border)",
+                    boxShadow: active ? "inset 0 0 0 1px var(--accent, #4f8cff)" : "none",
+                    background: active ? "var(--bg-hover)" : "transparent",
+                    color: active ? "var(--text)" : "var(--text-dim)",
+                    cursor: "pointer",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {i.symbol}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <section
         className="card"
@@ -141,18 +198,6 @@ export function Signals() {
           alignItems: "end",
         }}
       >
-        {watchlist && (
-          <Labelled label="Watchlist pick" help="watchlist">
-            <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-              {watchlist.items.map((i) => (
-                <option key={i.symbol} value={i.symbol}>{i.label}</option>
-              ))}
-            </select>
-          </Labelled>
-        )}
-        <Labelled label="Symbol">
-          <SymbolPicker value={symbol} onChange={setSymbol} />
-        </Labelled>
         <Labelled label="Strategy" help="strategy">
           <StrategyPicker value={strategy} onChange={setStrategy} />
         </Labelled>
