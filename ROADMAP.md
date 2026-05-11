@@ -69,6 +69,47 @@ out of date. Each entry is one line: what changed and why it mattered.
   it with #4 insider trades raises the question of whether to land them as
   one "events-on-chart" PR — see backend-endpoint follow-up below).
 
+**Stress-test reviewer suggestions (2026-05-11) — triage:**
+
+Worth noting up front: TradePro is a **research / signal tool**, not a
+live execution platform. The reviewer's risk-management suggestions are
+about **backtest realism** (would change the historical CAGR / Sharpe
+numbers) rather than runtime trade safety — users decide whether to
+buy on their own. That framing changes the priority of each item.
+
+- ✅ **Already shipped** — reviewer's "What's Working" list matches
+  current state: range-position guard (VUKE class), 5y peak context
+  (INRG class), two-tier sentiment demotion, decision trace, fee +
+  stamp-duty model, NaN/inf safety, v4 rationale prompt.
+- 🟢 **Validates existing direction** —
+  - **Sideways-market volatility filter** — partially handled today by
+    the swing composite's earnings-event layer + sentiment demotion;
+    a hard `annualised_vol < 15% → HOLD` rule could fit in the
+    `_classify` ladder but risks suppressing valid mean-reversion
+    setups on low-vol ETFs (VUKE / VGOV are <12% vol and BUY-able).
+    Skip unless we see whipsaw losses in the cache.
+  - **LLM hallucination rate** — already targeted by v4 prompt rollout;
+    re-audit after worker has pushed under v4 for a week.
+- 🆕 **New, accepted into roadmap** — added below:
+  - **Backtest stop-loss option** (HIGH) — trailing stop + max-loss-per-trade
+    as `BacktestConfig.StopLossConfig` flags, default off so existing
+    suite stays comparable. Lets the user A/B "buy_and_hold vs same
+    strategy with 8% trailing stop" in the Backtest UI. ~1 day.
+  - **Crash-protection branch in `_classify`** (MEDIUM) — new rule:
+    `10-day return < -8% AND below SMA200 → AVOID with "active crash"
+    reason`. Catches the "falling knife" gap reviewer flagged. Sits
+    *before* the bounce-zone BUY rule so a confirmed crash always
+    wins over a mean-reversion bid. New scenario in
+    `features/market_state_classify.feature`. ~3 hrs.
+- ❓ **Deferred — needs design**:
+  - **Position sizing (Kelly / fixed-fractional / vol-targeted)** — touches
+    the backtest engine, the swing composite, and the (future) portfolio
+    simulator. Better to land alongside Phase B (portfolio simulation)
+    than as a standalone change. Logged here so it isn't lost.
+  - **Correlation filter** — same: belongs in Phase 2 (portfolio-aware
+    engine), which already plans buy-more / hold / trim across positions.
+    Logged in `project_phase2_portfolio_aware` memory.
+
 **In-flight / next up (do not lose):**
 
 - ✅ **AWS deploy — LIVE** as of 2026-05-11. Tradepro is on its own
@@ -108,6 +149,15 @@ out of date. Each entry is one line: what changed and why it mattered.
   push CLI doesn't upload there yet. Add `archive_to_s3()` after a
   successful `/api/ingest/compare` so we have replay history before
   Phase D2 lands. Opt-in via `TRADEPRO_S3_ARCHIVE=1` env. ~2 hrs.
+- ⏳ **Backtest stop-loss option** — new `BacktestConfig.stop_loss`
+  block (trailing pct + max-loss pct). Default OFF so existing 187
+  scenarios remain reproducible. Wire into `run_backtest.py` exit
+  logic + add a UI toggle on the Backtest page. ~1 day.
+- ⏳ **Crash-protection rule in `_classify`** — `10d return < -8% AND
+  below SMA200 → AVOID ("active crash")`. Placed BEFORE the bounce-zone
+  BUY check so a confirmed crash always wins. New behave scenario:
+  `Given a series in active 10d crash, expect entry_signal AVOID`.
+  ~3 hrs.
 - ⏳ **Re-audit rationale cache after v4 prompt rolls out** — target
   rejection rate <10% (currently 35%). If v4 doesn't move the needle,
   the next move is a *model* audit: which model is producing the
