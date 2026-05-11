@@ -50,9 +50,10 @@ out of date. Each entry is one line: what changed and why it mattered.
   (Phase B), #8 Lambda+EventBridge worker (Phase D3), #9 live price feed
   (Phase 7). Already on the roadmap; reviewer's priority weighting noted.
 - 🆕 **New, accepted** — added below:
-  - **Symbol autocomplete** — Yahoo `search/quotes` → `/api/marketdata/search`
-    → typeahead in the SymbolPicker. ~3-5 hrs. High user-facing impact —
-    "NV → 500" is a real footgun today.
+  - ~~**Symbol autocomplete**~~ — already shipped: SymbolPicker.tsx has
+    full debounced typeahead against `/api/instruments/search` (Yahoo
+    search), keyboard navigation, T212 badge for tradeable symbols.
+    Reviewer wasn't aware.
   - **Insider trades + analyst recommendations layer** — `yfinance.Ticker
     .insider_purchases` + `finnhub.stock.recommendations`. New signal family
     on the swing scorer (currently 5 layers, would become 6). Lives in
@@ -140,10 +141,9 @@ buy on their own. That framing changes the priority of each item.
   - `GET /api/marketdata/insiders?symbol=` → insider buys/sells from
     `yfinance.Ticker.insider_purchases`. Tiny up/down chips on the chart;
     filtered to discretionary trades (drop 10b5-1 plan executions).
-- ⏳ **Symbol autocomplete** — Yahoo `query2.finance.yahoo.com/v1/finance/
-  search` → `/api/marketdata/search?q=` → typeahead in `SymbolPicker`.
-  Returns `{symbol, name, exchange, currency}`. Cures the "NV → 500" UX
-  bug. ~3-5 hrs total (endpoint + dropdown + debounce).
+- ✅ **Symbol autocomplete** — shipped (SymbolPicker.tsx →
+  /api/instruments/search → Yahoo). Includes debounce, keyboard nav,
+  T212 "tradeable" badge. Cures the "NV → 500" footgun.
 - ⏳ **S3 archive in push pipeline** — `tradepro-archive` bucket exists
   (terraform `modules/tradepro-archive` + writer creds in outputs); the
   push CLI doesn't upload there yet. Add `archive_to_s3()` after a

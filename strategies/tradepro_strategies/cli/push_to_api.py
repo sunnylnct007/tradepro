@@ -80,6 +80,7 @@ def push(kind: str, payload: dict, base_url: str, token: str, retries: int = 4) 
             resp = requests.post(url, headers=headers, json=safe_payload, timeout=30)
             if 200 <= resp.status_code < 300:
                 print(f"ok: {resp.status_code}")
+                _maybe_archive_to_s3(kind, safe_payload)
                 return
             print(f"attempt {attempt + 1}: HTTP {resp.status_code} {resp.text[:200]}")
         except requests.RequestException as e:
@@ -88,6 +89,80 @@ def push(kind: str, payload: dict, base_url: str, token: str, retries: int = 4) 
             time.sleep(2 ** attempt)
     print("all attempts failed", file=sys.stderr)
     sys.exit(1)
+
+
+def _maybe_archive_to_s3(kind: str, payload: dict) -> None:
+    """Optional: push a copy of the payload to S3 for replay history.
+
+    Opt-in at TWO layers so the default behaviour is unchanged:
+      1. `TRADEPRO_S3_ARCHIVE=1` env var must be set
+      2. boto3 must be importable (not in the default deps — install
+         via `pip install boto3` in the worker's venv)
+
+    Either layer absent → silent skip, never fails the upstream push.
+    Same applies for any S3 / network error: the archive is a "nice
+    to have", not load-bearing for the API ingest contract.
+
+    Object key: `<kind>/<universe-or-host>/<run-id-or-timestamp>.json`
+    so the bucket layout reads naturally with `aws s3 ls`.
+
+    Bucket name comes from `TRADEPRO_S3_ARCHIVE_BUCKET` (defaults to
+    the terraform output `ccit-dev-tradepro-archive`). Credentials
+    follow boto3's normal chain — env vars / ~/.aws/credentials / IAM
+    role — but we surface the dedicated writer-creds env names so the
+    operator can scope them tightly without touching the global
+    profile."""
+    if os.environ.get("TRADEPRO_S3_ARCHIVE") != "1":
+        return
+    try:
+        import boto3  # type: ignore[import-untyped]
+    except ImportError:
+        print(
+            "TRADEPRO_S3_ARCHIVE=1 set but boto3 not installed — "
+            "skipping archive (pip install boto3 in the worker venv "
+            "to enable).",
+            file=sys.stderr,
+        )
+        return
+    bucket = os.environ.get("TRADEPRO_S3_ARCHIVE_BUCKET", "ccit-dev-tradepro-archive")
+    region = os.environ.get("TRADEPRO_S3_ARCHIVE_REGION", "eu-west-2")
+    # Allow dedicated writer creds (separate from any global AWS profile
+    # the user has). Falls through to the standard boto3 chain when not set.
+    ak = os.environ.get("TRADEPRO_S3_AWS_ACCESS_KEY_ID")
+    sk = os.environ.get("TRADEPRO_S3_AWS_SECRET_ACCESS_KEY")
+    kwargs: dict = {"region_name": region}
+    if ak and sk:
+        kwargs["aws_access_key_id"] = ak
+        kwargs["aws_secret_access_key"] = sk
+    key = _archive_object_key(kind, payload)
+    try:
+        client = boto3.client("s3", **kwargs)
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(payload, default=str).encode("utf-8"),
+            ContentType="application/json",
+        )
+        print(f"archived → s3://{bucket}/{key}")
+    except Exception as e:  # noqa: BLE001 — best-effort
+        print(f"S3 archive failed (non-fatal): {e}", file=sys.stderr)
+
+
+def _archive_object_key(kind: str, payload: dict) -> str:
+    """Build a stable S3 key. Prefers fields that uniquely identify the
+    run (universe + run_id for compare; host + receivedAt for heartbeat)
+    so re-pushing the same run overwrites cleanly rather than littering
+    versions. Falls back to a UTC timestamp when those fields are missing."""
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if kind == "compare":
+        universe = (payload.get("universe") or "unknown").replace("/", "_")
+        run_id = payload.get("run_id") or ts
+        return f"compare/{universe}/{run_id}.json"
+    if kind == "heartbeat":
+        host = (payload.get("host") or "unknown-host").replace("/", "_")
+        return f"heartbeat/{host}/{ts}.json"
+    return f"{kind}/{ts}.json"
 
 
 def main() -> None:
