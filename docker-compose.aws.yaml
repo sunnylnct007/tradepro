@@ -20,9 +20,13 @@ services:
     image: ${ECR_REGISTRY}/ccit-dev-tradepro-api:${IMAGE_TAG:-latest}
     container_name: tradepro-api
     restart: unless-stopped
+    # The frontend nginx reaches this service on the docker network as
+    # `api:5080` (no port mapping needed for that). We ALSO map host
+    # port 8081 → 5080 so curl/Postman can hit the API directly for
+    # debugging without going through the frontend proxy. Drop the
+    # `ports:` block to make the API internal-only once the frontend
+    # is the only consumer.
     ports:
-      # Host:container — the security group opens API_HOST_PORT (default
-      # 8081) to the world; container always listens on 5080.
       - "${API_HOST_PORT:-8081}:5080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
@@ -48,6 +52,28 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # ── Frontend (nginx + Vite static bundle) ─────────────────
+  # Single entry point at http://<EIP>/ on port 80. Serves the SPA
+  # and proxies /api/* + /health to the api container above.
+  frontend:
+    image: ${ECR_REGISTRY}/ccit-dev-tradepro-frontend:${IMAGE_TAG:-latest}
+    container_name: tradepro-frontend
+    restart: unless-stopped
+    ports:
+      # Host port 80 → container port 80. Security group opens 80 to
+      # the world (matches the IP-based access pattern energycosmos
+      # uses — TLS lands when a domain does, see ROADMAP).
+      - "${FRONTEND_HOST_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   api_compare_cache:

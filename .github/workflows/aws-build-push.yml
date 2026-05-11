@@ -23,6 +23,7 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
+      - 'frontend/**'
       - '.github/workflows/aws-build-push.yml'
   workflow_dispatch:
 
@@ -34,7 +35,8 @@ env:
   AWS_REGION: eu-west-2
   AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
   ECR_REGISTRY: 108703420282.dkr.ecr.eu-west-2.amazonaws.com
-  API_REPO:    ccit-dev-tradepro-api
+  API_REPO:      ccit-dev-tradepro-api
+  FRONTEND_REPO: ccit-dev-tradepro-frontend
 
 jobs:
   build:
@@ -60,8 +62,10 @@ jobs:
         run: |
           SHA=${GITHUB_SHA::8}
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "api_sha=${ECR_REGISTRY}/${API_REPO}:${SHA}"     >> "$GITHUB_OUTPUT"
-          echo "api_latest=${ECR_REGISTRY}/${API_REPO}:latest"  >> "$GITHUB_OUTPUT"
+          echo "api_sha=${ECR_REGISTRY}/${API_REPO}:${SHA}"            >> "$GITHUB_OUTPUT"
+          echo "api_latest=${ECR_REGISTRY}/${API_REPO}:latest"         >> "$GITHUB_OUTPUT"
+          echo "frontend_sha=${ECR_REGISTRY}/${FRONTEND_REPO}:${SHA}"   >> "$GITHUB_OUTPUT"
+          echo "frontend_latest=${ECR_REGISTRY}/${FRONTEND_REPO}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build + push API image (linux/arm64)
         uses: docker/build-push-action@v6
@@ -78,11 +82,24 @@ jobs:
           cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.API_REPO }}:cache
           cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.API_REPO }}:cache,mode=max
 
+      - name: Build + push frontend image (linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.frontend_sha }}
+            ${{ steps.tags.outputs.frontend_latest }}
+          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:cache
+          cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:cache,mode=max
+
       - name: Summary
         run: |
           echo "## Built + pushed image tags" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`${{ steps.tags.outputs.api_sha }}\`"    >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`${{ steps.tags.outputs.api_latest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`${{ steps.tags.outputs.api_sha }}\`"      >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`${{ steps.tags.outputs.frontend_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Trigger \`aws-redeploy\` with \`image_tag=${{ steps.tags.outputs.sha }}\` to roll out (or leave as \`latest\`)." >> "$GITHUB_STEP_SUMMARY"
