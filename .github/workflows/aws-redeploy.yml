@@ -76,8 +76,12 @@ jobs:
 
           # Build the SSM RunShellScript payload as JSON to keep shell +
           # YAML quoting sane. The compose file is shipped fresh from
-          # the runner's checkout (base64-encoded above) — no GH PAT,
-          # no git on the box.
+          # the runner's checkout (base64-encoded above) - no GH PAT,
+          # no git on the box. NB: every comment in this run-block must
+          # be OUTSIDE the single-quoted jq script - an apostrophe inside
+          # the quote terminates the bash string and the next token
+          # blows up. Also: the "touch .env" before the sed upsert is
+          # defensive in case bootstrap never ran.
           jq -n \
             --arg deploy_dir "$DEPLOY_DIR" \
             --arg image_tag "$IMAGE_TAG" \
@@ -90,10 +94,6 @@ jobs:
                 ("COMPOSE_B64=" + ($compose_b64 | @sh)),
                 "echo \"$COMPOSE_B64\" | base64 -d > docker-compose.aws.yaml",
                 "aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin 108703420282.dkr.ecr.eu-west-2.amazonaws.com",
-                # Upsert the IMAGE_TAG in /opt/tradepro/.env so compose
-                # picks the requested tag. Touch first so the sed/grep
-                # don't fail on a missing file (defensive — bootstrap
-                # should have written it).
                 "touch .env",
                 ("if grep -q ^IMAGE_TAG= .env; then sed -i \"s|^IMAGE_TAG=.*|IMAGE_TAG=" + $image_tag + "|\" .env; else echo IMAGE_TAG=" + $image_tag + " >> .env; fi"),
                 "docker compose -f docker-compose.aws.yaml pull",
