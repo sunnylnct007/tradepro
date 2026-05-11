@@ -26,10 +26,12 @@ RUN npm ci
 
 COPY . .
 
-# Empty VITE_API_BASE_URL → the frontend issues relative requests
-# (`/api/marketdata/candles`) which nginx proxies to the api
-# container. No CORS, no IP-baked-into-bundle.
-ENV VITE_API_BASE_URL=""
+# No VITE_API_BASE_URL baked in. With the new same-origin fallback in
+# src/config.ts, the frontend uses window.location.origin at runtime —
+# the API and the SPA come off the same host, so paths like /api/* are
+# resolved relative to whoever served the bundle. Lets the image work
+# unchanged at http://16.60.201.137/, http://localhost/, or anywhere
+# else it ends up.
 
 RUN npm run build
 
