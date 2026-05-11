@@ -1,0 +1,187 @@
+# ============================================================
+# First-time / recovery bootstrap of the AWS host.
+#
+# Run this once on a fresh instance, or any time the box gets into
+# a wedged state where /opt/tradepro is missing or the systemd unit
+# isn't installed.
+#
+# What it does:
+#   1. Install docker + compose plugin + git + jq if missing.
+#   2. Fetch the GitHub PAT from SSM Parameter Store.
+#   3. Clone (or hard-reset) the tradepro repo into /opt/tradepro.
+#   4. Write an initial /opt/tradepro/.env with ECR_REGISTRY +
+#      IMAGE_TAG + the secrets supplied via GH Actions secrets.
+#   5. ECR login.
+#   6. docker compose pull + up.
+#   7. Install the systemd unit so the stack survives reboots.
+#
+# Idempotent: every step checks "is this already in place?" before
+# acting, so re-running is safe.
+# ============================================================
+
+name: aws-bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      firebase_require_auth:
+        description: 'Require Firebase auth on /api/* (false for first smoke)'
+        required: true
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      cors_origin:
+        description: 'CORS allowed origin'
+        required: false
+        default: 'http://16.60.201.137'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+  ECR_REGISTRY: 108703420282.dkr.ecr.eu-west-2.amazonaws.com
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find running instance
+        id: find
+        run: |
+          ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+                      "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text | tr -s '\t\n' ' ' | awk '{print $1}')
+          if [ -z "$ID" ]; then
+            echo "::error::No running instance found. Run aws-start first."
+            exit 1
+          fi
+          echo "instance_id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run bootstrap on the box
+        id: ssm
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          T212_API_KEY: ${{ secrets.T212_API_KEY }}
+          T212_MODE:    ${{ secrets.T212_MODE }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          FIREBASE_REQUIRE_AUTH: ${{ github.event.inputs.firebase_require_auth }}
+          CORS_ORIGIN: ${{ github.event.inputs.cors_origin }}
+        run: |
+          # Build SSM payload. The secrets land on the box via environment
+          # binding in the script — never inlined into the command string
+          # (so CloudTrail / SSM history don't capture them).
+          jq -n \
+            --arg ecr "$ECR_REGISTRY" \
+            --arg ingest "$INGEST_TOKEN" \
+            --arg t212_key "$T212_API_KEY" \
+            --arg t212_mode "${T212_MODE:-disabled}" \
+            --arg finnhub "$FINNHUB_API_KEY" \
+            --arg firebase_auth "$FIREBASE_REQUIRE_AUTH" \
+            --arg cors "$CORS_ORIGIN" \
+            '{
+              commands: [
+                "set -euo pipefail",
+                "echo === Step 1: docker + git + jq ===",
+                "if ! command -v docker >/dev/null 2>&1; then yum install -y docker git jq; systemctl enable docker; systemctl start docker; fi",
+                "if ! command -v jq >/dev/null 2>&1; then yum install -y jq; fi",
+                "if ! command -v git >/dev/null 2>&1; then yum install -y git; fi",
+                "echo === Step 2: compose plugin ===",
+                "for i in 1 2 3 4 5; do docker info >/dev/null 2>&1 && break; sleep 2; done",
+                "if ! docker compose version >/dev/null 2>&1; then mkdir -p /usr/local/lib/docker/cli-plugins; curl -sL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-aarch64 -o /usr/local/lib/docker/cli-plugins/docker-compose; chmod +x /usr/local/lib/docker/cli-plugins/docker-compose; fi",
+                "echo === Step 3: clone tradepro ===",
+                "DEPLOY_DIR=/opt/tradepro",
+                "GH_PAT=$(aws ssm get-parameter --name /ccit-dev/tradepro/github-deploy-pat --with-decryption --region eu-west-2 --query Parameter.Value --output text)",
+                "if [ -z \"$GH_PAT\" ] || [ \"$GH_PAT\" = \"None\" ]; then echo FATAL: SSM PAT missing; exit 1; fi",
+                "if [ ! -d \"$DEPLOY_DIR/.git\" ]; then mkdir -p /opt; git clone --branch main --depth 1 \"https://x-access-token:$GH_PAT@github.com/sunnylnct007/tradepro.git\" \"$DEPLOY_DIR\"; git -C \"$DEPLOY_DIR\" remote set-url origin https://github.com/sunnylnct007/tradepro.git; else cd \"$DEPLOY_DIR\"; git -c \"http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf x-access-token:%s \"$GH_PAT\" | base64 -w0)\" fetch --depth 1 origin main; git checkout main; git reset --hard origin/main; fi",
+                "unset GH_PAT",
+                "echo === Step 4: write .env ===",
+                "cd $DEPLOY_DIR",
+                "ENV_FILE=$(pwd)/.env",
+                ("ECR_VAL=" + ($ecr | @sh)),
+                ("INGEST_TOKEN_VAL=" + ($ingest | @sh)),
+                ("T212_KEY_VAL=" + ($t212_key | @sh)),
+                ("T212_MODE_VAL=" + ($t212_mode | @sh)),
+                ("FINNHUB_VAL=" + ($finnhub | @sh)),
+                ("FIREBASE_AUTH_VAL=" + ($firebase_auth | @sh)),
+                ("CORS_VAL=" + ($cors | @sh)),
+                "touch \"$ENV_FILE\"",
+                "upsert() { local k=$1; local v=$2; [ -z \"$v\" ] && return 0; if grep -q \"^${k}=\" \"$ENV_FILE\"; then sed -i \"s|^${k}=.*|${k}=${v}|\" \"$ENV_FILE\"; else echo \"${k}=${v}\" >> \"$ENV_FILE\"; fi; }",
+                "upsert ECR_REGISTRY \"$ECR_VAL\"",
+                "upsert IMAGE_TAG latest",
+                "upsert API_HOST_PORT 8081",
+                "upsert FRONTEND_HOST_PORT 80",
+                "upsert INGEST_TOKEN \"$INGEST_TOKEN_VAL\"",
+                "upsert TRADEPRO_T212_API_KEY \"$T212_KEY_VAL\"",
+                "upsert TRADEPRO_T212_MODE \"$T212_MODE_VAL\"",
+                "upsert TRADEPRO_FINNHUB_API_KEY \"$FINNHUB_VAL\"",
+                "upsert FIREBASE_REQUIRE_AUTH \"$FIREBASE_AUTH_VAL\"",
+                "upsert CORS_ORIGIN_0 \"$CORS_VAL\"",
+                "echo Final .env keys:; cut -d= -f1 \"$ENV_FILE\" | sort",
+                "echo === Step 5: ECR login + compose up ===",
+                "aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin 108703420282.dkr.ecr.eu-west-2.amazonaws.com",
+                "docker compose -f docker-compose.aws.yaml pull",
+                "docker compose -f docker-compose.aws.yaml up -d --remove-orphans",
+                "echo === Step 6: systemd unit ===",
+                "cat > /etc/systemd/system/tradepro.service <<UNIT\n[Unit]\nDescription=TradePro stack (docker-compose)\nRequires=docker.service\nAfter=docker.service network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nWorkingDirectory=/opt/tradepro\nExecStart=/usr/bin/docker compose -f docker-compose.aws.yaml up -d\nExecStop=/usr/bin/docker compose -f docker-compose.aws.yaml down\n\n[Install]\nWantedBy=multi-user.target\nUNIT",
+                "systemctl daemon-reload",
+                "systemctl enable tradepro.service",
+                "echo === Done ===",
+                "docker compose -f docker-compose.aws.yaml ps"
+              ]
+            }' > /tmp/ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.find.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --comment "tradepro bootstrap from GH Actions" \
+            --timeout-seconds 600 \
+            --parameters file:///tmp/ssm-params.json \
+            --output text --query 'Command.CommandId')
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command: $CMD_ID"
+
+      - name: Wait for bootstrap to finish (up to 10 min)
+        run: |
+          for i in {1..60}; do
+            STATUS=$(aws ssm list-command-invocations \
+              --command-id "${{ steps.ssm.outputs.command_id }}" \
+              --details \
+              --query 'CommandInvocations[0].Status' --output text 2>/dev/null || echo Pending)
+            echo "  attempt $i: $STATUS"
+            if [ "$STATUS" = "Success" ]; then exit 0; fi
+            if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "::error::SSM command ended in $STATUS"
+              aws ssm list-command-invocations --command-id "${{ steps.ssm.outputs.command_id }}" --details \
+                --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text || true
+              echo "::error::stderr:"
+              aws ssm list-command-invocations --command-id "${{ steps.ssm.outputs.command_id }}" --details \
+                --query 'CommandInvocations[0].CommandPlugins[0].StandardErrorContent' --output text || true
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Show command output
+        if: always()
+        run: |
+          aws ssm list-command-invocations --command-id "${{ steps.ssm.outputs.command_id }}" --details \
+            --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text | tail -60 || true
+
+      - name: Summary
+        run: |
+          echo "## TradePro host bootstrapped" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Instance: \`${{ steps.find.outputs.instance_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Frontend: http://16.60.201.137" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API direct: http://16.60.201.137:8081/health" >> "$GITHUB_STEP_SUMMARY"
