@@ -40,6 +40,35 @@ out of date. Each entry is one line: what changed and why it mattered.
   already-committed `email_charts.buy_sparklines_png()` so BUY rows in
   the daily digest get a 30-bar mini-chart per name.
 
+**External reviewer suggestions (2026-05-11) — triage:**
+
+- ✅ **Already shipped** — reviewer's #5 (risk rating, commit `61bb7e5`) and #10
+  (Gem Hunter, commits `57a9c3b` + `ac7a55b`). Visible as `RiskPill` and
+  `GemsCard` on the Decide page. Skip re-prioritising.
+- 🟢 **Validates existing direction** — #1 data persistence (Phase D, below),
+  #3 historical P/E store (Phase B / D2 snapshot store), #7 Monte Carlo
+  (Phase B), #8 Lambda+EventBridge worker (Phase D3), #9 live price feed
+  (Phase 7). Already on the roadmap; reviewer's priority weighting noted.
+- 🆕 **New, accepted** — added below:
+  - **Symbol autocomplete** — Yahoo `search/quotes` → `/api/marketdata/search`
+    → typeahead in the SymbolPicker. ~3-5 hrs. High user-facing impact —
+    "NV → 500" is a real footgun today.
+  - **Insider trades + analyst recommendations layer** — `yfinance.Ticker
+    .insider_purchases` + `finnhub.stock.recommendations`. New signal family
+    on the swing scorer (currently 5 layers, would become 6). Lives in
+    `tradepro_strategies/insiders.py`. Decision trace gains an "insider"
+    row. ~1-2 days. Notes: be careful about false positives — automatic
+    10b5-1 plan sales/buys look like discretionary insider trades but
+    aren't; filter on `acquisition_or_disposition == 'D'` correctly.
+  - **S3-archive-in-push** — the `tradepro-archive` terraform module
+    (S3 bucket + writer creds) is provisioned but `push_to_api.py` doesn't
+    upload there yet. Add an opt-in `archive_to_s3()` call alongside the
+    API push so we have replay history before Postgres lands. ~2 hrs.
+- ❓ **Deferred — needs decision** — #2 earnings markers + corporate-actions
+  markers on chart (already in flight queue below; the reviewer's pairing
+  it with #4 insider trades raises the question of whether to land them as
+  one "events-on-chart" PR — see backend-endpoint follow-up below).
+
 **In-flight / next up (do not lose):**
 
 - ✅ **AWS deploy — LIVE** as of 2026-05-11. Tradepro is on its own
@@ -59,18 +88,26 @@ out of date. Each entry is one line: what changed and why it mattered.
     `aws-redeploy.yml` still git-fetches on the box and will fail
     until the PAT is fresh. Either rotate the PAT or refactor
     redeploy to use the same checkout-and-ship pattern.
-- ⏳ **Earnings markers on chart** — needs a new
-  `GET /api/marketdata/earnings?symbol=&from=&to=` endpoint exposing
-  `tradepro_strategies/earnings.py:fetch_recent_earnings()` (already
-  reads `yfinance.Ticker.earnings_dates`). Then drop a vertical line
-  per earnings date on the price chart so the user sees event-driven
-  vs trend-driven moves.
-- ⏳ **Split markers on chart** — needs `GET
-  /api/marketdata/corporate-actions?symbol=` exposing
-  `yfinance.Ticker.actions / .splits`. Small "S" marker at each split
-  date so a user can confirm the split-adjusted line *would* handle a
-  split correctly (META hasn't split during the 5y window so today
-  there's nothing to see — but the wire would be tested).
+- ⏳ **Events-on-chart bundle** (earnings + corp actions + insider) — three
+  related backend endpoints + matching chart markers. Land as one PR so
+  the chart's "event overlay" layer ships coherently.
+  - `GET /api/marketdata/earnings?symbol=&from=&to=` → vertical lines for
+    earnings dates from `yfinance.Ticker.earnings_dates`. Surfaced by
+    `tradepro_strategies/earnings.py:fetch_recent_earnings` already.
+  - `GET /api/marketdata/corporate-actions?symbol=` → split + dividend
+    events from `yfinance.Ticker.actions`. Small "S" / "D" markers.
+  - `GET /api/marketdata/insiders?symbol=` → insider buys/sells from
+    `yfinance.Ticker.insider_purchases`. Tiny up/down chips on the chart;
+    filtered to discretionary trades (drop 10b5-1 plan executions).
+- ⏳ **Symbol autocomplete** — Yahoo `query2.finance.yahoo.com/v1/finance/
+  search` → `/api/marketdata/search?q=` → typeahead in `SymbolPicker`.
+  Returns `{symbol, name, exchange, currency}`. Cures the "NV → 500" UX
+  bug. ~3-5 hrs total (endpoint + dropdown + debounce).
+- ⏳ **S3 archive in push pipeline** — `tradepro-archive` bucket exists
+  (terraform `modules/tradepro-archive` + writer creds in outputs); the
+  push CLI doesn't upload there yet. Add `archive_to_s3()` after a
+  successful `/api/ingest/compare` so we have replay history before
+  Phase D2 lands. Opt-in via `TRADEPRO_S3_ARCHIVE=1` env. ~2 hrs.
 - ⏳ **Re-audit rationale cache after v4 prompt rolls out** — target
   rejection rate <10% (currently 35%). If v4 doesn't move the needle,
   the next move is a *model* audit: which model is producing the
