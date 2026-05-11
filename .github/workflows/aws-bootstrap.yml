@@ -49,6 +49,17 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Encode compose file for SSM payload
+        id: compose
+        run: |
+          # base64 the compose file so the SSM command can carry it
+          # without any quoting headaches. The runner already has the
+          # source code via actions/checkout — no PAT-on-box needed.
+          ENC=$(base64 -w0 docker-compose.aws.yaml)
+          echo "b64=$ENC" >> "$GITHUB_OUTPUT"
+
       - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -90,22 +101,21 @@ jobs:
             --arg finnhub "$FINNHUB_API_KEY" \
             --arg firebase_auth "$FIREBASE_REQUIRE_AUTH" \
             --arg cors "$CORS_ORIGIN" \
+            --arg compose_b64 "${{ steps.compose.outputs.b64 }}" \
             '{
               commands: [
                 "set -euo pipefail",
-                "echo === Step 1: docker + git + jq ===",
-                "if ! command -v docker >/dev/null 2>&1; then yum install -y docker git jq; systemctl enable docker; systemctl start docker; fi",
+                "echo === Step 1: docker + jq ===",
+                "if ! command -v docker >/dev/null 2>&1; then yum install -y docker jq; systemctl enable docker; systemctl start docker; fi",
                 "if ! command -v jq >/dev/null 2>&1; then yum install -y jq; fi",
-                "if ! command -v git >/dev/null 2>&1; then yum install -y git; fi",
                 "echo === Step 2: compose plugin ===",
                 "for i in 1 2 3 4 5; do docker info >/dev/null 2>&1 && break; sleep 2; done",
                 "if ! docker compose version >/dev/null 2>&1; then mkdir -p /usr/local/lib/docker/cli-plugins; curl -sL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-aarch64 -o /usr/local/lib/docker/cli-plugins/docker-compose; chmod +x /usr/local/lib/docker/cli-plugins/docker-compose; fi",
-                "echo === Step 3: clone tradepro ===",
+                "echo === Step 3: deploy dir + compose file ===",
                 "DEPLOY_DIR=/opt/tradepro",
-                "GH_PAT=$(aws ssm get-parameter --name /ccit-dev/tradepro/github-deploy-pat --with-decryption --region eu-west-2 --query Parameter.Value --output text)",
-                "if [ -z \"$GH_PAT\" ] || [ \"$GH_PAT\" = \"None\" ]; then echo FATAL: SSM PAT missing; exit 1; fi",
-                "if [ ! -d \"$DEPLOY_DIR/.git\" ]; then mkdir -p /opt; git clone --branch main --depth 1 \"https://x-access-token:$GH_PAT@github.com/sunnylnct007/tradepro.git\" \"$DEPLOY_DIR\"; git -C \"$DEPLOY_DIR\" remote set-url origin https://github.com/sunnylnct007/tradepro.git; else cd \"$DEPLOY_DIR\"; git -c \"http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf x-access-token:%s \"$GH_PAT\" | base64 -w0)\" fetch --depth 1 origin main; git checkout main; git reset --hard origin/main; fi",
-                "unset GH_PAT",
+                "mkdir -p $DEPLOY_DIR",
+                ("COMPOSE_B64=" + ($compose_b64 | @sh)),
+                "echo \"$COMPOSE_B64\" | base64 -d > $DEPLOY_DIR/docker-compose.aws.yaml",
                 "echo === Step 4: write .env ===",
                 "cd $DEPLOY_DIR",
                 "ENV_FILE=$(pwd)/.env",
