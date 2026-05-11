@@ -42,12 +42,23 @@ out of date. Each entry is one line: what changed and why it mattered.
 
 **In-flight / next up (do not lose):**
 
-- ⏳ **AWS deploy** — terraform foundation in `~/sourcecode/ccit-infra`
-  (VPC, S3 archive, OIDC role, energycosmos-demo box at
-  `http://18.132.165.112:8080`). Tradepro-specific EC2 + ECRs not yet
-  added. Decision pending: share the energycosmos box (cheap, couples
-  demos) vs. mirror the `energycosmos-demo` module as `tradepro-demo`
-  (clean separation, ~£10/mo extra when running).
+- ✅ **AWS deploy — LIVE** as of 2026-05-11. Tradepro is on its own
+  t4g.small at `http://16.60.201.137/` (instance
+  `i-01b390204472e4b9f`, EIP preserved across stop/start). Frontend
+  on port 80 with nginx proxying `/api/*` to the .NET API container,
+  plus port 8081 still exposed for direct API debugging. Auto-stop
+  at 22:00 UTC, auto-start 08:00 UTC weekdays.
+  - Terraform module: `~/sourcecode/ccit-infra/modules/tradepro-demo/`
+  - Deploy workflows: `.github/workflows/aws-{bootstrap,build-push,
+    redeploy,set-env,start,stop,status}.yml`
+  - Operator guide: `docs/aws-deploy.md` · architecture:
+    `docs/aws-architecture.md`
+  - Follow-up: rotate the PAT in SSM (`/ccit-dev/tradepro/github-deploy-pat`)
+    — current one is invalid. Bootstrap workflow ships the compose
+    file via runner checkout so it's not strictly needed, but
+    `aws-redeploy.yml` still git-fetches on the box and will fail
+    until the PAT is fresh. Either rotate the PAT or refactor
+    redeploy to use the same checkout-and-ship pattern.
 - ⏳ **Earnings markers on chart** — needs a new
   `GET /api/marketdata/earnings?symbol=&from=&to=` endpoint exposing
   `tradepro_strategies/earnings.py:fetch_recent_earnings()` (already
