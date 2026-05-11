@@ -102,6 +102,25 @@ def step_mid_drawdown(context):
     context.prices = _series(climb + drop)
 
 
+@given("a synthetic price series in active 10d crash below SMA200")
+def step_active_crash(context):
+    # Build a series that:
+    #   - climbs gently for ~230 bars (so SMA200 sits around mid-range)
+    #   - drifts sideways for ~20 bars (so SMA200 catches up near the
+    #     current price)
+    #   - then drops ~12% over the LAST 10 bars (well past the
+    #     ACTIVE_CRASH_10D_PCT = -8% threshold) AND ends below SMA200.
+    # That hits the new AVOID-active-crash branch, which must fire
+    # BEFORE the bounce-zone BUY rule (the -12% drop from a recent
+    # peak would otherwise satisfy MEANINGFUL_52W_DROP_PCT and RSI
+    # could end in the bounce zone).
+    climb = [80 + i * 0.05 for i in range(230)]  # 80 -> ~91.5
+    flat = [climb[-1] + (-1) ** i * 0.02 for i in range(20)]
+    pre_crash = flat[-1]
+    crash = [pre_crash * (1.0 - 0.013 * (i + 1)) for i in range(10)]  # ~-12% over 10 bars
+    context.prices = _series(climb + flat + crash)
+
+
 # `When I compute the market state` and `Then the entry signal is X` /
 # `Then the entry reason mentions X` already live in
 # range_position_steps.py — behave registers them once and reuses

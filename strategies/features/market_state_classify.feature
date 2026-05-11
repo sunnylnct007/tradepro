@@ -11,6 +11,14 @@ Feature: market_state._classify — entry signal rule chain
     Then the entry signal is "AVOID"
     And the entry reason mentions "below 200-day SMA"
 
+  # ----- AVOID (active crash, fires BEFORE bounce-zone BUY) -----
+  Scenario: active 10d cascade below SMA200 → AVOID (falling knife)
+    Given a synthetic price series in active 10d crash below SMA200
+    When I compute the market state
+    Then the entry signal is "AVOID"
+    And the entry reason mentions "active cascade"
+    And the entry reason mentions "do not catch the falling knife"
+
   # ----- WAIT (overbought-at-highs) -----
   Scenario: at 52w highs with RSI overbought → WAIT
     Given a synthetic price series at 52w highs with overbought RSI

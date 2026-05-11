@@ -48,6 +48,12 @@ MEANINGFUL_52W_DROP_PCT = 8.0      # ≥ 8% off the 52w high counts as a real re
 # dip — risk/reward is asymmetric (3p of upside, 8p of downside).
 RANGE_HIGH_PCTILE = 70.0           # ≥ 70th pctile of 52w range → downgrade BUY → HOLD
 RANGE_LOW_PCTILE = 40.0            # ≤ 40th pctile → confirms "dip" status
+# Crash-protection: a fast 10-day drop below the SMA200 is "falling
+# knife" territory — mean-reversion strategies (RSI-bouncing-in-bounce-
+# zone, etc.) will eagerly buy into it. Bias to AVOID until the trend
+# stabilises. Threshold: −8% over 10 trading days is well outside
+# normal vol for major ETFs and only fires in genuine cascade events.
+ACTIVE_CRASH_10D_PCT = -8.0
 
 
 @dataclass
@@ -60,6 +66,7 @@ class MarketState:
     pct_off_52w_high_pct: float | None
     drawdown_from_peak_pct: float | None
     rsi_14: float | None
+    momentum_10d_pct: float | None
     momentum_3m_pct: float | None
     momentum_12m_pct: float | None
     vol_30d_annual_pct: float | None
@@ -124,6 +131,7 @@ class MarketState:
             "low_52w": self.low_52w_price,
             "range_pct": self.range_position_pct,
             "rsi_14": self.rsi_14,
+            "momentum_10d_pct": self.momentum_10d_pct,
             "momentum_3m_pct": self.momentum_3m_pct,
             "momentum_12m_pct": self.momentum_12m_pct,
             "vol_30d_annual_pct": self.vol_30d_annual_pct,
@@ -305,8 +313,25 @@ def _classify(state: MarketState) -> tuple[str, str]:
     above = state.above_sma_200
     pct_off_high = state.pct_off_52w_high_pct
     rsi_v = state.rsi_14
+    mom10 = state.momentum_10d_pct
     mom12 = state.momentum_12m_pct
     dd = state.drawdown_from_peak_pct
+
+    # AVOID: active 10-day crash below trend. Catches the falling-knife
+    # case the bounce-zone BUY rule (further down) would otherwise eagerly
+    # bid into during a cascade. Has to fire BEFORE everything else: a
+    # confirmed crash is information-rich enough that "RSI bouncing" or
+    # "in mid-drawdown" verdicts would mislead. Once the 10d shock cools
+    # off (i.e., mom10 climbs back above the threshold) the symbol can
+    # re-enter the normal rule chain — typically as WAIT-mid-drawdown.
+    if (
+        mom10 is not None
+        and mom10 < ACTIVE_CRASH_10D_PCT
+        and above is False
+    ):
+        return ("AVOID",
+                f"10d return {mom10:.1f}% with price below 200-day SMA — "
+                f"active cascade, do not catch the falling knife.")
 
     # AVOID: confirmed downtrend (below SMA200 + 12-month return clearly negative).
     if above is False and mom12 is not None and mom12 < WEAK_MOMENTUM_PCT:
@@ -385,8 +410,9 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         return MarketState(symbol=symbol, as_of=None, last_price=None,
                            sma_200=None, above_sma_200=None,
                            pct_off_52w_high_pct=None, drawdown_from_peak_pct=None,
-                           rsi_14=None, momentum_3m_pct=None,
-                           momentum_12m_pct=None, vol_30d_annual_pct=None,
+                           rsi_14=None, momentum_10d_pct=None,
+                           momentum_3m_pct=None, momentum_12m_pct=None,
+                           vol_30d_annual_pct=None,
                            entry_signal="HOLD", entry_reason="no data")
 
     series = prices["adj_close"] if "adj_close" in prices.columns else prices["close"]
@@ -465,6 +491,11 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
                 peak_within_52w = bool(last_peak >= window_252.index[0])
 
     rsi_14 = _safe_float(rsi(series, 14).iloc[-1])
+    # 10 trading days ≈ 2 weeks. Drives the active-crash guard in
+    # _classify (see ACTIVE_CRASH_10D_PCT). The longer 3m / 12m
+    # momentum windows below confirm trend direction; 10d catches
+    # the recent shock.
+    mom_10d = _momentum_pct(series, 10)
     mom_3m = _momentum_pct(series, 63)
     mom_12m = _momentum_pct(series, 252)
     vol_30d = _annual_vol_pct(series, 30)
@@ -482,7 +513,8 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         symbol=symbol, as_of=as_of, last_price=last_price,
         sma_200=sma_200, above_sma_200=above,
         pct_off_52w_high_pct=pct_off_high, drawdown_from_peak_pct=dd,
-        rsi_14=rsi_14, momentum_3m_pct=mom_3m, momentum_12m_pct=mom_12m,
+        rsi_14=rsi_14, momentum_10d_pct=mom_10d,
+        momentum_3m_pct=mom_3m, momentum_12m_pct=mom_12m,
         vol_30d_annual_pct=vol_30d,
         entry_signal="HOLD", entry_reason="", decision_trace=[],
         pct_off_52w_high_date=high_52w_date,
