@@ -65,11 +65,20 @@ services:
       # the world (matches the IP-based access pattern energycosmos
       # uses — TLS lands when a domain does, see ROADMAP).
       - "${FRONTEND_HOST_PORT:-80}:80"
+    volumes:
+      # Basic Auth credentials, mounted from the host so rotation =
+      # rewrite the file + restart this container (no image rebuild).
+      # The bootstrap / set-env workflows write this file from the
+      # BASIC_AUTH_HTPASSWD GH secret. nginx blocks /api/* and / when
+      # the file is missing or empty; /health stays public.
+      - /opt/tradepro/.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost/ >/dev/null || exit 1"]
+      # The healthcheck hits /health (which bypasses basic auth) so
+      # the container reports healthy without needing credentials.
+      test: ["CMD-SHELL", "wget -q -O - http://localhost/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

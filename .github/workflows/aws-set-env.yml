@@ -74,6 +74,7 @@ jobs:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           FIREBASE_REQUIRE_AUTH: ${{ github.event.inputs.firebase_require_auth }}
           CORS_ORIGIN: ${{ github.event.inputs.cors_origin }}
+          BASIC_AUTH_HTPASSWD: ${{ secrets.BASIC_AUTH_HTPASSWD }}
         run: |
           # Build the SSM payload. The shell helper `upsert KEY VALUE`
           # replaces an existing KEY=... line in .env, or appends one if
@@ -91,6 +92,7 @@ jobs:
             --arg finnhub "$FINNHUB_API_KEY" \
             --arg firebase_auth "$FIREBASE_REQUIRE_AUTH" \
             --arg cors "$CORS_ORIGIN" \
+            --arg htpasswd "$BASIC_AUTH_HTPASSWD" \
             '{
               commands: [
                 "set -euo pipefail",
@@ -103,6 +105,7 @@ jobs:
                 ("FINNHUB_VAL=" + ($finnhub | @sh)),
                 ("FIREBASE_AUTH_VAL=" + ($firebase_auth | @sh)),
                 ("CORS_VAL=" + ($cors | @sh)),
+                ("HTPASSWD_VAL=" + ($htpasswd | @sh)),
                 "upsert() { local k=$1; local v=$2; [ -z \"$v\" ] && return 0; if grep -q \"^${k}=\" \"$ENV_FILE\"; then sed -i \"s|^${k}=.*|${k}=${v}|\" \"$ENV_FILE\"; else echo \"${k}=${v}\" >> \"$ENV_FILE\"; fi; }",
                 "upsert INGEST_TOKEN \"$INGEST_TOKEN_VAL\"",
                 "upsert TRADEPRO_T212_API_KEY \"$T212_KEY_VAL\"",
@@ -110,7 +113,9 @@ jobs:
                 "upsert TRADEPRO_FINNHUB_API_KEY \"$FINNHUB_VAL\"",
                 "upsert FIREBASE_REQUIRE_AUTH \"$FIREBASE_AUTH_VAL\"",
                 "upsert CORS_ORIGIN_0 \"$CORS_VAL\"",
+                "if [ -n \"$HTPASSWD_VAL\" ]; then echo \"$HTPASSWD_VAL\" > .htpasswd; chmod 644 .htpasswd; echo wrote .htpasswd; fi",
                 "echo \"Final .env keys:\"; cut -d= -f1 \"$ENV_FILE\" | sort",
+                "if docker ps --format \"{{.Names}}\" | grep -q tradepro-frontend; then docker restart tradepro-frontend; fi",
                 "systemctl restart tradepro.service || true",
                 "echo Done."
               ]

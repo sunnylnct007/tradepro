@@ -89,6 +89,7 @@ jobs:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           FIREBASE_REQUIRE_AUTH: ${{ github.event.inputs.firebase_require_auth }}
           CORS_ORIGIN: ${{ github.event.inputs.cors_origin }}
+          BASIC_AUTH_HTPASSWD: ${{ secrets.BASIC_AUTH_HTPASSWD }}
         run: |
           # Build SSM payload. The secrets land on the box via environment
           # binding in the script — never inlined into the command string
@@ -102,6 +103,7 @@ jobs:
             --arg firebase_auth "$FIREBASE_REQUIRE_AUTH" \
             --arg cors "$CORS_ORIGIN" \
             --arg compose_b64 "${{ steps.compose.outputs.b64 }}" \
+            --arg htpasswd "$BASIC_AUTH_HTPASSWD" \
             '{
               commands: [
                 "set -euo pipefail",
@@ -116,6 +118,9 @@ jobs:
                 "mkdir -p $DEPLOY_DIR",
                 ("COMPOSE_B64=" + ($compose_b64 | @sh)),
                 "echo \"$COMPOSE_B64\" | base64 -d > $DEPLOY_DIR/docker-compose.aws.yaml",
+                "echo === Step 3b: htpasswd for nginx basic auth ===",
+                ("HTPASSWD_VAL=" + ($htpasswd | @sh)),
+                "if [ -n \"$HTPASSWD_VAL\" ]; then echo \"$HTPASSWD_VAL\" > $DEPLOY_DIR/.htpasswd; chmod 644 $DEPLOY_DIR/.htpasswd; echo wrote .htpasswd; else echo skipping .htpasswd (no GH secret set); fi",
                 "echo === Step 4: write .env ===",
                 "cd $DEPLOY_DIR",
                 "ENV_FILE=$(pwd)/.env",
