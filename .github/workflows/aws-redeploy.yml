@@ -17,10 +17,6 @@ name: aws-redeploy
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        description: 'Branch to deploy on the host'
-        required: true
-        default: 'main'
       image_tag:
         description: 'ECR image tag to deploy. Defaults to "latest". Use a SHA (8 chars) to pin a specific build.'
         required: false
@@ -40,6 +36,19 @@ jobs:
   redeploy:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Encode compose file for SSM payload
+        id: compose
+        run: |
+          # Ship the compose file via the runner's checkout instead of
+          # asking the box to git fetch. Removes the dependency on the
+          # SSM-stored GitHub PAT (which has gone stale before — see
+          # the aws-bootstrap commit log) and keeps redeploy a pure
+          # image-roll operation.
+          ENC=$(base64 -w0 docker-compose.aws.yaml)
+          echo "b64=$ENC" >> "$GITHUB_OUTPUT"
+
       - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -63,30 +72,29 @@ jobs:
       - name: Send redeploy command via SSM
         id: ssm
         run: |
-          BRANCH='${{ github.event.inputs.branch }}'
           IMAGE_TAG='${{ github.event.inputs.image_tag }}'
 
           # Build the SSM RunShellScript payload as JSON to keep shell +
-          # YAML quoting sane. The host already has IAM perm to read the
-          # GitHub PAT from SSM (granted in the tradepro-demo TF module).
+          # YAML quoting sane. The compose file is shipped fresh from
+          # the runner's checkout (base64-encoded above) — no GH PAT,
+          # no git on the box.
           jq -n \
-            --arg branch "$BRANCH" \
             --arg deploy_dir "$DEPLOY_DIR" \
             --arg image_tag "$IMAGE_TAG" \
+            --arg compose_b64 "${{ steps.compose.outputs.b64 }}" \
             '{
               commands: [
                 "set -euo pipefail",
+                "mkdir -p " + $deploy_dir,
                 ("cd " + $deploy_dir),
-                "GH_PAT=$(aws ssm get-parameter --name /ccit-dev/tradepro/github-deploy-pat --with-decryption --region eu-west-2 --query Parameter.Value --output text)",
-                "AUTH=$(printf '\''x-access-token:%s'\'' \"$GH_PAT\" | base64 -w0)",
-                "git -c http.https://github.com/.extraheader=\"AUTHORIZATION: basic $AUTH\" fetch --all --depth 1",
-                "unset GH_PAT AUTH",
-                ("git checkout " + $branch),
-                ("git reset --hard origin/" + $branch),
+                ("COMPOSE_B64=" + ($compose_b64 | @sh)),
+                "echo \"$COMPOSE_B64\" | base64 -d > docker-compose.aws.yaml",
                 "aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin 108703420282.dkr.ecr.eu-west-2.amazonaws.com",
-                # Update the IMAGE_TAG line in /opt/tradepro/.env (or
-                # append it if absent) so the compose file picks the
-                # requested tag. sed -i works on AL2023's GNU sed.
+                # Upsert the IMAGE_TAG in /opt/tradepro/.env so compose
+                # picks the requested tag. Touch first so the sed/grep
+                # don't fail on a missing file (defensive — bootstrap
+                # should have written it).
+                "touch .env",
                 ("if grep -q ^IMAGE_TAG= .env; then sed -i \"s|^IMAGE_TAG=.*|IMAGE_TAG=" + $image_tag + "|\" .env; else echo IMAGE_TAG=" + $image_tag + " >> .env; fi"),
                 "docker compose -f docker-compose.aws.yaml pull",
                 "docker compose -f docker-compose.aws.yaml up -d --remove-orphans",
@@ -131,6 +139,6 @@ jobs:
       - name: Summary
         run: |
           echo "## TradePro redeployed" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Branch: \`${{ github.event.inputs.branch }}\`"        >> "$GITHUB_STEP_SUMMARY"
           echo "- Image tag: \`${{ github.event.inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Instance: \`${{ steps.find.outputs.instance_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Compose file: shipped from this commit via runner checkout" >> "$GITHUB_STEP_SUMMARY"
