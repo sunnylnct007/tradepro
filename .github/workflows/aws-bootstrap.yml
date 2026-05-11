@@ -120,7 +120,7 @@ jobs:
                 "echo \"$COMPOSE_B64\" | base64 -d > $DEPLOY_DIR/docker-compose.aws.yaml",
                 "echo === Step 3b: htpasswd for nginx basic auth ===",
                 ("HTPASSWD_VAL=" + ($htpasswd | @sh)),
-                "if [ -n \"$HTPASSWD_VAL\" ]; then echo \"$HTPASSWD_VAL\" > $DEPLOY_DIR/.htpasswd; chmod 644 $DEPLOY_DIR/.htpasswd; echo wrote .htpasswd; else echo skipping .htpasswd (no GH secret set); fi",
+                "if [ -n \"$HTPASSWD_VAL\" ]; then echo \"$HTPASSWD_VAL\" > $DEPLOY_DIR/.htpasswd; chmod 644 $DEPLOY_DIR/.htpasswd; echo wrote .htpasswd; else echo \"skipping .htpasswd - no GH secret set\"; fi",
                 "echo === Step 4: write .env ===",
                 "cd $DEPLOY_DIR",
                 "ENV_FILE=$(pwd)/.env",
