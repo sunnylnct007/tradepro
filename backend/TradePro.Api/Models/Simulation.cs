@@ -27,7 +27,23 @@ public record SimulationRequest(
     decimal InitialCapital,
     string Currency,                // "GBP", "USD", ...
     FeeModel? Fees,
-    Dictionary<string, double>? Params);
+    Dictionary<string, double>? Params,
+    StopLossConfig? StopLoss = null);
+
+/// <summary>
+/// Optional risk overlay applied on top of the strategy's own exit
+/// signals. Both stops can be set at once — whichever triggers first
+/// closes the position. Either field at null OR 0 means that stop is
+/// disabled.
+///
+///   TrailingPct: 10 ⇒ exit when price drops 10% below the highest
+///     close seen since entry. Locks in gains as the trade moves up.
+///   FixedPct:    10 ⇒ exit when price drops 10% below the entry
+///     price. Does not move as the trade progresses.
+/// </summary>
+public record StopLossConfig(
+    decimal? TrailingPct,
+    decimal? FixedPct);
 
 public record Trade(
     DateTime Timestamp,
@@ -51,4 +67,10 @@ public record SimulationResult(
     decimal SharpeRatio,
     int TradeCount,
     IReadOnlyList<Trade> Trades,
-    IReadOnlyList<EquityPoint> EquityCurve);
+    IReadOnlyList<EquityPoint> EquityCurve,
+    /// <summary>How many of the SELL trades came from a stop-loss
+    /// (trailing or fixed) rather than the strategy's own exit signal.
+    /// Lets the UI show "stops fired N of M times" so the user can
+    /// see whether the overlay is actively shaping the outcome or
+    /// just sitting unused.</summary>
+    int StopLossExits = 0);

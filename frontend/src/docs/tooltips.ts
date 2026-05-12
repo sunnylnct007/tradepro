@@ -80,6 +80,21 @@ export const HELP: Record<string, HelpEntry> = {
     body:
       "Flat broker fee in your account currency. Trading212 and Freetrade are £0; Hargreaves Lansdown ≈ £11.95; Interactive Brokers depends on volume.",
   },
+  trailing_stop: {
+    title: "Trailing stop-loss %",
+    body:
+      "Exit when price drops this % below the highest close seen since entry — locks in gains as the trade runs in your favour. A 10% trailing stop on a position that rallied from £80 to £100 exits at £90. Set 0 to disable. Works alongside Fixed stop — whichever trips first wins.",
+  },
+  fixed_stop: {
+    title: "Fixed stop-loss %",
+    body:
+      "Exit when price drops this % below the entry price. Unlike trailing, this level doesn't move as the trade progresses. A 10% fixed stop on a £80 entry exits at £72 regardless of how high the price went first. Set 0 to disable. Works alongside Trailing stop — whichever trips first wins.",
+  },
+  stops_fired: {
+    title: "Stop-loss exits",
+    body:
+      "How many SELL trades came from the stop-loss overlay (trailing or fixed) rather than the strategy's own exit signal. Lets you see whether the risk overlay is actively shaping the outcome or sitting unused. The trade table's Reason column tells you which stop fired for each exit.",
+  },
   initial_capital: {
     title: "Starting capital",
     body:

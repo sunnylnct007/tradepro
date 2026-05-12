@@ -50,6 +50,10 @@ export function Simulations() {
   const [donchian, setDonchian] = useState(20);
   const [stampDuty, setStampDuty] = useState(0.005);
   const [commission, setCommission] = useState(0);
+  // Stop-loss overlay. Both can be set together — whichever trips
+  // first closes the position. 0 = disabled.
+  const [trailingStopPct, setTrailingStopPct] = useState(0);
+  const [fixedStopPct, setFixedStopPct] = useState(0);
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -100,6 +104,7 @@ export function Simulations() {
               currency: config.defaultCurrency,
               fees: { commissionPerTrade: commission, stampDutyRate: stampDuty, fxSpread: 0 },
               params: paramsFor(s),
+              stopLoss: stopLossPayload(trailingStopPct, fixedStopPct),
             };
             const r = await api.runSimulation(req);
             return { strategy: s, result: r, error: null as string | null };
@@ -137,6 +142,7 @@ export function Simulations() {
                 : strategy === "donchian_breakout"
                   ? { lookback: donchian }
                   : null,
+        stopLoss: stopLossPayload(trailingStopPct, fixedStopPct),
       };
       const r = await api.runSimulation(req);
       setResult(r);
@@ -272,6 +278,28 @@ export function Simulations() {
         <Labelled label="Commission / trade" help="commission">
           <input type="number" value={commission} onChange={(e) => setCommission(Number(e.target.value))} />
         </Labelled>
+        <Labelled label="Trailing stop %" help="trailing_stop">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={0.5}
+            value={trailingStopPct}
+            onChange={(e) => setTrailingStopPct(Number(e.target.value))}
+            placeholder="0 = off"
+          />
+        </Labelled>
+        <Labelled label="Fixed stop %" help="fixed_stop">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={0.5}
+            value={fixedStopPct}
+            onChange={(e) => setFixedStopPct(Number(e.target.value))}
+            placeholder="0 = off"
+          />
+        </Labelled>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <button
             className="primary"
@@ -381,6 +409,14 @@ export function Simulations() {
             <Stat label="Max drawdown" value={`${result.maxDrawdownPct.toFixed(2)}%`} tone="down" help="max_drawdown" />
             <Stat label="Sharpe" value={result.sharpeRatio.toFixed(2)} help="sharpe" />
             <Stat label="Trades" value={String(result.tradeCount)} />
+            {(result.stopLossExits ?? 0) > 0 && (
+              <Stat
+                label="Stops fired"
+                value={`${result.stopLossExits} of ${result.trades.filter((t) => t.side === "SELL").length}`}
+                tone="down"
+                help="stops_fired"
+              />
+            )}
           </section>
 
           <section className="card" style={{ padding: 8 }}>
@@ -409,6 +445,17 @@ export function Simulations() {
       )}
     </div>
   );
+}
+
+/** Build the `stopLoss` field for the SimulationRequest. Returns
+ *  `null` when neither stop is active so the API doesn't see a stray
+ *  `{ trailingPct: 0, fixedPct: 0 }` payload that means the same
+ *  thing but reads as "configured but zero". */
+function stopLossPayload(trailingPct: number, fixedPct: number): { trailingPct?: number; fixedPct?: number } | null {
+  const out: { trailingPct?: number; fixedPct?: number } = {};
+  if (trailingPct > 0) out.trailingPct = trailingPct;
+  if (fixedPct > 0) out.fixedPct = fixedPct;
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 function Labelled({ label, help, children }: { label: string; help?: string; children: ReactNode }) {

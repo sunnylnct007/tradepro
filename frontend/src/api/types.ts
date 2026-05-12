@@ -44,6 +44,19 @@ export interface SimulationResult {
   tradeCount: number;
   trades: Trade[];
   equityCurve: EquityPoint[];
+  /** How many of the SELL trades came from a stop-loss (trailing or
+   * fixed) rather than the strategy's own exit. 0 means the stop
+   * overlay either wasn't configured or never fired. */
+  stopLossExits?: number;
+}
+
+/** Optional risk overlay applied on top of the strategy. Either field
+ * unset OR 0 disables that stop. Both can be set together — whichever
+ * trips first closes the position. Percentages are UI-friendly (10 =
+ * 10%), normalised server-side. */
+export interface StopLossConfig {
+  trailingPct?: number | null;
+  fixedPct?: number | null;
 }
 
 export interface FeeModel {
@@ -62,6 +75,7 @@ export interface SimulationRequest {
   currency: string;
   fees?: FeeModel | null;
   params?: Record<string, number> | null;
+  stopLoss?: StopLossConfig | null;
 }
 
 export interface WatchlistItem {

@@ -33,15 +33,61 @@ public sealed class Simulator : ISimulator
         }
 
         var signals = strategy.Generate(candles, req.Params ?? new Dictionary<string, double>());
+        var trailing = NormalisedStopPct(req.StopLoss?.TrailingPct);
+        var fixedStop = NormalisedStopPct(req.StopLoss?.FixedPct);
 
         decimal cash = req.InitialCapital;
         decimal qty = 0m;
+        // Entry-anchored levels for the stop overlay. `entryPrice` is
+        // set on the BUY fill; `highWaterMark` rolls up each bar while
+        // we're in position so trailing stops lock in gains.
+        decimal entryPrice = 0m;
+        decimal highWaterMark = 0m;
+        int stopExits = 0;
         var trades = new List<Trade>();
         var equity = new List<EquityPoint>(candles.Count);
 
         for (var i = 0; i < candles.Count; i++)
         {
             var price = candles[i].AdjOrClose;
+
+            // Update the trailing reference BEFORE evaluating stops so
+            // a brand-new high on the same bar doesn't immediately trip
+            // the trailing exit on its own pullback. We're effectively
+            // measuring "are we below the highest close so far".
+            if (qty > 0m && price > highWaterMark) highWaterMark = price;
+
+            // Stop-loss evaluated FIRST each bar so a same-bar
+            // strategy-exit signal can't pre-empt the risk overlay —
+            // the whole point of the stop is to be the floor.
+            if (qty > 0m && (trailing.HasValue || fixedStop.HasValue))
+            {
+                bool trailingHit = trailing.HasValue
+                    && highWaterMark > 0m
+                    && price <= highWaterMark * (1m - trailing.Value);
+                bool fixedHit = fixedStop.HasValue
+                    && entryPrice > 0m
+                    && price <= entryPrice * (1m - fixedStop.Value);
+
+                if (trailingHit || fixedHit)
+                {
+                    var reason = (trailingHit, fixedHit) switch
+                    {
+                        (true, true)  => "stop_loss_both",
+                        (true, false) => "stop_loss_trailing",
+                        _             => "stop_loss_fixed",
+                    };
+                    var proceeds = qty * price - fees.CommissionPerTrade;
+                    cash += proceeds;
+                    trades.Add(new Trade(candles[i].Timestamp, "SELL", price, qty, fees.CommissionPerTrade, reason));
+                    qty = 0m;
+                    entryPrice = 0m;
+                    highWaterMark = 0m;
+                    stopExits++;
+                    equity.Add(new EquityPoint(candles[i].Timestamp, cash, cash, 0m));
+                    continue;
+                }
+            }
 
             if (signals[i] == Signal.Buy && qty == 0m && cash > 0m)
             {
@@ -55,6 +101,8 @@ public sealed class Simulator : ISimulator
                 var totalFees = stamp + fees.CommissionPerTrade;
                 cash -= boughtQty * price + totalFees;
                 qty += boughtQty;
+                entryPrice = price;
+                highWaterMark = price;
                 trades.Add(new Trade(candles[i].Timestamp, "BUY", price, boughtQty, totalFees, strategy.Name));
             }
             else if (signals[i] == Signal.Sell && qty > 0m)
@@ -63,6 +111,8 @@ public sealed class Simulator : ISimulator
                 cash += proceeds;
                 trades.Add(new Trade(candles[i].Timestamp, "SELL", price, qty, fees.CommissionPerTrade, strategy.Name));
                 qty = 0m;
+                entryPrice = 0m;
+                highWaterMark = 0m;
             }
 
             var mark = cash + qty * price;
@@ -98,12 +148,24 @@ public sealed class Simulator : ISimulator
             Sharpe(equity),
             trades.Count,
             trades,
-            equity);
+            equity,
+            stopExits);
+    }
+
+    /// <summary>Normalise an inbound stop-loss percentage (UI-friendly
+    /// 0-100) into a fractional decimal (e.g. 10 → 0.10). Returns null
+    /// when the stop is unset or 0 so the bar loop can branch on a
+    /// single .HasValue check.</summary>
+    private static decimal? NormalisedStopPct(decimal? raw)
+    {
+        if (!raw.HasValue) return null;
+        if (raw.Value <= 0m) return null;
+        return raw.Value / 100m;
     }
 
     private static SimulationResult Empty(SimulationRequest req) => new(
         req.Symbol, req.Strategy, req.Currency, req.InitialCapital,
-        req.InitialCapital, 0m, 0m, 0m, 0m, 0, Array.Empty<Trade>(), Array.Empty<EquityPoint>());
+        req.InitialCapital, 0m, 0m, 0m, 0m, 0, Array.Empty<Trade>(), Array.Empty<EquityPoint>(), 0);
 
     private static decimal MaxDrawdownPct(IReadOnlyList<EquityPoint> curve)
     {
