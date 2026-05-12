@@ -9,6 +9,8 @@
 # Reads from GH Actions secrets:
 #   INGEST_TOKEN          (required) — bearer for /api/ingest/*
 #   T212_API_KEY          (optional) — Trading 212 read-only key
+#   T212_API_SECRET       (optional) — only set for older key+secret-pair accounts;
+#                                      newer accounts have a single key and leave this empty
 #   T212_MODE             (optional) — disabled | demo | live (default disabled)
 #   FINNHUB_API_KEY       (optional) — Finnhub earnings calendar
 #
@@ -69,8 +71,9 @@ jobs:
       - name: Build SSM command
         env:
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
-          T212_API_KEY: ${{ secrets.T212_API_KEY }}
-          T212_MODE:    ${{ secrets.T212_MODE }}
+          T212_API_KEY:    ${{ secrets.T212_API_KEY }}
+          T212_API_SECRET: ${{ secrets.T212_API_SECRET }}
+          T212_MODE:       ${{ secrets.T212_MODE }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           FIREBASE_REQUIRE_AUTH: ${{ github.event.inputs.firebase_require_auth }}
           CORS_ORIGIN: ${{ github.event.inputs.cors_origin }}
@@ -88,6 +91,7 @@ jobs:
             --arg deploy_dir "$DEPLOY_DIR" \
             --arg ingest "$INGEST_TOKEN" \
             --arg t212_key "$T212_API_KEY" \
+            --arg t212_secret "$T212_API_SECRET" \
             --arg t212_mode "${T212_MODE:-disabled}" \
             --arg finnhub "$FINNHUB_API_KEY" \
             --arg firebase_auth "$FIREBASE_REQUIRE_AUTH" \
@@ -101,6 +105,7 @@ jobs:
                 "touch \"$ENV_FILE\"",
                 ("INGEST_TOKEN_VAL=" + ($ingest | @sh)),
                 ("T212_KEY_VAL=" + ($t212_key | @sh)),
+                ("T212_SECRET_VAL=" + ($t212_secret | @sh)),
                 ("T212_MODE_VAL=" + ($t212_mode | @sh)),
                 ("FINNHUB_VAL=" + ($finnhub | @sh)),
                 ("FIREBASE_AUTH_VAL=" + ($firebase_auth | @sh)),
@@ -109,6 +114,7 @@ jobs:
                 "upsert() { local k=$1; local v=$2; [ -z \"$v\" ] && return 0; if grep -q \"^${k}=\" \"$ENV_FILE\"; then sed -i \"s|^${k}=.*|${k}=${v}|\" \"$ENV_FILE\"; else echo \"${k}=${v}\" >> \"$ENV_FILE\"; fi; }",
                 "upsert INGEST_TOKEN \"$INGEST_TOKEN_VAL\"",
                 "upsert TRADEPRO_T212_API_KEY \"$T212_KEY_VAL\"",
+                "upsert TRADEPRO_T212_API_SECRET \"$T212_SECRET_VAL\"",
                 "upsert TRADEPRO_T212_MODE \"$T212_MODE_VAL\"",
                 "upsert TRADEPRO_FINNHUB_API_KEY \"$FINNHUB_VAL\"",
                 "upsert FIREBASE_REQUIRE_AUTH \"$FIREBASE_AUTH_VAL\"",
