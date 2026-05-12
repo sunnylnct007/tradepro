@@ -38,16 +38,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Encode compose file for SSM payload
+      - name: Encode compose file + Caddyfile for SSM payload
         id: compose
         run: |
-          # Ship the compose file via the runner's checkout instead of
-          # asking the box to git fetch. Removes the dependency on the
-          # SSM-stored GitHub PAT (which has gone stale before — see
-          # the aws-bootstrap commit log) and keeps redeploy a pure
-          # image-roll operation.
+          # Ship the compose file AND Caddyfile via the runner's
+          # checkout — removes the dependency on the SSM-stored GitHub
+          # PAT (which has gone stale before — see the aws-bootstrap
+          # commit log) and keeps redeploy a pure image-roll operation.
           ENC=$(base64 -w0 docker-compose.aws.yaml)
           echo "b64=$ENC" >> "$GITHUB_OUTPUT"
+          CADDY_ENC=$(base64 -w0 Caddyfile)
+          echo "caddy_b64=$CADDY_ENC" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -86,6 +87,7 @@ jobs:
             --arg deploy_dir "$DEPLOY_DIR" \
             --arg image_tag "$IMAGE_TAG" \
             --arg compose_b64 "${{ steps.compose.outputs.b64 }}" \
+            --arg caddy_b64 "${{ steps.compose.outputs.caddy_b64 }}" \
             '{
               commands: [
                 "set -euo pipefail",
@@ -93,6 +95,8 @@ jobs:
                 ("cd " + $deploy_dir),
                 ("COMPOSE_B64=" + ($compose_b64 | @sh)),
                 "echo \"$COMPOSE_B64\" | base64 -d > docker-compose.aws.yaml",
+                ("CADDY_B64=" + ($caddy_b64 | @sh)),
+                "echo \"$CADDY_B64\" | base64 -d > Caddyfile",
                 "aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin 108703420282.dkr.ecr.eu-west-2.amazonaws.com",
                 "touch .env",
                 ("if grep -q ^IMAGE_TAG= .env; then sed -i \"s|^IMAGE_TAG=.*|IMAGE_TAG=" + $image_tag + "|\" .env; else echo IMAGE_TAG=" + $image_tag + " >> .env; fi"),

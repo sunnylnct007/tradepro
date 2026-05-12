@@ -54,17 +54,15 @@ services:
       start_period: 30s
 
   # ── Frontend (nginx + Vite static bundle) ─────────────────
-  # Single entry point at http://<EIP>/ on port 80. Serves the SPA
-  # and proxies /api/* + /health to the api container above.
+  # No longer host-exposed directly — Caddy below terminates TLS and
+  # proxies in over the docker network. Container still listens on
+  # port 80 internally; the SPA + /api proxy logic is unchanged.
   frontend:
     image: ${ECR_REGISTRY}/ccit-dev-tradepro-frontend:${IMAGE_TAG:-latest}
     container_name: tradepro-frontend
     restart: unless-stopped
-    ports:
-      # Host port 80 → container port 80. Security group opens 80 to
-      # the world (matches the IP-based access pattern energycosmos
-      # uses — TLS lands when a domain does, see ROADMAP).
-      - "${FRONTEND_HOST_PORT:-80}:80"
+    expose:
+      - "80"
     volumes:
       # Basic Auth credentials, mounted from the host so rotation =
       # rewrite the file + restart this container (no image rebuild).
@@ -84,5 +82,30 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── Caddy reverse proxy (TLS termination + ACME auto-cert) ─
+  # Serves tradepro.showsoldprice.com on :443 with a Let's Encrypt
+  # certificate that Caddy fetches and renews automatically. Also
+  # serves :80 for the legacy IP-based URL and for the ACME HTTP-01
+  # challenge. Config lives at /opt/tradepro/Caddyfile (shipped by
+  # the redeploy workflow alongside docker-compose.aws.yaml).
+  caddy:
+    image: caddy:2-alpine
+    container_name: tradepro-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /opt/tradepro/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Named volumes for the cert + state — survives container
+      # restarts so we don't re-fetch the cert on every redeploy
+      # (Let's Encrypt rate-limits aggressive re-issuance).
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
 volumes:
   api_compare_cache:
+  caddy_data:
+  caddy_config:
