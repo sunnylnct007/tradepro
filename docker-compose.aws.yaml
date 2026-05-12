@@ -16,10 +16,26 @@
 # ============================================================
 
 services:
+  # ── One-shot init: chown the compare-cache volume to the API
+  # container's app user. Without this, the volume comes up
+  # root-owned, the API can't write to /data/compare, and silently
+  # falls back to /tmp which is wiped on every container restart.
+  # Runs once, exits, doesn't re-execute on subsequent `up`s.
+  api_init:
+    image: busybox:latest
+    container_name: tradepro-api-init
+    command: chown -R 1654:1654 /data/compare
+    volumes:
+      - api_compare_cache:/data/compare
+    restart: "no"
+
   api:
     image: ${ECR_REGISTRY}/ccit-dev-tradepro-api:${IMAGE_TAG:-latest}
     container_name: tradepro-api
     restart: unless-stopped
+    depends_on:
+      api_init:
+        condition: service_completed_successfully
     # The frontend nginx reaches this service on the docker network as
     # `api:5080` (no port mapping needed for that). We ALSO map host
     # port 8081 → 5080 so curl/Postman can hit the API directly for

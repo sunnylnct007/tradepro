@@ -54,6 +54,14 @@ RANGE_LOW_PCTILE = 40.0            # ≤ 40th pctile → confirms "dip" status
 # stabilises. Threshold: −8% over 10 trading days is well outside
 # normal vol for major ETFs and only fires in genuine cascade events.
 ACTIVE_CRASH_10D_PCT = -8.0
+# Volume-conviction bands. Today's bar volume vs the trailing 20-day
+# mean (excluding today). Above HEAVY = institutions active; below
+# THIN = move happening on light participation, weaker signal. The
+# range in between is "normal" — a routine bar. These thresholds
+# mirror the IBD / O'Neil rule-of-thumb (50% above average for a
+# breakout, 50% below for a noise trade).
+VOLUME_HEAVY_RATIO = 1.5
+VOLUME_THIN_RATIO = 0.8
 
 
 @dataclass
@@ -105,6 +113,12 @@ class MarketState:
     # page so the user sees recent shape, not just numbers. ~30 floats
     # per row × 200 rows = ~50KB extra per universe payload — fine.
     closes_30d: list[float] = field(default_factory=list)
+    # Today's volume divided by the trailing 20-day average. Surfaces
+    # whether a price move is happening on conviction (>1.5x) or thin
+    # air (<0.8x). The bucket-vote layer can demote a breakout that's
+    # only firing on light volume. None when the price feed has no
+    # volume column (some indices) or < 21 bars.
+    volume_ratio_20d: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -139,6 +153,7 @@ class MarketState:
             "entry_reason": self.entry_reason,
             "decision_trace": list(self.decision_trace),
             "closes_30d": list(self.closes_30d),
+            "volume_ratio_20d": self.volume_ratio_20d,
         }
 
 
@@ -159,6 +174,26 @@ def _annual_vol_pct(closes: pd.Series, lookback: int = 30) -> float | None:
     if rets.std() == 0 or rets.empty:
         return None
     return float(rets.std() * (252 ** 0.5) * 100.0)
+
+
+def _volume_ratio_20d(volume: pd.Series | None) -> float | None:
+    """Today's bar volume divided by the trailing 20-day mean (excluding
+    today). Returns None when the series is missing, < 21 bars long, or
+    the mean is non-positive — caller treats None as "no signal" so the
+    bucket vote can skip the gate cleanly.
+
+    Why "excluding today": including today in the denominator
+    compresses the ratio toward 1 and dampens exactly the spikes we
+    want to detect.
+    """
+    if volume is None or volume.empty or len(volume) < 21:
+        return None
+    today = volume.iloc[-1]
+    prior_20 = volume.iloc[-21:-1]
+    avg = prior_20.mean()
+    if avg is None or avg <= 0 or pd.isna(today) or pd.isna(avg):
+        return None
+    return float(today / avg)
 
 
 def _momentum_pct(closes: pd.Series, days: int) -> float | None:
@@ -302,6 +337,24 @@ def _build_trace(state: MarketState) -> list[dict[str, Any]]:
     else:
         trace.append({"name": "12-month momentum", "status": "pass",
                       "detail": f"{mom12:+.1f}% — positive"})
+
+    # Volume conviction. >1.5x = institutions buying; <0.8x = thin air;
+    # 0.8–1.5x = normal. Surfaces the "is this rally on conviction or
+    # noise" check from the indicator triage. ETFs / indices without a
+    # volume column return None → "—" (no signal, not a fail).
+    vr = state.volume_ratio_20d
+    if vr is None:
+        trace.append({"name": "Volume vs 20-day average",
+                      "status": "warn", "detail": "—"})
+    elif vr >= VOLUME_HEAVY_RATIO:
+        trace.append({"name": "Volume vs 20-day average", "status": "pass",
+                      "detail": f"{vr:.1f}x — heavy, conviction move"})
+    elif vr < VOLUME_THIN_RATIO:
+        trace.append({"name": "Volume vs 20-day average", "status": "fail",
+                      "detail": f"{vr:.1f}x — thin, low conviction"})
+    else:
+        trace.append({"name": "Volume vs 20-day average", "status": "warn",
+                      "detail": f"{vr:.1f}x — normal range"})
 
     return trace
 
@@ -508,6 +561,11 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         float(v) for v in closes_tail.tolist()
         if isinstance(v, (int, float)) and v == v  # NaN check
     ]
+    # Today's volume vs the trailing 20-day mean. Some Yahoo indices
+    # (^FTSE etc.) don't ship a volume column — we just leave the
+    # ratio at None and the trace skips the gate cleanly.
+    volume_series = prices["volume"] if "volume" in prices.columns else None
+    volume_ratio_20d = _volume_ratio_20d(volume_series)
 
     state = MarketState(
         symbol=symbol, as_of=as_of, last_price=last_price,
@@ -526,6 +584,7 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         low_52w_date=low_52w_date,
         range_position_pct=range_position_pct,
         closes_30d=closes_30d,
+        volume_ratio_20d=volume_ratio_20d,
     )
     state.entry_signal, state.entry_reason = _classify(state)
     state.decision_trace = _build_trace(state)
