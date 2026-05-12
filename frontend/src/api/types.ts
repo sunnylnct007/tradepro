@@ -427,6 +427,15 @@ export interface CompareRow {
   /** How many days behind the requested `to` date the latest bar is. 0 means
    * we have a bar for today; >7 means the price feed is stale for this row. */
   data_age_days?: number | null;
+  /** Reported earnings dates within the chart lookback (~5y). Feeds the
+   * price-history chart's earnings-marker overlay so event-driven moves
+   * stand apart from trend moves. Empty for ETFs and on fetch failure. */
+  historical_earnings?: {
+    date: string;
+    surprise_pct?: number | null;
+    eps_actual?: number | null;
+    eps_estimate?: number | null;
+  }[];
   rank: number;
   error: string | null;
   /** Family-3 signal: rank + zscore vs basket peers on 12-month return.

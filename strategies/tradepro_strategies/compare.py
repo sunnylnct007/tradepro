@@ -164,6 +164,7 @@ def _row_for(
     sentiment_status: str,
     end: datetime,
     cfg: CompareConfig,
+    earnings_history: list[dict] | None = None,
 ) -> dict:
     """Run one (symbol, strategy) backtest and return a JSON-ready row."""
     currency = _symbol_currency(symbol)
@@ -173,6 +174,7 @@ def _row_for(
     # produced — even on backtest failure paths — so news rendering
     # doesn't depend on the rest of the pipeline succeeding.
     enriched_news = _merge_scored(news, scored_news)
+    history = list(earnings_history or [])
     if prices.empty:
         return {
             "symbol": symbol,
@@ -195,6 +197,7 @@ def _row_for(
             "sentiment_status": sentiment_status,
             "currency": currency,
             "data_age_days": data_age_days,
+            "historical_earnings": history,
             "error": "no_data",
         }
 
@@ -241,6 +244,7 @@ def _row_for(
             "sentiment_status": sentiment_status,
             "currency": currency,
             "data_age_days": data_age_days,
+            "historical_earnings": history,
             "error": str(e),
         }
 
@@ -300,6 +304,7 @@ def _row_for(
         "sentiment_status": sentiment_status,
         "currency": currency,
         "data_age_days": data_age_days,
+        "historical_earnings": history,
         "error": None,
     }
 
@@ -578,6 +583,11 @@ def compare(
     # Best-effort — yfinance fetch failure produces a no-signal envelope,
     # never blocks the run.
     earnings_signal_cache: dict[str, dict] = {}
+    # Historical earnings dates per symbol — feeds the chart's earnings-
+    # marker overlay so the user can spot event-driven moves on the
+    # price line. ETFs return empty (no earnings), failure returns
+    # empty, missing key on a row → frontend renders no markers.
+    earnings_history_cache: dict[str, list[dict]] = {}
     # Top-level errors list — surfaces symbols that failed to fetch or
     # came back empty, so the UI can show 'data unavailable for X' rather
     # than silently dropping them.
@@ -628,12 +638,32 @@ def compare(
                     "verdict": "NOT_APPLICABLE",
                     "reason": "ETF — earnings signals are stock-only",
                 }
+                # ETFs never have earnings — explicit empty list so the
+                # frontend renders zero markers (no defensive `?? []`).
+                earnings_history_cache[symbol] = []
             else:
                 try:
-                    from .earnings import beat_and_retreat_signal, fetch_upcoming_earnings
+                    from .earnings import (
+                        beat_and_retreat_signal,
+                        fetch_earnings_in_range,
+                        fetch_upcoming_earnings,
+                    )
                     sig = beat_and_retreat_signal(
                         symbol, price_cache[symbol],
                     )
+                    # Historical earnings dates (~5y) for chart markers.
+                    # Shares the same yfinance ticker yfinance just hit
+                    # for beat_and_retreat_signal, so the underlying
+                    # data is already cached in yfinance's request layer.
+                    try:
+                        earnings_history_cache[symbol] = fetch_earnings_in_range(
+                            symbol, lookback_days=1825,
+                        )
+                    except Exception as e:  # noqa: BLE001 — best-effort
+                        if logger:
+                            logger.emit("compare.earnings_history_failed",
+                                        symbol=symbol, error=str(e))
+                        earnings_history_cache[symbol] = []
                     # Attach the next upcoming earnings (Finnhub) so
                     # the digest can warn about position-into-earnings
                     # volatility. Off-by-default: returns None when
@@ -654,6 +684,9 @@ def compare(
                         "_source": f"live://earnings/{symbol}",
                         "fired": False, "verdict": "NO_RECENT",
                     }
+                    # Also seed history with empty so the row builder
+                    # never has a missing key.
+                    earnings_history_cache.setdefault(symbol, [])
             if logger:
                 logger.emit("compare.symbol.fetched",
                             symbol=symbol,
@@ -714,10 +747,12 @@ def compare(
         sentiment_summary = sentiment_summary_cache[symbol]
         sentiment_status = sentiment_status_cache[symbol]
         earnings_signal = earnings_signal_cache.get(symbol, {})
+        earnings_history = earnings_history_cache.get(symbol, [])
         for strat in strategies:
             row = _row_for(symbol, strat, prices, state, consensus,
                            fundamentals, news, scored_news,
-                           sentiment_summary, sentiment_status, end, cfg)
+                           sentiment_summary, sentiment_status, end, cfg,
+                           earnings_history=earnings_history)
             # Attach the per-symbol earnings signal to every (symbol,
             # strategy) row — same pattern as market_state. Family-4
             # is symbol-level not strategy-level.

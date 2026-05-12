@@ -68,3 +68,32 @@ Feature: Family-4 earnings BEAT_AND_RETREAT signal
     Given a NO_RECENT envelope with upcoming earnings in 5 days
     When I build the earnings trace row
     Then the trace detail mentions "reports in 5d"
+
+  # ---- Historical earnings overlay (chart markers) ----
+  # `fetch_earnings_in_range` is the data source for the chart's
+  # earnings-marker layer. It must:
+  #  - return every REPORTED earnings inside the window, oldest-first
+  #  - drop future / unreported rows
+  #  - drop rows older than the lookback window
+  #  - degrade silently to [] on network failure
+  Scenario: historical earnings returns reported rows inside the window
+    Given a yfinance earnings_dates frame with reports at 30, 120 and 365 days ago
+    When I call fetch_earnings_in_range with a 5-year lookback
+    Then the result has 3 entries
+    And the entries are sorted oldest-first
+    And each entry has a date, surprise_pct and eps_actual
+
+  Scenario: historical earnings drops rows older than the lookback
+    Given a yfinance earnings_dates frame with reports at 100 and 4000 days ago
+    When I call fetch_earnings_in_range with a 5-year lookback
+    Then the result has 1 entry
+
+  Scenario: historical earnings drops unreported (future) rows
+    Given a yfinance earnings_dates frame with a future row and one report 30 days ago
+    When I call fetch_earnings_in_range with a 5-year lookback
+    Then the result has 1 entry
+
+  Scenario: historical earnings degrades to empty on fetch failure
+    Given a yfinance ticker that raises on earnings_dates
+    When I call fetch_earnings_in_range with a 5-year lookback
+    Then the result is empty

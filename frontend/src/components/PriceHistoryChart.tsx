@@ -40,12 +40,27 @@ import type { Candle, CandleSeries } from "../api/types";
  *   long-term context (recovered from COVID-2020 / 2022 rate
  *   shock?). Smaller window via the prop when needed.
  */
+/** One historical earnings event the engine has on file for this
+ * symbol. The chart paints a vertical reference line + tinted dot at
+ * each `date`, coloured by `surprise_pct` (green beat / red miss /
+ * grey unknown) so event-driven moves stand apart from trend moves. */
+export interface EarningsMarker {
+  date: string;                  // YYYY-MM-DD
+  surprise_pct?: number | null;  // already a percentage; +5 = beat by 5%
+  eps_actual?: number | null;
+  eps_estimate?: number | null;
+}
+
 interface Props {
   symbol: string;
   /** Days of history to plot. Default 5y so the user sees the full
    * regime picture the engine reasons about. */
   lookbackDays?: number;
   height?: number;
+  /** Historical earnings dates from the compare payload — when
+   * present, vertical markers are drawn on the price line so the
+   * user can spot event-driven moves vs trend moves at a glance. */
+  earnings?: EarningsMarker[];
 }
 
 const DEFAULT_LOOKBACK_DAYS = 365 * 5;
@@ -66,6 +81,7 @@ export function PriceHistoryChart({
   symbol,
   lookbackDays = DEFAULT_LOOKBACK_DAYS,
   height = 280,
+  earnings,
 }: Props) {
   const [series, setSeries] = useState<CandleSeries | null>(null);
   const [loading, setLoading] = useState(false);
@@ -264,6 +280,34 @@ export function PriceHistoryChart({
           {low52wDate && (
             <ReferenceDot x={low52wDate} y={low52w} r={3.5} fill="var(--down)" stroke="white" strokeWidth={0.5} ifOverflow="hidden" />
           )}
+          {/* Earnings event markers. Each reported earnings shows as a
+              short vertical line + dot anchored to the close on that
+              date. ifOverflow="hidden" so zooming outside the date or
+              price range silently drops the marker (no axis blow-up).
+              Colour: green = beat, red = miss, grey = unknown. */}
+          {earnings && earnings.length > 0 && earnings.map((e) => {
+            const bar = data.find((d) => d.t === e.date);
+            if (!bar) return null;
+            const colour =
+              e.surprise_pct === null || e.surprise_pct === undefined
+                ? "var(--neutral)"
+                : e.surprise_pct >= 0
+                ? "var(--up)"
+                : "var(--down)";
+            return (
+              <ReferenceDot
+                key={`er-${e.date}`}
+                x={e.date}
+                y={bar.price}
+                r={3}
+                fill={colour}
+                stroke="white"
+                strokeWidth={0.5}
+                ifOverflow="hidden"
+                label={{ value: "E", position: "top", fill: colour, fontSize: 9 }}
+              />
+            );
+          })}
           {/* "Today" marker: vertical line + dot at the right edge so
               the user can locate the current bar without squinting. */}
           <ReferenceLine x={lastDate} stroke="rgba(255,255,255,0.45)" strokeDasharray="2 4" ifOverflow="hidden" label={{ value: "today", position: "top", fill: "rgba(255,255,255,0.6)", fontSize: 10 }} />
@@ -317,8 +361,10 @@ export function PriceHistoryChart({
         check; 52w reference lines hide when zoomed outside their level. Coloured
         dots mark when each 52w extreme was hit (live vs stale floor). Volume
         bars below share the brush window — a rally on thick bars shows broad
-        participation; thin bars suggest a thin rally. Drag the brush handles or
-        click a preset to zoom.
+        participation; thin bars suggest a thin rally. "E" dots mark reported
+        earnings dates (green=beat, red=miss, grey=unknown) so event-driven
+        moves stand apart from trend moves. Drag the brush handles or click a
+        preset to zoom.
       </div>
     </div>
   );

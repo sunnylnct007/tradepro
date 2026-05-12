@@ -773,7 +773,7 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
           everything below. Split-adjusted line + SMA(200) + 52w
           high/low reference levels. The numbers in the rationale
           and the rule-chain table all map onto this chart. */}
-      <PriceHistoryChart symbol={view.symbol} />
+      <PriceHistoryChart symbol={view.symbol} earnings={view.bestRow.historical_earnings} />
       {rationale && <RationalePanel rationale={rationale} />}
       {view.sentimentDemoted && view.sentimentDemotionReason && (
         <div

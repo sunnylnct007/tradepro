@@ -12,6 +12,7 @@ from behave.matchers import use_step_matcher
 from tradepro_strategies.earnings import (
     beat_and_retreat_signal,
     earnings_trace_row,
+    fetch_earnings_in_range,
 )
 
 # `{pct:f}` would have required a literal decimal point in the
@@ -197,3 +198,86 @@ def step_trace_status(context, expected: str):
 def step_trace_detail(context, snippet: str):
     assert context.trace_row is not None
     assert snippet in context.trace_row["detail"], context.trace_row
+
+
+# ---- Historical earnings overlay (chart markers) ----
+
+def _multi_earnings_df(days_ago_list, *, include_future: bool = False):
+    """Build a yfinance-shaped earnings_dates DataFrame with one row per
+    days-ago entry. When `include_future` is True a sentinel row 30 days
+    in the future (NaN Reported EPS) is prepended — this mirrors how
+    yfinance returns not-yet-reported earnings."""
+    rows: list[dict] = []
+    index: list[pd.Timestamp] = []
+    if include_future:
+        rows.append({"EPS Estimate": 1.0, "Reported EPS": float("nan"),
+                     "Surprise(%)": float("nan")})
+        index.append(pd.Timestamp.now(tz="UTC") + pd.Timedelta(days=30))
+    for days_ago in days_ago_list:
+        rows.append({"EPS Estimate": 1.0, "Reported EPS": 1.05,
+                     "Surprise(%)": 5.0})
+        index.append(pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days_ago))
+    return pd.DataFrame(rows, index=pd.DatetimeIndex(index, name="Earnings Date"))
+
+
+@given("a yfinance earnings_dates frame with reports at 30, 120 and 365 days ago")
+def step_multi_earnings(context):
+    context.earnings_df = _multi_earnings_df([30, 120, 365])
+
+
+@given("a yfinance earnings_dates frame with reports at 100 and 4000 days ago")
+def step_earnings_outside_window(context):
+    context.earnings_df = _multi_earnings_df([100, 4000])
+
+
+@given("a yfinance earnings_dates frame with a future row and one report 30 days ago")
+def step_earnings_with_future(context):
+    context.earnings_df = _multi_earnings_df([30], include_future=True)
+
+
+@given("a yfinance ticker that raises on earnings_dates")
+def step_earnings_raises(context):
+    class _ExplodingTicker:
+        @property
+        def earnings_dates(self):
+            raise RuntimeError("yfinance is sad today")
+    context.ticker_factory = lambda symbol: _ExplodingTicker()
+
+
+@when("I call fetch_earnings_in_range with a 5-year lookback")
+def step_call_history(context):
+    factory = getattr(context, "ticker_factory", None)
+    if factory is None:
+        factory = _ticker_factory(context.earnings_df)
+    context.history = fetch_earnings_in_range(
+        "TEST", lookback_days=1825, ticker_factory=factory,
+    )
+
+
+@then("the result has {n:d} entries")
+def step_history_count(context, n: int):
+    assert len(context.history) == n, context.history
+
+
+@then("the result has {n:d} entry")
+def step_history_count_singular(context, n: int):
+    assert len(context.history) == n, context.history
+
+
+@then("the result is empty")
+def step_history_empty(context):
+    assert context.history == [], context.history
+
+
+@then("the entries are sorted oldest-first")
+def step_history_sorted(context):
+    dates = [e["date"] for e in context.history]
+    assert dates == sorted(dates), dates
+
+
+@then("each entry has a date, surprise_pct and eps_actual")
+def step_history_shape(context):
+    for entry in context.history:
+        assert "date" in entry and entry["date"]
+        assert "surprise_pct" in entry
+        assert "eps_actual" in entry

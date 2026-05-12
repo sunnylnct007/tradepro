@@ -55,6 +55,61 @@ class EarningsEvent:
         }
 
 
+def fetch_earnings_in_range(
+    symbol: str,
+    *,
+    lookback_days: int = 1825,  # 5 years, matches the chart default
+    ticker_factory=None,
+) -> list[dict]:
+    """Every reported earnings event for `symbol` within the lookback
+    window, oldest-first. Used by the chart's earnings-marker overlay
+    so the user can tell event-driven moves from trend-driven ones.
+
+    Returns `[{"date": "YYYY-MM-DD", "surprise_pct": float | None,
+    "eps_actual": float | None, "eps_estimate": float | None}, ...]`.
+    Empty list on any failure mode — chart degrades to "no markers"
+    cleanly instead of erroring out the row. (ETFs typically return
+    empty here; only single stocks have earnings.)
+
+    The `ticker_factory` indirection lets behave inject a fake ticker
+    without hitting the network."""
+    try:
+        if ticker_factory is None:
+            import yfinance as yf
+            t = yf.Ticker(symbol)
+        else:
+            t = ticker_factory(symbol)
+        df = t.earnings_dates
+    except Exception as e:  # noqa: BLE001
+        _log.warning("yfinance earnings_dates fetch failed for %s: %s", symbol, e)
+        return []
+
+    if df is None or getattr(df, "empty", True):
+        return []
+
+    # Keep only reported rows (future earnings haven't been announced
+    # yet → Reported EPS is NaN; those belong to the upcoming-earnings
+    # forward-calendar, not the historical chart layer).
+    reported = df.dropna(subset=["Reported EPS"]).sort_index(ascending=True)
+    if reported.empty:
+        return []
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    out: list[dict] = []
+    for ts, row in reported.iterrows():
+        when_naive = ts.tz_convert("UTC").tz_localize(None) if getattr(ts, "tzinfo", None) else ts
+        days_ago = (now_utc - when_naive).days
+        if days_ago < 0 or days_ago > lookback_days:
+            continue
+        out.append({
+            "date": when_naive.date().isoformat(),
+            "eps_actual": _safe(row.get("Reported EPS")),
+            "eps_estimate": _safe(row.get("EPS Estimate")),
+            "surprise_pct": _safe(row.get("Surprise(%)")),
+        })
+    return out
+
+
 def fetch_recent_earnings(
     symbol: str,
     *,
