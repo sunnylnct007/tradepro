@@ -14,58 +14,49 @@ operator guide).
 ## What runs where
 
 ```
-                ┌──────────────────────────────────────┐
-                │  USER's MAC (already on, free)       │
-                │                                      │
-                │  ┌────────────────────────────────┐  │
-                │  │  tradepro-worker (Python)      │  │
-                │  │   ↳ daily compare run          │  │
-                │  │   ↳ Yahoo cache (parquet)      │  │
-                │  │   ↳ Trading 212 portfolio key  │  │
-                │  │   ↳ Finnhub earnings key       │  │
-                │  │   ↳ LLM rationales (local      │  │
-                │  │     Ollama / hosted Claude)    │  │
-                │  └──────────┬─────────────────────┘  │
-                │             │ HTTPS POST              │
-                │             │ /api/ingest/compare     │
-                │             │ Bearer: INGEST_TOKEN    │
-                │             ▼                          │
-                └─────────────┼────────────────────────┘
-                              │
-                  ┌───────────┴────────────┐
-                  │  AWS  eu-west-2        │
-                  │  account 108703420282  │
-                  │                        │
-                  │  ┌──────────────────┐  │
-                  │  │  EC2 t4g.small   │  │
-                  │  │  ccit-dev-       │  │
-                  │  │  tradepro-host   │  │
-                  │  │                  │  │
-                  │  │  docker-compose  │  │
-                  │  │   ↳ tradepro-api │  │
-                  │  │     :5080 → :8081│  │
-                  │  │     /data/compare│  │
-                  │  │     (named vol)  │  │
-                  │  └──┬───────────────┘  │
-                  │     │ Elastic IP        │
-                  │     │ (stable across    │
-                  │     │  stop/start)      │
-                  │     ▼                   │
-                  │  http://<EIP>:8081/     │
-                  └─────────────────────────┘
-                              │
-                              │ browser
-                              ▼
-                  ┌─────────────────────────┐
-                  │  Frontend (today:       │
-                  │  Firebase Hosting →     │
-                  │  AWS S3+CloudFront      │
-                  │  later, see ROADMAP)    │
-                  │                         │
-                  │  VITE_API_BASE_URL =    │
-                  │  http://<EIP>:8081      │
-                  └─────────────────────────┘
+ ┌─────────────────────────────────────────────────┐         ┌────────────────────────────────────────────────────────────┐
+ │   USER's MAC (always on, free)                  │         │  GITHUB ACTIONS (OIDC → ccit-dev-energycosmos-deploy)      │
+ │                                                 │         │                                                            │
+ │   tradepro-worker (Python venv)                 │         │   aws-build-push   →  buildx ARM64 → ECR (api + frontend) │
+ │    ↳ daily compare run (Yahoo OHLCV cache)      │         │   aws-redeploy     →  ship compose via SSM, pull, up -d   │
+ │    ↳ Finnhub earnings key                       │         │   aws-set-env      →  upsert /opt/tradepro/.env via SSM   │
+ │    ↳ LLM rationales (Ollama llama3.1:8b)        │         │   aws-start/stop   →  EC2 lifecycle + /health probe       │
+ │    ↳ ~/.tradepro/credentials                    │         └───────────────────────────────────────────┬────────────────┘
+ │      → api_base_url = http://<EIP>:8081         │                                                    │ SSM RunCommand
+ │      → api_token    = INGEST_TOKEN              │                                                    │ no SSH ever
+ │                                                 │                                                    ▼
+ │   HTTPS POSTs to AWS:                           │            ┌───────────────────────────────────────────────────────┐
+ │      /api/ingest/compare    (Bearer)            │ ────────►  │  AWS  eu-west-2 · account 108703420282                │
+ │      /api/ingest/heartbeat  (Bearer)            │            │                                                       │
+ │                                                 │            │   EC2 t4g.small  ccit-dev-tradepro-host (Graviton)    │
+ └─────────────────────────────────────────────────┘            │   IMDSv2 · SSM-only access · no inbound SSH           │
+                                                                │   Elastic IP: stable across stop/start                │
+                            ┌──────────────────────────────┐    │                                                       │
+                            │  BROWSER                     │    │   docker-compose.aws.yaml                             │
+                            │   http://<EIP>/              │◄───┤    ↳ tradepro-frontend (nginx)  :80   ← Basic Auth   │
+                            │    Basic Auth: admin/****    │    │       · serves built SPA                              │
+                            │    nginx reverse-proxies     │    │       · /api/* → tradepro-api (no auth on /api)       │
+                            │    /api/* → api container    │    │       · /opt/tradepro/.htpasswd mounted (file)        │
+                            │                              │    │    ↳ tradepro-api (.NET 8)      :8081 host-exposed   │
+                            │  Direct /api/* on :8081      │    │       · INGEST_TOKEN gate on /api/ingest/*           │
+                            │  (worker, postman, curl)     │    │       · Trading212Client (key OR key+secret pair)    │
+                            │   Bearer: INGEST_TOKEN       │◄───┤       · /data named volume (compare cache, sqlite)   │
+                            └──────────────────────────────┘    │                                                       │
+                                                                │   ECR: ccit-dev-tradepro-api · -frontend (ARM64)      │
+                                                                │   SSM Parameter Store: /opt/tradepro/.env values      │
+                                                                │   EventBridge: nightly stop @ 22:00 UTC               │
+                                                                │   S3 (optional): ccit-dev-tradepro-archive            │
+                                                                └───────────────────────────────────────────────────────┘
 ```
+
+### Auth layers at a glance
+
+| Surface | Who | Auth |
+|---|---|---|
+| `http://<EIP>/` (SPA shell) | end users (browser) | nginx Basic Auth (htpasswd) |
+| `http://<EIP>/api/*` (SPA → API, same origin) | the SPA in the browser | none — basic auth turned off on this path so `fetch()` works without cached creds |
+| `http://<EIP>:8081/api/ingest/*` (worker, curl) | Mac worker | Bearer `INGEST_TOKEN` |
+| Trading 212 API (outbound from EC2) | the API container | HTTP Basic (key+secret) for older accounts, or raw key header for newer ones |
 
 ## Why this split
 
