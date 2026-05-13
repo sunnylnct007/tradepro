@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from .indicators import atr, ichimoku, rsi, sma
+from .indicators import atr, bollinger, ichimoku, rsi, sma
 
 
 # Thresholds are deliberately conservative and easy to reason about.
@@ -132,6 +132,14 @@ class MarketState:
     # ichimoku_cloud strategy is in position — it's a universal
     # context signal, not a strategy-specific one.
     ichimoku_cloud_position: str | None = None
+    # Bollinger Bands(20, 2σ) position — "AT_UPPER" (≥ 1.0 %B —
+    # extended, possible mean-reversion short), "AT_LOWER" (≤ 0.0 —
+    # oversold candidate), "UPPER_HALF" (0.5–1.0), "LOWER_HALF"
+    # (0.0–0.5), or None when there aren't enough bars (< 20).
+    # Surfaces as decision-trace check #7.
+    bollinger_position: str | None = None
+    bollinger_percent_b: float | None = None
+    bollinger_bandwidth: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -170,6 +178,9 @@ class MarketState:
             "atr_14": self.atr_14,
             "atr_14_pct": self.atr_14_pct,
             "ichimoku_cloud_position": self.ichimoku_cloud_position,
+            "bollinger_position": self.bollinger_position,
+            "bollinger_percent_b": self.bollinger_percent_b,
+            "bollinger_bandwidth": self.bollinger_bandwidth,
         }
 
 
@@ -372,6 +383,34 @@ def _build_trace(state: MarketState) -> list[dict[str, Any]]:
     else:
         trace.append({"name": "Ichimoku cloud position", "status": "warn",
                       "detail": "— (need ≥78 bars to draw the forward cloud)"})
+
+    # Bollinger Bands(20, 2σ) position — decision-trace check #7.
+    # AT_LOWER (≤ 0% B) flags an oversold extreme; classic mean-
+    # reversion entry-zone when paired with low RSI. AT_UPPER (≥ 100%
+    # B) is the symmetric extension warning. UPPER_HALF / LOWER_HALF
+    # are neutral status — just shows the user where in the range we
+    # sit. Bandwidth contractions hint at vol regime change but
+    # we don't gate on them here (informational only via the tooltip).
+    bp = state.bollinger_position
+    pb = state.bollinger_percent_b
+    bw = state.bollinger_bandwidth
+    pb_str = f"%B {pb:.2f}" if pb is not None else "%B —"
+    bw_str = f"width {bw:.3f}" if bw is not None else "width —"
+    if bp == "AT_LOWER":
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "warn",
+                      "detail": f"at lower band ({pb_str}, {bw_str}) — oversold extreme, mean-reversion BUY candidate"})
+    elif bp == "AT_UPPER":
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "fail",
+                      "detail": f"at upper band ({pb_str}, {bw_str}) — overextended, mean-reversion against the move"})
+    elif bp == "LOWER_HALF":
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "pass",
+                      "detail": f"lower half of the range ({pb_str}, {bw_str}) — entry-friendly zone"})
+    elif bp == "UPPER_HALF":
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "warn",
+                      "detail": f"upper half of the range ({pb_str}, {bw_str}) — extended"})
+    else:
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "warn",
+                      "detail": "— (need ≥ 20 bars)"})
 
     # Volume conviction. >1.5x = institutions buying; <0.8x = thin air;
     # 0.8–1.5x = normal. Surfaces the "is this rally on conviction or
@@ -632,6 +671,28 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
             else:
                 ichimoku_cloud_position = "INSIDE"
 
+    # Bollinger Bands(20, 2σ) — band position + %B + bandwidth.
+    # Decision-trace check #7. Bandwidth doubles as a "vol regime"
+    # signal — contractions often precede big moves.
+    bollinger_position: str | None = None
+    bollinger_percent_b: float | None = None
+    bollinger_bandwidth: float | None = None
+    if len(series) >= 20:
+        bb = bollinger(series, window=20, num_std=2.0)
+        last_pb = bb["percent_b"].iloc[-1]
+        last_bw = bb["bandwidth"].iloc[-1]
+        bollinger_percent_b = _safe_float(last_pb)
+        bollinger_bandwidth = _safe_float(last_bw)
+        if bollinger_percent_b is not None:
+            if bollinger_percent_b >= 1.0:
+                bollinger_position = "AT_UPPER"
+            elif bollinger_percent_b <= 0.0:
+                bollinger_position = "AT_LOWER"
+            elif bollinger_percent_b >= 0.5:
+                bollinger_position = "UPPER_HALF"
+            else:
+                bollinger_position = "LOWER_HALF"
+
     state = MarketState(
         symbol=symbol, as_of=as_of, last_price=last_price,
         sma_200=sma_200, above_sma_200=above,
@@ -653,6 +714,9 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         atr_14=atr_14,
         atr_14_pct=atr_14_pct,
         ichimoku_cloud_position=ichimoku_cloud_position,
+        bollinger_position=bollinger_position,
+        bollinger_percent_b=bollinger_percent_b,
+        bollinger_bandwidth=bollinger_bandwidth,
     )
     state.entry_signal, state.entry_reason = _classify(state)
     state.decision_trace = _build_trace(state)

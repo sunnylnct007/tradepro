@@ -31,7 +31,8 @@ from . import heartbeat
 from .push_to_api import load_credentials, push
 
 DEFAULT_STRATEGIES = ["buy_and_hold", "sma_crossover", "rsi_mean_reversion",
-                      "macd_signal_cross", "donchian_breakout", "ichimoku_cloud"]
+                      "macd_signal_cross", "donchian_breakout", "ichimoku_cloud",
+                      "bollinger_bounce"]
 
 
 def parse_args() -> argparse.Namespace:

@@ -89,6 +89,41 @@ def ichimoku(
     })
 
 
+def bollinger(
+    series: pd.Series,
+    window: int = 20,
+    num_std: float = 2.0,
+) -> pd.DataFrame:
+    """Bollinger Bands. Middle band is the rolling mean; outer bands
+    are ±num_std rolling-stdev wide. Used for mean-reversion entries
+    (touch lower band + oversold = candidate BUY) and for volatility
+    regime detection (band width contracts before big moves).
+
+    Returns:
+      middle:     rolling mean
+      upper:      middle + num_std * stdev
+      lower:      middle - num_std * stdev
+      bandwidth:  (upper - lower) / middle  (volatility regime proxy)
+      percent_b:  (price - lower) / (upper - lower)  (0 = at lower,
+                  1 = at upper; <0 = below lower, >1 = above upper)
+    """
+    middle = series.rolling(window=window, min_periods=window).mean()
+    stdev = series.rolling(window=window, min_periods=window).std()
+    upper = middle + num_std * stdev
+    lower = middle - num_std * stdev
+    width = upper - lower
+    bandwidth = width / middle
+    # Guard against divide-by-zero when upper == lower (flat series).
+    percent_b = (series - lower) / width.replace(0, pd.NA)
+    return pd.DataFrame({
+        "middle": middle,
+        "upper": upper,
+        "lower": lower,
+        "bandwidth": bandwidth,
+        "percent_b": percent_b,
+    })
+
+
 def atr(
     high: pd.Series,
     low: pd.Series,

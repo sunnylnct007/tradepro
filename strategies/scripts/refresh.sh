@@ -34,11 +34,25 @@ EOF
 cd "$PROJECT_DIR" || exit 1
 
 # Resolve uv. launchd starts with a minimal PATH; finding `uv` reliably
-# means either an absolute path on disk or `which uv` against the user's
-# shell-rc. Prefer the absolute path that brew/uv installs to.
-UV="$(command -v uv || echo /usr/local/bin/uv)"
-if [[ ! -x "$UV" ]]; then
-  UV="/opt/homebrew/bin/uv"
+# means trying every common install location until one is executable.
+# Order: PATH first (covers a custom location the user added), then
+# the three most common installers' default paths.
+UV=""
+for candidate in \
+    "$(command -v uv 2>/dev/null)" \
+    /opt/homebrew/bin/uv \
+    /usr/local/bin/uv \
+    /opt/anaconda3/bin/uv \
+    "$HOME/.local/bin/uv" \
+    "$HOME/.cargo/bin/uv"; do
+  if [[ -n "$candidate" && -x "$candidate" ]]; then
+    UV="$candidate"
+    break
+  fi
+done
+if [[ -z "$UV" ]]; then
+  echo "tradepro-refresh: no uv binary found on disk — install via brew or pip" >&2
+  exit 127
 fi
 
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"

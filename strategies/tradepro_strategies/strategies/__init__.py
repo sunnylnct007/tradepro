@@ -6,6 +6,7 @@ from typing import Callable
 
 import pandas as pd
 
+from .bollinger_bounce import bollinger_bounce_signals
 from .buy_and_hold import buy_and_hold_signals
 from .donchian_breakout import donchian_breakout_signals
 from .ichimoku_cloud import ichimoku_cloud_signals, ichimoku_targets
@@ -57,6 +58,15 @@ REGISTRY: dict[str, Factory] = {
             displacement=int(params.get("displacement", 26)),
         )
     ),
+    "bollinger_bounce": lambda params: (
+        lambda df: bollinger_bounce_signals(
+            df,
+            window=int(params.get("window", 20)),
+            num_std=float(params.get("num_std", 2.0)),
+            rsi_period=int(params.get("rsi_period", 14)),
+            rsi_oversold=float(params.get("rsi_oversold", 35.0)),
+        )
+    ),
 }
 
 
@@ -81,4 +91,5 @@ __all__ = [
     "donchian_breakout_signals",
     "ichimoku_cloud_signals",
     "ichimoku_targets",
+    "bollinger_bounce_signals",
 ]
