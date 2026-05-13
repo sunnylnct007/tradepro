@@ -31,7 +31,7 @@ from . import heartbeat
 from .push_to_api import load_credentials, push
 
 DEFAULT_STRATEGIES = ["buy_and_hold", "sma_crossover", "rsi_mean_reversion",
-                      "macd_signal_cross", "donchian_breakout"]
+                      "macd_signal_cross", "donchian_breakout", "ichimoku_cloud"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -133,8 +133,21 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001
         print(f"⚠ LLM:      preflight check failed: {e}")
 
+    # Per-universe provider override. Some baskets (e.g.
+    # energy_commodities) may want a non-Yahoo source — and once we
+    # add Alpha Vantage / IBKR / ICE Endex, the universe is the right
+    # place to pin that. Today the registered overrides are all
+    # `yahoo` so this is a no-op; the mechanism just makes the eventual
+    # swap a one-line config change.
+    from ..watchlists import meta_for as _watchlist_meta_for
+    universe_provider = _watchlist_meta_for(args.watchlist or "").get(
+        "provider", args.provider,
+    )
+    if universe_provider != args.provider:
+        print(f"Provider:   {universe_provider} (from watchlist meta)")
+
     cfg = CompareConfig(
-        provider=args.provider,
+        provider=universe_provider,
         initial_capital=args.capital,
         currency=args.currency,
         rank_metric=args.rank,

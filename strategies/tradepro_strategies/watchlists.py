@@ -87,7 +87,43 @@ WATCHLISTS: dict[str, list[str]] = {
         "UUP", "FXY",
         "VIXY",
     ],
+    # Energy commodity futures, continuous-contract proxies via Yahoo.
+    # TTF / NBP are intentionally excluded — Yahoo doesn't carry them
+    # and Alpha Vantage's free tier doesn't either; needs a paid feed
+    # (ICE Endex, EEX). Add when we wire that in. For now: Henry Hub
+    # nat gas (NG=F), Brent (BZ=F), WTI (CL=F) cover the energy
+    # complex's main movers with full daily history.
+    "energy_commodities": [
+        "NG=F",     # Natural Gas (Henry Hub) continuous
+        "BZ=F",     # Brent Crude continuous
+        "CL=F",     # WTI Crude continuous
+    ],
 }
+
+
+# Per-watchlist metadata — provider override, default strategy
+# parameter tweaks, etc. The CLI / comparator falls back to defaults
+# (yahoo provider, standard ichimoku 9/26/52) for any watchlist that
+# isn't listed here. Keeps `provider="yahoo"` as the global default
+# so swapping a single universe to Alpha Vantage later is a one-line
+# config change with no plumbing rewrite.
+WATCHLIST_META: dict[str, dict] = {
+    "energy_commodities": {
+        # Yahoo today; flip to "alphavantage" (or another provider)
+        # without touching the comparator once we wire that fetcher in.
+        "provider": "yahoo",
+        # Energy futures whip around faster than equities — keeping
+        # defaults for now but the override mechanism is ready.
+        "ichimoku_periods": {"tenkan": 9, "kijun": 26, "senkou_b": 52},
+    },
+}
+
+
+def meta_for(name: str) -> dict:
+    """Return the metadata dict for a watchlist, or {} when none is
+    declared. Cheap empty-dict default so callers can do
+    `meta_for(u).get("provider", cfg.provider)` without a None check."""
+    return WATCHLIST_META.get(name, {})
 
 
 # Macro-basket axis labels. Keep this side-by-side with the watchlist

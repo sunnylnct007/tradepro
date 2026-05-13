@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from .indicators import atr, rsi, sma
+from .indicators import atr, ichimoku, rsi, sma
 
 
 # Thresholds are deliberately conservative and easy to reason about.
@@ -126,6 +126,12 @@ class MarketState:
     # can compare "this stock has a 3% daily range" vs another.
     atr_14: float | None = None
     atr_14_pct: float | None = None
+    # Ichimoku cloud position — one of "ABOVE" / "INSIDE" / "BELOW" /
+    # None (None when there isn't enough history to draw a full cloud).
+    # Feeds decision-trace check #6 regardless of whether the
+    # ichimoku_cloud strategy is in position — it's a universal
+    # context signal, not a strategy-specific one.
+    ichimoku_cloud_position: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -163,6 +169,7 @@ class MarketState:
             "volume_ratio_20d": self.volume_ratio_20d,
             "atr_14": self.atr_14,
             "atr_14_pct": self.atr_14_pct,
+            "ichimoku_cloud_position": self.ichimoku_cloud_position,
         }
 
 
@@ -346,6 +353,25 @@ def _build_trace(state: MarketState) -> list[dict[str, Any]]:
     else:
         trace.append({"name": "12-month momentum", "status": "pass",
                       "detail": f"{mom12:+.1f}% — positive"})
+
+    # Ichimoku cloud position (TRADEPRO sprint §7, check #6 in the
+    # decision trace). ABOVE = trend support overhead, room to run.
+    # INSIDE = consolidation / chop zone — neither bull nor bear.
+    # BELOW = trend resistance overhead, downtrend confirmation. Runs
+    # independently of whether the ichimoku_cloud strategy fired.
+    cp = state.ichimoku_cloud_position
+    if cp == "ABOVE":
+        trace.append({"name": "Ichimoku cloud position", "status": "pass",
+                      "detail": "price above the cloud — uptrend, forward cloud is support"})
+    elif cp == "INSIDE":
+        trace.append({"name": "Ichimoku cloud position", "status": "warn",
+                      "detail": "price inside the cloud — consolidation, wait for break"})
+    elif cp == "BELOW":
+        trace.append({"name": "Ichimoku cloud position", "status": "fail",
+                      "detail": "price below the cloud — downtrend, forward cloud is resistance"})
+    else:
+        trace.append({"name": "Ichimoku cloud position", "status": "warn",
+                      "detail": "— (need ≥78 bars to draw the forward cloud)"})
 
     # Volume conviction. >1.5x = institutions buying; <0.8x = thin air;
     # 0.8–1.5x = normal. Surfaces the "is this rally on conviction or
@@ -588,6 +614,24 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
             if atr_14 is not None and last_price not in (None, 0):
                 atr_14_pct = (atr_14 / last_price) * 100.0
 
+    # Ichimoku cloud position — universal context signal (TRADEPRO sprint
+    # §7). Computed regardless of whether the ichimoku_cloud strategy
+    # is in position, so the decision-trace check #6 fires for every
+    # symbol. Needs OHLC + at least 78 bars to draw a full forward
+    # cloud (52 + 26 displacement); under that we leave it None.
+    ichimoku_cloud_position: str | None = None
+    if all(c in prices.columns for c in ("high", "low", "close")) and len(prices) >= 78:
+        ich = ichimoku(prices["high"], prices["low"], prices["close"])
+        cloud_high = ich["cloud_high"].iloc[-1]
+        cloud_low = ich["cloud_low"].iloc[-1]
+        if last_price is not None and not pd.isna(cloud_high) and not pd.isna(cloud_low):
+            if last_price > cloud_high:
+                ichimoku_cloud_position = "ABOVE"
+            elif last_price < cloud_low:
+                ichimoku_cloud_position = "BELOW"
+            else:
+                ichimoku_cloud_position = "INSIDE"
+
     state = MarketState(
         symbol=symbol, as_of=as_of, last_price=last_price,
         sma_200=sma_200, above_sma_200=above,
@@ -608,6 +652,7 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         volume_ratio_20d=volume_ratio_20d,
         atr_14=atr_14,
         atr_14_pct=atr_14_pct,
+        ichimoku_cloud_position=ichimoku_cloud_position,
     )
     state.entry_signal, state.entry_reason = _classify(state)
     state.decision_trace = _build_trace(state)

@@ -31,6 +31,64 @@ def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> 
     })
 
 
+def ichimoku(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    tenkan: int = 9,
+    kijun: int = 26,
+    senkou_b: int = 52,
+    displacement: int = 26,
+) -> pd.DataFrame:
+    """Ichimoku Cloud — five lines that together describe trend, momentum,
+    and forward support/resistance. Built for the energy-commodities
+    sprint where the cloud boundaries double as price targets and the
+    Kijun-sen as the natural stop, but the math is universal so the
+    strategy registry exposes it for any universe.
+
+    All periods configurable so a per-universe override (energy might
+    prefer 7/22/44) can dial them. Displacement (forward shift for
+    Senkou spans, backward shift for Chikou) is conventionally fixed
+    to kijun but kept separate for future tuning.
+
+    Returns a DataFrame with: tenkan, kijun, senkou_a, senkou_b,
+    chikou, cloud_high, cloud_low, cloud_thickness. Senkou spans are
+    aligned to the bar they DESCRIBE (i.e. the value at index i is the
+    cloud you should compare price_i against — shifted forward at
+    construction time so the trader reads "today's cloud" off "today's
+    row").
+    """
+    def _midrange(window: int) -> pd.Series:
+        return (high.rolling(window=window, min_periods=window).max()
+                + low.rolling(window=window, min_periods=window).min()) / 2
+
+    tenkan_line = _midrange(tenkan)
+    kijun_line = _midrange(kijun)
+    # Senkou Span A is the midpoint of Tenkan + Kijun, shifted forward.
+    # Aligning to the bar-being-described means shift(+displacement).
+    senkou_a = ((tenkan_line + kijun_line) / 2).shift(displacement)
+    senkou_b = _midrange(senkou_b).shift(displacement)
+    # Chikou is today's close shifted BACK, so the value at index i is
+    # the close `displacement` bars in the future relative to bar i.
+    # Used to verify "current price is higher than where it was X bars
+    # ago" without indexing arithmetic in the strategy code.
+    chikou = close.shift(-displacement)
+
+    cloud_high = pd.concat([senkou_a, senkou_b], axis=1).max(axis=1)
+    cloud_low = pd.concat([senkou_a, senkou_b], axis=1).min(axis=1)
+
+    return pd.DataFrame({
+        "tenkan": tenkan_line,
+        "kijun": kijun_line,
+        "senkou_a": senkou_a,
+        "senkou_b": senkou_b,
+        "chikou": chikou,
+        "cloud_high": cloud_high,
+        "cloud_low": cloud_low,
+        "cloud_thickness": cloud_high - cloud_low,
+    })
+
+
 def atr(
     high: pd.Series,
     low: pd.Series,

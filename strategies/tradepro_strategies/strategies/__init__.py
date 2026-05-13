@@ -8,6 +8,7 @@ import pandas as pd
 
 from .buy_and_hold import buy_and_hold_signals
 from .donchian_breakout import donchian_breakout_signals
+from .ichimoku_cloud import ichimoku_cloud_signals, ichimoku_targets
 from .macd_signal_cross import macd_signal_cross_signals
 from .rsi_mean_reversion import rsi_mean_reversion_signals
 from .sma_crossover import sma_crossover_signals
@@ -47,6 +48,15 @@ REGISTRY: dict[str, Factory] = {
             lookback=int(params.get("lookback", 20)),
         )
     ),
+    "ichimoku_cloud": lambda params: (
+        lambda df: ichimoku_cloud_signals(
+            df,
+            tenkan=int(params.get("tenkan", 9)),
+            kijun=int(params.get("kijun", 26)),
+            senkou_b=int(params.get("senkou_b", 52)),
+            displacement=int(params.get("displacement", 26)),
+        )
+    ),
 }
 
 
@@ -69,4 +79,6 @@ __all__ = [
     "rsi_mean_reversion_signals",
     "macd_signal_cross_signals",
     "donchian_breakout_signals",
+    "ichimoku_cloud_signals",
+    "ichimoku_targets",
 ]

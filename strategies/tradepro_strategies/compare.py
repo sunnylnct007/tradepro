@@ -283,6 +283,21 @@ def _row_for(
         if int(r["bars"]) > 0
     ]
 
+    # Ichimoku targets: price_target, stop_level, rr_ratio, cloud
+    # position lines. Computed for the ichimoku_cloud strategy only —
+    # other strategies don't have a cloud, surfacing these would
+    # confuse the reader. The bucket layer surfaces them at row
+    # top-level when the active strategy has them so the website can
+    # render "BUY → £42.50, stop £38.10, R/R 2.3x" alongside the
+    # verdict.
+    ichimoku_extras: dict = {}
+    if strategy.name == "ichimoku_cloud":
+        try:
+            from .strategies import ichimoku_targets
+            ichimoku_extras = ichimoku_targets(adjusted, **strategy.params)
+        except Exception:  # noqa: BLE001 — best-effort; row still ships
+            ichimoku_extras = {}
+
     return {
         "symbol": symbol,
         "strategy": strategy.name,
@@ -305,6 +320,7 @@ def _row_for(
         "currency": currency,
         "data_age_days": data_age_days,
         "historical_earnings": history,
+        "ichimoku": ichimoku_extras or None,
         "error": None,
     }
 
@@ -485,6 +501,29 @@ def _attach_bucket_and_rationale(
                 logger.emit("compare.rationale_failed", symbol=symbol, error=str(e))
             rationale_dict = None
 
+        # Look for an active Ichimoku long position on this symbol —
+        # if the ichimoku_cloud strategy is currently long and the
+        # cloud-targets dict was computed, lift price_target /
+        # stop_level / rr_ratio to symbol top-level so the website
+        # can render "BUY → $42.50, stop $38.10, R/R 2.3x" alongside
+        # the verdict (TRADEPRO sprint §6).
+        ichimoku_promote: dict = {}
+        for r in sym_rows:
+            if r.get("strategy") != "ichimoku_cloud":
+                continue
+            if not r.get("in_position"):
+                continue
+            ich = r.get("ichimoku") or {}
+            if ich.get("price_target") is None:
+                continue
+            ichimoku_promote = {
+                "price_target": ich.get("price_target"),
+                "stop_level": ich.get("stop_level"),
+                "rr_ratio": ich.get("rr_ratio"),
+                "price_target_source": "ichimoku_cloud",
+            }
+            break
+
         # Copy bucket + reason + sentiment-demoted flag + rationale onto
         # every row for this symbol so the frontend can render any row's
         # expand panel without re-deriving.
@@ -494,6 +533,15 @@ def _attach_bucket_and_rationale(
             r["sentiment_demoted"] = sentiment_demoted
             if rationale_dict is not None:
                 r["rationale"] = rationale_dict
+            # Top-level price target keys land on every row of this
+            # symbol so the website can read them regardless of which
+            # strategy row is in focus. Missing = no active ichimoku
+            # signal, frontend renders without the target sub-row.
+            if ichimoku_promote:
+                r["price_target"] = ichimoku_promote["price_target"]
+                r["stop_level"] = ichimoku_promote["stop_level"]
+                r["rr_ratio"] = ichimoku_promote["rr_ratio"]
+                r["price_target_source"] = ichimoku_promote["price_target_source"]
 
 
 def _merge_scored(news: list[NewsItem], scored: list[ScoredHeadline]) -> list[dict]:
