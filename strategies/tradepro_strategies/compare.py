@@ -446,7 +446,7 @@ def apply_horizon_and_range_demotion(
     reason: str,
     horizon_classification: dict | None,
     range_pct: float | None,
-    extreme_range_threshold: float = 95.0,
+    extreme_range_threshold: float = 85.0,
 ) -> tuple[str, str, bool]:
     """Demote a BUY to WAIT when the entry-timing risk is bad enough
     that the bucket-vote consensus shouldn't override it.
@@ -495,15 +495,40 @@ def apply_horizon_and_range_demotion(
     # upgrade (new 52w high + fresh catalyst). When the swing horizon
     # scores the row as BUY, that means the event-driven layer found
     # something — let the BUY through despite the high range_pct.
+    #
+    # Threshold tightened from 95 → 85 May 2026 (user bug report #7):
+    # at 85th percentile the geometric risk/reward is already
+    # asymmetric (3p upside vs 8p downside in the typical case) and
+    # the swing-BUY exception still preserves breakouts with a real
+    # catalyst — etf_factor BUYs at 96th pctile no longer pass without
+    # the swing layer explicitly agreeing.
     if range_pct is not None and range_pct >= extreme_range_threshold:
         swing_signal_b = ((horizon_classification or {}).get("swing") or {}).get("signal")
         if swing_signal_b != "BUY":
             return (
                 "WAIT",
                 (f"Range demotion: {range_pct:.0f}th percentile of 52w range "
-                 f"AND swing horizon not BUY — buying at the top without a "
-                 f"fresh catalyst. {reason}"),
+                 f"(≥ {extreme_range_threshold:.0f}) AND swing horizon not BUY "
+                 f"— buying near the top without a fresh catalyst. {reason}"),
                 True,
+            )
+
+    # Rule C — long-term BUY + swing AVOID: position-only call, not a
+    # fresh swing entry. Surfaces the NVDA/AMZN class where the
+    # multi-year story is intact but the entry timing is bad. Doesn't
+    # change the bucket (it stays whatever Rules A/B and compute_bucket
+    # produced) but enriches the reason so the user sees the split.
+    if horizon_classification:
+        swing_signal_c = (horizon_classification.get("swing") or {}).get("signal")
+        long_signal_c = (horizon_classification.get("long_term") or {}).get("signal")
+        if long_signal_c == "BUY" and swing_signal_c == "AVOID":
+            return (
+                bucket,
+                (f"{reason} "
+                 f"Long-term horizon = BUY but swing horizon = AVOID: "
+                 f"strong multi-year hold candidate, NOT a fresh swing "
+                 f"entry today."),
+                False,
             )
 
     return bucket, reason, False

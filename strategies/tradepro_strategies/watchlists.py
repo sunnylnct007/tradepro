@@ -43,9 +43,12 @@ WATCHLISTS: dict[str, list[str]] = {
     # for a UK investor.
     "etf_us_core": [
         "VOO",      # Vanguard S&P 500
+        "IVV",      # iShares Core S&P 500 — major alternative to VOO
         "VTI",      # Vanguard Total US Stock Market
+        "VXUS",     # Vanguard Total International Stock — ex-US broad
         "QQQ",      # Invesco Nasdaq 100
         "IWM",      # iShares Russell 2000 (small-cap)
+        "SCHD",     # Schwab US Dividend Equity — popular high-dividend
         "EFA",      # iShares MSCI EAFE (developed ex-US)
         "EEM",      # iShares MSCI Emerging Markets
         "AGG",      # iShares Core US Aggregate Bond
