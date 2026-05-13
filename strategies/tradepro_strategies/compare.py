@@ -339,29 +339,45 @@ def compute_bucket(
     paths (the MCP `evaluate_symbols` tool) can use it without paying
     the news-fetching latency.
 
-    When price_verdict is HOLD but strategy consensus elevates the
-    bucket to BUY, the reason text combines both signals so the
-    user sees why a BUY is paired with a HOLD-style "no fresh entry
-    edge" caveat — without that, the digest reads contradictorily
-    ("BUY: no rush to add").
+    BUY requires price_verdict == "BUY" — when market_state has
+    decided HOLD/WAIT/AVOID, those carry through regardless of how
+    many strategies are still long. The earlier "HOLD + majority
+    long → BUY" promotion conflated "already in position" with
+    "good time to add" and was responsible for the MTUM / VLUE /
+    QUAL / USMV class of contradictions (bucket=BUY while the same
+    row's entry_signal=HOLD at 96-100th-pctile of 52w range).
+
+    A confident BUY also requires majority-strategy long — otherwise
+    only one or two strategies have an edge here and we WAIT for
+    broader confirmation.
     """
     majority_long = long_count > total / 2 if total > 0 else False
     if price_verdict == "AVOID":
         return "AVOID", price_reason or "Confirmed downtrend."
     if price_verdict == "WAIT":
         return "WAIT", price_reason or "Better entries likely soon."
-    if majority_long and price_verdict == "BUY":
+    if price_verdict == "BUY":
+        if majority_long:
+            return (
+                "BUY",
+                price_reason
+                or f"{long_count} of {total} strategies currently long; "
+                   f"price action supports entry.",
+            )
         return (
-            "BUY",
-            price_reason
-            or f"{long_count} of {total} strategies currently long; "
-               f"price action supports entry.",
+            "WAIT",
+            f"Price-action gate passes but only {long_count} of {total} "
+            f"strategies are long — wait for broader confirmation.",
         )
-    if majority_long and price_verdict == "HOLD":
+    # price_verdict == "HOLD" (or anything else we didn't model) →
+    # never BUY. HOLD means "no fresh entry edge per market_state".
+    # If you're already long, the per-strategy in_position state
+    # tells you that; the bucket should not say BUY.
+    if majority_long:
         consensus = f"{long_count} of {total} strategies currently long"
         if price_reason:
-            return ("BUY", f"{consensus}; price: {price_reason}")
-        return ("BUY", f"{consensus}; price action supports entry.")
+            return ("WAIT", f"{consensus} but {price_reason} — no fresh entry edge.")
+        return ("WAIT", f"{consensus} but no fresh entry edge per market_state.")
     return (
         "WAIT",
         f"Only {long_count} of {total} strategies are currently long "
@@ -473,14 +489,22 @@ def apply_horizon_and_range_demotion(
                 True,
             )
 
-    # Rule B — extreme range-position cap.
+    # Rule B — extreme range-position cap, GATED on the swing horizon
+    # NOT saying BUY. The unconditional version of this rule would have
+    # blocked legitimate breakout BUYs like MU on the Deutsche Bank
+    # upgrade (new 52w high + fresh catalyst). When the swing horizon
+    # scores the row as BUY, that means the event-driven layer found
+    # something — let the BUY through despite the high range_pct.
     if range_pct is not None and range_pct >= extreme_range_threshold:
-        return (
-            "WAIT",
-            (f"Range demotion: {range_pct:.0f}th percentile of 52w range — "
-             f"sitting at the top, asymmetric risk/reward. {reason}"),
-            True,
-        )
+        swing_signal_b = ((horizon_classification or {}).get("swing") or {}).get("signal")
+        if swing_signal_b != "BUY":
+            return (
+                "WAIT",
+                (f"Range demotion: {range_pct:.0f}th percentile of 52w range "
+                 f"AND swing horizon not BUY — buying at the top without a "
+                 f"fresh catalyst. {reason}"),
+                True,
+            )
 
     return bucket, reason, False
 
@@ -505,7 +529,26 @@ def _attach_bucket_and_rationale(
 
         ms = best.get("market_state") or {}
         price_verdict = ms.get("entry_signal", "HOLD")
-        long_count = sum(1 for r in sym_rows if r.get("in_position"))
+        # Long-count: count only strategies that are BOTH in position
+        # AND historically profitable (Sharpe >= 0 on this symbol). A
+        # negative-Sharpe strategy holding a long position is bleeding
+        # money on the backtest; its "vote" shouldn't elevate the
+        # bucket consensus. Strategies with no stats (e.g. empty bars)
+        # don't vote either way.
+        def _votes_long(row: dict) -> bool:
+            if not row.get("in_position"):
+                return False
+            sharpe = (row.get("stats") or {}).get("sharpe")
+            if sharpe is None:
+                return False
+            try:
+                if float(sharpe) < 0:
+                    return False
+            except (TypeError, ValueError):
+                return False
+            return True
+
+        long_count = sum(1 for r in sym_rows if _votes_long(r))
         total = len(sym_rows)
         bucket, reason = compute_bucket(
             price_verdict=price_verdict,

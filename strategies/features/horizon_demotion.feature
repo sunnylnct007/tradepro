@@ -38,3 +38,14 @@ Feature: Horizon + range veto on BUY bucket
     When I apply the horizon and range demotion
     Then the resulting bucket is "WAIT"
     And the horizon demoted flag is False
+
+  Scenario: breakout BUY at the high is preserved when swing horizon also says BUY
+    # MU yesterday: new 52w high + Deutsche Bank PT raise + swing horizon
+    # found a real catalyst. Range veto should NOT fire — the bucket
+    # stays BUY because the event-driven layer agrees this is the entry.
+    Given a starting BUY bucket with reason "majority long + breakout"
+    And horizon_classification swing signal is "BUY" with score 7
+    And range_pct is 100
+    When I apply the horizon and range demotion
+    Then the resulting bucket is "BUY"
+    And the horizon demoted flag is False

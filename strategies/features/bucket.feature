@@ -24,19 +24,26 @@ Feature: Multi-strategy bucket vote (BUY / WAIT / AVOID)
     When I compute the bucket
     Then the bucket is BUY
 
-  Scenario: HOLD with majority long becomes BUY (consensus + price reason both surface)
+  # Behaviour change May 2026: HOLD never elevates to BUY regardless of
+  # how many strategies are still long. Earlier behaviour conflated
+  # "already in position" with "good time to add" and surfaced bucket=BUY
+  # on rows whose own market_state said HOLD (MTUM/VLUE/QUAL at 96-100th
+  # pctile of 52w range). The bucket now mirrors the price verdict on
+  # HOLD with the consensus shown as context.
+
+  Scenario: HOLD with majority long becomes WAIT (consensus reads as "still in but no edge")
     Given price verdict HOLD with reason "no fresh entry edge"
     And 3 of 5 strategies currently long
     When I compute the bucket
-    Then the bucket is BUY
+    Then the bucket is WAIT
     And the reason mentions "3 of 5 strategies currently long"
     And the reason mentions "no fresh entry edge"
 
-  Scenario: HOLD with majority long and no price reason — count surfaces
+  Scenario: HOLD with majority long and no price reason — count surfaces but bucket stays WAIT
     Given price verdict HOLD with no reason
     And 3 of 5 strategies currently long
     When I compute the bucket
-    Then the bucket is BUY
+    Then the bucket is WAIT
     And the reason mentions "3 of 5 strategies currently long"
 
   Scenario: HOLD with minority long becomes WAIT
