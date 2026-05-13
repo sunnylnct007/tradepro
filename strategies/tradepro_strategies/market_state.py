@@ -82,8 +82,12 @@ class MarketState:
     entry_reason: str
     # Each item: {"name", "status" ∈ pass|warn|fail, "detail"}.
     # The trace is the audit trail behind entry_signal — every check the
-    # classifier looked at, not just the one that fired.
-    decision_trace: list[dict[str, Any]]
+    # classifier looked at, not just the one that fired. Default-empty
+    # so the empty-prices early-return path can construct a MarketState
+    # without passing decision_trace explicitly (Yahoo occasionally
+    # returns 0 bars for a symbol mid-refresh; we want a clean
+    # no-data envelope, not a TypeError).
+    decision_trace: list[dict[str, Any]] = field(default_factory=list)
     # When + at what price the 52w high and running peak were set.
     # These give a percentage like "−20.7% off 52w high" the context
     # it needs ("set 11 months ago, before the April crash") so the

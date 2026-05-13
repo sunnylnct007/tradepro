@@ -61,9 +61,9 @@ Feature: Plain-English rationale (no hallucination)
 
   # ---- Prompt v3: ETF passive guard against the "N/A as single-stock" hallucination ----
 
-  Scenario: PROMPT_VERSION pinned to v4-precise-numbers (cache-key invalidation)
+  Scenario: PROMPT_VERSION pinned to v5-trader-voice (cache-key invalidation)
     When I read the rationale module's PROMPT_VERSION
-    Then PROMPT_VERSION equals "v4-precise-numbers"
+    Then PROMPT_VERSION equals "v5-trader-voice"
 
   Scenario: cache key changes when PROMPT_VERSION changes (so v2 cache entries auto-invalidate)
     Given two cache keys for the same facts but different prompt versions

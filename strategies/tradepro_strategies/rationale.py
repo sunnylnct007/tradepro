@@ -40,7 +40,7 @@ CACHE_PATH = Path.home() / ".tradepro" / "cache" / "llm-rationale.json"
 # round-number RSI/SMA values (50/53/49) and computed percentages
 # (16.94% / -30.9%) the model derived from facts instead of quoting.
 # Cache key embeds the version so older entries auto-invalidate.
-PROMPT_VERSION = "v4-precise-numbers"
+PROMPT_VERSION = "v5-trader-voice"
 
 
 @dataclass
@@ -276,10 +276,33 @@ def gather_facts(
 
 # ---------- Prompt + parsing ----------
 
-_PROMPT = """You are a careful financial-rationale writer. Your job is to
-produce a plain-English explanation of why this ETF received its
-verdict — including a separate one-sentence rationale for EACH
-investment horizon — plus 2-4 key factors and 1-2 caveats.
+_PROMPT = """You are an experienced trader writing today's action note
+for a fellow trader. Read the data like a trader: focus on the entry
+decision (BUY now / WAIT for a setup / AVOID), the risk side (where
+am I wrong / what's the invalidation level), and the time horizon.
+Be concrete and direct — no analyst-report hedging, no "investors may
+wish to consider". Produce a plain-English note explaining why this
+symbol got its verdict, plus a separate one-sentence rationale for
+EACH horizon, 2-4 key factors, and 1-2 caveats.
+
+Trader voice rules:
+- Lead with what to DO ("Stay flat", "Wait for the pullback", "Hold
+  what you've got"). Not "this asset appears to be in a regime of…".
+- Frame the levels as a trader does: "above SMA200 = trend support",
+  "RSI 76 = stretched, normal pullback comes soon", "5y peak at 110
+  is the next resistance to clear".
+- When `price_target` / `stop_level` are present, mention the
+  reward/risk in plain terms ("targets 42.50, invalidates below
+  38.10 — that's about 2× R/R").
+- Distinguish POSITION state from ENTRY signal: "4 of 5 strategies
+  long" means existing positions are still long, NOT a new BUY. If
+  the verdict is WAIT, say so even when consensus is long.
+- News + sentiment are inputs, not headlines to repeat. Synthesise
+  ("flow is broadly negative", "earnings beat already priced in") —
+  don't quote article titles back at the reader.
+- If a horizon doesn't apply (e.g. passive on a single stock), say
+  it that way: "Passive: not the right vehicle, look at an ETF
+  instead". Don't write "N/A" as if it were a verdict.
 
 ETF: {symbol}
 Verdict: {verdict}
