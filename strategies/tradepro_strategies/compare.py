@@ -424,6 +424,67 @@ def apply_sentiment_demotion(
     return bucket, reason, False
 
 
+def apply_horizon_and_range_demotion(
+    *,
+    bucket: str,
+    reason: str,
+    horizon_classification: dict | None,
+    range_pct: float | None,
+    extreme_range_threshold: float = 95.0,
+) -> tuple[str, str, bool]:
+    """Demote a BUY to WAIT when the entry-timing risk is bad enough
+    that the bucket-vote consensus shouldn't override it.
+
+    Two veto rules:
+
+    Rule A — Swing-horizon AVOID veto. The swing horizon (1-8w) reads
+    the same data the bucket vote does, but specifically scores
+    entry-timing risk (range_pct, RSI, drawdown proximity). If swing
+    has decided AVOID, the row should NOT surface as BUY — that means
+    the trend-followers are still long but the entry edge is gone.
+    The previous logic (HOLD + majority-long → BUY) ignored this and
+    surfaced BUY on QUAL/USMV at the 100th-percentile of their 52w
+    range. This rule downgrades that to WAIT.
+
+    Rule B — Extreme range-pct cap. range_pct ≥ 95 means the price
+    is sitting at the absolute top of its 52w range — a literal
+    new-high zone. Buying at the high is the worst-timed entry by
+    construction; downgrade BUY → WAIT independent of horizon.
+
+    Pure function. Returns (bucket, reason, demoted_flag). Demotion
+    flag lets the bucket trace surface "downgraded by horizon veto"
+    as a separate line so the user can see why it didn't BUY.
+    """
+    if bucket != "BUY":
+        return bucket, reason, False
+
+    # Rule A — swing-horizon AVOID veto.
+    if horizon_classification:
+        swing = (horizon_classification.get("swing") or {})
+        swing_signal = swing.get("signal")
+        swing_score = swing.get("score")
+        if swing_signal == "AVOID":
+            score_str = f" (score {swing_score}/8)" if swing_score is not None else ""
+            return (
+                "WAIT",
+                (f"Horizon demotion: swing horizon AVOID{score_str} — "
+                 f"entry-timing edge is gone even though the multi-"
+                 f"strategy consensus is still long. {reason}"),
+                True,
+            )
+
+    # Rule B — extreme range-position cap.
+    if range_pct is not None and range_pct >= extreme_range_threshold:
+        return (
+            "WAIT",
+            (f"Range demotion: {range_pct:.0f}th percentile of 52w range — "
+             f"sitting at the top, asymmetric risk/reward. {reason}"),
+            True,
+        )
+
+    return bucket, reason, False
+
+
 def _attach_bucket_and_rationale(
     rows: list[dict],
     mean_threshold: float,
@@ -464,6 +525,20 @@ def _attach_bucket_and_rationale(
             material_negative_count=ss.get("material_negative_count", 0),
             mean_threshold=mean_threshold,
             min_material=min_material,
+        )
+
+        # Horizon-veto + extreme-range demotion. Fixes the QUAL/USMV-
+        # at-100th-percentile BUY bug where the strategy consensus was
+        # long but every horizon (swing/long-term/passive) screamed
+        # AVOID/WATCH. The bucket vote on its own conflates "already
+        # in position" with "good time to add" — this rule separates
+        # them by reading the swing horizon's entry-timing verdict.
+        bucket, reason, horizon_demoted = apply_horizon_and_range_demotion(
+            bucket=bucket,
+            reason=reason,
+            horizon_classification=best.get("horizon_classification"),
+            range_pct=best.get("range_pct") or ms.get("range_pct")
+                or ms.get("range_position_pct"),
         )
 
         # Build the rationale once per symbol from the best row's data.
@@ -531,6 +606,10 @@ def _attach_bucket_and_rationale(
             r["bucket"] = bucket
             r["bucket_reason"] = reason
             r["sentiment_demoted"] = sentiment_demoted
+            # Horizon / range demotion flag surfaced separately so the
+            # UI can show "BUY → WAIT because the swing horizon said
+            # AVOID at the 100th percentile" instead of just "WAIT".
+            r["horizon_demoted"] = horizon_demoted
             if rationale_dict is not None:
                 r["rationale"] = rationale_dict
             # Top-level price target keys land on every row of this

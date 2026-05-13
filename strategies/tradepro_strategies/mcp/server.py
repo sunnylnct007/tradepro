@@ -38,13 +38,44 @@ def build_server():
 
     @mcp.tool()
     @instrumented("get_compare")
-    def get_compare(universe: str) -> str:
-        """Full ranked-comparison payload for a universe.
-        Includes per-row stats, regime history, sentiment, and
-        decision_trace. Each row has a `_source` URI for citation.
+    def get_compare(
+        universe: str,
+        top_n: int = 20,
+        fields: str | None = None,
+        strip_bloat: bool = True,
+    ) -> str:
+        """Ranked-comparison payload for a universe — MCP-sized by default.
+
+        Defaults are tuned to fit Claude's tool-result limit on busy
+        universes (etf_uk_core with 13 ETFs × 5 strategies = 65 rows
+        of full envelopes blows past 1 MB). Override the defaults if
+        you specifically need verbose context:
+
+          top_n=0 → return all rows (no truncation; only safe on small
+            universes — uk_ftse100_sample produces ~100 rows).
+          strip_bloat=False → keep the per-row verbose blocks
+            (decision_trace, news, rationale, regimes, fundamentals,
+            historical_earnings, swing_score, horizon_classification).
+            Together they're ~20 KB per row.
+          fields="symbol,bucket,stats,current_action" → return ONLY
+            those fields per row. Overrides strip_bloat. Identity +
+            citation fields (symbol, strategy, _source) are always
+            kept so citations still work.
+
+        For deep per-symbol context, prefer get_market_state /
+        get_news_with_sentiment / get_regime_history on the symbols
+        you actually want to drill into.
+
         Cite a number as `tradepro://compare/<universe>/rows[<i>]/<field>`.
         """
-        return _json(t.get_compare(universe))
+        # top_n=0 sentinel → no truncation (None on the tools side).
+        effective_top_n: int | None = top_n if top_n > 0 else None
+        return _json(t.get_compare(
+            universe,
+            top_n=effective_top_n,
+            fields=fields,
+            strip_bloat=strip_bloat,
+        ))
 
     @mcp.tool()
     @instrumented("get_market_state")

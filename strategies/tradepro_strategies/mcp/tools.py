@@ -110,10 +110,45 @@ def list_universes() -> dict:
     }
 
 
-def get_compare(universe: str) -> dict:
+# Fields stripped by default in the MCP-friendly compact mode. Each is
+# verbose (multi-KB per row) and rarely useful for the LLM at the
+# universe-overview level — the user can pull the same data per-symbol
+# via get_news_with_sentiment / get_regime_history / get_market_state.
+_BLOAT_FIELDS = (
+    "decision_trace",     # the per-rule trace; rationale already summarises
+    "news",               # full headlines + sentiment per row
+    "rationale",          # 5-paragraph LLM block per row
+    "sentiment_summary",  # rolling sentiment object
+    "regimes",            # per-row regime stats
+    "external_consensus", # analyst consensus block
+    "fundamentals",       # full quoteSummary
+    "historical_earnings",# 5y earnings dates list
+    "closes_30d",         # 30-element close array (chart input)
+    "swing_score",        # detailed swing scorer block
+    "horizon_classification",  # multi-horizon verdict block
+)
+
+
+def get_compare(
+    universe: str,
+    top_n: int | None = None,
+    fields: str | list[str] | None = None,
+    strip_bloat: bool = False,
+) -> dict:
     """Full ranked-comparison payload for a universe. Each row has its
     own `_source` substring so a claim like 'QQQ Sharpe 0.94' can be
-    cited as `tradepro://compare/etf_us_core/rows[0]/stats/sharpe`."""
+    cited as `tradepro://compare/etf_us_core/rows[0]/stats/sharpe`.
+
+    Optional shape controls so callers (especially MCP, which has a
+    tool-result size limit) can downsize the payload:
+
+      top_n: keep only the first N rows after ranking. None = all.
+      fields: comma-separated string OR list of row-field names to
+        KEEP. Everything else is dropped. None = keep all.
+      strip_bloat: drop the standard "verbose" fields
+        (decision_trace, news, rationale, etc.) — overridden by
+        `fields` if also set.
+    """
     if not universe:
         return _err("get_compare", "universe is required")
     try:
@@ -135,12 +170,48 @@ def get_compare(universe: str) -> dict:
         if sym and sym not in seen_symbols:
             row["_source_symbol_best"] = f"tradepro://compare/{universe}/best/{sym}"
             seen_symbols.add(sym)
+
+    # Apply top_n FIRST so any bloat stripping only iterates the rows
+    # we're keeping.
+    original_count = len(rows)
+    truncated = False
+    if isinstance(top_n, int) and top_n > 0 and original_count > top_n:
+        rows = rows[:top_n]
+        truncated = True
+
+    # Field whitelisting / bloat stripping.
+    if fields is not None:
+        if isinstance(fields, str):
+            field_set = {f.strip() for f in fields.split(",") if f.strip()}
+        else:
+            field_set = set(fields)
+        # Always preserve identity + citation fields so the LLM can
+        # still cite back to source.
+        field_set |= {"symbol", "strategy", "_source", "_source_symbol_best"}
+        rows = [
+            {k: v for k, v in row.items() if k in field_set}
+            for row in rows
+        ]
+    elif strip_bloat:
+        rows = [
+            {k: v for k, v in row.items() if k not in _BLOAT_FIELDS}
+            for row in rows
+        ]
+
+    # Mutate the envelope's rows array in place so the rest of the
+    # payload (universe meta, errors, market_context) stays intact.
+    if "payload" in data and isinstance(data["payload"], dict):
+        data["payload"]["rows"] = rows
+
     return {
         "_source": f"tradepro://compare/{universe}",
         "fetched_at": _now_iso(),
         "universe": universe,
         "ok": True,
         "envelope": data,
+        "row_count_returned": len(rows),
+        "row_count_total": original_count,
+        "truncated": truncated,
     }
 
 
