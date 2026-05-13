@@ -82,6 +82,46 @@ public static class Indicators
         return (macd, sig, hist);
     }
 
+    /// Wilder's Average True Range. Same math as the Python side
+    /// (tradepro_strategies.indicators.atr) so a backtest with
+    /// ATR-multiplier stops produces the same exit levels as the
+    /// comparator's market_state.atr_14 reading on the same data.
+    /// First `period` bars are null because there's no prior close
+    /// to gap-test against.
+    public static decimal?[] Atr(
+        IReadOnlyList<decimal> high,
+        IReadOnlyList<decimal> low,
+        IReadOnlyList<decimal> close,
+        int period = 14)
+    {
+        var n = close.Count;
+        var result = new decimal?[n];
+        if (n <= period) return result;
+        // True Range series (skipping bar 0, which has no prior close).
+        var tr = new decimal[n];
+        for (var i = 1; i < n; i++)
+        {
+            var prev = close[i - 1];
+            var r1 = high[i] - low[i];
+            var r2 = Math.Abs(high[i] - prev);
+            var r3 = Math.Abs(low[i] - prev);
+            tr[i] = Math.Max(r1, Math.Max(r2, r3));
+        }
+        // Wilder smoothing: seed with simple average of first `period` TRs,
+        // then EMA-style update with alpha = 1/period.
+        decimal seed = 0m;
+        for (var i = 1; i <= period; i++) seed += tr[i];
+        seed /= period;
+        result[period] = seed;
+        decimal prevAtr = seed;
+        for (var i = period + 1; i < n; i++)
+        {
+            prevAtr = (prevAtr * (period - 1) + tr[i]) / period;
+            result[i] = prevAtr;
+        }
+        return result;
+    }
+
     /// Donchian channel — rolling N-bar high and low (close-based).
     public static (decimal?[] high, decimal?[] low)
         Donchian(IReadOnlyList<decimal> closes, int lookback)

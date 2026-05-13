@@ -95,6 +95,16 @@ export const HELP: Record<string, HelpEntry> = {
     body:
       "How many SELL trades came from the stop-loss overlay (trailing or fixed) rather than the strategy's own exit signal. Lets you see whether the risk overlay is actively shaping the outcome or sitting unused. The trade table's Reason column tells you which stop fired for each exit.",
   },
+  trailing_atr: {
+    title: "Trailing × ATR stop",
+    body:
+      "Exit when price drops X × ATR(14) below the highest close seen since entry. ATR scales with the symbol's own volatility — a 2× ATR stop on NG=F is wider than the same on USMV because gas is more volatile. Better than fixed % stops on instruments with big intraday ranges. Set 0 to disable. Works alongside the % stops — whichever trips first wins.",
+  },
+  fixed_atr: {
+    title: "Fixed × ATR stop",
+    body:
+      "Exit when price drops X × ATR(14, pinned at entry) below the entry price. The ATR is captured on the day of entry and doesn't move — gives a deterministic invalidation level the moment the trade opens. Set 0 to disable. Works alongside the % stops — whichever trips first wins.",
+  },
   initial_capital: {
     title: "Starting capital",
     body:

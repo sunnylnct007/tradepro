@@ -50,10 +50,14 @@ export function Simulations() {
   const [donchian, setDonchian] = useState(20);
   const [stampDuty, setStampDuty] = useState(0.005);
   const [commission, setCommission] = useState(0);
-  // Stop-loss overlay. Both can be set together — whichever trips
-  // first closes the position. 0 = disabled.
+  // Stop-loss overlay. Up to four variants can be set together —
+  // whichever trips first closes the position. 0 = disabled for any.
+  // Percentage stops are fixed-width; ATR-multiple stops scale with
+  // volatility (good for futures like NG=F where 5% is a noise day).
   const [trailingStopPct, setTrailingStopPct] = useState(0);
   const [fixedStopPct, setFixedStopPct] = useState(0);
+  const [trailingAtrMultiple, setTrailingAtrMultiple] = useState(0);
+  const [fixedAtrMultiple, setFixedAtrMultiple] = useState(0);
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -104,7 +108,7 @@ export function Simulations() {
               currency: config.defaultCurrency,
               fees: { commissionPerTrade: commission, stampDutyRate: stampDuty, fxSpread: 0 },
               params: paramsFor(s),
-              stopLoss: stopLossPayload(trailingStopPct, fixedStopPct),
+              stopLoss: stopLossPayload(trailingStopPct, fixedStopPct, trailingAtrMultiple, fixedAtrMultiple),
             };
             const r = await api.runSimulation(req);
             return { strategy: s, result: r, error: null as string | null };
@@ -142,7 +146,10 @@ export function Simulations() {
                 : strategy === "donchian_breakout"
                   ? { lookback: donchian }
                   : null,
-        stopLoss: stopLossPayload(trailingStopPct, fixedStopPct),
+        stopLoss: stopLossPayload(
+          trailingStopPct, fixedStopPct,
+          trailingAtrMultiple, fixedAtrMultiple,
+        ),
       };
       const r = await api.runSimulation(req);
       setResult(r);
@@ -319,6 +326,28 @@ export function Simulations() {
             placeholder="0 = off"
           />
         </Labelled>
+        <Labelled label="Trailing × ATR" help="trailing_atr">
+          <input
+            type="number"
+            min={0}
+            max={10}
+            step={0.25}
+            value={trailingAtrMultiple}
+            onChange={(e) => setTrailingAtrMultiple(Number(e.target.value))}
+            placeholder="0 = off"
+          />
+        </Labelled>
+        <Labelled label="Fixed × ATR" help="fixed_atr">
+          <input
+            type="number"
+            min={0}
+            max={10}
+            step={0.25}
+            value={fixedAtrMultiple}
+            onChange={(e) => setFixedAtrMultiple(Number(e.target.value))}
+            placeholder="0 = off"
+          />
+        </Labelled>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <button
             className="primary"
@@ -467,13 +496,30 @@ export function Simulations() {
 }
 
 /** Build the `stopLoss` field for the SimulationRequest. Returns
- *  `null` when neither stop is active so the API doesn't see a stray
- *  `{ trailingPct: 0, fixedPct: 0 }` payload that means the same
- *  thing but reads as "configured but zero". */
-function stopLossPayload(trailingPct: number, fixedPct: number): { trailingPct?: number; fixedPct?: number } | null {
-  const out: { trailingPct?: number; fixedPct?: number } = {};
+ *  `null` when no stop is active so the API doesn't see a stray
+ *  all-zero payload that means the same thing but reads as
+ *  "configured but zero". */
+function stopLossPayload(
+  trailingPct: number,
+  fixedPct: number,
+  trailingAtrMultiple: number,
+  fixedAtrMultiple: number,
+): {
+  trailingPct?: number;
+  fixedPct?: number;
+  trailingAtrMultiple?: number;
+  fixedAtrMultiple?: number;
+} | null {
+  const out: {
+    trailingPct?: number;
+    fixedPct?: number;
+    trailingAtrMultiple?: number;
+    fixedAtrMultiple?: number;
+  } = {};
   if (trailingPct > 0) out.trailingPct = trailingPct;
   if (fixedPct > 0) out.fixedPct = fixedPct;
+  if (trailingAtrMultiple > 0) out.trailingAtrMultiple = trailingAtrMultiple;
+  if (fixedAtrMultiple > 0) out.fixedAtrMultiple = fixedAtrMultiple;
   return Object.keys(out).length > 0 ? out : null;
 }
 

@@ -35,14 +35,32 @@ public sealed class Simulator : ISimulator
         var signals = strategy.Generate(candles, req.Params ?? new Dictionary<string, double>());
         var trailing = NormalisedStopPct(req.StopLoss?.TrailingPct);
         var fixedStop = NormalisedStopPct(req.StopLoss?.FixedPct);
+        // ATR-multiplier stops scale with volatility instead of a fixed
+        // percentage. Pre-compute the whole ATR(14) series once so the
+        // bar loop just indexes into it — same Wilder math as the
+        // Python comparator's market_state.atr_14.
+        var trailingAtr = req.StopLoss?.TrailingAtrMultiple;
+        var fixedAtr = req.StopLoss?.FixedAtrMultiple;
+        var useAtr = (trailingAtr is > 0m) || (fixedAtr is > 0m);
+        decimal?[] atrSeries = useAtr
+            ? Indicators.Atr(
+                candles.Select(c => c.High).ToArray(),
+                candles.Select(c => c.Low).ToArray(),
+                candles.Select(c => c.Close).ToArray(),
+                14)
+            : Array.Empty<decimal?>();
 
         decimal cash = req.InitialCapital;
         decimal qty = 0m;
         // Entry-anchored levels for the stop overlay. `entryPrice` is
         // set on the BUY fill; `highWaterMark` rolls up each bar while
         // we're in position so trailing stops lock in gains.
+        // `entryAtr` is the ATR reading at the bar of entry — Fixed
+        // ATR stops anchor to this so the stop level doesn't drift
+        // with subsequent vol changes.
         decimal entryPrice = 0m;
         decimal highWaterMark = 0m;
+        decimal entryAtr = 0m;
         int stopExits = 0;
         var trades = new List<Trade>();
         var equity = new List<EquityPoint>(candles.Count);
@@ -60,29 +78,48 @@ public sealed class Simulator : ISimulator
             // Stop-loss evaluated FIRST each bar so a same-bar
             // strategy-exit signal can't pre-empt the risk overlay —
             // the whole point of the stop is to be the floor.
-            if (qty > 0m && (trailing.HasValue || fixedStop.HasValue))
+            //
+            // Up to FOUR stops can fire on the same bar. Combine the
+            // reason string so the trade log tells the truth about
+            // which gates tripped (often >1 on a sharp move).
+            if (qty > 0m && (trailing.HasValue || fixedStop.HasValue
+                             || trailingAtr is > 0m || fixedAtr is > 0m))
             {
-                bool trailingHit = trailing.HasValue
+                // Current bar's ATR (null until the indicator's warmup
+                // period elapses). Used by the trailing-ATR stop.
+                decimal currentAtr = (useAtr && atrSeries.Length > i)
+                    ? (atrSeries[i] ?? 0m) : 0m;
+
+                bool trailingPctHit = trailing.HasValue
                     && highWaterMark > 0m
                     && price <= highWaterMark * (1m - trailing.Value);
-                bool fixedHit = fixedStop.HasValue
+                bool fixedPctHit = fixedStop.HasValue
                     && entryPrice > 0m
                     && price <= entryPrice * (1m - fixedStop.Value);
+                bool trailingAtrHit = trailingAtr is > 0m
+                    && currentAtr > 0m
+                    && highWaterMark > 0m
+                    && price <= highWaterMark - trailingAtr.Value * currentAtr;
+                bool fixedAtrHit = fixedAtr is > 0m
+                    && entryAtr > 0m
+                    && entryPrice > 0m
+                    && price <= entryPrice - fixedAtr.Value * entryAtr;
 
-                if (trailingHit || fixedHit)
+                if (trailingPctHit || fixedPctHit || trailingAtrHit || fixedAtrHit)
                 {
-                    var reason = (trailingHit, fixedHit) switch
-                    {
-                        (true, true)  => "stop_loss_both",
-                        (true, false) => "stop_loss_trailing",
-                        _             => "stop_loss_fixed",
-                    };
+                    var hits = new List<string>(4);
+                    if (trailingPctHit) hits.Add("trailing");
+                    if (fixedPctHit) hits.Add("fixed");
+                    if (trailingAtrHit) hits.Add("trailing_atr");
+                    if (fixedAtrHit) hits.Add("fixed_atr");
+                    var reason = "stop_loss_" + string.Join("_", hits);
                     var proceeds = qty * price - fees.CommissionPerTrade;
                     cash += proceeds;
                     trades.Add(new Trade(candles[i].Timestamp, "SELL", price, qty, fees.CommissionPerTrade, reason));
                     qty = 0m;
                     entryPrice = 0m;
                     highWaterMark = 0m;
+                    entryAtr = 0m;
                     stopExits++;
                     equity.Add(new EquityPoint(candles[i].Timestamp, cash, cash, 0m));
                     continue;
@@ -103,6 +140,9 @@ public sealed class Simulator : ISimulator
                 qty += boughtQty;
                 entryPrice = price;
                 highWaterMark = price;
+                // Pin the ATR at entry so Fixed-ATR stops anchor to the
+                // volatility on the day we entered, not later vol shifts.
+                entryAtr = (useAtr && atrSeries.Length > i) ? (atrSeries[i] ?? 0m) : 0m;
                 trades.Add(new Trade(candles[i].Timestamp, "BUY", price, boughtQty, totalFees, strategy.Name));
             }
             else if (signals[i] == Signal.Sell && qty > 0m)
@@ -113,6 +153,7 @@ public sealed class Simulator : ISimulator
                 qty = 0m;
                 entryPrice = 0m;
                 highWaterMark = 0m;
+                entryAtr = 0m;
             }
 
             var mark = cash + qty * price;

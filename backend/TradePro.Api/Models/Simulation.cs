@@ -32,18 +32,36 @@ public record SimulationRequest(
 
 /// <summary>
 /// Optional risk overlay applied on top of the strategy's own exit
-/// signals. Both stops can be set at once — whichever triggers first
-/// closes the position. Either field at null OR 0 means that stop is
-/// disabled.
+/// signals. All four stop variants can be set at once — whichever
+/// triggers first closes the position. Any field at null OR 0 means
+/// that stop is disabled.
 ///
-///   TrailingPct: 10 ⇒ exit when price drops 10% below the highest
-///     close seen since entry. Locks in gains as the trade moves up.
-///   FixedPct:    10 ⇒ exit when price drops 10% below the entry
-///     price. Does not move as the trade progresses.
+/// Percentage stops (TrailingPct / FixedPct) are fixed-width and
+/// don't adapt to volatility — a 5% stop on USMV makes sense, the
+/// same 5% on NG=F (gas futures, often 8% daily range) gets stopped
+/// out by noise.
+///
+/// ATR-multiple stops (TrailingAtrMultiple / FixedAtrMultiple) scale
+/// the stop width with the symbol's own volatility — "stop = 2× ATR
+/// below highest close since entry" widens for vol-y instruments
+/// and tightens for calm ones. ATR(14) is computed inside the
+/// simulator using the same Wilder math as the comparator's
+/// market_state.atr_14.
+///
+///   TrailingPct: 10           ⇒ exit when price drops 10% below the
+///                                highest close seen since entry.
+///   FixedPct:    10           ⇒ exit when price drops 10% below the
+///                                entry price.
+///   TrailingAtrMultiple: 2.0  ⇒ exit when price drops 2× ATR below
+///                                the highest close since entry.
+///   FixedAtrMultiple:    2.0  ⇒ exit when price drops 2× ATR (at
+///                                entry) below the entry price.
 /// </summary>
 public record StopLossConfig(
     decimal? TrailingPct,
-    decimal? FixedPct);
+    decimal? FixedPct,
+    decimal? TrailingAtrMultiple = null,
+    decimal? FixedAtrMultiple = null);
 
 public record Trade(
     DateTime Timestamp,

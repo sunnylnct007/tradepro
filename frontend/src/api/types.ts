@@ -50,13 +50,17 @@ export interface SimulationResult {
   stopLossExits?: number;
 }
 
-/** Optional risk overlay applied on top of the strategy. Either field
- * unset OR 0 disables that stop. Both can be set together — whichever
- * trips first closes the position. Percentages are UI-friendly (10 =
- * 10%), normalised server-side. */
+/** Optional risk overlay applied on top of the strategy. Any field
+ * unset OR 0 disables that stop. All four can be set together —
+ * whichever trips first closes the position with a combined reason.
+ * Percentages are UI-friendly (10 = 10%), normalised server-side.
+ * ATR multiples scale with the symbol's own volatility (computed
+ * inside the simulator via Wilder's 14-bar ATR). */
 export interface StopLossConfig {
   trailingPct?: number | null;
   fixedPct?: number | null;
+  trailingAtrMultiple?: number | null;
+  fixedAtrMultiple?: number | null;
 }
 
 export interface FeeModel {
