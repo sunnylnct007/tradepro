@@ -525,13 +525,37 @@ function CurrencyMixWarning({ currencies }: { currencies: string[] }) {
 }
 
 function DataIssuesPanel({ errors }: { errors: CompareError[] }) {
+  // Errors come from multiple stages — price fetch, sentiment scoring,
+  // schema validation, etc. The old banner labelled all of them
+  // "couldn't be priced" which mislead when only sentiment failed.
+  // Group + label by stage so the headline tells the truth.
+  const byStage = errors.reduce<Record<string, number>>((acc, e) => {
+    const key = e.stage || "other";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const stageLabel: Record<string, string> = {
+    fetch:             "couldn't be priced",
+    no_data:           "had no bars",
+    sentiment:         "had partial sentiment scoring",
+    schema_validation: "failed schema validation",
+  };
+  const headline = Object.entries(byStage)
+    .map(([stage, count]) => `${count} ${stageLabel[stage] ?? stage}`)
+    .join(" · ");
+  // Tone: a fetch / no_data is a hard failure (row unusable); sentiment
+  // is a soft degradation (row still shows, just with less context).
+  // Pick the most severe colour present so the panel matches reality.
+  const hasHardFailure = "fetch" in byStage || "no_data" in byStage
+    || "schema_validation" in byStage;
+  const tone = hasHardFailure ? "var(--down)" : "var(--neutral)";
   return (
     <details
       className="card"
-      style={{ borderLeft: "3px solid var(--down)", padding: "8px 12px" }}
+      style={{ borderLeft: `3px solid ${tone}`, padding: "8px 12px" }}
     >
-      <summary style={{ cursor: "pointer", color: "var(--down)", fontWeight: 600, fontSize: 12 }}>
-        {errors.length} symbol{errors.length === 1 ? "" : "s"} couldn't be priced
+      <summary style={{ cursor: "pointer", color: tone, fontWeight: 600, fontSize: 12 }}>
+        Data quality issues — {headline}
       </summary>
       <ul style={{ margin: "6px 0 0 0", paddingLeft: 16, fontSize: 12, color: "var(--text-dim)" }}>
         {errors.map((e, i) => (
