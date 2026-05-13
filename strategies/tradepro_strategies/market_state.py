@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from .indicators import rsi, sma
+from .indicators import atr, rsi, sma
 
 
 # Thresholds are deliberately conservative and easy to reason about.
@@ -119,6 +119,13 @@ class MarketState:
     # only firing on light volume. None when the price feed has no
     # volume column (some indices) or < 21 bars.
     volume_ratio_20d: float | None = None
+    # Wilder's 14-day Average True Range — absolute-price volatility,
+    # not a percentage. Used for volatility-aware position sizing
+    # ("don't risk more than X per trade") and ATR-multiplier stops
+    # ("trailing = 2x ATR"). Also surfaced as a % of price so the user
+    # can compare "this stock has a 3% daily range" vs another.
+    atr_14: float | None = None
+    atr_14_pct: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -154,6 +161,8 @@ class MarketState:
             "decision_trace": list(self.decision_trace),
             "closes_30d": list(self.closes_30d),
             "volume_ratio_20d": self.volume_ratio_20d,
+            "atr_14": self.atr_14,
+            "atr_14_pct": self.atr_14_pct,
         }
 
 
@@ -566,6 +575,18 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
     # ratio at None and the trace skips the gate cleanly.
     volume_series = prices["volume"] if "volume" in prices.columns else None
     volume_ratio_20d = _volume_ratio_20d(volume_series)
+    # Wilder's 14-day ATR — absolute-price volatility. Needs high/low/
+    # close; if any column is missing (some indices ship close-only)
+    # we leave it None. atr_14_pct surfaces it as a % of last_price
+    # so the UI can compare across symbols at different price levels.
+    atr_14: float | None = None
+    atr_14_pct: float | None = None
+    if all(c in prices.columns for c in ("high", "low", "close")) and len(prices) >= 15:
+        atr_series = atr(prices["high"], prices["low"], prices["close"], 14)
+        if not atr_series.empty:
+            atr_14 = _safe_float(atr_series.iloc[-1])
+            if atr_14 is not None and last_price not in (None, 0):
+                atr_14_pct = (atr_14 / last_price) * 100.0
 
     state = MarketState(
         symbol=symbol, as_of=as_of, last_price=last_price,
@@ -585,6 +606,8 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         range_position_pct=range_position_pct,
         closes_30d=closes_30d,
         volume_ratio_20d=volume_ratio_20d,
+        atr_14=atr_14,
+        atr_14_pct=atr_14_pct,
     )
     state.entry_signal, state.entry_reason = _classify(state)
     state.decision_trace = _build_trace(state)
