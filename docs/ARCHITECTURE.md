@@ -23,17 +23,25 @@ data that produced it.
 
 ## 2. Why this stack
 
+> **Hosting moved May 2026.** Frontend + API now both run on a single
+> AWS t4g.small in eu-west-2, fronted by Caddy (TLS) + nginx. Firebase
+> Hosting + Azure App Service are decommissioned. The live AWS diagram
+> is at `docs/aws-architecture.md` — that's the canonical source for
+> infra; this section keeps the stack rationale.
+
 | Layer | Service | Why |
 |---|---|---|
-| Web UI | React + Vite, hosted on Firebase Hosting (project `smsp-291e3`) | Free tier covers single-user + small audiences; good DX; custom domain `showsoldprice.com` |
-| Auth | Firebase Authentication (Google sign-in) | Zero-code identity, JWT tokens, UID whitelist via backend config |
-| API | .NET 8 minimal API on Azure App Service (Linux, `tradepro-api`) | Strongly-typed domain; good with numeric code; deploys as a zip |
-| DB | Firestore on Firebase Spark (free) | Realtime listeners give us bidirectional Mac↔UI without opening ports on the Mac |
-| Research & heavy compute | Python (`tradepro_strategies`) on a MacBook M4 | Vectorised pandas/numpy is fast; MPS for future ML; free |
-| Data | Yahoo Finance only today (Stooq + Binance coded but disabled — Stooq now needs an API key, Binance is crypto-only). IBKR / Alpha Vantage planned. | Free, no key |
+| Web UI | React + Vite, served by nginx in a docker container on the AWS host. Reachable at `https://tradepro.showsoldprice.com` | Static bundle is cheap; nginx handles the SPA fallback + reverse-proxies `/api/*` to the .NET container over the docker network |
+| TLS / reverse proxy | Caddy 2 on the same host | Auto-fetches Let's Encrypt certs via HTTP-01, auto-renews every 60 days, costs £0. HSTS + HTTP/3 out of the box |
+| Auth (SPA shell) | nginx Basic Auth (htpasswd) | One-credential demo gate. Firebase auth is wired in code but turned off (`FIREBASE_REQUIRE_AUTH=false`) for the demo |
+| Auth (worker → API) | Bearer `INGEST_TOKEN` on `/api/ingest/*` | The worker pushes compare + heartbeat payloads; no Firebase round-trip needed |
+| API | .NET 8 minimal API in a docker container on the AWS host | Strongly-typed domain; ARM64 image (Graviton); ~£3-4/mo with nightly auto-stop |
+| Persistent state | Per-universe JSON file store on a named docker volume `tradepro_api_compare_cache` mounted at `/data/compare`; chowned to the API container's app user at startup via a busybox init container | Single-tenant, no managed-DB cost; survives redeploys (post-May 2026 chown fix) |
+| Research & heavy compute | Python (`tradepro_strategies`) on a MacBook M4 | Vectorised pandas/numpy is fast; local LLM (Ollama llama3.1:8b) for rationales keeps inference cost at £0 |
+| Data | Yahoo Finance (default), Trading 212 (portfolio + instruments), Finnhub (earnings calendar — off unless `TRADEPRO_FINNHUB_API_KEY` set). Stooq + Binance present but disabled. | Free or near-free; T212 key+secret pair lives only on the AWS host's `/opt/tradepro/.env`, written via the `aws-set-env` workflow |
 
-Cost target: **£0/month** for a single user. F1 sleep and free-tier quotas
-are our constraints, not money.
+Cost target: **~£3-4/month** for a single user (EC2 + EBS only, EIP free
+while attached). The LLM stays on the Mac so AWS doesn't need GPU.
 
 ---
 
