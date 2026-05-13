@@ -450,6 +450,27 @@ export interface CompareRow {
     eps_actual?: number | null;
     eps_estimate?: number | null;
   }[];
+  /** Top-level price target promoted from an active ichimoku_cloud
+   * signal (or null when no strategy on this symbol emits a target).
+   * Renders as a "→ X · stop Y · R/R Z×" sub-row under the verdict. */
+  price_target?: number | null;
+  stop_level?: number | null;
+  rr_ratio?: number | null;
+  price_target_source?: string | null;
+  /** Raw Ichimoku line values + cloud_position. Present only on the
+   * ichimoku_cloud strategy row, not aggregated. The expand panel
+   * uses this to draw the cloud bands on the chart in a follow-up. */
+  ichimoku?: {
+    price_target?: number | null;
+    stop_level?: number | null;
+    rr_ratio?: number | null;
+    cloud_position?: "ABOVE" | "INSIDE" | "BELOW" | null;
+    cloud_high?: number | null;
+    cloud_low?: number | null;
+    cloud_thickness?: number | null;
+    tenkan_sen?: number | null;
+    kijun_sen?: number | null;
+  } | null;
   rank: number;
   error: string | null;
   /** Family-3 signal: rank + zscore vs basket peers on 12-month return.

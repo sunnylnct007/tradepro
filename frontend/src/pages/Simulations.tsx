@@ -175,7 +175,26 @@ export function Simulations() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Backtest — historical replay</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <h1 style={{ margin: 0, fontSize: 24 }}>Backtest — historical replay</h1>
+          {/* Horizon pill so the result is read in context: daily-bar
+              backtests, weeks-to-years horizon, not intraday. */}
+          <span
+            title="Backtests run on daily bars. They are NOT intraday or day-trading simulations."
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "3px 10px",
+              borderRadius: 999,
+              background: "rgba(155, 110, 255, 0.14)",
+              color: "#cbb6ff",
+              border: "1px solid rgba(155, 110, 255, 0.35)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            HORIZON · DAILY BARS · MEDIUM TO LONG
+          </span>
+        </div>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 880, lineHeight: 1.55 }}>
           <strong style={{ color: "var(--text)" }}>What this page does:</strong>{" "}
           Replay a strategy on historical data: "if I'd traded symbol X with

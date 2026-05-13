@@ -87,6 +87,26 @@ REGIMES: list[Regime] = [
            _utc(2025, 4, 1), _utc(2025, 4, 9),
            "crash",
            "Reciprocal-tariff announcement. S&P -12% in 4 sessions before partial reversal."),
+    # ---- Energy commodity regimes (TRADEPRO sprint §4.3) ---------------
+    # Specific to the energy_commodities universe but kept in this list
+    # because regime_stats slices on date overlap, not on asset — non-
+    # energy backtests just produce zero-bar rows for these windows and
+    # the comparator filters them out (`if int(r["bars"]) > 0`).
+    Regime("energy_crisis_2021", "European energy crisis",
+           _utc(2021, 9, 1), _utc(2021, 12, 31),
+           "crash",
+           "Gas storage shortfall ahead of winter + low wind output. "
+           "TTF +500% peak-to-trough, NBP tracking, Henry Hub +60%."),
+    Regime("russia_ukraine_2022", "Russia-Ukraine gas shock",
+           _utc(2022, 2, 24), _utc(2022, 8, 31),
+           "crash",
+           "European gas peaks at ~€340/MWh on Nord Stream cuts. "
+           "Brent to $130. Demand-destruction rhetoric across EU."),
+    Regime("ttf_collapse_2023", "TTF demand collapse",
+           _utc(2023, 1, 1), _utc(2023, 6, 30),
+           "drawdown",
+           "Mild winter + LNG arrivals + industrial demand destruction. "
+           "TTF fell from €80 to €25; Henry Hub halved alongside."),
 ]
 
 

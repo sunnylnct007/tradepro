@@ -99,9 +99,28 @@ export function Dashboard() {
       {/* Header with verdict */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 28 }}>Today's Market Snapshot</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <h1 style={{ margin: 0, fontSize: 28 }}>Today's Market Snapshot</h1>
+            {/* Horizon pill: every verdict on this page is daily-bar
+                medium-to-long-term reasoning, not intraday. */}
+            <span
+              title="These signals are computed on daily bars across multi-year history. They are NOT intraday or day-trading calls."
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "3px 10px",
+                borderRadius: 999,
+                background: "rgba(155, 110, 255, 0.14)",
+                color: "#cbb6ff",
+                border: "1px solid rgba(155, 110, 255, 0.35)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              HORIZON · MEDIUM TO LONG
+            </span>
+          </div>
           <p style={{ color: "var(--text-dim)", marginTop: 4 }}>
-            {buyCount} BUY · {waitCount} WAIT · {avoidCount} AVOID
+            {buyCount} BUY · {waitCount} WAIT · {avoidCount} AVOID — for weeks-to-years horizons; not intraday.
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>
             Refreshes every 30 minutes · {marketContext ? `VIX: ${marketContext.vix?.toFixed(1) ?? "—"} · 10Y: ${marketContext.tnx?.toFixed(2) ?? "—"}%` : "Loading market context..."}

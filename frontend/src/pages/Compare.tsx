@@ -101,7 +101,28 @@ export function Compare() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Should I invest today?</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <h1 style={{ margin: 0, fontSize: 24 }}>Should I invest today?</h1>
+          {/* Explicit horizon pill so a newcomer can't mistake these
+              verdicts for intraday calls. The engine reasons on daily
+              bars with SMA200 / 12m momentum / 5y drawdown — that's a
+              weeks-to-months horizon, no faster. */}
+          <span
+            title="These signals are computed on daily bars across multi-year history. They are NOT intraday or day-trading calls."
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "3px 10px",
+              borderRadius: 999,
+              background: "rgba(155, 110, 255, 0.14)",
+              color: "#cbb6ff",
+              border: "1px solid rgba(155, 110, 255, 0.35)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            HORIZON · MEDIUM TO LONG (weeks – years)
+          </span>
+        </div>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
           For long-horizon (months-to-years) investing. Each asset in the
           selected universe — ETF (e.g. <code>etf_us_core</code>) or
@@ -113,7 +134,7 @@ export function Compare() {
           (b) how many of the 5 strategies are currently long the asset.
           The rule chain is identical for ETFs and stocks; ETF-specific
           fundamentals (expense ratio, AUM, top holdings) only show when
-          they apply.
+          they apply. <strong>Not for intraday or day-trading.</strong>
         </p>
       </div>
 
@@ -741,8 +762,31 @@ function MatrixRow({
         </Td>
         <Td align="center" style={{ color: verdictColour, fontWeight: 700 }}>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-            <span>{view.bucket}</span>
+            <span>{view.bucket === "BUY" ? "BUY NOW" : view.bucket}</span>
             <RiskPill rating={view.bestRow.risk_rating ?? null} />
+            {/* Ichimoku price target sub-row — only visible when the
+                ichimoku_cloud strategy is currently long and computed
+                a target. Matches TRADEPRO sprint §8: traders want to
+                see the level the verdict is targeting, plus the
+                invalidation level (stop) and the resulting R/R. */}
+            {view.bestRow.price_target != null && (
+              <span
+                style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 500, lineHeight: 1.3 }}
+                title={
+                  `Target ${view.bestRow.price_target.toFixed(2)} = Senkou B (opposite cloud boundary). ` +
+                  `Stop ${view.bestRow.stop_level?.toFixed(2) ?? "—"} = Kijun-sen (entry invalidation). ` +
+                  `Source: ${view.bestRow.price_target_source ?? "n/a"}.`
+                }
+              >
+                → {view.bestRow.price_target.toFixed(2)}
+                {view.bestRow.stop_level != null && (
+                  <> · stop {view.bestRow.stop_level.toFixed(2)}</>
+                )}
+                {view.bestRow.rr_ratio != null && (
+                  <> · R/R {view.bestRow.rr_ratio.toFixed(1)}×</>
+                )}
+              </span>
+            )}
           </div>
         </Td>
         <Td align="center">
@@ -766,18 +810,29 @@ function MatrixRow({
 function StrategyCell({ row }: { row?: CompareRow }) {
   if (!row) return <span style={{ color: "var(--text-muted)" }}>—</span>;
   if (row.in_position) {
+    // Neutral blue (NOT --up green) — the green colour belongs to the
+    // bucket verdict (BUY NOW), not the position state. Conflating
+    // them made "4/5 LONG" read as "buy now" even when the verdict
+    // was WAIT. Tooltip spells the distinction explicitly.
     return (
       <span
-        style={{ color: "var(--up)", fontWeight: 600 }}
-        title={`Long since ${row.position_since?.slice(0, 10) ?? "—"}`}
+        style={{ color: "#7aaeff", fontWeight: 600 }}
+        title={
+          `Strategy has held a long position since ${row.position_since?.slice(0, 10) ?? "—"}. ` +
+          `This is a position STATE, not a new entry recommendation. ` +
+          `For "should I buy now?", read the Verdict column.`
+        }
       >
-        ● LONG
+        ▲ Long
       </span>
     );
   }
   return (
-    <span style={{ color: "var(--text-muted)" }} title="Strategy is currently flat (not holding this asset)">
-      ○ flat
+    <span
+      style={{ color: "var(--text-muted)" }}
+      title="Strategy is currently flat (no position). Not a SELL signal — just no entry edge for this strategy right now."
+    >
+      — Flat
     </span>
   );
 }
