@@ -13,6 +13,13 @@
 
 set -uo pipefail
 
+# etf_all fans out across ~50 symbols, each doing a Yahoo fetch + a
+# news fetch + multiple Ollama HTTP calls. macOS default ulimit -n is
+# usually 256, which gets exhausted partway through and the run fails
+# with `OSError: [Errno 24] Too many open files`. Bump to 4096 — well
+# above worst-case concurrent socket + log-handle count.
+ulimit -n 4096 2>/dev/null || true
+
 PROJECT_DIR="${TRADEPRO_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 LOG_DIR="$HOME/.tradepro/logs"
 mkdir -p "$LOG_DIR"
