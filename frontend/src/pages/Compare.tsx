@@ -245,9 +245,20 @@ function buildSymbolViews(
       ? (ms.entry_signal as EntrySignal)
       : "HOLD";
 
+    // Bucket is the SERVER's answer. compare.py already runs the full
+    // pipeline (price/strategy vote → sentiment demotion → horizon &
+    // range demotion) and writes the final bucket + bucket_reason onto
+    // every row. The frontend MUST NOT re-derive this — doing so threw
+    // away horizon demotion and surfaced "TSLA: BUY now" pills next to
+    // server-issued WAIT rationales (Bug #11/TSLA). The fallback below
+    // only runs for payloads from older API versions that didn't carry
+    // bucket fields yet (defence-in-depth, not a parallel decision).
     let bucket: SymbolView["bucket"];
     let reason: string;
-    if (priceVerdict === "AVOID") {
+    if (best.bucket) {
+      bucket = best.bucket;
+      reason = best.bucket_reason ?? "";
+    } else if (priceVerdict === "AVOID") {
       bucket = "AVOID";
       reason = ms?.entry_reason || "Confirmed downtrend.";
     } else if (priceVerdict === "WAIT") {
@@ -258,29 +269,27 @@ function buildSymbolViews(
       reason = ms?.entry_reason ||
         `${longCount} of ${total} strategies currently long; price action supports entry.`;
     } else {
-      // Price OK but strategies don't yet agree — wait for confirmation.
       bucket = "WAIT";
       reason = `Only ${longCount} of ${total} strategies are currently long — wait for more confirmation.`;
     }
 
-    // Sentiment demotion. Pure data + thresholds out of the payload —
-    // no hidden behaviour. The user can read demotionRule.description
-    // in the LLM badge to see the exact rule that ran.
-    let demoted = false;
+    // Sentiment demotion display flag. With the server bucket as the
+    // source of truth, the only thing the UI needs to determine locally
+    // is whether to render the "sentiment demoted" amber banner. We
+    // still infer it from sentiment + threshold so the banner shows
+    // even when the server marks `sentiment_demoted=false` but the
+    // sentiment is the only reason the bucket dropped to WAIT. Server's
+    // `best.sentiment_demoted` takes precedence when present.
+    let demoted = Boolean(best.sentiment_demoted);
     let demotionReason: string | undefined;
-    if (bucket === "BUY" && demotionRule) {
+    if (demoted && demotionRule) {
       const s = best.sentiment_summary;
-      if (s && s.mean_sentiment !== null
-          && s.mean_sentiment <= demotionRule.mean_sentiment_threshold
-          && s.material_negative_count >= demotionRule.min_material_negative_count) {
-        demoted = true;
+      if (s && s.mean_sentiment !== null) {
         demotionReason =
           `Sentiment demotion: 7d mean ${s.mean_sentiment.toFixed(2)} ` +
           `≤ threshold ${demotionRule.mean_sentiment_threshold} ` +
           `AND ${s.material_negative_count} material-negative headlines ` +
           `(threshold ≥ ${demotionRule.min_material_negative_count}).`;
-        bucket = "WAIT";
-        reason = demotionReason;
       }
     }
 

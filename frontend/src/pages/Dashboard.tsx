@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   CompareLatestResponse,
+  CompareRow,
   EntrySignal,
 } from "../api/types";
 import { HorizonPills } from "../components/HorizonPills";
@@ -55,24 +56,29 @@ export function Dashboard() {
       .catch(() => {});
   }, []);
 
-  // Extract BUY picks from compare data
-  const buys = compareData?.payload?.rows?.filter(row => {
-    if (!row.market_state) return false;
-    const signal = row.market_state.entry_signal as EntrySignal;
-    return signal === "BUY";
-  }).sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).slice(0, 5) ?? [];
+  // Filter by SERVER bucket, not raw entry_signal. Same lesson as
+  // Compare.tsx (Bug #11/TSLA): entry_signal is the pre-demotion price
+  // verdict and ignores horizon/sentiment demotions. The server-side
+  // bucket is the final answer; the dashboard's BUY/WAIT/AVOID cards
+  // must use it or they'll feature symbols the rest of the app says
+  // WAIT on. Fallback to entry_signal only when bucket is absent
+  // (older payloads).
+  const pickBucket = (row: CompareRow): "BUY" | "WAIT" | "AVOID" | null => {
+    if (row.bucket) return row.bucket;
+    if (!row.market_state) return null;
+    const sig = row.market_state.entry_signal as EntrySignal;
+    if (sig === "BUY" || sig === "WAIT" || sig === "AVOID") return sig;
+    return null;
+  };
 
-  const waits = compareData?.payload?.rows?.filter(row => {
-    if (!row.market_state) return false;
-    const signal = row.market_state.entry_signal as EntrySignal;
-    return signal === "WAIT";
-  }).sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).slice(0, 5) ?? [];
+  const buys = compareData?.payload?.rows?.filter(row => pickBucket(row) === "BUY")
+    .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).slice(0, 5) ?? [];
 
-  const avoids = compareData?.payload?.rows?.filter(row => {
-    if (!row.market_state) return false;
-    const signal = row.market_state.entry_signal as EntrySignal;
-    return signal === "AVOID";
-  }).sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).slice(0, 5) ?? [];
+  const waits = compareData?.payload?.rows?.filter(row => pickBucket(row) === "WAIT")
+    .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).slice(0, 5) ?? [];
+
+  const avoids = compareData?.payload?.rows?.filter(row => pickBucket(row) === "AVOID")
+    .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)).slice(0, 5) ?? [];
 
   const buyCount = buys.length;
   const waitCount = waits.length;

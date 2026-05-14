@@ -19,7 +19,7 @@ shapes and surface whatever is present.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 @dataclass
@@ -99,9 +99,26 @@ def _from_modern(raw: dict) -> NewsItem | None:
     )
 
 
-def fetch_news(symbol: str, limit: int = 8) -> list[NewsItem]:
+def fetch_news(
+    symbol: str,
+    limit: int = 8,
+    max_age_days: int = 14,
+) -> list[NewsItem]:
     """Best-effort. Returns [] on any failure — empty headlines are not
-    a reason to fail the comparator run."""
+    a reason to fail the comparator run.
+
+    Yahoo's `Ticker.news` returns whatever is in its store, in no
+    particular order, with no freshness guarantee — users reported
+    seeing 55-day-old items rendered as if current. To compensate:
+      * over-fetch (3× limit) so we have headroom after filtering,
+      * drop items older than `max_age_days` (default 14d),
+      * sort newest-first,
+      * trim to `limit`.
+
+    Items with no `published_at` are kept and treated as recent
+    (Yahoo's older shape sometimes omits the timestamp; dropping them
+    would empty the news list for those symbols).
+    """
     try:
         import yfinance as yf
     except ImportError:
@@ -111,14 +128,42 @@ def fetch_news(symbol: str, limit: int = 8) -> list[NewsItem]:
     except Exception:  # noqa: BLE001
         return []
 
-    out: list[NewsItem] = []
-    for raw in items[:limit]:
+    parsed: list[NewsItem] = []
+    # Over-fetch — yfinance ignores extra so this is a no-op when the
+    # store has fewer than 3*limit items, but on liquid names it gives
+    # us a wider candidate pool to drop old items from.
+    for raw in items[: max(limit * 3, limit)]:
         if not isinstance(raw, dict):
             continue
-        # Modern shape first (post-yfinance 0.2.40-ish).
         item = _from_modern(raw) if "content" in raw else None
         if item is None:
             item = _from_legacy(raw)
         if item is not None:
-            out.append(item)
-    return out
+            parsed.append(item)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+
+    def _ts(item: NewsItem) -> datetime | None:
+        if not item.published_at:
+            return None
+        try:
+            ts = datetime.fromisoformat(item.published_at.replace("Z", "+00:00"))
+            return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return None
+
+    fresh: list[tuple[NewsItem, datetime | None]] = []
+    for item in parsed:
+        ts = _ts(item)
+        if ts is None or ts >= cutoff:
+            fresh.append((item, ts))
+
+    # Sort: timestamped items newest-first, untimestamped items last.
+    # `datetime.min` sorts oldest, so we use (-ts.timestamp(), 0) for
+    # timestamped and (inf, 1) for untimestamped to keep them at the
+    # tail without losing them entirely.
+    fresh.sort(key=lambda pair: (
+        -(pair[1].timestamp() if pair[1] else float("-inf")),
+        0 if pair[1] else 1,
+    ))
+    return [item for item, _ in fresh[:limit]]
