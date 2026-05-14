@@ -5,6 +5,7 @@ import type {
   CompareLatestResponse,
   EntrySignal,
 } from "../api/types";
+import { HorizonPills } from "../components/HorizonPills";
 
 /** Local T212 position shape — mirrors what /api/integrations/trading212/positions
  * actually returns (see Portfolio.tsx for the full schema). Defined inline
@@ -241,6 +242,14 @@ export function Dashboard() {
                       <div style={{ marginTop: 4 }}>
                         {row.market_state?.entry_reason ?? "—"}
                       </div>
+                      {/* Three-pill horizon breakdown so the user can
+                          tell a "swing BUY" from a "long-term BUY" at
+                          a glance without clicking through. */}
+                      {row.horizon_classification && (
+                        <div style={{ marginTop: 8 }}>
+                          <HorizonPills classification={row.horizon_classification} />
+                        </div>
+                      )}
                     </div>
                   )}
                 </Link>
@@ -295,6 +304,11 @@ export function Dashboard() {
                   {row && (
                     <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
                       {row.market_state?.entry_reason ?? "—"}
+                      {row.horizon_classification && (
+                        <div style={{ marginTop: 8 }}>
+                          <HorizonPills classification={row.horizon_classification} />
+                        </div>
+                      )}
                     </div>
                   )}
                 </Link>
@@ -349,6 +363,11 @@ export function Dashboard() {
                   {row && (
                     <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
                       {row.market_state?.entry_reason ?? "—"}
+                      {row.horizon_classification && (
+                        <div style={{ marginTop: 8 }}>
+                          <HorizonPills classification={row.horizon_classification} />
+                        </div>
+                      )}
                     </div>
                   )}
                 </Link>
