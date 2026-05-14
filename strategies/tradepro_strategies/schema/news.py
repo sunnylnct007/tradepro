@@ -22,6 +22,7 @@ class NewsItem(TPModel):
 class SentimentSummary(TPModel):
     """7-day rolling aggregate per symbol."""
     items_considered: int = 0
+    material_items_considered: int = 0
     mean_sentiment: float | None = None
     very_negative_count: int = 0
     material_negative_count: int = 0

@@ -100,15 +100,17 @@ class SentimentTelemetry:
 class SentimentSummary:
     """7-day rolling aggregate per symbol — what the decision_trace check
     actually consumes."""
-    items_considered: int
-    mean_sentiment: float | None
-    very_negative_count: int      # items with sentiment <= -0.5
-    material_negative_count: int  # those that are also material
-    most_negative: str | None     # the single worst headline title
+    items_considered: int          # total in-window items (any material flag)
+    material_items_considered: int # subset used for mean_sentiment
+    mean_sentiment: float | None   # mean over MATERIAL items only
+    very_negative_count: int       # items with sentiment <= -0.5
+    material_negative_count: int   # those that are also material
+    most_negative: str | None      # the single worst MATERIAL headline title
 
     def to_dict(self) -> dict:
         return {
             "items_considered": self.items_considered,
+            "material_items_considered": self.material_items_considered,
             "mean_sentiment": self.mean_sentiment,
             "very_negative_count": self.very_negative_count,
             "material_negative_count": self.material_negative_count,
@@ -336,22 +338,48 @@ def summarise_recent(
     if not pairs:
         return SentimentSummary(
             items_considered=0,
+            material_items_considered=0,
             mean_sentiment=None,
             very_negative_count=0,
             material_negative_count=0,
             most_negative=None,
         )
 
-    sentiments = [s.sentiment for s, _ in pairs if s.sentiment is not None]
-    mean = sum(sentiments) / len(sentiments) if sentiments else None
+    # Mean is computed over MATERIAL items only — a Dave-Ramsey "retire at
+    # 65" piece tagged to NVDA shouldn't drag NVDA's mean down. Headlines
+    # the LLM flagged material=false are filler/noise; counting them gave
+    # spurious negative readings (Bug #14). Non-material items still count
+    # toward items_considered so callers can see the raw volume.
+    material_pairs = [(s, raw) for s, raw in pairs if s.material]
+    material_sentiments = [
+        s.sentiment for s, _ in material_pairs if s.sentiment is not None
+    ]
+    mean = (
+        sum(material_sentiments) / len(material_sentiments)
+        if material_sentiments
+        else None
+    )
     very_neg = [s for s, _ in pairs if s.sentiment is not None and s.sentiment <= -0.5]
     material_neg = [s for s in very_neg if s.material]
-    worst = min(pairs, key=lambda p: p[0].sentiment if p[0].sentiment is not None else 0)
+    # "most_negative" follows the same material-only rule — picking a
+    # noise headline as the worst was the symptom the user saw.
+    worst_pair = (
+        min(material_pairs, key=lambda p: p[0].sentiment if p[0].sentiment is not None else 0)
+        if material_pairs
+        else None
+    )
 
     return SentimentSummary(
         items_considered=len(pairs),
+        material_items_considered=len(material_pairs),
         mean_sentiment=mean,
         very_negative_count=len(very_neg),
         material_negative_count=len(material_neg),
-        most_negative=worst[0].title if worst[0].sentiment is not None and worst[0].sentiment <= 0 else None,
+        most_negative=(
+            worst_pair[0].title
+            if worst_pair is not None
+            and worst_pair[0].sentiment is not None
+            and worst_pair[0].sentiment <= 0
+            else None
+        ),
     )

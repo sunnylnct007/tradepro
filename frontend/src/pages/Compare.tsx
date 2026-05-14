@@ -866,7 +866,16 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
           />
         </div>
       )}
-      {rationale && <RationalePanel rationale={rationale} />}
+      {/* Bug #2 — when the verdict is WAIT/AVOID, this banner sits
+          ABOVE the rationale so a skimming reader hits the gating
+          reason before any prose. The server already rewrites the
+          rationale summary to be coherent with the verdict; this is
+          the second line of defence for any cache entries / template
+          fallbacks where positive-entry phrasing could leak. */}
+      {(view.bucket === "WAIT" || view.bucket === "AVOID") && (
+        <VerdictLede bucket={view.bucket} reason={view.bucketReason} />
+      )}
+      {rationale && <RationalePanel rationale={rationale} bucket={view.bucket} />}
       {view.sentimentDemoted && view.sentimentDemotionReason && (
         <div
           style={{
@@ -959,7 +968,43 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
  * when the LLM rationale couldn't be verified or the LLM was
  * unavailable). Either way the content is factually safe — every
  * number traces to the input facts. */
-function RationalePanel({ rationale }: { rationale: CompareRationale }) {
+/** Verdict lede — single coherent sentence rendered above the LLM
+ *  rationale when bucket is WAIT/AVOID, so a skimmer can't act on a
+ *  contradictory positive narrative. The colour matches bucketColour
+ *  for the WAIT/AVOID states. */
+function VerdictLede({ bucket, reason }: { bucket: "WAIT" | "AVOID"; reason: string }) {
+  const tone = bucket === "AVOID" ? "var(--down)" : "var(--neutral)";
+  const bg =
+    bucket === "AVOID" ? "rgba(255,80,80,0.06)" : "rgba(255,180,80,0.06)";
+  const label = bucket === "AVOID" ? "AVOID today" : "WAIT — not an entry today";
+  return (
+    <div
+      style={{
+        marginBottom: 10,
+        padding: "10px 12px",
+        borderLeft: `3px solid ${tone}`,
+        background: bg,
+        borderRadius: 4,
+        fontSize: 13,
+        color: "var(--text)",
+      }}
+    >
+      <span style={{ color: tone, fontWeight: 700, marginRight: 6 }}>{label}.</span>
+      <span style={{ color: "var(--text-dim)" }}>{reason}</span>
+    </div>
+  );
+}
+
+function RationalePanel({
+  rationale,
+  bucket,
+}: {
+  rationale: CompareRationale;
+  /** Lets the panel de-emphasise itself for WAIT/AVOID so the
+   *  prominent message is the VerdictLede that sits above it. */
+  bucket?: "BUY" | "WAIT" | "AVOID";
+}) {
+  const muted = bucket === "WAIT" || bucket === "AVOID";
   // Verification status drives the badge colour + icon. The previous
   // version always showed a green ✓ when `verified=true`, but the
   // template-fallback rationale is `verified=true` even when the LLM
@@ -1000,7 +1045,9 @@ function RationalePanel({ rationale }: { rationale: CompareRationale }) {
           marginBottom: 6,
         }}
       >
-        <span className="stat-label">In plain English</span>
+        <span className="stat-label">
+          {muted ? "Detail (verdict is above)" : "In plain English"}
+        </span>
         <span
           style={{ fontSize: 10, color: sourceColour, fontWeight: 600 }}
           title={badgeTitle}
@@ -1009,7 +1056,7 @@ function RationalePanel({ rationale }: { rationale: CompareRationale }) {
           {badgeIcon}
         </span>
       </div>
-      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
+      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: muted ? "var(--text-dim)" : "var(--text)" }}>
         {rationale.summary}
       </p>
       {rationale.key_factors && rationale.key_factors.length > 0 && (

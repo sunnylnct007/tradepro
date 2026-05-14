@@ -25,12 +25,18 @@ WATCHLISTS: dict[str, list[str]] = {
     # in an ISA / SIPP. GBP-denominated except VUSA (USD); the comparator
     # should normalise before ranking across currencies.
     "etf_uk_core": [
-        "VWRP.L",   # Vanguard FTSE All-World (acc)
-        "VUSA.L",   # Vanguard S&P 500
-        "SWDA.L",   # iShares Core MSCI World (acc) — most-held LSE ETF
+        "VWRP.L",   # Vanguard FTSE All-World (acc) — global, accumulating
+        "VWRL.L",   # Vanguard FTSE All-World (dist) — same fund, dist class. Probably the most-held LSE ETF on Trading 212.
+        "VUSA.L",   # Vanguard S&P 500 (USD-denominated, dist)
+        "CSPX.L",   # iShares Core S&P 500 (USD-denominated, acc) — common alt to VUSA
+        "SWDA.L",   # iShares Core MSCI World (USD, acc) — large-cap dev-world index
+        "HMWO.L",   # HSBC MSCI World — cheaper rival to SWDA
+        "SWLD.L",   # SPDR MSCI World — third major MSCI World option
         "VUKE.L",   # Vanguard FTSE 100
         "VMID.L",   # Vanguard FTSE 250
         "ISF.L",    # iShares Core FTSE 100
+        "IUKD.L",   # iShares UK Dividend
+        "IGLT.L",   # iShares Core UK Gilts
         "VEUR.L",   # Vanguard FTSE Developed Europe ex-UK
         "VJPN.L",   # Vanguard FTSE Japan
         "VFEM.L",   # Vanguard FTSE Emerging Markets

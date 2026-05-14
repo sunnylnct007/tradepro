@@ -89,11 +89,17 @@ public sealed class InMemoryWatchlistStore : IWatchlistStore
             Items: new List<WatchlistItem>
             {
                 Etf("VWRP.L", "Vanguard FTSE All-World (acc)"),
+                Etf("VWRL.L", "Vanguard FTSE All-World (dist)"),
                 Etf("VUSA.L", "Vanguard S&P 500"),
+                Etf("CSPX.L", "iShares Core S&P 500 (acc)"),
                 Etf("SWDA.L", "iShares Core MSCI World (acc)"),
+                Etf("HMWO.L", "HSBC MSCI World"),
+                Etf("SWLD.L", "SPDR MSCI World"),
                 Etf("VUKE.L", "Vanguard FTSE 100"),
                 Etf("VMID.L", "Vanguard FTSE 250"),
                 Etf("ISF.L",  "iShares Core FTSE 100"),
+                Etf("IUKD.L", "iShares UK Dividend"),
+                Etf("IGLT.L", "iShares Core UK Gilts"),
                 Etf("VEUR.L", "Vanguard FTSE Developed Europe ex-UK"),
                 Etf("VJPN.L", "Vanguard FTSE Japan"),
                 Etf("VFEM.L", "Vanguard FTSE Emerging Markets"),

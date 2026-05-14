@@ -38,14 +38,23 @@ def _yahoo(req: DataRequest) -> pd.DataFrame:
     # yfinance is imported lazily so the package still imports without it.
     import yfinance as yf
 
-    df = yf.download(
-        req.symbol,
-        start=req.start.strftime("%Y-%m-%d"),
-        end=req.end.strftime("%Y-%m-%d"),
-        interval=req.interval,
-        auto_adjust=False,
-        progress=False,
-    )
+    def _dl(sym: str) -> pd.DataFrame:
+        return yf.download(
+            sym,
+            start=req.start.strftime("%Y-%m-%d"),
+            end=req.end.strftime("%Y-%m-%d"),
+            interval=req.interval,
+            auto_adjust=False,
+            progress=False,
+        )
+
+    df = _dl(req.symbol)
+    # LSE auto-suffix (Bug #17): if a bare ticker comes back empty and
+    # looks like an LSE UCITS ETF / equity (3-4 caps, no dot, no caret),
+    # retry once with ".L" appended — VWRL → VWRL.L. Cheap fallback that
+    # rescues users typing the un-suffixed form they see on brokerage UIs.
+    if df.empty and _looks_like_lse(req.symbol):
+        df = _dl(f"{req.symbol}.L")
     if df.empty:
         return df
     # yfinance >=0.2.40 returns MultiIndex columns even for a single ticker;
@@ -58,6 +67,15 @@ def _yahoo(req: DataRequest) -> pd.DataFrame:
     )
     df.index.name = "timestamp"
     return df[["open", "high", "low", "close", "adj_close", "volume"]]
+
+
+def _looks_like_lse(sym: str) -> bool:
+    if not sym or "." in sym or sym.startswith("^") or "=" in sym:
+        return False
+    s = sym.upper()
+    if not (3 <= len(s) <= 5):
+        return False
+    return all(c.isalpha() for c in s)
 
 
 def _stooq(req: DataRequest) -> pd.DataFrame:

@@ -298,3 +298,39 @@ def step_note_quotes_sentence(context) -> None:
         f"expected the offending sentence to be quoted in the note, "
         f"got notes={context.verifier_notes}"
     )
+
+
+# ----- Bug #2: verdict-coherence guard -----
+
+@given('the LLM emitted a summary "{summary}"')
+def step_llm_emitted_summary(context, summary: str) -> None:
+    from tradepro_strategies.rationale import Rationale, PROMPT_VERSION
+    context.rationale = Rationale(
+        summary=summary,
+        key_factors=["consensus long"],
+        caveats=[],
+        source="llm",
+        prompt_version=PROMPT_VERSION,
+        verified=True,
+    )
+
+
+@when("I enforce verdict coherence on the rationale")
+def step_enforce_coherence(context) -> None:
+    rationale_mod._enforce_verdict_coherence(context.rationale, context.facts)
+    context.verifier_notes = context.rationale.verification_notes
+
+
+@then('the rationale summary contains "{snippet}"')
+def step_summary_contains(context, snippet: str) -> None:
+    assert snippet in context.rationale.summary, (
+        f"expected summary to contain {snippet!r}, got {context.rationale.summary!r}"
+    )
+
+
+@then('the rationale summary no longer contains "{snippet}"')
+def step_summary_no_longer_contains(context, snippet: str) -> None:
+    assert snippet not in context.rationale.summary.lower(), (
+        f"expected summary to be rewritten without {snippet!r}, "
+        f"got {context.rationale.summary!r}"
+    )

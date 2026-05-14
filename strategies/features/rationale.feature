@@ -61,9 +61,9 @@ Feature: Plain-English rationale (no hallucination)
 
   # ---- Prompt v3: ETF passive guard against the "N/A as single-stock" hallucination ----
 
-  Scenario: PROMPT_VERSION pinned to v5-trader-voice (cache-key invalidation)
+  Scenario: PROMPT_VERSION pinned to v6-verdict-coherent (cache-key invalidation)
     When I read the rationale module's PROMPT_VERSION
-    Then PROMPT_VERSION equals "v5-trader-voice"
+    Then PROMPT_VERSION equals "v6-verdict-coherent"
 
   Scenario: cache key changes when PROMPT_VERSION changes (so v2 cache entries auto-invalidate)
     Given two cache keys for the same facts but different prompt versions
@@ -98,3 +98,21 @@ Feature: Plain-English rationale (no hallucination)
     Then the verification note mentions "unsupported number: 999%"
     And the verification note mentions "in sentence:"
     And the verification note quotes the offending sentence
+
+  # ---- Verdict coherence (Bug #2): positive-entry language on a
+  # WAIT/AVOID verdict gets rewritten so the UI never shows two
+  # contradicting narratives side-by-side. ----
+
+  Scenario: WAIT verdict with positive-entry language gets rewritten
+    Given a fact bundle for SPY in WAIT bucket
+    And the LLM emitted a summary "buy now with low risk while consensus is long"
+    When I enforce verdict coherence on the rationale
+    Then the rationale summary no longer contains "buy now"
+    And the rationale summary no longer contains "low risk"
+    And the verification note mentions "summary rewritten"
+
+  Scenario: BUY verdict leaves the positive summary intact
+    Given a fact bundle for SPY in BUY bucket
+    And the LLM emitted a summary "buy now with low risk above 200d SMA"
+    When I enforce verdict coherence on the rationale
+    Then the rationale summary contains "buy now"

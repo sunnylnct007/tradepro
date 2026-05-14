@@ -40,7 +40,7 @@ CACHE_PATH = Path.home() / ".tradepro" / "cache" / "llm-rationale.json"
 # round-number RSI/SMA values (50/53/49) and computed percentages
 # (16.94% / -30.9%) the model derived from facts instead of quoting.
 # Cache key embeds the version so older entries auto-invalidate.
-PROMPT_VERSION = "v5-trader-voice"
+PROMPT_VERSION = "v6-verdict-coherent"
 
 
 @dataclass
@@ -284,6 +284,18 @@ Be concrete and direct — no analyst-report hedging, no "investors may
 wish to consider". Produce a plain-English note explaining why this
 symbol got its verdict, plus a separate one-sentence rationale for
 EACH horizon, 2-4 key factors, and 1-2 caveats.
+
+Hard verdict rules (READ FIRST):
+- The Verdict below is the FINAL answer. The summary, key_factors,
+  caveats, and every horizon line must be consistent with it. If the
+  verdict is WAIT or AVOID, NEVER write "buy now", "low risk",
+  "favourable entry", "good entry", "attractive entry", "time to add",
+  or any phrase that suggests today is an entry. Strategy consensus
+  being long is a POSITION fact, not a new BUY — call that out
+  explicitly ("4 of 5 strategies still long, but bucket is WAIT
+  because <reason>") rather than treating it as bullish news.
+- If the verdict is BUY, lead with the entry trigger.
+- If the verdict is HOLD, talk about what's already on, not new entries.
 
 Trader voice rules:
 - Lead with what to DO ("Stay flat", "Wait for the pullback", "Hold
@@ -679,5 +691,63 @@ def build_rationale(
         _cache.put(key, fallback.to_dict())
         return fallback
 
+    _enforce_verdict_coherence(candidate, facts)
     _cache.put(key, candidate.to_dict())
     return candidate
+
+
+# Positive-entry phrases the LLM sometimes emits on a WAIT/AVOID verdict
+# (Bug #2). Examples that have shipped to users: "buy now with low risk",
+# "favourable entry", "good entry here", "attractive entry point". When
+# the verdict is WAIT/AVOID and any of these appear, we swap the headline
+# `summary` for the deterministic template (which leads with the verdict
+# word) so the two pipelines stop contradicting each other in the UI.
+_POSITIVE_ENTRY_PHRASES = (
+    "buy now",
+    "buy here",
+    "low risk",
+    "low-risk",
+    "favourable entry",
+    "favorable entry",
+    "good entry",
+    "attractive entry",
+    "solid entry",
+    "strong entry",
+    "fresh entry",
+    "time to add",
+    "time to buy",
+    "worth buying",
+    "compelling entry",
+    "compelling buy",
+)
+
+
+def _enforce_verdict_coherence(rat: Rationale, facts: dict) -> None:
+    """Bug #2 guard. If the verdict is WAIT or AVOID, the summary must
+    not lead readers toward an entry. The LLM sometimes emits positive
+    entry language (consensus is long, RSI is fine, "buy now with low
+    risk") even when the demoted bucket says wait — because the LLM
+    sees both the strategy-consensus facts and the verdict, and gets
+    pulled by the former.
+
+    Mitigation: when the summary contradicts the verdict, replace the
+    headline with the deterministic template summary (which always
+    leads with the verdict word + reason). Per-horizon rationales are
+    left untouched — they're scoped to a single horizon and don't
+    create the same head-to-head contradiction.
+    """
+    verdict = str(facts.get("verdict") or "").upper()
+    if verdict not in ("WAIT", "AVOID"):
+        return
+    lowered = (rat.summary or "").lower()
+    if not any(phrase in lowered for phrase in _POSITIVE_ENTRY_PHRASES):
+        return
+    fallback = _template_rationale(facts)
+    rat.summary = fallback.summary
+    rat.key_factors = fallback.key_factors
+    rat.caveats = fallback.caveats
+    note = (
+        f"summary rewritten — original contradicted verdict={verdict} "
+        f"with positive-entry phrasing"
+    )
+    rat.verification_notes = [*rat.verification_notes, note]

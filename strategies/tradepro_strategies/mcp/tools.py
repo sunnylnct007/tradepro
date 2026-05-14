@@ -288,14 +288,27 @@ def get_regime_history(universe: str, symbol: str, strategy: str | None = None) 
                     universe=universe, symbol=symbol)
     rows = data.get("payload", {}).get("rows", []) or []
     # Pick the matching row by symbol + (optionally) strategy. If no
-    # strategy specified, use the best-ranked row for the symbol.
+    # strategy is specified, pick the best-Sharpe strategy for this
+    # symbol — not the comparator's overall rank, which can favour
+    # buy_and_hold on universe-level momentum metrics (Bug #15). The
+    # regime question is "which strategy survived the bad periods best?"
+    # — that's a per-symbol Sharpe answer, not a universe rank.
     matching = [r for r in rows if r.get("symbol") == symbol]
     if strategy:
         matching = [r for r in matching if r.get("strategy") == strategy]
     if not matching:
         return _err("get_regime_history",
                     f"no row for symbol={symbol} strategy={strategy} in {universe}")
-    matching.sort(key=lambda r: r.get("rank", 1e9))
+
+    def _sharpe(r: dict) -> float:
+        s = (r.get("stats") or {}).get("sharpe")
+        try:
+            return float(s) if s is not None else float("-inf")
+        except (TypeError, ValueError):
+            return float("-inf")
+
+    if not strategy:
+        matching.sort(key=_sharpe, reverse=True)
     row = matching[0]
     return {
         "_source": f"tradepro://compare/{universe}/best/{symbol}/regimes",
