@@ -17,6 +17,7 @@ import type {
 } from "../api/types";
 import { GemsCard } from "../components/GemsCard";
 import { HoldingsHealthCard } from "../components/HoldingsHealthCard";
+import { HorizonPills } from "../components/HorizonPills";
 import { Info } from "../components/Info";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
 import { RiskPill } from "../components/RiskPill";
@@ -853,6 +854,18 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
           high/low reference levels. The numbers in the rationale
           and the rule-chain table all map onto this chart. */}
       <PriceHistoryChart symbol={view.symbol} earnings={view.bestRow.historical_earnings} />
+      {/* Three-pill horizon split — surfaces "long-term BUY but swing
+          AVOID" cases (NVDA/AMZN class) that the single bucket label
+          can't carry. Sits between the chart and the rationale so the
+          rationale can refer to it. */}
+      {view.bestRow.horizon_classification && (
+        <div style={{ margin: "10px 0" }}>
+          <HorizonPills
+            classification={view.bestRow.horizon_classification}
+            variant="block"
+          />
+        </div>
+      )}
       {rationale && <RationalePanel rationale={rationale} />}
       {view.sentimentDemoted && view.sentimentDemotionReason && (
         <div
