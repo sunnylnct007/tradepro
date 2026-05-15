@@ -775,6 +775,27 @@ function MatrixRow({
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
             <span>{view.bucket === "BUY" ? "BUY NOW" : view.bucket}</span>
             <RiskPill rating={view.bestRow.risk_rating ?? null} />
+            {/* Inline risk caveats — surface "below SMA200 / all strats
+                in drawdown / high vol / at 52w high" as small chips
+                under the bucket so a skimmer sees the catch without
+                expanding the row. Hidden when bucket is AVOID (the
+                caveat is already implicit). */}
+            {view.bucket !== "AVOID" && (
+              <RiskCaveats view={view} />
+            )}
+            {/* Price as-of date — helps the user spot "MU shows $776
+                from yesterday's close while T212 says $723 live"
+                staleness without having to dig. data_age_days >= 7
+                already triggers a louder pill on the symbol cell;
+                this is the quiet always-on annotation. */}
+            {view.bestRow.market_state?.as_of && (
+              <span
+                style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 400 }}
+                title={`Last bar / price = ${view.bestRow.market_state.as_of}. Intraday moves after this date aren't reflected in the verdict.`}
+              >
+                as of {view.bestRow.market_state.as_of.slice(0, 10)}
+              </span>
+            )}
             {/* Ichimoku price target sub-row — only visible when the
                 ichimoku_cloud strategy is currently long and computed
                 a target. Matches TRADEPRO sprint §8: traders want to
@@ -990,6 +1011,92 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
  * when the LLM rationale couldn't be verified or the LLM was
  * unavailable). Either way the content is factually safe — every
  * number traces to the input facts. */
+/** Inline risk caveats next to the bucket badge.
+ *  Pure read off the row data — no separate fetch. Ranks caveats by
+ *  severity and shows the top 2 so a BUY signal with hidden risk is
+ *  legible at-a-glance.
+ *
+ *  Caveats considered (deterministic, no thresholds the user can't
+ *  see in the decision_trace):
+ *    - below SMA200      — in a medium-term downtrend
+ *    - all strats recovering — every in-position strategy is still
+ *                          below its prior equity peak
+ *    - high vol          — ATR/price ≥ 4% (daily range eats stops)
+ *    - at 52w high       — range_pct ≥ 80
+ *
+ *  Ordered by severity (downtrend first, then equity-curve health,
+ *  then daily vol, then proximity to highs) so the most damning
+ *  caveat is always rendered. */
+function RiskCaveats({ view }: { view: SymbolView }) {
+  const ms = view.bestRow.market_state;
+  const caveats: { label: string; title: string }[] = [];
+
+  if (ms?.above_sma_200 === false) {
+    caveats.push({
+      label: "below SMA200",
+      title: `Last close ${ms.last_price?.toFixed(2) ?? "—"} is below the 200-day SMA ${ms.sma_200?.toFixed(2) ?? "—"} — medium-term trend is down.`,
+    });
+  }
+
+  const inPositionRows = view.rows.filter((r) => r.in_position);
+  if (inPositionRows.length > 0
+      && inPositionRows.every((r) => Boolean(r.stats?.max_drawdown_still_recovering))) {
+    caveats.push({
+      label: "all strats in DD",
+      title:
+        `All ${inPositionRows.length} strategies currently long are still ` +
+        `below their prior equity peak — bounce, not confirmed recovery.`,
+    });
+  }
+
+  const atrPct = ms?.atr_14_pct;
+  if (typeof atrPct === "number" && atrPct >= 4) {
+    caveats.push({
+      label: `vol ${atrPct.toFixed(0)}%`,
+      title:
+        `Daily ATR is ${atrPct.toFixed(1)}% of price — high volatility. ` +
+        `Position-size assuming the stop can be hit on a normal day.`,
+    });
+  }
+
+  const rangePct = ms?.range_pct ?? ms?.range_position_pct;
+  if (typeof rangePct === "number" && rangePct >= 80
+      && view.bucket === "BUY") {
+    // Only flag at 80+ for BUY signals — for WAIT/HOLD the proximity
+    // is informative but not a buying caveat per se. The 85+ percentile
+    // already triggers the server-side range veto for non-catalyst BUYs.
+    caveats.push({
+      label: `${rangePct.toFixed(0)}pct of 52w`,
+      title: `Price sits at the ${rangePct.toFixed(0)}th percentile of its 52w range — limited upside before resistance.`,
+    });
+  }
+
+  if (caveats.length === 0) return null;
+  return (
+    <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "center", maxWidth: 220 }}>
+      {caveats.slice(0, 2).map((c, i) => (
+        <span
+          key={i}
+          title={c.title}
+          style={{
+            fontSize: 9,
+            fontWeight: 600,
+            color: "var(--neutral)",
+            background: "rgba(255,180,80,0.10)",
+            border: "1px solid rgba(255,180,80,0.4)",
+            borderRadius: 3,
+            padding: "1px 5px",
+            cursor: "help",
+            whiteSpace: "nowrap",
+          }}
+        >
+          ⚠ {c.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** Verdict lede — single coherent sentence rendered above the LLM
  *  rationale when bucket is WAIT/AVOID, so a skimmer can't act on a
  *  contradictory positive narrative. The colour matches bucketColour

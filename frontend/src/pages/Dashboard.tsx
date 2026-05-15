@@ -236,7 +236,7 @@ export function Dashboard() {
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
                       <div className="stat-value" style={{ color: "var(--up)" }}>BUY</div>
                       <div className="stat-label" style={{ fontSize: 10 }}>
-                        {row?.stats?.[rankMetric] != null && `Rank: ${Math.round(row.stats[rankMetric] ?? 0)}`}
+                        {row?.stats?.[rankMetric] != null && `Rank: ${Math.round(Number(row.stats[rankMetric] ?? 0))}`}
                       </div>
                     </div>
                   </div>

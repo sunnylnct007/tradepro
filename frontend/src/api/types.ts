@@ -211,6 +211,22 @@ export interface CompareMarketState {
    * the technical gates pass. Captures the "near the highs after a
    * strong run, not a dip" case. */
   range_position_pct?: number | null;
+  /** Alias for range_position_pct surfaced by the Python emitter so
+   *  the rationale layer can call it `range_pct`. Frontend treats
+   *  them as interchangeable. */
+  range_pct?: number | null;
+  /** Wilder ATR(14) as % of current price. Higher = wider daily
+   *  ranges, larger stop distance for the same risk dollars. */
+  atr_14?: number | null;
+  atr_14_pct?: number | null;
+  /** Volume vs 20d average ratio (1.0 = average); >1.5 heavy, <0.8 thin. */
+  volume_ratio_20d?: number | null;
+  /** Bollinger band geometry (mid, ±2σ). */
+  bollinger_position?: string | null;
+  bollinger_percent_b?: number | null;
+  bollinger_bandwidth?: number | null;
+  /** Ichimoku cloud relative-to-price summary string. */
+  ichimoku_cloud_position?: string | null;
   low_52w_price?: number | null;
   low_52w_date?: string | null;
   entry_signal: EntrySignal;
@@ -420,7 +436,7 @@ export interface CompareRow {
   strategy_label: string;
   params: Record<string, number>;
   bars: number;
-  stats: Record<string, number | null>;
+  stats: Record<string, number | boolean | null>;
   regimes: CompareRowRegime[];
   current_action: "BUY" | "SELL" | "HOLD";
   latest_signal: number;
