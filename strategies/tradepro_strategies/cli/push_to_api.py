@@ -71,10 +71,20 @@ def load_credentials() -> tuple[str, str]:
     return base.rstrip("/"), token
 
 
-def push(kind: str, payload: dict, base_url: str, token: str, retries: int = 4) -> None:
+def push(kind: str, payload: dict, base_url: str, token: str, retries: int = 6) -> None:
+    """POST a payload with exponential backoff. Retry count tuned to
+    survive a Caddy cert reload on the AWS box (which can drop TLS
+    mid-handshake for ~30-60s during /api/redeploy). Backoff schedule
+    with retries=6: 1, 2, 4, 8, 16, 32s → ~63s total — wider than the
+    worst-case TLS hiccup we've seen in the logs.
+
+    SSL EOF errors get logged distinctly so the operator can tell
+    "AWS box was redeploying" apart from "endpoint is genuinely down".
+    """
     url = f"{base_url}/api/ingest/{kind}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     safe_payload = scrub_for_json(payload)
+    last_error: str | None = None
     for attempt in range(retries + 1):
         try:
             resp = requests.post(url, headers=headers, json=safe_payload, timeout=30)
@@ -82,12 +92,26 @@ def push(kind: str, payload: dict, base_url: str, token: str, retries: int = 4) 
                 print(f"ok: {resp.status_code}")
                 _maybe_archive_to_s3(kind, safe_payload)
                 return
-            print(f"attempt {attempt + 1}: HTTP {resp.status_code} {resp.text[:200]}")
+            last_error = f"HTTP {resp.status_code} {resp.text[:200]}"
+            # 5xx is retryable; 4xx (other than 429) is not — abort early.
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                print(f"attempt {attempt + 1}: {last_error} (not retrying — client error)")
+                break
+            print(f"attempt {attempt + 1}: {last_error}")
+        except requests.exceptions.SSLError as e:
+            # nginx terminating the connection with a 413
+            # (request-entity-too-large) surfaces as an SSL EOF
+            # because the TLS pipe gets closed mid-upload. Caddy
+            # cert reloads look the same on the wire. Either way:
+            # retryable, log clearly so operator can grep.
+            last_error = f"SSL EOF (nginx 413 or Caddy reload): {e}"
+            print(f"attempt {attempt + 1}: {last_error}")
         except requests.RequestException as e:
+            last_error = str(e)
             print(f"attempt {attempt + 1}: {e}")
         if attempt < retries:
             time.sleep(2 ** attempt)
-    print("all attempts failed", file=sys.stderr)
+    print(f"all attempts failed — last: {last_error}", file=sys.stderr)
     sys.exit(1)
 
 
