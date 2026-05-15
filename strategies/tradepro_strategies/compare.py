@@ -79,6 +79,39 @@ class CompareConfig:
 
 _NAN = float("nan")
 
+
+def _resolve_api_base() -> str:
+    """Resolve the TradePro API base URL for in-comparator integration
+    calls (Finnhub earnings, analyst upgrades, etc.).
+
+    Order:
+      1. TRADEPRO_API_URL env var — explicit override
+      2. ~/.tradepro/credentials `api_base_url` — the same file the
+         pusher reads, so the worker hits the SAME box for integration
+         fetches that it pushes results to. This is the path that
+         matters in production: the local Mac API container doesn't
+         have FINNHUB_API_KEY, but the AWS one does — pointing at AWS
+         lets the worker's analyst_actions / upcoming-earnings calls
+         get real data instead of {enabled: false}.
+      3. http://localhost:5080 fallback — useful for dev when neither
+         the env var nor the credentials file is configured.
+    """
+    import os as _os
+    env = _os.environ.get("TRADEPRO_API_URL")
+    if env:
+        return env.rstrip("/")
+    try:
+        from .cli.push_to_api import CRED_PATH
+        if CRED_PATH.exists():
+            import json as _json
+            data = _json.loads(CRED_PATH.read_text())
+            base = data.get("api_base_url")
+            if base:
+                return str(base).rstrip("/")
+    except (OSError, ValueError):
+        pass
+    return "http://localhost:5080"
+
 # Yahoo ticker suffix → trading currency. The map is conservative: we
 # return None for unknown suffixes rather than guess, so the row gets
 # labelled '—' in the UI and the user knows we don't know.
@@ -803,6 +836,7 @@ def compare(
     news_fallback_cache: dict[str, str | None] = {}
     scored_news_cache: dict[str, list[ScoredHeadline]] = {}
     analyst_actions_cache: dict[str, dict | None] = {}
+    analyst_recs_cache: dict[str, dict | None] = {}
     sentiment_summary_cache: dict[str, SentimentSummary] = {}
     sentiment_status_cache: dict[str, str] = {}
     # Family-4 (event-driven): post-earnings beat-and-retreat per symbol.
@@ -898,10 +932,7 @@ def compare(
                     # volatility. Off-by-default: returns None when
                     # Finnhub isn't configured. Best-effort, never
                     # blocks the run.
-                    import os as _os
-                    api_base = _os.environ.get(
-                        "TRADEPRO_API_URL", "http://localhost:5080",
-                    )
+                    api_base = _resolve_api_base()
                     upcoming = fetch_upcoming_earnings(symbol, api_base)
                     if upcoming:
                         sig["upcoming"] = upcoming
@@ -911,8 +942,18 @@ def compare(
                     # isn't set on the API box; returns None and the
                     # row simply omits the analyst_actions field.
                     try:
-                        from .analyst_actions import fetch_analyst_actions
+                        from .analyst_actions import (
+                            fetch_analyst_actions,
+                            fetch_analyst_recommendations,
+                        )
                         analyst_actions_cache[symbol] = fetch_analyst_actions(
+                            symbol, api_base,
+                        )
+                        # Recommendation trends — monthly buy/hold/sell
+                        # counts. Free-tier alternative when the
+                        # paid-tier upgrade-downgrade events come back
+                        # empty.
+                        analyst_recs_cache[symbol] = fetch_analyst_recommendations(
                             symbol, api_base,
                         )
                     except Exception as e:  # noqa: BLE001 — best-effort
@@ -920,6 +961,7 @@ def compare(
                             logger.emit("compare.analyst_actions_failed",
                                         symbol=symbol, error=str(e))
                         analyst_actions_cache[symbol] = None
+                        analyst_recs_cache[symbol] = None
                 except Exception as e:  # noqa: BLE001
                     if logger:
                         logger.emit("compare.earnings_failed", symbol=symbol, error=str(e))
@@ -993,6 +1035,7 @@ def compare(
         earnings_history = earnings_history_cache.get(symbol, [])
         news_via = news_fallback_cache.get(symbol)
         analyst_actions = analyst_actions_cache.get(symbol)
+        analyst_recs = analyst_recs_cache.get(symbol)
         for strat in strategies:
             row = _row_for(symbol, strat, prices, state, consensus,
                            fundamentals, news, scored_news,
@@ -1009,6 +1052,8 @@ def compare(
             # renderer hides the section when missing.
             if analyst_actions:
                 row["analyst_actions"] = analyst_actions
+            if analyst_recs:
+                row["analyst_recommendations"] = analyst_recs
             rows.append(row)
 
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)

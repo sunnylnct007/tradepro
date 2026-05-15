@@ -903,6 +903,9 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
       )}
       <SwingScoreCard view={view} />
       <CrossBasketSignals view={view} />
+      {view.bestRow.analyst_recommendations && (
+        <AnalystRecommendationsCard recs={view.bestRow.analyst_recommendations} symbol={view.symbol} />
+      )}
       {view.bestRow.analyst_actions && (
         <AnalystActionsCard actions={view.bestRow.analyst_actions} symbol={view.symbol} />
       )}
@@ -1318,6 +1321,81 @@ function CrossBasketSignals({ view }: { view: SymbolView }) {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Analyst recommendation trends (Finnhub free tier). Renders the
+ *  latest monthly snapshot of strongBuy/buy/hold/sell/strongSell
+ *  counts as a stacked bar, plus the month-over-month bull-score
+ *  delta. Hidden when Finnhub disabled or no recommendations. */
+function AnalystRecommendationsCard({
+  recs,
+  symbol,
+}: {
+  recs: NonNullable<CompareRow["analyst_recommendations"]>;
+  symbol: string;
+}) {
+  const total = recs.strong_buy + recs.buy + recs.hold + recs.sell + recs.strong_sell;
+  if (total === 0) return null;
+  const seg = (n: number, colour: string, label: string) =>
+    n === 0 ? null : (
+      <span
+        key={label}
+        title={`${label}: ${n} analyst${n === 1 ? "" : "s"}`}
+        style={{
+          background: colour,
+          color: "#0c0f14",
+          fontWeight: 700,
+          fontSize: 11,
+          padding: "2px 8px",
+          minWidth: 28,
+          textAlign: "center",
+          display: "inline-block",
+        }}
+      >
+        {n}
+      </span>
+    );
+  const momTone =
+    recs.mom_change > 0 ? "var(--up)" : recs.mom_change < 0 ? "var(--down)" : "var(--text-muted)";
+  const momLabel =
+    recs.mom_change > 0 ? `+${recs.mom_change}` : String(recs.mom_change);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div className="stat-label" style={{ marginBottom: 4, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <span>Analyst recommendations on {symbol}</span>
+        <span
+          title={
+            `Net (strongBuy+buy) - (sell+strongSell) = ${recs.bull_score}. ` +
+            `Month-over-month change: ${momLabel}.`
+          }
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: momTone,
+            border: `1px solid ${momTone}`,
+            borderRadius: 3,
+            padding: "1px 6px",
+            cursor: "help",
+          }}
+        >
+          MoM {momLabel}
+        </span>
+        <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+          as of {recs.latest_period ?? "—"} · via Finnhub
+        </span>
+      </div>
+      <div style={{ display: "inline-flex", gap: 2, borderRadius: 3, overflow: "hidden", marginBottom: 2 }}>
+        {seg(recs.strong_buy,  "#1fc16b", "Strong buy")}
+        {seg(recs.buy,         "#9ce4b6", "Buy")}
+        {seg(recs.hold,        "#cbd2dc", "Hold")}
+        {seg(recs.sell,        "#ffb47e", "Sell")}
+        {seg(recs.strong_sell, "#ff5050", "Strong sell")}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+        {recs.strong_buy + recs.buy} bullish · {recs.hold} neutral · {recs.sell + recs.strong_sell} bearish · {total} total
       </div>
     </div>
   );

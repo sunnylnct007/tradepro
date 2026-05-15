@@ -110,3 +110,54 @@ def fetch_analyst_actions(
         "most_recent": most_recent,
         "events": normalised[:6],
     }
+
+
+def fetch_analyst_recommendations(
+    symbol: str,
+    api_base: str,
+    *,
+    timeout: float = 10.0,
+) -> dict | None:
+    """Monthly buy/hold/sell counts from Finnhub's free
+    /stock/recommendation endpoint. Cheap fallback for symbols where
+    per-event upgrade/downgrade data is gated (free tier returns
+    empty for /stock/upgrade-downgrade).
+
+    Returns:
+        {
+            "latest_period":     "2026-04-01",
+            "strong_buy":        14,
+            "buy":               24,
+            "hold":              7,
+            "sell":              0,
+            "strong_sell":       0,
+            "bull_score":        38,   # (sb+buy) - (sell+ssell)
+            "mom_change":        +3,   # change vs prior period
+            "periods":           [...up to 12 monthly snapshots]
+        }
+
+    None when Finnhub is disabled / call fails / no data."""
+    import requests
+
+    url = f"{api_base.rstrip('/')}/api/integrations/finnhub/recommendations"
+    try:
+        resp = requests.get(url, params={"symbol": symbol}, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except requests.RequestException:
+        return None
+    if not data.get("enabled"):
+        return None
+    if data.get("periodCount", 0) == 0:
+        return None
+    return {
+        "latest_period": data.get("latestPeriod"),
+        "strong_buy": data.get("latestStrongBuy", 0),
+        "buy": data.get("latestBuy", 0),
+        "hold": data.get("latestHold", 0),
+        "sell": data.get("latestSell", 0),
+        "strong_sell": data.get("latestStrongSell", 0),
+        "bull_score": data.get("bullScoreLatest", 0),
+        "mom_change": data.get("momChange", 0),
+        "periods": data.get("periods", []),
+    }

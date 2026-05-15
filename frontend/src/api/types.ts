@@ -439,6 +439,30 @@ export interface CompareRow {
    * label the panel so the reader doesn't think the headlines are
    * fund-specific. Bug #13. */
   news_via?: string | null;
+  /** Latest monthly analyst recommendation counts (Finnhub free tier).
+   * bull_score = (strongBuy + buy) - (sell + strongSell); mom_change
+   * is the change vs. the prior month — positive means analysts are
+   * getting more bullish. None when Finnhub is disabled or returns
+   * empty for this symbol. */
+  analyst_recommendations?: {
+    latest_period: string | null;
+    strong_buy: number;
+    buy: number;
+    hold: number;
+    sell: number;
+    strong_sell: number;
+    bull_score: number;
+    mom_change: number;
+    periods: {
+      symbol: string | null;
+      period: string | null;
+      strongBuy: number | null;
+      buy: number | null;
+      hold: number | null;
+      sell: number | null;
+      strongSell: number | null;
+    }[];
+  } | null;
   /** 30-day analyst rating actions from Finnhub. None when Finnhub
    * integration is disabled or the symbol has no recent events. */
   analyst_actions?: {

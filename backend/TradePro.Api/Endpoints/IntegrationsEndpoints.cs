@@ -182,6 +182,54 @@ public static class IntegrationsEndpoints
                 });
             });
 
+        // Analyst recommendation trends — monthly buy/hold/sell counts
+        // from Finnhub's free tier. Pre-computes the headline "month-
+        // over-month bullish shift" (rolling 2-month delta of buy +
+        // strongBuy minus sell + strongSell) so the worker doesn't
+        // have to redo the math per symbol.
+        app.MapGet("/integrations/finnhub/recommendations",
+            async (
+                string? symbol,
+                FinnhubClient client,
+                CancellationToken ct) =>
+            {
+                if (!client.IsEnabled)
+                {
+                    return Results.Ok(new
+                    {
+                        enabled = false,
+                        message = "Finnhub integration is disabled. Set Finnhub:ApiKey in config (free tier signup at finnhub.io).",
+                        periods = Array.Empty<FinnhubRecommendationTrend>(),
+                    });
+                }
+                if (string.IsNullOrWhiteSpace(symbol))
+                {
+                    return Results.BadRequest(new { error = "symbol is required" });
+                }
+                var periods = await client.GetRecommendationTrendsAsync(symbol, ct);
+                int BullScore(FinnhubRecommendationTrend t) =>
+                    (t.StrongBuy ?? 0) + (t.Buy ?? 0) - (t.Sell ?? 0) - (t.StrongSell ?? 0);
+                int momChange = 0;
+                if (periods.Count >= 2)
+                    momChange = BullScore(periods[0]) - BullScore(periods[1]);
+                var latest = periods.FirstOrDefault();
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    symbol = symbol.ToUpperInvariant(),
+                    periodCount = periods.Count,
+                    latestPeriod = latest?.Period,
+                    latestStrongBuy = latest?.StrongBuy ?? 0,
+                    latestBuy = latest?.Buy ?? 0,
+                    latestHold = latest?.Hold ?? 0,
+                    latestSell = latest?.Sell ?? 0,
+                    latestStrongSell = latest?.StrongSell ?? 0,
+                    bullScoreLatest = latest is null ? 0 : BullScore(latest),
+                    momChange,    // positive = analysts getting MORE bullish vs prior month
+                    periods,      // newest-first; up to ~12 months
+                });
+            });
+
         // Analyst upgrade / downgrade events. New signal family —
         // surfaces "Goldman raised BUY → STRONG_BUY on AAPL 3 days
         // ago" type events that can move a stock's bucket on a day

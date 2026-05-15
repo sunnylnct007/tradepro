@@ -61,6 +61,50 @@ public sealed class FinnhubClient
     }
 
     /// <summary>
+    /// Recommendation trends — monthly snapshot of analyst counts
+    /// across strongBuy/buy/hold/sell/strongSell for a symbol. This
+    /// is the FREE-tier endpoint; per-event upgrade/downgrade dates
+    /// live behind a paid plan and `GetUpgradeDowngradesAsync`
+    /// returns empty for free-tier keys.
+    ///
+    /// Returns the last ~12 monthly periods (Finnhub controls the
+    /// depth), newest-first. Caller can derive "month-over-month
+    /// shift" by comparing periods[0] vs periods[1].
+    /// </summary>
+    public async Task<IReadOnlyList<FinnhubRecommendationTrend>> GetRecommendationTrendsAsync(
+        string symbol,
+        CancellationToken ct)
+    {
+        if (!_options.IsEnabled || string.IsNullOrWhiteSpace(symbol))
+        {
+            return Array.Empty<FinnhubRecommendationTrend>();
+        }
+        var path =
+            $"stock/recommendation?symbol={HttpUtility.UrlEncode(symbol.Trim().ToUpperInvariant())}" +
+            $"&token={_options.ApiKey}";
+        try
+        {
+            using var resp = await _http.GetAsync(path, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning(
+                    "Finnhub recommendation trends fetch failed: HTTP {Status} for {Symbol}",
+                    (int)resp.StatusCode, symbol);
+                return Array.Empty<FinnhubRecommendationTrend>();
+            }
+            var list = await resp.Content.ReadFromJsonAsync<List<FinnhubRecommendationTrend>>(
+                cancellationToken: ct);
+            return (IReadOnlyList<FinnhubRecommendationTrend>?)list
+                ?? Array.Empty<FinnhubRecommendationTrend>();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Finnhub recommendation trends fetch error for {Symbol}", symbol);
+            return Array.Empty<FinnhubRecommendationTrend>();
+        }
+    }
+
+    /// <summary>
     /// Analyst upgrade / downgrade events for a symbol over a date
     /// window. Returns empty list when Finnhub is disabled OR the
     /// symbol has no events in window; never throws. Free-tier
@@ -163,6 +207,24 @@ public sealed record FinnhubEarningsEvent(
 internal sealed record FinnhubEarningsCalendarResponse(
     [property: System.Text.Json.Serialization.JsonPropertyName("earningsCalendar")]
     List<FinnhubEarningsEvent>? EarningsCalendar);
+
+/// <summary>One row of monthly recommendation counts from /stock/recommendation —
+/// the free-tier alternative to per-event upgrade/downgrade history.</summary>
+public sealed record FinnhubRecommendationTrend(
+    [property: System.Text.Json.Serialization.JsonPropertyName("symbol")]
+    string? Symbol,
+    [property: System.Text.Json.Serialization.JsonPropertyName("period")]
+    string? Period,          // YYYY-MM-01 — first of the month the snapshot covers
+    [property: System.Text.Json.Serialization.JsonPropertyName("strongBuy")]
+    int? StrongBuy,
+    [property: System.Text.Json.Serialization.JsonPropertyName("buy")]
+    int? Buy,
+    [property: System.Text.Json.Serialization.JsonPropertyName("hold")]
+    int? Hold,
+    [property: System.Text.Json.Serialization.JsonPropertyName("sell")]
+    int? Sell,
+    [property: System.Text.Json.Serialization.JsonPropertyName("strongSell")]
+    int? StrongSell);
 
 /// <summary>One row from /stock/upgrade-downgrade — an analyst rating
 /// action on a symbol. `Action` is Finnhub's classification:
