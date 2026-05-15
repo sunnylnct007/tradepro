@@ -25,11 +25,11 @@ import { WorkerStatusBadge } from "../components/WorkerStatusBadge";
 
 /** "Should I invest today, and if yes, in what?" page.
  *
- * Triages the comparator output (5 strategies × N ETFs) down to one card
- * per ETF, bucketed BUY / WAIT / AVOID, with a strategy-consensus vote
- * ("4 of 5 strategies are currently long") and the per-symbol entry
- * verdict from market_state. Click a card to see all 5 strategies'
- * stats and the per-regime stress breakdown.
+ * Triages the comparator output (all registered strategies × N ETFs)
+ * down to one card per ETF, bucketed BUY / WAIT / AVOID, with a
+ * strategy-consensus vote ("4 of 7 strategies are currently long") and
+ * the per-symbol entry verdict from market_state. Click a card to see
+ * every strategy's stats and the per-regime stress breakdown.
  *
  * Bucket assignment uses BOTH the price-based market_state and the
  * strategy vote: a confident BUY needs both an entry-friendly price
@@ -132,7 +132,8 @@ export function Compare() {
           <strong style={{ color: "var(--neutral)" }}>WAIT</strong>, or{" "}
           <strong style={{ color: "var(--down)" }}>AVOID</strong> based on the
           combination of (a) price action — uptrend, RSI, drawdown — and
-          (b) how many of the 5 strategies are currently long the asset.
+          (b) how many of the registered strategies are currently long
+          the asset.
           The rule chain is identical for ETFs and stocks; ETF-specific
           fundamentals (expense ratio, AUM, top holdings) only show when
           they apply. <strong>Not for intraday or day-trading.</strong>
@@ -902,6 +903,9 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
       )}
       <SwingScoreCard view={view} />
       <CrossBasketSignals view={view} />
+      {view.bestRow.analyst_actions && (
+        <AnalystActionsCard actions={view.bestRow.analyst_actions} symbol={view.symbol} />
+      )}
       {fundamentals && <FundDetails f={fundamentals} />}
       {consensus && <CrossCheck view={view} consensus={consensus} />}
       {news.length > 0 && (
@@ -1315,6 +1319,103 @@ function CrossBasketSignals({ view }: { view: SymbolView }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Analyst rating actions (Finnhub). Shows aggregate upgrade /
+ *  downgrade counts in the header, the freshest event prominently,
+ *  and up to 6 recent events in a compact list. Hidden entirely when
+ *  Finnhub is disabled or the symbol has no recent activity (the
+ *  parent guards on truthiness). */
+function AnalystActionsCard({
+  actions,
+  symbol,
+}: {
+  actions: NonNullable<CompareRow["analyst_actions"]>;
+  symbol: string;
+}) {
+  if (actions.event_count === 0) return null;
+  const net = actions.net_delta;
+  const netTone =
+    net > 0 ? "var(--up)" : net < 0 ? "var(--down)" : "var(--neutral)";
+  const netLabel = net > 0 ? `+${net}` : String(net);
+
+  function actionTone(action: string): string {
+    if (action === "up") return "var(--up)";
+    if (action === "down") return "var(--down)";
+    if (action === "init") return "var(--neutral)";
+    return "var(--text-muted)";
+  }
+  function actionLabel(action: string): string {
+    if (action === "up") return "▲ upgrade";
+    if (action === "down") return "▼ downgrade";
+    if (action === "init") return "● initiate";
+    if (action === "main") return "= reiterate";
+    return action || "—";
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div className="stat-label" style={{ marginBottom: 4, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <span>Analyst actions ({actions.window_days}d on {symbol})</span>
+        <span
+          title={
+            `${actions.upgrade_count} upgrade${actions.upgrade_count === 1 ? "" : "s"}, ` +
+            `${actions.downgrade_count} downgrade${actions.downgrade_count === 1 ? "" : "s"}, ` +
+            `${actions.init_count} initiation${actions.init_count === 1 ? "" : "s"}. ` +
+            `Net = upgrades − downgrades.`
+          }
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: netTone,
+            border: `1px solid ${netTone}`,
+            borderRadius: 3,
+            padding: "1px 6px",
+            cursor: "help",
+          }}
+        >
+          net {netLabel}
+        </span>
+        <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+          via Finnhub
+        </span>
+      </div>
+      {actions.most_recent && (
+        <div style={{ fontSize: 12, color: "var(--text)", marginBottom: 4 }}>
+          <span style={{ color: actionTone(actions.most_recent.action), fontWeight: 600 }}>
+            {actionLabel(actions.most_recent.action)}
+          </span>
+          {" — "}
+          <strong>{actions.most_recent.company || "—"}</strong>
+          {actions.most_recent.from && actions.most_recent.to && (
+            <span style={{ color: "var(--text-dim)" }}>
+              : {actions.most_recent.from} → {actions.most_recent.to}
+            </span>
+          )}
+          <span style={{ color: "var(--text-muted)", marginLeft: 6, fontSize: 11 }}>
+            {actions.most_recent.date}
+          </span>
+        </div>
+      )}
+      {actions.events.length > 1 && (
+        <ul style={{ margin: 0, padding: "0 0 0 14px", listStyle: "disc", color: "var(--text-dim)", fontSize: 11, lineHeight: 1.45 }}>
+          {actions.events.slice(1).map((e, i) => (
+            <li key={i}>
+              <span style={{ color: actionTone(e.action), fontWeight: 600 }}>
+                {actionLabel(e.action)}
+              </span>
+              {" "}
+              {e.company || "—"}
+              {e.from && e.to && (
+                <> · {e.from} → {e.to}</>
+              )}
+              {e.date && <span style={{ color: "var(--text-muted)" }}> · {e.date}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

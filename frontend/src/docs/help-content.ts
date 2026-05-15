@@ -484,18 +484,20 @@ back into the range.
         `,
       },
       {
-        heading: "Why we run all five",
+        heading: "Why we run every strategy together",
         body: `
 No single rule set works in every market. Trend strategies
 underperform in choppy markets; mean-reversion underperforms in
-trending markets. By running all five and looking at the
-**consensus** ("how many of these strategies are currently
-long?"), we get a more robust read than any single one would
-give us.
+trending markets. By running every registered strategy
+(currently seven — buy & hold, SMA crossover, RSI mean-reversion,
+MACD signal-cross, Donchian breakout, Ichimoku Cloud, and
+Bollinger bounce) and looking at the **consensus** ("how many of
+these are currently long?"), we get a more robust read than any
+single one would give us.
 
-When 4 out of 5 strategies — built on different philosophies —
-all say long, that's a much stronger signal than any one of them
-saying long in isolation.
+When a clear majority of strategies — built on different
+philosophies — all say long, that's a much stronger signal than
+any one of them saying long in isolation.
         `,
       },
     ],

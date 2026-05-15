@@ -182,6 +182,55 @@ public static class IntegrationsEndpoints
                 });
             });
 
+        // Analyst upgrade / downgrade events. New signal family —
+        // surfaces "Goldman raised BUY → STRONG_BUY on AAPL 3 days
+        // ago" type events that can move a stock's bucket on a day
+        // we'd otherwise rate it WAIT. `days` defaults to 30; capped
+        // 1..180 because beyond that we're rehashing old history.
+        // Free tier of Finnhub supports this endpoint (~60 calls/min).
+        app.MapGet("/integrations/finnhub/upgrades",
+            async (
+                string? symbol,
+                int? days,
+                FinnhubClient client,
+                CancellationToken ct) =>
+            {
+                if (!client.IsEnabled)
+                {
+                    return Results.Ok(new
+                    {
+                        enabled = false,
+                        message = "Finnhub integration is disabled. Set Finnhub:ApiKey in config (free tier signup at finnhub.io).",
+                        events = Array.Empty<FinnhubUpgradeDowngrade>(),
+                    });
+                }
+                if (string.IsNullOrWhiteSpace(symbol))
+                {
+                    return Results.BadRequest(new { error = "symbol is required" });
+                }
+                var to = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+                var from = to.AddDays(-Math.Clamp(days ?? 30, 1, 180));
+                var events = await client.GetUpgradeDowngradesAsync(symbol, from, to, ct);
+                // Compact summary so the worker doesn't have to do
+                // anything to derive "net upgrades last 30d".
+                var upCount = events.Count(e => string.Equals(e.Action, "up", StringComparison.OrdinalIgnoreCase));
+                var downCount = events.Count(e => string.Equals(e.Action, "down", StringComparison.OrdinalIgnoreCase));
+                var initCount = events.Count(e => string.Equals(e.Action, "init", StringComparison.OrdinalIgnoreCase));
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    symbol = symbol.ToUpperInvariant(),
+                    from = from.ToString("yyyy-MM-dd"),
+                    to = to.ToString("yyyy-MM-dd"),
+                    eventCount = events.Count,
+                    upgradeCount = upCount,
+                    downgradeCount = downCount,
+                    initCount,
+                    netDelta = upCount - downCount,
+                    events,
+                });
+            });
+
         return app;
     }
 

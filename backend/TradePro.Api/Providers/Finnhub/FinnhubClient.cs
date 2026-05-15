@@ -61,6 +61,48 @@ public sealed class FinnhubClient
     }
 
     /// <summary>
+    /// Analyst upgrade / downgrade events for a symbol over a date
+    /// window. Returns empty list when Finnhub is disabled OR the
+    /// symbol has no events in window; never throws. Free-tier
+    /// endpoint, ~60 calls/min limit.
+    /// </summary>
+    public async Task<IReadOnlyList<FinnhubUpgradeDowngrade>> GetUpgradeDowngradesAsync(
+        string symbol,
+        DateOnly from,
+        DateOnly to,
+        CancellationToken ct)
+    {
+        if (!_options.IsEnabled || string.IsNullOrWhiteSpace(symbol))
+        {
+            return Array.Empty<FinnhubUpgradeDowngrade>();
+        }
+        var path =
+            $"stock/upgrade-downgrade?symbol={HttpUtility.UrlEncode(symbol.Trim().ToUpperInvariant())}" +
+            $"&from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}" +
+            $"&token={_options.ApiKey}";
+        try
+        {
+            using var resp = await _http.GetAsync(path, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning(
+                    "Finnhub upgrade-downgrade fetch failed: HTTP {Status} for {Symbol}",
+                    (int)resp.StatusCode, symbol);
+                return Array.Empty<FinnhubUpgradeDowngrade>();
+            }
+            var list = await resp.Content.ReadFromJsonAsync<List<FinnhubUpgradeDowngrade>>(
+                cancellationToken: ct);
+            return (IReadOnlyList<FinnhubUpgradeDowngrade>?)list
+                ?? Array.Empty<FinnhubUpgradeDowngrade>();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Finnhub upgrade-downgrade fetch error for {Symbol}", symbol);
+            return Array.Empty<FinnhubUpgradeDowngrade>();
+        }
+    }
+
+    /// <summary>
     /// Earnings calendar for a single symbol over a date window.
     /// Returns the upcoming announcements (and recent history if
     /// `from` predates today). Empty list when the integration is
@@ -121,3 +163,24 @@ public sealed record FinnhubEarningsEvent(
 internal sealed record FinnhubEarningsCalendarResponse(
     [property: System.Text.Json.Serialization.JsonPropertyName("earningsCalendar")]
     List<FinnhubEarningsEvent>? EarningsCalendar);
+
+/// <summary>One row from /stock/upgrade-downgrade — an analyst rating
+/// action on a symbol. `Action` is Finnhub's classification:
+/// "up" (upgrade), "down" (downgrade), "main" (reiteration),
+/// "init" (initiated coverage). `Grade` strings vary by firm
+/// ("Buy"/"Hold"/"Outperform"/etc.) — keep raw and let the renderer
+/// interpret. <c>SymbolField</c> is the ticker as Finnhub returns it
+/// (sometimes empty when querying by symbol).</summary>
+public sealed record FinnhubUpgradeDowngrade(
+    [property: System.Text.Json.Serialization.JsonPropertyName("symbol")]
+    string? SymbolField,
+    [property: System.Text.Json.Serialization.JsonPropertyName("gradeTime")]
+    long? GradeTime,        // unix epoch seconds — when the rating fired
+    [property: System.Text.Json.Serialization.JsonPropertyName("fromGrade")]
+    string? FromGrade,
+    [property: System.Text.Json.Serialization.JsonPropertyName("toGrade")]
+    string? ToGrade,
+    [property: System.Text.Json.Serialization.JsonPropertyName("company")]
+    string? Company,        // analyst firm name (Goldman Sachs / Citi / etc.)
+    [property: System.Text.Json.Serialization.JsonPropertyName("action")]
+    string? Action);        // up / down / main / init

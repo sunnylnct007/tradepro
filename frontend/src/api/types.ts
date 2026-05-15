@@ -439,6 +439,30 @@ export interface CompareRow {
    * label the panel so the reader doesn't think the headlines are
    * fund-specific. Bug #13. */
   news_via?: string | null;
+  /** 30-day analyst rating actions from Finnhub. None when Finnhub
+   * integration is disabled or the symbol has no recent events. */
+  analyst_actions?: {
+    window_days: number;
+    event_count: number;
+    upgrade_count: number;
+    downgrade_count: number;
+    init_count: number;
+    net_delta: number;
+    most_recent: {
+      date: string | null;
+      from: string;
+      to: string;
+      company: string;
+      action: string;
+    } | null;
+    events: {
+      date: string | null;
+      from: string;
+      to: string;
+      company: string;
+      action: string;
+    }[];
+  } | null;
   sentiment_summary?: CompareSentimentSummary;
   sentiment_status?: SentimentStatus;
   rationale?: CompareRationale;

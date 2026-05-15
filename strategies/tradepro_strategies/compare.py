@@ -802,6 +802,7 @@ def compare(
     news_cache: dict[str, list[NewsItem]] = {}
     news_fallback_cache: dict[str, str | None] = {}
     scored_news_cache: dict[str, list[ScoredHeadline]] = {}
+    analyst_actions_cache: dict[str, dict | None] = {}
     sentiment_summary_cache: dict[str, SentimentSummary] = {}
     sentiment_status_cache: dict[str, str] = {}
     # Family-4 (event-driven): post-earnings beat-and-retreat per symbol.
@@ -905,6 +906,20 @@ def compare(
                     if upcoming:
                         sig["upcoming"] = upcoming
                     earnings_signal_cache[symbol] = sig
+                    # Analyst upgrade/downgrade actions — same Finnhub
+                    # plumbing. Off-by-default when FINNHUB_API_KEY
+                    # isn't set on the API box; returns None and the
+                    # row simply omits the analyst_actions field.
+                    try:
+                        from .analyst_actions import fetch_analyst_actions
+                        analyst_actions_cache[symbol] = fetch_analyst_actions(
+                            symbol, api_base,
+                        )
+                    except Exception as e:  # noqa: BLE001 — best-effort
+                        if logger:
+                            logger.emit("compare.analyst_actions_failed",
+                                        symbol=symbol, error=str(e))
+                        analyst_actions_cache[symbol] = None
                 except Exception as e:  # noqa: BLE001
                     if logger:
                         logger.emit("compare.earnings_failed", symbol=symbol, error=str(e))
@@ -977,6 +992,7 @@ def compare(
         earnings_signal = earnings_signal_cache.get(symbol, {})
         earnings_history = earnings_history_cache.get(symbol, [])
         news_via = news_fallback_cache.get(symbol)
+        analyst_actions = analyst_actions_cache.get(symbol)
         for strat in strategies:
             row = _row_for(symbol, strat, prices, state, consensus,
                            fundamentals, news, scored_news,
@@ -988,6 +1004,11 @@ def compare(
             # is symbol-level not strategy-level.
             if earnings_signal:
                 row["earnings_signal"] = earnings_signal
+            # Analyst actions — same shape rule. None when Finnhub is
+            # disabled or the symbol has no recent activity; the
+            # renderer hides the section when missing.
+            if analyst_actions:
+                row["analyst_actions"] = analyst_actions
             rows.append(row)
 
     rows.sort(key=lambda r: _rank_value(r, cfg.rank_metric), reverse=True)
