@@ -28,6 +28,12 @@ export function Signals() {
   const [macdSlow, setMacdSlow] = useState(26);
   const [macdSignal, setMacdSignal] = useState(9);
   const [donchian, setDonchian] = useState(20);
+  const [ichimokuTenkan, setIchimokuTenkan] = useState(9);
+  const [ichimokuKijun, setIchimokuKijun] = useState(26);
+  const [ichimokuSenkouB, setIchimokuSenkouB] = useState(52);
+  const [bollingerWindow, setBollingerWindow] = useState(20);
+  const [bollingerStd, setBollingerStd] = useState(2.0);
+  const [bollingerRsiOversold, setBollingerRsiOversold] = useState(35);
   const [decision, setDecision] = useState<SignalDecision | null>(null);
   const [hitRate, setHitRate] = useState<HitRateResult | null>(null);
   const [hitRateLoading, setHitRateLoading] = useState(false);
@@ -51,6 +57,10 @@ export function Signals() {
       case "rsi_mean_reversion": return { low: rsiLow, high: rsiHigh };
       case "macd_signal_cross": return { fast: macdFast, slow: macdSlow, signal: macdSignal };
       case "donchian_breakout": return { lookback: donchian };
+      case "ichimoku_cloud":
+        return { tenkan: ichimokuTenkan, kijun: ichimokuKijun, senkou_b: ichimokuSenkouB };
+      case "bollinger_bounce":
+        return { window: bollingerWindow, num_std: bollingerStd, rsi_oversold: bollingerRsiOversold };
       default: return null;
     }
   }
@@ -68,6 +78,8 @@ export function Signals() {
       { name: "rsi_mean_reversion", params: { low: rsiLow, high: rsiHigh } },
       { name: "macd_signal_cross", params: { fast: macdFast, slow: macdSlow, signal: macdSignal } },
       { name: "donchian_breakout", params: { lookback: donchian } },
+      { name: "ichimoku_cloud", params: { tenkan: ichimokuTenkan, kijun: ichimokuKijun, senkou_b: ichimokuSenkouB } },
+      { name: "bollinger_bounce", params: { window: bollingerWindow, num_std: bollingerStd, rsi_oversold: bollingerRsiOversold } },
     ];
     try {
       const results = await Promise.all(
@@ -240,14 +252,40 @@ export function Signals() {
             <input type="number" value={donchian} onChange={(e) => setDonchian(Number(e.target.value))} />
           </Labelled>
         )}
+        {strategy === "ichimoku_cloud" && (
+          <>
+            <Labelled label="Tenkan (fast)">
+              <input type="number" value={ichimokuTenkan} onChange={(e) => setIchimokuTenkan(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Kijun (base)">
+              <input type="number" value={ichimokuKijun} onChange={(e) => setIchimokuKijun(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Senkou B (cloud)">
+              <input type="number" value={ichimokuSenkouB} onChange={(e) => setIchimokuSenkouB(Number(e.target.value))} />
+            </Labelled>
+          </>
+        )}
+        {strategy === "bollinger_bounce" && (
+          <>
+            <Labelled label="Window (bars)">
+              <input type="number" value={bollingerWindow} onChange={(e) => setBollingerWindow(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="Std dev (× σ)">
+              <input type="number" step="0.1" value={bollingerStd} onChange={(e) => setBollingerStd(Number(e.target.value))} />
+            </Labelled>
+            <Labelled label="RSI oversold below">
+              <input type="number" value={bollingerRsiOversold} onChange={(e) => setBollingerRsiOversold(Number(e.target.value))} />
+            </Labelled>
+          </>
+        )}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <button
             className="primary"
             onClick={runAllStrategies}
             disabled={multiLoading || !symbol.trim()}
-            title="Run all 5 strategies on this symbol and show the consensus — same view the Decide page produces for cached universes"
+            title="Run every registered strategy on this symbol and show the consensus — same view the Decide page produces for cached universes"
           >
-            {multiLoading ? "Running 5 strategies…" : "Run all 5 strategies"}
+            {multiLoading ? "Running strategies…" : "Run all strategies"}
           </button>
           <button
             onClick={evaluate}

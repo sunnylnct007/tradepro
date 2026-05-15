@@ -122,6 +122,98 @@ public static class Indicators
         return result;
     }
 
+    /// Bollinger Bands — middle = SMA(window), upper/lower = middle
+    /// ± num_std * stddev(window). Mirrors tradepro_strategies.indicators.bollinger
+    /// so the backtest engine reads the same levels as market_state.
+    public static (decimal?[] middle, decimal?[] upper, decimal?[] lower)
+        Bollinger(IReadOnlyList<decimal> values, int window = 20, double numStd = 2.0)
+    {
+        var mid = Sma(values, window);
+        var upper = new decimal?[values.Count];
+        var lower = new decimal?[values.Count];
+        if (window <= 0 || values.Count < window) return (mid, upper, lower);
+
+        var std = (decimal)numStd;
+        for (var i = window - 1; i < values.Count; i++)
+        {
+            if (mid[i] is not { } m) continue;
+            decimal sumSq = 0m;
+            for (var j = i - window + 1; j <= i; j++)
+            {
+                var diff = values[j] - m;
+                sumSq += diff * diff;
+            }
+            // Population stddev — matches pandas default ddof=0 used in
+            // the Python bollinger() helper. Slight underestimate vs.
+            // sample stddev but the comparator and backtester must agree.
+            var sd = (decimal)Math.Sqrt((double)(sumSq / window));
+            upper[i] = m + std * sd;
+            lower[i] = m - std * sd;
+        }
+        return (mid, upper, lower);
+    }
+
+    /// Ichimoku Cloud components. Returns the tenkan (conversion),
+    /// kijun (base), and the cloud (max/min of senkou A & B) ALREADY
+    /// shifted forward `displacement` bars — index aligned so the
+    /// caller can compare `close[i] > cloud_high[i]` directly without
+    /// re-shifting. NaN where the lookback isn't long enough yet.
+    public static (decimal?[] tenkan, decimal?[] kijun, decimal?[] cloudHigh, decimal?[] cloudLow, decimal?[] senkouB)
+        Ichimoku(
+            IReadOnlyList<decimal> high,
+            IReadOnlyList<decimal> low,
+            IReadOnlyList<decimal> close,
+            int tenkanP = 9,
+            int kijunP = 26,
+            int senkouBP = 52,
+            int displacement = 26)
+    {
+        var n = close.Count;
+        var tenkan = new decimal?[n];
+        var kijun = new decimal?[n];
+        var senkouAraw = new decimal?[n];
+        var senkouBraw = new decimal?[n];
+        var cloudHi = new decimal?[n];
+        var cloudLo = new decimal?[n];
+        var senkouBshift = new decimal?[n];
+
+        decimal? RollingMidpoint(int idx, int window)
+        {
+            if (idx < window - 1) return null;
+            decimal h = decimal.MinValue, l = decimal.MaxValue;
+            for (var j = idx - window + 1; j <= idx; j++)
+            {
+                if (high[j] > h) h = high[j];
+                if (low[j] < l) l = low[j];
+            }
+            return (h + l) / 2m;
+        }
+
+        for (var i = 0; i < n; i++)
+        {
+            tenkan[i] = RollingMidpoint(i, tenkanP);
+            kijun[i] = RollingMidpoint(i, kijunP);
+            if (tenkan[i] is { } t && kijun[i] is { } k) senkouAraw[i] = (t + k) / 2m;
+            senkouBraw[i] = RollingMidpoint(i, senkouBP);
+        }
+
+        // Shift senkou A and B forward by `displacement` bars so the
+        // cloud at index i represents the forward projection from
+        // (i - displacement). Bars with insufficient history stay null.
+        for (var i = 0; i < n; i++)
+        {
+            var src = i - displacement;
+            if (src < 0) continue;
+            var a = senkouAraw[src];
+            var b = senkouBraw[src];
+            if (a is null || b is null) continue;
+            cloudHi[i] = Math.Max(a.Value, b.Value);
+            cloudLo[i] = Math.Min(a.Value, b.Value);
+            senkouBshift[i] = b;
+        }
+        return (tenkan, kijun, cloudHi, cloudLo, senkouBshift);
+    }
+
     /// Donchian channel — rolling N-bar high and low (close-based).
     public static (decimal?[] high, decimal?[] low)
         Donchian(IReadOnlyList<decimal> closes, int lookback)

@@ -53,5 +53,7 @@ const FALLBACK: StrategyMetadata[] = [
   { name: "rsi_mean_reversion", displayName: "RSI mean-reversion", oneLiner: "", bestIn: "", worstIn: "", horizon: "Short", horizonText: "", defaultParams: null, paramKeys: null },
   { name: "macd_signal_cross", displayName: "MACD signal-cross", oneLiner: "", bestIn: "", worstIn: "", horizon: "Mid", horizonText: "", defaultParams: null, paramKeys: null },
   { name: "donchian_breakout", displayName: "Donchian breakout", oneLiner: "", bestIn: "", worstIn: "", horizon: "Mid", horizonText: "", defaultParams: null, paramKeys: null },
+  { name: "ichimoku_cloud", displayName: "Ichimoku Cloud", oneLiner: "", bestIn: "", worstIn: "", horizon: "Mid", horizonText: "", defaultParams: null, paramKeys: null },
+  { name: "bollinger_bounce", displayName: "Bollinger bounce", oneLiner: "", bestIn: "", worstIn: "", horizon: "Short", horizonText: "", defaultParams: null, paramKeys: null },
   { name: "buy_and_hold", displayName: "Buy & Hold", oneLiner: "", bestIn: "", worstIn: "", horizon: "Long", horizonText: "", defaultParams: null, paramKeys: null },
 ];

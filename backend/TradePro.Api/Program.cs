@@ -90,6 +90,8 @@ builder.Services.AddScoped<ISignalStrategy, SmaCrossoverStrategy>();
 builder.Services.AddScoped<ISignalStrategy, RsiMeanReversionStrategy>();
 builder.Services.AddScoped<ISignalStrategy, MacdSignalCrossStrategy>();
 builder.Services.AddScoped<ISignalStrategy, DonchianBreakoutStrategy>();
+builder.Services.AddScoped<ISignalStrategy, IchimokuCloudStrategy>();
+builder.Services.AddScoped<ISignalStrategy, BollingerBounceStrategy>();
 builder.Services.AddScoped<IStrategyRegistry, StrategyRegistry>();
 builder.Services.AddScoped<ISimulator, Simulator>();
 builder.Services.AddScoped<ISignalEngine, SignalEngine>();

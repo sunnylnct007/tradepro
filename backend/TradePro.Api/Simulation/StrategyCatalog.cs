@@ -65,6 +65,28 @@ public static class StrategyCatalog
                 HorizonText: "mid-to-long-term (weeks to months)",
                 DefaultParams: new() { ["lookback"] = 20 },
                 ParamKeys: new[] { "lookback" }),
+
+            ["ichimoku_cloud"] = new(
+                Name: "ichimoku_cloud",
+                DisplayName: "Ichimoku Cloud",
+                OneLiner: "Buy on a close above the forward cloud confirmed by the Chikou span; sell when price closes back below the Kijun-sen.",
+                BestIn: "Trending markets with persistent momentum — the cloud gates out weak breakouts.",
+                WorstIn: "Choppy markets — frequent cloud entries/exits and the Kijun stop gets hit on noise.",
+                Horizon: TimeHorizon.Mid,
+                HorizonText: "mid-term (weeks to a few months per trade)",
+                DefaultParams: new() { ["tenkan"] = 9, ["kijun"] = 26, ["senkou_b"] = 52, ["displacement"] = 26 },
+                ParamKeys: new[] { "tenkan", "kijun", "senkou_b", "displacement" }),
+
+            ["bollinger_bounce"] = new(
+                Name: "bollinger_bounce",
+                DisplayName: "Bollinger bounce",
+                OneLiner: "Buy when price dips below the lower Bollinger band AND RSI confirms oversold; exit at the middle band (mean reversion) or upper band overshoot.",
+                BestIn: "Range-bound markets where price oscillates around the mean.",
+                WorstIn: "Strong trends — price walks the lower band lower while RSI stays subdued, never triggering reversion.",
+                Horizon: TimeHorizon.Short,
+                HorizonText: "short-term (days to a couple of weeks per trade)",
+                DefaultParams: new() { ["window"] = 20, ["num_std"] = 2.0, ["rsi_period"] = 14, ["rsi_oversold"] = 35.0 },
+                ParamKeys: new[] { "window", "num_std", "rsi_period", "rsi_oversold" }),
         };
 
     public static StrategyMetadata? Get(string name) =>

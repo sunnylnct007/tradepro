@@ -48,6 +48,12 @@ export function Simulations() {
   const [macdSlow, setMacdSlow] = useState(26);
   const [macdSignal, setMacdSignal] = useState(9);
   const [donchian, setDonchian] = useState(20);
+  const [ichimokuTenkan, setIchimokuTenkan] = useState(9);
+  const [ichimokuKijun, setIchimokuKijun] = useState(26);
+  const [ichimokuSenkouB, setIchimokuSenkouB] = useState(52);
+  const [bollingerWindow, setBollingerWindow] = useState(20);
+  const [bollingerStd, setBollingerStd] = useState(2.0);
+  const [bollingerRsiOversold, setBollingerRsiOversold] = useState(35);
   const [stampDuty, setStampDuty] = useState(0.005);
   const [commission, setCommission] = useState(0);
   // Stop-loss overlay. Up to four variants can be set together —
@@ -79,6 +85,10 @@ export function Simulations() {
       case "rsi_mean_reversion": return { low: rsiLow, high: rsiHigh };
       case "macd_signal_cross": return { fast: macdFast, slow: macdSlow, signal: macdSignal };
       case "donchian_breakout": return { lookback: donchian };
+      case "ichimoku_cloud":
+        return { tenkan: ichimokuTenkan, kijun: ichimokuKijun, senkou_b: ichimokuSenkouB };
+      case "bollinger_bounce":
+        return { window: bollingerWindow, num_std: bollingerStd, rsi_oversold: bollingerRsiOversold };
       default: return null;
     }
   }
@@ -93,6 +103,8 @@ export function Simulations() {
       "rsi_mean_reversion",
       "macd_signal_cross",
       "donchian_breakout",
+      "ichimoku_cloud",
+      "bollinger_bounce",
     ];
     try {
       const results = await Promise.all(
@@ -136,16 +148,7 @@ export function Simulations() {
         initialCapital: capital,
         currency: config.defaultCurrency,
         fees: { commissionPerTrade: commission, stampDutyRate: stampDuty, fxSpread: 0 },
-        params:
-          strategy === "sma_crossover"
-            ? { fast, slow }
-            : strategy === "rsi_mean_reversion"
-              ? { low: rsiLow, high: rsiHigh }
-              : strategy === "macd_signal_cross"
-                ? { fast: macdFast, slow: macdSlow, signal: macdSignal }
-                : strategy === "donchian_breakout"
-                  ? { lookback: donchian }
-                  : null,
+        params: paramsFor(strategy),
         stopLoss: stopLossPayload(
           trailingStopPct, fixedStopPct,
           trailingAtrMultiple, fixedAtrMultiple,
@@ -418,6 +421,32 @@ export function Simulations() {
             <Labelled label="Lookback (bars)" help="donchian_lookback">
               <input type="number" value={donchian} onChange={(e) => setDonchian(Number(e.target.value))} />
             </Labelled>
+          )}
+          {strategy === "ichimoku_cloud" && (
+            <>
+              <Labelled label="Tenkan (fast)">
+                <input type="number" value={ichimokuTenkan} onChange={(e) => setIchimokuTenkan(Number(e.target.value))} />
+              </Labelled>
+              <Labelled label="Kijun (base)">
+                <input type="number" value={ichimokuKijun} onChange={(e) => setIchimokuKijun(Number(e.target.value))} />
+              </Labelled>
+              <Labelled label="Senkou B (cloud)">
+                <input type="number" value={ichimokuSenkouB} onChange={(e) => setIchimokuSenkouB(Number(e.target.value))} />
+              </Labelled>
+            </>
+          )}
+          {strategy === "bollinger_bounce" && (
+            <>
+              <Labelled label="Window (bars)">
+                <input type="number" value={bollingerWindow} onChange={(e) => setBollingerWindow(Number(e.target.value))} />
+              </Labelled>
+              <Labelled label="Std dev (× σ)">
+                <input type="number" step="0.1" value={bollingerStd} onChange={(e) => setBollingerStd(Number(e.target.value))} />
+              </Labelled>
+              <Labelled label="RSI oversold below">
+                <input type="number" value={bollingerRsiOversold} onChange={(e) => setBollingerRsiOversold(Number(e.target.value))} />
+              </Labelled>
+            </>
           )}
           <button
             className="primary"

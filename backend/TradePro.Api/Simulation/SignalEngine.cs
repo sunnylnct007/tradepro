@@ -155,6 +155,8 @@ public sealed class SignalEngine : ISignalEngine
         "rsi_mean_reversion" => "RSI mean-reversion",
         "macd_signal_cross" => "MACD signal-cross",
         "donchian_breakout" => "Donchian breakout",
+        "ichimoku_cloud" => "Ichimoku Cloud",
+        "bollinger_bounce" => "Bollinger bounce",
         _ => name,
     };
 
@@ -184,6 +186,12 @@ public sealed class SignalEngine : ISignalEngine
 
             case "donchian_breakout":
                 return "Buy fires on a close above the prior N-day high; sell on a close below the prior N-day low.";
+
+            case "ichimoku_cloud":
+                return "Buy fires when close breaks above the cloud AND Chikou is above price 26 bars ago. Exit when close drops below the Kijun-sen.";
+
+            case "bollinger_bounce":
+                return "Buy fires when close dips below the lower Bollinger band AND RSI is oversold. Exit on a return to the middle band.";
 
             default:
                 return null;
