@@ -596,6 +596,8 @@ const STRATEGY_COLOURS: Record<string, string> = {
   rsi_mean_reversion: "#1fc16b",
   macd_signal_cross: "#9b6eff",
   donchian_breakout: "#e8a23a",
+  ichimoku_cloud: "#ff6b9d",
+  bollinger_bounce: "#36c5d4",
 };
 
 function MultiBacktestCard({
@@ -646,7 +648,7 @@ function MultiBacktestCard({
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <div>
-          <div className="stat-label">5-strategy backtest comparison</div>
+          <div className="stat-label">Multi-strategy backtest comparison</div>
           <div style={{ marginTop: 2, color: "var(--text-dim)", fontSize: 13 }}>
             <strong>{symbol}</strong> · same window, same fees, same starting capital
             {" "}({new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(initialCapital)})
