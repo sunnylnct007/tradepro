@@ -165,6 +165,7 @@ def _row_for(
     end: datetime,
     cfg: CompareConfig,
     earnings_history: list[dict] | None = None,
+    news_via: str | None = None,
 ) -> dict:
     """Run one (symbol, strategy) backtest and return a JSON-ready row."""
     currency = _symbol_currency(symbol)
@@ -193,6 +194,7 @@ def _row_for(
             "external_consensus": consensus.to_dict(),
             "fundamentals": fundamentals.to_dict(),
             "news": enriched_news,
+            "news_via": news_via,
             "sentiment_summary": sentiment_summary.to_dict(),
             "sentiment_status": sentiment_status,
             "currency": currency,
@@ -240,6 +242,7 @@ def _row_for(
             "external_consensus": consensus.to_dict(),
             "fundamentals": fundamentals.to_dict(),
             "news": enriched_news,
+            "news_via": news_via,
             "sentiment_summary": sentiment_summary.to_dict(),
             "sentiment_status": sentiment_status,
             "currency": currency,
@@ -315,6 +318,7 @@ def _row_for(
         "external_consensus": consensus.to_dict(),
         "fundamentals": fundamentals.to_dict(),
         "news": enriched_news,
+        "news_via": news_via,
         "sentiment_summary": sentiment_summary.to_dict(),
         "sentiment_status": sentiment_status,
         "currency": currency,
@@ -771,6 +775,7 @@ def compare(
     consensus_cache: dict[str, ExternalConsensus] = {}
     fundamentals_cache: dict[str, Fundamentals] = {}
     news_cache: dict[str, list[NewsItem]] = {}
+    news_fallback_cache: dict[str, str | None] = {}
     scored_news_cache: dict[str, list[ScoredHeadline]] = {}
     sentiment_summary_cache: dict[str, SentimentSummary] = {}
     sentiment_status_cache: dict[str, str] = {}
@@ -818,7 +823,10 @@ def compare(
             info = _fetch_info(symbol)
             consensus_cache[symbol] = fetch_consensus(symbol, info)
             fundamentals_cache[symbol] = fetch_fundamentals(symbol, info)
-            news_cache[symbol] = fetch_news(symbol)
+            from .news import fetch_news_with_fallback
+            items, fallback_used = fetch_news_with_fallback(symbol)
+            news_cache[symbol] = items
+            news_fallback_cache[symbol] = fallback_used
             # Family-4: beat-and-retreat. ETFs don't have earnings
             # (they're funds, not companies), so skip them entirely
             # — saves a yfinance call per ETF and stops the noisy
@@ -943,11 +951,13 @@ def compare(
         sentiment_status = sentiment_status_cache[symbol]
         earnings_signal = earnings_signal_cache.get(symbol, {})
         earnings_history = earnings_history_cache.get(symbol, [])
+        news_via = news_fallback_cache.get(symbol)
         for strat in strategies:
             row = _row_for(symbol, strat, prices, state, consensus,
                            fundamentals, news, scored_news,
                            sentiment_summary, sentiment_status, end, cfg,
-                           earnings_history=earnings_history)
+                           earnings_history=earnings_history,
+                           news_via=news_via)
             # Attach the per-symbol earnings signal to every (symbol,
             # strategy) row — same pattern as market_state. Family-4
             # is symbol-level not strategy-level.

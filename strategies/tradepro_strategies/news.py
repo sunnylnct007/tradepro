@@ -99,6 +99,46 @@ def _from_modern(raw: dict) -> NewsItem | None:
     )
 
 
+# ETF → benchmark / theme-proxy used as a news fallback when Yahoo
+# returns nothing for the ETF itself. Index ETFs like VUKE/ISF
+# (FTSE 100) have no fund-level news but the index they track
+# generates plenty of it. Mapping is conservative — only includes
+# symbols where the fallback's news is genuinely relevant to the ETF
+# (S&P 500 trackers → ^GSPC). Niche / multi-region ETFs without a
+# clean proxy stay un-mapped and just show empty news, which is
+# honest. Bug #13.
+NEWS_FALLBACK: dict[str, str] = {
+    # UK FTSE 100 trackers
+    "VUKE.L": "^FTSE", "ISF.L": "^FTSE", "IUKD.L": "^FTSE",
+    # UK FTSE 250
+    "VMID.L": "^FTMC",
+    # S&P 500 trackers (LSE-listed)
+    "VUSA.L": "^GSPC", "CSPX.L": "^GSPC",
+    # MSCI World trackers — US dominates the index so S&P-500 news is
+    # the most relevant proxy
+    "VWRP.L": "^GSPC", "VWRL.L": "^GSPC", "SWDA.L": "^GSPC",
+    "HMWO.L": "^GSPC", "SWLD.L": "^GSPC",
+    # US S&P 500
+    "VOO": "^GSPC", "IVV": "^GSPC", "VTI": "^GSPC", "SCHD": "^GSPC",
+    # Nasdaq 100
+    "QQQ": "^IXIC",
+    # Russell 2000
+    "IWM": "^RUT",
+    # Europe
+    "VEUR.L": "^STOXX",
+    # Japan
+    "VJPN.L": "^N225",
+    # Gold
+    "IGLN.L": "GC=F", "GLD": "GC=F",
+    # UK Gilts → US Treasuries proxy (different curves, but bond-market
+    # tone tends to correlate; better than nothing)
+    "IGLT.L": "TLT",
+    # Clean energy thematic — INRG.L (UK) → ICLN (US) tracks the same
+    # theme with deeper news coverage
+    "INRG.L": "ICLN",
+}
+
+
 def fetch_news(
     symbol: str,
     limit: int = 8,
@@ -167,3 +207,29 @@ def fetch_news(
         0 if pair[1] else 1,
     ))
     return [item for item, _ in fresh[:limit]]
+
+
+def fetch_news_with_fallback(
+    symbol: str,
+    limit: int = 8,
+    max_age_days: int = 14,
+) -> tuple[list[NewsItem], str | None]:
+    """Like fetch_news but transparently falls back to an index/sector
+    proxy when the symbol itself returns no fresh news.
+
+    Returns (items, fallback_used). When fallback_used is non-None,
+    `items` came from the proxy symbol and the renderer should label
+    them (e.g. "via ^FTSE") so the user doesn't think Apple news is
+    about VUKE.L.
+
+    Bug #13. ETFs like VUKE.L / SWDA.L have no fund-level Yahoo news
+    — without the fallback their news card sits empty forever.
+    """
+    primary = fetch_news(symbol, limit=limit, max_age_days=max_age_days)
+    if primary:
+        return primary, None
+    fallback = NEWS_FALLBACK.get(symbol.upper())
+    if not fallback:
+        return [], None
+    proxy_items = fetch_news(fallback, limit=limit, max_age_days=max_age_days)
+    return proxy_items, (fallback if proxy_items else None)

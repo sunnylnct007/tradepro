@@ -904,7 +904,13 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
       <CrossBasketSignals view={view} />
       {fundamentals && <FundDetails f={fundamentals} />}
       {consensus && <CrossCheck view={view} consensus={consensus} />}
-      {news.length > 0 && <NewsList items={news} symbol={view.symbol} />}
+      {news.length > 0 && (
+        <NewsList
+          items={news}
+          symbol={view.symbol}
+          via={view.bestRow.news_via ?? null}
+        />
+      )}
       {trace.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <div className="stat-label" style={{ marginBottom: 4 }}>
@@ -1438,11 +1444,39 @@ function FundDetails({ f }: { f: CompareFundamentals }) {
   );
 }
 
-function NewsList({ items, symbol }: { items: CompareNewsItem[]; symbol: string }) {
+function NewsList({
+  items,
+  symbol,
+  via,
+}: {
+  items: CompareNewsItem[];
+  symbol: string;
+  via?: string | null;
+}) {
   return (
     <div style={{ marginTop: 12 }}>
       <div className="stat-label" style={{ marginBottom: 4 }}>
-        Recent headlines on {symbol}{" "}
+        Recent headlines on {symbol}
+        {via && (
+          <span
+            title={
+              `${symbol} has no fund-level Yahoo news; showing headlines from ` +
+              `the underlying / benchmark (${via}) so the sentiment signal isn't blank.`
+            }
+            style={{
+              marginLeft: 8,
+              padding: "1px 6px",
+              fontSize: 10,
+              fontWeight: 600,
+              color: "var(--neutral)",
+              border: "1px solid var(--neutral)",
+              borderRadius: 3,
+              cursor: "help",
+            }}
+          >
+            via {via}
+          </span>
+        )}{" "}
         <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
           (sentiment scored by the LLM — fed into the verdict via the trend rule)
         </span>

@@ -434,6 +434,11 @@ export interface CompareRow {
   external_consensus?: CompareExternalConsensus;
   fundamentals?: CompareFundamentals;
   news?: CompareNewsItem[];
+  /** When set, the news items came from a proxy symbol (e.g., VUKE.L's
+   * news cache was empty so we fell back to ^FTSE). Frontend should
+   * label the panel so the reader doesn't think the headlines are
+   * fund-specific. Bug #13. */
+  news_via?: string | null;
   sentiment_summary?: CompareSentimentSummary;
   sentiment_status?: SentimentStatus;
   rationale?: CompareRationale;
