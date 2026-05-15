@@ -49,3 +49,28 @@ Feature: Horizon + range veto on BUY bucket
     When I apply the horizon and range demotion
     Then the resulting bucket is "BUY"
     And the horizon demoted flag is False
+
+  # Rule D — passive-only BUY guard (Bug #10). Passive=BUY alone is a
+  # DCA signal, not an "open a full position today" signal.
+
+  Scenario: passive-only BUY demotes bucket BUY to WAIT
+    Given a starting BUY bucket with reason "buy_and_hold long"
+    And horizon_classification has swing="WATCH" long_term="WATCH" passive="BUY"
+    When I apply the horizon and range demotion
+    Then the resulting bucket is "WAIT"
+    And the horizon demoted flag is True
+    And the horizon demotion reason mentions "DCA"
+
+  Scenario: passive BUY plus swing BUY leaves bucket BUY alone
+    Given a starting BUY bucket with reason "majority long + breakout"
+    And horizon_classification has swing="BUY" long_term="WATCH" passive="BUY"
+    When I apply the horizon and range demotion
+    Then the resulting bucket is "BUY"
+    And the horizon demoted flag is False
+
+  Scenario: passive BUY plus long-term BUY leaves bucket BUY alone
+    Given a starting BUY bucket with reason "majority long"
+    And horizon_classification has swing="WATCH" long_term="BUY" passive="BUY"
+    When I apply the horizon and range demotion
+    Then the resulting bucket is "BUY"
+    And the horizon demoted flag is False

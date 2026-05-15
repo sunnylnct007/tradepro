@@ -20,6 +20,15 @@ def step_horizon(context, signal: str, score: int) -> None:
     context.horizon = {"swing": {"signal": signal, "score": score}}
 
 
+@given('horizon_classification has swing="{sw}" long_term="{lt}" passive="{pa}"')
+def step_horizon_triple(context, sw: str, lt: str, pa: str) -> None:
+    context.horizon = {
+        "swing": {"signal": sw, "score": 0},
+        "long_term": {"signal": lt, "score": 0},
+        "passive": {"signal": pa, "score": 0},
+    }
+
+
 @given("range_pct is {value:g}")
 def step_range(context, value: float) -> None:
     context.range_pct = value

@@ -535,6 +535,31 @@ def apply_horizon_and_range_demotion(
                 False,
             )
 
+    # Rule D — passive-only BUY guard. If passive horizon (3-5yr DCA)
+    # is the ONLY horizon saying BUY and neither swing (1-8w) nor
+    # long-term (6-18m) confirms, the row shouldn't surface as today's
+    # action — the DCA thesis is "buy a little, regularly", not "buy
+    # the whole position at today's open". User Bug #10. Demote BUY to
+    # WAIT with an explicit DCA framing so the user gets routed to
+    # the right mental model.
+    if horizon_classification:
+        swing_d = (horizon_classification.get("swing") or {}).get("signal")
+        long_d = (horizon_classification.get("long_term") or {}).get("signal")
+        passive_d = (horizon_classification.get("passive") or {}).get("signal")
+        if (
+            passive_d == "BUY"
+            and swing_d not in ("BUY",)
+            and long_d not in ("BUY",)
+        ):
+            return (
+                "WAIT",
+                (f"Passive horizon = BUY (good DCA candidate) but neither "
+                 f"swing nor long-term horizons confirm — this is a regular-"
+                 f"contribution thesis, not a same-day full-position entry. "
+                 f"{reason}"),
+                True,
+            )
+
     return bucket, reason, False
 
 
