@@ -40,7 +40,7 @@ export function Signals() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Multi-strategy consensus: results of running all 5 strategies in
+  // Multi-strategy consensus: results of running all strategies in
   // parallel against the same symbol so the user gets the same
   // "consensus across strategies" view the Decide page has, but for
   // an arbitrary symbol (not just the cached universes).
@@ -142,7 +142,7 @@ export function Signals() {
         <h1 style={{ margin: 0, fontSize: 24 }}>Research — single-symbol signal</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 880, lineHeight: 1.55 }}>
           <strong style={{ color: "var(--text)" }}>What this page does:</strong>{" "}
-          Pick a symbol, run all 5 strategies in parallel, see the consensus
+          Pick a symbol, run all strategies in parallel, see the consensus
           BUY / SELL / HOLD with the live indicators (RSI, SMA20/50/200, distance
           from 52w high/low) behind the call. Plus a 10-year hit-rate showing how
           often this strategy combo would have been profitable historically.
@@ -523,7 +523,7 @@ function Stat({ label, value, tone, help }: { label: string; value: string; tone
 }
 
 // ---------------------------------------------------------------------------
-// Multi-strategy consensus — runs all 5 strategies on the chosen symbol in
+// Multi-strategy consensus — runs all strategies on the chosen symbol in
 // parallel and produces a Decide-page-style verdict for any symbol (not
 // just cached universes). Avoids the friction of "pick a strategy, run it,
 // pick another, run it again" — the engine isn't a single-strategy tool.
@@ -639,7 +639,7 @@ function MultiStrategyCard({ result, symbol }: { result: MultiResult; symbol: st
       </div>
 
       <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>
-        Decision aid, not advice. Runs all 5 strategies in parallel and counts the votes —
+        Decision aid, not advice. Runs all strategies in parallel and counts the votes —
         same logic the Decide page uses for cached universes. Use the "Single strategy" button
         below to tune parameters.
       </div>

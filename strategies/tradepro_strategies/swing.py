@@ -43,7 +43,11 @@ QUALITY_OK_RECOVERY_DAYS = 730
 # Price-layer thresholds.
 PRICE_HEALTHY_RSI_LO = 35.0
 PRICE_HEALTHY_RSI_HI = 55.0
-PRICE_STRONG_CONSENSUS = 4   # ≥ N of 5 strategies long → strong
+# Fraction of registered strategies that must be long for "strong
+# consensus" — was hardcoded to 4 when the engine only ran 5
+# strategies; with 7 (and rising) the threshold scales with the
+# total. 0.6 ≈ "clear majority" (3/5, 4/7, 5/8).
+PRICE_STRONG_CONSENSUS_RATIO = 0.6
 
 
 @dataclass
@@ -171,7 +175,8 @@ def _score_price(row: dict) -> tuple[int, str]:
         return 0, "no consensus data"
     pts = 0
     bits: list[str] = []
-    if long_count >= PRICE_STRONG_CONSENSUS:
+    strong_threshold = max(2, int(round(total * PRICE_STRONG_CONSENSUS_RATIO)))
+    if long_count >= strong_threshold:
         pts += 1
         bits.append(f"{long_count}/{total} strategies long")
     else:

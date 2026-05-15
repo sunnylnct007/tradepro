@@ -356,9 +356,9 @@ export function Simulations() {
             className="primary"
             onClick={runAll}
             disabled={multiRunning || !symbol.trim()}
-            title="Backtest all 5 strategies on this symbol over the same window — see them side-by-side instead of running each manually"
+            title="Backtest every registered strategy on this symbol over the same window — see them side-by-side instead of running each manually"
           >
-            {multiRunning ? "Backtesting 5 strategies…" : "Backtest all 5 strategies"}
+            {multiRunning ? "Backtesting all strategies…" : "Backtest all strategies"}
           </button>
           <button
             onClick={() => setShowAdvanced((v) => !v)}
