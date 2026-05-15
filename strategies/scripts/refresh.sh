@@ -36,6 +36,13 @@ etf_uk_core  GBP 0
 etf_us_sector USD 0
 etf_factor   USD 0
 us_megacap_sample USD 0
+us_sp100_sample   USD 0
+us_semis          USD 0
+us_growth_tech    USD 0
+asia_majors       USD 0
+europe_majors     USD 0
+crypto_majors     USD 0
+commodities_broad USD 0
 EOF
 
 cd "$PROJECT_DIR" || exit 1

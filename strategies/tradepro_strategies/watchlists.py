@@ -18,7 +18,122 @@ WATCHLISTS: dict[str, list[str]] = {
         "VOD.L", "BT-A.L",
     ],
     "us_megacap_sample": [
+        # The household-name megacaps that drive most of the index moves.
+        # Sized for "what's the magnificent N up to today" rather than
+        # cross-section ranking — 12 instead of 7 picks up MU, AMD, AVGO
+        # (semis), CRM (cloud), LLY (pharma) without crowding the screen.
         "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA",
+        "AMD", "AVGO", "MU", "CRM", "LLY",
+    ],
+    # ---- US large-cap & sector deep-dives ------------------------------
+    # Sample of the S&P 100 mega/large caps a UK-resident investor can buy
+    # via Trading 212 — 40 names spanning the dominant sectors. Bigger
+    # than us_megacap_sample (curated for headlines) and smaller than the
+    # full S&P 100 (curated for breadth without the long tail).
+    "us_sp100_sample": [
+        # Tech / communication
+        "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AVGO",
+        "ORCL", "ADBE", "CRM", "NFLX", "AMD", "INTC", "CSCO", "IBM",
+        # Financials
+        "BRK-B", "JPM", "BAC", "GS", "MS", "V", "MA", "AXP",
+        # Healthcare
+        "LLY", "JNJ", "UNH", "PFE", "ABBV", "MRK",
+        # Consumer
+        "WMT", "COST", "KO", "PEP", "MCD", "NKE", "DIS", "PG",
+        # Industrials / energy
+        "BA", "CAT", "XOM",
+    ],
+    # Semiconductor sector — the names a momentum or thematic tilt is
+    # likely to ride together. Curated to include the foundry (TSM) and
+    # design houses (NVDA, AMD, AVGO, MU), the equipment makers (ASML,
+    # AMAT, LRCX, KLAC), plus the analog/auto chips (TXN, ADI).
+    "us_semis": [
+        "NVDA", "AMD", "AVGO", "MU", "INTC",
+        "TSM", "ASML", "AMAT", "LRCX", "KLAC",
+        "TXN", "ADI", "QCOM",
+        "SOXX",   # iShares Semiconductor ETF — basket reference
+    ],
+    # Cloud / SaaS / AI growth names — the high-multiple growth tilt.
+    # PLTR + SNOW + ANET cover the AI infrastructure narrative; CRM /
+    # NOW / ORCL the established SaaS leaders; SHOP / MELI the e-commerce
+    # plays; UBER / DASH the consumer-tech ones.
+    "us_growth_tech": [
+        "PLTR", "SNOW", "ANET", "NOW", "CRM", "ORCL",
+        "SHOP", "MELI", "UBER", "DASH",
+        "NET", "CRWD", "DDOG", "MDB",
+    ],
+    # ---- International equities ----------------------------------------
+    # Asia / Pacific majors — Yahoo carries Tokyo (suffix .T) and Hong
+    # Kong (suffix .HK) without extra config. ASX (Australia) uses .AX.
+    # Sample sized for "what does Asia look like overnight?" rather than
+    # cross-section ranking.
+    "asia_majors": [
+        "^N225",       # Nikkei 225 index
+        "^HSI",        # Hang Seng index
+        # Japan — global brands a UK retail account is likely to know
+        "7203.T",      # Toyota
+        "6758.T",      # Sony
+        "9984.T",      # SoftBank
+        "8306.T",      # Mitsubishi UFJ Financial
+        "6861.T",      # Keyence
+        "9983.T",      # Fast Retailing (Uniqlo)
+        # Hong Kong — China megacap
+        "0700.HK",     # Tencent
+        "9988.HK",     # Alibaba HK
+        "3690.HK",     # Meituan
+        "1810.HK",     # Xiaomi
+        # Australia — the ASX heavyweights
+        "BHP.AX",      # BHP
+        "CBA.AX",      # Commonwealth Bank
+    ],
+    # European equities (ex-UK) — Euronext (.PA, .AS, .BR), Frankfurt
+    # (.DE), Madrid (.MC). UK names live in the existing uk_* lists.
+    "europe_majors": [
+        "^GDAXI",      # DAX index
+        "^STOXX",      # Stoxx 600 index
+        "MC.PA",       # LVMH
+        "OR.PA",       # L'Oréal
+        "AIR.PA",      # Airbus
+        "SAN.PA",      # Sanofi
+        "TTE.PA",      # TotalEnergies
+        "ASML.AS",     # ASML (Amsterdam)
+        "INGA.AS",     # ING Groep
+        "SAP.DE",      # SAP
+        "SIE.DE",      # Siemens
+        "ALV.DE",      # Allianz
+        "ITX.MC",      # Inditex (Zara)
+        "NESN.SW",     # Nestlé (Swiss exchange)
+        "ROG.SW",      # Roche
+        "NOVN.SW",     # Novartis
+    ],
+    # ---- Crypto majors -------------------------------------------------
+    # Via Yahoo's <SYMBOL>-USD pairs — same continuous-contract style as
+    # commodities. BTC + ETH + SOL cover most of the market cap; the
+    # rest are top-volume L1s a UK retail account could buy via a
+    # crypto-enabled broker (T212 supports BTC, ETH, others).
+    "crypto_majors": [
+        "BTC-USD", "ETH-USD", "SOL-USD",
+        "BNB-USD", "XRP-USD", "ADA-USD",
+        "AVAX-USD", "DOT-USD", "LINK-USD",
+        "MATIC-USD",
+    ],
+    # ---- Broader commodities -------------------------------------------
+    # Extend energy_commodities with metals + agri so the comparator
+    # can answer "how's commodities doing overall?" not just oil/gas.
+    # All continuous-contract proxies via Yahoo (=F suffix).
+    "commodities_broad": [
+        "NG=F",        # Natural Gas
+        "BZ=F",        # Brent Crude
+        "CL=F",        # WTI Crude
+        "GC=F",        # Gold
+        "SI=F",        # Silver
+        "HG=F",        # Copper
+        "PL=F",        # Platinum
+        "PA=F",        # Palladium
+        "ZC=F",        # Corn
+        "ZW=F",        # Wheat
+        "ZS=F",        # Soybeans
+        "KC=F",        # Coffee
     ],
     # ---- ETF universes ---------------------------------------------------
     # LSE-listed UCITS ETFs — what a UK-resident investor can actually buy
