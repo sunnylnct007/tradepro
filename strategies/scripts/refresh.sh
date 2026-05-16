@@ -70,6 +70,28 @@ if [[ -z "$UV" ]]; then
 fi
 
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+STATE_DIR="$HOME/.tradepro/state"
+STATE_FILE="$STATE_DIR/refresh-current.json"
+mkdir -p "$STATE_DIR"
+# Worker current-task visibility. Each universe writes a JSON
+# state file before kickoff; heartbeat reads it and forwards to the
+# API so "what's the worker doing right now" is one HTTP call away
+# instead of a `tail | grep` race. The file is deleted on overall
+# completion so absence == idle.
+write_state() {
+  cat >"$STATE_FILE" <<JSON
+{
+  "run_id": "$run_id",
+  "universe": "$1",
+  "currency": "$2",
+  "stamp_duty": "$3",
+  "started_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "pid": $$,
+  "log_file": "$LOG_FILE"
+}
+JSON
+}
+
 {
   echo "================================================================"
   echo "[$run_id] tradepro-refresh starting"
@@ -81,6 +103,7 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 failures=0
 while read -r watchlist currency stamp_duty; do
   [[ -z "$watchlist" ]] && continue
+  write_state "$watchlist" "$currency" "$stamp_duty"
   echo "[$run_id] >>> $watchlist ($currency, stamp_duty=$stamp_duty)" >>"$LOG_FILE"
   if ! "$UV" run tradepro-compare \
       --watchlist "$watchlist" \
@@ -95,6 +118,8 @@ while read -r watchlist currency stamp_duty; do
 done <<< "$UNIVERSES"
 
 echo "[$run_id] done — $failures failure(s)" >>"$LOG_FILE"
+# Clear the state file — absence signals "worker is idle".
+rm -f "$STATE_FILE"
 
 # Final heartbeat so the UI sees the refresh's last_refresh stats land
 # without waiting for the next 15-min periodic ping. Best-effort.

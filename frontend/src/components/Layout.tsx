@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { WorkerStatusBadge } from "./WorkerStatusBadge";
 import { useAuth } from "../auth/AuthProvider";
 import { T212ModeBadge } from "./T212ModeBadge";
 
@@ -120,6 +121,13 @@ export function Layout() {
           ))}
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+          {/* Worker status — visible on every page so the user can
+           * tell at-a-glance whether the Mac is mid-refresh, idle,
+           * or hasn't pinged in a while. Was previously only on the
+           * Decide page; moved here so a user on Portfolio / Research
+           * / Backtest never has to wonder "is the worker alive?"
+           * after a long gap. */}
+          <WorkerStatusBadge />
           {/* T212 broker mode chip — visible on every page so a user
            * can never confuse demo with real money. Hidden when
            * T212 isn't configured. */}
