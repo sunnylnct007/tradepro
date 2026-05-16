@@ -1,28 +1,36 @@
-"""Concrete intraday strategies. Each one lives in its own module —
-single class per file — so a dev cloning ORB as a template can copy
-one file, rename, edit, and have a working second strategy without
-touching anything shared.
+"""Concrete intraday strategies.
 
-Registry pattern (analogous to tradepro_strategies.strategies):
+Each strategy lives in its own module (one class per file) so a dev
+cloning ORB as a template can copy one file, rename, edit, and have
+a working second strategy without touching anything shared.
 
-    from tradepro_strategies.paper.strategies import build
+Strategies opt into the shared plug-in registry via the
+`@register_strategy(name)` decorator at class definition. Importing
+each module here triggers that registration — so any code doing
+`tradepro_strategies.paper.registry.get('orb')` works regardless of
+whether the caller has imported the class directly.
 
-    s = build("opening_range_breakout", strategy_id="orb_us_lg_001")
-
-This module exposes the build() factory so the engine doesn't need
-to know about concrete classes — it asks for a strategy by name +
-params and gets back something that implements `Strategy`."""
+Built-in registry keys today:
+    orb                       opening-range breakout
+Long-form aliases kept for back-compat with the older intraday
+factory:
+    opening_range_breakout    same as `orb`
+"""
 from __future__ import annotations
 
 from typing import Any
 
+from ..registry import (
+    get as _registry_get,
+    list_names as _registry_list_names,
+    register_strategy,
+)
 from ..strategy import Strategy
 from .opening_range_breakout import OpeningRangeBreakout
 
-
-_STRATEGY_FACTORIES: dict[str, type[Strategy]] = {
-    "opening_range_breakout": OpeningRangeBreakout,
-}
+# Alias the long-form name into the shared registry so legacy callers
+# that used `build("opening_range_breakout", ...)` keep working.
+register_strategy("opening_range_breakout")(OpeningRangeBreakout)
 
 
 def build(
@@ -31,23 +39,18 @@ def build(
     strategy_id: str,
     params: dict[str, Any] | None = None,
 ) -> Strategy:
-    """Instantiate a strategy by name. Raises ValueError on unknown
-    names so a typo in config fails loudly rather than silently
-    skipping the strategy at session-start."""
-    cls = _STRATEGY_FACTORIES.get(name)
-    if cls is None:
-        known = ", ".join(sorted(_STRATEGY_FACTORIES))
-        raise ValueError(
-            f"unknown intraday strategy {name!r} — known: {known}"
-        )
-    return cls(strategy_id=strategy_id, params=params or {})
+    """Instantiate a strategy by name. Delegates to the shared
+    `paper.registry`. Raises KeyError (not ValueError, per registry
+    contract) on unknown names so a typo fails loudly."""
+    spec = _registry_get(name)
+    return spec.build(strategy_id=strategy_id, params=params)
 
 
 def available() -> list[str]:
-    """Names of every registered intraday strategy — feeds a UI
-    dropdown the same way the daily comparator's StrategyCatalog
-    does for backtests."""
-    return sorted(_STRATEGY_FACTORIES)
+    """Names of every registered intraday strategy — in-tree + any
+    third-party packages discovered via `tradepro.strategies` entry
+    points. Feeds the UI dropdown."""
+    return _registry_list_names()
 
 
 __all__ = ["OpeningRangeBreakout", "build", "available"]

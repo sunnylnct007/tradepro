@@ -40,9 +40,11 @@ from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Any
 
+from ..registry import register_strategy
 from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 
 
+@register_strategy("orb")
 @dataclass
 class OpeningRangeBreakout(Strategy):
     """ORB — one position per symbol, day-only, long-by-default.
@@ -59,7 +61,14 @@ class OpeningRangeBreakout(Strategy):
             "risk_per_trade_usd": 100.0,
             "stop_multiple": 1.0,
             "target_multiple": 2.0,
-            "session_close_local": "15:55",  # exchange-local hh:mm
+            # 19:55 UTC = 15:55 ET during DST (the typical US trading
+            # window). Bars from yfinance/finnhub arrive in UTC, and
+            # the engine treats bar timestamps as UTC end-to-end —
+            # so this gate is compared against UTC bar.timestamp.time().
+            # Override to "20:55" for non-DST months if you need a
+            # tighter close; the default keeps ORB flat by session end
+            # year-round at the cost of an hour of stale-close drift.
+            "session_close_local": "19:55",
             "direction": "long",
         }
 
