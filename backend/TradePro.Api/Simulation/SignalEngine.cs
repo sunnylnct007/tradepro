@@ -39,7 +39,9 @@ public sealed class SignalEngine : ISignalEngine
                 req.Symbol, strategy.Name, to, "HOLD", 0.0,
                 new[] { "No data returned by the provider." },
                 new IndicatorSnapshot(null, null, null, null, null, null, null),
-                null, null);
+                null, null,
+                InPosition: false,
+                PositionSince: null);
         }
 
         // Use split/distribution-adjusted prices throughout — see
@@ -143,9 +145,15 @@ public sealed class SignalEngine : ISignalEngine
         decimal? stopPct = action == "BUY" ? 5m : (action == "SELL" ? (decimal?)null : null);
         decimal? targetPct = action == "BUY" ? 10m : null;
 
+        DateTime? positionSince = inPosition && lastActionIdx >= 0
+            ? candles[lastActionIdx].Timestamp
+            : (DateTime?)null;
+
         return new SignalDecision(
             req.Symbol, strategy.Name, candles[lastIdx].Timestamp,
-            action, confidence, reasons, snapshot, stopPct, targetPct);
+            action, confidence, reasons, snapshot, stopPct, targetPct,
+            InPosition: inPosition,
+            PositionSince: positionSince);
     }
 
     private static string HumanStrategy(string name) => name switch

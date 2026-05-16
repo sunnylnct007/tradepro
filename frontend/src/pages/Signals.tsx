@@ -537,12 +537,16 @@ interface PerStrategyResult {
 
 interface MultiResult {
   perStrategy: PerStrategyResult[];
-  buys: number;
+  buys: number;       // strategies firing a fresh BUY today
   sells: number;
   holds: number;
   failed: number;
   meanConfidence: number | null;
   consensus: "BUY" | "SELL" | "HOLD" | "MIXED";
+  /** Strategies CURRENTLY LONG the symbol (position state, not today's
+   *  trade). Same metric the Decide page reports as "N of 7 currently
+   *  long". null when the backend payload predates the inPosition field. */
+  currentlyLong: number | null;
 }
 
 function buildMultiResult(perStrategy: PerStrategyResult[]): MultiResult {
@@ -562,7 +566,15 @@ function buildMultiResult(perStrategy: PerStrategyResult[]): MultiResult {
     else if (sells >= Math.ceil(ok.length / 2 + 0.5)) consensus = "SELL";
     else if (holds + buys >= ok.length - 1 && buys === 0) consensus = "HOLD";
   }
-  return { perStrategy, buys, sells, holds, failed, meanConfidence: meanConf, consensus };
+  // `currentlyLong` counts strategies with inPosition=true on their
+  // decision. Backend filled this in via SignalDecision.InPosition;
+  // a pre-update payload (all undefined) yields null so the header
+  // hides the row rather than reporting a misleading zero.
+  const anyHasInPosition = ok.some((r) => r.decision!.inPosition !== undefined);
+  const currentlyLong = anyHasInPosition
+    ? ok.filter((r) => r.decision!.inPosition === true).length
+    : null;
+  return { perStrategy, buys, sells, holds, failed, meanConfidence: meanConf, consensus, currentlyLong };
 }
 
 function MultiStrategyCard({ result, symbol }: { result: MultiResult; symbol: string }) {
@@ -583,6 +595,26 @@ function MultiStrategyCard({ result, symbol }: { result: MultiResult; symbol: st
               <strong>{symbol}</strong> · {result.buys} BUY · {result.sells} SELL · {result.holds} HOLD
               {result.failed > 0 && ` · ${result.failed} failed`}
             </span>
+            {/* Position-state breakdown. Reconciles with the Decide
+                page's "N of 7 currently long" — same metric, exposed
+                here so a user comparing the two pages doesn't think
+                they contradict. `inPosition` was added to the
+                SignalDecision API; pre-update payloads fall back to
+                showing only the action-vote line above. */}
+            {result.currentlyLong != null && (
+              <span
+                title={
+                  `${result.currentlyLong} of ${result.perStrategy.length} ` +
+                  `strategies are currently long the symbol (held a position from a prior signal). ` +
+                  `Of today's actions: ${result.buys} fresh BUY, ${result.sells} fresh SELL, ` +
+                  `${result.holds} no-fresh-signal.`
+                }
+                style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 4, display: "block", cursor: "help" }}
+              >
+                {result.currentlyLong} of {result.perStrategy.length} strategies currently long
+                {" "}<span style={{ color: "var(--text-muted)" }}>(position state — not today's trade)</span>
+              </span>
+            )}
           </div>
         </div>
         {result.meanConfidence !== null && (

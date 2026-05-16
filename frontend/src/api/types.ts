@@ -115,6 +115,11 @@ export interface SignalDecision {
   indicators: IndicatorSnapshot;
   suggestedStopLossPct: number | null;
   suggestedTargetPct: number | null;
+  /** Position STATE — separate from `action` (today's trade). HOLD+inPosition
+   *  = "stay long", HOLD+!inPosition = "stay flat". Surfaces the same number
+   *  the Decide page uses for "N of 7 currently long" so Research reconciles. */
+  inPosition?: boolean;
+  positionSince?: string | null;
 }
 
 export interface SignalRequest {
