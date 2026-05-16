@@ -910,6 +910,29 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
             long_count=long_count,
             total=total,
         )
+        # Apply the range veto here too — evaluate_symbols is the
+        # ad-hoc analogue of the comparator pipeline, so its bucket
+        # should match what compare emits as far as data allows. Full
+        # sentiment / horizon demotion requires news + horizon
+        # classification which we don't pull on the fast path; this
+        # at least catches "BUY at the 52w high" cases.
+        from ..compare import apply_horizon_and_range_demotion as _veto
+        bucket, bucket_reason, _horizon_demoted = _veto(
+            bucket=bucket, reason=bucket_reason,
+            horizon_classification=None,
+            range_pct=ms.range_position_pct,
+        )
+        # Annotate market_state when bucket overrode the raw price
+        # signal — same contract compare.py uses. Without this, MCP
+        # consumers see entry_signal=BUY + bucket=AVOID on the same
+        # row and read it as a contradiction (Phase 0 bug).
+        ms_dict = ms.to_dict()
+        if ms.entry_signal and ms.entry_signal != bucket:
+            ms_dict["entry_signal_superseded_by"] = bucket
+            ms_dict["entry_signal_note"] = (
+                f"Raw price signal is {ms.entry_signal}, but the final "
+                f"verdict is {bucket} — see `bucket` for the answer."
+            )
         results.append({
             "_source": f"live://evaluate/{sym}",
             "symbol": sym,
@@ -918,7 +941,7 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
             "bucket_reason": bucket_reason,
             "long_count": long_count,
             "total_strategies": total,
-            "market_state": ms.to_dict(),
+            "market_state": ms_dict,
             "strategies": strat_rows,
         })
 

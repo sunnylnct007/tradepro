@@ -740,6 +740,23 @@ def _attach_bucket_and_rationale(
             # UI can show "BUY → WAIT because the swing horizon said
             # AVOID at the 100th percentile" instead of just "WAIT".
             r["horizon_demoted"] = horizon_demoted
+            # Annotate market_state.entry_signal when the bucket
+            # overrode it (sentiment / horizon / range demotion fired).
+            # Otherwise any tool surfacing both fields side-by-side
+            # — MCP evaluate, raw JSON, swagger docs — shows what
+            # reads as a contradiction (entry_signal=BUY +
+            # bucket=AVOID on the same row). The annotation makes the
+            # priority explicit: bucket wins, entry_signal is the
+            # raw price input.
+            ms_dict = r.get("market_state") or {}
+            entry_sig = ms_dict.get("entry_signal")
+            if entry_sig and entry_sig != bucket:
+                ms_dict["entry_signal_superseded_by"] = bucket
+                ms_dict["entry_signal_note"] = (
+                    f"Raw price signal is {entry_sig}, but the final "
+                    f"verdict is {bucket} — see `bucket` for the answer."
+                )
+                r["market_state"] = ms_dict
             if rationale_dict is not None:
                 r["rationale"] = rationale_dict
             # Top-level price target keys land on every row of this
