@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
 import { Layout } from "./components/Layout";
 import { Compare } from "./pages/Compare";
+import { PaperBacktest } from "./pages/PaperBacktest";
 import { Dashboard } from "./pages/Dashboard";
 import { DocumentDetail } from "./pages/DocumentDetail";
 import { Documents } from "./pages/Documents";
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
       { path: "documents/:docId", element: <DocumentDetail /> },
       { path: "signals", element: <Signals /> },
       { path: "simulations", element: <Simulations /> },
+      { path: "paper-backtest", element: <PaperBacktest /> },
       { path: "charts", element: <Dashboard /> },
       { path: "health", element: <HealthPage /> },
       { path: "settings", element: <Settings /> },

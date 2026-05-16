@@ -55,6 +55,30 @@ public static class IngestEndpoints
             });
         });
 
+        // Paper-trading backtest report (single-strategy walk-forward
+        // OR multi-strategy comparator). The Mac runs the validator/
+        // comparator locally and pushes the JSON; UI reads via
+        // /api/paper/backtest/reports. In-memory store today —
+        // restart clears history, which is fine for "show me my last
+        // N backtests" while the feature is brand-new.
+        group.MapPost("/paper-backtest", (JsonElement payload, IPaperBacktestStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+            {
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            }
+            var env = store.Put(payload);
+            return Results.Ok(new
+            {
+                accepted = true,
+                reportId = env.ReportId,
+                kind = env.Kind,
+                symbol = env.Symbol,
+                entryCount = env.EntryCount,
+                receivedAtUtc = env.ReceivedAtUtc,
+            });
+        });
+
         // Document upload — Mac extracts the file (PDF / HTML / TXT) and
         // pushes the structured manifest. Raw files stay on the Mac;
         // only the extracted text + structural metadata ship to the API.

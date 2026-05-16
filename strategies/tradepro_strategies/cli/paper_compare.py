@@ -35,6 +35,7 @@ from ..paper import RiskLimits
 from ..paper import registry as strategy_registry
 from ..paper.comparator import ComparatorEntrySpec, StrategyComparator
 from ..paper.strategies import OpeningRangeBreakout  # ensures decorator runs
+from . import push_to_api
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -58,6 +59,9 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--concurrent", action="store_true",
                    help="Run validators concurrently. Only safe when the bar "
                         "cache is already warm; otherwise N×Yahoo cost.")
+    p.add_argument("--push", action="store_true",
+                   help="POST the result JSON to the API as a paper-backtest report. "
+                        "Reads ~/.tradepro/credentials for api_base_url + api_token.")
     return p.parse_args(argv)
 
 
@@ -144,7 +148,18 @@ def main(argv: list[str] | None = None) -> int:
         concurrent=args.concurrent,
     )
     result = asyncio.run(comparator.run(entries, start, end))
-    print(json.dumps(result.to_summary(), indent=2, default=str))
+    summary = result.to_summary()
+    # Stable id so re-pushing the same compare (e.g. re-run with one
+    # new entry) overwrites rather than piling up reports.
+    summary["kind"] = "compare"
+    summary["report_id"] = (
+        f"compare-{args.symbol}-{args.from_date}-{args.to_date}-"
+        f"{'-'.join(e.strategy_id for e in entries)}"
+    )
+    print(json.dumps(summary, indent=2, default=str))
+    if args.push:
+        base, token = push_to_api.load_credentials()
+        push_to_api.push("paper-backtest", summary, base, token)
     return 0
 
 

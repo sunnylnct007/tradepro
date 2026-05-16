@@ -34,6 +34,7 @@ from ..paper import RiskLimits
 from ..paper import registry as strategy_registry
 from ..paper.strategies import OpeningRangeBreakout  # ensures decorator runs
 from ..paper.validator import WalkForwardValidator
+from . import push_to_api
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -77,6 +78,9 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--slippage-bps", type=float, default=5.0)
     p.add_argument("--include-sessions", action="store_true",
                    help="Include per-session details (otherwise summary only)")
+    p.add_argument("--push", action="store_true",
+                   help="POST the result JSON to the API as a paper-backtest report. "
+                        "Reads ~/.tradepro/credentials for api_base_url + api_token.")
     return p.parse_args(argv)
 
 
@@ -178,7 +182,14 @@ def main(argv: list[str] | None = None) -> int:
             }
             for s in result.sessions
         ]
+    output["kind"] = "backtest"
+    output["report_id"] = (
+        f"backtest-{args.symbol}-{spec.name}-{start.isoformat()}-{end.isoformat()}"
+    )
     print(json.dumps(output, indent=2, default=str))
+    if args.push:
+        base, token = push_to_api.load_credentials()
+        push_to_api.push("paper-backtest", output, base, token)
     return 0
 
 

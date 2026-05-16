@@ -105,6 +105,10 @@ builder.Services.AddSingleton<ICompareStore, FileCompareStore>();
 builder.Services.AddSingleton<IHeartbeatStore, InMemoryHeartbeatStore>();
 builder.Services.AddSingleton<ISettingsStore, FileSettingsStore>();
 builder.Services.AddSingleton<IDocumentStore, FileDocumentStore>();
+// Paper-trading backtest reports pushed from the Mac. In-memory for
+// now — the UI only needs "show me recent runs" and history-across-
+// restarts isn't a v1 requirement.
+builder.Services.AddSingleton<IPaperBacktestStore, InMemoryPaperBacktestStore>();
 
 var app = builder.Build();
 
@@ -140,6 +144,7 @@ api.MapSettingsEndpoints();
 api.MapDocumentEndpoints();
 api.MapIntegrationsEndpoints();
 api.MapInstrumentEndpoints();
+api.MapPaperBacktestEndpoints();
 
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");

@@ -90,6 +90,20 @@ export const api = {
     }
     return resp.text();
   },
+  // Paper-trading backtest reports — list newest-first + drill into one
+  paperBacktestReports: () =>
+    get<Array<{
+      reportId: string;
+      kind: string;
+      symbol: string;
+      start?: string;
+      end?: string;
+      entryCount: number;
+      receivedAtUtc: string;
+    }>>("/api/paper/backtest/reports"),
+  paperBacktestReport: (reportId: string) =>
+    get<unknown>(`/api/paper/backtest/reports/${encodeURIComponent(reportId)}`),
+
   uploadDocument: async (
     file: File,
     title: string,
