@@ -150,6 +150,7 @@ def classify_horizons(symbol_data: dict) -> HorizonClassification:
     )
 
     swing = _score_swing(
+        symbol_data=symbol_data,
         rsi=rsi, off_52w=off_52w, has_catalyst=has_catalyst,
         analyst_upside=analyst_upside, above_sma=above_sma,
         range_pct=range_pct_f,
@@ -170,56 +171,57 @@ def classify_horizons(symbol_data: dict) -> HorizonClassification:
 
 
 def _score_swing(
-    *, rsi: float, off_52w: float, has_catalyst: bool,
+    *, symbol_data: dict, rsi: float, off_52w: float, has_catalyst: bool,
     analyst_upside: float, above_sma: bool, range_pct: float | None,
 ) -> HorizonVerdict:
-    """Spec §4.1. Five base criteria up to 8 points, with a range-
-    position modifier applied at the end:
+    """Bug #11 unification: this horizon now reads the composite
+    `today_swing_score` (from swing.evaluate_swing) as its BASE instead
+    of computing a parallel score with overlapping-but-inconsistent
+    thresholds. Then applies only the horizon-specific range-position
+    modifier on top — the bit that's genuinely horizon-aware and isn't
+    in the composite.
+
+    Before: two scorers ran independently and could disagree
+    (today_swing_score=6 + horizon.swing.signal=AVOID). After: one
+    source of truth, divergence is impossible by construction.
+
+    Range modifier (spec §5.2):
       0-35 pctile (near lows)   → +1 bonus
       35-65 (mid)               → no modifier
       65-80 (near highs)        → -1 penalty
       80-100 (at highs)         → -2 penalty, capped at WATCH
     """
-    score = 0
+    # Pull the composite — already on the row from compare.py's main
+    # pass. Falls back to local evaluation if (a) the row didn't carry
+    # it (very old payload) or (b) tests build a row by hand without
+    # running the comparator.
+    sw_obj = symbol_data.get("swing_score") or {}
+    composite_total = sw_obj.get("total")
+    composite_reasons = sw_obj.get("reasons") or {}
+    if composite_total is None:
+        from .swing import evaluate_swing
+        sw = evaluate_swing(symbol_data)
+        composite_total = sw.total
+        composite_reasons = sw.reasons
+
+    score = int(composite_total)
     reasons: list[str] = []
+    # Lift the per-layer reasons so the horizon tooltip explains why
+    # the composite scored what it did — keeps the UI consistent
+    # with the SwingScoreCard.
+    for layer in ("quality", "valuation", "event", "price"):
+        msg = composite_reasons.get(layer)
+        if msg:
+            reasons.append(f"{layer}: {msg}")
 
-    # 1 — RSI (oversold = good swing setup)
-    if rsi < 40:
-        score += 2
-        reasons.append(f"RSI {rsi:.0f} — oversold")
-    elif rsi < 50:
-        score += 1
-        reasons.append(f"RSI {rsi:.0f} — cooling")
-
-    # 2 — Distance from 52w high (room to recover)
-    if off_52w > 10:
-        score += 2
-        reasons.append(f"{off_52w:.1f}% off 52w high")
-    elif off_52w > 5:
-        score += 1
-        reasons.append(f"{off_52w:.1f}% off 52w high")
-
-    # 3 — Active event catalyst inside the window
-    if has_catalyst:
-        score += 2
-        reasons.append("Active event catalyst")
-
-    # 4 — Sufficient analyst upside
-    if analyst_upside > 12:
-        score += 1
-        reasons.append(f"{analyst_upside:.0f}% analyst upside")
-
-    # 5 — Above 200-day SMA (don't catch a falling knife)
-    if above_sma:
-        score += 1
-
-    # Range-position modifier (spec §5.2). The hard cap at WATCH for
-    # near-the-highs entries is the VUKE-class fix codified.
+    # Range-position modifier — the genuinely horizon-specific bit.
+    # The hard cap at WATCH for near-the-highs entries is the
+    # VUKE-class fix codified.
     cap_at_watch = False
     if range_pct is not None:
         if range_pct < 35:
             score += 1
-            reasons.append(f"Near annual lows ({range_pct:.0f}th pctile)")
+            reasons.append(f"Near annual lows ({range_pct:.0f}th pctile) — +1")
         elif range_pct >= 80:
             score = max(0, score - 2)
             reasons.append(

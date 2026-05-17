@@ -61,6 +61,14 @@ export function Compare() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openSymbol, setOpenSymbol] = useState<string | null>(null);
+  // Horizon filter — narrows the visible matrix to symbols whose
+  // per-horizon verdict matches. "all" = no filter. "swing" / "long_term"
+  // / "passive" = only show symbols whose horizon_classification.<k>.signal
+  // is BUY for that horizon. Was display-only pills before (read as
+  // interactive by users); promoting to a real filter closes the
+  // expectation gap.
+  type HorizonFilter = "all" | "swing" | "long_term" | "passive";
+  const [horizonFilter, setHorizonFilter] = useState<HorizonFilter>("all");
 
   useEffect(() => {
     api.compareUniverses()
@@ -87,13 +95,35 @@ export function Compare() {
       .finally(() => setLoading(false));
   }, [universe]);
 
-  const views: SymbolView[] = useMemo(
+  const allViews: SymbolView[] = useMemo(
     () => buildSymbolViews(
       data?.payload?.rows ?? [],
       data?.payload?.llm?.demotion_rule,
     ),
     [data],
   );
+  // Apply horizon filter. "all" returns everything; any specific
+  // horizon returns symbols whose horizon_classification.<k>.signal
+  // is BUY at that horizon. Symbols without a horizon classification
+  // (older payloads, ETFs without the field) are excluded from the
+  // non-"all" views — they couldn't satisfy the filter either way.
+  const views = useMemo(() => {
+    if (horizonFilter === "all") return allViews;
+    return allViews.filter((v) => {
+      const cls = v.bestRow.horizon_classification;
+      if (!cls) return false;
+      const verdict = cls[horizonFilter];
+      return verdict?.signal === "BUY";
+    });
+  }, [allViews, horizonFilter]);
+  // Pre-compute per-horizon counts for the pill labels — gives the
+  // user a "how many BUYs in each horizon" preview before clicking.
+  const horizonCounts = useMemo(() => ({
+    all: allViews.length,
+    swing: allViews.filter((v) => v.bestRow.horizon_classification?.swing?.signal === "BUY").length,
+    long_term: allViews.filter((v) => v.bestRow.horizon_classification?.long_term?.signal === "BUY").length,
+    passive: allViews.filter((v) => v.bestRow.horizon_classification?.passive?.signal === "BUY").length,
+  }), [allViews]);
   const buys = views.filter((v) => v.bucket === "BUY");
   const waits = views.filter((v) => v.bucket === "WAIT");
   const avoids = views.filter((v) => v.bucket === "AVOID");
@@ -137,6 +167,16 @@ export function Compare() {
           The rule chain is identical for ETFs and stocks; ETF-specific
           fundamentals (expense ratio, AUM, top holdings) only show when
           they apply. <strong>Not for intraday or day-trading.</strong>
+        </p>
+        <p style={{ color: "var(--text-muted)", margin: "8px 0 0 0", maxWidth: 880, fontSize: 12, lineHeight: 1.55 }}>
+          <strong>Decide vs Research:</strong> This page reads a cached
+          snapshot from the worker's last refresh and applies extra filters
+          (sentiment demotion, horizon split, range veto) before issuing
+          the bucket. <a href="/signals" style={{ color: "var(--up)" }}>Research</a>
+          {" "}runs the strategies <em>live</em> for a single symbol —
+          no caching, no filters. So the same symbol can show BUY on Research
+          and WAIT here if (a) the filters demoted it, or (b) the cached
+          snapshot's price action diverged from the live tape.
         </p>
       </div>
 
@@ -217,6 +257,65 @@ export function Compare() {
             <Stat label="Window" value={`${data.payload.from} → ${data.payload.to}`} />
             <Stat label="Assets × strategies" value={`${views.length} × ${views[0]?.total ?? 0}`} />
           </>
+        )}
+        {data && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, gridColumn: "1 / -1" }}>
+            <span className="stat-label">
+              Horizon filter
+              <span style={{ marginLeft: 6, color: "var(--text-muted)", fontWeight: 400 }}>
+                — narrow the matrix to symbols that are BUY at the picked horizon
+              </span>
+            </span>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {([
+                { key: "all" as const, label: "All", window: "no filter" },
+                { key: "swing" as const, label: "Swing", window: "1–8 weeks" },
+                { key: "long_term" as const, label: "Long-term", window: "6–18 months" },
+                { key: "passive" as const, label: "Passive", window: "3–5 years" },
+              ]).map((opt) => {
+                const active = horizonFilter === opt.key;
+                const count = horizonCounts[opt.key];
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setHorizonFilter(opt.key)}
+                    title={`${opt.label} horizon · ${opt.window}`}
+                    style={{
+                      padding: "5px 11px",
+                      fontSize: 12,
+                      fontWeight: active ? 600 : 500,
+                      borderRadius: 999,
+                      cursor: "pointer",
+                      border: `1px solid ${active ? "var(--up)" : "var(--border)"}`,
+                      background: active ? "var(--bg-hover)" : "transparent",
+                      color: active ? "var(--text)" : "var(--text-dim)",
+                      transition: "background 0.15s ease, color 0.15s ease",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {opt.label}
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 10,
+                        color: active ? "var(--text-dim)" : "var(--text-muted)",
+                        fontWeight: 400,
+                      }}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {horizonFilter !== "all" && views.length === 0 && (
+              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                No symbols are BUY at the {horizonFilter.replace("_", " ")} horizon in this universe right now.
+                Pick another horizon or another universe.
+              </div>
+            )}
+          </div>
         )}
       </section>
 

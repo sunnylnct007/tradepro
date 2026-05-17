@@ -153,6 +153,15 @@ export function Signals() {
           historical data and shows the equity curve over years. Use Research
           for live decisions; Backtest to validate a strategy before trusting it.
         </p>
+        <p style={{ color: "var(--text-muted)", margin: "6px 0 0 0", maxWidth: 880, fontSize: 12, lineHeight: 1.55 }}>
+          <strong>Research vs Decide:</strong> Research runs the strategies live
+          on this symbol the moment you click "Run". Decide reads the cached
+          worker-refresh snapshot (typically 0–24h old) and applies
+          extra filters — sentiment demotion, horizon split, range veto —
+          before issuing a bucket. So the same symbol can show BUY on Research
+          and WAIT on Decide if (a) the filters demoted it, or (b) the snapshot
+          is from a different price action than now.
+        </p>
       </div>
 
       {/* Symbol picker on its own row — same pattern as Backtest. The
