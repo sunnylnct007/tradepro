@@ -210,10 +210,15 @@ class Ledger:
 
     # --- Snapshot for the API / UI / persistence layer ---
 
-    def to_snapshot(self) -> dict:
-        """JSON-serialisable summary. Engine publishes this on
-        `/api/paper/ledger` so the UI can render per-strategy
-        scoreboards without reaching into Python internals."""
+    def to_snapshot(self, *, include_fills: int = 0) -> dict:
+        """JSON-serialisable summary. Engine publishes this so the UI
+        can render per-strategy scoreboards without reaching into Python
+        internals.
+
+        `include_fills` — if > 0, also include up to that many MOST
+        RECENT fills per strategy. The Live-orders dashboard uses this
+        to render "what trades just happened"; backtest comparator
+        callers leave it at 0 because they care about aggregates."""
         return {
             "as_of_utc": datetime.now(timezone.utc).isoformat(),
             "strategies": [
@@ -234,6 +239,18 @@ class Ledger:
                         }
                         for p in book.positions.values()
                         if p.quantity != 0
+                    ],
+                    "recent_fills": [
+                        {
+                            "order_id": f.order_id,
+                            "symbol": f.symbol,
+                            "side": f.side.value,
+                            "quantity": f.quantity,
+                            "fill_price": f.fill_price,
+                            "fill_time": f.fill_time.isoformat(),
+                            "commission": f.commission,
+                        }
+                        for f in (book.fills_log[-include_fills:] if include_fills else [])
                     ],
                 }
                 for book in self.books.values()

@@ -224,7 +224,8 @@ The Mac is the active worker; the API is passive storage. Mac pushes results via
 | `compare` | `tradepro-compare --push` (daily refresh) | Decide page |
 | `heartbeat` | `tradepro-heartbeat` (every 15m via launchd) | Worker badge |
 | `document` | `tradepro-doc-upload` | Documents page |
-| `paper-backtest` | `tradepro-paper-backtest --push` / `tradepro-paper-compare --push` | Paper page |
+| `paper-backtest` | `tradepro-paper-backtest --push` / `tradepro-paper-compare --push` | Paper page → Backtest reports tab |
+| `paper-snapshot` | `tradepro-paper --push` (single session end-state) | Paper page → Live sessions tab |
 | `paper-strategies` | `tradepro-paper-strategies-push` | Paper page catalog |
 
 Ingest endpoint uses a bearer token (`Ingest:Token`), separate from the Firebase login the UI uses. There's NO API → Mac path — when the UI needs to trigger work on the Mac, the model is: API queues a job → worker polls → worker pushes result. (Not yet built; today everything is terminal-triggered.)

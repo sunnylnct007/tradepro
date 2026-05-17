@@ -83,7 +83,49 @@ type StrategySpec = {
   default_params: Record<string, unknown>;
 };
 
+type SnapshotSummary = {
+  sessionLabel: string;
+  broker: string;
+  asOfUtc: string;
+  strategyCount: number;
+  totalFills: number;
+  receivedAtUtc: string;
+};
+
+type SnapshotPayload = {
+  as_of_utc: string;
+  session_label?: string;
+  broker?: string;
+  strategies: Array<{
+    strategy_id: string;
+    realised_pnl: number;
+    unrealised_pnl: number;
+    equity: number;
+    commission_paid: number;
+    fills_count: number;
+    positions: Array<{
+      symbol: string;
+      quantity: number;
+      avg_entry_price: number;
+      last_mark: number;
+      unrealised_pnl: number;
+    }>;
+    recent_fills: Array<{
+      order_id: string;
+      symbol: string;
+      side: string;
+      quantity: number;
+      fill_price: number;
+      fill_time: string;
+      commission: number;
+    }>;
+  }>;
+};
+
+type Tab = "backtests" | "live";
+
 export function PaperBacktest() {
+  const [tab, setTab] = useState<Tab>("backtests");
   const [reports, setReports] = useState<ReportSummary[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [payload, setPayload] = useState<ComparatorPayload | null>(null);
@@ -91,6 +133,10 @@ export function PaperBacktest() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [strategies, setStrategies] = useState<StrategySpec[] | null>(null);
   const [strategiesError, setStrategiesError] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<SnapshotSummary[] | null>(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
+  const [snapshotPayload, setSnapshotPayload] = useState<SnapshotPayload | null>(null);
+  const [loadingSnap, setLoadingSnap] = useState(false);
 
   useEffect(() => {
     api
@@ -101,7 +147,24 @@ export function PaperBacktest() {
       .paperStrategies()
       .then((c) => setStrategies(c.strategies))
       .catch((e) => setStrategiesError(String(e)));
+    api
+      .paperSnapshots()
+      .then((s) => setSnapshots(s))
+      .catch(() => setSnapshots([]));
   }, []);
+
+  useEffect(() => {
+    if (!selectedSnapshot) {
+      setSnapshotPayload(null);
+      return;
+    }
+    setLoadingSnap(true);
+    api
+      .paperSnapshot(selectedSnapshot)
+      .then((p) => setSnapshotPayload(p as SnapshotPayload))
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoadingSnap(false));
+  }, [selectedSnapshot]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -140,15 +203,243 @@ export function PaperBacktest() {
         </div>
       )}
       <StrategyCatalog strategies={strategies} error={strategiesError} />
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) 2fr", gap: 16, marginTop: 16 }}>
-        <ReportList
-          reports={reports}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
-        <ReportDetail loading={loadingDetail} payload={payload} />
+
+      <div style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: "1px solid var(--border)" }}>
+        <TabBtn label="Backtest reports" active={tab === "backtests"} onClick={() => setTab("backtests")}
+                count={reports?.length} />
+        <TabBtn label="Live sessions" active={tab === "live"} onClick={() => setTab("live")}
+                count={snapshots?.length} />
       </div>
+
+      {tab === "backtests" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) 2fr", gap: 16, marginTop: 16 }}>
+          <ReportList
+            reports={reports}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+          <ReportDetail loading={loadingDetail} payload={payload} />
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) 2fr", gap: 16, marginTop: 16 }}>
+          <SnapshotList
+            snapshots={snapshots}
+            selectedLabel={selectedSnapshot}
+            onSelect={setSelectedSnapshot}
+          />
+          <SnapshotDetail loading={loadingSnap} payload={snapshotPayload} />
+        </div>
+      )}
     </div>
+  );
+}
+
+function TabBtn(props: { label: string; active: boolean; onClick: () => void; count?: number | null }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      style={{
+        padding: "8px 14px",
+        fontSize: 12,
+        fontWeight: props.active ? 600 : 500,
+        borderRadius: 0,
+        cursor: "pointer",
+        border: "none",
+        borderBottom: `2px solid ${props.active ? "var(--up)" : "transparent"}`,
+        background: "transparent",
+        color: props.active ? "var(--text)" : "var(--text-dim)",
+        marginBottom: -1,
+      }}
+    >
+      {props.label}
+      {typeof props.count === "number" && (
+        <span style={{ marginLeft: 6, fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>
+          {props.count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function SnapshotList(props: {
+  snapshots: SnapshotSummary[] | null;
+  selectedLabel: string | null;
+  onSelect: (label: string) => void;
+}) {
+  if (props.snapshots === null) return <div style={{ color: "var(--text-muted)" }}>Loading sessions…</div>;
+  if (props.snapshots.length === 0) {
+    return (
+      <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+        No live sessions pushed yet. Run a paper session with{" "}
+        <code>--push</code> from the Mac:
+        <pre
+          style={{
+            marginTop: 8,
+            padding: 8,
+            background: "var(--bg-elev)",
+            borderRadius: 6,
+            fontSize: 12,
+            overflowX: "auto",
+          }}
+        >
+{`uv run tradepro-paper --broker yfinance \\
+  --symbol AAPL --date 2026-05-15 --push
+
+# Or against T212 demo
+uv run tradepro-paper --broker t212 \\
+  --symbol AAPL --date 2026-05-15 \\
+  --max-position-value-usd 1000 --push`}
+        </pre>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {props.snapshots.map((s) => {
+        const active = s.sessionLabel === props.selectedLabel;
+        return (
+          <button
+            key={s.sessionLabel}
+            onClick={() => props.onSelect(s.sessionLabel)}
+            style={{
+              textAlign: "left",
+              padding: "10px 12px",
+              border: `1px solid ${active ? "var(--up)" : "var(--border)"}`,
+              background: active ? "var(--bg-hover)" : "transparent",
+              borderRadius: 8,
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <strong style={{ fontSize: 13 }}>{s.sessionLabel}</strong>
+              <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase" }}>{s.broker}</span>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+              {s.strategyCount} {s.strategyCount === 1 ? "strategy" : "strategies"} · {s.totalFills} fills
+            </div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+              {new Date(s.receivedAtUtc).toLocaleString()}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SnapshotDetail(props: { loading: boolean; payload: SnapshotPayload | null }) {
+  if (props.loading) return <div style={{ color: "var(--text-muted)" }}>Loading…</div>;
+  if (!props.payload) return <div style={{ color: "var(--text-muted)" }}>Pick a session on the left.</div>;
+  const p = props.payload;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <strong style={{ fontSize: 14 }}>{p.session_label ?? "(unlabelled session)"}</strong>
+        <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase" }}>
+          {p.broker}
+        </span>
+        <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-dim)" }}>
+          as of {new Date(p.as_of_utc).toLocaleString()}
+        </span>
+      </div>
+
+      {p.strategies.map((s) => (
+        <div key={s.strategy_id} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+            <strong style={{ fontSize: 13 }}>{s.strategy_id}</strong>
+            <div style={{ display: "flex", gap: 14, fontSize: 11 }}>
+              <KV label="Realised" value={s.realised_pnl} colour={s.realised_pnl >= 0 ? "var(--up)" : "var(--down)"} />
+              <KV label="Unrealised" value={s.unrealised_pnl} colour={s.unrealised_pnl >= 0 ? "var(--up)" : "var(--down)"} />
+              <KV label="Equity" value={s.equity} colour="var(--text)" />
+              <KV label="Commission" value={-s.commission_paid} colour="var(--text-muted)" />
+              <KV label="Fills" value={s.fills_count} colour="var(--text-dim)" raw />
+            </div>
+          </div>
+
+          {s.positions.length > 0 ? (
+            <div style={{ marginTop: 10 }}>
+              <div className="stat-label" style={{ marginBottom: 4 }}>Open positions</div>
+              <table className="num" style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ color: "var(--text-dim)", borderBottom: "1px solid var(--border-soft)" }}>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Symbol</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>Qty</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>Avg entry</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>Last mark</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>Unrealised</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.positions.map((pos) => (
+                    <tr key={pos.symbol}>
+                      <td style={{ padding: "4px 6px" }}>{pos.symbol}</td>
+                      <td style={{ textAlign: "right", padding: "4px 6px" }}>{pos.quantity}</td>
+                      <td style={{ textAlign: "right", padding: "4px 6px" }}>{pos.avg_entry_price.toFixed(2)}</td>
+                      <td style={{ textAlign: "right", padding: "4px 6px" }}>{pos.last_mark.toFixed(2)}</td>
+                      <td style={{ textAlign: "right", padding: "4px 6px", color: pos.unrealised_pnl >= 0 ? "var(--up)" : "var(--down)" }}>
+                        {pos.unrealised_pnl.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>Flat — no open positions.</div>
+          )}
+
+          {s.recent_fills.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div className="stat-label" style={{ marginBottom: 4 }}>
+                Recent fills <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>(newest first)</span>
+              </div>
+              <table className="num" style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ color: "var(--text-dim)", borderBottom: "1px solid var(--border-soft)" }}>
+                    <th style={{ textAlign: "left", padding: "3px 6px" }}>Time</th>
+                    <th style={{ textAlign: "left", padding: "3px 6px" }}>Side</th>
+                    <th style={{ textAlign: "left", padding: "3px 6px" }}>Symbol</th>
+                    <th style={{ textAlign: "right", padding: "3px 6px" }}>Qty</th>
+                    <th style={{ textAlign: "right", padding: "3px 6px" }}>Price</th>
+                    <th style={{ textAlign: "right", padding: "3px 6px" }}>Commission</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...s.recent_fills].reverse().map((f, i) => (
+                    <tr key={`${f.order_id}-${i}`}>
+                      <td style={{ padding: "3px 6px", color: "var(--text-muted)" }}>
+                        {new Date(f.fill_time).toLocaleTimeString()}
+                      </td>
+                      <td style={{ padding: "3px 6px", color: f.side === "BUY" ? "var(--up)" : "var(--down)" }}>
+                        {f.side}
+                      </td>
+                      <td style={{ padding: "3px 6px" }}>{f.symbol}</td>
+                      <td style={{ textAlign: "right", padding: "3px 6px" }}>{f.quantity}</td>
+                      <td style={{ textAlign: "right", padding: "3px 6px" }}>{f.fill_price.toFixed(4)}</td>
+                      <td style={{ textAlign: "right", padding: "3px 6px", color: "var(--text-muted)" }}>
+                        {f.commission.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function KV({ label, value, colour, raw = false }: { label: string; value: number; colour: string; raw?: boolean }) {
+  return (
+    <span style={{ color: "var(--text-dim)" }}>
+      {label}{": "}
+      <span style={{ color: colour, fontWeight: 600 }}>
+        {raw ? value : value.toFixed(2)}
+      </span>
+    </span>
   );
 }
 

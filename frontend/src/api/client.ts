@@ -113,6 +113,17 @@ export const api = {
         default_params: Record<string, unknown>;
       }>;
     }>("/api/paper/strategies/"),
+  paperSnapshots: () =>
+    get<Array<{
+      sessionLabel: string;
+      broker: string;
+      asOfUtc: string;
+      strategyCount: number;
+      totalFills: number;
+      receivedAtUtc: string;
+    }>>("/api/paper/snapshots/"),
+  paperSnapshot: (sessionLabel: string) =>
+    get<unknown>(`/api/paper/snapshots/${encodeURIComponent(sessionLabel)}`),
 
   uploadDocument: async (
     file: File,

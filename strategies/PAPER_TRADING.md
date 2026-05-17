@@ -132,6 +132,22 @@ uv run tradepro-paper-backtest --symbol AAPL \
   --from 2026-04-15 --to 2026-05-15 --push
 ```
 
+### Live session push (Paper page → Live tab)
+Single sessions can push their full ledger state — open positions,
+recent fills, per-strategy P&L — to the Paper page's "Live sessions"
+tab. Use this after a `tradepro-paper` run when you want to see what
+the engine actually did:
+```bash
+uv run tradepro-paper --broker yfinance --symbol AAPL \
+  --date 2026-05-15 --push
+
+# Real T212 demo trade — fills land in the Paper Live tab
+uv run tradepro-paper --broker t212 --symbol AAPL \
+  --date 2026-05-15 --max-position-value-usd 1000 --push
+```
+The push includes the most recent 50 fills per strategy by default;
+override with `--push-fills N` (use 0 to push positions/aggregates only).
+
 ---
 
 ## Compare multiple strategies (side-by-side)

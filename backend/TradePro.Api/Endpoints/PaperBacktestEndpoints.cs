@@ -38,6 +38,18 @@ public static class PaperBacktestEndpoints
             return cur is null ? Results.NotFound() : Results.Ok(cur);
         });
 
+        // Live snapshots from the latest paper-engine sessions — full
+        // ledger (positions + recent fills + P&L) per session label.
+        // Powers the Live tab on the Paper page.
+        var snaps = app.MapGroup("/paper/snapshots").WithTags("PaperBacktest");
+        snaps.MapGet("/", (IPaperSnapshotStore store, int? limit) =>
+            Results.Ok(store.List(limit ?? 50)));
+        snaps.MapGet("/{sessionLabel}", (string sessionLabel, IPaperSnapshotStore store) =>
+        {
+            var env = store.Get(sessionLabel);
+            return env is null ? Results.NotFound() : Results.Ok(env.Payload);
+        });
+
         return app;
     }
 }

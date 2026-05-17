@@ -83,6 +83,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--account", default=None,
                    help="IBKR account id (DU... = paper, U... = live)")
     p.add_argument("--ibkr-timeframe-seconds", type=int, default=60)
+    p.add_argument("--push", action="store_true",
+                   help="POST the ledger snapshot (positions + recent fills) "
+                        "to the API after the session so the Paper page Live "
+                        "tab can render it.")
+    p.add_argument("--push-fills", type=int, default=50,
+                   help="How many most-recent fills per strategy to include "
+                        "in the push (default 50). 0 = positions/aggregates only.")
     return p.parse_args(argv)
 
 
@@ -154,8 +161,20 @@ def main(argv: list[str] | None = None) -> int:
         strategy, symbols=[args.symbol], capital_usd=args.capital_usd,
     )
 
-    snapshot = asyncio.run(engine.run(session_date or datetime.utcnow()))
+    asyncio.run(engine.run(session_date or datetime.utcnow()))
+    # Re-snapshot with recent fills included so the Live tab on the
+    # Paper page can render the per-strategy fill log + open positions.
+    snapshot = engine.ledger.to_snapshot(include_fills=args.push_fills)
+    snapshot["kind"] = "paper-snapshot"
+    snapshot["session_label"] = (
+        f"{args.symbol}-{(session_date or datetime.utcnow()).date().isoformat()}"
+    )
+    snapshot["broker"] = args.broker
     print(json.dumps(snapshot, indent=2, default=str))
+    if args.push:
+        from . import push_to_api
+        base, token = push_to_api.load_credentials()
+        push_to_api.push("paper-snapshot", snapshot, base, token)
     return 0
 
 

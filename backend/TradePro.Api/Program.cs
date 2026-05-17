@@ -110,6 +110,9 @@ builder.Services.AddSingleton<IDocumentStore, FileDocumentStore>();
 // restarts isn't a v1 requirement.
 builder.Services.AddSingleton<IPaperBacktestStore, InMemoryPaperBacktestStore>();
 builder.Services.AddSingleton<IPaperStrategiesStore, InMemoryPaperStrategiesStore>();
+// Per-session ledger snapshots pushed at the end of every
+// `tradepro-paper --push` run. In-memory, capped at 100 sessions.
+builder.Services.AddSingleton<IPaperSnapshotStore, InMemoryPaperSnapshotStore>();
 
 var app = builder.Build();
 

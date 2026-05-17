@@ -79,6 +79,30 @@ public static class IngestEndpoints
             });
         });
 
+        // Paper-trading SESSION SNAPSHOT — pushed at the end of every
+        // `tradepro-paper --push` run. Carries per-strategy open
+        // positions + recent fills. The Live tab on the Paper page
+        // reads these to show "what just happened" without a separate
+        // backtest-report flow. Snapshots are keyed by session_label
+        // (typically "<symbol>-<date>") so a re-run overwrites.
+        group.MapPost("/paper-snapshot", (JsonElement payload, IPaperSnapshotStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+            {
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            }
+            var env = store.Put(payload);
+            return Results.Ok(new
+            {
+                accepted = true,
+                sessionLabel = env.SessionLabel,
+                broker = env.Broker,
+                strategyCount = env.StrategyCount,
+                totalFills = env.TotalFills,
+                receivedAtUtc = env.ReceivedAtUtc,
+            });
+        });
+
         // Paper-trading strategies catalog — Mac introspects its registry
         // and pushes the list so the UI can show "what's available".
         // One-slot store: new push overwrites prior. Run once per deploy
