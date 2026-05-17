@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from typing import Optional
 
+from ...secrets import get_secret
 from ..strategy import Bar
 from .base import BarSource
 
@@ -54,7 +55,7 @@ class FinnhubSource(BarSource):
 
     def __post_init__(self) -> None:
         if self.api_key is None:
-            self.api_key = os.environ.get("TRADEPRO_FINNHUB_API_KEY")
+            self.api_key = get_secret("finnhub-api-key")
 
     async def fetch(
         self,

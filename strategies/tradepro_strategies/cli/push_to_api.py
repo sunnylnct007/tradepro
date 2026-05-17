@@ -49,22 +49,20 @@ VALID_KINDS = {"backtest", "scan", "model_prediction", "compare", "heartbeat", "
 
 
 def load_credentials() -> tuple[str, str]:
-    """Resolve (api_base_url, api_token). File is preferred when present
-    (matches the macOS / launchd path); env vars fill in when the file
-    is absent (matches the docker-compose worker path). Without either,
-    we exit non-zero so the caller can surface a clean error."""
-    data: dict = {}
-    if CRED_PATH.exists():
-        try:
-            data = json.loads(CRED_PATH.read_text())
-        except (OSError, json.JSONDecodeError) as e:
-            print(f"warning: could not read {CRED_PATH}: {e}", file=sys.stderr)
-    base = data.get("api_base_url") or os.environ.get("TRADEPRO_API_URL")
-    token = data.get("api_token") or os.environ.get("TRADEPRO_API_TOKEN")
+    """Resolve (api_base_url, api_token). Delegates to the unified
+    secret-lookup chain (env → AWS Secrets Manager → ~/.tradepro/
+    credentials), so the same code path works for local dev (env vars
+    or file) and prod (SM). Exits non-zero with a clean error when
+    neither key is reachable from any source."""
+    from ..secrets import get_secret
+    base = get_secret("api-base-url")
+    token = get_secret("api-token")
     if not base or not token:
         print(
-            "credentials must include api_base_url and api_token — "
-            f"checked {CRED_PATH} and TRADEPRO_API_URL / TRADEPRO_API_TOKEN env",
+            "credentials must include api-base-url and api-token — "
+            "checked env (TRADEPRO_API_BASE_URL / TRADEPRO_API_TOKEN), "
+            f"AWS Secrets Manager (/tradepro/api-base-url, /tradepro/api-token), "
+            f"and {CRED_PATH}",
             file=sys.stderr,
         )
         sys.exit(2)

@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+from ...secrets import get_secret
 from ..messages import (
     BarEvent,
     FillEvent,
@@ -90,11 +91,13 @@ class T212OrderRouter(OrderRouter):
     _pending: dict[int, OrderApproved] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # Both env var AND AWS Secrets Manager are queried via get_secret;
+        # env wins for dev speed, SM is the prod path.
         if self.api_key is None:
-            self.api_key = os.environ.get("TRADEPRO_T212_API_KEY")
+            self.api_key = get_secret("t212-api-key")
         if self.api_secret is None:
-            self.api_secret = os.environ.get("TRADEPRO_T212_API_SECRET")
-        env_mode = os.environ.get("TRADEPRO_T212_MODE")
+            self.api_secret = get_secret("t212-api-secret")
+        env_mode = get_secret("t212-mode")
         if env_mode:
             self.mode = env_mode
         if self.base_url is None:

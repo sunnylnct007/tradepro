@@ -231,6 +231,63 @@ Ingest endpoint uses a bearer token (`Ingest:Token`), separate from the Firebase
 
 ---
 
+## Secret management — AWS Secrets Manager
+
+All credentials (T212 keys, Finnhub key, api_token, etc.) flow through `tradepro_strategies.secrets.get_secret(name)`. Lookup order:
+
+1. **Env var** (`TRADEPRO_T212_API_KEY` style) — fast path for dev
+2. **AWS Secrets Manager** under prefix `/tradepro/<name>` — prod path
+3. **`~/.tradepro/credentials`** JSON file — legacy fallback for `api_token` / `api_base_url`
+
+The kebab-case secret name → env-var name mapping is mechanical:
+`t212-api-key` ↔ `TRADEPRO_T212_API_KEY`.
+
+### Secrets in use
+
+| Secret name | Env var | Used by |
+|---|---|---|
+| `t212-api-key` | `TRADEPRO_T212_API_KEY` | T212 router |
+| `t212-api-secret` | `TRADEPRO_T212_API_SECRET` | T212 router (older accounts) |
+| `t212-mode` | `TRADEPRO_T212_MODE` | T212 router (default `demo`) |
+| `finnhub-api-key` | `TRADEPRO_FINNHUB_API_KEY` | Finnhub bar source + .NET backend |
+| `api-base-url` | `TRADEPRO_API_BASE_URL` | Worker → API push target |
+| `api-token` | `TRADEPRO_API_TOKEN` | Worker → API auth |
+| `ibkr-account` | `TRADEPRO_IBKR_ACCOUNT` | IBKR router default account |
+
+### Enabling AWS Secrets Manager on the Mac
+
+1. Create an IAM user (or role) with `secretsmanager:GetSecretValue` scoped to `arn:aws:secretsmanager:*:*:secret:/tradepro/*`. Generate access keys.
+2. `aws configure --profile tradepro` and paste the keys.
+3. In `~/.zshrc`:
+   ```bash
+   export AWS_PROFILE=tradepro
+   export TRADEPRO_USE_AWS_SECRETS=1
+   ```
+4. Install boto3: `uv pip install -e ".[aws]"`
+5. Bootstrap secrets in SM (one-off):
+   ```bash
+   for kv in \
+     t212-api-key:$TRADEPRO_T212_API_KEY \
+     t212-api-secret:$TRADEPRO_T212_API_SECRET \
+     finnhub-api-key:$TRADEPRO_FINNHUB_API_KEY \
+     api-token:$TRADEPRO_API_TOKEN ; do
+     k=${kv%%:*}; v=${kv#*:}
+     aws secretsmanager create-secret --name "/tradepro/$k" --secret-string "$v" || \
+       aws secretsmanager update-secret --secret-id "/tradepro/$k" --secret-string "$v"
+   done
+   ```
+6. Remove the local exports from `~/.zshrc` once SM is verified — the env-var fast path will short-circuit before SM otherwise, defeating the audit trail.
+
+### EC2 / API box
+
+The .NET backend already reads its own secrets via the standard ASP.NET configuration pipeline (`appsettings` + environment). No change there for now. The AWS Secrets Manager work is Mac-worker scope until we have a reason to consolidate.
+
+### Cache + rotation
+
+`get_secret` caches in-process for the lifetime of the worker run. `clear_cache()` exists for tests + rotation-mid-process scenarios. Long-running services (the paper-engine sessions, the daily refresh) pick up rotated secrets on next launch.
+
+---
+
 ## See also
 
 - `PAPER_TRADING.md` — every CLI command, env var, and broker option
