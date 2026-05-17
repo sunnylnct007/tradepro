@@ -208,7 +208,17 @@ class T212OrderRouter(OrderRouter):
             resp = await client.post(
                 "equity/orders/market", json=payload, headers=headers,
             )
-            resp.raise_for_status()
+            if not resp.is_success:
+                # Surface T212's structured error so the operator can
+                # tell INSUFFICIENT_FUNDS apart from MARKET_CLOSED
+                # apart from INSTRUMENT_NOT_FOUND — without this, every
+                # 4xx looks the same.
+                body = resp.text[:500] if resp.text else "(empty body)"
+                log.error(
+                    "T212 order POST %s → HTTP %s · payload=%s · response=%s",
+                    resp.url, resp.status_code, payload, body,
+                )
+                resp.raise_for_status()
             return resp.json()
 
     async def _poll_until_terminal(

@@ -162,17 +162,55 @@ export function Compare() {
           alignItems: "end",
         }}
       >
-        <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, gridColumn: "1 / -1" }}>
           <span className="stat-label">Universe</span>
-          <select value={universe} onChange={(e) => setUniverse(e.target.value)}>
-            {universes.length === 0 && <option value="">(none yet)</option>}
-            {universes.map((u) => (
-              <option key={u.universe} value={u.universe}>
-                {u.universe} ({u.rowCount} rows)
-              </option>
-            ))}
-          </select>
-        </label>
+          {universes.length === 0 ? (
+            <div style={{ color: "var(--text-muted)", fontSize: 12 }}>(none yet)</div>
+          ) : (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {/* Pill switcher instead of a dropdown. Visible at a glance,
+               * one click to switch, active universe always obvious — the
+               * dropdown form hid current state and had a reactivity quirk
+               * where the select's value changed but the data didn't always
+               * refresh. Pills sidestep both: they re-render cleanly on
+               * every click and the active universe is clearly highlighted. */}
+              {universes.map((u) => {
+                const active = u.universe === universe;
+                return (
+                  <button
+                    key={u.universe}
+                    type="button"
+                    onClick={() => setUniverse(u.universe)}
+                    style={{
+                      padding: "5px 11px",
+                      fontSize: 12,
+                      fontWeight: active ? 600 : 500,
+                      borderRadius: 999,
+                      cursor: "pointer",
+                      border: `1px solid ${active ? "var(--up)" : "var(--border)"}`,
+                      background: active ? "var(--bg-hover)" : "transparent",
+                      color: active ? "var(--text)" : "var(--text-dim)",
+                      transition: "background 0.15s ease, color 0.15s ease",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {u.universe}
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 10,
+                        color: active ? "var(--text-dim)" : "var(--text-muted)",
+                        fontWeight: 400,
+                      }}
+                    >
+                      {u.rowCount}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
         {data && (
           <>
             <Stat label="Ranked by" value={data.rankMetric ?? "—"} />
