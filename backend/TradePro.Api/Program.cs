@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TradePro.Api.Auth;
 using TradePro.Api.Endpoints;
 using TradePro.Api.Providers;
@@ -10,6 +11,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Serialise enums as their string names everywhere — the frontend
+// matches PendingOrder.state via string equality (`o.state ===
+// "Pending"`); int serialisation made every record look like 0/1/2/3.
+builder.Services.ConfigureHttpJsonOptions(opts =>
+{
+    opts.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 
 builder.Services.AddCors(options =>
 {
