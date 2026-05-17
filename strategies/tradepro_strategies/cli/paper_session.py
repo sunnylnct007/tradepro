@@ -79,6 +79,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--t212-mode", choices=["demo", "live"], default="demo")
     p.add_argument("--allow-real-orders", action="store_true",
                    help="Live trading opt-in (must also set the corresponding env var)")
+    p.add_argument("--placement-mode", choices=["auto", "manual"], default="auto",
+                   help="auto = strategy posts to T212 directly. "
+                        "manual = strategy pushes the order to the API's "
+                        "pending queue; you Approve/Reject from the Paper "
+                        "page → 'Pending orders' panel.")
     # IBKR knobs
     p.add_argument("--account", default=None,
                    help="IBKR account id (DU... = paper, U... = live)")
@@ -127,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
             pace_seconds=_resolve_pace(args.pace_seconds),
             t212_mode=args.t212_mode,
             t212_allow_real_orders=args.allow_real_orders,
+            t212_placement_mode=args.placement_mode,
             ibkr_default_account=args.account,
             ibkr_allow_real_orders=args.allow_real_orders,
         )
@@ -139,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             pace_seconds=_resolve_pace(args.pace_seconds),
             t212_mode=args.t212_mode,
             t212_allow_real_orders=args.allow_real_orders,
+            t212_placement_mode=args.placement_mode,
             ibkr_default_account=args.account,
             ibkr_allow_real_orders=args.allow_real_orders,
             ibkr_timeframe_seconds=args.ibkr_timeframe_seconds,

@@ -122,7 +122,31 @@ type SnapshotPayload = {
   }>;
 };
 
-type Tab = "backtests" | "live";
+type Tab = "backtests" | "live" | "pending";
+
+type PendingOrder = {
+  orderId: string;
+  broker: string;
+  brokerMode: string;
+  strategyId: string;
+  symbol: string;
+  t212Ticker: string;
+  side: string;
+  quantity: number;
+  orderType: string;
+  tag?: string | null;
+  suggestedAtUtc: string;
+  barAtEmitClose?: number | null;
+  barAtEmitTime?: string | null;
+  state: string;
+  receivedAtUtc: string;
+  decidedAtUtc?: string | null;
+  brokerOrderId?: number | null;
+  brokerStatus?: string | null;
+  rejectionReason?: string | null;
+  error?: string | null;
+  responseBody?: string | null;
+};
 
 export function PaperBacktest() {
   const [tab, setTab] = useState<Tab>("backtests");
@@ -137,6 +161,17 @@ export function PaperBacktest() {
   const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
   const [snapshotPayload, setSnapshotPayload] = useState<SnapshotPayload | null>(null);
   const [loadingSnap, setLoadingSnap] = useState(false);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[] | null>(null);
+  const [pendingBusy, setPendingBusy] = useState<string | null>(null);
+
+  // Reusable refresher for the pending-orders list — used on mount,
+  // after every Approve/Reject, and on tab switch.
+  const refreshPending = () => {
+    api
+      .paperPendingOrders()
+      .then(setPendingOrders)
+      .catch(() => setPendingOrders([]));
+  };
 
   useEffect(() => {
     api
@@ -151,6 +186,7 @@ export function PaperBacktest() {
       .paperSnapshots()
       .then((s) => setSnapshots(s))
       .catch(() => setSnapshots([]));
+    refreshPending();
   }, []);
 
   useEffect(() => {
@@ -209,9 +245,16 @@ export function PaperBacktest() {
                 count={reports?.length} />
         <TabBtn label="Live sessions" active={tab === "live"} onClick={() => setTab("live")}
                 count={snapshots?.length} />
+        <TabBtn
+          label="Pending orders"
+          active={tab === "pending"}
+          onClick={() => { setTab("pending"); refreshPending(); }}
+          count={pendingOrders?.filter((o) => o.state === "Pending").length}
+          highlight={(pendingOrders?.filter((o) => o.state === "Pending").length ?? 0) > 0}
+        />
       </div>
 
-      {tab === "backtests" ? (
+      {tab === "backtests" && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) 2fr", gap: 16, marginTop: 16 }}>
           <ReportList
             reports={reports}
@@ -220,7 +263,8 @@ export function PaperBacktest() {
           />
           <ReportDetail loading={loadingDetail} payload={payload} />
         </div>
-      ) : (
+      )}
+      {tab === "live" && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) 2fr", gap: 16, marginTop: 16 }}>
           <SnapshotList
             snapshots={snapshots}
@@ -230,11 +274,32 @@ export function PaperBacktest() {
           <SnapshotDetail loading={loadingSnap} payload={snapshotPayload} />
         </div>
       )}
+      {tab === "pending" && (
+        <PendingOrdersPanel
+          orders={pendingOrders}
+          busy={pendingBusy}
+          onApprove={async (id) => {
+            setPendingBusy(id);
+            try { await api.approvePendingOrder(id); }
+            catch (e) { setError(String(e)); }
+            finally { setPendingBusy(null); refreshPending(); }
+          }}
+          onReject={async (id, reason) => {
+            setPendingBusy(id);
+            try { await api.rejectPendingOrder(id, reason); }
+            catch (e) { setError(String(e)); }
+            finally { setPendingBusy(null); refreshPending(); }
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function TabBtn(props: { label: string; active: boolean; onClick: () => void; count?: number | null }) {
+function TabBtn(props: {
+  label: string; active: boolean; onClick: () => void;
+  count?: number | null; highlight?: boolean;
+}) {
   return (
     <button
       type="button"
@@ -250,15 +315,187 @@ function TabBtn(props: { label: string; active: boolean; onClick: () => void; co
         background: "transparent",
         color: props.active ? "var(--text)" : "var(--text-dim)",
         marginBottom: -1,
+        position: "relative",
       }}
     >
       {props.label}
       {typeof props.count === "number" && (
-        <span style={{ marginLeft: 6, fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>
+        <span
+          style={{
+            marginLeft: 6,
+            fontSize: 10,
+            padding: props.highlight ? "1px 6px" : "0",
+            borderRadius: 999,
+            background: props.highlight ? "var(--neutral)" : "transparent",
+            color: props.highlight ? "var(--bg)" : "var(--text-muted)",
+            fontWeight: props.highlight ? 700 : 400,
+          }}
+        >
           {props.count}
         </span>
       )}
     </button>
+  );
+}
+
+function PendingOrdersPanel(props: {
+  orders: PendingOrder[] | null;
+  busy: string | null;
+  onApprove: (id: string) => void | Promise<void>;
+  onReject: (id: string, reason?: string) => void | Promise<void>;
+}) {
+  if (props.orders === null) return <div style={{ color: "var(--text-muted)" }}>Loading…</div>;
+  const pending = props.orders.filter((o) => o.state === "Pending");
+  const history = props.orders.filter((o) => o.state !== "Pending");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
+      <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.55, maxWidth: 820 }}>
+        Manual-mode orders the Mac engine pushed up for human review. Click
+        Approve to place against T212 from the API box (using the same T212
+        creds the read-only portfolio integration uses). Reject just marks
+        the order dead — no broker call.
+        <br />
+        Trigger from the Mac: <code>tradepro-paper --broker t212 --placement-mode manual --symbol AAPL --date 2026-05-15</code>
+      </div>
+
+      <section>
+        <div className="stat-label">Awaiting review ({pending.length})</div>
+        {pending.length === 0 ? (
+          <div style={{ color: "var(--text-muted)", fontSize: 12, padding: "8px 0" }}>
+            Nothing pending right now.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+            {pending.map((o) => (
+              <PendingOrderRow
+                key={o.orderId}
+                order={o}
+                busy={props.busy === o.orderId}
+                onApprove={() => props.onApprove(o.orderId)}
+                onReject={() => props.onReject(o.orderId)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {history.length > 0 && (
+        <section>
+          <div className="stat-label">History ({history.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            {history.map((o) => (
+              <PendingOrderRow
+                key={o.orderId}
+                order={o}
+                busy={false}
+                onApprove={() => {}}
+                onReject={() => {}}
+                terminal
+              />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function PendingOrderRow(props: {
+  order: PendingOrder;
+  busy: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+  terminal?: boolean;
+}) {
+  const o = props.order;
+  const stateColour =
+    o.state === "Pending" ? "var(--neutral)" :
+    o.state === "Placed" ? "var(--up)" :
+    o.state === "Rejected" ? "var(--text-muted)" :
+    "var(--down)";
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderLeft: `4px solid ${stateColour}`,
+        borderRadius: 8,
+        padding: "10px 12px",
+        background: "var(--bg-elev)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <div>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: o.side === "BUY" ? "var(--up)" : "var(--down)",
+              marginRight: 8,
+            }}
+          >
+            {o.side}
+          </span>
+          <strong style={{ fontSize: 13 }}>{o.symbol}</strong>
+          <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-dim)" }}>
+            qty {o.quantity} · {o.orderType}
+          </span>
+          <span style={{ marginLeft: 8, fontSize: 10, color: "var(--text-muted)" }}>
+            {o.broker} ({o.brokerMode})
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: stateColour, fontWeight: 600 }}>
+            {o.state.toUpperCase()}
+          </span>
+          {!props.terminal && (
+            <>
+              <button
+                onClick={props.onApprove}
+                disabled={props.busy}
+                className="primary"
+                style={{ fontSize: 12, padding: "5px 12px" }}
+              >
+                {props.busy ? "Placing…" : "Approve"}
+              </button>
+              <button
+                onClick={props.onReject}
+                disabled={props.busy}
+                style={{ fontSize: 12, padding: "5px 12px" }}
+              >
+                Reject
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>
+        Strategy <code>{o.strategyId}</code>
+        {o.barAtEmitClose != null && (
+          <> · bar close <span className="num">{o.barAtEmitClose.toFixed(2)}</span></>
+        )}
+        {" · "}suggested {new Date(o.suggestedAtUtc).toLocaleString()}
+      </div>
+      {o.tag && (
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, fontStyle: "italic" }}>
+          {o.tag}
+        </div>
+      )}
+      {o.brokerOrderId != null && (
+        <div style={{ fontSize: 11, color: "var(--up)", marginTop: 4 }}>
+          Placed: T212 order #{o.brokerOrderId} · status {o.brokerStatus ?? "?"}
+        </div>
+      )}
+      {o.error && (
+        <div style={{ fontSize: 11, color: "var(--down)", marginTop: 4 }}>
+          {o.error}
+        </div>
+      )}
+      {o.rejectionReason && (
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+          Rejected: {o.rejectionReason}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -132,6 +132,28 @@ uv run tradepro-paper-backtest --symbol AAPL \
   --from 2026-04-15 --to 2026-05-15 --push
 ```
 
+### T212 manual-approval mode (alert + confirm)
+
+T212 has two placement flows:
+
+```bash
+# auto (default): order POSTs to T212 the moment the strategy emits it
+uv run tradepro-paper --broker t212 --symbol AAPL --date 2026-05-15 --push
+
+# manual: order pushed to API's pending queue; you Approve / Reject
+#         from the Paper page → "Pending orders" tab. The API places
+#         the order against T212 itself when you click Approve — no
+#         daemon needed on the Mac, no second round-trip.
+uv run tradepro-paper --broker t212 --symbol AAPL --date 2026-05-15 \
+  --placement-mode manual --push
+```
+
+In manual mode the Mac engine logs `T212 MANUAL-PENDING` for each
+emit, and the order shows up on the Paper page with Approve / Reject
+buttons. A red badge on the "Pending orders" tab tells you something
+needs attention. The API needs T212 creds (same env vars / SM secrets
+as the Mac side) to actually place on Approve.
+
 ### Live session push (Paper page → Live tab)
 Single sessions can push their full ledger state — open positions,
 recent fills, per-strategy P&L — to the Paper page's "Live sessions"

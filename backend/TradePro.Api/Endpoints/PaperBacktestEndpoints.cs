@@ -1,3 +1,4 @@
+using TradePro.Api.Providers.Trading212;
 using TradePro.Api.Simulation;
 
 namespace TradePro.Api.Endpoints;
@@ -48,6 +49,59 @@ public static class PaperBacktestEndpoints
         {
             var env = store.Get(sessionLabel);
             return env is null ? Results.NotFound() : Results.Ok(env.Payload);
+        });
+
+        // Pending paper orders (manual-mode placement). UI reads here
+        // to render the "Pending orders" panel; Approve / Reject
+        // buttons hit the POST endpoints below. The Approve endpoint
+        // is what actually places the order against T212 (using the
+        // backend's own Trading212Client) — the Mac engine never
+        // touches T212 in manual mode.
+        var pending = app.MapGroup("/paper/pending-orders").WithTags("PaperBacktest");
+        pending.MapGet("/", (IPendingOrdersStore store) => Results.Ok(store.List()));
+
+        pending.MapPost("/{orderId}/approve",
+            async (string orderId, IPendingOrdersStore store, Trading212Client t212, CancellationToken ct) =>
+        {
+            var order = store.Get(orderId);
+            if (order is null) return Results.NotFound();
+            if (order.State != PendingOrderState.Pending)
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"order is {order.State.ToString().ToLowerInvariant()}, cannot approve",
+                });
+            }
+            // Sign convention: positive = BUY, negative = SELL.
+            decimal signedQty = order.Side == "BUY"
+                ? Math.Abs(order.Quantity)
+                : -Math.Abs(order.Quantity);
+            var result = await t212.PlaceMarketOrderAsync(
+                order.T212Ticker, signedQty, ct);
+            if (result.Error is not null)
+            {
+                var failed = store.MarkFailed(orderId, result.Error, result.ResponseBody);
+                return Results.Ok(failed);
+            }
+            var placed = store.MarkPlaced(
+                orderId, result.OrderId, result.Status, result.ResponseBody);
+            return Results.Ok(placed);
+        });
+
+        pending.MapPost("/{orderId}/reject",
+            (string orderId, string? reason, IPendingOrdersStore store) =>
+        {
+            var order = store.Get(orderId);
+            if (order is null) return Results.NotFound();
+            if (order.State != PendingOrderState.Pending)
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"order is {order.State.ToString().ToLowerInvariant()}, cannot reject",
+                });
+            }
+            var rejected = store.MarkRejected(orderId, reason);
+            return Results.Ok(rejected);
         });
 
         return app;

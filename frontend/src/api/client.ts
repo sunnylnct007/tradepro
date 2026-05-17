@@ -124,6 +124,37 @@ export const api = {
     }>>("/api/paper/snapshots/"),
   paperSnapshot: (sessionLabel: string) =>
     get<unknown>(`/api/paper/snapshots/${encodeURIComponent(sessionLabel)}`),
+  paperPendingOrders: () =>
+    get<Array<{
+      orderId: string;
+      broker: string;
+      brokerMode: string;
+      strategyId: string;
+      symbol: string;
+      t212Ticker: string;
+      side: string;
+      quantity: number;
+      orderType: string;
+      tag?: string | null;
+      suggestedAtUtc: string;
+      barAtEmitClose?: number | null;
+      barAtEmitTime?: string | null;
+      state: string;
+      receivedAtUtc: string;
+      decidedAtUtc?: string | null;
+      brokerOrderId?: number | null;
+      brokerStatus?: string | null;
+      rejectionReason?: string | null;
+      error?: string | null;
+      responseBody?: string | null;
+    }>>("/api/paper/pending-orders/"),
+  approvePendingOrder: (orderId: string) =>
+    post<unknown, {}>(`/api/paper/pending-orders/${encodeURIComponent(orderId)}/approve`, {}),
+  rejectPendingOrder: (orderId: string, reason?: string) => {
+    const qs = reason ? `?reason=${encodeURIComponent(reason)}` : "";
+    return post<unknown, {}>(
+      `/api/paper/pending-orders/${encodeURIComponent(orderId)}/reject${qs}`, {});
+  },
 
   uploadDocument: async (
     file: File,

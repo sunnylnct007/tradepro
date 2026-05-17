@@ -85,6 +85,12 @@ class T212OrderRouter(OrderRouter):
     base_url: Optional[str] = None
     poll_seconds: float = 1.0           # T212 rate limit is 1 req / 1s
     timeout_seconds: float = 10.0
+    # "auto" (default) → orders POST to T212 immediately, polled for fill.
+    # "manual" → orders push to the API's pending-queue. UI shows them
+    #           with Approve / Reject buttons; the API places them
+    #           against T212 only after a human click. The Mac engine
+    #           doesn't wait for these — the fill chain is decoupled.
+    placement_mode: str = "auto"
     name: str = "t212_router"
     # Tracks orders we've POSTed but not yet seen filled. Keyed by the
     # T212 order id so a restart on the same session can resume polling.
@@ -166,6 +172,20 @@ class T212OrderRouter(OrderRouter):
                 order.type.value, order.symbol,
             )
             return
+
+        # Manual mode: don't post to T212; push the intent to the API
+        # for human review on the Paper page. Fire-and-forget — the
+        # API records, UI surfaces, human clicks Approve, API places it.
+        if self.placement_mode == "manual":
+            await self._push_pending(order, approval)
+            log.info(
+                "T212 MANUAL-PENDING · sid=%s · %s %s qty=%s tag=%s "
+                "(awaiting UI approval)",
+                order.strategy_id, order.side.value, order.symbol,
+                order.quantity, order.tag,
+            )
+            return
+
         if not self._live_orders_enabled() or not self.api_key:
             log.info(
                 "T212 WOULD-PLACE · sid=%s · %s %s qty=%s tag=%s",
@@ -286,6 +306,56 @@ class T212OrderRouter(OrderRouter):
             fill_time=datetime.now(timezone.utc),
             commission=0.0,
         )
+
+    async def _push_pending(self, order, approval) -> None:
+        """Manual-mode: push the order intent to the API's pending
+        queue so the UI can show it for approval. The API stores it
+        and (when a human clicks Approve) places it against T212 from
+        its own side using SM-managed credentials — no Mac round-trip
+        needed for the approval path."""
+        from ...secrets import get_secret
+        try:
+            import httpx
+        except ImportError:
+            log.warning("httpx not installed; manual-mode push skipped")
+            return
+        api_base = get_secret("api-base-url")
+        api_token = get_secret("api-token")
+        if not api_base or not api_token:
+            log.warning(
+                "manual-mode push needs api-base-url + api-token "
+                "(env / SM / ~/.tradepro/credentials); skipping"
+            )
+            return
+        payload = {
+            "kind": "paper-pending-order",
+            "broker": "t212",
+            "broker_mode": self.mode,            # demo / live
+            "strategy_id": order.strategy_id,
+            "symbol": order.symbol,
+            "t212_ticker": _to_t212_ticker(order.symbol),
+            "side": order.side.value,
+            "quantity": int(order.quantity),
+            "order_type": order.type.value,
+            "tag": order.tag,
+            "suggested_at_utc": datetime.now(timezone.utc).isoformat(),
+            "bar_at_emit_close": float(approval.bar_at_approval.close),
+            "bar_at_emit_time": approval.bar_at_approval.timestamp.isoformat(),
+        }
+        url = f"{api_base.rstrip('/')}/api/ingest/paper-pending-order"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                resp = await client.post(
+                    url, json=payload,
+                    headers={"Authorization": f"Bearer {api_token}"},
+                )
+                resp.raise_for_status()
+        except Exception:
+            log.exception(
+                "Manual-mode pending-order push failed for %s — "
+                "human won't see this on the UI",
+                order.symbol,
+            )
 
     def _auth_headers(self) -> dict:
         """Pick Basic vs raw-Authorization based on whether a secret

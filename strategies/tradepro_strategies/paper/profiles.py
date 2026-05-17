@@ -56,6 +56,7 @@ def build_session(
     commission_per_share: float = 0.0,
     t212_mode: str = "demo",
     t212_allow_real_orders: bool = False,
+    t212_placement_mode: str = "auto",
     ibkr_connection: IBKRConnection | None = None,
     ibkr_default_account: str | None = None,
     ibkr_allow_real_orders: bool = False,
@@ -103,6 +104,7 @@ def build_session(
         router = T212OrderRouter(
             mode=t212_mode,
             allow_real_orders=t212_allow_real_orders,
+            placement_mode=t212_placement_mode,
         )
         return bus, router
 
@@ -148,6 +150,7 @@ def build_multi_broker_session(
     ibkr_allow_real_orders: bool = False,
     t212_mode: str = "demo",
     t212_allow_real_orders: bool = False,
+    t212_placement_mode: str = "auto",
     slippage_bps: float = 5.0,
 ) -> tuple[BarBus, OrderRouter]:
     """Build a session that fans approved orders to >1 broker at once.
@@ -196,6 +199,7 @@ def build_multi_broker_session(
             multi.add(name, T212OrderRouter(
                 mode=t212_mode,
                 allow_real_orders=t212_allow_real_orders,
+                placement_mode=t212_placement_mode,
             ))
         elif name == "ibkr":
             conn = ibkr_connection or IBKRConnection()

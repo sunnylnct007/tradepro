@@ -113,6 +113,9 @@ builder.Services.AddSingleton<IPaperStrategiesStore, InMemoryPaperStrategiesStor
 // Per-session ledger snapshots pushed at the end of every
 // `tradepro-paper --push` run. In-memory, capped at 100 sessions.
 builder.Services.AddSingleton<IPaperSnapshotStore, InMemoryPaperSnapshotStore>();
+// Pending paper orders awaiting human Approve / Reject on the UI
+// (T212 manual-placement mode). In-memory + capped at 200.
+builder.Services.AddSingleton<IPendingOrdersStore, InMemoryPendingOrdersStore>();
 
 var app = builder.Build();
 

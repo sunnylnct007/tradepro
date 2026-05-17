@@ -79,6 +79,29 @@ public static class IngestEndpoints
             });
         });
 
+        // Paper-trading PENDING ORDER — Mac pushes this when running
+        // in --placement-mode manual. We hold the order in a queue and
+        // surface it on the Paper page for human Approve/Reject; the
+        // human click is what triggers the actual T212 placement
+        // (done by /api/paper/pending-orders/{id}/approve via the
+        // .NET Trading212Client — no Mac round-trip needed).
+        group.MapPost("/paper-pending-order",
+            (JsonElement payload, IPendingOrdersStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+            {
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            }
+            var order = store.Put(payload);
+            return Results.Ok(new
+            {
+                accepted = true,
+                orderId = order.OrderId,
+                state = order.State.ToString().ToLowerInvariant(),
+                receivedAtUtc = order.ReceivedAtUtc,
+            });
+        });
+
         // Paper-trading SESSION SNAPSHOT — pushed at the end of every
         // `tradepro-paper --push` run. Carries per-strategy open
         // positions + recent fills. The Live tab on the Paper page

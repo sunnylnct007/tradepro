@@ -114,6 +114,69 @@ public sealed class Trading212Client
         }
     }
 
+    /// <summary>Place a market order. Sign convention matches T212:
+    /// positive quantity = BUY, negative = SELL. Returns a result with
+    /// the T212 order id + raw response body on success, or a
+    /// structured error (insufficient funds / market closed / 401)
+    /// on failure.
+    ///
+    /// This is the placement path the API uses when a user clicks
+    /// "Approve" on a manual-mode pending order on the Paper page.
+    /// The Mac engine never calls this directly — when it's in auto
+    /// mode, the Mac-side T212OrderRouter does the POST itself; when
+    /// it's in manual mode, the Mac pushes the intent to our pending
+    /// queue and we land it here after a human click.
+    /// </summary>
+    public async Task<Trading212PlaceResult> PlaceMarketOrderAsync(
+        string ticker, decimal signedQuantity, CancellationToken ct)
+    {
+        if (!_options.IsEnabled)
+        {
+            return new Trading212PlaceResult(
+                OrderId: null, Status: null, Error: "integration disabled",
+                HttpStatus: 0, ResponseBody: null);
+        }
+        var body = new { ticker, quantity = signedQuantity };
+        try
+        {
+            using var resp = await _http.PostAsJsonAsync("equity/orders/market", body, ct);
+            var responseBody = await SafeReadBodySnippet(resp, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning(
+                    "T212 place-order returned HTTP {Status} ticker={Ticker} qty={Qty} body={Body}",
+                    (int)resp.StatusCode, ticker, signedQuantity, responseBody);
+                return new Trading212PlaceResult(
+                    OrderId: null, Status: null,
+                    Error: $"HTTP {(int)resp.StatusCode}: {responseBody}",
+                    HttpStatus: (int)resp.StatusCode, ResponseBody: responseBody);
+            }
+            // T212 returns the order resource (id + status + filled
+            // fields). We capture the id + status; the full body sits
+            // in ResponseBody for the UI to render verbatim if useful.
+            using var doc = System.Text.Json.JsonDocument.Parse(responseBody);
+            var root = doc.RootElement;
+            long? orderId = root.TryGetProperty("id", out var idEl)
+                            && idEl.ValueKind == System.Text.Json.JsonValueKind.Number
+                                ? idEl.GetInt64() : (long?)null;
+            string? status = root.TryGetProperty("status", out var stEl)
+                             && stEl.ValueKind == System.Text.Json.JsonValueKind.String
+                                ? stEl.GetString() : null;
+            return new Trading212PlaceResult(
+                OrderId: orderId, Status: status, Error: null,
+                HttpStatus: (int)resp.StatusCode, ResponseBody: responseBody);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex,
+                "T212 place-order threw ticker={Ticker} qty={Qty}",
+                ticker, signedQuantity);
+            return new Trading212PlaceResult(
+                OrderId: null, Status: null, Error: ex.Message,
+                HttpStatus: 0, ResponseBody: null);
+        }
+    }
+
     private static async Task<string> SafeReadBodySnippet(
         HttpResponseMessage resp, CancellationToken ct)
     {
@@ -232,6 +295,18 @@ public sealed record Trading212Status(
     bool Authenticated,
     string Detail,
     int? RateLimitRemaining = null);
+
+/// <summary>Outcome of a market-order placement. OrderId + Status
+/// come from T212's response on success; Error carries the message
+/// (insufficient funds, market closed, etc.) on failure. ResponseBody
+/// is the raw T212 body so the UI can show the exact error verbatim
+/// — invaluable when debugging a rejection.</summary>
+public sealed record Trading212PlaceResult(
+    long? OrderId,
+    string? Status,
+    string? Error,
+    int HttpStatus,
+    string? ResponseBody);
 
 /// <summary>Envelope for the positions call so the API endpoint can
 /// pass the failure reason (auth fail, 404, network) up to the UI
