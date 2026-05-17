@@ -76,18 +76,31 @@ function normalisePayload(p: unknown): ComparatorPayload {
   };
 }
 
+type StrategySpec = {
+  name: string;
+  class: string;
+  summary: string;
+  default_params: Record<string, unknown>;
+};
+
 export function PaperBacktest() {
   const [reports, setReports] = useState<ReportSummary[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [payload, setPayload] = useState<ComparatorPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [strategies, setStrategies] = useState<StrategySpec[] | null>(null);
+  const [strategiesError, setStrategiesError] = useState<string | null>(null);
 
   useEffect(() => {
     api
       .paperBacktestReports()
       .then(setReports)
       .catch((e) => setError(String(e)));
+    api
+      .paperStrategies()
+      .then((c) => setStrategies(c.strategies))
+      .catch((e) => setStrategiesError(String(e)));
   }, []);
 
   useEffect(() => {
@@ -126,6 +139,7 @@ export function PaperBacktest() {
           {error}
         </div>
       )}
+      <StrategyCatalog strategies={strategies} error={strategiesError} />
       <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) 2fr", gap: 16, marginTop: 16 }}>
         <ReportList
           reports={reports}
@@ -133,6 +147,85 @@ export function PaperBacktest() {
           onSelect={setSelectedId}
         />
         <ReportDetail loading={loadingDetail} payload={payload} />
+      </div>
+    </div>
+  );
+}
+
+function StrategyCatalog(props: { strategies: StrategySpec[] | null; error: string | null }) {
+  if (props.error || props.strategies === null) {
+    // Empty / unavailable catalog isn't blocking — the rest of the page works.
+    // Show a small hint pointing to the push CLI rather than a scary error.
+    return (
+      <div
+        style={{
+          padding: "10px 14px",
+          marginTop: 12,
+          background: "var(--bg-elev)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          fontSize: 12,
+          color: "var(--text-dim)",
+        }}
+      >
+        Strategy catalog not loaded yet. Run{" "}
+        <code>uv run tradepro-paper-strategies-push</code> from the Mac to
+        populate it.
+      </div>
+    );
+  }
+  if (props.strategies.length === 0) {
+    return null;
+  }
+  return (
+    <div style={{ marginTop: 16 }}>
+      <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "var(--text-dim)" }}>
+        Registered strategies ({props.strategies.length})
+      </h3>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: 10,
+        }}
+      >
+        {props.strategies.map((s) => (
+          <div
+            key={s.name}
+            style={{
+              padding: "10px 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--bg-elev)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <code
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--text)",
+                }}
+              >
+                {s.name}
+              </code>
+              <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                {Object.keys(s.default_params).length} params
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                color: "var(--text-dim)",
+                lineHeight: 1.4,
+              }}
+              title={s.summary}
+            >
+              {s.summary.length > 200 ? s.summary.slice(0, 200) + "…" : s.summary}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

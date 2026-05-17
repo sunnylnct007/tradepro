@@ -103,6 +103,13 @@ class Ledger:
     # into the RiskService for halt-cap evaluation. Kept optional
     # for tests that only care about P&L attribution.
     risk_service: "object | None" = None
+    # Latest mark seen per symbol, updated EVERY bar regardless of
+    # whether any book has an open position. apply_fill uses this
+    # to seed last_mark when a fill creates a position lazily —
+    # otherwise the ledger's bar consumer can race past the fill
+    # consumer and skip the marks (no position yet), then the fill
+    # arrives and locks last_mark to fill_price forever.
+    latest_marks: dict[str, tuple[float, datetime]] = field(default_factory=dict)
 
     def register(self, strategy_id: str) -> StrategyBook:
         book = self.books.get(strategy_id)
@@ -165,10 +172,19 @@ class Ledger:
         book.fills_count += 1
         book.fills_log.append(fill)
 
-        # Refresh mark — fill_price is the freshest known price for
-        # this symbol; bar updates will overwrite at the next bar.
-        pos.last_mark = fill.fill_price
-        pos.last_mark_at = fill.fill_time
+        # Refresh mark. Prefer the latest bar mark we've seen for the
+        # symbol — fanout races mean we may have already drained ALL
+        # bars from this session before the fill arrives, and using
+        # fill_price would freeze unrealised P&L at the entry price
+        # forever. Fall back to fill_price only if we've never seen a
+        # bar for this symbol (synthetic test scenarios).
+        latest = self.latest_marks.get(fill.symbol)
+        if latest is not None and latest[1] >= fill.fill_time:
+            pos.last_mark = latest[0]
+            pos.last_mark_at = latest[1]
+        else:
+            pos.last_mark = fill.fill_price
+            pos.last_mark_at = fill.fill_time
 
         # Notify the RiskService so daily-loss + drawdown halts fire.
         if self.risk_service is not None:
@@ -180,10 +196,11 @@ class Ledger:
             )
 
     def apply_mark(self, symbol: str, price: float, when: datetime) -> None:
-        """Refresh `last_mark` on every book that has a position in
-        `symbol`. Multiple strategies can hold the same symbol with
-        different cost bases — the mark is shared, the unrealised P&L
-        is per-book."""
+        """Refresh `last_mark` on every open position + update the
+        per-symbol latest-mark map. The map is updated unconditionally
+        so a fill arriving after marks have already streamed past can
+        still see the freshest price (see apply_fill)."""
+        self.latest_marks[symbol] = (float(price), when)
         for book in self.books.values():
             pos = book.positions.get(symbol)
             if pos is None or pos.quantity == 0:

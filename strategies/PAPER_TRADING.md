@@ -11,6 +11,27 @@ uv pip install -e .
 
 ---
 
+## Available strategies
+
+| Registry name | Family | When it works | When it doesn't |
+|---|---|---|---|
+| `orb` | Breakout | Trending opens, gap-and-go days | Choppy / range-bound days |
+| `vwap_mean_reversion` | Mean reversion | Range-bound, intraday chops around VWAP | Strong-trend days, gap+drift |
+| `bollinger_bounce` | Mean reversion (vol-adaptive) | Stable-volatility chop on liquid names | Trends (rides the band), squeeze→breakout |
+| `ma_crossover` | Trend following | Persistent intraday trends | Whipsaw days (continuous false crosses) |
+
+Run `tradepro-paper-backtest --list-strategies` to see the live registry
+(includes any third-party strategies installed via setuptools entry
+points). After registering a new strategy class, run
+`tradepro-paper-strategies-push` once so the UI dashboard picks it up.
+
+Each strategy carries a thorough docstring in its module —
+`paper/strategies/<name>.py` — explaining the thesis, mechanics, failure
+modes, and every param. Open the file to see the params + defaults
+before tuning.
+
+---
+
 ## One-time setup
 
 ### Required for everything

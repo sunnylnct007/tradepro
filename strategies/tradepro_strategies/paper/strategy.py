@@ -169,6 +169,9 @@ class Strategy(ABC):
     risk: "RiskLimits | None" = None
     positions: dict[str, Position] = field(default_factory=dict)
     _state: dict[str, Any] = field(default_factory=dict)
+    # Symbols with an order emitted but no fill seen yet. Engine maintains
+    # this around `emit → on_fill`; strategies query via has_order_in_flight().
+    _in_flight_symbols: set[str] = field(default_factory=set)
 
     # --- Lifecycle hooks the engine calls --------------------------
 
@@ -200,6 +203,30 @@ class Strategy(ABC):
         return None
 
     # --- Helpers strategies call inside on_bar ----------------------
+
+    def has_order_in_flight(self, symbol: str) -> bool:
+        """True if an order this strategy emitted has NOT yet seen its
+        fill applied via on_fill. Use this to guard against the classic
+        "emit on bar N, see bar N+1 before bar N's fill lands, emit
+        again" race that fills the same intended position N times.
+
+        The engine queues bar fanout independently of fill dispatch,
+        so a strategy can observe stale `position_for(symbol).is_flat`
+        right after emitting an entry — by checking
+        `has_order_in_flight(symbol)` first, you avoid stacking
+        duplicate entries while you wait for the fill to round-trip.
+        """
+        return symbol in self._in_flight_symbols
+
+    def mark_order_in_flight(self, symbol: str) -> None:
+        """Call right after emitting an order. The engine calls
+        `clear_order_in_flight(symbol)` when on_fill fires for the
+        same symbol. Wrapping `emit` in a helper makes this less
+        error-prone; today it's manual at the call site."""
+        self._in_flight_symbols.add(symbol)
+
+    def clear_order_in_flight(self, symbol: str) -> None:
+        self._in_flight_symbols.discard(symbol)
 
     def position_for(self, symbol: str) -> Position:
         """Get or lazy-create the Position for a symbol. Strategies

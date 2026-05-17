@@ -109,6 +109,7 @@ builder.Services.AddSingleton<IDocumentStore, FileDocumentStore>();
 // now — the UI only needs "show me recent runs" and history-across-
 // restarts isn't a v1 requirement.
 builder.Services.AddSingleton<IPaperBacktestStore, InMemoryPaperBacktestStore>();
+builder.Services.AddSingleton<IPaperStrategiesStore, InMemoryPaperStrategiesStore>();
 
 var app = builder.Build();
 

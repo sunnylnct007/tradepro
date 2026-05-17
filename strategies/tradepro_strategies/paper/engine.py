@@ -84,10 +84,13 @@ class Engine:
     risk: RiskService = field(default_factory=RiskService)
     ledger: Ledger = field(default_factory=Ledger)
     registrations: dict[str, StrategyRegistration] = field(default_factory=dict)
-    # Queue sizes default to unbounded. Tune via constructor only if
-    # you've measured a real producer/consumer imbalance — premature
-    # bounds cause silent stalls.
-    queue_maxsize: int = 0
+    # Bounded queues force back-pressure: the bus can't pump bar N+1
+    # until consumers have pulled bar N. Without this, asyncio queues
+    # are unbounded and put() doesn't yield, so strategy_consumer
+    # drains every bar before any fill from bar 0 has round-tripped.
+    # Maxsize 4 gives a little slack for fanout to multiple queues
+    # without strict lock-step.
+    queue_maxsize: int = 4
 
     def register_strategy(
         self,
@@ -145,6 +148,15 @@ class Engine:
             sid: asyncio.Queue(maxsize=self.queue_maxsize)
             for sid in self.registrations
         }
+        # One per-strategy FILL queue. The strategy consumer drains
+        # this BEFORE each on_bar so the strategy's position object
+        # is fully consistent before it makes a decision. Closes the
+        # bar-vs-fill race where on_bar(N+1) ran with stale state
+        # because bar N's fill hadn't applied yet.
+        self._per_strategy_fill_q = {
+            sid: asyncio.Queue(maxsize=self.queue_maxsize)
+            for sid in self.registrations
+        }
         # Engine-level shutdown (separate from the in-band ShutdownEvent
         # propagation so an operator-triggered halt is distinguishable
         # from a clean end-of-stream).
@@ -175,7 +187,12 @@ class Engine:
         strategy_tasks: list[asyncio.Task] = []
         for sid, reg in self.registrations.items():
             t = asyncio.create_task(
-                self._strategy_consumer(reg, per_strategy_bar_q[sid], intent_q),
+                self._strategy_consumer(
+                    reg,
+                    per_strategy_bar_q[sid],
+                    self._per_strategy_fill_q[sid],
+                    intent_q,
+                ),
                 name=f"strategy:{sid}",
             )
             strategy_tasks.append(t)
@@ -273,45 +290,86 @@ class Engine:
         router's approved-consumer and the rejection-audit task."""
         await asyncio.gather(*strategy_tasks, return_exceptions=True)
         await intent_q.put(ShutdownEvent(reason="all strategies done"))
+        # Also poison every per-strategy fill queue so any straggler
+        # fills don't keep a strategy_consumer stuck if we ever change
+        # the consumer to await fills (currently a non-blocking drain).
+        for q in self._per_strategy_fill_q.values():
+            await q.put(ShutdownEvent(reason="all strategies done"))
 
     async def _strategy_consumer(
         self,
         reg: StrategyRegistration,
         bar_q: asyncio.Queue,
+        fill_q: asyncio.Queue,
         intent_q: asyncio.Queue,
     ) -> None:
         """Pull bars for this strategy, call on_bar, publish any
-        orders it returns as `OrderIntent` events."""
+        orders it returns as `OrderIntent` events.
+
+        Before each on_bar, drain any pending fills for this strategy
+        so its position object reflects every fill that has cleared.
+        This is what closes the bar-vs-fill race: without this drain,
+        bar N+1 could reach the strategy while bar N's fill was still
+        in flight, and the strategy would re-emit because pos.is_flat
+        looked True.
+        """
         strategy = reg.strategy
         while True:
             msg = await bar_q.get()
             if isinstance(msg, ShutdownEvent):
-                # Don't propagate to the shared intent queue here —
-                # the engine signals risk-service shutdown explicitly
-                # after fanout completes (otherwise the first strategy
-                # to receive shutdown kills risk for everyone else).
+                # Drain any final fills that may have landed.
+                self._drain_strategy_fills(strategy, fill_q)
                 return
             assert isinstance(msg, BarEvent)
             if strategy.risk is not None and strategy.risk.halted:
-                # Skip halted strategies — risk will keep rejecting
-                # anything they emit, but skipping saves the round-trip.
                 continue
+            # Apply any fills that landed since the last bar BEFORE
+            # giving the strategy a chance to decide on this bar.
+            self._drain_strategy_fills(strategy, fill_q)
             try:
                 orders = strategy.on_bar(msg.bar) or []
             except Exception:
                 log.exception("strategy %s on_bar raised", strategy.strategy_id)
                 continue
             for order in orders:
-                # Stamp strategy_id defensively — strategies that
-                # construct Orders with the wrong sid would silently
-                # mis-attribute fills to another book.
                 if order.strategy_id != strategy.strategy_id:
                     log.warning(
                         "strategy %s emitted order with sid=%s; rewriting",
                         strategy.strategy_id, order.strategy_id,
                     )
                     order.strategy_id = strategy.strategy_id
+                strategy.mark_order_in_flight(order.symbol)
                 await intent_q.put(OrderIntent(order=order, bar_at_emit=msg.bar))
+            if orders:
+                # Yield so the rest of the chain (risk → router → fill
+                # dispatch) gets CPU time before we move to the next bar.
+                # Without this, unbounded queues let strategy_consumer
+                # drain ALL bars before any fill can round-trip back,
+                # and the in-flight guard + drain-before-on_bar logic
+                # never actually sees the fill.
+                await asyncio.sleep(0)
+                # Drain any fills that landed during the yield so the
+                # strategy's next on_bar sees the updated position.
+                self._drain_strategy_fills(strategy, fill_q)
+
+    def _drain_strategy_fills(self, strategy: Strategy, fill_q: asyncio.Queue) -> None:
+        """Non-blocking drain of this strategy's pending fill queue.
+        Synchronous because asyncio.Queue exposes get_nowait()."""
+        while True:
+            try:
+                msg = fill_q.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            if isinstance(msg, ShutdownEvent):
+                return
+            assert isinstance(msg, FillEvent)
+            fill = msg.fill
+            self._apply_fill_to_strategy(strategy, fill)
+            strategy.clear_order_in_flight(fill.symbol)
+            try:
+                strategy.on_fill(fill)
+            except Exception:
+                log.exception("strategy %s on_fill raised", strategy.strategy_id)
 
     async def _fill_to_strategy_and_ledger(self, fill_q: asyncio.Queue) -> None:
         """Router publishes one FillEvent per fill; the strategy's
@@ -332,13 +390,14 @@ class Engine:
             fill = msg.fill
             reg = self.registrations.get(fill.strategy_id)
             if reg is not None:
-                self._apply_fill_to_strategy(reg.strategy, fill)
-                try:
-                    reg.strategy.on_fill(fill)
-                except Exception:
-                    log.exception(
-                        "strategy %s on_fill raised", fill.strategy_id,
-                    )
+                # Hand the fill to the strategy's OWN queue rather
+                # than applying inline. The strategy_consumer drains
+                # this queue BEFORE each on_bar so the strategy's
+                # position is always consistent at decision time.
+                q = self._per_strategy_fill_q.get(fill.strategy_id)
+                if q is not None:
+                    await q.put(msg)
+            # Ledger always sees every fill via its own queue.
             await ledger_in.put(msg)
 
     _ledger_fill_q: asyncio.Queue | None = None

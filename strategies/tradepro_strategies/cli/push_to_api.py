@@ -45,7 +45,7 @@ def scrub_for_json(obj):
     return obj
 
 CRED_PATH = Path.home() / ".tradepro" / "credentials"
-VALID_KINDS = {"backtest", "scan", "model_prediction", "compare", "heartbeat", "document", "paper-backtest"}
+VALID_KINDS = {"backtest", "scan", "model_prediction", "compare", "heartbeat", "document", "paper-backtest", "paper-strategies"}
 
 
 def load_credentials() -> tuple[str, str]:

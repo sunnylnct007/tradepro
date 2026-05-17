@@ -79,6 +79,21 @@ public static class IngestEndpoints
             });
         });
 
+        // Paper-trading strategies catalog — Mac introspects its registry
+        // and pushes the list so the UI can show "what's available".
+        // One-slot store: new push overwrites prior. Run once per deploy
+        // (or whenever a new @register_strategy class lands).
+        group.MapPost("/paper-strategies", (JsonElement payload, IPaperStrategiesStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+            {
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            }
+            store.Put(payload);
+            var count = payload.TryGetProperty("count", out var c) ? c.GetInt32() : 0;
+            return Results.Ok(new { accepted = true, count, receivedAtUtc = DateTime.UtcNow });
+        });
+
         // Document upload — Mac extracts the file (PDF / HTML / TXT) and
         // pushes the structured manifest. Raw files stay on the Mac;
         // only the extracted text + structural metadata ship to the API.

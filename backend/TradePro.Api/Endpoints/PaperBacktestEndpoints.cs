@@ -27,6 +27,17 @@ public static class PaperBacktestEndpoints
             return env is null ? Results.NotFound() : Results.Ok(env.Payload);
         });
 
+        // Catalog of registered paper-trading strategies pushed from
+        // the Mac (`tradepro-paper-strategies-push`). 404 until the
+        // Mac has pushed once — the UI handles that gracefully with
+        // a "run tradepro-paper-strategies-push to populate" hint.
+        var catalog = app.MapGroup("/paper/strategies").WithTags("PaperBacktest");
+        catalog.MapGet("/", (IPaperStrategiesStore store) =>
+        {
+            var cur = store.Get();
+            return cur is null ? Results.NotFound() : Results.Ok(cur);
+        });
+
         return app;
     }
 }

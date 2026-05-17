@@ -103,6 +103,16 @@ export const api = {
     }>>("/api/paper/backtest/reports"),
   paperBacktestReport: (reportId: string) =>
     get<unknown>(`/api/paper/backtest/reports/${encodeURIComponent(reportId)}`),
+  paperStrategies: () =>
+    get<{
+      count: number;
+      strategies: Array<{
+        name: string;
+        class: string;
+        summary: string;
+        default_params: Record<string, unknown>;
+      }>;
+    }>("/api/paper/strategies/"),
 
   uploadDocument: async (
     file: File,
