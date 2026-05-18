@@ -132,6 +132,10 @@ builder.Services.AddSingleton<IPaperBacktestStore, PostgresPaperBacktestStore>()
 builder.Services.AddSingleton<IPaperStrategiesStore, PostgresPaperStrategiesStore>();
 builder.Services.AddSingleton<IPaperSnapshotStore, PostgresPaperSnapshotStore>();
 builder.Services.AddSingleton<IPendingOrdersStore, PostgresPendingOrdersStore>();
+// Phase 6 — event-sourced orders + fills + domain events. Pending-orders
+// queue becomes a *projection* of this log; risk decisions and fills
+// all leave a trail. See VISION.md Principle 3.
+builder.Services.AddSingleton<OrdersRepository>();
 
 var app = builder.Build();
 
@@ -168,6 +172,7 @@ api.MapDocumentEndpoints();
 api.MapIntegrationsEndpoints();
 api.MapInstrumentEndpoints();
 api.MapPaperBacktestEndpoints();
+api.MapOrdersEndpoints();
 
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");

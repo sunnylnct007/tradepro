@@ -1,3 +1,4 @@
+using TradePro.Api.Data.Stores;
 using TradePro.Api.Providers.Trading212;
 using TradePro.Api.Simulation;
 
@@ -61,7 +62,8 @@ public static class PaperBacktestEndpoints
         pending.MapGet("/", (IPendingOrdersStore store) => Results.Ok(store.List()));
 
         pending.MapPost("/{orderId}/approve",
-            async (string orderId, IPendingOrdersStore store, Trading212Client t212, CancellationToken ct) =>
+            async (string orderId, IPendingOrdersStore store, OrdersRepository ordersRepo,
+                   Trading212Client t212, ILoggerFactory lf, CancellationToken ct) =>
         {
             var order = store.Get(orderId);
             if (order is null) return Results.NotFound();
@@ -72,6 +74,15 @@ public static class PaperBacktestEndpoints
                     error = $"order is {order.State.ToString().ToLowerInvariant()}, cannot approve",
                 });
             }
+            var log = lf.CreateLogger("paper.pending-orders");
+
+            // Phase 6: record the human approval on the orders log.
+            // This currently mirrors a "risk approves" signal — when the
+            // real RiskService lands, the manual click will become one
+            // input to the risk decision rather than the decision itself.
+            try { ordersRepo.RecordRiskDecision(orderId, "approve", "human approval"); }
+            catch (Exception ex) { log.LogError(ex, "orders log: risk-decision write failed for {orderId}", orderId); }
+
             // Sign convention: positive = BUY, negative = SELL.
             decimal signedQty = order.Side == "BUY"
                 ? Math.Abs(order.Quantity)
@@ -81,15 +92,48 @@ public static class PaperBacktestEndpoints
             if (result.Error is not null)
             {
                 var failed = store.MarkFailed(orderId, result.Error, result.ResponseBody);
+                try
+                {
+                    ordersRepo.InsertEvent("order_place_failed", orderId, new
+                    {
+                        order_id = orderId,
+                        error = result.Error,
+                        http_status = result.HttpStatus,
+                    });
+                }
+                catch (Exception ex) { log.LogError(ex, "orders log: place-failed event for {orderId}", orderId); }
                 return Results.Ok(failed);
             }
             var placed = store.MarkPlaced(
                 orderId, result.OrderId, result.Status, result.ResponseBody);
+
+            // T212 market orders fill effectively at the placement bar's
+            // close, but we don't have access to the bar here. Record a
+            // fill at the order's emit-close price as our best estimate
+            // — the Mac engine will overwrite with the true fill price
+            // when it pushes the next session snapshot. Future iterations
+            // will subscribe to T212's order-stream for the real number.
+            try
+            {
+                var fillPrice = order.BarAtEmitClose ?? 0.0;
+                if (fillPrice > 0)
+                {
+                    ordersRepo.InsertFill(new NewFill(
+                        OrderId: orderId,
+                        FillQty: (decimal)Math.Abs(signedQty),
+                        FillPrice: (decimal)fillPrice,
+                        BrokerOrderId: result.OrderId?.ToString(),
+                        FilledAtUtc: DateTime.UtcNow));
+                }
+            }
+            catch (Exception ex) { log.LogError(ex, "orders log: fill insert failed for {orderId}", orderId); }
+
             return Results.Ok(placed);
         });
 
         pending.MapPost("/{orderId}/reject",
-            (string orderId, string? reason, IPendingOrdersStore store) =>
+            (string orderId, string? reason, IPendingOrdersStore store,
+             OrdersRepository ordersRepo, ILoggerFactory lf) =>
         {
             var order = store.Get(orderId);
             if (order is null) return Results.NotFound();
@@ -99,6 +143,12 @@ public static class PaperBacktestEndpoints
                 {
                     error = $"order is {order.State.ToString().ToLowerInvariant()}, cannot reject",
                 });
+            }
+            try { ordersRepo.RecordRiskDecision(orderId, "reject", reason ?? "human rejection"); }
+            catch (Exception ex)
+            {
+                lf.CreateLogger("paper.pending-orders").LogError(ex,
+                    "orders log: risk-decision (reject) write failed for {orderId}", orderId);
             }
             var rejected = store.MarkRejected(orderId, reason);
             return Results.Ok(rejected);

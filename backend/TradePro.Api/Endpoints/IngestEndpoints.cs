@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TradePro.Api.Auth;
+using TradePro.Api.Data.Stores;
 using TradePro.Api.Simulation;
 
 namespace TradePro.Api.Endpoints;
@@ -86,13 +87,51 @@ public static class IngestEndpoints
         // (done by /api/paper/pending-orders/{id}/approve via the
         // .NET Trading212Client — no Mac round-trip needed).
         group.MapPost("/paper-pending-order",
-            (JsonElement payload, IPendingOrdersStore store) =>
+            (JsonElement payload, IPendingOrdersStore store, OrdersRepository ordersRepo, ILoggerFactory lf) =>
         {
             if (payload.ValueKind != JsonValueKind.Object)
             {
                 return Results.BadRequest(new { error = "payload must be a JSON object" });
             }
+            // 1) Existing projection: pending_orders gets the row that
+            //    the UI's queue page reads from.
             var order = store.Put(payload);
+
+            // 2) New: also write to the event-sourced orders table.
+            //    Order id matches the pending_orders id so the two
+            //    rows are joinable.
+            //    Tag-along event_emitted goes onto the events log
+            //    inside the repo's transaction.
+            //
+            //    If the orders write fails we DO NOT roll back the
+            //    pending_orders insert — the pending queue is the
+            //    user's actionable view, and dropping intent would
+            //    be the worse failure. Log it loudly instead.
+            try
+            {
+                ordersRepo.Insert(new NewOrder(
+                    OrderId: order.OrderId,
+                    StrategyName: order.StrategyId,
+                    StrategyVersion: "unversioned",
+                    ParamsHash: "",
+                    Mode: "paper_manual",
+                    Broker: order.Broker,
+                    Symbol: order.Symbol,
+                    Side: order.Side,
+                    Quantity: order.Quantity,
+                    OrderType: order.OrderType,
+                    BarAtEmitClose: order.BarAtEmitClose is null ? null : (decimal)order.BarAtEmitClose.Value,
+                    BarAtEmitTime: DateTime.TryParse(order.BarAtEmitTime, out var bt) ? bt : null,
+                    Tag: order.Tag,
+                    EmittedAtUtc: order.ReceivedAtUtc));
+            }
+            catch (Exception ex)
+            {
+                lf.CreateLogger("IngestEndpoints").LogError(ex,
+                    "orders event-log write failed for {orderId} — pending queue still has the row",
+                    order.OrderId);
+            }
+
             return Results.Ok(new
             {
                 accepted = true,
