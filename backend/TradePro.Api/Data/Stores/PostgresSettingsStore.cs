@@ -35,10 +35,11 @@ public sealed class PostgresSettingsStore : ISettingsStore
         using var conn = _db.OpenConnection();
         var text = conn.QueryFirstOrDefault<string>(
             "SELECT payload::text FROM settings WHERE id = 'singleton'");
+        AppSettings parsed;
         if (text is null) return AppSettingsDefaults.Build();
         try
         {
-            return JsonSerializer.Deserialize<AppSettings>(text, JsonOpts)
+            parsed = JsonSerializer.Deserialize<AppSettings>(text, JsonOpts)
                 ?? AppSettingsDefaults.Build();
         }
         catch (Exception ex)
@@ -46,6 +47,14 @@ public sealed class PostgresSettingsStore : ISettingsStore
             _log.LogWarning(ex, "settings row failed to deserialize — falling back to defaults");
             return AppSettingsDefaults.Build();
         }
+        // Backfill defaults for blocks added after the row was first
+        // written. Lets the UI render new toggles without forcing the
+        // user to manually save once to populate the field.
+        if (parsed.Paper is null)
+        {
+            parsed = parsed with { Paper = AppSettingsDefaults.Build().Paper };
+        }
+        return parsed;
     }
 
     public AppSettings Update(AppSettings incoming)
