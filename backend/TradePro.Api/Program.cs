@@ -9,6 +9,12 @@ using TradePro.Api.Watchlists;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Fold the shared AWS Secrets Manager bundle (`tradepro/all`) into
+// IConfiguration before anything binds. Env vars + appsettings.json
+// still win, so local dev with no AWS creds keeps working — see
+// SecretsBundleLoader for the kebab-case → Config:Key mapping.
+SecretsBundleLoader.LoadInto(builder.Configuration, builder.Configuration);
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

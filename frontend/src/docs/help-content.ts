@@ -593,10 +593,12 @@ act. Selling on yesterday's bad news usually means selling the
 bottom.
 
 The honest takeaway: news is **context** for understanding why
-prices moved, not usually a trigger for action. A future Phase
-of the system will run an LLM over news headlines to score
-sentiment and demote BUYs when the mood is sharply negative —
-that's coming, but is informational, not decisive.
+prices moved, not usually a trigger for action. TradePro already
+runs a local LLM over fresh headlines and **demotes BUYs to WAIT**
+when sentiment turns sharply negative — see "How the LLM helps"
+below for the exact thresholds. The point still stands though:
+sentiment is a tiebreaker / safety net, never the reason to enter
+or exit on its own.
         `,
       },
     ],

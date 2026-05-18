@@ -6,44 +6,31 @@ order is intentional:
   1. **Env var** (e.g. `TRADEPRO_T212_API_KEY`). Fastest, zero IAM,
      keeps the dev loop tight — no AWS calls during a normal Mac
      session unless you opt in.
-  2. **AWS Secrets Manager** under the prefix `/tradepro/<name>`.
-     Used when `TRADEPRO_USE_AWS_SECRETS=1` is set OR when the env
-     var is missing but boto3 is installed and credentials are
-     available. Cached in-process so each secret is fetched once
-     per worker run.
-  3. **File** at `~/.tradepro/credentials` (JSON dict). Legacy
-     fallback for `api_token` / `api_base_url`. New secrets go to
-     SM, not here.
+  2. **AWS Secrets Manager bundle** at `tradepro/all` (one secret,
+     JSON key/value blob). Fetched once per worker run, cached
+     in-process. Region defaults to `eu-north-1` — override with
+     `TRADEPRO_AWS_REGION`.
+  3. **AWS Secrets Manager per-name** under `/tradepro/<name>`.
+     Legacy path, kept so older entries still resolve.
+  4. **File** at `~/.tradepro/credentials` (JSON dict). Legacy
+     fallback for `api_token` / `api_base_url`.
 
-Secret names are kebab-case under `/tradepro/` in SM:
-    /tradepro/t212-api-key
-    /tradepro/t212-api-secret
-    /tradepro/finnhub-api-key
-    /tradepro/api-token
-    /tradepro/api-base-url
-    /tradepro/ibkr-account
+Secret keys are kebab-case (`t212-api-key`, `api-token`, …) — they
+match the keys inside the bundle and the per-name SM names.
 
 Env-var names are the screaming-snake-case equivalent prefixed
 `TRADEPRO_` so `t212-api-key` ↔ `TRADEPRO_T212_API_KEY`.
 
-Why this exists: was — keys lived in `~/.zshrc` and
-`~/.tradepro/credentials`. Per-machine secret sprawl, no rotation
-story, no audit trail. AWS SM gives us all three (versioning,
-rotation, CloudTrail) while keeping local dev frictionless via the
-env-var fast path.
+Setting up Mac-side AWS creds (SSO):
+    aws sso login --profile infoccit-admin
+    export AWS_PROFILE=infoccit-admin
+    # (no opt-in flag needed; bundle fetch is automatic when boto3
+    # + creds are available)
 
-Setting up Mac-side AWS creds:
-    aws configure --profile tradepro     # IAM user with
-                                         #   secretsmanager:GetSecretValue
-                                         # scoped to arn:aws:secretsmanager:*:*:secret:/tradepro/*
-    export AWS_PROFILE=tradepro
-    export TRADEPRO_USE_AWS_SECRETS=1
-
-To populate SM from your current env (one-off bootstrap):
-    aws secretsmanager create-secret \\
-      --name /tradepro/t212-api-key \\
-      --secret-string "$TRADEPRO_T212_API_KEY"
-    # repeat for each key
+To populate the bundle (one-time, via Console):
+    Secrets Manager → Store a new secret → Other type →
+    Key/value tab → add rows (t212-api-key, api-token, etc.) →
+    name = `tradepro/all`, region = eu-north-1.
 """
 from __future__ import annotations
 
@@ -59,6 +46,13 @@ log = logging.getLogger("tradepro.secrets")
 _CACHE: dict[str, Optional[str]] = {}
 _CRED_PATH = Path.home() / ".tradepro" / "credentials"
 _SM_PREFIX = "/tradepro/"
+_SM_BUNDLE_NAME = "tradepro/all"
+_SM_DEFAULT_REGION = "eu-north-1"
+
+# Populated lazily on first successful bundle fetch. `None` = not yet
+# fetched; empty dict = fetched but unavailable (don't retry).
+_BUNDLE: Optional[dict[str, str]] = None
+_BUNDLE_FETCHED = False
 
 
 def get_secret(name: str, *, required: bool = False) -> Optional[str]:
@@ -75,8 +69,15 @@ def get_secret(name: str, *, required: bool = False) -> Optional[str]:
         _CACHE[name] = env_val
         return env_val
 
-    # AWS Secrets Manager. Opt-in via TRADEPRO_USE_AWS_SECRETS=1 OR
-    # automatic if boto3 is available + creds are configured.
+    # AWS Secrets Manager bundle (one secret, JSON key/value blob).
+    # Fetched once per process; subsequent lookups are dict reads.
+    bundle_val = _try_bundle(name)
+    if bundle_val is not None:
+        _CACHE[name] = bundle_val
+        return bundle_val
+
+    # Legacy per-name SM path (`/tradepro/<name>`). Kept so older
+    # entries still resolve until everything moves into the bundle.
     sm_val = _try_aws_secrets_manager(name)
     if sm_val is not None:
         _CACHE[name] = sm_val
@@ -101,7 +102,59 @@ def get_secret(name: str, *, required: bool = False) -> Optional[str]:
 def clear_cache() -> None:
     """Drop the in-process cache. Use in tests or after rotating a
     secret mid-process."""
+    global _BUNDLE, _BUNDLE_FETCHED
     _CACHE.clear()
+    _BUNDLE = None
+    _BUNDLE_FETCHED = False
+
+
+def _try_bundle(name: str) -> Optional[str]:
+    """Look up `name` in the `tradepro/all` SM bundle. Fetches the
+    bundle once per process and caches it; subsequent calls are dict
+    reads. Returns None when the bundle is unreachable or the key
+    isn't present, so the caller falls through to the next source."""
+    global _BUNDLE, _BUNDLE_FETCHED
+    if not _BUNDLE_FETCHED:
+        _BUNDLE = _fetch_bundle()
+        _BUNDLE_FETCHED = True
+    if not _BUNDLE:
+        return None
+    return _BUNDLE.get(name)
+
+
+def _fetch_bundle() -> Optional[dict[str, str]]:
+    """Best-effort one-shot fetch of `tradepro/all`. Returns None on
+    any failure — boto3 missing, no creds, wrong region, secret not
+    found, JSON malformed."""
+    try:
+        import boto3
+        from botocore.exceptions import BotoCoreError, ClientError
+    except ImportError:
+        log.debug("boto3 not installed — bundle fetch skipped")
+        return None
+    region = os.environ.get("TRADEPRO_AWS_REGION", _SM_DEFAULT_REGION)
+    try:
+        client = boto3.client("secretsmanager", region_name=region)
+        resp = client.get_secret_value(SecretId=_SM_BUNDLE_NAME)
+        body = resp.get("SecretString")
+        if not body:
+            return None
+        data = json.loads(body)
+        if not isinstance(data, dict):
+            log.warning("SM bundle %s is not a JSON object", _SM_BUNDLE_NAME)
+            return None
+        # Coerce values to str; SM key/value tab always serializes as
+        # strings but be defensive in case someone hand-edits the JSON.
+        return {k: ("" if v is None else str(v)) for k, v in data.items()}
+    except (BotoCoreError, ClientError) as e:
+        log.debug("SM bundle fetch failed (region=%s): %s", region, e)
+        return None
+    except json.JSONDecodeError as e:
+        log.warning("SM bundle %s is not valid JSON: %s", _SM_BUNDLE_NAME, e)
+        return None
+    except Exception:
+        log.exception("unexpected error fetching SM bundle %s", _SM_BUNDLE_NAME)
+        return None
 
 
 def _try_aws_secrets_manager(name: str) -> Optional[str]:
