@@ -1421,6 +1421,628 @@ def run_comparison(
 # --- helpers ---------------------------------------------------------------
 
 
+def _post(path: str, json_body: dict | None = None, params: dict | None = None,
+          timeout: float | None = None) -> dict:
+    """POST to the TradePro API. Used by control-plane MCP tools
+    (approve / reject paper orders, signal scans, hitrate runs)."""
+    url = f"{_api_base()}{path}"
+    try:
+        resp = requests.post(
+            url, params=params or {}, json=json_body or {},
+            timeout=timeout if timeout is not None else _default_timeout(),
+        )
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ApiUnreachable(_api_base(), e) from e
+    resp.raise_for_status()
+    if not resp.text:
+        return {}
+    try:
+        return resp.json()
+    except ValueError:
+        return {"raw": resp.text}
+
+
+def _put(path: str, json_body: dict, timeout: float | None = None) -> dict:
+    url = f"{_api_base()}{path}"
+    try:
+        resp = requests.put(
+            url, json=json_body,
+            timeout=timeout if timeout is not None else _default_timeout(),
+        )
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ApiUnreachable(_api_base(), e) from e
+    resp.raise_for_status()
+    return resp.json() if resp.text else {}
+
+
+# ---------------------------------------------------------------------------
+# Paper trading: pending orders, fills, snapshots, backtest reports
+# ---------------------------------------------------------------------------
+
+def get_pending_orders() -> dict:
+    """Paper orders awaiting human approval (manual placement mode).
+    Each row carries `orderId`, `symbol`, `side`, `quantity`,
+    `barAtEmitClose`, `t212Ticker`, the strategy that emitted it,
+    and `state` (Pending / Placed / Failed / Rejected).
+
+    Use to answer "what trades is the system asking me to confirm?" —
+    pair with approve_paper_order / reject_paper_order to act on them.
+
+    Cite as `tradepro://paper/pending-orders`.
+    """
+    try:
+        rows = _get("/api/paper/pending-orders/")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_pending_orders", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_pending_orders", str(e))
+    items = rows if isinstance(rows, list) else (rows.get("items") if isinstance(rows, dict) else [])
+    pending = [r for r in (items or []) if (r.get("state") or "").lower() == "pending"]
+    return {
+        "_source": "tradepro://paper/pending-orders",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "total": len(items or []),
+        "pending_count": len(pending),
+        "orders": items or [],
+    }
+
+
+def approve_paper_order(order_id: str) -> dict:
+    """Approve a Pending paper order — places the market order against
+    Trading 212 using the backend's own T212 client and records the
+    risk-decision event on the orders log. Returns the post-approval
+    order row (`state` becomes Placed or Failed depending on T212).
+
+    Destructive in the sense that it actually places a real order in
+    the T212 account configured on the server (demo or live, depending
+    on Trading212__Mode). Only call after the user has confirmed.
+
+    Cite as `tradepro://paper/pending-orders/{order_id}/approve`.
+    """
+    if not order_id:
+        return _err("approve_paper_order", "order_id is required")
+    try:
+        resp = _post(f"/api/paper/pending-orders/{order_id}/approve")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("approve_paper_order", e, order_id=order_id)
+    except Exception as e:  # noqa: BLE001
+        return _err("approve_paper_order", str(e), order_id=order_id)
+    return {
+        "_source": f"tradepro://paper/pending-orders/{order_id}/approve",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "order": resp,
+    }
+
+
+def reject_paper_order(order_id: str, reason: str | None = None) -> dict:
+    """Reject a Pending paper order. Records `reject` on the orders
+    log with the supplied reason. No T212 call is made. Use when the
+    system emitted a trade you disagree with — the orders table keeps
+    the trail so we can audit the rejection later.
+
+    Cite as `tradepro://paper/pending-orders/{order_id}/reject`.
+    """
+    if not order_id:
+        return _err("reject_paper_order", "order_id is required")
+    params = {"reason": reason} if reason else None
+    try:
+        resp = _post(f"/api/paper/pending-orders/{order_id}/reject", params=params)
+    except ApiUnreachable as e:
+        return _unreachable_envelope("reject_paper_order", e, order_id=order_id)
+    except Exception as e:  # noqa: BLE001
+        return _err("reject_paper_order", str(e), order_id=order_id)
+    return {
+        "_source": f"tradepro://paper/pending-orders/{order_id}/reject",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "order": resp,
+    }
+
+
+def list_orders(symbol: str | None = None, limit: int = 100) -> dict:
+    """Most-recent orders from the event-sourced orders log. Filter
+    by symbol or fetch the global feed. Each row carries the strategy,
+    side, quantity, emit timestamp, and `decision_trace` — the
+    auditable record of what data supported the order.
+
+    Cite as `tradepro://orders` or `tradepro://orders/{symbol}`.
+    """
+    params: dict[str, Any] = {"limit": max(1, min(int(limit or 100), 500))}
+    if symbol:
+        params["symbol"] = symbol
+    try:
+        rows = _get("/api/orders/", params=params)
+    except ApiUnreachable as e:
+        return _unreachable_envelope("list_orders", e, symbol=symbol)
+    except Exception as e:  # noqa: BLE001
+        return _err("list_orders", str(e), symbol=symbol)
+    return {
+        "_source": f"tradepro://orders{'/'+symbol if symbol else ''}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "symbol": symbol,
+        "count": len(rows) if isinstance(rows, list) else None,
+        "orders": rows if isinstance(rows, list) else (rows.get("items") if isinstance(rows, dict) else []),
+    }
+
+
+def get_order(order_id: str) -> dict:
+    """Single order + its fills, joined. Returns the order header
+    (strategy, side, qty, decision_trace) and the fill list with
+    actual broker prices. Use to drill into an order the system
+    emitted and trace why it fired.
+
+    Cite as `tradepro://orders/{order_id}`.
+    """
+    if not order_id:
+        return _err("get_order", "order_id is required")
+    try:
+        payload = _get(f"/api/orders/{order_id}")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_order", e, order_id=order_id)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_order", str(e), order_id=order_id)
+    return {
+        "_source": f"tradepro://orders/{order_id}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+def get_paper_snapshot(session_label: str | None = None) -> dict:
+    """Latest paper-engine snapshot for one session (positions +
+    recent fills + P&L), or the list of recent sessions when
+    `session_label` is None. Powers the Live tab on the Paper page.
+
+    Cite as `tradepro://paper/snapshots` or
+    `tradepro://paper/snapshots/{session_label}`.
+    """
+    try:
+        if not session_label:
+            rows = _get("/api/paper/snapshots/")
+            return {
+                "_source": "tradepro://paper/snapshots",
+                "fetched_at": _now_iso(),
+                "ok": True,
+                "count": len(rows) if isinstance(rows, list) else None,
+                "sessions": rows,
+            }
+        payload = _get(f"/api/paper/snapshots/{session_label}")
+        return {
+            "_source": f"tradepro://paper/snapshots/{session_label}",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "session_label": session_label,
+            **(payload if isinstance(payload, dict) else {"payload": payload}),
+        }
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_paper_snapshot", e, session_label=session_label)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_paper_snapshot", str(e), session_label=session_label)
+
+
+def get_paper_backtest_reports(report_id: str | None = None, limit: int = 50) -> dict:
+    """When `report_id` is None, list the most-recent paper-trading
+    backtest reports (newest first). When given, returns the full
+    report payload (per-strategy results, equity curve, drawdown).
+
+    The Backtest page uses these to compare strategies side-by-side
+    on the same symbol+date range.
+
+    Cite as `tradepro://paper/backtest/reports[/{report_id}]`.
+    """
+    try:
+        if report_id:
+            payload = _get(f"/api/paper/backtest/reports/{report_id}")
+            return {
+                "_source": f"tradepro://paper/backtest/reports/{report_id}",
+                "fetched_at": _now_iso(),
+                "ok": True,
+                "report_id": report_id,
+                **(payload if isinstance(payload, dict) else {"payload": payload}),
+            }
+        rows = _get("/api/paper/backtest/reports", params={"limit": int(limit or 50)})
+        return {
+            "_source": "tradepro://paper/backtest/reports",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "count": len(rows) if isinstance(rows, list) else None,
+            "reports": rows,
+        }
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_paper_backtest_reports", e, report_id=report_id)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_paper_backtest_reports", str(e), report_id=report_id)
+
+
+def list_paper_strategies() -> dict:
+    """Catalog of registered paper-trading strategies the Mac engine
+    has pushed (`tradepro-paper-strategies-push`). 404-shaped envelope
+    when the Mac hasn't pushed yet — UI shows a hint to run the push.
+
+    Cite as `tradepro://paper/strategies`.
+    """
+    try:
+        payload = _get("/api/paper/strategies/")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("list_paper_strategies", e)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            return {
+                "_source": "tradepro://paper/strategies",
+                "fetched_at": _now_iso(),
+                "ok": True,
+                "registered": False,
+                "message": "Mac hasn't run tradepro-paper-strategies-push yet — catalog empty.",
+                "strategies": [],
+            }
+        return _err("list_paper_strategies", str(e))
+    except Exception as e:  # noqa: BLE001
+        return _err("list_paper_strategies", str(e))
+    return {
+        "_source": "tradepro://paper/strategies",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "registered": True,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Track-record validation: hitrate, signal scan, evaluate one signal
+# ---------------------------------------------------------------------------
+
+def get_hitrate(
+    symbol: str,
+    strategy: str,
+    lookback_years: int = 5,
+    horizon_days: int = 20,
+) -> dict:
+    """Historical hit-rate for one (symbol, strategy) — out of N past
+    signal firings, how many would have made money over the next
+    `horizon_days`? Answers "does this strategy actually work on this
+    symbol?" with backtested evidence, not just current signal value.
+
+    Cite as `tradepro://hitrate/{symbol}/{strategy}`.
+    """
+    if not symbol or not strategy:
+        return _err("get_hitrate", "symbol and strategy are required")
+    body = {
+        "symbol": symbol,
+        "strategy": strategy,
+        "lookbackYears": int(lookback_years),
+        "horizonDays": int(horizon_days),
+    }
+    try:
+        payload = _post("/api/signals/hitrate", json_body=body)
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_hitrate", e, symbol=symbol, strategy=strategy)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_hitrate", str(e), symbol=symbol, strategy=strategy)
+    return {
+        "_source": f"tradepro://hitrate/{symbol}/{strategy}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "symbol": symbol,
+        "strategy": strategy,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+def evaluate_signal(
+    symbol: str,
+    strategy: str,
+    lookback_years: int = 5,
+) -> dict:
+    """Run one strategy against one symbol right now and return the
+    decision (BUY / HOLD / SELL + supporting indicators). Use when
+    the user asks "what does RSI mean reversion say about AAPL?"
+    or to verify the cache against a fresh compute.
+
+    Cite as `tradepro://signals/{symbol}/{strategy}`.
+    """
+    if not symbol or not strategy:
+        return _err("evaluate_signal", "symbol and strategy are required")
+    body = {
+        "symbol": symbol,
+        "strategy": strategy,
+        "lookbackYears": int(lookback_years),
+    }
+    try:
+        payload = _post("/api/signals/evaluate", json_body=body)
+    except ApiUnreachable as e:
+        return _unreachable_envelope("evaluate_signal", e, symbol=symbol, strategy=strategy)
+    except Exception as e:  # noqa: BLE001
+        return _err("evaluate_signal", str(e), symbol=symbol, strategy=strategy)
+    return {
+        "_source": f"tradepro://signals/{symbol}/{strategy}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+def run_signal_scan(
+    strategy: str,
+    universe: str | None = None,
+    symbols_csv: str | None = None,
+) -> dict:
+    """Run one strategy across many symbols at once — either a whole
+    universe (e.g. "uk-etfs") or a comma-separated symbol list. Use
+    to find current BUY candidates ("which uk-etfs are firing
+    bollinger_bounce today?").
+
+    Cite as `tradepro://scan/{strategy}`.
+    """
+    if not strategy:
+        return _err("run_signal_scan", "strategy is required")
+    body: dict[str, Any] = {"strategy": strategy}
+    if universe:
+        body["universe"] = universe
+    if symbols_csv:
+        body["symbols"] = [s.strip() for s in symbols_csv.split(",") if s.strip()]
+    try:
+        payload = _post("/api/signals/scan", json_body=body)
+    except ApiUnreachable as e:
+        return _unreachable_envelope("run_signal_scan", e, strategy=strategy)
+    except Exception as e:  # noqa: BLE001
+        return _err("run_signal_scan", str(e), strategy=strategy)
+    return {
+        "_source": f"tradepro://scan/{strategy}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "strategy": strategy,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Event awareness: earnings, analyst recommendations, analyst upgrades
+# ---------------------------------------------------------------------------
+
+def get_earnings_calendar(symbol: str, days: int = 30) -> dict:
+    """Upcoming earnings dates for `symbol` over the next `days`
+    (default 30, max 90). Returns the empty-but-ok envelope when
+    Finnhub isn't configured server-side. Use to flag "MSFT reports
+    in 5 days — position-into-earnings volatility risk".
+
+    Cite as `tradepro://finnhub/earnings/{symbol}`.
+    """
+    if not symbol:
+        return _err("get_earnings_calendar", "symbol is required")
+    try:
+        payload = _get(
+            "/api/integrations/finnhub/earnings-calendar",
+            params={"symbol": symbol, "days": int(days)},
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_earnings_calendar", e, symbol=symbol)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_earnings_calendar", str(e), symbol=symbol)
+    return {
+        "_source": f"tradepro://finnhub/earnings/{symbol}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+def get_analyst_recommendations(symbol: str) -> dict:
+    """Monthly buy/hold/sell counts from sell-side analysts (last
+    ~12 months). Includes a pre-computed `momChange` — positive
+    means analysts are turning bullish month-over-month. Returns
+    enabled=false when Finnhub isn't configured.
+
+    Cite as `tradepro://finnhub/recommendations/{symbol}`.
+    """
+    if not symbol:
+        return _err("get_analyst_recommendations", "symbol is required")
+    try:
+        payload = _get(
+            "/api/integrations/finnhub/recommendations",
+            params={"symbol": symbol},
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_analyst_recommendations", e, symbol=symbol)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_analyst_recommendations", str(e), symbol=symbol)
+    return {
+        "_source": f"tradepro://finnhub/recommendations/{symbol}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+def get_analyst_upgrades(symbol: str, days: int = 30) -> dict:
+    """Recent analyst upgrade/downgrade events for `symbol` over
+    the last `days` (1-180, default 30). Includes summary counts
+    (`upgradeCount`, `downgradeCount`, `netDelta`) so a caller
+    can decide "are analysts piling in or fleeing?" in one read.
+
+    Cite as `tradepro://finnhub/upgrades/{symbol}`.
+    """
+    if not symbol:
+        return _err("get_analyst_upgrades", "symbol is required")
+    try:
+        payload = _get(
+            "/api/integrations/finnhub/upgrades",
+            params={"symbol": symbol, "days": int(days)},
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_analyst_upgrades", e, symbol=symbol)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_analyst_upgrades", str(e), symbol=symbol)
+    return {
+        "_source": f"tradepro://finnhub/upgrades/{symbol}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Raw market data: candles
+# ---------------------------------------------------------------------------
+
+def get_candles(
+    symbol: str,
+    from_date: str,
+    to_date: str | None = None,
+    interval: str = "1d",
+    provider: str | None = None,
+) -> dict:
+    """Raw OHLCV candles for one symbol between two dates. Default
+    interval `1d` — for daily strategy work this is what you want.
+    Use `get_hypothetical_return` instead if you just want "return
+    if I'd bought on X" — this tool is for callers that need the
+    bar-by-bar series.
+
+    Cite as `tradepro://candles/{symbol}/{from}/{to}`.
+    """
+    if not symbol or not from_date:
+        return _err("get_candles", "symbol and from_date are required")
+    params: dict[str, Any] = {
+        "symbol": symbol,
+        "from": from_date,
+        "to": to_date or _now_iso()[:10],
+        "interval": interval or "1d",
+    }
+    if provider:
+        params["provider"] = provider
+    try:
+        payload = _get("/api/marketdata/candles", params=params)
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_candles", e, symbol=symbol)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_candles", str(e), symbol=symbol)
+    candles = payload.get("candles") if isinstance(payload, dict) else None
+    return {
+        "_source": f"tradepro://candles/{symbol}/{from_date}/{to_date or 'today'}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "symbol": symbol,
+        "from_date": from_date,
+        "to_date": to_date,
+        "interval": interval,
+        "count": len(candles) if isinstance(candles, list) else None,
+        "candles": candles or [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Settings + control plane
+# ---------------------------------------------------------------------------
+
+def get_settings() -> dict:
+    """Live application settings — sentiment thresholds, paper-trading
+    placement mode (auto|manual). Use before recommending settings
+    changes so you read the current values, not a stale assumption.
+
+    Cite as `tradepro://settings`.
+    """
+    try:
+        payload = _get("/api/settings")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_settings", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_settings", str(e))
+    return {
+        "_source": "tradepro://settings",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+def set_paper_placement_mode(mode: str) -> dict:
+    """Flip paper-trading placement between `auto` (engine places
+    orders directly) and `manual` (orders queue as pending for the
+    user to approve). Read existing settings, swap the Paper block's
+    placementMode, PUT back.
+
+    Destructive: this changes how the Mac engine will behave on the
+    NEXT run. Confirm with the user before flipping live.
+
+    Cite as `tradepro://settings/paper/placementMode`.
+    """
+    mode = (mode or "").strip().lower()
+    if mode not in ("auto", "manual"):
+        return _err("set_paper_placement_mode", "mode must be 'auto' or 'manual'")
+    try:
+        current = _get("/api/settings")
+        if not isinstance(current, dict):
+            return _err("set_paper_placement_mode", "settings response was not an object")
+        paper = dict(current.get("paper") or {})
+        paper["placementMode"] = mode
+        updated_body = {**current, "paper": paper}
+        updated = _put("/api/settings", json_body=updated_body)
+    except ApiUnreachable as e:
+        return _unreachable_envelope("set_paper_placement_mode", e, mode=mode)
+    except Exception as e:  # noqa: BLE001
+        return _err("set_paper_placement_mode", str(e), mode=mode)
+    return {
+        "_source": "tradepro://settings/paper/placementMode",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "mode": mode,
+        "settings": updated,
+    }
+
+
+def list_watchlists() -> dict:
+    """Names of every watchlist registered on the server. Use to
+    discover what symbol groups exist before drilling into one
+    with `get_watchlist`.
+
+    Cite as `tradepro://watchlists`.
+    """
+    try:
+        payload = _get("/api/watchlists/")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("list_watchlists", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("list_watchlists", str(e))
+    return {
+        "_source": "tradepro://watchlists",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
+def get_watchlist(name: str) -> dict:
+    """Members of one watchlist by name. 404-shaped envelope when the
+    name doesn't exist — caller should pick a name from list_watchlists.
+
+    Cite as `tradepro://watchlists/{name}`.
+    """
+    if not name:
+        return _err("get_watchlist", "name is required")
+    try:
+        payload = _get(f"/api/watchlists/{name}")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_watchlist", e, name=name)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            return _err("get_watchlist",
+                        f"no watchlist named '{name}' — call list_watchlists to see the available names",
+                        name=name)
+        return _err("get_watchlist", str(e), name=name)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_watchlist", str(e), name=name)
+    return {
+        "_source": f"tradepro://watchlists/{name}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "name": name,
+        **(payload if isinstance(payload, dict) else {"payload": payload}),
+    }
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 

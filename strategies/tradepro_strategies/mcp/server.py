@@ -249,6 +249,191 @@ def build_server():
         full structural-vs-timing picture."""
         return _json(t.get_fundamentals(symbol))
 
+    # ---- Paper trading: orders, fills, snapshots, backtest reports ----
+
+    @mcp.tool()
+    @instrumented("get_pending_orders")
+    def get_pending_orders() -> str:
+        """Paper orders awaiting human approval in manual placement
+        mode. Each row has orderId, symbol, side, qty, t212Ticker,
+        emit price + state. Pair with approve_paper_order /
+        reject_paper_order to act on them."""
+        return _json(t.get_pending_orders())
+
+    @mcp.tool()
+    @instrumented("approve_paper_order")
+    def approve_paper_order(order_id: str) -> str:
+        """Approve a Pending paper order — PLACES the market order
+        against the configured Trading 212 account (demo or live per
+        Trading212__Mode). This is a real action; only call after the
+        user confirms. Returns the post-approval order row."""
+        return _json(t.approve_paper_order(order_id))
+
+    @mcp.tool()
+    @instrumented("reject_paper_order")
+    def reject_paper_order(order_id: str, reason: str | None = None) -> str:
+        """Reject a Pending paper order. Records the rejection + reason
+        on the orders log; no T212 call is made."""
+        return _json(t.reject_paper_order(order_id, reason))
+
+    @mcp.tool()
+    @instrumented("list_orders")
+    def list_orders(symbol: str | None = None, limit: int = 100) -> str:
+        """Most-recent orders from the event-sourced orders log.
+        Optional symbol filter. Each row carries the strategy, side,
+        qty, emit timestamp and the auditable decision_trace."""
+        return _json(t.list_orders(symbol, limit))
+
+    @mcp.tool()
+    @instrumented("get_order")
+    def get_order(order_id: str) -> str:
+        """One order + its fills, joined. Use to drill into a specific
+        order and trace why the strategy fired."""
+        return _json(t.get_order(order_id))
+
+    @mcp.tool()
+    @instrumented("get_paper_snapshot")
+    def get_paper_snapshot(session_label: str | None = None) -> str:
+        """Latest paper-engine snapshot for one session (positions +
+        fills + P&L), OR the list of recent sessions when session_label
+        is None. Powers the Live tab on the Paper page."""
+        return _json(t.get_paper_snapshot(session_label))
+
+    @mcp.tool()
+    @instrumented("get_paper_backtest_reports")
+    def get_paper_backtest_reports(report_id: str | None = None, limit: int = 50) -> str:
+        """When report_id is None, list the most-recent paper-trading
+        backtest reports. When given, return the full report (per-
+        strategy equity curve, drawdown, fills). The Backtest page
+        uses these to compare strategies on the same symbol+range."""
+        return _json(t.get_paper_backtest_reports(report_id, limit))
+
+    @mcp.tool()
+    @instrumented("list_paper_strategies")
+    def list_paper_strategies() -> str:
+        """Catalog of registered paper-trading strategies the Mac
+        engine has pushed. Empty until tradepro-paper-strategies-push
+        runs once on the Mac."""
+        return _json(t.list_paper_strategies())
+
+    # ---- Track-record validation: hitrate, scan, evaluate one signal ----
+
+    @mcp.tool()
+    @instrumented("get_hitrate")
+    def get_hitrate(
+        symbol: str,
+        strategy: str,
+        lookback_years: int = 5,
+        horizon_days: int = 20,
+    ) -> str:
+        """Historical hit-rate for one (symbol, strategy) — out of N
+        past signal firings, how many would have made money over the
+        next horizon_days. Answers 'does this strategy actually work
+        on this symbol?' with backtested evidence."""
+        return _json(t.get_hitrate(symbol, strategy, lookback_years, horizon_days))
+
+    @mcp.tool()
+    @instrumented("evaluate_signal")
+    def evaluate_signal(
+        symbol: str,
+        strategy: str,
+        lookback_years: int = 5,
+    ) -> str:
+        """Run one strategy against one symbol right now and return
+        the decision (BUY/HOLD/SELL + supporting indicators). Use to
+        verify cache against a fresh compute."""
+        return _json(t.evaluate_signal(symbol, strategy, lookback_years))
+
+    @mcp.tool()
+    @instrumented("run_signal_scan")
+    def run_signal_scan(
+        strategy: str,
+        universe: str | None = None,
+        symbols_csv: str | None = None,
+    ) -> str:
+        """Run one strategy across a whole universe or a CSV symbol
+        list at once. Use to find current BUY candidates — 'which
+        uk-etfs are firing bollinger_bounce today?'"""
+        return _json(t.run_signal_scan(strategy, universe, symbols_csv))
+
+    # ---- Event awareness: earnings, analyst recs, upgrades ----
+
+    @mcp.tool()
+    @instrumented("get_earnings_calendar")
+    def get_earnings_calendar(symbol: str, days: int = 30) -> str:
+        """Upcoming earnings for `symbol` over the next `days`
+        (max 90). Returns enabled=false when Finnhub key isn't set.
+        Use to flag 'MSFT reports in 5 days — position-into-earnings
+        volatility risk'."""
+        return _json(t.get_earnings_calendar(symbol, days))
+
+    @mcp.tool()
+    @instrumented("get_analyst_recommendations")
+    def get_analyst_recommendations(symbol: str) -> str:
+        """Monthly buy/hold/sell counts from sell-side analysts (last
+        ~12 months). Includes momChange — positive means analysts
+        are turning bullish month-over-month."""
+        return _json(t.get_analyst_recommendations(symbol))
+
+    @mcp.tool()
+    @instrumented("get_analyst_upgrades")
+    def get_analyst_upgrades(symbol: str, days: int = 30) -> str:
+        """Recent analyst upgrade/downgrade events for `symbol` over
+        the last `days` (1-180). Includes summary counts + netDelta
+        so you can decide 'are analysts piling in or fleeing?'"""
+        return _json(t.get_analyst_upgrades(symbol, days))
+
+    # ---- Raw market data: candles ----
+
+    @mcp.tool()
+    @instrumented("get_candles")
+    def get_candles(
+        symbol: str,
+        from_date: str,
+        to_date: str | None = None,
+        interval: str = "1d",
+        provider: str | None = None,
+    ) -> str:
+        """Raw OHLCV candles for `symbol` between two dates. Default
+        interval `1d`. Prefer get_hypothetical_return for 'what would
+        I have made' questions — this tool is for callers that need
+        the bar-by-bar series."""
+        return _json(t.get_candles(symbol, from_date, to_date, interval, provider))
+
+    # ---- Settings + control plane ----
+
+    @mcp.tool()
+    @instrumented("get_settings")
+    def get_settings() -> str:
+        """Live application settings — sentiment thresholds, paper-
+        trading placementMode (auto|manual). Read before recommending
+        changes so you see the current values."""
+        return _json(t.get_settings())
+
+    @mcp.tool()
+    @instrumented("set_paper_placement_mode")
+    def set_paper_placement_mode(mode: str) -> str:
+        """Flip paper-trading placement between `auto` (engine places
+        orders directly) and `manual` (orders queue as pending). This
+        changes how the Mac engine behaves on the NEXT run — confirm
+        with the user before flipping."""
+        return _json(t.set_paper_placement_mode(mode))
+
+    @mcp.tool()
+    @instrumented("list_watchlists")
+    def list_watchlists() -> str:
+        """Names of every registered watchlist on the server. Use to
+        discover symbol groups before drilling into one with
+        get_watchlist."""
+        return _json(t.list_watchlists())
+
+    @mcp.tool()
+    @instrumented("get_watchlist")
+    def get_watchlist(name: str) -> str:
+        """Members of one watchlist by name. Call list_watchlists
+        first to see available names."""
+        return _json(t.get_watchlist(name))
+
     @mcp.tool()
     @instrumented("get_returns")
     def get_returns(symbols: str, periods: str = "1d,5d,30d,90d,ytd") -> str:

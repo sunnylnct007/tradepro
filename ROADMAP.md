@@ -83,6 +83,38 @@ out of date. Each entry is one line: what changed and why it mattered.
   order-shaped event lands — Approve/Reject no longer requires a
   tab click to see the change reflected. A small "live" pip in the
   tab bar shows stream-connected state.
+- ✅ **`get_hypothetical_return` MCP tool**. Answers "if I'd bought
+  X on date Y, what would my return be today?" using split +
+  dividend adjusted closes — the question that kept surfacing
+  while validating signals against history. Returns total +
+  annualised return, peak/trough, max drawdown along the way, and
+  optional dollar return when quantity is given. Smoke-tested:
+  AAPL 2020-01-02 → 2024-01-02 = +163% / 27.5% annualised /
+  -31% mid-hold drawdown.
+- 🟡 **Data-source decision — stay on Yahoo for daily, defer
+  intraday upgrade.** Reviewed TradingView vs Alpha Vantage vs
+  Polygon.io. Verdict: daily-bar strategies (what we ship) don't
+  need an upgrade — `get_hypothetical_return` already answers
+  "what would I have made" correctly from Yahoo's adjusted
+  closes. Intraday (1m / 5m) only matters when Phase 3's
+  swing-trade scorers want hourly bars. Upgrade path when
+  needed: **Polygon.io starter at $30/mo** (deep intraday, tick
+  data, options chains — what TradingView and Robinhood use
+  under the hood). NOT TradingView (charts only, not an API),
+  NOT Alpha Vantage (shallow history, brittle rate limits).
+- 🟡 **Comprehensive MCP coverage push.** Every backend endpoint
+  Claude might need to "interrogate progress" gets an MCP
+  wrapper. Existing: compare, market_state, news, regime_history,
+  strategy_leaderboard, instrument_fit, portfolio, portfolio_status,
+  portfolio_signals, horizon_signals, hypothetical_return,
+  t212_instruments, health, fundamentals, returns, evaluate_symbols,
+  run_comparison, universes. Adding: paper trading (pending_orders,
+  approve_paper_order, reject_paper_order, get_order, list_orders,
+  paper_snapshot, paper_backtest_reports, list_paper_strategies),
+  track-record (hitrate, signal_scan, evaluate_signal), events
+  (earnings_calendar, analyst_recommendations, analyst_upgrades),
+  market data (get_candles), control plane (get_settings,
+  set_paper_mode, list_watchlists, get_watchlist).
 
 **Week of 2026-05-10 — chart depth + rationale precision:**
 
