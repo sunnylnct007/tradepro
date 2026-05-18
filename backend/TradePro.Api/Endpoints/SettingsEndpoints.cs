@@ -49,7 +49,22 @@ public static class SettingsEndpoints
                     got = s.LookbackDays,
                 });
             }
-            return Results.Ok(store.Update(incoming));
+            // Paper-trading defaults. We accept legacy payloads that
+            // pre-date this field by filling in from the current row —
+            // dropping a sentiment update because the client forgot to
+            // include the Paper block would be a surprising regression.
+            var paper = incoming.Paper
+                ?? store.Get().Paper
+                ?? AppSettingsDefaults.Build().Paper!;
+            if (paper.PlacementMode is not ("auto" or "manual"))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "paper.placementMode must be 'auto' or 'manual'",
+                    got = paper.PlacementMode,
+                });
+            }
+            return Results.Ok(store.Update(incoming with { Paper = paper }));
         });
 
         return app;

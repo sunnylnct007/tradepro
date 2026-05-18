@@ -18,20 +18,32 @@ interface SentimentSettings {
   lookbackDays: number;
 }
 
+type PlacementMode = "auto" | "manual";
+
+interface PaperSettings {
+  placementMode: PlacementMode;
+}
+
 interface AppSettings {
   sentiment: SentimentSettings;
+  paper?: PaperSettings;
   updatedAtUtc: string;
 }
 
-const DEFAULTS: SentimentSettings = {
+const DEFAULT_SENTIMENT: SentimentSettings = {
   meanSentimentThreshold: -0.30,
   minMaterialNegativeCount: 2,
   lookbackDays: 7,
 };
 
+const DEFAULT_PAPER: PaperSettings = {
+  placementMode: "manual",
+};
+
 export function Settings() {
   const [data, setData] = useState<AppSettings | null>(null);
-  const [draft, setDraft] = useState<SentimentSettings>(DEFAULTS);
+  const [draftSentiment, setDraftSentiment] = useState<SentimentSettings>(DEFAULT_SENTIMENT);
+  const [draftPaper, setDraftPaper] = useState<PaperSettings>(DEFAULT_PAPER);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -39,15 +51,20 @@ export function Settings() {
   useEffect(() => {
     fetch(new URL("/api/settings", config.apiBaseUrl).toString())
       .then((r) => r.ok ? r.json() : Promise.reject(`${r.status}`))
-      .then((d: AppSettings) => { setData(d); setDraft(d.sentiment); })
+      .then((d: AppSettings) => {
+        setData(d);
+        setDraftSentiment(d.sentiment);
+        setDraftPaper(d.paper ?? DEFAULT_PAPER);
+      })
       .catch((e) => setError(`Couldn't load settings: ${e}`));
   }, []);
 
   const dirty =
     !data
-    || data.sentiment.meanSentimentThreshold !== draft.meanSentimentThreshold
-    || data.sentiment.minMaterialNegativeCount !== draft.minMaterialNegativeCount
-    || data.sentiment.lookbackDays !== draft.lookbackDays;
+    || data.sentiment.meanSentimentThreshold !== draftSentiment.meanSentimentThreshold
+    || data.sentiment.minMaterialNegativeCount !== draftSentiment.minMaterialNegativeCount
+    || data.sentiment.lookbackDays !== draftSentiment.lookbackDays
+    || (data.paper?.placementMode ?? DEFAULT_PAPER.placementMode) !== draftPaper.placementMode;
 
   async function save() {
     setSaving(true);
@@ -60,7 +77,8 @@ export function Settings() {
         method: "PUT",
         headers,
         body: JSON.stringify({
-          sentiment: draft,
+          sentiment: draftSentiment,
+          paper: draftPaper,
           updatedAtUtc: new Date().toISOString(),
         }),
       });
@@ -70,7 +88,8 @@ export function Settings() {
       }
       const fresh: AppSettings = await resp.json();
       setData(fresh);
-      setDraft(fresh.sentiment);
+      setDraftSentiment(fresh.sentiment);
+      setDraftPaper(fresh.paper ?? DEFAULT_PAPER);
       setSavedAt(new Date().toLocaleTimeString());
     } catch (e) {
       setError(String(e));
@@ -80,7 +99,10 @@ export function Settings() {
   }
 
   function reset() {
-    if (data) setDraft(data.sentiment);
+    if (data) {
+      setDraftSentiment(data.sentiment);
+      setDraftPaper(data.paper ?? DEFAULT_PAPER);
+    }
   }
 
   return (
@@ -126,8 +148,8 @@ export function Settings() {
             step="0.05"
             min={-1}
             max={1}
-            value={draft.meanSentimentThreshold}
-            onChange={(e) => setDraft({ ...draft, meanSentimentThreshold: Number(e.target.value) })}
+            value={draftSentiment.meanSentimentThreshold}
+            onChange={(e) => setDraftSentiment({ ...draftSentiment, meanSentimentThreshold: Number(e.target.value) })}
             style={{ width: 120 }}
           />
         </Field>
@@ -141,8 +163,8 @@ export function Settings() {
             step="1"
             min={0}
             max={50}
-            value={draft.minMaterialNegativeCount}
-            onChange={(e) => setDraft({ ...draft, minMaterialNegativeCount: Number(e.target.value) })}
+            value={draftSentiment.minMaterialNegativeCount}
+            onChange={(e) => setDraftSentiment({ ...draftSentiment, minMaterialNegativeCount: Number(e.target.value) })}
             style={{ width: 80 }}
           />
         </Field>
@@ -156,8 +178,8 @@ export function Settings() {
             step="1"
             min={1}
             max={60}
-            value={draft.lookbackDays}
-            onChange={(e) => setDraft({ ...draft, lookbackDays: Number(e.target.value) })}
+            value={draftSentiment.lookbackDays}
+            onChange={(e) => setDraftSentiment({ ...draftSentiment, lookbackDays: Number(e.target.value) })}
             style={{ width: 80 }}
           />
         </Field>
@@ -173,9 +195,9 @@ export function Settings() {
           }}
         >
           <strong style={{ color: "var(--text)" }}>Active rule (preview):</strong>{" "}
-          BUY → WAIT when {draft.lookbackDays}-day rolling mean sentiment{" "}
-          <code>≤ {draft.meanSentimentThreshold}</code>{" "}
-          AND <code>≥ {draft.minMaterialNegativeCount}</code> material-negative
+          BUY → WAIT when {draftSentiment.lookbackDays}-day rolling mean sentiment{" "}
+          <code>≤ {draftSentiment.meanSentimentThreshold}</code>{" "}
+          AND <code>≥ {draftSentiment.minMaterialNegativeCount}</code> material-negative
           headlines.
         </div>
 
@@ -194,6 +216,60 @@ export function Settings() {
             <span style={{ marginLeft: "auto", color: "var(--text-muted)", fontSize: 11 }}>
               Last updated: {new Date(data.updatedAtUtc).toLocaleString()}
             </span>
+          )}
+        </div>
+      </section>
+
+      <section className="card" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 16 }}>Paper-trading placement mode</h2>
+          <p style={{ margin: "4px 0 0 0", color: "var(--text-dim)", fontSize: 13 }}>
+            Controls what happens when a paper strategy emits an order intent.
+            Saved values are picked up by the Mac engine on the next
+            <code> tradepro-paper</code> run when <code>--placement-mode</code>
+            {" "}isn't passed explicitly on the command line.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {(["auto", "manual"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setDraftPaper({ placementMode: m })}
+              className={draftPaper.placementMode === m ? "primary" : ""}
+              style={{
+                fontSize: 13,
+                padding: "8px 16px",
+                fontWeight: draftPaper.placementMode === m ? 600 : 400,
+              }}
+            >
+              {m === "auto" ? "Auto · post directly to T212" : "Manual · queue for Approve/Reject"}
+            </button>
+          ))}
+        </div>
+        <div
+          style={{
+            padding: "10px 12px",
+            background: "rgba(255,255,255,0.04)",
+            borderLeft: `3px solid ${draftPaper.placementMode === "auto" ? "var(--down)" : "var(--neutral)"}`,
+            borderRadius: 4,
+            fontSize: 12,
+            color: "var(--text-dim)",
+          }}
+        >
+          {draftPaper.placementMode === "auto" ? (
+            <>
+              <strong style={{ color: "var(--down)" }}>Auto mode active:</strong>{" "}
+              Strategies will post orders to T212 immediately. Use only when
+              you're confident the strategy + risk caps are tuned — there's no
+              human-in-the-loop step.
+            </>
+          ) : (
+            <>
+              <strong style={{ color: "var(--text)" }}>Manual mode active:</strong>{" "}
+              Strategies push intents to the Pending Orders tab on the Paper
+              page. Nothing reaches T212 until you click Approve. Safest
+              default for testing a new strategy.
+            </>
           )}
         </div>
       </section>

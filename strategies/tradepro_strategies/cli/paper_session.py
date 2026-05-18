@@ -79,11 +79,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--t212-mode", choices=["demo", "live"], default="demo")
     p.add_argument("--allow-real-orders", action="store_true",
                    help="Live trading opt-in (must also set the corresponding env var)")
-    p.add_argument("--placement-mode", choices=["auto", "manual"], default="auto",
+    p.add_argument("--placement-mode", choices=["auto", "manual"], default=None,
                    help="auto = strategy posts to T212 directly. "
                         "manual = strategy pushes the order to the API's "
                         "pending queue; you Approve/Reject from the Paper "
-                        "page → 'Pending orders' panel.")
+                        "page → 'Pending orders' panel. "
+                        "Omitted = read setting from /api/settings, "
+                        "fall back to 'manual' if API unreachable.")
     # IBKR knobs
     p.add_argument("--account", default=None,
                    help="IBKR account id (DU... = paper, U... = live)")
@@ -119,6 +121,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     session_date = _resolve_session_date(args.date)
+
+    # Placement-mode resolution: explicit CLI flag wins, else fetch
+    # the user's UI-set value from /api/settings, else fall back to
+    # the conservative default (manual = human-in-the-loop, no
+    # surprise live orders).
+    if args.placement_mode is None:
+        from ..api_settings import get_placement_mode
+        api_mode = get_placement_mode()
+        resolved_placement_mode = api_mode or "manual"
+        logging.getLogger("tradepro.cli").info(
+            "placement-mode resolved to %s (source=%s)",
+            resolved_placement_mode,
+            "api-settings" if api_mode else "default",
+        )
+    else:
+        resolved_placement_mode = args.placement_mode
+        logging.getLogger("tradepro.cli").info(
+            "placement-mode = %s (source=cli flag)", resolved_placement_mode)
+    args.placement_mode = resolved_placement_mode
 
     broker_list = [b.strip() for b in args.broker.split(",") if b.strip()]
     if len(broker_list) > 1:
