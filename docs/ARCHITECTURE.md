@@ -50,84 +50,114 @@ while attached). The LLM stays on the Mac so AWS doesn't need GPU.
 ```
                        ┌──────────────────────────┐
                        │  Browser (React)         │
-                       │  showsoldprice.com       │
-                       └───┬──────────────┬───────┘
-                           │              │
-                  HTTPS +  │              │  Firestore realtime
-                  bearer   │              │  (jobs, runs, watchlists)
-                  token    │              │
-                           ▼              ▼
-                ┌────────────────┐   ┌──────────────────┐
-                │  Azure App     │   │  Firestore       │
-                │  Service       │   │  (smsp-291e3)    │
-                │  (tradepro-api)│   └────────┬─────────┘
-                │   .NET 8       │            │ realtime listener
-                └───┬────────────┘            │
-                    │ outbound                ▼
-                    │           ┌─────────────────────────┐
-                    │           │  Mac (M4) — Python      │
-                    │           │    tradepro-worker      │
-                    │           │    tradepro-refresh     │
-                    │           │    tradepro-backtest    │
-                    │           │    Parquet cache        │
-                    │           │    Artefacts + JSONL    │
-                    │           └───────────┬─────────────┘
-                    │                       │ outbound only
-                    ▼                       ▼
-          ┌──────────────────────────────────────────┐
-          │  Market data providers (free tier)       │
-          │  Yahoo · Stooq · Binance · (IBKR later)  │
-          └──────────────────────────────────────────┘
+                       │  http://16.60.201.137/   │
+                       └────────────┬─────────────┘
+                                    │  HTTPS + (optional)
+                                    │  Firebase ID token
+                                    ▼
+                       ┌──────────────────────────┐
+                       │  EC2 t4g.small (eu-west-2)│
+                       │  ┌────────────────────┐  │
+                       │  │ Caddy 2 (TLS)      │  │
+                       │  ├────────────────────┤  │
+                       │  │ nginx (SPA + /api) │  │
+                       │  ├────────────────────┤  │
+                       │  │ .NET 8 API         │  │
+                       │  │  · JSON stores on  │  │
+                       │  │    EBS volume      │  │
+                       │  │  · reads SM bundle │  │
+                       │  │    at boot         │  │
+                       │  └────────────────────┘  │
+                       └─────▲──────────▲─────────┘
+                             │          │
+                  /api/ingest│          │ secretsmanager:
+                  Bearer     │          │  GetSecretValue
+                  INGEST_TOKEN          │
+                             │          ▼
+                             │   ┌────────────────┐
+                             │   │ AWS Secrets    │
+                             │   │ Manager        │
+                             │   │ tradepro/all   │
+                             │   │ (eu-north-1)   │
+                             │   └────────────────┘
+                  ┌──────────┴─────────────┐
+                  │  Mac (M4) — Python     │
+                  │   tradepro-refresh     │  launchd, 5x/day
+                  │   tradepro-paper       │  manual, paper sessions
+                  │   tradepro-email       │  launchd, 23:00 UTC
+                  │   Parquet cache        │  ~/.tradepro/cache
+                  │   Ollama (llama3.1)    │  rationale + sentiment
+                  └──────────┬─────────────┘
+                             │ outbound only
+                             ▼
+                  ┌──────────────────────────┐
+                  │  Yahoo · Finnhub · T212  │
+                  └──────────────────────────┘
 ```
 
-Key property: **the website never opens a connection into the Mac**. All
-traffic is outbound from the Mac, or mediated via Firestore.
+Key properties:
+- **The website never opens a connection into the Mac.** All Mac
+  traffic is outbound.
+- **The Mac is the active producer.** It runs scheduled refreshes
+  (compare cache), paper-trading sessions, the daily email digest,
+  and rationale/sentiment LLM inference. The API on EC2 is a
+  passive store + execution endpoint.
+- **No Firestore.** The old jobs-queue pattern (browser writes a
+  doc, Mac listens, writes back result) was removed in the May
+  2026 migration. The current flow is: Mac pushes payloads to the
+  API on its own schedule; the browser reads from the API.
 
 ---
 
-## 4. Data flow — "what's worth buying today?" (live scan)
+## 4. Data flow — "what should I buy today?" (Decide page)
 
-1. User signs in with Google → Firebase issues an ID token.
-2. Frontend calls `POST /api/signals/scan { watchlist, strategy, params }` with
-   `Authorization: Bearer <token>`.
-3. API validates token, checks UID is in `Firebase__AllowedUserIds`.
-4. API fans out to 4 parallel calls to the chosen provider (e.g. Yahoo) for
-   each symbol in the watchlist.
-5. For each symbol: compute SMAs / RSI / trend, decide BUY / SELL / HOLD with
-   a confidence score.
-6. Return the grouped + ranked result to the UI.
+1. User opens `/decide`. Frontend hits
+   `GET /api/compare/latest?universe=etf_all`.
+2. API reads the freshest compare cache from the JSON store (one
+   file per universe, written by the Mac's last refresh).
+3. Per-row payload: symbol, strategy, current_action, in_position,
+   stats, rationale, sentiment, fundamentals, horizon scores,
+   gems data.
+4. Frontend filters by horizon pill (Swing / Long-term / Passive)
+   and ranks BUY / WAIT / AVOID buckets.
 
-Latency: ~5–10 s for a 10-symbol UK watchlist (dominated by Yahoo fetch).
+Latency: ~50ms for a typical universe (the file is already on
+disk; no Yahoo fetch involved). The "freshness" badge shows when
+the Mac last refreshed — typically less than 4 hours given the
+6:30 / 10:30 / 14:30 / 18:30 / 22:30 UTC schedule.
 
 ---
 
-## 5. Data flow — "deep backtest on my Mac" (async job)
+## 5. Data flow — paper-trading sessions
 
-This is the Firestore-based queue pattern. Use it when a scan is too
-expensive for the API (F1 has 60 CPU-min/day).
+There are two paper-trading flows: **auto placement** (router
+posts directly to T212) and **manual placement** (router pushes
+intent to the API queue, user clicks Approve in the UI).
 
-1. User fills in backtest inputs (symbol, strategy, dates, capital).
-2. Frontend writes a doc into Firestore:
-   ```
-   jobs/{autoId} = {
-     kind: "backtest",
-     status: "pending",
-     user_uid: <their UID>,
-     created_at: serverTimestamp,
-     request: { symbol, strategy, from, to, params, fees, ... }
-   }
-   ```
-3. **Mac `tradepro-worker`** has a realtime listener on
-   `jobs where status == "pending"`. It sees the new doc within ~1 s.
-4. Worker flips `status: "running"`, runs the backtest using cached data
-   (hits provider only if cache is stale), writes local artefacts.
-5. Worker writes `status: "complete"` with `stats` and a `manifest`
-   pointing at the artefact dir on the Mac.
-6. Frontend's listener on the same doc sees the status change and renders
-   the result live.
+**Auto mode:**
+1. Mac runs `tradepro-paper --broker t212 --placement-mode auto`.
+2. Strategy emits an order intent.
+3. T212OrderRouter on the Mac uses the SM-bundle T212 key to call
+   `POST https://demo.trading212.com/api/v0/equity/orders/market`.
+4. Fills come back via the broker's order-stream and update the
+   Mac's in-memory ledger.
+5. At session end, Mac POSTs the ledger snapshot to
+   `/api/ingest/paper-snapshot`. Frontend Paper page Live tab
+   reads it.
 
-If the Mac is asleep/off, the job sits in Firestore. When the Mac wakes and
-the worker reconnects, pending jobs process in order.
+**Manual mode:**
+1. Same as auto through step 2.
+2. T212OrderRouter on the Mac POSTs the intent to
+   `/api/ingest/paper-pending-order`.
+3. API stores in `IPendingOrdersStore` (in-memory, capped at 200).
+4. User opens Paper page → Pending Orders tab → clicks Approve.
+5. API calls `Trading212Client.PlaceMarketOrderAsync` (uses the
+   SM-bundle T212 key on EC2, not Mac).
+6. API stores Placed / Failed state with the broker order id.
+
+The manual flow keeps a human in the loop while letting the Mac
+engine sleep — once an order is pushed, the Mac doesn't need to
+stay running for the order to execute.
 
 ---
 
@@ -262,11 +292,15 @@ Every run on the Mac writes three things, keyed by a UUID `run_id`:
    - `equity_curve.parquet` — the daily equity series.
    - `trades.parquet` — every buy/sell with price, size, fees.
 
-3. **Firestore doc** (for jobs triggered via the UI):
-   `jobs/{jobId}` and `runs/{run_id}` with summary stats + `manifest` blob.
+3. **API-side compare cache** for results pushed up by the Mac:
+   per-universe JSON files at `/data/compare/<universe>.json` on
+   the EC2 host (mounted from a docker volume). Each row carries
+   the `manifest` blob, so any number in the UI traces back to a
+   `run_id` on the Mac.
 
 Given a number on a chart, you can:
-- Find the `run_id` in the Firestore doc or artefact dir.
+- Find the `run_id` in the row's manifest (visible in the Decide
+  page's decision-trace panel) or in the Mac artefact dir.
 - Open `manifest.json` to see exact inputs + git SHA.
 - Check out that SHA, re-run with the same inputs, get the same number.
 
@@ -292,16 +326,24 @@ Refresh cadence: `tradepro-refresh --watchlist uk --years 10` nightly via
 ## 11. Security posture
 
 - **API is UID-whitelisted.** Only Firebase users in
-  `Firebase__AllowedUserIds` pass authorization. Empty list == any
-  signed-in user (only for initial testing).
-- **Firestore rules** deny everything by default. Users can only
-  create/read their own `jobs/{id}`. The worker uses the Admin SDK server-
-  side, which bypasses rules — its credentials live **only on the Mac** at
-  `~/.tradepro/firebase-sa.json` (chmod 600).
-- **Firebase web config is not a secret** — it ships in the bundle. Lock
-  it down by adding HTTP-referrer restrictions in Google Cloud Console.
-- **Never commit**: service-account JSONs, Azure publish profiles, Firebase
-  Admin keys, `.env.local`.
+  `Firebase__AllowedUserIds` pass authorization (when Firebase auth
+  is enabled; the demo currently runs with `FIREBASE_REQUIRE_AUTH=false`
+  behind nginx Basic Auth instead).
+- **Ingest endpoints** (`/api/ingest/*`) require a static Bearer
+  token (`Ingest__Token`, loaded from SM bundle at boot). Only the
+  Mac knows this token, so the worker push path is gated separately
+  from the user-facing API.
+- **Secrets at rest** live in **AWS Secrets Manager** at
+  `tradepro/all` (eu-north-1). Both the Mac engine and the EC2 API
+  read the bundle via SDK. The EC2 instance role has read-only
+  access via the `ccit-dev-tradepro-ec2-secrets-bundle-read` inline
+  policy. No secret value ever lives in git, in tfstate, or in the
+  docker image.
+- **Firebase web config is not a secret** — it ships in the bundle.
+  Lock it down by adding HTTP-referrer restrictions in Google Cloud
+  Console.
+- **Never commit**: AWS access keys, GitHub PATs, T212 keys, ingest
+  tokens, Firebase Admin keys, `.env.local`, anything in `~/.tradepro/`.
 
 ---
 
@@ -311,16 +353,23 @@ Refresh cadence: `tradepro-refresh --watchlist uk --years 10` nightly via
 |---|---|---|
 | Firebase Hosting (live) | push to `main` touching `frontend/**` | `.github/workflows/firebase-hosting-deploy.yml` |
 | Firebase Hosting (preview) | open/update PR touching `frontend/**` | `.github/workflows/firebase-hosting-preview.yml` |
-| Azure App Service | push to `main` touching `backend/**` | `.github/workflows/azure-api-deploy.yml` |
-| Firestore rules | manual `firebase deploy --only firestore:rules` from Mac | (no workflow yet) |
+| EC2 docker redeploy | push to `main` touching `backend/**` or manual `gh workflow run aws-redeploy.yml` | `.github/workflows/aws-redeploy.yml` |
+| EC2 lifecycle (start/stop) | manual or scheduled | `.github/workflows/aws-start.yml`, scheduled auto-stop in TF module |
+| Terraform infra | manual `terraform apply` from `ccit-infra/accounts/infoccit-workloads/` | none — applied locally |
 
 Secrets in GitHub repo:
 - `FIREBASE_SERVICE_ACCOUNT_SMSP_291E3` — deploy Firebase Hosting.
-- `AZURE_WEBAPP_PUBLISH_PROFILE` — deploy .NET API.
+- `INGEST_TOKEN`, `T212_API_KEY`, `T212_API_SECRET`, `FINNHUB_API_KEY`,
+  `BASIC_AUTH_HTPASSWD`, `T212_MODE` — historical, used by the
+  `aws-set-env.yml` workflow to seed an EC2 `.env` file. Will be
+  retired once the .NET API reads everything from the SM bundle
+  (just shipped; some still wired through env vars in compose).
 
-Secrets on Mac:
-- `~/.tradepro/firebase-sa.json` — Firebase Admin SDK (worker uses this).
-- `~/.tradepro/credentials` — optional API token for `tradepro-push`.
+Secrets at runtime (read at boot):
+- **Mac**: `tradepro_strategies.secrets.get_secret()` → SM bundle
+  `tradepro/all` (eu-north-1) → fallback `~/.tradepro/credentials`.
+- **EC2 .NET API**: `SecretsBundleLoader.LoadInto()` →
+  `Trading212:ApiKey`, `Finnhub:ApiKey`, `Ingest:Token`, etc.
 
 ---
 
@@ -408,7 +457,7 @@ ones as we introduce them — this is the canonical reference.
 
 | Label | Typical holding period | Example strategies |
 |---|---|---|
-| **Intraday** | Minutes to hours, flat by close | None today |
+| **Intraday** | Minutes to hours, flat by close | ORB, VWAP-MR, BollingerBounce intraday, EMA crossover (Python paper-trading engine) |
 | **Short-term** | Days to a couple of weeks | RSI mean-reversion, tight SMA crossover (5/10) |
 | **Mid-term** | A few weeks to a few months | SMA crossover (20/50), MACD, Donchian |
 | **Long-term** | Months to years | Buy & Hold, SMA crossover (50/200) |
@@ -422,5 +471,5 @@ ones as we introduce them — this is the canonical reference.
 | **Signal detail** | Single-symbol view of the current BUY/SELL/HOLD call, with indicators and historical hit-rate. |
 | **Hit-rate card** | On the Signal detail page: win rate, expectancy, median hold, best/worst trades over the last 10 years. |
 | **Run ID** | Unique UUID for each backtest/simulation, used to trace a number on a chart back to its exact inputs. |
-| **Worker** | `tradepro-worker` process running on your Mac that picks up deep-backtest jobs from Firestore. |
+| **Worker** | Generic name for any scheduled Mac-side process that pushes data to the API. Today: `tradepro-refresh` (compare cache, 5×/day), `tradepro-email` (digest, 23:00 UTC), `tradepro-heartbeat` (worker state). Plus manual: `tradepro-paper` (paper-trading sessions). |
 | **Cache** | Local Parquet files per `(provider, symbol, interval)` on the Mac under `~/.tradepro/cache`. |

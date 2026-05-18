@@ -1204,22 +1204,29 @@ fundamentals pipeline (Phase 5b + 6b).
 
 ---
 
-## Cost-effective stack (£0 / month)
+## Cost stack (current — AWS personal account)
 
-Default path until single-user usage justifies paid tiers:
+Migrated off Azure + Firestore in May 2026. The system now runs on a
+single small EC2 host and an EBS volume; everything else is free-
+tier or per-call.
 
-| Layer | Service | Free-tier limit |
+| Layer | Service | Notes |
 |---|---|---|
 | UI hosting | Firebase Hosting (Spark) | 10 GB bandwidth / mo |
-| Database | Firestore (Spark) | 1 GiB stored, 50k reads + 20k writes / day |
-| API compute | Azure App Service **F1** | 60 CPU-min / day, sleeps when idle |
+| API + worker host | EC2 t4g.small (eu-west-2) | ~£3-4/mo with auto-stop overnight, ~£1.30/mo idle on EBS |
+| Auth | Firebase Auth (Spark) | free for single user |
+| Secrets | AWS Secrets Manager (`tradepro/all`) | £0.30/mo per secret |
+| State store today | In-memory + JSON files on EBS | wiped by every redeploy — see Phase 5 below |
 | Heavy compute | The M-series Mac | electricity only |
 
-**Upgrade triggers:**
-- F1 sleep is annoying for active dev → B1 (~£10/mo): always-on,
-  custom-domain SSL.
-- Firestore quotas hit (unlikely single-user) → Postgres on
-  CockroachDB Serverless or Neon.
+**Phase 5 — Postgres migration** (planned, not yet shipped): replace
+in-memory stores (`IPendingOrdersStore`, `IPaperSnapshotStore`,
+`IPaperBacktestStore`) and JSON-file stores (`FileCompareStore`,
+`FileSettingsStore`, `FileDocumentStore`, `InMemoryWatchlistStore`)
+with Postgres on the same EC2 host (or RDS db.t4g.micro at ~£10/mo).
+Required for prod because every redeploy currently wipes pending
+orders, snapshots, settings, and watchlists. Tracked in
+[ARCHITECTURE.md](docs/ARCHITECTURE.md) §Stores.
 
 ---
 
@@ -1251,9 +1258,9 @@ Default path until single-user usage justifies paid tiers:
 
 - Auth: ingest token (single static value) on `/api/ingest/*`,
   Firebase ID token on everything else.
-- Secret on the Mac: `~/.tradepro/credentials` (chmod 600).
-- Server: `Ingest__Token` env var, set in Azure App Service config
-  (will move to AWS Secrets Manager post-migration).
-- Failure mode: `tradepro-push` retries with exponential backoff;
-  payloads are kept on disk under `~/.tradepro/artefacts/<run_id>/`
-  so nothing is lost.
+- Secrets bundle: **AWS Secrets Manager** at `tradepro/all` in
+  eu-north-1 (JSON key/value blob). Both the Mac engine and the EC2
+  API read it via SDK at boot. Env vars + appsettings still override
+  for local dev. The Mac fallback `~/.tradepro/credentials` is kept
+  as a tertiary path for backwards compatibility but new secrets go
+  to SM, not to that file.
