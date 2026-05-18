@@ -1,3 +1,6 @@
+using System.Text;
+using System.Text.Json;
+using TradePro.Api.Data;
 using TradePro.Api.Data.Stores;
 
 namespace TradePro.Api.Endpoints;
@@ -47,6 +50,50 @@ public static class OrdersEndpoints
         var events = app.MapGroup("/events").WithTags("Events");
         events.MapGet("/", (OrdersRepository repo, string? type, int? limit) =>
             Results.Ok(repo.ListEvents(limit ?? 100, type)));
+
+        // SSE stream — Phase 7 of VISION.md. Subscribers see every
+        // domain event the moment it lands in Postgres. ?since=<seq>
+        // catches up missed events on reconnect; ?type= filters to one
+        // event_type. The handler holds a long-lived LISTEN connection
+        // — EventStream owns the lifetime.
+        //
+        // Note: SSE in browsers doesn't allow custom headers via
+        // EventSource. The frontend uses streaming fetch instead so it
+        // can attach the bearer token. Same SSE wire format either way.
+        events.MapGet("/stream", async (
+            HttpContext ctx, EventStream stream, long? since, string? type) =>
+        {
+            ctx.Response.Headers["Content-Type"] = "text/event-stream";
+            ctx.Response.Headers["Cache-Control"] = "no-cache, no-transform";
+            ctx.Response.Headers["X-Accel-Buffering"] = "no"; // disable nginx buffering
+            ctx.Response.Headers["Connection"] = "keep-alive";
+
+            // Emit a tiny preamble so the client knows the stream
+            // opened. Some proxies don't flush headers until the
+            // first body byte.
+            await ctx.Response.WriteAsync(": ok\n\n", ctx.RequestAborted);
+            await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+
+            await foreach (var ev in stream.StreamAsync(since, type, ctx.RequestAborted))
+            {
+                if (ev is null)
+                {
+                    // Keepalive — comment frame; clients ignore but
+                    // proxies see traffic.
+                    await ctx.Response.WriteAsync(": keepalive\n\n", ctx.RequestAborted);
+                }
+                else
+                {
+                    var json = JsonSerializer.Serialize(ev);
+                    var frame = new StringBuilder()
+                        .Append("id: ").Append(ev.Seq).Append('\n')
+                        .Append("event: ").Append(ev.EventType).Append('\n')
+                        .Append("data: ").Append(json).Append("\n\n");
+                    await ctx.Response.WriteAsync(frame.ToString(), ctx.RequestAborted);
+                }
+                await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+            }
+        });
 
         return app;
     }

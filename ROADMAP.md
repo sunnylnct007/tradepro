@@ -73,6 +73,16 @@ out of date. Each entry is one line: what changed and why it mattered.
   `get_instrument_fit(symbol)` returns the classification + the
   list of compatible / incompatible strategies with a one-line
   reason per factor type. STRATEGIES.md updated.
+- ✅ **Phase 7 — SSE real-time event stream**. Postgres
+  LISTEN/NOTIFY trigger fires on every events INSERT; .NET
+  `EventStream` service holds a long-lived listener and pushes
+  rows through `/api/events/stream`. Frontend `useEventStream`
+  hook subscribes via streaming fetch (EventSource can't carry
+  bearer tokens), reconnects with `since=<lastSeq>` on drop. Paper
+  page's Pending Orders panel auto-refreshes the moment any
+  order-shaped event lands — Approve/Reject no longer requires a
+  tab click to see the change reflected. A small "live" pip in the
+  tab bar shows stream-connected state.
 
 **Week of 2026-05-10 — chart depth + rationale precision:**
 

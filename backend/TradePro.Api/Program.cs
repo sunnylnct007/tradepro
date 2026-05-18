@@ -136,6 +136,7 @@ builder.Services.AddSingleton<IPendingOrdersStore, PostgresPendingOrdersStore>()
 // queue becomes a *projection* of this log; risk decisions and fills
 // all leave a trail. See VISION.md Principle 3.
 builder.Services.AddSingleton<OrdersRepository>();
+builder.Services.AddSingleton<EventStream>();
 
 var app = builder.Build();
 

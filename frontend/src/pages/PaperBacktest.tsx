@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { useEventStream } from "../hooks/useEventStream";
 
 // Paper-trading backtest dashboard. List of reports the Mac has
 // pushed (single-strategy walk-forward OR multi-strategy comparator).
@@ -165,13 +166,30 @@ export function PaperBacktest() {
   const [pendingBusy, setPendingBusy] = useState<string | null>(null);
 
   // Reusable refresher for the pending-orders list — used on mount,
-  // after every Approve/Reject, and on tab switch.
+  // after every Approve/Reject, on tab switch, AND on every relevant
+  // SSE event (Phase 7 of the unicorn arc). The SSE hook below pulses
+  // when an order_emitted / order_risk_* / order_place_failed event
+  // arrives; refreshPending is invoked from that pulse via useEffect.
   const refreshPending = () => {
     api
       .paperPendingOrders()
       .then(setPendingOrders)
       .catch(() => setPendingOrders([]));
   };
+
+  // Live event stream — refreshes the pending-orders list the moment
+  // any order-shaped event lands. `pulse` increments per event; the
+  // useEffect below depends on it so the refetch happens automatically.
+  // We don't filter by `type` because we care about three distinct
+  // event types (order_emitted, order_risk_approved/rejected,
+  // order_place_failed) and per-type subscriptions would mean three
+  // open streams.
+  const eventStream = useEventStream({});
+
+  useEffect(() => {
+    if (eventStream.pulse === 0) return; // ignore initial state
+    refreshPending();
+  }, [eventStream.pulse]);
 
   useEffect(() => {
     api
@@ -240,7 +258,7 @@ export function PaperBacktest() {
       )}
       <StrategyCatalog strategies={strategies} error={strategiesError} />
 
-      <div style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: "1px solid var(--border)", alignItems: "center" }}>
         <TabBtn label="Backtest reports" active={tab === "backtests"} onClick={() => setTab("backtests")}
                 count={reports?.length} />
         <TabBtn label="Live sessions" active={tab === "live"} onClick={() => setTab("live")}
@@ -252,6 +270,35 @@ export function PaperBacktest() {
           count={pendingOrders?.filter((o) => o.state === "Pending").length}
           highlight={(pendingOrders?.filter((o) => o.state === "Pending").length ?? 0) > 0}
         />
+        {/* Live SSE pip — connected = green dot, otherwise muted.
+            Tooltip carries the last-seen event seq so an operator can
+            tell whether the stream is making progress at a glance. */}
+        <span
+          title={eventStream.connected
+            ? `Live event stream connected${eventStream.lastSeq ? ` · last seq ${eventStream.lastSeq}` : ""}`
+            : "Event stream disconnected — falling back to polling"}
+          style={{
+            marginLeft: "auto",
+            marginRight: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 11,
+            color: "var(--text-muted)",
+            cursor: "help",
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: eventStream.connected ? "var(--up)" : "var(--text-muted)",
+              boxShadow: eventStream.connected ? "0 0 6px var(--up)" : "none",
+            }}
+          />
+          live
+        </span>
       </div>
 
       {tab === "backtests" && (
