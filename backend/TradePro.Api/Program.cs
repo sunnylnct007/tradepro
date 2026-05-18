@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 using TradePro.Api.Auth;
+using TradePro.Api.Data;
+using TradePro.Api.Data.Stores;
 using TradePro.Api.Endpoints;
 using TradePro.Api.Providers;
 using TradePro.Api.Providers.Finnhub;
@@ -36,6 +38,11 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
     });
 });
+
+// Postgres data layer + startup migration runner. Migrations live
+// in db/migrations/*.sql and apply once each — running twice is safe.
+// See VISION.md Phase 5 for why this exists.
+builder.Services.AddPostgresDataLayer(builder.Configuration);
 
 builder.Services.AddFirebaseAuth(builder.Configuration, builder.Environment);
 
@@ -112,25 +119,19 @@ builder.Services.AddScoped<ISimulator, Simulator>();
 builder.Services.AddScoped<ISignalEngine, SignalEngine>();
 builder.Services.AddScoped<ISignalScanner, SignalScanner>();
 builder.Services.AddScoped<IHitRateEngine, HitRateEngine>();
-builder.Services.AddSingleton<IWatchlistStore, InMemoryWatchlistStore>();
-// File-backed compare store survives API restarts + deploys. The path
-// (Compare:StorePath, default /data/compare in containers, ~/.tradepro/
-// server-cache locally) is mounted into the container by compose.
-builder.Services.AddSingleton<ICompareStore, FileCompareStore>();
-builder.Services.AddSingleton<IHeartbeatStore, InMemoryHeartbeatStore>();
-builder.Services.AddSingleton<ISettingsStore, FileSettingsStore>();
-builder.Services.AddSingleton<IDocumentStore, FileDocumentStore>();
-// Paper-trading backtest reports pushed from the Mac. In-memory for
-// now — the UI only needs "show me recent runs" and history-across-
-// restarts isn't a v1 requirement.
-builder.Services.AddSingleton<IPaperBacktestStore, InMemoryPaperBacktestStore>();
-builder.Services.AddSingleton<IPaperStrategiesStore, InMemoryPaperStrategiesStore>();
-// Per-session ledger snapshots pushed at the end of every
-// `tradepro-paper --push` run. In-memory, capped at 100 sessions.
-builder.Services.AddSingleton<IPaperSnapshotStore, InMemoryPaperSnapshotStore>();
-// Pending paper orders awaiting human Approve / Reject on the UI
-// (T212 manual-placement mode). In-memory + capped at 200.
-builder.Services.AddSingleton<IPendingOrdersStore, InMemoryPendingOrdersStore>();
+// Phase 5 — every store now backed by Postgres. Survives redeploys.
+// In-memory + file-backed implementations are kept in the tree for
+// reference and tests but no longer registered. See VISION.md
+// Principle 1: "No new in-memory store."
+builder.Services.AddSingleton<IWatchlistStore, PostgresWatchlistStore>();
+builder.Services.AddSingleton<ICompareStore, PostgresCompareStore>();
+builder.Services.AddSingleton<IHeartbeatStore, PostgresHeartbeatStore>();
+builder.Services.AddSingleton<ISettingsStore, PostgresSettingsStore>();
+builder.Services.AddSingleton<IDocumentStore, PostgresDocumentStore>();
+builder.Services.AddSingleton<IPaperBacktestStore, PostgresPaperBacktestStore>();
+builder.Services.AddSingleton<IPaperStrategiesStore, PostgresPaperStrategiesStore>();
+builder.Services.AddSingleton<IPaperSnapshotStore, PostgresPaperSnapshotStore>();
+builder.Services.AddSingleton<IPendingOrdersStore, PostgresPendingOrdersStore>();
 
 var app = builder.Build();
 

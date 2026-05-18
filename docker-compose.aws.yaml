@@ -29,6 +29,32 @@ services:
       - api_compare_cache:/data/compare
     restart: "no"
 
+  # ── Postgres ───────────────────────────────────────────────
+  # Phase 5 of the unicorn-architecture migration (see VISION.md):
+  # all in-memory + JSON-file stores migrate here so state survives
+  # redeploys. Internal-only — no host port mapping; the API reaches
+  # it on the docker network as `postgres:5432`. Backed by a named
+  # volume which persists on the EBS root volume.
+  postgres:
+    image: postgres:16-alpine
+    container_name: tradepro-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-tradepro}"
+      POSTGRES_USER: "${POSTGRES_USER:-tradepro}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-tradepro}"
+      # Pin the locale so collations don't drift between dev (Mac)
+      # and prod (Linux) image builds.
+      LANG: C.UTF-8
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tradepro} -d ${POSTGRES_DB:-tradepro}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   api:
     image: ${ECR_REGISTRY}/ccit-dev-tradepro-api:${IMAGE_TAG:-latest}
     container_name: tradepro-api
@@ -36,6 +62,8 @@ services:
     depends_on:
       api_init:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     # The frontend nginx reaches this service on the docker network as
     # `api:5080` (no port mapping needed for that). We ALSO map host
     # port 8081 → 5080 so curl/Postman can hit the API directly for
@@ -57,8 +85,14 @@ services:
       Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
       Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
       Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
+      # Postgres connection string. Hostname is the docker-compose
+      # service name; the postgres container exposes 5432 on the
+      # default user-defined network without a host port mapping.
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-tradepro};Username=${POSTGRES_USER:-tradepro};Password=${POSTGRES_PASSWORD:-tradepro};Pooling=true;MinPoolSize=1;MaxPoolSize=20"
     volumes:
       # Compare cache as a named volume so it survives `compose down`.
+      # Will be retired once the FileCompareStore -> PostgresCompareStore
+      # migration is complete; kept here in the interim as a fallback.
       - api_compare_cache:/data/compare
     healthcheck:
       # /health is intentionally public (uptime pings shouldn't need a
@@ -125,3 +159,4 @@ volumes:
   api_compare_cache:
   caddy_data:
   caddy_config:
+  postgres_data:
