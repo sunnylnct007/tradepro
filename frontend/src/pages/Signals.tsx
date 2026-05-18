@@ -548,7 +548,11 @@ interface MultiResult {
   perStrategy: PerStrategyResult[];
   buys: number;       // strategies firing a fresh BUY today
   sells: number;
-  holds: number;
+  holds: number;      // total HOLD count (holdsIn + holdsOut when split available)
+  /** HOLD with the strategy already in a long position — "stay long, no action". */
+  holdsIn: number | null;
+  /** HOLD with the strategy flat — "stay flat, waiting for a setup". */
+  holdsOut: number | null;
   failed: number;
   meanConfidence: number | null;
   consensus: "BUY" | "SELL" | "HOLD" | "MIXED";
@@ -575,15 +579,25 @@ function buildMultiResult(perStrategy: PerStrategyResult[]): MultiResult {
     else if (sells >= Math.ceil(ok.length / 2 + 0.5)) consensus = "SELL";
     else if (holds + buys >= ok.length - 1 && buys === 0) consensus = "HOLD";
   }
-  // `currentlyLong` counts strategies with inPosition=true on their
-  // decision. Backend filled this in via SignalDecision.InPosition;
-  // a pre-update payload (all undefined) yields null so the header
-  // hides the row rather than reporting a misleading zero.
+  // Split HOLD into HOLD-IN (already long, no action) and HOLD-OUT
+  // (flat, waiting). Without this the header line "1 BUY · 0 SELL ·
+  // 6 HOLD" looked contradictory next to "4 of 7 currently long" —
+  // 6 HOLD includes both 3 already-long and 3 still-flat strategies.
+  // currentlyLong = buys + holdsIn now reconciles in plain view.
   const anyHasInPosition = ok.some((r) => r.decision!.inPosition !== undefined);
+  const holdsIn = anyHasInPosition
+    ? ok.filter((r) => r.decision!.action === "HOLD" && r.decision!.inPosition === true).length
+    : null;
+  const holdsOut = anyHasInPosition
+    ? ok.filter((r) => r.decision!.action === "HOLD" && r.decision!.inPosition === false).length
+    : null;
   const currentlyLong = anyHasInPosition
     ? ok.filter((r) => r.decision!.inPosition === true).length
     : null;
-  return { perStrategy, buys, sells, holds, failed, meanConfidence: meanConf, consensus, currentlyLong };
+  return {
+    perStrategy, buys, sells, holds, holdsIn, holdsOut, failed,
+    meanConfidence: meanConf, consensus, currentlyLong,
+  };
 }
 
 function MultiStrategyCard({ result, symbol }: { result: MultiResult; symbol: string }) {
@@ -601,27 +615,50 @@ function MultiStrategyCard({ result, symbol }: { result: MultiResult; symbol: st
               {result.consensus}
             </span>
             <span style={{ fontSize: 13, color: "var(--text-dim)" }}>
-              <strong>{symbol}</strong> · {result.buys} BUY · {result.sells} SELL · {result.holds} HOLD
+              <strong>{symbol}</strong> · {result.buys} BUY · {result.sells} SELL
+              {result.holdsIn != null && result.holdsOut != null ? (
+                <>
+                  {" "}·{" "}
+                  <span
+                    title="HOLD-IN: strategy is already long the symbol from a prior BUY and has no fresh action today."
+                    style={{ cursor: "help" }}
+                  >
+                    {result.holdsIn} HOLD-IN
+                  </span>
+                  {" "}·{" "}
+                  <span
+                    title="HOLD-OUT: strategy is currently flat and is waiting for a setup; no fresh action today."
+                    style={{ cursor: "help" }}
+                  >
+                    {result.holdsOut} HOLD-OUT
+                  </span>
+                </>
+              ) : (
+                <> · {result.holds} HOLD</>
+              )}
               {result.failed > 0 && ` · ${result.failed} failed`}
             </span>
             {/* Position-state breakdown. Reconciles with the Decide
-                page's "N of 7 currently long" — same metric, exposed
-                here so a user comparing the two pages doesn't think
-                they contradict. `inPosition` was added to the
-                SignalDecision API; pre-update payloads fall back to
-                showing only the action-vote line above. */}
+                page's "N of 7 currently long" — currentlyLong now
+                equals BUY + HOLD-IN, which is visible in the header
+                row above. `inPosition` was added to the SignalDecision
+                API; pre-update payloads fall back to the single-HOLD
+                rendering and hide this line. */}
             {result.currentlyLong != null && (
               <span
                 title={
                   `${result.currentlyLong} of ${result.perStrategy.length} ` +
-                  `strategies are currently long the symbol (held a position from a prior signal). ` +
-                  `Of today's actions: ${result.buys} fresh BUY, ${result.sells} fresh SELL, ` +
-                  `${result.holds} no-fresh-signal.`
+                  `strategies are currently long the symbol = BUY (${result.buys}) ` +
+                  `+ HOLD-IN (${result.holdsIn ?? 0}). ` +
+                  `The remaining ${result.perStrategy.length - result.currentlyLong} are flat ` +
+                  `(SELL + HOLD-OUT).`
                 }
                 style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 4, display: "block", cursor: "help" }}
               >
                 {result.currentlyLong} of {result.perStrategy.length} strategies currently long
-                {" "}<span style={{ color: "var(--text-muted)" }}>(position state — not today's trade)</span>
+                {" "}<span style={{ color: "var(--text-muted)" }}>
+                  (= {result.buys} BUY + {result.holdsIn ?? 0} HOLD-IN)
+                </span>
               </span>
             )}
           </div>
