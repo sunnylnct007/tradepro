@@ -100,9 +100,13 @@ jobs:
                 "aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin 108703420282.dkr.ecr.eu-west-2.amazonaws.com",
                 "touch .env",
                 ("if grep -q ^IMAGE_TAG= .env; then sed -i \"s|^IMAGE_TAG=.*|IMAGE_TAG=" + $image_tag + "|\" .env; else echo IMAGE_TAG=" + $image_tag + " >> .env; fi"),
-                "docker compose -f docker-compose.aws.yaml pull",
-                "docker compose -f docker-compose.aws.yaml up -d --remove-orphans",
-                "docker image prune -f"
+                "echo === docker compose pull ===",
+                "docker compose -f docker-compose.aws.yaml pull > /tmp/tradepro-pull.log 2>&1 && tail -12 /tmp/tradepro-pull.log",
+                "echo === docker compose up ===",
+                "docker compose -f docker-compose.aws.yaml up -d --remove-orphans --force-recreate > /tmp/tradepro-up.log 2>&1 && tail -20 /tmp/tradepro-up.log",
+                "echo === docker ps ===",
+                "docker ps --format '{{.Names}}\\t{{.Status}}'",
+                "docker image prune -f > /dev/null 2>&1 || true"
               ]
             }' > /tmp/ssm-params.json
 

@@ -40,7 +40,12 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="$HOME/Library/LaunchAgents"
 
 mkdir -p "$TARGET_DIR" "$HOME/.tradepro/logs"
-chmod +x "$PROJECT_DIR/scripts/refresh.sh" "$PROJECT_DIR/scripts/worker.sh" 2>/dev/null || true
+chmod +x \
+    "$PROJECT_DIR/scripts/refresh.sh" \
+    "$PROJECT_DIR/scripts/worker.sh" \
+    "$PROJECT_DIR/scripts/email-digest.sh" \
+    "$PROJECT_DIR/scripts/paper-session.sh" \
+    2>/dev/null || true
 
 install_one() {
   local name="$1"
@@ -111,17 +116,28 @@ else
   uninstall_one "com.tradepro.worker"
   install_one "com.tradepro.refresh"
   install_one "com.tradepro.heartbeat"
+  install_one "com.tradepro.email-digest"
+  install_one "com.tradepro.paper"
   cat <<EOF
 
-Mode: REFRESH+HEARTBEAT (cron-style)
+Mode: REFRESH+HEARTBEAT+EMAIL+PAPER (cron-style)
 
 Logs:
-  ~/.tradepro/logs/refresh-<date>.log     (4×/day compare runs)
-  ~/.tradepro/logs/heartbeat-stdout.log   (15-min liveness pings)
+  ~/.tradepro/logs/refresh-<date>.log       (5×/day compare runs)
+  ~/.tradepro/logs/heartbeat-stdout.log     (15-min liveness pings)
+  ~/.tradepro/logs/email-<date>.log         (23:00 UTC daily digest)
+  ~/.tradepro/logs/paper-<date>.log         (14:30 UTC paper session)
 
 Manual test:
   launchctl start com.tradepro.heartbeat
   launchctl start com.tradepro.refresh
+  launchctl start com.tradepro.email-digest
+  launchctl start com.tradepro.paper
+
+These agents auto-load on every user login (default macOS behavior
+for ~/Library/LaunchAgents/*.plist) — a Mac reboot does NOT require
+re-running this script. Missed StartCalendarInterval fires replay
+on the next wake.
 
 Switch to persistent worker:
   bash strategies/scripts/install-launchd.sh --worker

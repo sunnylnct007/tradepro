@@ -18,6 +18,44 @@ those assumptions change.
 Tracks meaningful work that's already in `main` so this doc stops drifting
 out of date. Each entry is one line: what changed and why it mattered.
 
+**Week of 2026-05-18 — unicorn-grade foundations:**
+
+- ✅ **Phase 5 — Postgres migration of every store**. All 9 in-memory +
+  JSON-file stores (pending orders, paper snapshots, paper backtests,
+  paper strategies, watchlists, settings, compare cache, documents,
+  heartbeats) now backed by Postgres on the same EC2 host. Survives
+  redeploys. Schema also seeds the future event-sourcing tables.
+- ✅ **Phase 6 — Event-sourced orders + fills + domain log**. Every
+  paper-trading order writes to the append-only `orders` table with a
+  `decision_trace`; risk decisions (approve / reject) leave an
+  audit trail; `events` table seeds the Phase 7 SSE stream. Read API
+  at `/api/orders/`, `/api/orders/{id}`, `/api/events/`.
+- ✅ **AWS Secrets Manager bundle**. Single `tradepro/all` JSON in
+  eu-north-1, read by both the Mac engine and the .NET API at boot.
+  Cross-region IAM provisioned via the ccit-infra TF module.
+- ✅ **Daily email digest plist** (`com.tradepro.email-digest`,
+  23:00 UTC) + dry-run + real-send verified end-to-end.
+- ✅ **Daily paper-trading plist** (`com.tradepro.paper`, 14:30 UTC).
+  Reads symbol list from env, omits `--placement-mode` so the engine
+  resolves it from `/api/settings` per run.
+- ✅ **UI toggle for paper-trading placement mode**. Settings page
+  has Auto / Manual pills wired to `/api/settings`; the Mac engine
+  fetches the value at session start. Survives every redeploy via the
+  Postgres settings store.
+- ✅ **HOLD-IN / HOLD-OUT split** on the Backtest page so
+  `1 BUY + 0 SELL + 3 HOLD-IN + 3 HOLD-OUT` reconciles in-place with
+  the "4 of 7 currently long" line — math now adds up at a glance.
+- ✅ **STRATEGIES.md** — canonical reference for all 3 strategy layers
+  (.NET signal, Python paper, horizon scorers) including the
+  instrument-strategy fit problem (MTUM/RSI-MR case).
+- ✅ **EVALUATION.md** — the five lenses for telling whether a
+  strategy is working on a given symbol, with the AVGO worked example.
+- ✅ **VISION.md** — unicorn-architecture target: 8 properties + 6 PR
+  principles + 8-phase arc.
+- ✅ **aws-redeploy.yml SSM output truncation fix** — pull/up output
+  routed to /tmp logs, only the tail shipped back. Stops the workflow
+  reporting "failed" on every successful deploy.
+
 **Week of 2026-05-10 — chart depth + rationale precision:**
 
 - ✅ **Inline `PriceHistoryChart`** on Research + Decide pages — 5y
