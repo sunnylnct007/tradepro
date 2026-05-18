@@ -701,6 +701,152 @@ def get_portfolio_signals(horizon: str = "1y") -> dict:
     }
 
 
+def get_hypothetical_return(
+    symbol: str,
+    from_date: str,
+    to_date: str | None = None,
+    quantity: float | None = None,
+) -> dict:
+    """Answers "if I'd bought ``symbol`` on ``from_date``, what would
+    my return be as of ``to_date`` (default: today)?".
+
+    Uses split-adjusted closes from the TradePro candles endpoint, so
+    a stock that 4-for-1 split between the buy and sell dates produces
+    the right number — total return reflects the position you'd
+    actually hold today, not the headline price.
+
+    Inputs:
+        symbol     — ticker (e.g. AAPL, VOO, BARC.L, VWRP.L)
+        from_date  — YYYY-MM-DD; if the market was closed that day,
+                     the first trading day at or after this date is
+                     used (and the response says so).
+        to_date    — YYYY-MM-DD or None for "today's most recent close"
+        quantity   — optional number of shares to also report a dollar
+                     return on. Omit for percent-only.
+
+    Returns: buy/sell prices, total return %, total dollar return (if
+    quantity given), peak/trough between the two dates, max drawdown,
+    annualised return (when the holding period is >= 30 days).
+
+    Cite as ``tradepro://hypothetical/<symbol>/<from>/<to>``.
+    """
+    if not symbol or not from_date:
+        return _err("get_hypothetical_return", "symbol and from_date are required")
+    try:
+        candles_resp = _get("/api/marketdata/candles", params={
+            "symbol": symbol,
+            "from": from_date,
+            "to": to_date or _now_iso()[:10],
+            "interval": "1d",
+        })
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_hypothetical_return", e,
+                                     symbol=symbol, from_date=from_date)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_hypothetical_return", str(e),
+                    symbol=symbol, from_date=from_date)
+
+    candles = candles_resp.get("candles") or []
+    if not candles:
+        return _err("get_hypothetical_return",
+                    f"no candles for {symbol} between {from_date} and {to_date or 'today'} "
+                    f"— check the symbol spelling and the date range",
+                    symbol=symbol, from_date=from_date, to_date=to_date)
+
+    # Find first trading day on/after from_date, and last on/before to_date.
+    # We use adjOrClose throughout (split + dividend adjusted) so the math
+    # is total-return correct.
+    def _close(c: dict) -> float | None:
+        v = c.get("adjOrClose") or c.get("adjustedClose") or c.get("close")
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    first = candles[0]
+    last = candles[-1]
+    buy_price = _close(first)
+    sell_price = _close(last)
+    if buy_price is None or sell_price is None or buy_price <= 0:
+        return _err("get_hypothetical_return",
+                    "candles present but no usable adjusted close found",
+                    symbol=symbol)
+
+    return_pct = round(((sell_price / buy_price) - 1.0) * 100, 3)
+
+    # Holding-period stats: peak, trough, max drawdown from peak to
+    # subsequent trough. Useful for "how much pain along the way" —
+    # a +30% return with -25% mid-period drawdown is a different
+    # experience than +30% in a straight line.
+    closes = [_close(c) for c in candles if _close(c) is not None]
+    peak_idx = 0
+    peak = closes[0]
+    max_dd_pct = 0.0
+    for i, c in enumerate(closes):
+        if c > peak:
+            peak = c
+            peak_idx = i
+        elif peak > 0:
+            dd = (c / peak - 1.0) * 100
+            if dd < max_dd_pct:
+                max_dd_pct = dd
+    peak_val = max(closes)
+    trough_val = min(closes)
+
+    # Annualise when the window is long enough to be meaningful.
+    from datetime import datetime
+    fmt = "%Y-%m-%dT%H:%M:%S%z"
+    first_ts = first.get("timestamp")
+    last_ts = last.get("timestamp")
+    days_held = None
+    annualised_return_pct = None
+    try:
+        if first_ts and last_ts:
+            d0 = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
+            d1 = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
+            days_held = max(1, (d1 - d0).days)
+            if days_held >= 30:
+                years = days_held / 365.25
+                annualised_return_pct = round(
+                    ((sell_price / buy_price) ** (1.0 / years) - 1.0) * 100, 3)
+    except Exception:  # noqa: BLE001
+        days_held = None
+
+    qty_return = None
+    if quantity is not None:
+        try:
+            qty = float(quantity)
+            qty_return = round((sell_price - buy_price) * qty, 2)
+        except (TypeError, ValueError):
+            qty_return = None
+
+    return {
+        "_source": f"tradepro://hypothetical/{symbol}/{from_date}/{to_date or 'today'}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "symbol": symbol,
+        "from_date": from_date,
+        "to_date": to_date,
+        "first_trading_day": first.get("timestamp"),
+        "last_trading_day": last.get("timestamp"),
+        "days_held": days_held,
+        "buy_price": round(buy_price, 4),
+        "sell_price": round(sell_price, 4),
+        "return_pct": return_pct,
+        "annualised_return_pct": annualised_return_pct,
+        "peak_close": round(peak_val, 4),
+        "trough_close": round(trough_val, 4),
+        "max_drawdown_pct": round(max_dd_pct, 3),
+        "quantity": quantity,
+        "dollar_return": qty_return,
+        "adjustment_note": (
+            "Prices are split + dividend adjusted (adjOrClose). A 4-for-1 split "
+            "between buy and sell dates is already baked in — return reflects "
+            "the position you'd hold today, not the headline price."
+        ),
+    }
+
+
 def get_horizon_signals(symbol: str) -> dict:
     """Three independent horizon verdicts (swing / long-term / passive)
     for a single symbol — TRADEPRO-SPEC-001 §6.3.

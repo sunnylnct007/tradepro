@@ -199,6 +199,28 @@ def build_server():
         return _json(t.get_horizon_signals(symbol))
 
     @mcp.tool()
+    @instrumented("get_hypothetical_return")
+    def get_hypothetical_return(
+        symbol: str,
+        from_date: str,
+        to_date: str | None = None,
+        quantity: float | None = None,
+    ) -> str:
+        """"If I'd bought <symbol> on <from_date>, what would my return
+        be as of <to_date> (default today)?" Uses split + dividend
+        adjusted closes, so a 4-for-1 split mid-hold doesn't break the
+        math — return reflects the position you'd actually hold today.
+
+        Returns: buy/sell prices, total return %, annualised return
+        (when held >= 30 days), peak/trough between the dates, max
+        drawdown, dollar return when `quantity` is given.
+
+        from_date and to_date are YYYY-MM-DD. If the market was closed
+        on from_date, the next trading day is used (response says so).
+        Cite as `tradepro://hypothetical/<symbol>/<from>/<to>`."""
+        return _json(t.get_hypothetical_return(symbol, from_date, to_date, quantity))
+
+    @mcp.tool()
     @instrumented("search_t212_instruments")
     def search_t212_instruments(query: str, limit: int = 10) -> str:
         """Search Trading 212's instruments registry — verifies a
