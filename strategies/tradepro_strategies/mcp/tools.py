@@ -321,6 +321,121 @@ def get_regime_history(universe: str, symbol: str, strategy: str | None = None) 
     }
 
 
+def get_strategy_leaderboard(
+    universe: str,
+    symbol: str,
+    metric: str = "sharpe",
+) -> dict:
+    """Ranked per-strategy leaderboard for one symbol.
+
+    Answers "which strategy is doing best on AVGO?" directly — sorts
+    every strategy with a row for ``symbol`` in ``universe`` by
+    ``metric`` (default ``sharpe``) and projects the columns a human
+    would scan: action today, position state, the backtest stats, and
+    a delta vs the buy-and-hold null model.
+
+    The ``action_label`` field collapses ``current_action`` +
+    ``in_position`` into one of BUY / SELL / HOLD-IN / HOLD-OUT so the
+    LLM has a single value to reason with — same vocabulary the
+    Backtest page header uses post-2026-05-18.
+
+    Metrics: ``sharpe`` (default), ``cagr_pct``, ``max_drawdown_pct``.
+    For drawdown, smaller (less negative) is better — the ranking
+    treats it as an absolute value for the sort.
+
+    Cite an entry as
+    ``tradepro://compare/<universe>/leaderboard/<symbol>/strategies[<i>]``.
+    """
+    if not universe or not symbol:
+        return _err("get_strategy_leaderboard",
+                    "universe and symbol are required")
+    if metric not in ("sharpe", "cagr_pct", "max_drawdown_pct"):
+        return _err("get_strategy_leaderboard",
+                    f"unsupported metric {metric!r}; use sharpe | cagr_pct | max_drawdown_pct")
+    try:
+        data = _get("/api/compare/latest", params={"universe": universe})
+    except ApiUnreachable as e:
+        return _unreachable_envelope(
+            "get_strategy_leaderboard", e,
+            universe=universe, symbol=symbol, strategies=[])
+    except Exception as e:  # noqa: BLE001
+        return _err("get_strategy_leaderboard", str(e),
+                    universe=universe, symbol=symbol)
+
+    rows = data.get("payload", {}).get("rows", []) or []
+    matching = [r for r in rows if r.get("symbol") == symbol]
+    if not matching:
+        return _err("get_strategy_leaderboard",
+                    f"no rows for symbol={symbol} in {universe}",
+                    universe=universe, symbol=symbol)
+
+    def _metric(r: dict) -> float:
+        s = (r.get("stats") or {}).get(metric)
+        try:
+            v = float(s) if s is not None else None
+        except (TypeError, ValueError):
+            return float("-inf")
+        if v is None:
+            return float("-inf")
+        # For drawdown, less-negative is better — sort by absolute
+        # distance from zero (descending = "best first").
+        if metric == "max_drawdown_pct":
+            return -abs(v)
+        return v
+
+    def _action_label(r: dict) -> str:
+        action = (r.get("current_action") or "HOLD").upper()
+        if action == "HOLD":
+            return "HOLD-IN" if r.get("in_position") else "HOLD-OUT"
+        return action
+
+    # Find the buy_and_hold null model for this symbol so each row
+    # can show its sharpe delta vs the do-nothing baseline.
+    bh_row = next((r for r in matching if r.get("strategy") == "buy_and_hold"), None)
+    bh_sharpe = ((bh_row or {}).get("stats") or {}).get("sharpe")
+
+    matching.sort(key=_metric, reverse=True)
+    leaderboard = []
+    for i, r in enumerate(matching):
+        stats = r.get("stats") or {}
+        sharpe = stats.get("sharpe")
+        delta_vs_bh = None
+        if sharpe is not None and bh_sharpe is not None:
+            try:
+                delta_vs_bh = round(float(sharpe) - float(bh_sharpe), 3)
+            except (TypeError, ValueError):
+                delta_vs_bh = None
+        leaderboard.append({
+            "_source": (
+                f"tradepro://compare/{universe}/leaderboard/{symbol}"
+                f"/strategies[{i}]"
+            ),
+            "rank": i + 1,
+            "strategy": r.get("strategy"),
+            "strategy_label": r.get("strategy_label"),
+            "action": r.get("current_action"),
+            "in_position": bool(r.get("in_position")),
+            "action_label": _action_label(r),
+            "position_since": r.get("position_since"),
+            "sharpe": _safe_num(sharpe),
+            "cagr_pct": _safe_num(stats.get("cagr_pct")),
+            "max_drawdown_pct": _safe_num(stats.get("max_drawdown_pct")),
+            "win_rate": _safe_num(stats.get("win_rate")),
+            "delta_vs_buy_and_hold": delta_vs_bh,
+            "is_top": i == 0,
+            "is_baseline": r.get("strategy") == "buy_and_hold",
+        })
+    return {
+        "_source": f"tradepro://compare/{universe}/leaderboard/{symbol}",
+        "fetched_at": _now_iso(),
+        "universe": universe,
+        "symbol": symbol,
+        "metric": metric,
+        "buy_and_hold_sharpe": _safe_num(bh_sharpe),
+        "strategies": leaderboard,
+    }
+
+
 def get_portfolio() -> dict:
     """User's open Trading 212 positions with computed unrealised
     P&L per row + cross-reference to today's compare verdict.

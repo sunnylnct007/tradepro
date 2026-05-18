@@ -1089,6 +1089,7 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
         </div>
       )}
 
+      <StrategyLeaderboard view={view} />
       <div style={{ marginBottom: 12 }}>
         <div className="stat-label" style={{ marginBottom: 4 }}>Strategies on {view.symbol}</div>
         <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
@@ -2388,4 +2389,151 @@ function fmtNum(x: unknown, digits: number = 2): string {
   const n = Number(x);
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+/**
+ * Per-symbol strategy leaderboard. Sorts every strategy cell for the
+ * focused symbol by Sharpe descending and renders the answer to
+ * "which strategy is doing best on this symbol?" at a glance.
+ *
+ * Same data shape the MCP `get_strategy_leaderboard` tool returns —
+ * keeping the two surfaces aligned so an LLM agent and a human reader
+ * see the same ranking.
+ */
+function StrategyLeaderboard({ view }: { view: SymbolView }) {
+  const rows = view.rows;
+  if (rows.length === 0) return null;
+
+  const sortedBySharpe = [...rows].sort((a, b) => {
+    const sa = a.stats?.sharpe;
+    const sb = b.stats?.sharpe;
+    if (sa == null && sb == null) return 0;
+    if (sa == null) return 1;
+    if (sb == null) return -1;
+    return Number(sb) - Number(sa);
+  });
+
+  const bhRow = rows.find((r) => r.strategy === "buy_and_hold");
+  const bhSharpe = bhRow?.stats?.sharpe;
+
+  function actionLabel(r: typeof rows[number]): "BUY" | "SELL" | "HOLD-IN" | "HOLD-OUT" {
+    const a = (r.current_action || "HOLD").toUpperCase();
+    if (a === "BUY") return "BUY";
+    if (a === "SELL") return "SELL";
+    return r.in_position ? "HOLD-IN" : "HOLD-OUT";
+  }
+
+  function actionColour(label: ReturnType<typeof actionLabel>): string {
+    if (label === "BUY") return "var(--up)";
+    if (label === "SELL") return "var(--down)";
+    if (label === "HOLD-IN") return "var(--up)";
+    return "var(--text-muted)";
+  }
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="stat-label" style={{ marginBottom: 4 }}>
+        Strategy leaderboard for {view.symbol}{" "}
+        <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+          (ranked by Sharpe; HOLD-IN = already long, HOLD-OUT = flat-waiting)
+        </span>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+        }}
+      >
+        {sortedBySharpe.map((r, i) => {
+          const label = actionLabel(r);
+          const sharpe = r.stats?.sharpe;
+          let deltaText: string | null = null;
+          if (sharpe != null && bhSharpe != null && r.strategy !== "buy_and_hold") {
+            const d = Number(sharpe) - Number(bhSharpe);
+            if (Number.isFinite(d)) {
+              const sign = d >= 0 ? "+" : "";
+              deltaText = `${sign}${d.toFixed(2)} vs B&H`;
+            }
+          }
+          const isTop = i === 0;
+          return (
+            <div
+              key={r.strategy}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "32px 1fr 90px 70px 80px 110px",
+                alignItems: "center",
+                gap: 8,
+                padding: "5px 8px",
+                fontSize: 12,
+                background: isTop ? "rgba(80,200,120,0.07)" : "transparent",
+                borderLeft: `3px solid ${isTop ? "var(--up)" : "transparent"}`,
+                borderRadius: 4,
+              }}
+            >
+              <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                #{i + 1}
+              </span>
+              <span style={{ color: "var(--text)" }}>
+                {r.strategy_label}
+                {r.strategy === "buy_and_hold" && (
+                  <span style={{ color: "var(--text-muted)", fontSize: 10, marginLeft: 6 }}>
+                    (baseline)
+                  </span>
+                )}
+              </span>
+              <span
+                className="num"
+                title="Sharpe ratio — risk-adjusted return on the backtest window. Higher is better; above 1.0 is good."
+                style={{ textAlign: "right", color: isTop ? "var(--up)" : "var(--text)" }}
+              >
+                {fmtNum(sharpe)}
+              </span>
+              <span
+                className="num"
+                title="Compound annual growth rate over the backtest window."
+                style={{ textAlign: "right", color: "var(--text-dim)" }}
+              >
+                {fmtNum(r.stats?.cagr_pct)}%
+              </span>
+              <span
+                style={{
+                  fontSize: 10,
+                  textAlign: "right",
+                  color: deltaText && deltaText.startsWith("+")
+                    ? "var(--up)"
+                    : deltaText
+                    ? "var(--down)"
+                    : "var(--text-muted)",
+                }}
+              >
+                {deltaText ?? ""}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: actionColour(label),
+                  textAlign: "center",
+                  padding: "2px 6px",
+                  borderRadius: 3,
+                  background: "rgba(255,255,255,0.05)",
+                }}
+                title={
+                  label === "HOLD-IN"
+                    ? `Currently long — entered ${r.position_since?.slice(0, 10) ?? "?"}, no action today`
+                    : label === "HOLD-OUT"
+                    ? "Currently flat — strategy is waiting for a setup"
+                    : `Today's action: ${label}`
+                }
+              >
+                {label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

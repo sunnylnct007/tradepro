@@ -55,6 +55,14 @@ out of date. Each entry is one line: what changed and why it mattered.
 - ✅ **aws-redeploy.yml SSM output truncation fix** — pull/up output
   routed to /tmp logs, only the tail shipped back. Stops the workflow
   reporting "failed" on every successful deploy.
+- ✅ **Strategy leaderboard on Decide page + MCP tool**. Per-symbol
+  ranking of all 7 strategies by Sharpe, with action labels collapsed
+  to BUY / SELL / HOLD-IN / HOLD-OUT and a delta vs the buy-and-hold
+  null model. Frontend widget on the expanded panel; MCP exposes the
+  same shape via `get_strategy_leaderboard(universe, symbol)` so an
+  LLM agent sees the same ranking a human does. Closes the user's
+  "how do we see which strategy is handling that symbol better"
+  question.
 
 **Week of 2026-05-10 — chart depth + rationale precision:**
 

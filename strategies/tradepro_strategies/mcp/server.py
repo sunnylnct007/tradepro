@@ -108,6 +108,29 @@ def build_server():
         return _json(t.get_regime_history(universe, symbol, strategy))
 
     @mcp.tool()
+    @instrumented("get_strategy_leaderboard")
+    def get_strategy_leaderboard(
+        universe: str,
+        symbol: str,
+        metric: str = "sharpe",
+    ) -> str:
+        """Per-symbol strategy leaderboard — the answer to "which
+        strategy is doing best on this symbol?". Sorts every strategy
+        cell for the symbol by sharpe (default), cagr_pct, or
+        max_drawdown_pct and returns the ranked list with action
+        labels collapsed to BUY / SELL / HOLD-IN / HOLD-OUT and a
+        delta vs the buy-and-hold null model.
+
+        Use this when the user asks which strategy is performing
+        best, or before recommending a particular strategy's signal
+        — the leaderboard reveals whether the recommended strategy
+        is actually the top performer or just one voice in the
+        consensus. Cite individual entries as
+        `tradepro://compare/<universe>/leaderboard/<symbol>/strategies[<i>]`.
+        """
+        return _json(t.get_strategy_leaderboard(universe, symbol, metric))
+
+    @mcp.tool()
     @instrumented("get_portfolio")
     def get_portfolio() -> str:
         """User's open Trading 212 positions with unrealised P&L per
