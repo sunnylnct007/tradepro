@@ -63,6 +63,16 @@ out of date. Each entry is one line: what changed and why it mattered.
   LLM agent sees the same ranking a human does. Closes the user's
   "how do we see which strategy is handling that symbol better"
   question.
+- ✅ **Phase 6.5 — instrument-strategy fit**. Closes the MTUM
+  contradiction. Every symbol classified via `factor_types.py`
+  (momentum / value / quality / low_vol / broad_equity / bond /
+  commodity / crypto / single_stock / ...); the consensus engine
+  excludes structurally-incompatible strategy votes (RSI mean-
+  reversion on MTUM, breakouts on USMV, etc.). UI banner explains
+  exclusions; leaderboard greys out excluded rows. New MCP tool
+  `get_instrument_fit(symbol)` returns the classification + the
+  list of compatible / incompatible strategies with a one-line
+  reason per factor type. STRATEGIES.md updated.
 
 **Week of 2026-05-10 — chart depth + rationale precision:**
 

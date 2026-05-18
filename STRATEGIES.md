@@ -580,31 +580,45 @@ runs roughly this logic:
 The final bucket goes into the email digest and the Decide page
 verdict.
 
-### The instrument-strategy fit problem
+### The instrument-strategy fit problem (Phase 6.5 — shipped)
 
-The consensus today **does not filter strategies by instrument
-type**. That means RSI mean-reversion votes on MTUM (a momentum-
-factor ETF designed to ride trends, where elevated RSI is the
-desired state) and produces a SELL signal that, taken on its own
-strategy logic, is internally valid — but tactically meaningless
-for someone holding MTUM. The strategy and the instrument are
-philosophically incompatible.
+The consensus engine now filters strategies by instrument type.
+Each symbol carries a `factor_type` classification (momentum, value,
+quality, low_vol, broad_equity, bond, commodity, crypto,
+single_stock, ...) and the engine excludes structurally-incompatible
+strategies from the consensus count.
 
-This shows up in practice as 49%-confidence MIXED verdicts where
-one strategy (RSI MR) is screaming SELL into a chorus of HOLDs and
-BUYs. The right fix is to **tag each universe entry with a
-factor_type** (momentum / value / low-vol / quality / broad) and
-have the consensus engine either exclude or down-weight
-incompatible strategies. That's tracked as a Phase 3 enhancement
-in [ROADMAP.md](ROADMAP.md).
+Concrete rules in
+[`strategies/tradepro_strategies/factor_types.py`](strategies/tradepro_strategies/factor_types.py):
 
-In the meantime, the practical heuristic when reading a verdict:
+- **momentum** (MTUM): RSI mean-reversion and Bollinger bounce are
+  excluded — elevated RSI / above upper band is the asset doing
+  exactly what a momentum factor is designed to do.
+- **low_vol** (USMV, XLU): Donchian and Ichimoku are excluded — these
+  breakouts need volatility to fire meaningfully and tend to
+  false-start on min-vol constructions.
+- **bond** (AGG, TLT, IGLT): Donchian and RSI-MR are excluded — bond
+  prices are tightly bounded by duration/coupon math, so breakouts
+  fire rarely and the RSI-MR signal operates on a different
+  timescale than yield moves.
+- **crypto** (BTC-USD etc.): RSI-MR and Bollinger bounce are
+  excluded — extreme volatility makes "oversold" readings persist
+  for weeks without the reversion the strategies require.
+- **broad_equity, single_stock, growth, quality, size, value,
+  commodity, country, broad_sector**: no exclusions (every strategy
+  votes).
 
-- If the lone SELL is from RSI MR on a momentum ETF, ignore it.
-- If the lone BUY is from Donchian on an extreme low-vol asset,
-  treat it as fragile.
-- If the dissent is from a strategy that's structurally suited to
-  the instrument, weight it heavily.
+Excluded rows are still shown in the leaderboard with their Sharpe
+intact (it's valid backtest history), but they're greyed out and
+flagged "excluded — X mismatch". The consensus header reads
+"N of M strategies currently long (X excluded for fit)" so the
+denominator reflects only the strategies that should vote on this
+instrument.
+
+MCP exposes the classification via `get_instrument_fit(symbol)` —
+call this before recommending or rejecting a strategy on a specific
+symbol. The leaderboard tool `get_strategy_leaderboard` carries
+`excluded_for_fit` on each row.
 
 ---
 

@@ -610,19 +610,41 @@ def _attach_bucket_and_rationale(
     for r in rows:
         by_symbol.setdefault(r["symbol"], []).append(r)
 
+    from .factor_types import factor_type_for, is_compatible, incompatible_strategies_for
+
     for symbol, sym_rows in by_symbol.items():
         sym_rows.sort(key=lambda r: r.get("rank", 1e9))
         best = sym_rows[0]
 
         ms = best.get("market_state") or {}
         price_verdict = ms.get("entry_signal", "HOLD")
+
+        # Tag each row with its instrument-fit verdict. The UI uses
+        # excluded_for_fit to grey out incompatible rows in the
+        # leaderboard and to render the "X strategies excluded"
+        # banner alongside the consensus line.
+        symbol_factor = factor_type_for(symbol)
+        excluded_strategies = list(incompatible_strategies_for(symbol))
+        for row in sym_rows:
+            row["factor_type"] = symbol_factor
+            strategy_name = row.get("strategy", "")
+            row["excluded_for_fit"] = not is_compatible(strategy_name, symbol)
+            row["excluded_reason"] = (
+                f"{strategy_name} is structurally incompatible with "
+                f"{symbol_factor}-class instruments — see STRATEGIES.md "
+                "'instrument-strategy fit'."
+            ) if row["excluded_for_fit"] else None
+
         # Long-count: count only strategies that are BOTH in position
-        # AND historically profitable (Sharpe >= 0 on this symbol). A
-        # negative-Sharpe strategy holding a long position is bleeding
-        # money on the backtest; its "vote" shouldn't elevate the
-        # bucket consensus. Strategies with no stats (e.g. empty bars)
-        # don't vote either way.
+        # AND historically profitable (Sharpe >= 0 on this symbol),
+        # AND structurally compatible with the instrument. A negative-
+        # Sharpe strategy holding a long position is bleeding money on
+        # the backtest. An incompatible strategy (RSI MR on MTUM) is
+        # *philosophically* wrong — its vote should not influence the
+        # bucket consensus regardless of its Sharpe.
         def _votes_long(row: dict) -> bool:
+            if row.get("excluded_for_fit"):
+                return False
             if not row.get("in_position"):
                 return False
             sharpe = (row.get("stats") or {}).get("sharpe")
@@ -635,8 +657,14 @@ def _attach_bucket_and_rationale(
                 return False
             return True
 
-        long_count = sum(1 for r in sym_rows if _votes_long(r))
-        total = len(sym_rows)
+        # total = compatible strategies only. The UI's "N of M
+        # currently long" line uses this denominator so the math
+        # adds up (M = strategies that actually voted, not the
+        # full registry).
+        compatible_rows = [r for r in sym_rows if not r.get("excluded_for_fit")]
+        long_count = sum(1 for r in compatible_rows if _votes_long(r))
+        total = len(compatible_rows)
+        excluded_count = len(sym_rows) - total
         bucket, reason = compute_bucket(
             price_verdict=price_verdict,
             price_reason=ms.get("entry_reason"),
@@ -736,6 +764,13 @@ def _attach_bucket_and_rationale(
             r["bucket"] = bucket
             r["bucket_reason"] = reason
             r["sentiment_demoted"] = sentiment_demoted
+            # Factor-fit metadata so the UI / MCP can render
+            # "N of M currently long (X strategies excluded for fit)"
+            # alongside the consensus line and the leaderboard can
+            # grey out incompatible rows.
+            r["consensus_compatible_count"] = total
+            r["consensus_excluded_count"] = excluded_count
+            r["consensus_excluded_strategies"] = excluded_strategies
             # Horizon / range demotion flag surfaced separately so the
             # UI can show "BUY → WAIT because the swing horizon said
             # AVOID at the 100th percentile" instead of just "WAIT".

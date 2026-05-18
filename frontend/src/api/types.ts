@@ -451,6 +451,25 @@ export interface CompareRow {
    * first bar. Used for >50% strategy consensus voting. */
   in_position: boolean;
   position_since: string | null;
+  /** Phase 6.5 instrument-strategy fit. factor_type classifies the
+   *  symbol (momentum / value / quality / low_vol / broad_equity /
+   *  bond / commodity / crypto / single_stock / ...). The compare
+   *  engine uses this to exclude structurally-wrong strategy votes
+   *  (e.g. RSI mean-reversion on MTUM). See STRATEGIES.md
+   *  "instrument-strategy fit" for the rule set. */
+  factor_type?: string;
+  /** True when this row's strategy is structurally incompatible
+   *  with the symbol's factor_type. The strategy still ran (its
+   *  Sharpe is valid backtest history) but its vote was excluded
+   *  from the consensus count. */
+  excluded_for_fit?: boolean;
+  excluded_reason?: string | null;
+  /** Per-symbol consensus metadata duplicated onto every row so any
+   *  row's expand panel can render "N of M currently long (X
+   *  excluded for fit)" without reaggregating. */
+  consensus_compatible_count?: number;
+  consensus_excluded_count?: number;
+  consensus_excluded_strategies?: string[];
   market_state: CompareMarketState;
   external_consensus?: CompareExternalConsensus;
   fundamentals?: CompareFundamentals;

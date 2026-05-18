@@ -395,6 +395,11 @@ def get_strategy_leaderboard(
     bh_sharpe = ((bh_row or {}).get("stats") or {}).get("sharpe")
 
     matching.sort(key=_metric, reverse=True)
+    # Pull the first row's factor / exclusion metadata; the compare
+    # engine writes the same values to every row of a given symbol.
+    first = matching[0] if matching else {}
+    factor_type = first.get("factor_type")
+    excluded_strategies = first.get("consensus_excluded_strategies") or []
     leaderboard = []
     for i, r in enumerate(matching):
         stats = r.get("stats") or {}
@@ -424,6 +429,14 @@ def get_strategy_leaderboard(
             "delta_vs_buy_and_hold": delta_vs_bh,
             "is_top": i == 0,
             "is_baseline": r.get("strategy") == "buy_and_hold",
+            # Phase 6.5 instrument-strategy fit. When True, this
+            # strategy was excluded from the consensus count for
+            # structural-incompatibility reasons (e.g. RSI MR on
+            # a momentum-factor ETF). The Sharpe is still valid as
+            # backtest history; it just shouldn't influence "should
+            # I buy today?".
+            "excluded_for_fit": bool(r.get("excluded_for_fit")),
+            "excluded_reason": r.get("excluded_reason"),
         })
     return {
         "_source": f"tradepro://compare/{universe}/leaderboard/{symbol}",
@@ -431,8 +444,67 @@ def get_strategy_leaderboard(
         "universe": universe,
         "symbol": symbol,
         "metric": metric,
+        "factor_type": factor_type,
+        "incompatible_strategies": list(excluded_strategies),
         "buy_and_hold_sharpe": _safe_num(bh_sharpe),
         "strategies": leaderboard,
+    }
+
+
+def get_instrument_fit(symbol: str) -> dict:
+    """Instrument classification + which strategies suit this symbol.
+
+    Returns the symbol's factor classification (momentum / value /
+    quality / low_vol / broad_equity / bond / commodity / crypto /
+    single_stock / ...) and the list of TradePro strategies that are
+    structurally incompatible with that classification. The MTUM /
+    RSI-mean-reversion contradiction is the canonical example —
+    elevated RSI is what a momentum ETF is *designed* to have, so
+    the mean-reversion strategy produces structurally-wrong SELL
+    signals on MTUM regardless of its Sharpe on backtest.
+
+    Call this before recommending or excluding a strategy on a
+    specific symbol — the consensus engine already uses this to
+    filter incompatible votes, but the user-facing answer should
+    explain *why* a strategy was suppressed. Cite the classification
+    as ``tradepro://instruments/<symbol>/factor_type``.
+    """
+    if not symbol:
+        return _err("get_instrument_fit", "symbol is required")
+    from ..factor_types import (
+        factor_type_for, incompatible_strategies_for,
+        STRATEGIES, INCOMPATIBLE_STRATEGIES,
+    )
+    ft = factor_type_for(symbol)
+    incompatible = incompatible_strategies_for(symbol)
+    compatible = tuple(s for s in STRATEGIES if s not in incompatible)
+    # Human-readable rationale for the classification.
+    reason = {
+        "momentum": "Tracks an MSCI Momentum index — holds assets with elevated RSI by construction. Mean-reversion strategies see this as 'overbought' but the asset is doing exactly what it's designed to do.",
+        "value": "Tilts toward low PE / cheap fundamentals. Trend strategies are slow but not structurally wrong — value plays can underperform momentum-followers in a momentum regime.",
+        "quality": "Diversified high-ROE / low-debt names. Broad strategy fit.",
+        "low_vol": "Min-vol construction means the std-dev is bounded by design. Breakout strategies (Donchian, Ichimoku) need volatility to fire meaningfully and tend to false-start on these.",
+        "size": "Small-cap tilt — vol is higher and trends/reversions both happen. Broad strategy fit.",
+        "growth": "High-growth tech / momentum-adjacent. Broad strategy fit (lean trend-following).",
+        "broad_equity": "Market-cap weighted; no factor tilt within. The bread-and-butter case where every strategy is appropriate.",
+        "broad_sector": "Sector concentration without a factor tilt within. Broad strategy fit.",
+        "country": "Region / country exposure. Broad strategy fit.",
+        "bond": "Fixed-income instrument. Donchian breakouts fire rarely on bonds (price tightly bounded by duration / coupon math) and RSI-MR fires on a different timescale than yield moves.",
+        "commodity": "Real assets — can trend (oil) or chop (gold). Broad strategy fit; pick by recent regime.",
+        "currency_pair": "FX — generally mean-reverting but with regime shifts. Broad strategy fit.",
+        "crypto": "Extreme volatility breaks mean-reversion thresholds; 'oversold' RSI readings persist for weeks without the reversion that mean-reversion strategies require.",
+        "single_stock": "Individual equity — depends on the stock's regime. Default to broad strategy fit.",
+        "unclassified": "Not in the classification table. All strategies vote by default.",
+    }.get(ft, "")
+    return {
+        "_source": f"tradepro://instruments/{symbol}/factor_type",
+        "fetched_at": _now_iso(),
+        "symbol": symbol,
+        "factor_type": ft,
+        "classification_reason": reason,
+        "compatible_strategies": list(compatible),
+        "incompatible_strategies": list(incompatible),
+        "incompatibility_table_size": len(INCOMPATIBLE_STRATEGIES),
     }
 
 

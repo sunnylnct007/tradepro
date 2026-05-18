@@ -2405,6 +2405,11 @@ function StrategyLeaderboard({ view }: { view: SymbolView }) {
   if (rows.length === 0) return null;
 
   const sortedBySharpe = [...rows].sort((a, b) => {
+    // Excluded rows sink to the bottom regardless of Sharpe — they
+    // didn't earn a top spot in a context where they shouldn't vote.
+    const ea = a.excluded_for_fit ? 1 : 0;
+    const eb = b.excluded_for_fit ? 1 : 0;
+    if (ea !== eb) return ea - eb;
     const sa = a.stats?.sharpe;
     const sb = b.stats?.sharpe;
     if (sa == null && sb == null) return 0;
@@ -2412,6 +2417,12 @@ function StrategyLeaderboard({ view }: { view: SymbolView }) {
     if (sb == null) return -1;
     return Number(sb) - Number(sa);
   });
+
+  const firstRow = rows[0];
+  const factorType = firstRow?.factor_type;
+  const excludedStrategies = firstRow?.consensus_excluded_strategies ?? [];
+  const excludedCount = firstRow?.consensus_excluded_count ?? 0;
+  const compatibleCount = firstRow?.consensus_compatible_count ?? rows.length;
 
   const bhRow = rows.find((r) => r.strategy === "buy_and_hold");
   const bhSharpe = bhRow?.stats?.sharpe;
@@ -2438,6 +2449,26 @@ function StrategyLeaderboard({ view }: { view: SymbolView }) {
           (ranked by Sharpe; HOLD-IN = already long, HOLD-OUT = flat-waiting)
         </span>
       </div>
+      {factorType && excludedCount > 0 && (
+        <div
+          style={{
+            padding: "8px 10px",
+            background: "rgba(255,180,80,0.07)",
+            borderLeft: "3px solid var(--neutral)",
+            borderRadius: 4,
+            fontSize: 11,
+            color: "var(--text-dim)",
+            marginBottom: 6,
+          }}
+          title="The compare engine excludes structurally-incompatible strategies from the consensus count (e.g. RSI mean-reversion on a momentum-factor ETF). Excluded rows still show their backtest Sharpe — that's valid history — but their vote on 'should I buy today?' is suppressed."
+        >
+          <strong style={{ color: "var(--text)" }}>{view.symbol}</strong>{" "}
+          classified as <code>{factorType}</code> — {excludedCount} of{" "}
+          {rows.length} strategies excluded for fit (
+          <code>{excludedStrategies.join(", ")}</code>). Consensus reads from{" "}
+          {compatibleCount} compatible strategies.
+        </div>
+      )}
       <div
         style={{
           display: "flex",
@@ -2456,10 +2487,12 @@ function StrategyLeaderboard({ view }: { view: SymbolView }) {
               deltaText = `${sign}${d.toFixed(2)} vs B&H`;
             }
           }
-          const isTop = i === 0;
+          const isExcluded = r.excluded_for_fit ?? false;
+          const isTop = i === 0 && !isExcluded;
           return (
             <div
               key={r.strategy}
+              title={isExcluded ? (r.excluded_reason ?? "Excluded for instrument fit") : undefined}
               style={{
                 display: "grid",
                 gridTemplateColumns: "32px 1fr 90px 70px 80px 110px",
@@ -2467,19 +2500,40 @@ function StrategyLeaderboard({ view }: { view: SymbolView }) {
                 gap: 8,
                 padding: "5px 8px",
                 fontSize: 12,
-                background: isTop ? "rgba(80,200,120,0.07)" : "transparent",
-                borderLeft: `3px solid ${isTop ? "var(--up)" : "transparent"}`,
+                background: isExcluded
+                  ? "rgba(120,120,120,0.04)"
+                  : isTop
+                  ? "rgba(80,200,120,0.07)"
+                  : "transparent",
+                borderLeft: `3px solid ${
+                  isExcluded
+                    ? "var(--text-muted)"
+                    : isTop
+                    ? "var(--up)"
+                    : "transparent"
+                }`,
                 borderRadius: 4,
+                opacity: isExcluded ? 0.55 : 1,
               }}
             >
               <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
-                #{i + 1}
+                {isExcluded ? "—" : `#${i + 1}`}
               </span>
               <span style={{ color: "var(--text)" }}>
                 {r.strategy_label}
                 {r.strategy === "buy_and_hold" && (
                   <span style={{ color: "var(--text-muted)", fontSize: 10, marginLeft: 6 }}>
                     (baseline)
+                  </span>
+                )}
+                {isExcluded && (
+                  <span style={{
+                    color: "var(--text-muted)",
+                    fontSize: 10,
+                    marginLeft: 6,
+                    fontStyle: "italic",
+                  }}>
+                    excluded — {r.factor_type ?? "fit"} mismatch
                   </span>
                 )}
               </span>

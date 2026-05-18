@@ -121,14 +121,36 @@ def build_server():
         labels collapsed to BUY / SELL / HOLD-IN / HOLD-OUT and a
         delta vs the buy-and-hold null model.
 
-        Use this when the user asks which strategy is performing
-        best, or before recommending a particular strategy's signal
-        — the leaderboard reveals whether the recommended strategy
-        is actually the top performer or just one voice in the
-        consensus. Cite individual entries as
+        Each row carries `excluded_for_fit` (true when the strategy
+        is structurally incompatible with the symbol's factor type —
+        e.g. RSI mean-reversion on MTUM) so the LLM can flag "this
+        strategy is the top of the list by Sharpe BUT shouldn't vote
+        here" instead of recommending a tactically wrong signal.
+
+        Cite individual entries as
         `tradepro://compare/<universe>/leaderboard/<symbol>/strategies[<i>]`.
         """
         return _json(t.get_strategy_leaderboard(universe, symbol, metric))
+
+    @mcp.tool()
+    @instrumented("get_instrument_fit")
+    def get_instrument_fit(symbol: str) -> str:
+        """Instrument-strategy fit classification: which factor type
+        is this symbol (momentum / value / quality / low_vol /
+        broad_equity / bond / commodity / crypto / single_stock / ...)
+        and which TradePro strategies are structurally incompatible
+        with that classification.
+
+        Use this BEFORE recommending or rejecting a strategy on a
+        specific symbol — the consensus engine already filters
+        incompatible votes, but the LLM should be able to explain
+        *why* a strategy was suppressed (e.g. "RSI mean-reversion
+        was excluded on MTUM because MTUM is a momentum-factor ETF
+        and elevated RSI is what it's designed to have").
+
+        Cite as `tradepro://instruments/<symbol>/factor_type`.
+        """
+        return _json(t.get_instrument_fit(symbol))
 
     @mcp.tool()
     @instrumented("get_portfolio")
