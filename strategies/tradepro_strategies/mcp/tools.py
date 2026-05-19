@@ -51,12 +51,48 @@ def _default_timeout() -> float:
     return 30.0
 
 
+def _resolve_api_token() -> str | None:
+    """Bearer token for the TradePro API. Resolution order:
+       1. TRADEPRO_API_TOKEN env var (Claude Desktop / explicit override)
+       2. ~/.tradepro/credentials JSON file (Mac convention — same place
+          the push pipeline reads from)
+    Returns None when neither path yields a token; the API allows
+    anonymous reads when `Firebase:RequireAuth=false` (local dev)."""
+    token = os.environ.get("TRADEPRO_API_TOKEN")
+    if token:
+        return token
+    try:
+        from pathlib import Path
+        cred_path = Path.home() / ".tradepro" / "credentials"
+        if cred_path.is_file():
+            data = json.loads(cred_path.read_text())
+            t = data.get("api_token")
+            if t:
+                return t
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def _auth_headers() -> dict[str, str]:
+    """Bearer header for the TradePro API. The same ingest token the
+    Mac worker uses for /api/ingest/* now also unlocks /api/* reads
+    when the prod API has `Firebase:RequireAuth=true` — single secret,
+    no separate read token. Empty dict when no token is available so
+    local dev keeps working without it."""
+    token = _resolve_api_token()
+    if not token:
+        return {}
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _get(path: str, params: dict | None = None,
          timeout: float | None = None) -> dict:
     url = f"{_api_base()}{path}"
     try:
         resp = requests.get(
             url, params=params or {},
+            headers=_auth_headers(),
             timeout=timeout if timeout is not None else _default_timeout(),
         )
     except (requests.ConnectionError, requests.Timeout) as e:
@@ -1429,6 +1465,7 @@ def _post(path: str, json_body: dict | None = None, params: dict | None = None,
     try:
         resp = requests.post(
             url, params=params or {}, json=json_body or {},
+            headers=_auth_headers(),
             timeout=timeout if timeout is not None else _default_timeout(),
         )
     except (requests.ConnectionError, requests.Timeout) as e:
@@ -1447,6 +1484,7 @@ def _put(path: str, json_body: dict, timeout: float | None = None) -> dict:
     try:
         resp = requests.put(
             url, json=json_body,
+            headers=_auth_headers(),
             timeout=timeout if timeout is not None else _default_timeout(),
         )
     except (requests.ConnectionError, requests.Timeout) as e:

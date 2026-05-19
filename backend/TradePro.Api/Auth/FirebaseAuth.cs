@@ -54,16 +54,32 @@ public static class FirebaseAuth
                     policy.RequireAssertion(_ => true);
                     return;
                 }
+                // Prod: accept either a verified Firebase ID token (the
+                // browser path) OR the static ingest-token bearer (the
+                // MCP + Mac-worker path). Both schemes attempt to
+                // authenticate; whichever succeeds populates the user.
+                policy.AddAuthenticationSchemes(Scheme, IngestTokenAuth.Scheme);
                 policy.RequireAuthenticatedUser();
-                if (allowed.Length > 0)
+                policy.RequireAssertion(ctx =>
                 {
-                    policy.RequireAssertion(ctx =>
+                    // Ingest-token identity passes the AllowedUsers gate
+                    // unconditionally — there's no UID concept for a
+                    // static token. The token itself is the credential.
+                    if (string.Equals(
+                        ctx.User.Identity?.AuthenticationType,
+                        IngestTokenAuth.Scheme,
+                        StringComparison.Ordinal))
                     {
-                        var uid = ctx.User.FindFirst("user_id")?.Value
-                            ?? ctx.User.FindFirst("sub")?.Value;
-                        return uid is not null && allowed.Contains(uid);
-                    });
-                }
+                        return true;
+                    }
+                    // Firebase identity — gate by allow-listed UIDs when
+                    // any are configured. Empty list = open to any signed
+                    // -in user (matches the historical behaviour).
+                    if (allowed.Length == 0) return true;
+                    var uid = ctx.User.FindFirst("user_id")?.Value
+                        ?? ctx.User.FindFirst("sub")?.Value;
+                    return uid is not null && allowed.Contains(uid);
+                });
             });
             options.AddIngestPolicy();
         });

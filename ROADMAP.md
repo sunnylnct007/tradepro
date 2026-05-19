@@ -115,6 +115,73 @@ out of date. Each entry is one line: what changed and why it mattered.
   (earnings_calendar, analyst_recommendations, analyst_upgrades),
   market data (get_candles), control plane (get_settings,
   set_paper_mode, list_watchlists, get_watchlist).
+- 🟡 **Phase 6.7 — `/api/*` lockdown with bearer-or-Firebase auth.**
+  AllowedUsers policy extended to accept EITHER a verified Firebase
+  ID token (browser path) OR the static ingest-token bearer (MCP +
+  Mac worker path). Single secret — same `tradepro/all/ingest-token`
+  from AWS Secrets Manager unlocks both writes (existing) and reads
+  (new). MCP `_get/_post/_put` helpers attach `Authorization: Bearer
+  <token>` from `~/.tradepro/credentials` automatically. Lockdown
+  activates only when `Firebase__RequireAuth=true` is set on the
+  EC2 — code is shipped, env flag is the deploy switch. Closes the
+  "anyone with the IP can read live T212 positions" exposure (we
+  verified with curl: T212 portfolio + pending orders + settings
+  were all anonymously readable).
+- 🟡 **Phase 6.8 — Data validation + provenance layer.** Multi-
+  source consensus storage in S3+Athena (Parquet, partitioned by
+  symbol/year), one row per `(symbol, date, source)`. Reconciler
+  produces a `bars_consensus` table with `quality_flags` array:
+  `missing_source`, `minor_price_drift` (>0.5%), `split_adjustment_
+  disagreement` (>5%), `ohlc_invalid_<source>`, `split_disagreement`,
+  `zero_volume_in_some_source`. Backtest results inherit the worst
+  flag they touched and expose `data_quality.confidence: high/medium/
+  low` so the UI can render a yellow or red banner. This is the
+  data-layer twin of the explicit sentiment-demotion rule — the
+  product principle "make data-quality issues visible to users"
+  made operational. Sequencing:
+    1. S3 + Parquet schema, Yahoo + Stooq ingestion, DynamoDB
+       checkpoint table for idempotent backfills (£0, ~weekend)
+    2. Cross-validation logic with the 0.5% / 5% thresholds (£0)
+    3. MCP tools `get_bars(symbol, from, to, resolution, source,
+       require_quality)` + `get_data_quality_report(symbol, from,
+       to)` (£0, ~hour)
+    4. **Wire backtest results to inherit quality flags + render
+       confidence badges — the visible win, do BEFORE paying for
+       EODHD** (£0, ~half-day)
+    5. Subscribe to EODHD EOD All World as primary (€19.99/mo
+       personal-use; jumps to $399/mo Internal Use the moment a
+       second user appears — strategic gotcha to know upfront)
+    6. IBKR TWS spot-checks on a sampled basis (£0, ~half-day)
+    7. Tiingo Power as US-only validator IF step 4 surfaces
+       US-name disagreements ($10/mo, ~hour)
+  Skip survivorship-bias / historical S&P constituents until at
+  least step 4 ships — useful eventually, not the bottleneck today.
+- 🟡 **Phase 6.9 — Tick storage for intraday backtesting.** Once
+  6.8 is shipped, extend the schema to hold 1-minute bars +
+  raw tick data for the intraday strategies (`paper/strategies/`:
+  ORB, VWAP mean-reversion, intraday Bollinger, MA crossover).
+  Storage cost: ~5GB/symbol/year of tick data uncompressed, ~1GB
+  Parquet-compressed. S3 standard at $0.023/GB/mo = ~$0.02/symbol
+  /mo. Source: Polygon.io ($30/mo stocks starter) for tick + 1m
+  history; falls back to EODHD intraday on the EU side. Unblocks
+  proper paper-strategy backtests instead of the synthetic-bar
+  approximation we use today. Folder refactor: promote
+  `paper/strategies/` → top-level `intraday/`, keep `paper/`
+  for paper-trading INFRA only (engine, ledger, brokers).
+- 📝 **MU bucket = AVOID + swing = 5/8 BUY — feature, not bug.**
+  `compute_bucket` in `compare.py:365` is intentionally hierarchical:
+  `price_verdict` (set by `market_state` from RSI / SMA200 / 52w
+  range) drives the bucket; horizon signals only DEMOTE BUY→WAIT,
+  never PROMOTE AVOID→anything. The swing horizon is a SEPARATE
+  scorer optimised for short-term entry-timing. So "bucket=AVOID
+  + swing=5/8 BUY" is the system correctly surfacing horizon
+  disagreement — the long-term consensus says "broken setup", the
+  short-term scorer says "swing bounce". The actual gap is UI: the
+  Decide page doesn't surface this disagreement in plain English.
+  Fix is presentation, not logic: render "Long-term: AVOID. Swing:
+  BUY 5/8. These conflict because <reason>" on rows where the two
+  buckets diverge. Tracked separately — the reviewer correctly
+  identified this as differentiation, not a defect.
 
 **Week of 2026-05-10 — chart depth + rationale precision:**
 
