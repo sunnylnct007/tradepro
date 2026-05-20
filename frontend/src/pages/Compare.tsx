@@ -275,12 +275,25 @@ export function Compare() {
               ]).map((opt) => {
                 const active = horizonFilter === opt.key;
                 const count = horizonCounts[opt.key];
+                // Zero-count pills (e.g. "Swing 0" when no swing-horizon BUYs exist)
+                // are gated visually — same pill, but desaturated + a "0 BUYs" badge
+                // so clicking it doesn't feel like the UI broke. Still clickable
+                // because the user might want to confirm the empty state intentionally.
+                const empty = count === 0 && opt.key !== "all";
+                const badgeBg = empty
+                  ? "var(--bg-elevated, rgba(255,255,255,0.04))"
+                  : active ? "var(--up)" : "var(--bg-hover)";
+                const badgeColor = empty
+                  ? "var(--text-muted)"
+                  : active ? "var(--bg)" : "var(--text)";
                 return (
                   <button
                     key={opt.key}
                     type="button"
                     onClick={() => setHorizonFilter(opt.key)}
-                    title={`${opt.label} horizon · ${opt.window}`}
+                    title={empty
+                      ? `${opt.label} horizon · ${opt.window} · no BUYs in this universe right now`
+                      : `${opt.label} horizon · ${opt.window} · ${count} BUY${count === 1 ? "" : "s"}`}
                     style={{
                       padding: "5px 11px",
                       fontSize: 12,
@@ -289,18 +302,29 @@ export function Compare() {
                       cursor: "pointer",
                       border: `1px solid ${active ? "var(--up)" : "var(--border)"}`,
                       background: active ? "var(--bg-hover)" : "transparent",
-                      color: active ? "var(--text)" : "var(--text-dim)",
+                      color: empty
+                        ? "var(--text-muted)"
+                        : active ? "var(--text)" : "var(--text-dim)",
                       transition: "background 0.15s ease, color 0.15s ease",
                       whiteSpace: "nowrap",
+                      opacity: empty ? 0.6 : 1,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
                     }}
                   >
                     {opt.label}
                     <span
                       style={{
-                        marginLeft: 6,
-                        fontSize: 10,
-                        color: active ? "var(--text-dim)" : "var(--text-muted)",
-                        fontWeight: 400,
+                        padding: "0 6px",
+                        minWidth: 18,
+                        textAlign: "center",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        borderRadius: 999,
+                        background: badgeBg,
+                        color: badgeColor,
+                        lineHeight: "16px",
                       }}
                     >
                       {count}
@@ -310,9 +334,25 @@ export function Compare() {
               })}
             </div>
             {horizonFilter !== "all" && views.length === 0 && (
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                No symbols are BUY at the {horizonFilter.replace("_", " ")} horizon in this universe right now.
-                Pick another horizon or another universe.
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-dim)",
+                  background: "var(--bg-elevated, rgba(255,255,255,0.03))",
+                  border: "1px dashed var(--border)",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  lineHeight: 1.4,
+                }}
+              >
+                <strong style={{ color: "var(--text)" }}>
+                  No symbols are BUY at the {horizonFilter.replace("_", " ")} horizon in this universe right now.
+                </strong>
+                <br />
+                That doesn't mean the tabs are broken — it means the scorers see nothing
+                worth buying at this timeframe today. Pick a different horizon
+                (passive often has BUYs even when swing is empty) or switch universe.
+                The count badge next to each pill shows BUYs available before you click.
               </div>
             )}
           </div>
