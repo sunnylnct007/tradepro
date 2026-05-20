@@ -162,8 +162,9 @@ function PageShell(props: {
       {state === "ready" && row && (
         <SectionDecisionTrace trace={row.market_state?.decision_trace ?? []} />
       )}
-      <Section title="4. Strategy vote (CONFLICT surfacing)"
-               todo="per-strategy row + conflict counter — THIS IS THE MOAT" />
+      {state === "ready" && row && (
+        <SectionStrategyVote row={row} allRows={allRows} />
+      )}
       <Section title="5. News + sentiment" todo="get_news_with_sentiment(symbol, limit=8)" />
       <Section title="6. Analyst consensus" todo="get_analyst_recommendations(symbol)" />
       <Section title="7. Event risk (earnings)" todo="get_earnings_calendar(symbol, days=90)" />
@@ -413,6 +414,186 @@ function rankStatus(s: string): number {
   if (s === "fail") return 0;
   if (s === "warn") return 1;
   return 2;
+}
+
+// ----------------------------------------------------------------------
+// Section 4 — Strategy vote with EXPLICIT conflict surfacing. This is
+// the spec's main new product idea: hiding contradictions produces
+// false confidence; making them visible is the moat. Three conflict
+// types we surface:
+//
+//   (a) per-strategy signal contradicts the overall bucket
+//   (b) strategy has near-zero historical Sharpe on this symbol
+//   (c) position is legacy (held > 1y with deep loss) — informational
+//
+// Plus excluded-for-fit rows are sunk to the bottom and labelled, since
+// the bucket engine already dropped them from the vote (phase 6.5).
+// ----------------------------------------------------------------------
+
+interface StrategyRowView {
+  strategy: string;
+  strategy_label: string;
+  in_position: boolean;
+  position_since: string | null;
+  sharpe: number | null;
+  latest_signal: number;
+  excluded_for_fit: boolean;
+  excluded_reason: string | null;
+  // Derived conflict flags
+  conflictsWithBucket: boolean;
+  isLowEdge: boolean;
+  isLegacy: boolean;
+}
+
+function SectionStrategyVote(props: { row: CompareRow; allRows: CompareRow[] }) {
+  const { row, allRows } = props;
+  const bucket = row.bucket ?? "WAIT";
+  // Build per-strategy views with derived conflict flags. Sort:
+  // compatible first by Sharpe desc, then excluded ones grouped at the
+  // bottom (with rank rendered as "—").
+  const views: StrategyRowView[] = allRows.map((r) => {
+    const sharpe = (r.stats?.sharpe as number | null | undefined) ?? null;
+    const conflictsWithBucket =
+      (bucket === "BUY" && r.latest_signal === -1) ||
+      (bucket === "AVOID" && r.latest_signal === 1);
+    const isLowEdge = sharpe != null && sharpe < 0.1 && !r.excluded_for_fit;
+    const isLegacy = isStaleEntry(r.position_since) && r.strategy !== "buy_and_hold";
+    return {
+      strategy: r.strategy,
+      strategy_label: r.strategy_label || r.strategy,
+      in_position: r.in_position,
+      position_since: r.position_since,
+      sharpe,
+      latest_signal: r.latest_signal,
+      excluded_for_fit: !!r.excluded_for_fit,
+      excluded_reason: r.excluded_reason ?? null,
+      conflictsWithBucket,
+      isLowEdge,
+      isLegacy,
+    };
+  });
+  // Sort: compatible by Sharpe desc, excluded at bottom by Sharpe desc.
+  views.sort((a, b) => {
+    if (a.excluded_for_fit !== b.excluded_for_fit) {
+      return a.excluded_for_fit ? 1 : -1;
+    }
+    return (b.sharpe ?? -Infinity) - (a.sharpe ?? -Infinity);
+  });
+
+  const conflictCount = views.filter((v) =>
+    !v.excluded_for_fit && (v.conflictsWithBucket || v.isLowEdge)
+  ).length;
+
+  return (
+    <section style={cardStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <strong style={{ fontSize: 14 }}>4. Strategy vote</strong>
+        {conflictCount > 0 ? (
+          <span style={{ fontSize: 11, color: "var(--down)", fontWeight: 600 }}>
+            ● {conflictCount} conflict{conflictCount === 1 ? "" : "s"} surfaced
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            no conflicts
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+        {views.map((v, i) => (
+          <StrategyRow key={v.strategy} view={v} index={i} />
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+        Conflict types surfaced: signal-vs-bucket (this strategy disagrees with
+        the consensus bucket), low-edge (Sharpe &lt; 0.1 — strategy has no
+        historical edge on this symbol), legacy (position held &gt; 1y).
+        Excluded-for-fit rows are sorted to the bottom — the bucket vote
+        already dropped them.
+      </div>
+    </section>
+  );
+}
+
+function StrategyRow(props: { view: StrategyRowView; index: number }) {
+  const v = props.view;
+  const positionLabel = v.excluded_for_fit ? "EXCLUDED"
+                      : v.isLegacy ? "LEGACY"
+                      : v.in_position ? "LONG"
+                      : "FLAT";
+  const positionColor = v.excluded_for_fit ? "var(--text-muted)"
+                      : v.isLegacy ? "var(--warn, #c79a2a)"
+                      : v.in_position ? "var(--up)"
+                      : "var(--text-muted)";
+  return (
+    <div style={{
+      borderTop: props.index === 0 ? "none" : "1px solid var(--border)",
+      padding: "6px 0",
+      opacity: v.excluded_for_fit ? 0.6 : 1,
+    }}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "1.4fr 0.9fr 1.2fr 0.6fr",
+        alignItems: "baseline",
+        fontSize: 12,
+        gap: 8,
+      }}>
+        <span style={{ color: "var(--text)" }}>{v.strategy_label}</span>
+        <span style={{ color: positionColor, fontWeight: 600 }}>● {positionLabel}</span>
+        <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+          {v.position_since ? `since ${v.position_since.slice(0, 10)}` : "—"}
+        </span>
+        <span style={{
+          color: "var(--text-muted)",
+          fontVariantNumeric: "tabular-nums",
+          textAlign: "right",
+        }}>
+          Sharpe {v.sharpe == null ? "—" : v.sharpe.toFixed(2)}
+        </span>
+      </div>
+      {v.conflictsWithBucket && (
+        <ConflictHint
+          text={`signal ${v.latest_signal === -1 ? "SELL" : "BUY"} ← conflicts with bucket — strategy disagrees with consensus`}
+        />
+      )}
+      {v.isLowEdge && (
+        <ConflictHint
+          text={`Sharpe ${v.sharpe!.toFixed(2)} < 0.1 — strategy has no historical edge on this symbol`}
+        />
+      )}
+      {v.isLegacy && (
+        <ConflictHint
+          tone="info"
+          text={`held > 1y from ${v.position_since?.slice(0, 10)} — informational only, not a fresh entry`}
+        />
+      )}
+      {v.excluded_for_fit && (
+        <ConflictHint
+          tone="muted"
+          text={`excluded for fit${v.excluded_reason ? ` — ${v.excluded_reason}` : ""}`}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConflictHint(props: { text: string; tone?: "info" | "muted" }) {
+  const color = props.tone === "muted" ? "var(--text-muted)"
+              : props.tone === "info" ? "var(--warn, #c79a2a)"
+              : "var(--down)";
+  return (
+    <div style={{ fontSize: 11, color, marginLeft: 16, marginTop: 2 }}>
+      ↳ {props.text}
+    </div>
+  );
+}
+
+function isStaleEntry(positionSince: string | null): boolean {
+  if (!positionSince) return false;
+  const d = new Date(positionSince);
+  if (Number.isNaN(d.getTime())) return false;
+  const ageMs = Date.now() - d.getTime();
+  const oneYearMs = 365 * 24 * 60 * 60 * 1000;
+  return ageMs > oneYearMs;
 }
 
 function HeaderSkeleton(props: {
