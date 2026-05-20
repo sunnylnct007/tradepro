@@ -144,6 +144,7 @@ builder.Services.AddSingleton<IPaperBacktestStore, PostgresPaperBacktestStore>()
 builder.Services.AddSingleton<IPaperStrategiesStore, PostgresPaperStrategiesStore>();
 builder.Services.AddSingleton<IPaperSnapshotStore, PostgresPaperSnapshotStore>();
 builder.Services.AddSingleton<IPendingOrdersStore, PostgresPendingOrdersStore>();
+builder.Services.AddSingleton<ISessionRequestsStore, PostgresSessionRequestsStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills
 // all leave a trail. See VISION.md Principle 3.
@@ -186,9 +187,14 @@ api.MapIntegrationsEndpoints();
 api.MapInstrumentEndpoints();
 api.MapPaperBacktestEndpoints();
 api.MapOrdersEndpoints();
+// User-facing ops queue (run-intraday + list / cancel). Mac worker
+// routes mount on the ingest group below — same store, different
+// trust boundary.
+api.MapOpsUserEndpoints();
 
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");
 ingest.MapIngestEndpoints();
+ingest.MapOpsWorkerEndpoints();
 
 app.Run();
