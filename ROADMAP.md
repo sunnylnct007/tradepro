@@ -168,6 +168,89 @@ out of date. Each entry is one line: what changed and why it mattered.
   approximation we use today. Folder refactor: promote
   `paper/strategies/` → top-level `intraday/`, keep `paper/`
   for paper-trading INFRA only (engine, ledger, brokers).
+- 🔴 **Phase 6.5.5 — Trend-gate-failure bug (BABA case study).**
+  External reviewer 2026-05-20 pulled a full BABA evaluation: the
+  bucket fired BUY (genuine alpha — RSI mean-reversion has an 83%
+  historical hit rate on BABA with +11.4% expectancy / trade, and
+  the BUY aligns with Wall Street consensus Strong Buy / $190.69
+  PT / 40.6% upside / Jefferies $230 target) but the decision
+  trace shows trend filter FAILED (price 135.64 below SMA200
+  149.29). When the trend filter explicitly fails, the bucket
+  should not surface BUY — it's a coherence bug. Per spec,
+  `compute_bucket` in `compare.py:365` only fires BUY when
+  `price_verdict == "BUY"`, and the trend gate feeds price_verdict.
+  Need to audit: under what conditions does price_verdict come
+  back BUY despite trend = fail? The MTUM/VLUE class of bugs
+  prompted a similar check earlier — this looks like a regression
+  or an edge case not covered. Workflow: reproduce on BABA today
+  with `evaluate_symbols(["BABA"])`, trace the rule chain, harden
+  `compute_bucket` so trend-fail blocks BUY. Will eventually fire
+  BUY on a stock in genuine collapse if not fixed.
+- 🔴 **Phase 6.11 — Analyst-upgrades feed audit.** Same reviewer:
+  TradePro showed 0 events in 60 days on BABA via
+  `get_analyst_upgrades(BABA, days=60)`, but TipRanks + CNN show
+  ≥4 PT changes in the last 7 days alone (Mizuho, JPM, SPDB,
+  Guotai Haitong, CGS, CICC). Possible causes: (a) Finnhub free
+  tier filters out non-US-coverage analysts, (b) our integration
+  is dropping events between Finnhub API → store, (c) netDelta
+  math is wrong somewhere. Debug session: hit Finnhub directly
+  with the same key, compare raw response to what surfaces in
+  `analyst_actions` on the compare row. If Finnhub is genuinely
+  thin on BABA-like ADRs, evaluate TipRanks / S&P Capital IQ as
+  supplementary feeds (paid). Sub-issue of "data feed coverage".
+- 🟡 **Phase 6.12 — Fundamentals + valuation layer.** Currently
+  TradePro is a "sophisticated technicals + sentiment engine" —
+  it should either be positioned that way or close the gap to
+  Stock Rover / Morningstar / Zacks by adding revenue growth,
+  margins, FCF, DCF / PT framework. Without this, the BUY signal
+  fires on the next Lucid or Peloton because price is 28% off
+  the 52w high with RSI 50 — same technical setup, totally
+  different investment thesis. Data sources: existing
+  `get_fundamentals` MCP tool returns expense ratio / AUM /
+  top-10 holdings (ETF-shaped); needs to also surface revenue
+  / margins / FCF / EPS history for single stocks. Provider:
+  Finnhub free tier has basic financials; SimplyWallSt /
+  StockAnalysis.com API have richer data ($30-80/mo). Surfaces
+  as a new Section 11 on the Symbol Deep Dive page after the
+  current 10. Catalyst-flag layer (earnings, analyst day,
+  major product launches) — same domain — extends this phase.
+- 📝 **Data-feed coverage map — concrete priorities.** What
+  improves correct-decision quality, ranked by leverage:
+    1. **Forward earnings calendar on compare row** (task #66) —
+       transforms Section 7 from "last reported" to "T+N days
+       to next print". Free via Finnhub. ~1d.
+    2. **Per-strategy regime data on compare row** (task #66) —
+       unblocks Section 8 of the Deep Dive. Already computed
+       on the Mac, just not folded into the row. ~0.5d.
+    3. **Symbol → tags map** (task #66) — unblocks Section 9
+       peer-comparison. Hardcoded list per universe today;
+       needs a tags table. ~0.5d.
+    4. **EODHD EOD All World + Yahoo + Stooq consensus** (Phase
+       6.8) — per-bar quality flags. €19.99/mo. The data-layer
+       moat: nobody else shows backtest confidence badges.
+    5. **Polygon.io stocks starter** (Phase 6.9) — intraday tick
+       + 1m history. $30/mo. Unblocks validated intraday
+       backtests, which is the prerequisite for trusting any
+       auto-place automation (task #69).
+    6. **Fundamentals + valuation feed** (Phase 6.12) — to fix
+       the "BUY on Lucid because price is dipped" failure mode.
+       Finnhub free or SimplyWallSt $30-80/mo. The gap vs
+       Stock Rover / Morningstar.
+    7. **Catalyst-flag feed** — major product launches, FDA
+       approvals, M&A events. The gap vs institutional tools.
+       Provider TBD (Estimize / Benzinga both have APIs).
+  Reviewer's verdict 2026-05-20: "Transparency + backtested
+  hit-rates + regime-aware backtests + ensemble voting puts
+  TradePro ahead of most retail tools. Gap to Stock Rover =
+  fundamentals layer. Gap to institutional = event awareness."
+- 📝 **BABA worked-example case study (2026-05-20).** External
+  reviewer ran TradePro's full BABA pipeline and benchmarked
+  against TipRanks / CNN / Wall Street consensus. Three
+  high-signal findings folded into 6.5.5 (trend-coherence bug),
+  6.11 (analyst-upgrades dropout), and 6.12 (fundamentals gap).
+  Worth keeping the trace as a regression-test fixture: any
+  future change to compute_bucket or the rationale layer should
+  reproduce this case correctly.
 - 📝 **MU bucket = AVOID + swing = 5/8 BUY — feature, not bug.**
   `compute_bucket` in `compare.py:365` is intentionally hierarchical:
   `price_verdict` (set by `market_state` from RSI / SMA200 / 52w
