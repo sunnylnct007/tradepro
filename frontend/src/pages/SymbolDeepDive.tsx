@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { CompareLatestResponse, CompareRow, DecisionCheck } from "../api/types";
+import type {
+  CompareLatestResponse,
+  CompareNewsItem,
+  CompareRow,
+  CompareSentimentSummary,
+  DecisionCheck,
+} from "../api/types";
 
 /**
  * Symbol Deep Dive — single page that answers "Should I buy {ticker}?"
@@ -165,9 +171,19 @@ function PageShell(props: {
       {state === "ready" && row && (
         <SectionStrategyVote row={row} allRows={allRows} />
       )}
-      <Section title="5. News + sentiment" todo="get_news_with_sentiment(symbol, limit=8)" />
-      <Section title="6. Analyst consensus" todo="get_analyst_recommendations(symbol)" />
-      <Section title="7. Event risk (earnings)" todo="get_earnings_calendar(symbol, days=90)" />
+      {state === "ready" && row && (
+        <SectionNews
+          items={row.news ?? []}
+          summary={row.sentiment_summary}
+          newsVia={row.news_via ?? null}
+        />
+      )}
+      {state === "ready" && row && (
+        <SectionAnalyst row={row} />
+      )}
+      {state === "ready" && row && (
+        <SectionEarnings row={row} />
+      )}
       <Section title="8. Regime survival" todo="get_regime_history(symbol, strategy=best_long)" />
       <Section title="9. Peer comparison" todo="derive peer set from symbol.tags, get_returns + evaluate_symbols on peers" />
       <Section title="10. Hit rate" todo="get_hitrate(symbol, strategy, horizon_days=20) per strategy" />
@@ -585,6 +601,323 @@ function ConflictHint(props: { text: string; tone?: "info" | "muted" }) {
       ↳ {props.text}
     </div>
   );
+}
+
+// ----------------------------------------------------------------------
+// Section 5 — News + sentiment. Latest headlines with per-item sentiment
+// chips + a 7-day rolling summary header. Per spec:
+//   • chip colour: green if > +0.3, red if < -0.3, amber between
+//   • header turns red when material_negative_count >= 2
+//   • show theme tags from API as small chips
+//   • click opens publisher link in new tab
+// ----------------------------------------------------------------------
+
+function SectionNews(props: {
+  items: CompareNewsItem[];
+  summary?: CompareSentimentSummary;
+  newsVia: string | null;
+}) {
+  const { items, summary, newsVia } = props;
+  const mean = summary?.mean_sentiment ?? null;
+  const matNeg = summary?.material_negative_count ?? 0;
+  // Header turns red when material_negative_count >= 2 — explicit
+  // signal that sentiment is bad enough to potentially demote the
+  // bucket (matches the BUY → WAIT demotion rule in compute_bucket).
+  const headerTone = matNeg >= 2 ? "negative"
+                  : mean != null && mean >= 0.3 ? "positive"
+                  : "neutral";
+  const headerColor = headerTone === "negative" ? "var(--down)"
+                    : headerTone === "positive" ? "var(--up)"
+                    : "var(--text-muted)";
+
+  if (items.length === 0) {
+    return (
+      <section style={cardStyle}>
+        <strong style={{ fontSize: 14 }}>5. News + sentiment</strong>
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          No headlines in the last 7 days. (This is a state, not an error —
+          quiet news is meaningful: no fresh catalyst either way.)
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section style={cardStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <strong style={{ fontSize: 14 }}>
+          5. News + sentiment
+          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
+            ({items.length} item{items.length === 1 ? "" : "s"})
+          </span>
+        </strong>
+        {mean != null && (
+          <span style={{ fontSize: 12, color: headerColor, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+            7d mean {mean >= 0 ? "+" : ""}{mean.toFixed(2)}
+            {matNeg >= 2 && ` · ${matNeg} material negative ↓`}
+          </span>
+        )}
+      </div>
+      {newsVia && (
+        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          via proxy: {newsVia} — these headlines are about the proxy, not the symbol directly
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+        {items.map((item, i) => (
+          <NewsRow key={i} item={item} index={i} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NewsRow(props: { item: CompareNewsItem; index: number }) {
+  const { item, index } = props;
+  const [open, setOpen] = useState(false);
+  const score = item.sentiment ?? null;
+  const chip = sentimentChip(score);
+  const dateStr = item.published_at ? item.published_at.slice(0, 10) : "—";
+  return (
+    <div style={{
+      borderTop: index === 0 ? "none" : "1px solid var(--border)",
+      padding: "6px 0",
+    }}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "70px 1fr 130px",
+        alignItems: "baseline",
+        gap: 10,
+        fontSize: 12,
+      }}>
+        <span style={{
+          fontSize: 11,
+          padding: "2px 6px",
+          borderRadius: 4,
+          background: chip.bg,
+          color: chip.fg,
+          textAlign: "center",
+          fontWeight: 600,
+          fontVariantNumeric: "tabular-nums",
+        }}>
+          {chip.label}
+        </span>
+        <span>
+          {item.link ? (
+            <a href={item.link} target="_blank" rel="noopener noreferrer"
+               style={{ color: "var(--text)", textDecoration: "none" }}>
+              {item.title}
+            </a>
+          ) : (
+            <span style={{ color: "var(--text)" }}>{item.title}</span>
+          )}
+          {item.sentiment_themes && item.sentiment_themes.length > 0 && (
+            <span style={{ marginLeft: 6 }}>
+              {item.sentiment_themes.slice(0, 3).map((t) => (
+                <span key={t} style={{
+                  display: "inline-block",
+                  fontSize: 10,
+                  padding: "1px 5px",
+                  marginRight: 3,
+                  borderRadius: 3,
+                  background: "var(--border)",
+                  color: "var(--text-muted)",
+                }}>{t}</span>
+              ))}
+            </span>
+          )}
+        </span>
+        <span style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "right" }}>
+          {item.publisher || "—"} · {dateStr}
+        </span>
+      </div>
+      {item.sentiment_material && (
+        <div style={{ fontSize: 10, color: "var(--down)", marginLeft: 80, marginTop: 2 }}>
+          ↳ flagged material — fed the negative-sentiment counter
+        </div>
+      )}
+      {item.sentiment_error && (
+        <div style={{ fontSize: 10, color: "var(--warn, #c79a2a)", marginLeft: 80, marginTop: 2 }}>
+          ↳ sentiment scoring failed: {item.sentiment_error}
+        </div>
+      )}
+      {open && item.sentiment_model && (
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 80, marginTop: 2 }}>
+          scored by {item.sentiment_model}
+        </div>
+      )}
+      {item.sentiment_model && (
+        <button type="button"
+          onClick={() => setOpen(!open)}
+          style={{
+            marginLeft: 80, marginTop: 2,
+            fontSize: 10, color: "var(--text-muted)",
+            background: "transparent", border: "none",
+            cursor: "pointer", padding: 0,
+          }}>
+          {open ? "hide details" : "show details"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Section 6 — Analyst consensus. Stacked bar of strongBuy / buy / hold /
+// sell / strongSell counts + month-over-month direction arrow. Per spec:
+//   • bar widths proportional to counts
+//   • StrongBuy=green; Buy=green; Hold=grey; Sell=red; StrongSell=red
+//   • momChange arrow: green if positive, red if negative, grey if 0
+//   • "% bullish" computed as (StrongBuy + Buy) / total
+// ----------------------------------------------------------------------
+
+function SectionAnalyst(props: { row: CompareRow }) {
+  const data = props.row.analyst_recommendations;
+  if (!data) {
+    return (
+      <section style={cardStyle}>
+        <strong style={{ fontSize: 14 }}>6. Analyst consensus</strong>
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          Not available — Finnhub integration disabled, or no coverage for this symbol.
+        </div>
+      </section>
+    );
+  }
+  const sb = data.strong_buy;
+  const b = data.buy;
+  const h = data.hold;
+  const s = data.sell;
+  const ss = data.strong_sell;
+  const total = sb + b + h + s + ss;
+  const pctBullish = total > 0 ? Math.round(((sb + b) / total) * 100) : 0;
+  const momArrow = data.mom_change > 0 ? "▲"
+                : data.mom_change < 0 ? "▼"
+                : "—";
+  const momColor = data.mom_change > 0 ? "var(--up)"
+                : data.mom_change < 0 ? "var(--down)"
+                : "var(--text-muted)";
+  return (
+    <section style={cardStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <strong style={{ fontSize: 14 }}>
+          6. Analyst consensus
+          {data.latest_period && (
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
+              ({data.latest_period.slice(0, 7)})
+            </span>
+          )}
+        </strong>
+        <span style={{ fontSize: 12, fontVariantNumeric: "tabular-nums", color: "var(--text-muted)" }}>
+          {total} analyst{total === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      {total > 0 && (
+        <div style={{ display: "flex", height: 16, borderRadius: 4, overflow: "hidden", marginTop: 4 }}>
+          <BarSegment count={sb} total={total} color="var(--up)" label={`Strong Buy ${sb}`} />
+          <BarSegment count={b} total={total} color="rgba(58, 165, 109, 0.6)" label={`Buy ${b}`} />
+          <BarSegment count={h} total={total} color="var(--text-muted)" label={`Hold ${h}`} />
+          <BarSegment count={s} total={total} color="rgba(214, 76, 76, 0.6)" label={`Sell ${s}`} />
+          <BarSegment count={ss} total={total} color="var(--down)" label={`Strong Sell ${ss}`} />
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 4 }}>
+        <Stat label="% bullish" value={`${pctBullish}%`} />
+        <div>
+          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Month-over-month
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: momColor, fontVariantNumeric: "tabular-nums" }}>
+            {momArrow} {data.mom_change >= 0 ? "+" : ""}{data.mom_change}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            net bullish-score change
+          </div>
+        </div>
+      </div>
+
+      {data.periods && data.periods.length > 1 && (
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+          {data.periods.length} months of history available
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BarSegment(props: { count: number; total: number; color: string; label: string }) {
+  const pct = props.total > 0 ? (props.count / props.total) * 100 : 0;
+  if (pct === 0) return null;
+  return (
+    <div
+      title={props.label}
+      style={{
+        width: `${pct}%`,
+        background: props.color,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "white",
+        fontSize: 10,
+        fontWeight: 600,
+      }}
+    >
+      {pct >= 8 && props.count}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Section 7 — Event risk (earnings). Countdown to next print, or
+// "clean window — no event in next 90 days" when there isn't one.
+// Per spec: banner is red if T < 7 days, amber if T < 30, grey otherwise.
+// Clean window = green/positive, an explicit feature not absence of data.
+// ----------------------------------------------------------------------
+
+function SectionEarnings(props: { row: CompareRow }) {
+  const events = props.row.historical_earnings ?? [];
+  // We don't currently surface UPCOMING earnings on the compare row —
+  // historical_earnings is the past 5y of reported prints. Calling
+  // out the limitation honestly here; the proper data source is the
+  // get_earnings_calendar MCP tool / Finnhub forward calendar.
+  // TODO(task #66): wire forward-looking earnings into the compare row
+  // alongside historical so this section can show "T+23 days to next
+  // print" without an extra API call.
+  const lastReported = events[events.length - 1];
+  return (
+    <section style={cardStyle}>
+      <strong style={{ fontSize: 14 }}>7. Event risk (earnings)</strong>
+      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+        Forward earnings calendar lives on the get_earnings_calendar MCP tool
+        but isn't yet folded into the compare-row payload. Showing latest
+        reported below; full forward-looking countdown lands with task #66.
+      </div>
+      {lastReported && (
+        <div style={{ fontSize: 12, marginTop: 4 }}>
+          Last reported: <strong>{lastReported.date}</strong>
+          {lastReported.surprise_pct != null && (
+            <span style={{ marginLeft: 8, color: lastReported.surprise_pct >= 0 ? "var(--up)" : "var(--down)" }}>
+              {lastReported.surprise_pct >= 0 ? "+" : ""}{lastReported.surprise_pct.toFixed(1)}% surprise
+            </span>
+          )}
+        </div>
+      )}
+      {events.length === 0 && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          No reported earnings on file. ETFs and indices don't have them.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function sentimentChip(score: number | null) {
+  if (score == null) return { label: "—", bg: "var(--border)", fg: "var(--text-muted)" };
+  const label = (score >= 0 ? "+" : "") + score.toFixed(2);
+  if (score > 0.3) return { label, bg: "rgba(58, 165, 109, 0.18)", fg: "var(--up)" };
+  if (score < -0.3) return { label, bg: "rgba(214, 76, 76, 0.18)", fg: "var(--down)" };
+  return { label, bg: "rgba(199, 154, 42, 0.18)", fg: "var(--warn, #c79a2a)" };
 }
 
 function isStaleEntry(positionSince: string | null): boolean {
