@@ -14,6 +14,7 @@ import { Scanner } from "./pages/Scanner";
 import { Settings } from "./pages/Settings";
 import { Signals } from "./pages/Signals";
 import { Simulations } from "./pages/Simulations";
+import { SymbolDeepDive } from "./pages/SymbolDeepDive";
 
 const router = createBrowserRouter([
   {
@@ -32,6 +33,11 @@ const router = createBrowserRouter([
       { path: "documents", element: <Documents /> },
       { path: "documents/:docId", element: <DocumentDetail /> },
       { path: "signals", element: <Signals /> },
+      // Symbol Deep Dive — single page that answers "Should I buy {ticker}?"
+      // by stitching every relevant data source into one linear scroll.
+      // Spec: strategies/docs/tradepro_claude.pdf (v0.1). 10 sections —
+      // header lands today, sections 2-10 follow incrementally.
+      { path: "symbol/:ticker", element: <SymbolDeepDive /> },
       { path: "simulations", element: <Simulations /> },
       { path: "paper-backtest", element: <PaperBacktest /> },
       { path: "charts", element: <Dashboard /> },
