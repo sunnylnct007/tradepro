@@ -492,6 +492,25 @@ def _classify(state: MarketState) -> tuple[str, str]:
         and rsi_v is not None
         and rsi_v > RSI_OVERSOLD
     ):
+        # Trend-coherence guard (BABA case, 2026-05-20). The above
+        # AVOID rules catch active crashes (mom10 < threshold AND
+        # below SMA) and confirmed downtrends (mom12 negative AND
+        # below SMA). Neither catches the in-between case: price
+        # below SMA200 + positive 12m momentum + recent dip + RSI
+        # bouncing. Without this guard the bounce-zone BUY fires
+        # despite the trend trace explicitly failing — a coherence
+        # bug the external reviewer flagged on BABA (verdict BUY
+        # with "× Trend (200-day SMA) price 135.64 below SMA 149.29"
+        # visible in the same trace). Downgrade to WAIT with an
+        # explicit "trend not yet confirmed" reason so the bucket
+        # never says BUY while the trend filter says no.
+        if above is False:
+            return ("WAIT",
+                    f"{pct_off_high:.1f}% off 52w high with RSI "
+                    f"{rsi_v:.0f} recovering, BUT price still below "
+                    f"200-day SMA — bounce zone is real but trend "
+                    f"not yet confirmed. Wait for the SMA to flatten "
+                    f"or reclaim before adding.")
         high_when = (state.pct_off_52w_high_date or "")[:10]
         high_suffix = f" (52w high {high_when})" if high_when else ""
         return ("BUY",

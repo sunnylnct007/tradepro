@@ -64,3 +64,15 @@ Feature: market_state._classify — entry signal rule chain
     When I compute the market state
     Then the entry signal is "WAIT"
     And the entry reason mentions "drawdown"
+
+  # ----- WAIT (trend-coherence guard, BABA/ABBV regression) -----
+  # Meaningful drop + RSI recovering would normally fire BUY, but the
+  # 200-day SMA hasn't been reclaimed yet — trend not confirmed, so
+  # we wait. Reviewer-flagged 2026-05-20 (BABA / ABBV).
+  Scenario: dip with RSI recovering BUT below SMA200 → WAIT (trend-coherence)
+    Given a synthetic price series below SMA200 with RSI bouncing
+    When I compute the market state
+    Then the entry signal is "WAIT"
+    And the entry reason mentions "below"
+    And the entry reason mentions "200-day SMA"
+    And the entry reason mentions "trend not yet confirmed"

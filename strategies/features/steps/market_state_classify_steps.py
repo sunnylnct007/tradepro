@@ -84,6 +84,25 @@ def step_bounce_zone(context):
     context.prices = _series(climb + drop + bounce)
 
 
+@given("a synthetic price series below SMA200 with RSI bouncing")
+def step_below_sma_bouncing(context):
+    # Reproduces the BABA / ABBV pattern from the 2026-05-20 reviewer
+    # feedback: price below SMA200, positive 12m momentum (so the
+    # confirmed-downtrend AVOID doesn't fire), no recent cascade (so
+    # the active-crash AVOID doesn't fire), meaningful drawdown off
+    # the 52w high, RSI bouncing in the 50s.
+    #
+    # Geometry: climb gently from a low base over ~200 bars to build
+    # a moderate SMA200, then a fast >20% drop in ~40 bars (forces
+    # price below SMA200 because SMA200 still reflects the climb),
+    # then a small bounce so RSI lifts off the floor. 12m return
+    # remains positive because the starting point was much lower.
+    climb = [40 + i * 0.30 for i in range(200)]      # 40 → 100, builds SMA
+    drop = [climb[-1] - (i + 1) * 0.55 for i in range(40)]  # 100 → ~78
+    bounce = [drop[-1] + (i + 1) * 0.10 for i in range(20)]  # tiny green
+    context.prices = _series(climb + drop + bounce)
+
+
 @given("a synthetic price series with no fresh entry edge")
 def step_ambiguous(context):
     # Sideways mid-range, RSI mid, just above SMA. No rule fires →
