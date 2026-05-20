@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { CompareLatestResponse, CompareRow } from "../api/types";
+import type { CompareLatestResponse, CompareRow, DecisionCheck } from "../api/types";
 
 /**
  * Symbol Deep Dive — single page that answers "Should I buy {ticker}?"
@@ -31,6 +31,10 @@ export function SymbolDeepDive() {
   const { ticker } = useParams<{ ticker: string }>();
   const symbol = (ticker || "").toUpperCase();
   const [row, setRow] = useState<CompareRow | null>(null);
+  // All rows for this symbol from the matched universe — kept around
+  // so Section 2 (verdict) can count `in_position` across strategies
+  // and Section 4 can render per-strategy detail.
+  const [allRows, setAllRows] = useState<CompareRow[]>([]);
   const [universe, setUniverse] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +67,7 @@ export function SymbolDeepDive() {
             match.sort((a, b) => sharpeOf(b) - sharpeOf(a));
             if (!cancelled) {
               setRow(match[0]);
+              setAllRows(match);
               setUniverse(u.universe);
               setLoading(false);
             }
@@ -108,7 +113,8 @@ export function SymbolDeepDive() {
     return <PageShell symbol={symbol} state="empty" />;
   }
   return (
-    <PageShell symbol={symbol} state="ready" row={row} universe={universe} />
+    <PageShell symbol={symbol} state="ready" row={row}
+               allRows={allRows} universe={universe} />
   );
 }
 
@@ -122,10 +128,11 @@ function PageShell(props: {
   symbol: string;
   state: ShellState;
   row?: CompareRow | null;
+  allRows?: CompareRow[];
   universe?: string | null;
   detail?: string;
 }) {
-  const { symbol, state, row, universe, detail } = props;
+  const { symbol, state, row, allRows = [], universe, detail } = props;
   return (
     <div style={{
       maxWidth: 960,
@@ -149,8 +156,12 @@ function PageShell(props: {
 
       <SectionHeader symbol={symbol} state={state} row={row} detail={detail} />
 
-      <Section title="2. Verdict" todo="evaluate_symbols(symbol) → BUY/WAIT/AVOID badge + 4/7 fraction" />
-      <Section title="3. Decision trace" todo="market_state.decision_trace → collapsible pass/fail/warn list" />
+      {state === "ready" && row && (
+        <SectionVerdict row={row} allRows={allRows} />
+      )}
+      {state === "ready" && row && (
+        <SectionDecisionTrace trace={row.market_state?.decision_trace ?? []} />
+      )}
       <Section title="4. Strategy vote (CONFLICT surfacing)"
                todo="per-strategy row + conflict counter — THIS IS THE MOAT" />
       <Section title="5. News + sentiment" todo="get_news_with_sentiment(symbol, limit=8)" />
@@ -242,6 +253,166 @@ function SectionHeader(props: {
       </div>
     </section>
   );
+}
+
+// ----------------------------------------------------------------------
+// Section 2 — Verdict. The big BUY/WAIT/AVOID badge. Vote rendered as a
+// fraction (4/7), per spec: "keeps 'is this unanimous?' obvious".
+// ----------------------------------------------------------------------
+
+function SectionVerdict(props: { row: CompareRow; allRows: CompareRow[] }) {
+  const { row, allRows } = props;
+  const bucket = row.bucket ?? "WAIT";
+  const reason = row.bucket_reason ?? "";
+
+  // Compatible (non-fit-excluded) rows are the denominator; the bucket
+  // engine excludes structurally-incompatible strategies (e.g. RSI mean
+  // reversion on MTUM) from the consensus count. Falls back to
+  // row.consensus_compatible_count when it's present.
+  const compatible = allRows.filter((r) => !r.excluded_for_fit);
+  const total = row.consensus_compatible_count ?? compatible.length;
+  const longCount = compatible.filter((r) => r.in_position).length;
+
+  const bucketStyle = bucketChipStyle(bucket);
+  return (
+    <section style={cardStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{
+          ...bucketStyle,
+          fontSize: 32,
+          fontWeight: 700,
+          padding: "8px 18px",
+          borderRadius: 10,
+          letterSpacing: 1,
+        }}>{bucket}</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+            {longCount} of {total} strategies long
+          </div>
+          {row.consensus_excluded_count != null && row.consensus_excluded_count > 0 && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              {row.consensus_excluded_count} strategy{row.consensus_excluded_count === 1 ? "" : "ies"} excluded for fit
+              {row.consensus_excluded_strategies?.length
+                ? ` (${row.consensus_excluded_strategies.join(", ")})`
+                : ""}
+            </div>
+          )}
+        </div>
+      </div>
+      {reason && (
+        <div style={{
+          fontSize: 14,
+          lineHeight: 1.5,
+          color: "var(--text-dim)",
+          marginTop: 4,
+        }}>
+          {/* Verbatim from bucket_reason per spec — do not paraphrase. */}
+          {reason}
+        </div>
+      )}
+      {row.sentiment_demoted && (
+        <div style={{
+          fontSize: 11,
+          color: "var(--warn, #c79a2a)",
+          marginTop: 4,
+        }}>
+          ⚠ Sentiment demotion applied — see decision trace below.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function bucketChipStyle(b: string): React.CSSProperties {
+  if (b === "BUY") return { background: "rgba(58, 165, 109, 0.18)", color: "var(--up)" };
+  if (b === "AVOID") return { background: "rgba(214, 76, 76, 0.18)", color: "var(--down)" };
+  return { background: "rgba(199, 154, 42, 0.18)", color: "var(--warn, #c79a2a)" };
+}
+
+// ----------------------------------------------------------------------
+// Section 3 — Decision trace. Collapsible list of pass/fail/warn rules
+// that fed the verdict. Default expanded. Failures first, warnings
+// second, passes third so the user sees risks before reassurance (spec).
+// ----------------------------------------------------------------------
+
+function SectionDecisionTrace(props: { trace: DecisionCheck[] }) {
+  const [open, setOpen] = useState(true);
+  const ranked = [...props.trace].sort((a, b) => rankStatus(a.status) - rankStatus(b.status));
+  const failCount = ranked.filter((c) => c.status === "fail").length;
+  const warnCount = ranked.filter((c) => c.status === "warn").length;
+
+  return (
+    <section style={cardStyle}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          color: "inherit",
+          width: "100%",
+        }}
+      >
+        <strong style={{ fontSize: 14 }}>
+          3. Decision trace
+          {failCount > 0 && (
+            <span style={{ marginLeft: 8, fontSize: 11, color: "var(--down)" }}>
+              {failCount} fail
+            </span>
+          )}
+          {warnCount > 0 && (
+            <span style={{ marginLeft: 8, fontSize: 11, color: "var(--warn, #c79a2a)" }}>
+              {warnCount} warn
+            </span>
+          )}
+        </strong>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && ranked.length === 0 && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          No decision trace on this row.
+        </div>
+      )}
+      {open && ranked.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+          {ranked.map((c, i) => (
+            <div key={i} style={{
+              display: "grid",
+              gridTemplateColumns: "20px 1fr 1.5fr",
+              alignItems: "baseline",
+              gap: 8,
+              fontSize: 12,
+              padding: "4px 0",
+              borderTop: i === 0 ? "none" : "1px solid var(--border)",
+            }}>
+              <span style={{
+                color: c.status === "fail" ? "var(--down)"
+                     : c.status === "warn" ? "var(--warn, #c79a2a)"
+                     : "var(--up)",
+                fontSize: 14,
+              }}>
+                {c.status === "fail" ? "✗" : c.status === "warn" ? "⚠" : "✓"}
+              </span>
+              <span style={{ color: "var(--text)" }}>{c.name}</span>
+              {/* detail text verbatim from API per spec — do not reformat */}
+              <span style={{ color: "var(--text-muted)" }}>{c.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function rankStatus(s: string): number {
+  if (s === "fail") return 0;
+  if (s === "warn") return 1;
+  return 2;
 }
 
 function HeaderSkeleton(props: {
