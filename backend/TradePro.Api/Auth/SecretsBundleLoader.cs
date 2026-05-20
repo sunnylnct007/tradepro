@@ -33,9 +33,20 @@ public static class SecretsBundleLoader
 
     private static readonly Dictionary<string, string> KeyMap = new()
     {
-        ["t212-api-key"]    = "Trading212:ApiKey",
-        ["t212-api-secret"] = "Trading212:ApiSecret",
-        ["t212-mode"]       = "Trading212:Mode",
+        // Trading 212 LIVE — reads (positions, status, instruments).
+        // The "t212-api-key" / "t212-api-secret" pair stays as the live
+        // credentials for backward compat with deployments that pre-date
+        // the dual-mode split. Renaming to "t212-live-*" would force every
+        // existing SM bundle to rotate which we don't need.
+        ["t212-api-key"]      = "Trading212:ApiKey",
+        ["t212-api-secret"]   = "Trading212:ApiSecret",
+        ["t212-mode"]         = "Trading212:Mode",
+        // Trading 212 DEMO — writes (order placement) + demo positions.
+        // Bound to Trading212Demo:* by Trading212DemoOptions. The base URL
+        // is hard-coded to demo.trading212.com in the demo client so no
+        // "demo-mode" key is needed here.
+        ["t212-demo-api-key"]    = "Trading212Demo:ApiKey",
+        ["t212-demo-api-secret"] = "Trading212Demo:ApiSecret",
         ["finnhub-api-key"] = "Finnhub:ApiKey",
         ["ingest-token"]    = "Ingest:Token",
     };

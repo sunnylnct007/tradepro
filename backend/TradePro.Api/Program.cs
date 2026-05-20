@@ -86,6 +86,18 @@ builder.Services.AddHttpClient<Trading212Client>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
 });
+// Sibling DEMO client — separate type (not just a different config
+// section) so the type system enforces "this code path can never
+// hit live.trading212.com". Used by the Approve handler on pending
+// paper orders + the upcoming demo orderbook view. Binds to the
+// Trading212Demo section so the live key/secret pair stays untouched.
+builder.Services
+    .AddOptions<Trading212DemoOptions>()
+    .Bind(builder.Configuration.GetSection(Trading212DemoOptions.SectionName));
+builder.Services.AddHttpClient<Trading212DemoClient>(c =>
+{
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
+});
 // Singleton — the instruments cache lives for the life of the
 // process. The cache loads from disk on construction and refreshes
 // lazily on first access if older than 24h.

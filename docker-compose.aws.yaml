@@ -81,9 +81,17 @@ services:
       Firebase__RequireAuth: "${FIREBASE_REQUIRE_AUTH:-true}"
       Ingest__Token: "${INGEST_TOKEN}"
       Cors__AllowedOrigins__0: "${CORS_ORIGIN_0:-http://localhost:5173}"
+      # T212 LIVE — read path (positions, status, instruments). The
+      # existing key/secret pair stays here unchanged.
       Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
       Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
       Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
+      # T212 DEMO — write path (order placement) + demo orderbook. A
+      # distinct typed client (Trading212DemoClient) hard-codes the
+      # demo.trading212.com base URL so config typos can't route real
+      # orders to the live account.
+      Trading212Demo__ApiKey: "${TRADEPRO_T212_DEMO_API_KEY:-}"
+      Trading212Demo__ApiSecret: "${TRADEPRO_T212_DEMO_API_SECRET:-}"
       Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
       # Postgres connection string. Hostname is the docker-compose
       # service name; the postgres container exposes 5432 on the

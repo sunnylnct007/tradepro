@@ -7,12 +7,33 @@ public static class IntegrationsEndpoints
 {
     public static IEndpointRouteBuilder MapIntegrationsEndpoints(this IEndpointRouteBuilder app)
     {
-        // Surfaces whether the T212 layer can reach the broker with the
-        // current config — used by the Settings page to confirm a key
-        // pair is live before we let the user save it.
+        // Surfaces both T212 connections in one envelope — live (reads)
+        // and demo (writes). The frontend uses this to render a single
+        // "Reading from LIVE • Orders execute on DEMO" banner, and to
+        // gate the Approve button on demo.authenticated being true.
         app.MapGet("/integrations/trading212/status",
-            async (Trading212Client client, CancellationToken ct) =>
-                Results.Ok(await client.GetStatusAsync(ct)));
+            async (Trading212Client live, Trading212DemoClient demo,
+                   CancellationToken ct) =>
+            {
+                var liveStatus = await live.GetStatusAsync(ct);
+                var demoStatus = await demo.GetStatusAsync(ct);
+                // Top-level fields mirror the legacy single-mode shape
+                // (consumers reading `mode` / `authenticated` keep
+                // working — they get the LIVE side, since reads are
+                // the historical default). The `live` and `demo`
+                // sub-objects are the new structured view.
+                return Results.Ok(new
+                {
+                    liveStatus.Configured,
+                    liveStatus.Mode,
+                    liveStatus.Reachable,
+                    liveStatus.Authenticated,
+                    liveStatus.Detail,
+                    liveStatus.RateLimitRemaining,
+                    live = liveStatus,
+                    demo = demoStatus,
+                });
+            });
 
         // Cached T212 instruments registry — loads from
         // /equity/metadata/instruments on first access, refreshes every

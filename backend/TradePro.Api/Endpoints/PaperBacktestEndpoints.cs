@@ -63,7 +63,7 @@ public static class PaperBacktestEndpoints
 
         pending.MapPost("/{orderId}/approve",
             async (string orderId, IPendingOrdersStore store, OrdersRepository ordersRepo,
-                   Trading212Client t212, ILoggerFactory lf, CancellationToken ct) =>
+                   Trading212DemoClient t212demo, ILoggerFactory lf, CancellationToken ct) =>
         {
             var order = store.Get(orderId);
             if (order is null) return Results.NotFound();
@@ -84,10 +84,13 @@ public static class PaperBacktestEndpoints
             catch (Exception ex) { log.LogError(ex, "orders log: risk-decision write failed for {orderId}", orderId); }
 
             // Sign convention: positive = BUY, negative = SELL.
+            // PLACEMENT goes through Trading212DemoClient — by type
+            // contract, this can only ever hit demo.trading212.com.
+            // The live client cannot be accidentally injected here.
             decimal signedQty = order.Side == "BUY"
                 ? Math.Abs(order.Quantity)
                 : -Math.Abs(order.Quantity);
-            var result = await t212.PlaceMarketOrderAsync(
+            var result = await t212demo.PlaceMarketOrderAsync(
                 order.T212Ticker, signedQty, ct);
             if (result.Error is not null)
             {
