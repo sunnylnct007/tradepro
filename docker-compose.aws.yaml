@@ -77,19 +77,24 @@ services:
       ASPNETCORE_URLS: http://+:5080
       # Persisted compare cache — survives container restarts.
       Compare__StorePath: /data/compare
-      # Auth / integrations / CORS — all sourced from the .env file.
+      # Auth / integrations / CORS — sourced from the .env file.
+      # NOTE: SM-only configuration was attempted (task #64) and works
+      # for some keys (ingest-token, t212-demo-*, finnhub-api-key all
+      # load cleanly from SM via SecretsBundleLoader). The LIVE
+      # Trading212 binding intermittently doesn't propagate from SM
+      # to IOptions — same code path, same keymap, demo loads fine,
+      # live doesn't. Reverting to env-mapped pass-through until that
+      # is root-caused. Track on task #64.
       Firebase__RequireAuth: "${FIREBASE_REQUIRE_AUTH:-true}"
       Ingest__Token: "${INGEST_TOKEN}"
       Cors__AllowedOrigins__0: "${CORS_ORIGIN_0:-http://localhost:5173}"
-      # T212 LIVE — read path (positions, status, instruments). The
-      # existing key/secret pair stays here unchanged.
+      # T212 LIVE — read path (positions, status, instruments).
       Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
       Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
       Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
-      # T212 DEMO — write path (order placement) + demo orderbook. A
-      # distinct typed client (Trading212DemoClient) hard-codes the
-      # demo.trading212.com base URL so config typos can't route real
-      # orders to the live account.
+      # T212 DEMO — write path (order placement) + demo orderbook.
+      # Distinct typed client (Trading212DemoClient) hard-codes the
+      # demo.trading212.com base URL; type-enforced separation.
       Trading212Demo__ApiKey: "${TRADEPRO_T212_DEMO_API_KEY:-}"
       Trading212Demo__ApiSecret: "${TRADEPRO_T212_DEMO_API_SECRET:-}"
       Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
