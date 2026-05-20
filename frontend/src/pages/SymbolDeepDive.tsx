@@ -7,6 +7,7 @@ import type {
   CompareRow,
   CompareSentimentSummary,
   DecisionCheck,
+  HitRateResult,
 } from "../api/types";
 
 /**
@@ -184,9 +185,11 @@ function PageShell(props: {
       {state === "ready" && row && (
         <SectionEarnings row={row} />
       )}
-      <Section title="8. Regime survival" todo="get_regime_history(symbol, strategy=best_long)" />
-      <Section title="9. Peer comparison" todo="derive peer set from symbol.tags, get_returns + evaluate_symbols on peers" />
-      <Section title="10. Hit rate" todo="get_hitrate(symbol, strategy, horizon_days=20) per strategy" />
+      <Section title="8. Regime survival" todo="get_regime_history(symbol, strategy=best_long) — needs task #66 backend prep" />
+      <Section title="9. Peer comparison" todo="derive peer set from symbol.tags — needs task #66 backend prep" />
+      {state === "ready" && allRows.length > 0 && (
+        <SectionHitRate symbol={props.symbol} rows={allRows} />
+      )}
     </div>
   );
 }
@@ -909,6 +912,179 @@ function SectionEarnings(props: { row: CompareRow }) {
         </div>
       )}
     </section>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Section 10 — Hit rate. Per-strategy historical accuracy on this
+// specific symbol: out of N past signal firings, how many were
+// profitable. Strategies with hit rate < 50% get a "worse than coin
+// flip on this symbol" warning chip — informational, not exclusionary.
+//
+// Implementation note: get_hitrate is one POST per (symbol, strategy)
+// combo. Firing them in parallel via Promise.all on mount. Results
+// stream in independently so the section paints incrementally. Each
+// row that finishes loading replaces its skeleton with the real bar.
+// ----------------------------------------------------------------------
+
+interface HitRateState {
+  loading: boolean;
+  result?: HitRateResult;
+  error?: string;
+}
+
+function SectionHitRate(props: { symbol: string; rows: CompareRow[] }) {
+  const { symbol, rows } = props;
+  const [states, setStates] = useState<Record<string, HitRateState>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    // Only fetch for non-excluded strategies — excluded ones already
+    // have a "factor-fit mismatch" callout in Section 4; running their
+    // historical hit rate adds noise, not signal.
+    const targets = rows.filter((r) => !r.excluded_for_fit);
+    setStates(Object.fromEntries(
+      targets.map((r) => [r.strategy, { loading: true }])
+    ));
+    Promise.all(targets.map(async (r) => {
+      try {
+        const result = await api.hitRate({
+          symbol,
+          strategy: r.strategy,
+          lookbackYears: 5,
+          params: null,
+        });
+        if (!cancelled) {
+          setStates((s) => ({ ...s, [r.strategy]: { loading: false, result } }));
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setStates((s) => ({ ...s, [r.strategy]: { loading: false, error: String(e) } }));
+        }
+      }
+    }));
+    return () => { cancelled = true; };
+  }, [symbol, rows]);
+
+  const sortedRows = [...rows].filter((r) => !r.excluded_for_fit);
+  // Sort by Sharpe desc to align with Section 4.
+  sortedRows.sort((a, b) =>
+    ((b.stats?.sharpe as number | null) ?? -Infinity)
+    - ((a.stats?.sharpe as number | null) ?? -Infinity));
+
+  const completed = Object.values(states).filter((s) => !s.loading).length;
+  const total = sortedRows.length;
+  const subClipFlip = sortedRows.filter((r) => {
+    const s = states[r.strategy]?.result;
+    return s && s.winRatePct < 50;
+  }).length;
+
+  return (
+    <section style={cardStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <strong style={{ fontSize: 14 }}>
+          10. Hit rate
+          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
+            (5y lookback)
+          </span>
+        </strong>
+        {completed < total ? (
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            loading {completed}/{total}…
+          </span>
+        ) : subClipFlip > 0 ? (
+          <span style={{ fontSize: 11, color: "var(--warn, #c79a2a)" }}>
+            ⚠ {subClipFlip} strategy{subClipFlip === 1 ? "" : "ies"} sub-coin-flip on this symbol
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            all strategies ≥ 50%
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+        {sortedRows.map((r, i) => (
+          <HitRateRow key={r.strategy}
+                      strategy={r.strategy}
+                      label={r.strategy_label || r.strategy}
+                      state={states[r.strategy] ?? { loading: true }}
+                      index={i} />
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+        "Profitable" = next signal in the strategy's natural cycle closed at a positive return.
+        Sub-50% = the strategy historically loses more often than it wins on this specific
+        symbol — informational, NOT a reason to drop the row from the vote.
+      </div>
+    </section>
+  );
+}
+
+function HitRateRow(props: {
+  strategy: string;
+  label: string;
+  state: HitRateState;
+  index: number;
+}) {
+  const { label, state, index } = props;
+  const res = state.result;
+  const subFlip = res != null && res.winRatePct < 50;
+  const barColor = res == null ? "var(--border)"
+                : res.winRatePct >= 60 ? "var(--up)"
+                : res.winRatePct >= 50 ? "rgba(58, 165, 109, 0.6)"
+                : res.winRatePct >= 40 ? "var(--warn, #c79a2a)"
+                : "var(--down)";
+  return (
+    <div style={{
+      borderTop: index === 0 ? "none" : "1px solid var(--border)",
+      padding: "6px 0",
+    }}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "1.4fr 1.6fr 0.5fr",
+        alignItems: "center",
+        gap: 10,
+        fontSize: 12,
+      }}>
+        <span>{label}</span>
+        {state.loading && (
+          <span style={{ color: "var(--text-muted)", fontSize: 11 }}>computing…</span>
+        )}
+        {state.error && (
+          <span style={{ color: "var(--down)", fontSize: 11 }}>err: {state.error.slice(0, 60)}</span>
+        )}
+        {res && (
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+              {res.winners} of {res.totalTrades} signals
+            </span>
+            <span style={{
+              flex: 1,
+              height: 6,
+              background: "var(--border)",
+              borderRadius: 999,
+              overflow: "hidden",
+              minWidth: 40,
+            }}>
+              <div style={{
+                width: `${Math.max(0, Math.min(100, res.winRatePct))}%`,
+                height: "100%",
+                background: barColor,
+              }} />
+            </span>
+          </span>
+        )}
+        <span style={{
+          textAlign: "right",
+          fontVariantNumeric: "tabular-nums",
+          color: subFlip ? "var(--warn, #c79a2a)" : "var(--text)",
+          fontWeight: 600,
+        }}>
+          {res ? `${res.winRatePct.toFixed(0)}%` : "—"}
+          {subFlip && <span style={{ marginLeft: 4 }}>⚠</span>}
+        </span>
+      </div>
+    </div>
   );
 }
 
