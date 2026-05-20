@@ -8,6 +8,11 @@ from tradepro_strategies.horizons import classify_horizons
 
 @given("VUKE.L horizon inputs from 8 May 2026")
 def step_vuke_inputs(context):
+    # `swing_score.total` set explicitly so the horizon test pins the
+    # range-position modifier only (Bug #11: the swing horizon reads
+    # the composite total from the row, then applies the range
+    # modifier on top). VUKE.L sits at 72.6th pctile → -1 modifier;
+    # base=3 → final 2 matches the spec-pinned target.
     context.row = {
         "market_state": {
             "rsi_14": 46, "pct_off_52w_high_pct": -5.2,
@@ -15,7 +20,7 @@ def step_vuke_inputs(context):
             "last_price": 44.74, "range_position_pct": 72.6,
         },
         "stats": {"sharpe": 0.92, "cagr_pct": 11.4},
-        "swing_score": {"layers": {"event": 0}},
+        "swing_score": {"total": 3, "layers": {"event": 0}},
         "fundamentals": {
             "expense_ratio_pct": 0.09, "n_holdings": 100,
             "dividend_yield_pct": 3.08, "legal_type": "ETF",
@@ -62,6 +67,9 @@ def step_nvda_inputs(context):
 
 @given("a low-pctile symbol with RSI 35 and 12% off the high")
 def step_low_pctile_symbol(context):
+    # Same Bug #11 contract: pin the horizon's range modifier by
+    # supplying composite total directly. 25th pctile → +1 modifier;
+    # base=5 → final 6 satisfies "at least 6".
     context.row = {
         "market_state": {
             "rsi_14": 35, "pct_off_52w_high_pct": -12.0,
@@ -69,7 +77,7 @@ def step_low_pctile_symbol(context):
             "last_price": 100.0, "range_position_pct": 25.0,
         },
         "stats": {"sharpe": 0.75, "cagr_pct": 9.0},
-        "swing_score": {"layers": {"event": 2}},  # catalyst present
+        "swing_score": {"total": 5, "layers": {"event": 2}},  # catalyst present
         "fundamentals": {"n_holdings": 1, "legal_type": "EQUITY"},
         "external_consensus": {"target_mean": 120.0},
         "valuation_flag": {"flag": "CHEAP"},
