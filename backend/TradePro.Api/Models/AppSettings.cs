@@ -61,7 +61,22 @@ public record IntradaySettings(
     double AutoPlaceConfidenceThreshold,
     // USD risk budget per trade — engine sizes positions so a
     // stop-loss hit costs at most this much.
-    double RiskPerTradeUsd);
+    double RiskPerTradeUsd,
+    // Per-strategy enable/disable + param overrides. Key = registry
+    // name (orb / vwap_mean_reversion / bollinger_bounce / ...).
+    // When the engine boots and finds a registered strategy with no
+    // entry here, it auto-fills `Enabled = true` with the strategy's
+    // compiled defaults — matches the "run everything by default,
+    // observe, then narrow" working preference. Nullable so legacy
+    // PUTs missing this block still validate.
+    Dictionary<string, IntradayStrategySettings>? Strategies = null);
+
+public record IntradayStrategySettings(
+    // Master on/off. Off = engine does not register this strategy.
+    bool Enabled,
+    // Param overrides merged over the strategy class's
+    // `default_params()`. Empty map = use all compiled defaults.
+    Dictionary<string, object>? Params = null);
 
 public record IntradayGate(
     double MinRiskRewardRatio,
@@ -87,6 +102,14 @@ public static class AppSettingsDefaults
                 MaxSpreadPct: 0.3,
                 MinConfidence: 0.70),
             AutoPlaceConfidenceThreshold: 0.85,
-            RiskPerTradeUsd: 100.0),
+            RiskPerTradeUsd: 100.0,
+            // Strategies left as null — the Mac engine fills the map
+            // in on first scan from the live registry so new
+            // strategies appear automatically. The PostgresSettingsStore
+            // backfill keeps it null until the user explicitly toggles
+            // one off (we don't pre-bake names the API doesn't know
+            // about; the registry catalog is sourced from the Mac via
+            // /api/paper/strategies).
+            Strategies: null),
         UpdatedAtUtc: DateTime.UtcNow);
 }

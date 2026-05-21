@@ -283,18 +283,62 @@ def _inside_window(start_hhmm: str, end_hhmm: str) -> bool:
     return minutes_now >= minutes_start or minutes_now <= minutes_end
 
 
-# Strategies the intraday engine runs in parallel per symbol. Each
-# is registered with its own strategy_id so the ledger attributes
-# fills cleanly and the leaderboard can compare "did Bollinger
-# actually make money on AAPL vs ORB" without manual deconvolution.
-# Names match the keys in tradepro_strategies.paper.strategies (and
-# the registry decorator on each class).
-_INTRADAY_STRATEGY_NAMES: tuple[str, ...] = (
+# Fallback list — every strategy registered in
+# tradepro_strategies.paper.strategies. Used when settings has no
+# per-strategy block yet (fresh install) so the engine still runs
+# the full menu. The "orb" alias is filtered out at runtime to
+# avoid registering the same class twice under different ids.
+_INTRADAY_DEFAULT_STRATEGY_NAMES: tuple[str, ...] = (
     "orb",
     "vwap_mean_reversion",
     "bollinger_bounce",
     "ma_crossover",
 )
+
+
+def _resolve_enabled_strategies(cfg: dict) -> dict[str, dict]:
+    """Return ``{name: params_override}`` for every strategy the
+    engine should run on this scan.
+
+    Source of truth:
+      1. ``cfg["strategies"]`` (Intraday settings block, merged with
+         claim params upstream). Each entry can set ``enabled: bool``
+         and ``params: dict`` (param overrides merged into the
+         strategy's ``default_params()``).
+      2. If the settings block is empty / missing, fall back to the
+         compiled default list (everything in
+         ``_INTRADAY_DEFAULT_STRATEGY_NAMES``).
+
+    Any name in the registry that is NOT in settings defaults to
+    enabled=True with no param overrides. Matches the
+    "run-everything-then-narrow" preference: a freshly registered
+    strategy shows up in the engine as soon as it's wired into the
+    registry, without needing the user to toggle it on first.
+    """
+    from ..paper.strategies import available as _registry_available
+    available = set(_registry_available())
+    # Drop the back-compat 'opening_range_breakout' alias if both it
+    # and 'orb' resolve to the same class — the engine would otherwise
+    # double-register.
+    if "opening_range_breakout" in available and "orb" in available:
+        available.discard("opening_range_breakout")
+
+    settings_block = cfg.get("strategies")
+    if not isinstance(settings_block, dict) or not settings_block:
+        return {name: {} for name in _INTRADAY_DEFAULT_STRATEGY_NAMES
+                if name in available}
+
+    enabled: dict[str, dict] = {}
+    for name in available:
+        entry = settings_block.get(name)
+        if isinstance(entry, dict):
+            if entry.get("enabled", True):
+                params = entry.get("params") or {}
+                enabled[name] = dict(params) if isinstance(params, dict) else {}
+        else:
+            # Not in settings yet → run by default
+            enabled[name] = {}
+    return enabled
 
 
 def _run_one_symbol(symbol: str, cfg: dict) -> dict:
@@ -320,8 +364,22 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
 
     started_at = datetime.now(timezone.utc)
     risk_per_trade = float(cfg.get("riskPerTradeUsd", 100.0))
-    log.info("running session for %s across %d strategies",
-             symbol, len(_INTRADAY_STRATEGY_NAMES))
+    enabled = _resolve_enabled_strategies(cfg)
+    log.info("running session for %s across %d strategies (%s)",
+             symbol, len(enabled), ",".join(sorted(enabled.keys())) or "none")
+
+    if not enabled:
+        return {
+            "symbol": symbol,
+            "ok": False,
+            "started_at": started_at.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "error": (
+                "no strategies enabled — flip at least one ON in "
+                "Settings → Intraday → Strategies, or remove the "
+                "per-strategy block to revert to the default fan-out"
+            ),
+        }
 
     try:
         bus, router = build_session(
@@ -338,14 +396,12 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
 
         strategies_registered: list[tuple[str, str]] = []  # (name, strategy_id)
         register_errors: list[dict] = []
-        for name in _INTRADAY_STRATEGY_NAMES:
+        for name, overrides in sorted(enabled.items()):
             sid = f"intraday-{name}-{symbol}"
+            params: dict = {"risk_per_trade_usd": risk_per_trade}
+            params.update(overrides)
             try:
-                strat = build_strategy(
-                    name,
-                    strategy_id=sid,
-                    params={"risk_per_trade_usd": risk_per_trade},
-                )
+                strat = build_strategy(name, strategy_id=sid, params=params)
                 strat.risk = RiskLimits(
                     max_position_value_usd=5_000.0, allow_short=False,
                 )

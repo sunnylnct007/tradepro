@@ -30,6 +30,13 @@ interface IntradayGate {
   minConfidence: number;
 }
 
+interface IntradayStrategySettings {
+  enabled: boolean;
+  /** Param overrides merged on top of the strategy's compiled
+   * default_params(). Empty object → use all defaults. */
+  params?: Record<string, unknown>;
+}
+
 interface IntradaySettings {
   symbols: string[];
   scanIntervalMinutes: number;
@@ -38,6 +45,25 @@ interface IntradaySettings {
   gate: IntradayGate;
   autoPlaceConfidenceThreshold: number;
   riskPerTradeUsd: number;
+  /** Per-strategy on/off + param overrides. Missing entry =
+   * "auto-enable with defaults". Lives separately from the catalog
+   * (sourced from /api/paper/strategies). */
+  strategies?: Record<string, IntradayStrategySettings>;
+}
+
+/** Catalog entry from /api/paper/strategies. Pushed by the Mac via
+ * tradepro-paper-strategies-push; the UI uses it to enumerate
+ * available strategies + show their default params. */
+interface CatalogStrategy {
+  name: string;
+  class: string;
+  summary?: string;
+  default_params: Record<string, unknown>;
+}
+
+interface CatalogPayload {
+  count: number;
+  strategies: CatalogStrategy[];
 }
 
 interface AppSettings {
@@ -69,6 +95,7 @@ const DEFAULT_INTRADAY: IntradaySettings = {
   },
   autoPlaceConfidenceThreshold: 0.85,
   riskPerTradeUsd: 100,
+  strategies: undefined,
 };
 
 export function Settings() {
@@ -77,6 +104,8 @@ export function Settings() {
   const [draftPaper, setDraftPaper] = useState<PaperSettings>(DEFAULT_PAPER);
   const [draftIntraday, setDraftIntraday] = useState<IntradaySettings>(DEFAULT_INTRADAY);
   const [symbolInput, setSymbolInput] = useState("");
+  const [catalog, setCatalog] = useState<CatalogStrategy[] | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -91,6 +120,36 @@ export function Settings() {
         setDraftIntraday(d.intraday ?? DEFAULT_INTRADAY);
       })
       .catch((e) => setError(`Couldn't load settings: ${e}`));
+  }, []);
+
+  useEffect(() => {
+    // Strategy catalog is pushed from the Mac via
+    // tradepro-paper-strategies-push; 404 until the first push.
+    // Surface the empty state so the user knows what to run.
+    fetch(new URL("/api/paper/strategies", config.apiBaseUrl).toString())
+      .then(async (r) => {
+        if (r.status === 404) {
+          setCatalogError(
+            "No strategy catalog yet. Run `uv run tradepro-paper-strategies-push` on the Mac to populate.",
+          );
+          return null;
+        }
+        if (!r.ok) {
+          setCatalogError(`Catalog load failed: HTTP ${r.status}`);
+          return null;
+        }
+        return r.json() as Promise<{ payload?: CatalogPayload } | CatalogPayload>;
+      })
+      .then((body) => {
+        if (!body) return;
+        const payload: CatalogPayload | undefined =
+          "payload" in body ? body.payload : (body as CatalogPayload);
+        if (payload?.strategies) {
+          setCatalog(payload.strategies);
+          setCatalogError(null);
+        }
+      })
+      .catch((e) => setCatalogError(`Catalog load failed: ${e}`));
   }, []);
 
   const dirty =
@@ -520,6 +579,112 @@ export function Settings() {
             style={{ width: 100 }}
           />
         </Field>
+
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Strategies</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              Source: Mac registry → /api/paper/strategies
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
+            Toggle individual strategies on/off. A new strategy added to the Mac registry auto-enables on first scan — no UI work needed to plug it in. Strategies without an explicit toggle inherit "on".
+          </div>
+          {catalogError && (
+            <div style={{
+              fontSize: 12,
+              padding: "8px 10px",
+              borderLeft: "3px solid var(--neutral)",
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: 4,
+              color: "var(--text-dim)",
+            }}>
+              {catalogError}
+            </div>
+          )}
+          {catalog && catalog.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {catalog.map((s) => {
+                // Skip the registry's back-compat alias — same class,
+                // shown once under its canonical name only.
+                if (s.name === "opening_range_breakout") return null;
+                const cfg = draftIntraday.strategies?.[s.name];
+                const isEnabled = cfg?.enabled ?? true;   // default-on
+                return (
+                  <div
+                    key={s.name}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "8px 10px",
+                      background: "rgba(255,255,255,0.02)",
+                      borderRadius: 4,
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isEnabled}
+                      onChange={(e) => {
+                        const next = { ...(draftIntraday.strategies ?? {}) };
+                        next[s.name] = {
+                          ...(next[s.name] ?? { params: {} }),
+                          enabled: e.target.checked,
+                        };
+                        setDraftIntraday({ ...draftIntraday, strategies: next });
+                      }}
+                      style={{ cursor: "pointer" }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          fontFamily: "var(--mono, monospace)",
+                          color: isEnabled ? "var(--text)" : "var(--text-muted)",
+                        }}
+                      >
+                        {s.name}
+                      </div>
+                      {s.summary && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text-muted)",
+                            marginTop: 2,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={s.summary}
+                        >
+                          {s.summary}
+                        </div>
+                      )}
+                    </div>
+                    <details style={{ fontSize: 11 }}>
+                      <summary style={{ cursor: "pointer", color: "var(--text-muted)" }}>
+                        defaults
+                      </summary>
+                      <pre style={{
+                        margin: "6px 0 0 0",
+                        padding: "6px 8px",
+                        background: "rgba(0,0,0,0.2)",
+                        borderRadius: 4,
+                        fontSize: 10,
+                        maxWidth: 320,
+                        overflowX: "auto",
+                      }}>
+                        {JSON.stringify(s.default_params, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <div
           style={{
