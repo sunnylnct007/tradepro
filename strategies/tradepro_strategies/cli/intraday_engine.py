@@ -283,9 +283,31 @@ def _inside_window(start_hhmm: str, end_hhmm: str) -> bool:
     return minutes_now >= minutes_start or minutes_now <= minutes_end
 
 
+# Strategies the intraday engine runs in parallel per symbol. Each
+# is registered with its own strategy_id so the ledger attributes
+# fills cleanly and the leaderboard can compare "did Bollinger
+# actually make money on AAPL vs ORB" without manual deconvolution.
+# Names match the keys in tradepro_strategies.paper.strategies (and
+# the registry decorator on each class).
+_INTRADAY_STRATEGY_NAMES: tuple[str, ...] = (
+    "orb",
+    "vwap_mean_reversion",
+    "bollinger_bounce",
+    "ma_crossover",
+)
+
+
 def _run_one_symbol(symbol: str, cfg: dict) -> dict:
-    """Run one yfinance-bus session for one symbol through the T212
-    manual router. Returns a per-symbol result blob.
+    """Run one yfinance-bus session for one symbol against every
+    enabled intraday strategy. Returns a per-symbol result blob with
+    one nested entry per strategy so the leaderboard can roll
+    cumulative P&L up by (symbol, strategy).
+
+    All strategies share the same bus + router (one BarBus stream per
+    session, one router per session), but each gets its own ledger
+    book by virtue of a unique strategy_id. Per-strategy fills, open
+    positions and realised P&L come straight out of the ledger
+    snapshot.
 
     Manual placement mode means every order intent queues as Pending
     in the API's pending_orders table — nothing reaches T212 here.
@@ -294,11 +316,13 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
     from ..paper import RiskLimits
     from ..paper.engine import Engine
     from ..paper.profiles import build_session
-    from ..paper.strategies.opening_range_breakout import OpeningRangeBreakout
+    from ..paper.strategies import build as build_strategy
 
     started_at = datetime.now(timezone.utc)
-    strategy_id = f"intraday-orb-{symbol}"
-    log.info("running session for %s", symbol)
+    risk_per_trade = float(cfg.get("riskPerTradeUsd", 100.0))
+    log.info("running session for %s across %d strategies",
+             symbol, len(_INTRADAY_STRATEGY_NAMES))
+
     try:
         bus, router = build_session(
             broker="t212",
@@ -310,29 +334,60 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
             t212_allow_real_orders=False,
             t212_placement_mode="manual",
         )
-        strategy = OpeningRangeBreakout(
-            strategy_id=strategy_id,
-            params={
-                "range_minutes": 30,
-                "risk_per_trade_usd": float(cfg.get("riskPerTradeUsd", 100.0)),
-            },
-            risk=RiskLimits(max_position_value_usd=5_000.0, allow_short=False),
-        )
         engine = Engine(bus=bus, router=router)
-        engine.register_strategy(strategy, symbols=[symbol])
+
+        strategies_registered: list[tuple[str, str]] = []  # (name, strategy_id)
+        register_errors: list[dict] = []
+        for name in _INTRADAY_STRATEGY_NAMES:
+            sid = f"intraday-{name}-{symbol}"
+            try:
+                strat = build_strategy(
+                    name,
+                    strategy_id=sid,
+                    params={"risk_per_trade_usd": risk_per_trade},
+                )
+                strat.risk = RiskLimits(
+                    max_position_value_usd=5_000.0, allow_short=False,
+                )
+                engine.register_strategy(strat, symbols=[symbol])
+                strategies_registered.append((name, sid))
+            except Exception as e:  # noqa: BLE001 — one bad strategy shouldn't kill the run
+                log.warning("strategy %s for %s failed to register: %s", name, symbol, e)
+                register_errors.append({"strategy": name, "error": str(e)})
+
+        if not strategies_registered:
+            return {
+                "symbol": symbol,
+                "ok": False,
+                "started_at": started_at.isoformat(),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "error": "no strategies registered",
+                "register_errors": register_errors,
+            }
+
         asyncio.run(engine.run(started_at))
         snap = engine.ledger.to_snapshot(include_fills=True)
-        # Pull the per-strategy slice — the snapshot covers every
-        # strategy in the engine; we only ever register one here.
-        book = (snap.get("books") or {}).get(strategy_id) or {}
+        books = snap.get("books") or {}
+
+        per_strategy = []
+        for name, sid in strategies_registered:
+            book = books.get(sid) or {}
+            per_strategy.append({
+                "strategy": name,
+                "strategy_id": sid,
+                "fills": len(book.get("fills") or []),
+                "open_positions": len(book.get("positions") or []),
+                "realized_pnl_usd": book.get("realized_pnl_usd"),
+                "unrealized_pnl_usd": book.get("unrealized_pnl_usd"),
+            })
+
         return {
             "symbol": symbol,
             "ok": True,
             "started_at": started_at.isoformat(),
             "finished_at": datetime.now(timezone.utc).isoformat(),
-            "fills": len(book.get("fills") or []),
-            "open_positions": len(book.get("positions") or []),
-            "realized_pnl_usd": book.get("realized_pnl_usd"),
+            "strategies": per_strategy,
+            "register_errors": register_errors,
         }
     except Exception as e:  # noqa: BLE001
         log.exception("symbol %s failed", symbol)

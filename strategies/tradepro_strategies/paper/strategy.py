@@ -77,7 +77,12 @@ class Order:
     strategy writes — required so every fill traces back to a reason.
 
     Stop / limit prices are only consulted when `type` requires
-    them; we don't enforce that here (engine does)."""
+    them; we don't enforce that here (engine does).
+
+    The trailing `risk_*` + `confidence` fields are advisory metadata
+    the strategy declares for downstream consumers (Task #69 intraday
+    gate, hit-rate logger, audit). They never affect routing on their
+    own — the pre-trade gate is the one that reads them."""
     strategy_id: str
     symbol: str
     side: OrderSide
@@ -91,6 +96,15 @@ class Order:
     submitted_at: datetime | None = None
     # Optional good-til; None = day order, expires at session close
     good_til: datetime | None = None
+    # Advisory metadata for the pre-trade gate / audit (see Task #69
+    # step E). `risk_stop_price` and `risk_target_price` are the
+    # strategy's intended stop-loss and take-profit reference levels
+    # (distinct from the stop_price field, which means "this is a
+    # stop-order TYPE"). `confidence` is the strategy's self-rated
+    # probability of the entry working out, in [0, 1].
+    risk_stop_price: float | None = None
+    risk_target_price: float | None = None
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)
