@@ -24,9 +24,26 @@ interface PaperSettings {
   placementMode: PlacementMode;
 }
 
+interface IntradayGate {
+  minRiskRewardRatio: number;
+  maxSpreadPct: number;
+  minConfidence: number;
+}
+
+interface IntradaySettings {
+  symbols: string[];
+  scanIntervalMinutes: number;
+  sessionStartUtc: string;
+  sessionEndUtc: string;
+  gate: IntradayGate;
+  autoPlaceConfidenceThreshold: number;
+  riskPerTradeUsd: number;
+}
+
 interface AppSettings {
   sentiment: SentimentSettings;
   paper?: PaperSettings;
+  intraday?: IntradaySettings;
   updatedAtUtc: string;
 }
 
@@ -40,10 +57,26 @@ const DEFAULT_PAPER: PaperSettings = {
   placementMode: "manual",
 };
 
+const DEFAULT_INTRADAY: IntradaySettings = {
+  symbols: [],
+  scanIntervalMinutes: 1,
+  sessionStartUtc: "13:30",
+  sessionEndUtc: "20:00",
+  gate: {
+    minRiskRewardRatio: 2.0,
+    maxSpreadPct: 0.3,
+    minConfidence: 0.70,
+  },
+  autoPlaceConfidenceThreshold: 0.85,
+  riskPerTradeUsd: 100,
+};
+
 export function Settings() {
   const [data, setData] = useState<AppSettings | null>(null);
   const [draftSentiment, setDraftSentiment] = useState<SentimentSettings>(DEFAULT_SENTIMENT);
   const [draftPaper, setDraftPaper] = useState<PaperSettings>(DEFAULT_PAPER);
+  const [draftIntraday, setDraftIntraday] = useState<IntradaySettings>(DEFAULT_INTRADAY);
+  const [symbolInput, setSymbolInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -55,6 +88,7 @@ export function Settings() {
         setData(d);
         setDraftSentiment(d.sentiment);
         setDraftPaper(d.paper ?? DEFAULT_PAPER);
+        setDraftIntraday(d.intraday ?? DEFAULT_INTRADAY);
       })
       .catch((e) => setError(`Couldn't load settings: ${e}`));
   }, []);
@@ -64,7 +98,8 @@ export function Settings() {
     || data.sentiment.meanSentimentThreshold !== draftSentiment.meanSentimentThreshold
     || data.sentiment.minMaterialNegativeCount !== draftSentiment.minMaterialNegativeCount
     || data.sentiment.lookbackDays !== draftSentiment.lookbackDays
-    || (data.paper?.placementMode ?? DEFAULT_PAPER.placementMode) !== draftPaper.placementMode;
+    || (data.paper?.placementMode ?? DEFAULT_PAPER.placementMode) !== draftPaper.placementMode
+    || JSON.stringify(data.intraday ?? DEFAULT_INTRADAY) !== JSON.stringify(draftIntraday);
 
   async function save() {
     setSaving(true);
@@ -79,6 +114,7 @@ export function Settings() {
         body: JSON.stringify({
           sentiment: draftSentiment,
           paper: draftPaper,
+          intraday: draftIntraday,
           updatedAtUtc: new Date().toISOString(),
         }),
       });
@@ -90,6 +126,7 @@ export function Settings() {
       setData(fresh);
       setDraftSentiment(fresh.sentiment);
       setDraftPaper(fresh.paper ?? DEFAULT_PAPER);
+      setDraftIntraday(fresh.intraday ?? DEFAULT_INTRADAY);
       setSavedAt(new Date().toLocaleTimeString());
     } catch (e) {
       setError(String(e));
@@ -102,6 +139,7 @@ export function Settings() {
     if (data) {
       setDraftSentiment(data.sentiment);
       setDraftPaper(data.paper ?? DEFAULT_PAPER);
+      setDraftIntraday(data.intraday ?? DEFAULT_INTRADAY);
     }
   }
 
@@ -201,23 +239,6 @@ export function Settings() {
           headlines.
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button
-            className="primary"
-            onClick={save}
-            disabled={!dirty || saving}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button onClick={reset} disabled={!dirty || saving}>
-            Reset
-          </button>
-          {data && (
-            <span style={{ marginLeft: "auto", color: "var(--text-muted)", fontSize: 11 }}>
-              Last updated: {new Date(data.updatedAtUtc).toLocaleString()}
-            </span>
-          )}
-        </div>
       </section>
 
       <section className="card" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -274,14 +295,292 @@ export function Settings() {
         </div>
       </section>
 
+      <section className="card" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 16 }}>Intraday automation</h2>
+          <p style={{ margin: "4px 0 0 0", color: "var(--text-dim)", fontSize: 13 }}>
+            Knobs the continuous-mode engine reads on every scan cycle.
+            Change them live — no Mac restart needed. The engine only
+            runs during the session window and only fires an order when
+            ALL three pre-trade gate conditions pass.
+          </p>
+        </div>
+
+        <Field
+          label="Watchlist"
+          help="Tickers being scanned. Press Enter or comma to add. Click × to remove. Leave empty to pause the engine without touching the rest of the config."
+        >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+            {draftIntraday.symbols.length === 0 && (
+              <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                Empty — engine will skip every scan until you add a symbol.
+              </span>
+            )}
+            {draftIntraday.symbols.map((s) => (
+              <span
+                key={s}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "3px 10px",
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 12,
+                  fontSize: 12,
+                  fontFamily: "var(--mono, monospace)",
+                }}
+              >
+                {s}
+                <button
+                  type="button"
+                  onClick={() => setDraftIntraday({
+                    ...draftIntraday,
+                    symbols: draftIntraday.symbols.filter((x) => x !== s),
+                  })}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    padding: 0,
+                    fontSize: 14,
+                    lineHeight: 1,
+                  }}
+                  aria-label={`Remove ${s}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <input
+            type="text"
+            value={symbolInput}
+            placeholder="e.g. AAPL"
+            onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                const next = symbolInput.trim().replace(/,$/, "");
+                if (next && !draftIntraday.symbols.includes(next)) {
+                  setDraftIntraday({
+                    ...draftIntraday,
+                    symbols: [...draftIntraday.symbols, next],
+                  });
+                }
+                setSymbolInput("");
+              }
+            }}
+            style={{ width: 160, textTransform: "uppercase" }}
+          />
+        </Field>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <Field
+            label="Scan interval (minutes)"
+            help="How often the engine evaluates each watched symbol. 1 = every minute (default). Higher = lower noise, lower fill rate."
+          >
+            <input
+              type="number"
+              min={1}
+              max={60}
+              step={1}
+              value={draftIntraday.scanIntervalMinutes}
+              onChange={(e) => setDraftIntraday({
+                ...draftIntraday,
+                scanIntervalMinutes: Number(e.target.value),
+              })}
+              style={{ width: 100 }}
+            />
+          </Field>
+
+          <Field
+            label="Risk per trade (USD)"
+            help="Position size is set so a stop-loss hit costs at most this much. Lower = smaller positions."
+          >
+            <input
+              type="number"
+              min={1}
+              step={5}
+              value={draftIntraday.riskPerTradeUsd}
+              onChange={(e) => setDraftIntraday({
+                ...draftIntraday,
+                riskPerTradeUsd: Number(e.target.value),
+              })}
+              style={{ width: 100 }}
+            />
+          </Field>
+
+          <Field
+            label="Session start (UTC)"
+            help="HH:mm. Engine sleeps before this time. Default 13:30 = US market open during DST."
+          >
+            <input
+              type="time"
+              value={draftIntraday.sessionStartUtc}
+              onChange={(e) => setDraftIntraday({
+                ...draftIntraday,
+                sessionStartUtc: e.target.value,
+              })}
+              style={{ width: 120 }}
+            />
+          </Field>
+
+          <Field
+            label="Session end (UTC)"
+            help="HH:mm. Engine stops after this time. Default 20:00 = US market close during DST."
+          >
+            <input
+              type="time"
+              value={draftIntraday.sessionEndUtc}
+              onChange={(e) => setDraftIntraday({
+                ...draftIntraday,
+                sessionEndUtc: e.target.value,
+              })}
+              style={{ width: 120 }}
+            />
+          </Field>
+        </div>
+
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Pre-trade gate</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
+            ALL three must pass before the engine even considers placing the order.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+            <Field
+              label="Min R:R ratio"
+              help="Reward / risk. 2.0 means the take-profit target is at least 2× the stop-loss distance."
+            >
+              <input
+                type="number"
+                min={0.5}
+                step={0.1}
+                value={draftIntraday.gate.minRiskRewardRatio}
+                onChange={(e) => setDraftIntraday({
+                  ...draftIntraday,
+                  gate: { ...draftIntraday.gate, minRiskRewardRatio: Number(e.target.value) },
+                })}
+                style={{ width: 90 }}
+              />
+            </Field>
+
+            <Field
+              label="Max spread (%)"
+              help="Bid/ask spread as % of mid price. Skip the trade if wider — execution will eat too much."
+            >
+              <input
+                type="number"
+                min={0}
+                step={0.05}
+                value={draftIntraday.gate.maxSpreadPct}
+                onChange={(e) => setDraftIntraday({
+                  ...draftIntraday,
+                  gate: { ...draftIntraday.gate, maxSpreadPct: Number(e.target.value) },
+                })}
+                style={{ width: 90 }}
+              />
+            </Field>
+
+            <Field
+              label="Min confidence"
+              help="Strategy emitter's confidence in [0, 1]. Skip if below."
+            >
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={draftIntraday.gate.minConfidence}
+                onChange={(e) => setDraftIntraday({
+                  ...draftIntraday,
+                  gate: { ...draftIntraday.gate, minConfidence: Number(e.target.value) },
+                })}
+                style={{ width: 90 }}
+              />
+            </Field>
+          </div>
+        </div>
+
+        <Field
+          label="Auto-place confidence threshold"
+          help="Orders at or above this confidence go straight to T212 demo. Below it, they queue as Pending for human Approve/Reject. Range: 0 to 1."
+        >
+          <input
+            type="number"
+            min={0}
+            max={1}
+            step={0.05}
+            value={draftIntraday.autoPlaceConfidenceThreshold}
+            onChange={(e) => setDraftIntraday({
+              ...draftIntraday,
+              autoPlaceConfidenceThreshold: Number(e.target.value),
+            })}
+            style={{ width: 100 }}
+          />
+        </Field>
+
+        <div
+          style={{
+            padding: "10px 12px",
+            background: "rgba(255,255,255,0.04)",
+            borderLeft: "3px solid var(--neutral)",
+            borderRadius: 4,
+            fontSize: 12,
+            color: "var(--text-dim)",
+          }}
+        >
+          <strong style={{ color: "var(--text)" }}>Active rule (preview):</strong>{" "}
+          Scan {draftIntraday.symbols.length} symbol{draftIntraday.symbols.length === 1 ? "" : "s"}
+          {" "}every {draftIntraday.scanIntervalMinutes}m between
+          {" "}{draftIntraday.sessionStartUtc}–{draftIntraday.sessionEndUtc} UTC.
+          Place only if R:R ≥ {draftIntraday.gate.minRiskRewardRatio}
+          {" "}AND spread &lt; {draftIntraday.gate.maxSpreadPct}%
+          {" "}AND confidence ≥ {draftIntraday.gate.minConfidence}.
+          Auto-place when confidence ≥ {draftIntraday.autoPlaceConfidenceThreshold}, else queue.
+        </div>
+      </section>
+
       <section className="card" style={{ padding: "14px 18px", color: "var(--text-dim)", fontSize: 12 }}>
         <strong style={{ color: "var(--text)" }}>Coming soon:</strong>{" "}
-        editable watchlists, custom regime windows, fee-model presets per
-        broker, LLM model selection. See{" "}
+        per-strategy enable/disable + params, custom regime windows, fee-model
+        presets per broker, LLM model selection. See{" "}
         <a href="https://github.com/sunnylnct007/tradepro/blob/main/ROADMAP.md" target="_blank" rel="noreferrer" style={{ color: "var(--text)" }}>
           ROADMAP → Phase 7
         </a>.
       </section>
+
+      <div
+        style={{
+          position: "sticky",
+          bottom: 0,
+          background: "var(--bg)",
+          borderTop: "1px solid var(--border)",
+          padding: "12px 0",
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+          zIndex: 5,
+        }}
+      >
+        <button className="primary" onClick={save} disabled={!dirty || saving}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button onClick={reset} disabled={!dirty || saving}>
+          Reset
+        </button>
+        {dirty && !saving && (
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            Unsaved changes
+          </span>
+        )}
+        {data && (
+          <span style={{ marginLeft: "auto", color: "var(--text-muted)", fontSize: 11 }}>
+            Last updated: {new Date(data.updatedAtUtc).toLocaleString()}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

@@ -104,8 +104,8 @@ jobs:
                 "docker compose -f docker-compose.aws.yaml pull > /tmp/tradepro-pull.log 2>&1 && tail -12 /tmp/tradepro-pull.log",
                 "echo === docker compose up ===",
                 "docker compose -f docker-compose.aws.yaml up -d --remove-orphans --force-recreate > /tmp/tradepro-up.log 2>&1 && tail -20 /tmp/tradepro-up.log",
-                "echo === docker ps ===",
-                "docker ps --format '{{.Names}}\\t{{.Status}}'",
+                "echo === docker compose ps ===",
+                "docker compose -f docker-compose.aws.yaml ps",
                 "docker image prune -f > /dev/null 2>&1 || true"
               ]
             }' > /tmp/ssm-params.json

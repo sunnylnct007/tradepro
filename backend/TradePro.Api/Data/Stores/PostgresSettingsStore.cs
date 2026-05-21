@@ -54,6 +54,10 @@ public sealed class PostgresSettingsStore : ISettingsStore
         {
             parsed = parsed with { Paper = AppSettingsDefaults.Build().Paper };
         }
+        if (parsed.Intraday is null)
+        {
+            parsed = parsed with { Intraday = AppSettingsDefaults.Build().Intraday };
+        }
         return parsed;
     }
 
