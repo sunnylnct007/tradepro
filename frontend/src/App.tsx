@@ -1,6 +1,7 @@
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
 import { Layout } from "./components/Layout";
+import { TradingModeProvider } from "./contexts/TradingMode";
 import { Compare } from "./pages/Compare";
 import { PaperBacktest } from "./pages/PaperBacktest";
 import { Dashboard } from "./pages/Dashboard";
@@ -58,7 +59,9 @@ const router = createBrowserRouter([
 export default function App() {
   return (
     <AuthProvider>
-      <RouterProvider router={router} />
+      <TradingModeProvider>
+        <RouterProvider router={router} />
+      </TradingModeProvider>
     </AuthProvider>
   );
 }

@@ -21,6 +21,7 @@ import { HorizonPills } from "../components/HorizonPills";
 import { Info } from "../components/Info";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
 import { RiskPill } from "../components/RiskPill";
+import { ModeSubtitle } from "../components/ModePill";
 import { TrustDot, TrustLegend } from "../components/TrustDot";
 import { WorkerStatusBadge } from "../components/WorkerStatusBadge";
 
@@ -155,6 +156,9 @@ export function Compare() {
             HORIZON · MEDIUM TO LONG (weeks – years)
           </span>
         </div>
+        <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820, fontSize: 13, fontStyle: "italic" }}>
+          <ModeSubtitle k="decide_intro" />
+        </p>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 820 }}>
           For long-horizon (months-to-years) investing. Each asset in the
           selected universe — ETF (e.g. <code>etf_us_core</code>) or
