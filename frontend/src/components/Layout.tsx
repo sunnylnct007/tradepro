@@ -16,6 +16,7 @@ const primaryNav: { to: string; label: string; end?: boolean }[] = [
   { to: "/signals", label: "Research" },
   { to: "/simulations", label: "Backtest" },
   { to: "/paper-backtest", label: "Paper" },
+  { to: "/intraday/leaderboard", label: "Intraday" },
   { to: "/documents", label: "Docs" },
 ];
 

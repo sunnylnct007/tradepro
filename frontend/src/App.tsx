@@ -9,6 +9,7 @@ import { Documents } from "./pages/Documents";
 import { HealthPage } from "./pages/HealthPage";
 import { Help } from "./pages/Help";
 import { HelpTopic } from "./pages/HelpTopic";
+import { IntradayLeaderboard } from "./pages/IntradayLeaderboard";
 import { Portfolio } from "./pages/Portfolio";
 import { Scanner } from "./pages/Scanner";
 import { Settings } from "./pages/Settings";
@@ -40,6 +41,11 @@ const router = createBrowserRouter([
       { path: "symbol/:ticker", element: <SymbolDeepDive /> },
       { path: "simulations", element: <Simulations /> },
       { path: "paper-backtest", element: <PaperBacktest /> },
+      // Intraday strategy leaderboard — per-(symbol, strategy)
+      // cumulative P&L rolled up from completed session_requests.
+      // Powers the "did this strategy actually make money on this
+      // symbol" question. See Task #69 phase 2.
+      { path: "intraday/leaderboard", element: <IntradayLeaderboard /> },
       { path: "charts", element: <Dashboard /> },
       { path: "health", element: <HealthPage /> },
       { path: "settings", element: <Settings /> },

@@ -145,6 +145,7 @@ builder.Services.AddSingleton<IPaperStrategiesStore, PostgresPaperStrategiesStor
 builder.Services.AddSingleton<IPaperSnapshotStore, PostgresPaperSnapshotStore>();
 builder.Services.AddSingleton<IPendingOrdersStore, PostgresPendingOrdersStore>();
 builder.Services.AddSingleton<ISessionRequestsStore, PostgresSessionRequestsStore>();
+builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderboardStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills
 // all leave a trail. See VISION.md Principle 3.

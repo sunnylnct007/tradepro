@@ -2,6 +2,8 @@ using System.Text.Json;
 using TradePro.Api.Auth;
 using TradePro.Api.Data.Stores;
 using TradePro.Api.Simulation;
+// IIntradayLeaderboardStore lives in TradePro.Api.Data.Stores too;
+// the using above covers it.
 
 namespace TradePro.Api.Endpoints;
 
@@ -64,6 +66,13 @@ public static class OpsEndpoints
                 ? Results.NotFound(new { error = $"no session with id {requestId}" })
                 : Results.Ok(Envelope(req));
         });
+
+        // Per-(symbol, strategy) leaderboard rolled up over every
+        // completed intraday session. Answers "if I'd used strategy X
+        // on symbol Y, would it have made money?" from the data the
+        // engine has already been writing into session_requests.
+        group.MapGet("/leaderboard", (IIntradayLeaderboardStore store) =>
+            Results.Ok(store.Build()));
 
         return app;
     }
