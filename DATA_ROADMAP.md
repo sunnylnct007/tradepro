@@ -1,0 +1,555 @@
+# TradePro — Data Coverage Roadmap
+
+External reviewer feedback (May 2026): TradePro has strong methodology
+(ensemble voting, regime-aware backtests, transparency) but is missing
+load-bearing data points a serious trading platform needs. This doc
+inventories every data category, marks what we have, what's missing,
+and sequences the close-the-gap work.
+
+> Companion to `ROADMAP.md` — that file owns shipping order; this file
+> owns the **data shape** that every shipping phase needs to consume.
+
+**Legend**
+- ✅ Shipped + production-quality
+- 🟡 Partial — some data, gaps in coverage / freshness / accuracy
+- 🔴 Missing entirely
+- 💰 Cost notes: free / paid / "talk to vendor"
+
+---
+
+## How to read this doc
+
+Each category has four sub-sections:
+
+1. **Why it matters** — the decisions this data feeds. If a category
+   doesn't change a verdict, we don't add it.
+2. **What we have today** — current sources + freshness + coverage.
+3. **What's missing** — specific data points + their downstream
+   consumer (which strategy / view needs them).
+4. **Provider + cost shortlist** — vendors evaluated, ranked by
+   $/leverage. Always at least one free option even if quality is
+   degraded — for users who can't justify paid feeds yet.
+
+The categories below are roughly ordered by **decision impact per $**
+— top of list = biggest correct-decision lift for least effort/cost.
+
+---
+
+## 1. Pricing & quotes — daily bars
+
+**Why it matters.** Every strategy, every regime calc, every backtest
+reads this. Wrong prices = wrong everything; this MUST be the most
+robust feed in the stack.
+
+**What we have today**
+- ✅ Yahoo Finance (free, free-tier quota) — primary daily-bar source.
+  Adjusted + unadjusted close, OHLC, volume, dividends, splits.
+- ✅ EODHD EOD All World (€19.99/mo) — secondary; planned consensus
+  validation per Phase 6.8.
+- ✅ Auto-fallback chain: yfinance → Finnhub → Stooq, with logging.
+- ✅ Split & dividend adjustments — adjusted-close used for trend
+  math; unadjusted for trade simulation.
+
+**What's missing**
+- 🟡 **Multi-exchange coverage gaps.** Yahoo's UK and EU coverage
+  is patchy: `VGGS.L` works but `VGGS` 404s (user typed without `.L`
+  and got 7 strategy failures). Need: a symbol-resolution layer that
+  knows "VGGS" on UK = "VGGS.L" on Yahoo, and falls back to other
+  providers if one source is missing.
+- 🟡 **Adjusted-close discrepancies between providers.** A single
+  reverse-stock-split can put Yahoo's adj_close 5% off Stooq's for
+  weeks. Phase 6.8 multi-source consensus catches this — not yet
+  wired into the comparator critical path.
+- 🔴 **Pre/post-market quotes.** Trading platforms need extended-hours
+  pricing to evaluate gap risk before a 9:30 ET open. Currently
+  absent entirely.
+- 🔴 **ADR / local-share cross-references.** BABA ADR vs 9988.HK
+  local share — same underlying, different supply/demand. Reviewer
+  caught this in the BABA case study. Need an `instrument_link`
+  table.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| Yahoo + Stooq (current) | Free | Best free combo; gaps in EU, no pre/post-market |
+| EODHD EOD All World | €19.99/mo | Wider EU coverage, pre/post-market on US |
+| Tiingo | $10/mo IEX feed | US-only but cleaner adjustments |
+| Polygon.io stocks starter | $30/mo | US tick + 1m, no EU |
+| Alpaca | Free w/ broker | US-only, real-time when integrated |
+
+**Sequencing**
+- 6.8a (next) — wire EODHD into the consensus layer, surface per-bar
+  quality flags on the row.
+- 6.8b — symbol-resolution layer ("VGGS → VGGS.L on UK exchange").
+- 7.1 — pre/post-market quotes for gap-risk on holdings.
+
+---
+
+## 2. Pricing & quotes — intraday ticks
+
+**Why it matters.** Intraday automation (Task #69) needs real
+1m / tick bars to evaluate ORB / VWAP / Bollinger entries. Today the
+engine uses Yahoo intraday which is replay-only and hit-or-miss.
+
+**What we have today**
+- 🟡 `YfinanceIntradayBus` — fetches one full session's bars then
+  replays. Hit rate low: in this session's smoke test, AAPL returned
+  0 bars during US market hours.
+- 🔴 No live tick stream. No bid/ask. No order-book depth.
+
+**What's missing**
+- 🔴 **Reliable 1m bars** for the live US session.
+- 🔴 **Streaming** so the engine doesn't pre-fetch then replay.
+- 🔴 **Bid/ask spread.** The pre-trade gate's `maxSpreadPct` check
+  is currently inert because no spread is available — it's a config
+  field with no input.
+- 🔴 **Volume profile / cumulative volume delta** — needed for VWAP
+  strategies to fire accurately.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| Polygon.io stocks starter | $30/mo | US: tick + 1m + L1 quotes. Best $/feature. |
+| Alpaca Market Data | Free w/ broker | US-only, real-time once we have an account |
+| IEX Cloud | $9/mo (Launch) | Limited free tier, US-only |
+| IBKR (live account) | Free w/ funded account | US + global, requires gateway |
+| Trading 212 stream | N/A | T212 has no public market-data stream |
+
+**Sequencing**
+- 7.2 — wire Polygon.io intraday. Pre-trade gate's spread + R/R
+  inputs become real numbers. **Prerequisite for trusting auto-place.**
+- 7.3 — backtest validator over 30 days of Polygon ticks per
+  watchlisted symbol. Gates Task #69's auto-place rollout.
+
+---
+
+## 3. Fundamentals & valuation
+
+**Why it matters.** A "BUY on Lucid because price dipped 30%" recommendation
+is wrong if you don't see the cash burn / dilution / declining revenue.
+This is the biggest current gap vs Stock Rover / Morningstar.
+
+**What we have today**
+- 🟡 `valuation_flag` — basket-relative cheap / fair / expensive
+  using P/E (stocks) or dividend yield (ETFs). Honest but coarse.
+- 🟡 Forward P/E from Finnhub on Compare row.
+- 🟡 Dividend yield, expense ratio (ETFs), holdings count.
+
+**What's missing**
+- 🔴 **Full income statement** (annual + quarterly) — revenue, gross
+  margin, operating margin, net income, EPS basic + diluted.
+- 🔴 **Balance sheet** (annual + quarterly) — total assets, total
+  debt, cash, working capital, book value per share, share count.
+- 🔴 **Cash flow** (annual + quarterly) — operating CF, free CF,
+  capex, buybacks, dividends paid.
+- 🔴 **Multi-period growth metrics** — revenue CAGR 3y/5y, EPS
+  growth, gross-margin trend.
+- 🔴 **Valuation ratios beyond P/E**: P/B, P/S, EV/EBITDA, EV/Sales,
+  FCF yield, PEG.
+- 🔴 **Quality scores**: ROIC, ROE, ROA, debt/equity, current ratio,
+  interest coverage, Altman Z-score, Piotroski F-score.
+- 🔴 **Historical valuation context**: current P/E vs 5-year avg /
+  vs sector / vs index. Resolves the "is 30 P/E expensive?" question
+  without arbitrary thresholds.
+- 🔴 **Per-share metrics history**: EPS, BVPS, FCF/share, sales/share
+  — for trend analysis.
+- 🔴 **Dividend history + sustainability**: payout ratio, FCF
+  coverage, dividend-aristocrat status, cuts.
+- 🔴 **Share-count history** — dilution detection (key for tech
+  growth stories) + buyback tracking.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| Finnhub Pro | $50/mo | Has most of the above; weaker on history depth |
+| SimplyWall.St API | $30-80/mo | Snowflake scores + 10y history |
+| FMP (Financial Modeling Prep) | $14-49/mo | Best $/coverage for ratios |
+| Stock Analysis API | $59/mo | Very deep history, clean schema |
+| EODHD Fundamentals | €29.99/mo | Bundles with our existing EODHD sub |
+| Tiingo Fundamentals | $30/mo | Quarterly history, US-focused |
+
+**Sequencing**
+- 8.1 (Phase 6.12) — pick provider, ingest "core 8": revenue, net
+  income, FCF, share count, total debt, cash, ROE, gross margin.
+  Per-quarter for the last 12Q.
+- 8.2 — add valuation-vs-history (current P/E vs 5y avg) — kills
+  the "30 P/E is bad" arbitrary thresholding.
+- 8.3 — Piotroski F-score / Altman Z-score as composite quality
+  flags. Surface on Symbol Deep Dive.
+- 8.4 — dividend sustainability (payout ratio trajectory + FCF
+  coverage) for income-strategy fans.
+
+---
+
+## 4. Earnings & guidance
+
+**Why it matters.** ~70% of single-name moves >5% happen on earnings.
+Trading the wrong side of earnings = the most expensive mistake
+retail makes.
+
+**What we have today**
+- 🟡 `historical_earnings` on row — reported dates, surprise%, EPS
+  actual + estimate. From Finnhub.
+- 🟡 `earnings_signal` family-4 strategy — beat-and-retreat verdict.
+- 🟡 Sparse next-earnings date (Section 7 of Deep Dive) — best-effort.
+
+**What's missing**
+- 🔴 **Reliable forward earnings calendar** — next print date,
+  ESTIMATED time of day, "before market open / after close".
+  Critical for "don't enter 3 days before earnings" rule.
+- 🔴 **Consensus EPS & revenue estimates** for the upcoming print.
+- 🔴 **Estimate revision trend** (last 4 weeks): "consensus has
+  been raised / cut 6 times in the last 30 days". Predictive.
+- 🔴 **Whisper number** — informal estimates above/below consensus.
+- 🔴 **Guidance changes** — when a company raises/cuts guidance
+  outside the print itself. Material price-mover.
+- 🔴 **Earnings-call sentiment** — LLM-summarised call tone +
+  forward-looking statements. Differentiator vs free tools.
+- 🔴 **Conference call schedule** — investor day, analyst day, etc.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| Finnhub Earnings Calendar | Free / $50 paid | Has dates + estimates; revisions in paid |
+| Benzinga Earnings API | $50/mo | Better revision history |
+| Estimize | $99/mo+ | Crowdsourced whisper numbers |
+| Refinitiv I/B/E/S | Talk to vendor | Gold-standard consensus, $$$ |
+| Seeking Alpha API | $49/mo | Call transcripts |
+
+**Sequencing**
+- 8.5 (Task #66) — forward earnings date on every Compare row.
+- 8.6 — consensus EPS + estimate revisions trend.
+- 8.7 — pre-earnings position-flatten rule wired into intraday
+  engine (configurable: "flatten X days before earnings").
+- 8.8 — call-transcript LLM summary on Symbol Deep Dive.
+
+---
+
+## 5. Analyst coverage
+
+**Why it matters.** Aggregate "the Street" view as a single conviction
+signal. Already partially wired — needs depth.
+
+**What we have today**
+- ✅ `external_consensus.target_mean` — analyst mean price target
+  on Compare row.
+- 🟡 Buy/Hold/Sell counts in `analyst_recommendations`.
+- 🔴 Upgrades/downgrades feed — Task #71 audit shows Finnhub is
+  dropping events (BABA upgrade missed).
+
+**What's missing**
+- 🔴 **Upgrade/downgrade feed reliability.** Audit task #71 open.
+- 🔴 **Target-price revision trend** — "12 analysts raised, 2 cut
+  in last 30 days". More signal than the current snapshot.
+- 🔴 **Per-analyst track record** — weight upgrades from analysts
+  with high hit rate. Differentiator.
+- 🔴 **Initiation coverage events** — "JPM initiates with OW" is
+  a discrete event with predictable post-event drift.
+- 🔴 **Buyside vs sellside split** — when fund-of-funds disagree
+  with the bulge-bracket consensus.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| Finnhub (current) | Free / paid | Reliability gap per task #71 |
+| TipRanks API | $35/mo | Per-analyst track records, gold for differentiation |
+| Benzinga Ratings | $30/mo | Cleanest upgrade/downgrade feed |
+| Refinitiv | Talk to vendor | Most complete, $$$ |
+
+**Sequencing**
+- 6.11 (Task #71) — fix the Finnhub upgrade-feed dropouts FIRST.
+- 8.9 — add TipRanks per-analyst track records.
+- 8.10 — target-revision-trend layer (gradient over time).
+
+---
+
+## 6. Macro & sector context
+
+**Why it matters.** A stock in a falling sector with a rising market
+behaves differently from one rising with both. Strategies that ignore
+context misfire systematically in regime changes.
+
+**What we have today**
+- 🔴 None. The comparator looks at the symbol in isolation.
+
+**What's missing**
+- 🔴 **Sector ETF performance** — XLF, XLK, XLE, etc. relative
+  strength and trend.
+- 🔴 **Industry classification** (GICS sector + industry) per
+  symbol — for peer grouping that's not hardcoded.
+- 🔴 **Market breadth** — % of S&P 500 above 200dma, advance/decline
+  line. Identifies thin rallies.
+- 🔴 **Yield curve** — 10y-2y spread, inversion duration. Macro
+  regime input.
+- 🔴 **VIX + term structure** — risk-on/off proxy.
+- 🔴 **DXY (dollar index)** — affects EM, multinationals.
+- 🔴 **Commodities**: oil, gold, copper — sector-relevant.
+- 🔴 **Fed policy state** — current rate, last change, dot-plot
+  forward path. From FRED.
+- 🔴 **Inflation prints** — CPI, PCE, with surprise vs consensus.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| FRED API | Free | Fed rates, inflation, yields, money supply. Gold standard. |
+| Yahoo (current) | Free | Has sector ETFs + VIX + DXY |
+| EODHD Economic Calendar | €19.99/mo | Adds the "scheduled event" layer |
+| Trading Economics | $50-200/mo | Calendar + history + forecasts |
+
+**Sequencing**
+- 9.1 — FRED ingest: 10y-2y, Fed funds, CPI. Surface on Symbol
+  Deep Dive header as a "macro context" pill.
+- 9.2 — sector ETF relative-strength per symbol's GICS sector.
+- 9.3 — market-breadth indicators on Decide page.
+
+---
+
+## 7. Sentiment & news
+
+**Why it matters.** Already shipped, but coverage + sources can deepen.
+
+**What we have today**
+- ✅ Finnhub news with LLM sentiment scoring.
+- ✅ Sentiment-driven BUY→WAIT demotion (configurable thresholds).
+- 🟡 Coverage gaps on UK / EU stocks (Finnhub US-biased).
+
+**What's missing**
+- 🔴 **Social-media sentiment**: Reddit (WSB, individual stock
+  subreddits), Twitter/X, StockTwits. Retail crowd activity is
+  predictive for meme-prone names.
+- 🔴 **Search-trend data** (Google Trends API) — broader interest
+  proxy, leads price moves on some categories.
+- 🔴 **Press-release feed** — corporate announcements that don't
+  hit the news wire (8-K filings, dividend announcements).
+- 🔴 **EU/UK news depth** — Yahoo/Finnhub thin on FTSE-listed
+  companies vs US.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| Finnhub (current) | Free / paid | US-strong, UK-weak |
+| StockTwits Free | Free | Retail sentiment, US |
+| RavenPack | Talk to vendor | Institutional-grade; $$$ |
+| NewsAPI.org | $0-449/mo | Broader EU coverage |
+| Pushshift Reddit | Free (rate-limited) | DIY social aggregation |
+
+**Sequencing**
+- 9.4 — StockTwits sentiment add-on.
+- 9.5 — NewsAPI for EU/UK coverage gap fill.
+
+---
+
+## 8. Microstructure
+
+**Why it matters.** Intraday execution quality. Needed once Task #69
+auto-place is live and we're getting real fills.
+
+**What we have today**
+- 🔴 None.
+
+**What's missing**
+- 🔴 **Bid/ask spread** — pre-trade gate's `maxSpreadPct` reads it.
+- 🔴 **Level-2 order book** — depth at each price level.
+- 🔴 **Trade prints / time & sales** — block-trade detection.
+- 🔴 **Dark pool prints** — TRF data, hints at institutional
+  positioning.
+- 🔴 **Short interest + days-to-cover** — squeeze risk.
+- 🔴 **Borrow availability + rate** — for any short-side strategy.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| Polygon.io stocks | $30-300/mo | L1 in starter, L2 in higher tiers |
+| Alpaca | Free w/ broker | L1, no L2 |
+| IBKR | Free w/ funded acct | L2 with subscription |
+| FINRA Short Volume | Free | Daily file; lags T+2 |
+| S3 Partners | Talk to vendor | Real-time borrow rate; $$$ |
+
+**Sequencing**
+- 7.4 — Polygon L1 quotes for spread (gates auto-place).
+- 10.1 — FINRA short volume daily ingest.
+- 10.2 (later) — L2 + dark prints, after auto-place is mature.
+
+---
+
+## 9. Risk & portfolio metrics
+
+**Why it matters.** Single-position recommendations are necessary but
+not sufficient. The Phase 2 (portfolio-aware) phase needs this layer.
+
+**What we have today**
+- ✅ Per-symbol stats (Sharpe, max drawdown, recovery time, CAGR).
+- 🔴 Cross-asset / portfolio-level risk metrics absent.
+
+**What's missing**
+- 🔴 **Beta** to a configurable benchmark (^SPX, ^FTSE).
+- 🔴 **Correlation matrix** across the holdings + watchlist.
+- 🔴 **Portfolio VaR / Expected Shortfall** at 95 / 99%.
+- 🔴 **Sector concentration metrics** — "you're 47% tech".
+- 🔴 **FX exposure** for non-base-currency holdings.
+- 🔴 **Volatility surface** (for any options layer later).
+
+**Provider shortlist**
+- All of these can be **computed in-house** from existing price data
+  — no new provider needed. Engineering work, not data spend.
+
+**Sequencing**
+- 11.1 (Phase 2) — beta + correlation matrix when the portfolio-
+  aware engine lands.
+- 11.2 — portfolio-VaR using historical simulation.
+
+---
+
+## 10. Catalyst / event awareness
+
+**Why it matters.** "BUY on dip" reasoning ignoring an FDA approval
+miss / SEC investigation / dividend cut is the institutional-tools
+gap reviewer flagged.
+
+**What we have today**
+- 🟡 Earnings calendar (sparse).
+- 🔴 Everything else.
+
+**What's missing**
+- 🔴 **FDA decision calendar** — biotechs.
+- 🔴 **Ex-dividend dates** — affects total return modelling.
+- 🔴 **M&A announcements** (SEC 8-K filings).
+- 🔴 **Investor-day / analyst-day calendar.**
+- 🔴 **Stock splits / reverse splits** — pricing-display issues.
+- 🔴 **Product-launch calendar** (manual / curated).
+- 🔴 **Regulatory events** — central bank meetings, OPEC meetings.
+
+**Provider shortlist**
+| Provider | Cost | Notes |
+|---|---|---|
+| Benzinga Catalyst API | $50-100/mo | FDA / M&A / splits in one feed |
+| EODHD Economic Calendar | €19.99/mo | Macro + corporate events bundled |
+| Estimize Calendar | Free / paid | Earnings + some corporate |
+| SEC EDGAR | Free | DIY 8-K parser; we have ROADMAP item for this |
+
+**Sequencing**
+- 12.1 — SEC EDGAR 8-K parser (already in ROADMAP).
+- 12.2 — Benzinga Catalyst for FDA + M&A.
+
+---
+
+## 11. Order, execution, and broker data
+
+**Why it matters.** Task #69 needs this to do real execution well.
+
+**What we have today**
+- ✅ Trading 212 demo + live integration (positions, orders).
+- ✅ Order pending-queue + Approve/Reject flow.
+- ✅ Event-sourced orders + fills + audit trail.
+
+**What's missing**
+- 🔴 **Trade-history reconciliation** — Mac engine fills vs T212's
+  actual fills. Today recorded at emit-close; T212's real fill
+  could differ.
+- 🔴 **Tax-lot accounting** — which lot is being sold (FIFO / LIFO /
+  HIFO). Matters for UK CGT.
+- 🔴 **Buying power / margin tracking** — multi-broker aggregation.
+- 🔴 **Slippage measurement** — tracking realised vs expected fill
+  to feed slippage models back into strategy sizing.
+- 🔴 **IBKR support** — currently stubbed.
+- 🔴 **Multi-currency portfolio view** — GBP + USD + EUR aggregated.
+
+**Sequencing**
+- 13.1 — T212 order-stream subscription for true fill prices.
+- 13.2 — IBKR live integration (already in registry as stub).
+- 13.3 — slippage telemetry per (strategy, symbol) pair.
+
+---
+
+## 12. Alternative / specialty data
+
+**Why it matters.** Mostly "nice to have" layer. Each is high-leverage
+in narrow situations.
+
+**What's missing**
+- 🔴 **ETF flows** (creations/redemptions) — strong leading indicator
+  on sector rotation.
+- 🔴 **13F filings** — institutional holdings, lagged.
+- 🔴 **Insider transactions** — Form 4 filings, near-real-time.
+- 🔴 **Web traffic / app downloads / sales-data feeds** (Sensor
+  Tower, Yipit) — leading economic indicators per company.
+- 🔴 **Credit-card transaction panels** (Earnest, Yipit) — retail
+  revenue nowcasts.
+- 🔴 **Satellite imagery** (parking lots, oil tanks) — institutional
+  edge.
+
+**Most of these are out of scope for retail.** Listed for completeness;
+the "useful for us" set is:
+
+- 14.1 — ETF flows for sector ETFs (FactSet has a $30-tier API).
+- 14.2 — Insider transactions (Form 4) — free via SEC EDGAR.
+- 14.3 — 13F lag-aggregation — free via SEC; quarterly.
+
+---
+
+## Massive roadmap — sequenced delivery plan
+
+Reading the categories above, the **highest-leverage / lowest-cost** set
+ranks like this:
+
+### Q3 2026 (next 3 months) — close the showstopper gaps
+
+| Phase | Scope | Cost | Effort |
+|---|---|---|---|
+| 6.11 | Fix Finnhub upgrade-feed dropouts (Task #71) | $0 | 1d |
+| 6.12 | Fundamentals core 8 + Piotroski + ratios (Phase 8.1-3) | $30/mo | 2 weeks |
+| 7.2 | Polygon.io intraday wired into Task #69 engine | $30/mo | 1 week |
+| 7.4 | L1 spread → pre-trade gate becomes real | included w/ 7.2 | 2 days |
+| 8.5 | Forward-earnings + estimate revisions (Phase 8.5-7) | $50/mo upgrade | 1 week |
+| 6.8 | Multi-source price consensus (Yahoo + EODHD + Stooq) | included w/ EODHD | 1 week |
+| 8.9 | TipRanks per-analyst track records | $35/mo | 1 week |
+| 9.1 | FRED macro context (rates, CPI, yields) | $0 | 3 days |
+| 6.8b | Symbol-resolution layer (VGGS → VGGS.L) | $0 | 2 days |
+
+**Q3 data-feed budget: ~$145/mo + €19.99/mo + €29.99/mo ≈ $200/mo.**
+Pays for itself if it prevents one bad trade per year.
+
+### Q4 2026 — defensive depth
+
+- 8.4 — dividend sustainability + buyback tracking
+- 9.4 — StockTwits sentiment
+- 12.1 — SEC EDGAR 8-K ingest (free)
+- 12.2 — Benzinga catalyst feed
+- 10.1 — FINRA short volume
+- 13.1 — T212 order-stream for true fills
+
+### 2027 — institutional-grade depth
+
+- L2 order book, dark pool prints
+- Earnings-call transcript LLM digest
+- ETF flows + 13F lag aggregation
+- Buyside/sellside analyst split
+
+---
+
+## Out of scope (for now)
+
+- Options chains + Greeks + IV surface — TradePro is equity-first.
+  Defer until a strategy needs them.
+- Cryptocurrency feeds — separate product surface.
+- Fixed income — institutional product.
+- FX — only as a portfolio aggregation problem, not a trading surface.
+
+---
+
+## Open data questions for the user
+
+Each of these blocks the relevant phase landing:
+
+1. **Q3 budget commit.** $200/mo is roughly the new spend to close
+   the showstopper gaps. Confirm before we sign up to providers.
+2. **Stocks vs ETFs priority.** Reviewer says fundamentals are the
+   gap to Stock Rover. But you've been mostly ETF-trading. Should
+   we prioritise stock fundamentals (Phase 8.1-3) or ETF-specific
+   data (holdings overlap, expense-trend, factor exposure)?
+3. **Real-time vs EOD.** Real-time intraday (Phase 7.2) is the
+   prerequisite for trustworthy auto-place. But if you're happy
+   with manual approval indefinitely, we can skip this entire
+   branch and save $30/mo.
+4. **UK-resident assumption.** Current data is US-heavy. Should
+   Phase 8.1 (fundamentals) prioritise FTSE 100 / FTSE 250 first?
