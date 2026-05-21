@@ -194,22 +194,146 @@ on this":
 | Verdict (BUY / WAIT / AVOID) | **Yes — but verify the bucket reason** | Recently bug-cleared; visible reason is the audit trail |
 | Top buy (when bucket = BUY) | **Yes** | Just a sort over verified verdicts |
 | Best sharpe / cagr ranking | **Yes** | Straightforward math, stable inputs |
+| Portfolio P&L (T212 columns) | **Yes** | T212's own numbers, displayed as-is |
+| Decision trace (Section 3) | **Yes** | Ground-truth audit log of every rule fire |
+| Conflict-surfacing UX (Section 4) | **Yes** | Pure UI over verified row data |
 | Swing score | **Read but don't lead with it** | Sub-score data gaps hide as 0; coverage isn't visible |
+| Portfolio "Today" column | **Read but spot-check** | Symbol-resolution failures show as "—" indistinguishable from "no universe match" |
 | Price target / R/R | **No** | Even after fix, no target shown for the common bullish case |
 | Sentiment-demotion banner | **Read as confirmation, not signal** | Coverage gaps on EU/UK |
+| Analyst upgrades feed | **No** | Finnhub dropping events (task #71) |
 | Intraday engine output | **No** | Manual mode only; bar data unreliable |
-| Symbol Deep Dive sections 5-10 | **Read for context** | Several sections still TODO |
+| Symbol Deep Dive Sections 8 / 9 | **N/A** | Placeholders — not built |
+
+---
+
+## Portfolio page
+
+### T212 connection chip + mode badge
+🟢 **Green.** Reads `resp.mode` direct from the integration health
+endpoint. Error states (401, 403, network) render specific
+remediation copy instead of silently claiming "no positions" (that
+gaslighting bug is already fixed).
+
+Source: `frontend/src/pages/Portfolio.tsx:ModeChip` + `backend/Providers/Trading212`
+
+### Per-position quantity / avg cost / current price
+🟢 **Green.** Reads T212's own portfolio endpoint verbatim. Numbers
+are whatever the broker says they are — trustworthy unless T212 is
+also wrong.
+
+### P&L % and abs
+🟢 **Green.** Same as above — calculated by T212, displayed as-is.
+
+### Position-count total
+🟢 **Green.** Trivially `positions.length`.
+
+### Total unrealised
+🟡 **Yellow.** Just `sum(p.unrealisedAbs ?? 0)`. Caveat: when
+T212 returns a position with a null `unrealisedAbs` (it does for
+fractional shares of certain ETFs, intermittently), it silently
+contributes 0 instead of "—". Total can therefore understate by a
+small amount.
+
+### "Today" verdict per holding
+🟡 **Yellow.** Just looks the position's symbol up in the best-
+ranked cached universe. Verdict cell inherits the Decide page's
+Yellow status. Specific Portfolio caveat:
+- Symbol resolution: `p.yahooSymbol ?? p.ticker` — if Yahoo and T212
+  disagree on the canonical symbol (common for ADRs, LSE-listed
+  ETFs), the lookup misses and shows "—" even when a verdict exists.
+- "—" today means "symbol not in any tracked universe" but ALSO
+  hides the case "verdict exists but resolver failed". User can't
+  tell which.
+
+**Promote to Green when:** resolver disambiguates "no universe match"
+from "symbol-mapping failure".
+
+### "Swing" column
+🟡 **Yellow.** Inherits Decide's swing-score caveats (sub-score
+data gaps render as 0 silently). On Portfolio this gets surfaced
+across every holding so the noise compounds.
+
+---
+
+## Symbol Deep Dive (page)
+
+The page has 10 spec'd sections. Today 7 are real, 3 are placeholders.
+
+### Section 1 — Header (symbol / price / current state)
+🟡 **Yellow.** Reads from the same cached compare row that drives
+Decide. Price + 52w-range + range_position trivially correct. But:
+- Doesn't show how old the cache is — user can't tell if they're
+  looking at today's number or yesterday's.
+
+**Promote to Green when:** cache-age stamp shown.
+
+### Section 2 — Verdict (big BUY/WAIT/AVOID badge)
+🟡 **Yellow.** Same verdict logic as Decide; inherits the same
+caveats. Plus: cross-strategy `in_position` count rendered next
+to the badge — a useful tell that the badge here doesn't have on
+the Decide page.
+
+### Section 3 — Decision trace
+🟢 **Green.** Just renders `row.market_state.decision_trace[]` —
+each rule's pass/fail/warn label + detail. The TRACE is the
+ground-truth audit log. If the verdict is wrong, the trace shows
+where; if the trace is wrong, the upstream rule is buggy (and that
+gets caught by the market_state regression suite).
+This is the single most-trustworthy surface in the app.
+
+### Section 4 — Strategy vote with explicit conflict surfacing
+🟢 **Green** (the conflict-surfacing UX, not the data).
+The whole "the long-term scorer says AVOID, the short-term says
+BUY — here's why" framing is the moat. Conflict detection is pure
+UI logic over the same row data the rest of the page uses.
+
+### Section 5 — News + sentiment
+🟡 **Yellow.** Latest headlines + per-item LLM sentiment score.
+Caveats:
+- Coverage gaps on UK / EU stocks (Finnhub thin outside US).
+- Sentiment score is from one LLM pass, no human validation.
+- No regression coverage on the news layer.
+
+### Section 6 — Analyst consensus (stacked bar)
+🔴 **Red on the upgrades feed.** Reviewer 2026-05-20 flagged
+Finnhub dropping upgrade events for ADRs (BABA upgrade missed).
+Task #71 open to audit + fix.
+🟡 **Yellow on the static consensus.** Strong-buy / buy / hold /
+sell counts + mean target price look correct against TipRanks for
+the symbols I've spot-checked, but no automated cross-check.
+
+### Section 7 — Earnings event risk
+🟡 **Yellow.** Shows next earnings date when present in the row.
+But:
+- Forward calendar is sparse — task #66 (forward earnings on every
+  row) hasn't shipped.
+- No "flatten before earnings" rule wired in.
+
+### Section 8 — Regime survival
+🔴 **Not built.** Placeholder; needs task #66 backend prep.
+
+### Section 9 — Peer comparison
+🔴 **Not built.** Placeholder; needs task #66 (symbol → tags map).
+
+### Section 10 — Hit rate
+🟡 **Yellow.** Per-strategy historical accuracy on this symbol.
+Fires parallel `/api/signals/hitrate` calls per strategy and sorts
+by Sharpe. Caveats:
+- Hit rate horizon is configurable but no documented choice on
+  what's the "right" lookback (task #67 open question).
+- No regression test pinning the hit-rate math.
 
 ---
 
 ## In-progress, not yet in this audit
 
 Pages that exist but haven't been audited line-by-line:
-- Portfolio
 - Backtest / Simulations
 - Paper page (live tab)
 - Charts
-- Symbol Deep Dive
+- Settings (just shipped Intraday block)
+- Intraday leaderboard (just shipped)
 
-Next audit pass will cover Portfolio + Symbol Deep Dive — those are
-the next-most-decision-load-bearing surfaces.
+Next audit pass: Backtest + Paper page + Settings. Then a UI pass to
+make the grades visible inline (small dots next to each metric).
