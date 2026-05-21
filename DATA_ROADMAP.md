@@ -487,6 +487,103 @@ the "useful for us" set is:
 
 ---
 
+## 13. LLM pipeline — two-phase financial language understanding
+
+**Why it matters.** Today's news-sentiment scoring uses a general
+LLM (Ollama-served), which is fine for "is this article bullish or
+bearish" but not for the finance-specific reasoning a trading
+platform should do (FOMC tone, earnings-call guidance language,
+8-K material-event classification).
+
+**Phase A — Ollama / general-purpose LLM (current).**
+- ✅ Local Ollama for news sentiment + Compare explainer banner.
+- 🟡 Quality: decent for blunt sentiment, weak on financial nuance
+  (mistakes "raised guidance" for neutral, can miss buried
+  language like "headwinds expected").
+- ✅ Free + on-device; no per-token cost.
+
+**Phase B — FinBERT (planned).**
+- 🔴 FinBERT (Hugging Face: `ProsusAI/finbert`) — BERT fine-tuned
+  on financial corpus. Classifier-style, not generative — returns
+  {positive, neutral, negative} with calibrated confidence on
+  financial language specifically. Better for sentiment classification.
+- Other domain models worth considering: FinGPT (instruction-
+  tuned for finance), DeBERTa-finance, Llama-finance variants.
+
+**What FinBERT needs (data inputs).**
+- 🟡 News headlines + bodies — have via Finnhub; UK/EU gap remains.
+- 🔴 SEC EDGAR 10-K / 10-Q / 8-K filings — text of recent material
+  events. Free; needs an ingest worker.
+- 🔴 Earnings-call transcripts — Seeking Alpha API ($49/mo) or
+  Refinitiv ($$$). Differentiator for forward-looking sentiment.
+- 🔴 Press releases — PR Newswire feed (paid) or SEC 8-K parser
+  (free, lagged).
+- 🟡 Existing news sentiment scoring stays on Ollama as the
+  baseline; FinBERT runs alongside as a separate score column so
+  we can A/B before promoting.
+
+**Sequencing**
+- 15.1 — Wire FinBERT as a second sentiment-scorer over the same
+  Finnhub news payload. Side-by-side scoring on the Compare row
+  (`sentiment_ollama` vs `sentiment_finbert`) so we can compare
+  on real data before deciding which to lead with. Local
+  inference; no new $$$.
+- 15.2 — SEC EDGAR 8-K ingest worker (free) → FinBERT classifies
+  material events as bullish / bearish / neutral. Feeds the
+  catalyst-flag layer (category 10).
+- 15.3 — Earnings-call transcript ingest (Seeking Alpha $49/mo)
+  + FinBERT per-segment classification. Surfaces "guidance
+  raised on Q3 call" type signal on the Deep Dive.
+- 15.4 — Ollama vs FinBERT divergence dashboard — when the two
+  models disagree on the same article, surface for human review.
+  Productionising one fine-tuned classifier without measuring
+  divergence is how silent regressions slip in.
+
+---
+
+## 14. Product UX — two distinct usability modes
+
+**Why it matters.** TradePro today mixes intraday signals + medium/
+long-term ETF picks on the same surfaces. Users in different modes
+want different defaults, different metrics, and different risk
+posture — but right now there's no top-level switch saying "I'm
+trading intraday today" vs "I'm investing for 3-5 years". User
+feedback 2026-05-21: "we need to ensure and make it visible 2 diff
+usability of tradepro. one the intraday trading and one medium and
+long term trading."
+
+**The split.**
+| Aspect | Intraday mode | Medium / Long-term mode |
+|---|---|---|
+| Default page | `/intraday/leaderboard` (just shipped) | `/compare` (Decide) |
+| Strategy menu | ORB, VWAP, Bollinger, MA crossover (1m bars) | SMA crossover, RSI mean-rev, MACD, Donchian, Ichimoku, Buy & Hold (daily bars) |
+| Timeframe | 1m / 5m | 1d / 1w |
+| Verdict horizon pills | "Today / this session" | "Swing 1-8w / Long-term 6-18mo / Passive 3-5y" |
+| Risk preset | Tight stop, per-trade $ cap, max 4hr hold | Position sizing, max drawdown tolerance |
+| Backtest window default | last 30 days | last 5 years |
+| Price-feed dependency | Polygon.io (intraday) | Yahoo / EODHD (EOD) |
+| Auth & approval flow | Pre-trade gate + auto-place threshold | Always manual; weekly review cadence |
+
+**Today.** Most surfaces serve the medium/long-term user. Intraday
+work is segregated under Settings → Intraday + `/intraday/leaderboard`.
+A user has to manually piece together what's relevant for each mode.
+
+**Sequencing**
+- 16.1 — Top-of-page mode switcher pill (Intraday / Long-term),
+  persisted in localStorage. Compare / Portfolio / Symbol Deep
+  Dive all read this and adjust their default tab / timeframe /
+  metric column selection. ~2 days.
+- 16.2 — Mode-aware defaults in Settings (per-mode strategy
+  toggles, per-mode risk presets). ~1 day.
+- 16.3 — Mode-aware decision-trace: long-term mode hides the
+  intraday-specific rule fires and vice versa. ~1 day.
+- 16.4 — Mode-aware backtest defaults (window length, tick
+  granularity). ~1 day.
+- 16.5 — Onboarding tour that asks "what kind of trading?" first
+  and sets the mode. ~0.5 day.
+
+---
+
 ## Massive roadmap — sequenced delivery plan
 
 Reading the categories above, the **highest-leverage / lowest-cost** set

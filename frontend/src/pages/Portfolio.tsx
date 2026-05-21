@@ -6,6 +6,7 @@ import type {
   CompareRow,
 } from "../api/types";
 import { api } from "../api/client";
+import { TrustDot, TrustLegend } from "../components/TrustDot";
 
 interface T212Position {
   ticker: string | null;
@@ -179,14 +180,17 @@ TRADEPRO_T212_API_SECRET=...`}</pre>
 
   return (
     <Frame>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
         <h1 style={{ margin: 0, fontSize: 22 }}>Your portfolio</h1>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-          T212 · <ModeChip mode={resp.mode} /> · {resp.positionCount} position{resp.positionCount === 1 ? "" : "s"} ·
+          T212 <TrustDot id="portfolio.t212_chip" /> · <ModeChip mode={resp.mode} /> · {resp.positionCount} position{resp.positionCount === 1 ? "" : "s"} ·
           {" "}<span style={{ color: totalUnrealised >= 0 ? "var(--up)" : "var(--down)", fontWeight: 600 }}>
             {totalUnrealised >= 0 ? "+" : ""}{totalUnrealised.toFixed(2)} {ccy}
-          </span> unrealised
+          </span> unrealised<TrustDot id="portfolio.total_unrealised" />
         </div>
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <TrustLegend />
       </div>
 
       <div style={{ overflowX: "auto" }}>
@@ -197,10 +201,10 @@ TRADEPRO_T212_API_SECRET=...`}</pre>
               <Th align="right">Qty</Th>
               <Th align="right">Avg cost</Th>
               <Th align="right">Now</Th>
-              <Th align="right">P&amp;L %</Th>
+              <Th align="right">P&amp;L %<TrustDot id="portfolio.pnl_cells" /></Th>
               <Th align="right">P&amp;L abs</Th>
-              <Th align="center">Today</Th>
-              <Th align="center">Swing</Th>
+              <Th align="center">Today<TrustDot id="portfolio.today_verdict" /></Th>
+              <Th align="center">Swing<TrustDot id="portfolio.swing_mini" /></Th>
             </tr>
           </thead>
           <tbody>

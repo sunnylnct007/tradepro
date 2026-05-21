@@ -21,6 +21,7 @@ import { HorizonPills } from "../components/HorizonPills";
 import { Info } from "../components/Info";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
 import { RiskPill } from "../components/RiskPill";
+import { TrustDot, TrustLegend } from "../components/TrustDot";
 import { WorkerStatusBadge } from "../components/WorkerStatusBadge";
 
 /** "Should I invest today, and if yes, in what?" page.
@@ -869,6 +870,9 @@ function StrategyMatrix({
           Cell = is the strategy currently long this asset (last fired BUY newer than its last SELL)?
           Click a row to see why and the regime history.
         </span>
+        <span style={{ marginLeft: "auto" }}>
+          <TrustLegend />
+        </span>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -881,11 +885,21 @@ function StrategyMatrix({
                   {stratHeader(s.label)}
                 </Th>
               ))}
-              <Th align="center" help="strategy_vote">Vote</Th>
-              <Th align="center" help="entry_signal">Verdict</Th>
-              <Th align="center" help="swing_score">Swing</Th>
+              <Th align="center" help="strategy_vote">
+                Vote
+                <TrustDot id="decide.strategy_cell" />
+              </Th>
+              <Th align="center" help="entry_signal">
+                Verdict
+                <TrustDot id="decide.verdict" />
+              </Th>
+              <Th align="center" help="swing_score">
+                Swing
+                <TrustDot id="decide.swing_score" />
+              </Th>
               <Th align="right" help={rankMetric === "sharpe" ? "sharpe" : rankMetric === "cagr_pct" ? "cagr" : undefined}>
                 Best {rankMetric}
+                <TrustDot id="decide.best_stat" />
               </Th>
             </tr>
           </thead>

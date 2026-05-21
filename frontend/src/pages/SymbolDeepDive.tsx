@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
+import { TrustDot, TrustLegend } from "../components/TrustDot";
 import type {
   CompareLatestResponse,
   CompareNewsItem,
@@ -159,6 +160,9 @@ function PageShell(props: {
             ? `Sourced from ${universe} cache`
             : `Symbol Deep Dive`}
         </span>
+        <span style={{ marginLeft: "auto" }}>
+          <TrustLegend />
+        </span>
       </header>
 
       <SectionHeader symbol={symbol} state={state} row={row} detail={detail} />
@@ -185,8 +189,8 @@ function PageShell(props: {
       {state === "ready" && row && (
         <SectionEarnings row={row} />
       )}
-      <Section title="8. Regime survival" todo="get_regime_history(symbol, strategy=best_long) — needs task #66 backend prep" />
-      <Section title="9. Peer comparison" todo="derive peer set from symbol.tags — needs task #66 backend prep" />
+      <Section title="8. Regime survival" trustId="deepdive.regime_survival" todo="get_regime_history(symbol, strategy=best_long) — needs task #66 backend prep" />
+      <Section title="9. Peer comparison" trustId="deepdive.peer_comparison" todo="derive peer set from symbol.tags — needs task #66 backend prep" />
       {state === "ready" && allRows.length > 0 && (
         <SectionHitRate symbol={props.symbol} rows={allRows} />
       )}
@@ -236,7 +240,9 @@ function SectionHeader(props: {
     <section style={cardStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <div>
-          <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>{symbol}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>
+            {symbol}<TrustDot id="deepdive.header" size={10} />
+          </div>
           <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
             {/* strategy name as a subtitle until we surface symbol's
                 instrument name (no such field on CompareRow yet) */}
@@ -304,7 +310,7 @@ function SectionVerdict(props: { row: CompareRow; allRows: CompareRow[] }) {
           padding: "8px 18px",
           borderRadius: 10,
           letterSpacing: 1,
-        }}>{bucket}</div>
+        }}>{bucket}<TrustDot id="deepdive.verdict" size={10} /></div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 18, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
             {longCount} of {total} strategies long
@@ -379,7 +385,7 @@ function SectionDecisionTrace(props: { trace: DecisionCheck[] }) {
         }}
       >
         <strong style={{ fontSize: 14 }}>
-          3. Decision trace
+          3. Decision trace<TrustDot id="deepdive.decision_trace" />
           {failCount > 0 && (
             <span style={{ marginLeft: 8, fontSize: 11, color: "var(--down)" }}>
               {failCount} fail
@@ -506,7 +512,7 @@ function SectionStrategyVote(props: { row: CompareRow; allRows: CompareRow[] }) 
   return (
     <section style={cardStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <strong style={{ fontSize: 14 }}>4. Strategy vote</strong>
+        <strong style={{ fontSize: 14 }}>4. Strategy vote<TrustDot id="deepdive.conflict_ux" /></strong>
         {conflictCount > 0 ? (
           <span style={{ fontSize: 11, color: "var(--down)", fontWeight: 600 }}>
             ● {conflictCount} conflict{conflictCount === 1 ? "" : "s"} surfaced
@@ -636,7 +642,7 @@ function SectionNews(props: {
   if (items.length === 0) {
     return (
       <section style={cardStyle}>
-        <strong style={{ fontSize: 14 }}>5. News + sentiment</strong>
+        <strong style={{ fontSize: 14 }}>5. News + sentiment<TrustDot id="deepdive.news" /></strong>
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
           No headlines in the last 7 days. (This is a state, not an error —
           quiet news is meaningful: no fresh catalyst either way.)
@@ -649,7 +655,7 @@ function SectionNews(props: {
     <section style={cardStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <strong style={{ fontSize: 14 }}>
-          5. News + sentiment
+          5. News + sentiment<TrustDot id="deepdive.news" />
           <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
             ({items.length} item{items.length === 1 ? "" : "s"})
           </span>
@@ -779,7 +785,7 @@ function SectionAnalyst(props: { row: CompareRow }) {
   if (!data) {
     return (
       <section style={cardStyle}>
-        <strong style={{ fontSize: 14 }}>6. Analyst consensus</strong>
+        <strong style={{ fontSize: 14 }}>6. Analyst consensus<TrustDot id="deepdive.analyst_static" /></strong>
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
           Not available — Finnhub integration disabled, or no coverage for this symbol.
         </div>
@@ -803,7 +809,7 @@ function SectionAnalyst(props: { row: CompareRow }) {
     <section style={cardStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <strong style={{ fontSize: 14 }}>
-          6. Analyst consensus
+          6. Analyst consensus<TrustDot id="deepdive.analyst_static" /><TrustDot id="deepdive.analyst_upgrades" />
           {data.latest_period && (
             <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
               ({data.latest_period.slice(0, 7)})
@@ -890,7 +896,7 @@ function SectionEarnings(props: { row: CompareRow }) {
   const lastReported = events[events.length - 1];
   return (
     <section style={cardStyle}>
-      <strong style={{ fontSize: 14 }}>7. Event risk (earnings)</strong>
+      <strong style={{ fontSize: 14 }}>7. Event risk (earnings)<TrustDot id="deepdive.earnings" /></strong>
       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
         Forward earnings calendar lives on the get_earnings_calendar MCP tool
         but isn't yet folded into the compare-row payload. Showing latest
@@ -983,7 +989,7 @@ function SectionHitRate(props: { symbol: string; rows: CompareRow[] }) {
     <section style={cardStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <strong style={{ fontSize: 14 }}>
-          10. Hit rate
+          10. Hit rate<TrustDot id="deepdive.hit_rate" />
           <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
             (5y lookback)
           </span>
@@ -1126,7 +1132,7 @@ function HeaderSkeleton(props: {
 // Skeleton section placeholder
 // ----------------------------------------------------------------------
 
-function Section(props: { title: string; todo: string }) {
+function Section(props: { title: string; todo: string; trustId?: string }) {
   return (
     <section style={{
       ...cardStyle,
@@ -1134,7 +1140,10 @@ function Section(props: { title: string; todo: string }) {
       background: "transparent",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <strong style={{ fontSize: 14 }}>{props.title}</strong>
+        <strong style={{ fontSize: 14 }}>
+          {props.title}
+          {props.trustId && <TrustDot id={props.trustId} />}
+        </strong>
         <span style={{ fontSize: 10, color: "var(--text-muted)" }}>TODO</span>
       </div>
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
