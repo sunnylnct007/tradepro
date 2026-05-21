@@ -140,31 +140,51 @@ public sealed class Trading212Client
         try
         {
             using var resp = await _http.PostAsJsonAsync("equity/orders/market", body, ct);
-            var responseBody = await SafeReadBodySnippet(resp, ct);
+            // Read body ONCE — see the matching comment in
+            // Trading212DemoClient. The earlier code parsed the
+            // truncated 200-char snippet (with trailing "…") and
+            // threw "BytePositionInLine: 203" on every approve.
+            var fullBody = await SafeReadFullBody(resp, ct);
+            var snippet = Snip(fullBody);
             if (!resp.IsSuccessStatusCode)
             {
                 _log.LogWarning(
                     "T212 place-order returned HTTP {Status} ticker={Ticker} qty={Qty} body={Body}",
-                    (int)resp.StatusCode, ticker, signedQuantity, responseBody);
+                    (int)resp.StatusCode, ticker, signedQuantity, snippet);
                 return new Trading212PlaceResult(
                     OrderId: null, Status: null,
-                    Error: $"HTTP {(int)resp.StatusCode}: {responseBody}",
-                    HttpStatus: (int)resp.StatusCode, ResponseBody: responseBody);
+                    Error: $"HTTP {(int)resp.StatusCode}: {snippet}",
+                    HttpStatus: (int)resp.StatusCode, ResponseBody: snippet);
             }
-            // T212 returns the order resource (id + status + filled
-            // fields). We capture the id + status; the full body sits
-            // in ResponseBody for the UI to render verbatim if useful.
-            using var doc = System.Text.Json.JsonDocument.Parse(responseBody);
-            var root = doc.RootElement;
-            long? orderId = root.TryGetProperty("id", out var idEl)
-                            && idEl.ValueKind == System.Text.Json.JsonValueKind.Number
-                                ? idEl.GetInt64() : (long?)null;
-            string? status = root.TryGetProperty("status", out var stEl)
-                             && stEl.ValueKind == System.Text.Json.JsonValueKind.String
-                                ? stEl.GetString() : null;
+            long? orderId = null;
+            string? status = null;
+            if (!string.IsNullOrWhiteSpace(fullBody))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(fullBody);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("id", out var idEl)
+                        && idEl.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        orderId = idEl.GetInt64();
+                    }
+                    if (root.TryGetProperty("status", out var stEl)
+                        && stEl.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        status = stEl.GetString();
+                    }
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    _log.LogWarning(ex,
+                        "T212 place-order body wasn't parseable JSON: {Body}",
+                        snippet);
+                }
+            }
             return new Trading212PlaceResult(
                 OrderId: orderId, Status: status, Error: null,
-                HttpStatus: (int)resp.StatusCode, ResponseBody: responseBody);
+                HttpStatus: (int)resp.StatusCode, ResponseBody: snippet);
         }
         catch (Exception ex)
         {
@@ -183,13 +203,23 @@ public sealed class Trading212Client
         try
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
-            return body.Length > 200 ? body[..200] + "…" : body;
+            return Snip(body);
         }
         catch
         {
             return string.Empty;
         }
     }
+
+    private static async Task<string> SafeReadFullBody(
+        HttpResponseMessage resp, CancellationToken ct)
+    {
+        try { return await resp.Content.ReadAsStringAsync(ct); }
+        catch { return string.Empty; }
+    }
+
+    private static string Snip(string body)
+        => body.Length > 200 ? body[..200] + "…" : body;
 
     /// <summary>Pulls the full instruments registry. Rate limit is
     /// 1 req / 50s per T212 docs — callers should cache aggressively.

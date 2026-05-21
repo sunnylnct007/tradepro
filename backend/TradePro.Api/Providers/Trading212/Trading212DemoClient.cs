@@ -116,28 +116,59 @@ public sealed class Trading212DemoClient
         try
         {
             using var resp = await _http.PostAsJsonAsync("equity/orders/market", body, ct);
-            var responseBody = await SafeReadBodySnippet(resp, ct);
+            // Read the body ONCE — HTTP content is a single-shot stream.
+            // Keep the full payload for JSON parsing; truncate only the
+            // snippet that goes into logs / DB. The earlier code parsed
+            // the truncated snippet and choked on the trailing "…" at
+            // byte 203 ("Expected end of string, but instead reached
+            // end of data. BytePositionInLine: 203"), so every approve
+            // surfaced as a JSON parse error even when T212 had
+            // accepted the order cleanly.
+            var fullBody = await SafeReadFullBody(resp, ct);
+            var snippet = Snip(fullBody);
             if (!resp.IsSuccessStatusCode)
             {
                 _log.LogWarning(
                     "T212 demo place-order returned HTTP {Status} ticker={Ticker} qty={Qty} body={Body}",
-                    (int)resp.StatusCode, ticker, signedQuantity, responseBody);
+                    (int)resp.StatusCode, ticker, signedQuantity, snippet);
                 return new Trading212PlaceResult(
                     OrderId: null, Status: null,
-                    Error: $"HTTP {(int)resp.StatusCode}: {responseBody}",
-                    HttpStatus: (int)resp.StatusCode, ResponseBody: responseBody);
+                    Error: $"HTTP {(int)resp.StatusCode}: {snippet}",
+                    HttpStatus: (int)resp.StatusCode, ResponseBody: snippet);
             }
-            using var doc = System.Text.Json.JsonDocument.Parse(responseBody);
-            var root = doc.RootElement;
-            long? orderId = root.TryGetProperty("id", out var idEl)
-                            && idEl.ValueKind == System.Text.Json.JsonValueKind.Number
-                                ? idEl.GetInt64() : (long?)null;
-            string? status = root.TryGetProperty("status", out var stEl)
-                             && stEl.ValueKind == System.Text.Json.JsonValueKind.String
-                                ? stEl.GetString() : null;
+            long? orderId = null;
+            string? status = null;
+            if (!string.IsNullOrWhiteSpace(fullBody))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(fullBody);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("id", out var idEl)
+                        && idEl.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        orderId = idEl.GetInt64();
+                    }
+                    if (root.TryGetProperty("status", out var stEl)
+                        && stEl.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        status = stEl.GetString();
+                    }
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    // Body shape changed or response was non-JSON. Log
+                    // and keep going — the order WAS accepted (we got
+                    // 2xx), so don't fail the approve. Leave orderId
+                    // null; the operator can reconcile via T212's UI.
+                    _log.LogWarning(ex,
+                        "T212 demo place-order body wasn't parseable JSON: {Body}",
+                        snippet);
+                }
+            }
             return new Trading212PlaceResult(
                 OrderId: orderId, Status: status, Error: null,
-                HttpStatus: (int)resp.StatusCode, ResponseBody: responseBody);
+                HttpStatus: (int)resp.StatusCode, ResponseBody: snippet);
         }
         catch (Exception ex)
         {
@@ -198,11 +229,25 @@ public sealed class Trading212DemoClient
         try
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
-            return body.Length > 200 ? body[..200] + "…" : body;
+            return Snip(body);
         }
         catch
         {
             return string.Empty;
         }
     }
+
+    /// Full body read — for paths that need to JSON-parse the response.
+    /// Pair with <see cref="Snip"/> on the same string when also
+    /// storing / logging, so the persisted snippet stays bounded but
+    /// the parser sees valid JSON.
+    private static async Task<string> SafeReadFullBody(
+        HttpResponseMessage resp, CancellationToken ct)
+    {
+        try { return await resp.Content.ReadAsStringAsync(ct); }
+        catch { return string.Empty; }
+    }
+
+    private static string Snip(string body)
+        => body.Length > 200 ? body[..200] + "…" : body;
 }

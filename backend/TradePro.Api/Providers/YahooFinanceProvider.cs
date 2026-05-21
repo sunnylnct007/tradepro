@@ -24,6 +24,17 @@ public sealed class YahooFinanceProvider : IMarketDataProvider
             $"?period1={period1}&period2={period2}&interval={yahooInterval}&events=div%2Csplit";
 
         using var resp = await _http.GetAsync(url, ct);
+        // Yahoo returns 404 for unknown / delisted tickers (e.g. user
+        // typed "VGGS" instead of "VGGS.L"). Surface that as an empty
+        // CandleSeries so the caller can return a graceful "no data"
+        // decision — same path as the empty `result` array below —
+        // rather than 500-ing every strategy in a scan because of one
+        // typo. Other HTTP errors (rate limit 429, 5xx) still throw
+        // so the operator notices a real infra problem.
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new CandleSeries(symbol, interval, Name, Array.Empty<Candle>());
+        }
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
 
