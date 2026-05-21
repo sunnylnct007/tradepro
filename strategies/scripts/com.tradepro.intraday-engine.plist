@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Intraday automation engine — Task #69 step D.
+
+  Persistent worker: polls /api/ops/poll-intraday on a cadence, runs
+  one paper session per watchlisted symbol when a request is claimed,
+  reports back via /api/ops/complete-intraday/{id}.
+
+  Different from com.tradepro.worker.plist:
+    - worker.plist drives the daily compare-and-push cycle.
+    - This plist drives the intraday automation loop (continuous
+      mode, separate cadence, separate log file).
+
+  Cadence is owned by the Python CLI via TRADEPRO_INTRADAY_POLL_SECONDS
+  (default 30s when no claim is pending; engine handles its own
+  pacing when a session is in flight). Adjust below if you want a
+  tighter or looser idle poll.
+
+  Pause without unloading:
+    touch ~/.tradepro/intraday-engine.pause
+    rm    ~/.tradepro/intraday-engine.pause
+
+  Stop completely:
+    launchctl bootout gui/$UID ~/Library/LaunchAgents/com.tradepro.intraday-engine.plist
+
+  Logs:
+    ~/.tradepro/logs/intraday-engine-YYYY-MM-DD.log
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.intraday-engine</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{PROJECT_DIR}}/scripts/intraday-engine.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+    <!-- Tune the idle poll cadence here. The CLI sleeps this long
+         between polls when nothing is claimed; a claim runs as soon
+         as it arrives regardless. -->
+    <key>TRADEPRO_INTRADAY_POLL_SECONDS</key>
+    <string>30</string>
+  </dict>
+
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Defensive throttle: don't restart faster than every 60s if
+       the inner CLI is crash-looping. -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/intraday-engine-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/intraday-engine-stderr.log</string>
+</dict>
+</plist>

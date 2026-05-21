@@ -25,10 +25,12 @@
 set -euo pipefail
 
 MODE="worker"
+WITH_INTRADAY=0
 for arg in "$@"; do
   case "$arg" in
     --refresh|--cron) MODE="refresh" ;;
     --worker|--persistent) MODE="worker" ;;
+    --intraday|--with-intraday) WITH_INTRADAY=1 ;;
     -h|--help)
       sed -n '1,/^set -eu/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -45,6 +47,7 @@ chmod +x \
     "$PROJECT_DIR/scripts/worker.sh" \
     "$PROJECT_DIR/scripts/email-digest.sh" \
     "$PROJECT_DIR/scripts/paper-session.sh" \
+    "$PROJECT_DIR/scripts/intraday-engine.sh" \
     2>/dev/null || true
 
 install_one() {
@@ -90,6 +93,11 @@ if [[ "$MODE" == "worker" ]]; then
   uninstall_one "com.tradepro.refresh"
   uninstall_one "com.tradepro.heartbeat"
   install_one "com.tradepro.worker"
+  if [[ "$WITH_INTRADAY" == "1" ]]; then
+    install_one "com.tradepro.intraday-engine"
+  else
+    uninstall_one "com.tradepro.intraday-engine"
+  fi
   cat <<EOF
 
 Mode: WORKER (persistent, KeepAlive=true)
@@ -111,6 +119,9 @@ Stop completely:
 
 Switch to cron mode:
   bash strategies/scripts/install-launchd.sh --refresh
+
+Add intraday automation alongside the worker:
+  bash strategies/scripts/install-launchd.sh --intraday
 EOF
 else
   uninstall_one "com.tradepro.worker"
@@ -118,6 +129,9 @@ else
   install_one "com.tradepro.heartbeat"
   install_one "com.tradepro.email-digest"
   install_one "com.tradepro.paper"
+  if [[ "$WITH_INTRADAY" == "1" ]]; then
+    install_one "com.tradepro.intraday-engine"
+  fi
   cat <<EOF
 
 Mode: REFRESH+HEARTBEAT+EMAIL+PAPER (cron-style)
