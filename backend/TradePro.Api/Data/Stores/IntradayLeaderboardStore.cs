@@ -80,8 +80,8 @@ WITH per_strategy AS (
       AND s->>'strategy' IS NOT NULL
 )
 SELECT symbol, strategy,
-       COUNT(*) AS sessions,
-       SUM(fills) AS fills,
+       COUNT(*)::int AS sessions,
+       SUM(fills)::int AS fills,
        SUM(realized_pnl_usd) AS realized_pnl_usd,
        MAX(session_at) AS last_seen_at_utc
 FROM per_strategy
@@ -91,7 +91,7 @@ ORDER BY strategy, symbol;";
         var rows = conn.Query<RawRow>(sql).ToList();
 
         const string countSql = @"
-SELECT COUNT(*) AS session_count,
+SELECT COUNT(*)::int AS session_count,
        MAX(completed_at_utc) AS last_session_at_utc
 FROM session_requests
 WHERE kind = 'intraday' AND state = 'Completed';";
