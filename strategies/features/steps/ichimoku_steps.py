@@ -124,6 +124,18 @@ def step_pt_positive(context) -> None:
     assert pt is not None and pt > 0, f"price_target = {pt}"
 
 
+@then("price_target is None")
+def step_pt_none(context) -> None:
+    pt = context.targets.get("price_target")
+    assert pt is None, f"price_target should be None, got {pt}"
+
+
+@then("rr_ratio is None")
+def step_rr_none(context) -> None:
+    rr = context.targets.get("rr_ratio")
+    assert rr is None, f"rr_ratio should be None, got {rr}"
+
+
 @then("stop_level is a positive number")
 def step_stop_positive(context) -> None:
     s = context.targets.get("stop_level")

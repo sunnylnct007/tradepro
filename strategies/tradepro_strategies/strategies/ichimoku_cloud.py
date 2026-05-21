@@ -128,13 +128,30 @@ def ichimoku_targets(
     # long: above the cloud and with kijun below. Compute regardless
     # but the comparator only surfaces them when the strategy is
     # actually in position.
-    price_target = float(senkou_b_val) if not pd.isna(senkou_b_val) else None
+    #
+    # senkou_b serves as the natural overhead resistance for INSIDE /
+    # BELOW-cloud setups. For ABOVE-cloud entries the cloud has
+    # already been broken and senkou_b sits BELOW the current price
+    # as a trail-stop boundary — using it as a "take-profit target"
+    # gives a NEGATIVE reward and a meaningless R/R. MTUM 2026-05-20
+    # surfaced that as "R/R -4.0×" next to a WAIT verdict. Guard
+    # against it by null-ing the target whenever reward would be ≤ 0,
+    # so the UI renders "—" instead of a fake number. stop_level
+    # still surfaces because the kijun line IS the invalidation
+    # reference regardless of whether we'd enter today.
+    raw_target = float(senkou_b_val) if not pd.isna(senkou_b_val) else None
     stop_level = float(kijun_val)
+    price_target: float | None = None
     rr_ratio: float | None = None
-    if price_target is not None and last_close > stop_level:
+    if (
+        raw_target is not None
+        and last_close > stop_level
+        and raw_target > last_close
+    ):
         risk = last_close - stop_level
-        reward = price_target - last_close
+        reward = raw_target - last_close
         if risk > 0:
+            price_target = raw_target
             rr_ratio = round(reward / risk, 2)
 
     return {

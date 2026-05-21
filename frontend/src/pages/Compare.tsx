@@ -625,7 +625,13 @@ function VerdictHeadline({
             borderLeft: `3px solid ${bucketColour(top.bucket)}`,
           }}
         >
-          <div className="stat-label">Top {top.bucket === "BUY" ? "buy" : "candidate"}</div>
+          <div className="stat-label">
+            {top.bucket === "BUY"
+              ? "Top buy"
+              : top.bucket === "WAIT"
+                ? "Watchlist · closest to a buy (still WAIT)"
+                : "Watchlist · closest to a buy (still AVOID)"}
+          </div>
           <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>
             <Link to={`/signals?symbol=${encodeURIComponent(top.symbol)}`} style={{ color: "var(--text)" }}>
               {top.symbol}
@@ -634,10 +640,38 @@ function VerdictHeadline({
               · {top.bestRow.strategy_label} ({rankMetric}{" "}
               {fmtNum(top.bestRow.stats?.[rankMetric])})
             </span>
+            <span
+              style={{
+                marginLeft: 8,
+                padding: "2px 8px",
+                borderRadius: 10,
+                fontSize: 11,
+                fontWeight: 600,
+                color: bucketColour(top.bucket),
+                border: `1px solid ${bucketColour(top.bucket)}`,
+              }}
+            >
+              {top.bucket}
+            </span>
           </div>
           <div style={{ marginTop: 4, color: "var(--text-dim)", fontSize: 13 }}>
             {top.longCount} of {top.total} strategies currently long. {top.bucketReason}
           </div>
+          {top.bucket !== "BUY" && (
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                color: "var(--text-muted)",
+                fontStyle: "italic",
+              }}
+            >
+              Shown because the BUY bucket is empty — not a recommendation.
+              {" "}This is the closest symbol to the entry criteria today;
+              monitor it if you want a candidate to size up when the trigger
+              eventually fires.
+            </div>
+          )}
         </div>
       )}
     </section>
