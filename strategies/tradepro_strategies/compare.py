@@ -522,6 +522,55 @@ def cap_bucket_at_low_conviction(
     return bucket, reason, False
 
 
+def apply_earnings_suppressor(
+    *,
+    bucket: str,
+    reason: str,
+    conviction: str,
+    days_until_earnings: int | None,
+    threshold_days: int = 7,
+) -> tuple[str, str, str, bool]:
+    """Suppress entry recommendations on swings into earnings.
+
+    Per IMPROVEMENT_SUGGESTIONS_v1.md §2.2 + SIGNAL_CARD_SPEC_v1.md §2.2:
+    when an earnings announcement lands within `threshold_days`, a
+    swing BUY isn't actionable — the post-print gap can swallow the
+    entire reward leg of a 1:2 setup. We don't try to predict the
+    beat/miss; we just refuse to call BUY into the event window.
+
+    Returns (bucket, reason, conviction, suppressed). Demotes:
+      - bucket BUY → WAIT (no entry recommendation)
+      - conviction HIGH → MEDIUM (only HIGH gets demoted; LOW stays LOW)
+
+    Pure function — no row mutation. Tested directly in
+    features/earnings_suppressor.feature so the threshold semantics
+    stay auditable.
+    """
+    if days_until_earnings is None:
+        return bucket, reason, conviction, False
+    try:
+        days = int(days_until_earnings)
+    except (TypeError, ValueError):
+        return bucket, reason, conviction, False
+    if days < 0 or days > threshold_days:
+        return bucket, reason, conviction, False
+
+    new_bucket = "WAIT" if bucket == "BUY" else bucket
+    new_conviction = "MEDIUM" if conviction == "HIGH" else conviction
+    if new_bucket == bucket and new_conviction == conviction:
+        # Nothing changed — bucket was already WAIT / AVOID and
+        # conviction wasn't HIGH. Still mark suppressed so the UI can
+        # surface the WARNING flag.
+        return bucket, reason, conviction, True
+
+    suppress_note = (
+        f"Earnings suppression: earnings in {days}d (threshold "
+        f"{threshold_days}d). Original verdict: {bucket}. Post-print gap "
+        "risk swamps the reward leg of a 1:2 setup."
+    )
+    return new_bucket, suppress_note, new_conviction, True
+
+
 def enforce_coherence(
     row: dict,
     *,
@@ -876,6 +925,23 @@ def _attach_bucket_and_rationale(
             bucket=bucket, reason=reason, conviction=conviction,
         )
 
+        # Earnings-proximity suppressor — ④ of the Alpha Engine.
+        # When earnings land inside the 7d window, refuse to call BUY
+        # (post-print gap swallows the reward leg of a 1:2 setup).
+        # earnings_signal.upcoming.days_until is populated upstream
+        # from the Finnhub-backed /api/integrations/finnhub/earnings-
+        # calendar endpoint; absent / disabled → no suppression.
+        earnings_sig = best.get("earnings_signal") or {}
+        days_until_earnings = (
+            (earnings_sig.get("upcoming") or {}).get("days_until")
+        )
+        bucket, reason, conviction, earnings_suppressed = apply_earnings_suppressor(
+            bucket=bucket,
+            reason=reason,
+            conviction=conviction,
+            days_until_earnings=days_until_earnings,
+        )
+
         # Exit framework — ② of the Alpha Engine. Compute stop_loss /
         # take_profit at signal time so the UI / IBKR card has the
         # mandatory exit triad ready without the user doing math.
@@ -1027,6 +1093,12 @@ def _attach_bucket_and_rationale(
             r["conviction"] = conviction
             r["conviction_reason"] = conviction_reason
             r["conviction_demoted"] = conviction_demoted
+            # Earnings suppression flag — UI shows a WARNING badge on
+            # the card when set, even if the bucket didn't actually
+            # change (already WAIT). days_until carried for the
+            # tooltip "earnings in Nd".
+            r["earnings_suppressed"] = earnings_suppressed
+            r["earnings_proximity_days"] = days_until_earnings
             # Exit framework block per SIGNAL_CARD_SPEC_v1.md §3. Carry
             # stop / target / RR alongside the verdict so the UI /
             # MCP / IBKR-order-instructions panel can render the
