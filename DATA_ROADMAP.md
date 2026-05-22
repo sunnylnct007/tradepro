@@ -707,6 +707,53 @@ and ships the single biggest user-trust improvement.
 
 ---
 
+## Trade-type prioritisation (user, 2026-05-22)
+
+User has named the three trade-type tiers TradePro should target,
+ranked by decision-clarity-per-data-spend. Use this as the
+priority order for the data-coverage phases below.
+
+### 🥇 Tier 1 — Event-driven (highest priority)
+Clear catalyst · defined date · binary outcome · short timeframe ·
+beginner-friendly.
+
+Examples: elections (Colombia ✅ already in the catalyst sprint),
+earnings surprises, central-bank decisions (Fed / ECB / BOE),
+commodity supply shocks, sanctions & geopolitical events.
+
+**TradePro gap:** no event calendar yet — the catalyst sprint
+(Phases 17.1–17.5) is the in-flight work that closes this.
+**Maps to:** §13.5 Catalyst overlay, §13 News-feed coverage,
+§7.x Earnings calendar.
+
+### 🥈 Tier 2 — Macro theme trades
+Longer runway · multiple instruments per theme · weeks-to-months.
+
+Examples: oil-price direction (OPEC), USD strength/weakness,
+EM-vs-DM rotation, interest-rate cycle plays, commodity
+supercycles.
+
+**TradePro gap:** no macro regime layer — there's no
+"current macro environment" panel feeding any verdict.
+**Maps to:** Roadmap v0.3 Track C (macro overlay panel,
+rates-proxy signals).
+
+### 🥉 Tier 3 — Institutional flow trades
+Follow smart money · noisy signal · highest leverage when timed.
+
+Examples: large options unusual activity, 13F filings (quarterly),
+dark-pool prints, sector-ETF in/outflows.
+
+**TradePro gap:** no flow-data layer at all.
+**Maps to:** parked institutional-data category in v0.3 Track C —
+explicitly behind Tiers 1 + 2 in priority order.
+
+**Implication for sequencing:** finish the Tier-1 catalyst work
+before opening any Tier-2 macro layer; defer Tier-3 entirely
+until both above are working in production.
+
+---
+
 ## Out of scope (for now)
 
 - Options chains + Greeks + IV surface — TradePro is equity-first.
