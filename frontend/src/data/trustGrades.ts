@@ -143,6 +143,17 @@ export const TRUST: Record<string, TrustEntry> = {
       + "if they're looking at today's or yesterday's number.",
     promoteWhen: "cache-age stamp shown on the header.",
   },
+  "deepdive.combined_verdict": {
+    label: "Combined verdict (Section 2.5 — catalyst-aware)",
+    grade: "yellow",
+    reason:
+      "Rule-based fusion of technical bucket + catalyst overlay + "
+      + "analyst flow. 6 behave scenarios pin the EC case + 5 other "
+      + "geometries (all aligned, BUY-but-bearish-catalyst, etc.). "
+      + "NEVER overrides the technical bucket — sits alongside it.",
+    promoteWhen:
+      "validated against a corpus of real trades — at least 20 real-world cases where the combined verdict matched a profitable decision.",
+  },
   "deepdive.verdict": {
     label: "Verdict badge",
     grade: "yellow",

@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { TrustDot, TrustLegend } from "../components/TrustDot";
 import type {
   CompareCatalyst,
+  CompareCombinedVerdict,
   CompareLatestResponse,
   CompareNewsItem,
   CompareRow,
@@ -170,6 +171,9 @@ function PageShell(props: {
 
       {state === "ready" && row && (
         <SectionVerdict row={row} allRows={allRows} />
+      )}
+      {state === "ready" && row?.combined_verdict && (
+        <SectionCombinedVerdict cv={row.combined_verdict} />
       )}
       {state === "ready" && row && (
         <SectionDecisionTrace trace={row.market_state?.decision_trace ?? []} />
@@ -355,6 +359,159 @@ function bucketChipStyle(b: string): React.CSSProperties {
   if (b === "BUY") return { background: "rgba(58, 165, 109, 0.18)", color: "var(--up)" };
   if (b === "AVOID") return { background: "rgba(214, 76, 76, 0.18)", color: "var(--down)" };
   return { background: "rgba(199, 154, 42, 0.18)", color: "var(--warn, #c79a2a)" };
+}
+
+// ----------------------------------------------------------------------
+// Section 2.5 — Combined verdict. Fuses technical bucket + catalyst
+// overlay + analyst flow into a single annotated recommendation. The
+// Ecopetrol (EC) case 2026-05-21 was the design driver — technicals
+// said WAIT but Colombia election + oil surge made it BUY. Phase 17.5
+// of DATA_ROADMAP §13.5. NEVER replaces the technical bucket — the
+// section sits ALONGSIDE Section 2 so users see both views.
+// ----------------------------------------------------------------------
+
+function SectionCombinedVerdict(props: { cv: CompareCombinedVerdict }) {
+  const { cv } = props;
+  const accent = combinedAccent(cv.combined_kind);
+  return (
+    <section
+      style={{
+        ...cardStyle,
+        borderLeft: `3px solid ${accent}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <strong style={{ fontSize: 14 }}>
+          2.5 Combined verdict
+          <span style={{ marginLeft: 6, fontSize: 10, padding: "2px 6px", borderRadius: 10, background: "rgba(155, 110, 255, 0.14)", color: "#cbb6ff", border: "1px solid rgba(155, 110, 255, 0.35)" }}>
+            CATALYST-AWARE
+          </span>
+        </strong>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          Confidence: <strong style={{ color: "var(--text-dim)" }}>{cv.confidence}</strong>
+        </span>
+      </div>
+
+      <div style={{ fontSize: 22, fontWeight: 700, marginTop: 8, color: accent }}>
+        {cv.combined}
+      </div>
+
+      {cv.catalyst.soonest_date && (
+        <div style={{ marginTop: 4, fontSize: 12, color: "var(--text-dim)" }}>
+          Soonest catalyst:{" "}
+          <strong style={{ color: "var(--text)" }}>
+            {cv.catalyst.soonest_kind ?? "event"} on {cv.catalyst.soonest_date}
+          </strong>
+        </div>
+      )}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "auto 1fr",
+          columnGap: 12,
+          rowGap: 4,
+          marginTop: 12,
+          fontSize: 12,
+        }}
+      >
+        <span style={{ color: "var(--text-muted)" }}>Technical</span>
+        <span>
+          <CompactSignal signal={cv.technical.signal} />
+          {cv.technical.reason && (
+            <span style={{ color: "var(--text-dim)" }}> · {cv.technical.reason}</span>
+          )}
+        </span>
+
+        <span style={{ color: "var(--text-muted)" }}>Catalyst</span>
+        <span>
+          <CompactSignal signal={cv.catalyst.signal} />
+          {cv.catalyst.reasons.length > 0 && (
+            <span style={{ color: "var(--text-dim)" }}>
+              {" "}· {cv.catalyst.reasons.slice(0, 2).join(" · ")}
+            </span>
+          )}
+        </span>
+
+        <span style={{ color: "var(--text-muted)" }}>Analyst</span>
+        <span>
+          <CompactSignal signal={cv.analyst.signal} />
+          {cv.analyst.reason && (
+            <span style={{ color: "var(--text-dim)" }}> · {cv.analyst.reason}</span>
+          )}
+        </span>
+      </div>
+
+      {cv.reasoning.length > 0 && (
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 10,
+            borderTop: "1px solid var(--border)",
+            fontSize: 12,
+            color: "var(--text-dim)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+          }}
+        >
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+            Reasoning
+          </div>
+          {cv.reasoning.map((line, i) => (
+            <div key={i}>• {line}</div>
+          ))}
+        </div>
+      )}
+
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 10,
+          color: "var(--text-muted)",
+          fontStyle: "italic",
+        }}
+      >
+        Catalyst-aware verdict is rule-based + experimental. Does NOT
+        override the technical bucket above — the two sit alongside so
+        you can reason about why they disagree. See DATA_ROADMAP §13.5.
+      </div>
+    </section>
+  );
+}
+
+function CompactSignal({ signal }: { signal: string }) {
+  const colour = signalColour(signal);
+  return (
+    <strong style={{ color: colour, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11 }}>
+      {signal}
+    </strong>
+  );
+}
+
+function combinedAccent(kind: string): string {
+  switch (kind) {
+    case "STRONG_BUY":
+    case "BUY":
+      return "var(--up)";
+    case "BUY_WITH_RISK":
+      return "#9b6eff";       // violet — distinct from clean BUY
+    case "WAIT":
+      return "var(--warn, #c79a2a)";
+    case "AVOID":
+    case "AVOID_DESPITE_CATALYST":
+      return "var(--down)";
+    default:
+      return "var(--text-dim)";
+  }
+}
+
+function signalColour(signal: string): string {
+  if (signal.startsWith("STRONG_BUY") || signal === "BUY") return "var(--up)";
+  if (signal.startsWith("STRONG_AVOID") || signal === "AVOID") return "var(--down)";
+  if (signal === "WAIT") return "var(--warn, #c79a2a)";
+  if (signal === "MIXED") return "var(--text-dim)";
+  return "var(--text-muted)";
 }
 
 // ----------------------------------------------------------------------

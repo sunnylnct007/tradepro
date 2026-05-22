@@ -353,6 +353,30 @@ export interface CompareCatalyst {
   rationale?: string;
 }
 
+/** Combined verdict envelope — Phase 17.5 of catalyst sprint. Fuses
+ * technical bucket + catalyst overlay + analyst flow into a single
+ * annotated recommendation. The technical bucket is NEVER overridden;
+ * `combined_kind` is the orthogonal fusion verdict. */
+export interface CompareCombinedVerdict {
+  technical: { signal: string; reason: string };
+  catalyst: {
+    signal: string;          // STRONG_BUY | BUY | MIXED | AVOID | STRONG_AVOID | NONE
+    reasons: string[];
+    soonest_date: string | null;
+    soonest_kind: string | null;
+  };
+  analyst: { signal: string; reason: string };
+  /** Human-readable recommendation, e.g. "BUY with tight stop (catalyst-driven)". */
+  combined: string;
+  /** Machine-readable enum: BUY_WITH_RISK / STRONG_BUY / BUY / WAIT /
+   * AVOID / AVOID_DESPITE_CATALYST. */
+  combined_kind: string;
+  /** "High" | "Medium-High" | "Medium" | "Low". */
+  confidence: string;
+  /** Ordered list of one-line reasoning sentences. Surface verbatim. */
+  reasoning: string[];
+}
+
 export interface CompareSentimentSummary {
   items_considered: number;
   mean_sentiment: number | null;
@@ -509,6 +533,7 @@ export interface CompareRow {
    * 17.3 of the catalyst sprint). Empty array when nothing matched.
    * Pre-sorted: dated catalysts first, sooner first, then undated. */
   catalysts?: CompareCatalyst[];
+  combined_verdict?: CompareCombinedVerdict | null;
   /** Latest monthly analyst recommendation counts (Finnhub free tier).
    * bull_score = (strongBuy + buy) - (sell + strongSell); mom_change
    * is the change vs. the prior month — positive means analysts are

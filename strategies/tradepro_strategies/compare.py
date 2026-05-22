@@ -24,6 +24,7 @@ import pandas as pd
 from .backtest import BacktestConfig, FeeModel, run_backtest
 from .cache import ensure_cached
 from .catalysts import extract_catalysts
+from .combined_verdict import derive_combined_verdict
 from .external_consensus import ExternalConsensus, _fetch_info, fetch_consensus
 from .fundamentals import Fundamentals, fetch_fundamentals
 from .llm import get_provider as get_llm_provider
@@ -780,6 +781,15 @@ def _attach_bucket_and_rationale(
             r["consensus_compatible_count"] = total
             r["consensus_excluded_count"] = excluded_count
             r["consensus_excluded_strategies"] = excluded_strategies
+            # Combined verdict — fuses technical bucket + catalyst
+            # overlay + analyst flow into a single annotated rec.
+            # Phase 17.5 of the catalyst sprint. Computed AFTER all
+            # bucket demotions land so the technical layer reflects
+            # the final verdict (sentiment + horizon already applied).
+            try:
+                r["combined_verdict"] = derive_combined_verdict(r)
+            except Exception:  # noqa: BLE001 — best-effort; row still ships
+                r["combined_verdict"] = None
             # Horizon / range demotion flag surfaced separately so the
             # UI can show "BUY → WAIT because the swing horizon said
             # AVOID at the 100th percentile" instead of just "WAIT".
