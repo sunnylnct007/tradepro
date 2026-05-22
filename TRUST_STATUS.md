@@ -16,6 +16,14 @@ for unsupervised trading decisions. The verdict columns + bucketing
 logic are the most-trusted layer; everything peripheral (R/R, swing
 score under specific regimes, analyst feed) has gaps.
 
+**Single biggest gap (reviewer + user-confirmed 2026-05-21):** zero
+catalyst awareness. Pure-technical signals miss event-driven moves.
+Worked example: Ecopetrol (EC) — technical said WAIT (89th pctile,
+correct in isolation), but Colombia election in 10 days + oil at
+$105 + MACD just fired = real-trader BUY. **Until the catalyst
+sprint ships (DATA_ROADMAP §13.5), TradePro is a passive-investing
+tool, not an event-driven trading tool.** Trade accordingly.
+
 ---
 
 ## Decide page — verdict layer
@@ -294,6 +302,18 @@ Caveats:
 - Coverage gaps on UK / EU stocks (Finnhub thin outside US).
 - Sentiment score is from one LLM pass, no human validation.
 - No regression coverage on the news layer.
+- **Bigger gap: no catalyst extraction.** TradePro reads headlines
+  but does NOT extract DATED catalysts (elections, FOMC, OPEC,
+  earnings) and cannot reason about "this trade is real because
+  of an event in 10 days". Ecopetrol (EC) 2026-05-21 was the
+  worked example: technicals said WAIT (correct in isolation),
+  but Colombia election + oil at $105 made it BUY. TradePro
+  missed the catalyst entirely.
+
+**Promote to Green when:** the catalyst sprint
+(DATA_ROADMAP §13.5 / Phases 17.1–17.5) ships — dated-event
+extraction, catalyst sub-row, and combined verdict on Symbol
+Deep Dive.
 
 ### Section 6 — Analyst consensus (stacked bar)
 🔴 **Red on the upgrades feed.** Reviewer 2026-05-20 flagged

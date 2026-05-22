@@ -170,7 +170,13 @@ export const TRUST: Record<string, TrustEntry> = {
     grade: "yellow",
     reason:
       "Coverage gaps on UK/EU stocks (Finnhub thin outside US). "
-      + "Sentiment from one LLM pass, no human validation.",
+      + "Sentiment from one LLM pass, no human validation. Bigger "
+      + "gap: no catalyst extraction — TradePro reads headlines but "
+      + "doesn't extract DATED catalysts (elections, FOMC, OPEC) so "
+      + "it can't reason about 'this trade is real because of an "
+      + "event in 10 days'. See DATA_ROADMAP §13.5 catalyst sprint.",
+    promoteWhen:
+      "Catalyst sprint (§13.5 / Phases 17.1–17.5) ships — dated-event extraction + combined verdict.",
   },
   "deepdive.analyst_static": {
     label: "Analyst consensus (Section 6 — static counts + mean target)",

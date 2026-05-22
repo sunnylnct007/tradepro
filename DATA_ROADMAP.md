@@ -541,6 +541,79 @@ platform should do (FOMC tone, earnings-call guidance language,
 
 ---
 
+## 13.5 ★ Catalyst overlay — the single biggest TradePro gap
+
+**Reviewer + user verdict 2026-05-21:** TradePro has solid technicals
+(MACD/RSI/Ichimoku, regime history, backtests) but **zero catalyst
+awareness**. Pure-technical signals systematically miss event-driven
+moves — and ~70% of single-name moves >5% happen on news / earnings
+/ regulatory events. A trading platform that can't see catalysts is
+at best a passive-investing tool, not a real trading tool.
+
+**The Ecopetrol (EC) example.** Technicals said WAIT (89th percentile
+of 52w range — correct in isolation). The real trade:
+- Colombia election in 10 days
+- Oil at $105
+- MACD just fired
+- Stock near highs but **with catalyst**
+- = BUY with defined risk, tight stop, dated catalyst expiry (June 21 runoff)
+
+TradePro missed the entire reason the trade existed.
+
+**The fix in one paragraph.** A "Catalyst" sub-row on every Compare
+row + a dedicated section on Symbol Deep Dive. Don't replace the
+technical bucket — annotate it. User wants BOTH views (technical
+isolated + catalyst-augmented) so they can reason about why they
+disagree.
+
+**The shipping target — combined verdict shape.**
+```
+Technical signal:   WAIT  (89th percentile)
+News catalyst:      STRONG BUY (election 10d, oil $105)
+Analyst flow:       MIXED (1 buy, 4 sell)
+Combined verdict:   BUY with tight stop
+Confidence:         Medium-High
+Catalyst expiry:    June 21 (runoff date)
+```
+
+**Data ingredients (some already on roadmap, here in priority order).**
+
+1. **News headlines per ticker** — 🟡 partial via Finnhub. Add NewsAPI.org ($0-449/mo) for EU/UK coverage; GDELT (free) for geopolitical event coverage at index level. **Phase 17.1.**
+2. **LLM sentiment scoring** — ✅ shipped (Ollama). Phase B will add FinBERT side-by-side (§13). Score range -1 to +1; surface per-headline AND per-ticker aggregate.
+3. **Political/regulatory event calendar** — 🔴 missing. GDELT covers elections, central-bank meetings, OPEC, geopolitical events. Free; needs an ingest worker that filters to events relevant to held / watched tickers. **Phase 17.2.**
+4. **Earnings calendar + surprises** — 🟡 sparse via Finnhub free tier. Upgrade to paid for reliable forward dates + estimate revisions. Already in §4. Critical: "flatten N days before earnings" rule. **Phase 17.3.**
+5. **Analyst upgrades/downgrades** — 🔴 Finnhub dropping events (Task #71). Either audit + replace provider OR de-duplicate via second source (TipRanks). **Already Task #71 — bump priority.**
+6. **Commodity context** — 🔴 missing. Yahoo has the symbols (`CL=F` oil, `GC=F` gold, `HG=F` copper) — needs ingest + sector-relevance map (oil price matters for energy stocks, gold for miners, etc.). **Phase 17.4.**
+7. **Macro regime detection** — 🔴 missing. FRED for rates, yield curve, CPI; classify into regime buckets (risk-on / risk-off / rates-up / inflation-spike). Already in §6. **Phase 17.5.**
+
+**Sequencing — the catalyst sprint.**
+
+| Phase | What ships | Cost | Effort |
+|---|---|---|---|
+| 17.1 | NewsAPI + GDELT ingest, per-ticker headline+catalyst extraction, scored sentiment | $0-50/mo | 1 week |
+| 17.2 | Dated-catalyst extractor (elections, FOMC, OPEC, earnings) + expiry-date storage | Free | 3 days |
+| 17.3 | "Catalyst" sub-row on every Compare row: top-3 catalysts + sentiment + expiry. Behind a 🟡 trust dot until validated. | Reuses above | 3 days |
+| 17.4 | Commodity-context lookup per symbol (oil for energy, gold for miners, FX for multinationals) | Free | 2 days |
+| 17.5 | **Combined verdict line** — technical bucket + catalyst overlay → single combined recommendation on Symbol Deep Dive. The headline output shape from this section. | Reuses above | 3 days |
+| 17.6 | FRED macro regime classifier | Free | 3 days |
+
+**Total: ~3 weeks for the full overlay sprint at <$50/mo new data spend.**
+
+**Trust grading at launch.** Every new Catalyst row / Combined verdict
+ships at 🟡 Yellow (in-progress / validating) — never silently override
+the technical bucket. User-facing copy will read "Catalyst overlay
+suggests BUY despite technical WAIT — review reasoning before
+acting" until we have enough completed-trade data to validate the
+combined-verdict accuracy vs single-layer.
+
+**Why this jumps the queue.** Two converging signals:
+- User can't make trading decisions on TradePro today (2026-05-21
+  feedback — see TRUST_STATUS.md).
+- Concrete missed trade (EC) demonstrates the gap costs real money.
+This is the trust gap closure that matters most.
+
+---
+
 ## 14. Product UX — two distinct usability modes
 
 **Why it matters.** TradePro today mixes intraday signals + medium/
@@ -591,8 +664,14 @@ ranks like this:
 
 ### Q3 2026 (next 3 months) — close the showstopper gaps
 
+★ = catalyst sprint, jumped to top of queue per the EC-trade lesson.
+
 | Phase | Scope | Cost | Effort |
 |---|---|---|---|
+| **★ 17.1** | NewsAPI + GDELT ingest + sentiment scoring | $0–50/mo | 1 week |
+| **★ 17.2** | Dated-catalyst extractor (elections, FOMC, OPEC, earnings) | $0 | 3 days |
+| **★ 17.3** | "Catalyst" sub-row on every Compare row | included | 3 days |
+| **★ 17.5** | Combined verdict on Symbol Deep Dive (technical + catalyst) | included | 3 days |
 | 6.11 | Fix Finnhub upgrade-feed dropouts (Task #71) | $0 | 1d |
 | 6.12 | Fundamentals core 8 + Piotroski + ratios (Phase 8.1-3) | $30/mo | 2 weeks |
 | 7.2 | Polygon.io intraday wired into Task #69 engine | $30/mo | 1 week |
@@ -602,9 +681,13 @@ ranks like this:
 | 8.9 | TipRanks per-analyst track records | $35/mo | 1 week |
 | 9.1 | FRED macro context (rates, CPI, yields) | $0 | 3 days |
 | 6.8b | Symbol-resolution layer (VGGS → VGGS.L) | $0 | 2 days |
+| 15.1 | FinBERT side-by-side sentiment (§13) | $0 (local) | 1 week |
+| 14.2-14.5 | Mode-aware UI defaults (Intraday vs Long-term) | $0 | 1 week |
 
-**Q3 data-feed budget: ~$145/mo + €19.99/mo + €29.99/mo ≈ $200/mo.**
-Pays for itself if it prevents one bad trade per year.
+**Q3 data-feed budget: ~$195/mo + €19.99/mo + €29.99/mo ≈ $250/mo.**
+Pays for itself if it prevents one bad trade per year. The ★ catalyst
+sprint alone (Phases 17.1-17.5) is **3 weeks of work at $0–50/mo**
+and ships the single biggest user-trust improvement.
 
 ### Q4 2026 — defensive depth
 
