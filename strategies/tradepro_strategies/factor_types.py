@@ -62,6 +62,46 @@ STRATEGIES = (
 )
 
 
+# 3-axis classification per IMPROVEMENT_SUGGESTIONS_v1.md §1.1 + §1.2.
+# Every signal TradePro emits must carry a horizon and a strategy_type;
+# this is the single source of truth that the compare row decorates
+# each strategy entry with. Future Phase 3 (multi-family signals) will
+# add event_driven, relative_value, index_rebalance, liquidity_hunt
+# entries — keep additions here, not scattered across the call sites.
+Horizon = Literal["intraday", "swing", "medium_term", "long_term"]
+StrategyType = Literal[
+    "momentum",
+    "mean_reversion",
+    "event_driven",
+    "relative_value",
+    "index_rebalance",
+    "liquidity_hunt",
+]
+STRATEGY_TAXONOMY: dict[str, tuple[Horizon, StrategyType]] = {
+    "buy_and_hold":       ("long_term",   "momentum"),
+    "sma_crossover":      ("medium_term", "momentum"),
+    "macd_signal_cross":  ("swing",       "momentum"),
+    "donchian_breakout":  ("swing",       "momentum"),
+    "ichimoku_cloud":     ("swing",       "momentum"),
+    "rsi_mean_reversion": ("swing",       "mean_reversion"),
+    "bollinger_bounce":   ("swing",       "mean_reversion"),
+}
+
+
+def horizon_for(strategy: str) -> Horizon | None:
+    """Lookup horizon by strategy name. Returns None for unknown
+    strategies so the row carries a `None` tag rather than silently
+    misclassifying — surface it as a registry gap to fix."""
+    entry = STRATEGY_TAXONOMY.get(strategy)
+    return entry[0] if entry else None
+
+
+def strategy_type_for(strategy: str) -> StrategyType | None:
+    """Lookup strategy_type by strategy name. See horizon_for()."""
+    entry = STRATEGY_TAXONOMY.get(strategy)
+    return entry[1] if entry else None
+
+
 # Strategies that should NOT vote on each factor type. An empty list
 # means every strategy is appropriate. The semantics:
 #

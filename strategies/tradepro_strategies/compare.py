@@ -760,7 +760,10 @@ def _attach_bucket_and_rationale(
     for r in rows:
         by_symbol.setdefault(r["symbol"], []).append(r)
 
-    from .factor_types import factor_type_for, is_compatible, incompatible_strategies_for
+    from .factor_types import (
+        factor_type_for, horizon_for, incompatible_strategies_for,
+        is_compatible, strategy_type_for,
+    )
 
     for symbol, sym_rows in by_symbol.items():
         sym_rows.sort(key=lambda r: r.get("rank", 1e9))
@@ -784,6 +787,12 @@ def _attach_bucket_and_rationale(
                 f"{symbol_factor}-class instruments — see STRATEGIES.md "
                 "'instrument-strategy fit'."
             ) if row["excluded_for_fit"] else None
+            # 3-axis classification per IMPROVEMENT_SUGGESTIONS_v1.md §1.
+            # horizon + strategy_type are properties of the strategy
+            # itself, not the symbol — surface them on every row so the
+            # UI / MCP can filter "show me only swing momentum signals".
+            row["horizon"] = horizon_for(strategy_name)
+            row["strategy_type"] = strategy_type_for(strategy_name)
 
         # Long-count: count only strategies that are BOTH in position
         # AND historically profitable (Sharpe >= 0 on this symbol),
