@@ -1286,27 +1286,43 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
         # classification which we don't pull on the fast path; this
         # at least catches "BUY at the 52w high" cases.
         from ..compare import apply_horizon_and_range_demotion as _veto
-        bucket, bucket_reason, _horizon_demoted = _veto(
+        bucket, bucket_reason, horizon_demoted = _veto(
             bucket=bucket, reason=bucket_reason,
             horizon_classification=None,
             range_pct=ms.range_position_pct,
+        )
+        # Conviction classification + BUG-001 veto. Mirror compare.py
+        # so MCP output carries the same shape.
+        from ..compare import (
+            cap_bucket_at_low_conviction as _cap_low,
+            compute_conviction as _conviction,
+            enforce_coherence as _enforce_coherence,
+        )
+        ms_dict_pre = ms.to_dict()
+        conviction, conviction_reason = _conviction(
+            bucket=bucket,
+            market_state=ms_dict_pre,
+            sentiment_demoted=False,
+            horizon_demoted=horizon_demoted,
+        )
+        bucket, bucket_reason, conviction_demoted = _cap_low(
+            bucket=bucket, reason=bucket_reason, conviction=conviction,
         )
         # Coherence enforcement (BUG-002 fix). Reuse the same helper
         # compare.py uses so MCP output matches the comparator row
         # shape exactly: market_state.entry_signal == bucket, plus a
         # top-level `coherence` block with raw_entry_signal preserved
         # for diagnostics.
-        from ..compare import enforce_coherence as _enforce_coherence
         row = {
             "symbol": sym,
-            "market_state": ms.to_dict(),
+            "market_state": ms_dict_pre,
         }
-        # MCP fast path doesn't compute sentiment / horizon demotion,
-        # so flag both as False; supersede_reason will fall through to
+        # MCP fast path doesn't compute sentiment demotion, so flag
+        # as False; supersede_reason will fall through to
         # consensus_or_factor_fit if the bucket diverges from the raw
         # entry_signal here.
         _enforce_coherence(
-            row, bucket=bucket, sentiment_demoted=False, horizon_demoted=False,
+            row, bucket=bucket, sentiment_demoted=False, horizon_demoted=horizon_demoted,
         )
         ms_dict = row["market_state"]
         coherence = row["coherence"]
@@ -1316,6 +1332,9 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
             "ok": True,
             "bucket": bucket,
             "bucket_reason": bucket_reason,
+            "conviction": conviction,
+            "conviction_reason": conviction_reason,
+            "conviction_demoted": conviction_demoted,
             "long_count": long_count,
             "total_strategies": total,
             "market_state": ms_dict,

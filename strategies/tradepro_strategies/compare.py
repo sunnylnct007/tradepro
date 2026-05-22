@@ -432,6 +432,95 @@ def compute_bucket(
     )
 
 
+def compute_conviction(
+    *,
+    bucket: str,
+    market_state: dict,
+    sentiment_demoted: bool,
+    horizon_demoted: bool,
+) -> tuple[str, str]:
+    """Three-tier conviction classification per
+    IMPROVEMENT_SUGGESTIONS_v1.md §1.3 — the safety net the spec adds
+    on top of the bucket pipeline. Returns (conviction, reason).
+
+    Decision tree (first match wins):
+      - trend filters failing → LOW (regardless of bucket; the BUG-001
+        belt-and-braces — even if compute_bucket regresses, a BUY on a
+        broken trend gets demoted to WATCH downstream).
+      - sentiment or horizon demotion fired → MEDIUM (the system
+        adjusted away from the raw price signal; conviction follows).
+      - bucket = BUY with volume confirmation → HIGH.
+      - bucket = BUY without volume confirmation → MEDIUM.
+      - bucket = WAIT/AVOID and trend ok → MEDIUM (these aren't entry
+        recommendations, but conviction in the *avoid* call is still
+        normal-confidence when filters agree).
+
+    Trend filters: pass when above_sma_200 AND
+    ichimoku_cloud_position != BELOW_CLOUD. Missing data fails open
+    (treat as trend OK) so we don't punish symbols whose ichimoku
+    series hasn't computed yet — the bucket pipeline itself catches
+    the actual price-below-SMA200 case via the existing trend gate
+    (task #70).
+
+    Volume confirmation: volume_ratio_20d >= 1.2 (a fifth above the
+    20-day average). Missing → treated as "not confirmed" so we cap
+    at MEDIUM rather than promoting to HIGH on thin data.
+    """
+    above_sma_200 = market_state.get("above_sma_200")
+    ichi_pos = (market_state.get("ichimoku_cloud_position") or "").upper()
+    # Only fail trend when we have evidence either way; missing data
+    # is not the same as "trend broken".
+    sma_breaks_trend = above_sma_200 is False
+    ichi_breaks_trend = ichi_pos == "BELOW_CLOUD"
+    trend_broken = sma_breaks_trend or ichi_breaks_trend
+    if trend_broken:
+        bits = []
+        if sma_breaks_trend:
+            bits.append("price below 200d SMA")
+        if ichi_breaks_trend:
+            bits.append("below Ichimoku cloud")
+        return ("LOW", f"Trend filters failing: {' + '.join(bits)}.")
+    if sentiment_demoted:
+        return ("MEDIUM", "Sentiment demotion fired — verdict moved off raw price signal.")
+    if horizon_demoted:
+        return ("MEDIUM", "Horizon / range demotion fired — verdict adjusted by horizon view.")
+    if bucket == "BUY":
+        vol_ratio = market_state.get("volume_ratio_20d")
+        try:
+            confirmed = vol_ratio is not None and float(vol_ratio) >= 1.2
+        except (TypeError, ValueError):
+            confirmed = False
+        if confirmed:
+            return ("HIGH", f"Trend + consensus + volume confirm (vol_ratio={vol_ratio:.2f}).")
+        return ("MEDIUM", "Trend + consensus agree; volume confirmation absent or thin.")
+    return ("MEDIUM", "Trend filters pass; bucket is WAIT/AVOID so no entry recommendation.")
+
+
+def cap_bucket_at_low_conviction(
+    *,
+    bucket: str,
+    reason: str,
+    conviction: str,
+) -> tuple[str, str, bool]:
+    """If conviction == LOW and bucket would otherwise read as a BUY,
+    demote bucket → WAIT. Per IMPROVEMENT_SUGGESTIONS_v1.md §1.3, LOW
+    conviction means "WATCH only — no entry recommendation". Returns
+    (bucket, reason, demoted).
+
+    Pure function — no row mutation. Tested directly in
+    features/conviction.feature so the contract is auditable
+    independent of the wider compare flow.
+    """
+    if conviction == "LOW" and bucket == "BUY":
+        return (
+            "WAIT",
+            ("BUG-001 conviction veto: trend filters failing, bucket "
+             "capped at WAIT (was BUY). Original reason: " + (reason or "—")),
+            True,
+        )
+    return bucket, reason, False
+
+
 def enforce_coherence(
     row: dict,
     *,
@@ -760,6 +849,23 @@ def _attach_bucket_and_rationale(
                 or ms.get("range_position_pct"),
         )
 
+        # Three-tier conviction classification + BUG-001 conviction
+        # veto per IMPROVEMENT_SUGGESTIONS_v1.md §1.3. Conviction is
+        # computed AFTER all bucket demotions land so it reflects the
+        # final verdict's confidence. If conviction comes out LOW and
+        # bucket is still BUY (i.e. compute_bucket missed the trend
+        # break), the veto caps at WAIT — belt-and-braces on top of
+        # the existing trend gate.
+        conviction, conviction_reason = compute_conviction(
+            bucket=bucket,
+            market_state=ms,
+            sentiment_demoted=sentiment_demoted,
+            horizon_demoted=horizon_demoted,
+        )
+        bucket, reason, conviction_demoted = cap_bucket_at_low_conviction(
+            bucket=bucket, reason=reason, conviction=conviction,
+        )
+
         # Build the rationale once per symbol from the best row's data.
         try:
             facts = gather_facts(
@@ -845,6 +951,12 @@ def _attach_bucket_and_rationale(
             # UI can show "BUY → WAIT because the swing horizon said
             # AVOID at the 100th percentile" instead of just "WAIT".
             r["horizon_demoted"] = horizon_demoted
+            # Conviction classification + BUG-001 veto flag. UI uses
+            # conviction to gate the BUY badge — LOW caps at WATCH,
+            # INVALID blocks display entirely.
+            r["conviction"] = conviction
+            r["conviction_reason"] = conviction_reason
+            r["conviction_demoted"] = conviction_demoted
             # Coherence enforcement (BUG-002 fix per
             # IMPROVEMENT_SUGGESTIONS_v1.md §1.3 + §4) — extracted
             # to enforce_coherence() so the contract is unit-testable
