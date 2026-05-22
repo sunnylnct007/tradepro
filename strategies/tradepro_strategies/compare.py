@@ -1099,6 +1099,18 @@ def _attach_bucket_and_rationale(
             # tooltip "earnings in Nd".
             r["earnings_suppressed"] = earnings_suppressed
             r["earnings_proximity_days"] = days_until_earnings
+            # News context block — ⑤ of the Alpha Engine. Reshapes the
+            # existing sentiment_summary + news + earnings fields into
+            # the SIGNAL_CARD_SPEC §2.3 / §3 shape. Pure transformation,
+            # no new network calls; GDELT integration is a follow-on
+            # that swaps the data source without changing this wiring.
+            from .news_context import compute_news_context
+            nc = compute_news_context(
+                sentiment_summary=r.get("sentiment_summary"),
+                news_items=r.get("news"),
+                earnings_proximity_days=days_until_earnings,
+            )
+            r["news_context"] = nc.to_dict()
             # Exit framework block per SIGNAL_CARD_SPEC_v1.md §3. Carry
             # stop / target / RR alongside the verdict so the UI /
             # MCP / IBKR-order-instructions panel can render the
