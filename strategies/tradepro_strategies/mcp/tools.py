@@ -1291,17 +1291,25 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
             horizon_classification=None,
             range_pct=ms.range_position_pct,
         )
-        # Annotate market_state when bucket overrode the raw price
-        # signal — same contract compare.py uses. Without this, MCP
-        # consumers see entry_signal=BUY + bucket=AVOID on the same
-        # row and read it as a contradiction (Phase 0 bug).
-        ms_dict = ms.to_dict()
-        if ms.entry_signal and ms.entry_signal != bucket:
-            ms_dict["entry_signal_superseded_by"] = bucket
-            ms_dict["entry_signal_note"] = (
-                f"Raw price signal is {ms.entry_signal}, but the final "
-                f"verdict is {bucket} — see `bucket` for the answer."
-            )
+        # Coherence enforcement (BUG-002 fix). Reuse the same helper
+        # compare.py uses so MCP output matches the comparator row
+        # shape exactly: market_state.entry_signal == bucket, plus a
+        # top-level `coherence` block with raw_entry_signal preserved
+        # for diagnostics.
+        from ..compare import enforce_coherence as _enforce_coherence
+        row = {
+            "symbol": sym,
+            "market_state": ms.to_dict(),
+        }
+        # MCP fast path doesn't compute sentiment / horizon demotion,
+        # so flag both as False; supersede_reason will fall through to
+        # consensus_or_factor_fit if the bucket diverges from the raw
+        # entry_signal here.
+        _enforce_coherence(
+            row, bucket=bucket, sentiment_demoted=False, horizon_demoted=False,
+        )
+        ms_dict = row["market_state"]
+        coherence = row["coherence"]
         results.append({
             "_source": f"live://evaluate/{sym}",
             "symbol": sym,
@@ -1311,6 +1319,7 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
             "long_count": long_count,
             "total_strategies": total,
             "market_state": ms_dict,
+            "coherence": coherence,
             "strategies": strat_rows,
         })
 

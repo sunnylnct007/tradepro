@@ -432,6 +432,57 @@ def compute_bucket(
     )
 
 
+def enforce_coherence(
+    row: dict,
+    *,
+    bucket: str,
+    sentiment_demoted: bool,
+    horizon_demoted: bool,
+) -> None:
+    """Mutate `row` in-place so `market_state.entry_signal` agrees
+    with the final `bucket`, and surface a top-level `coherence`
+    block. The raw price-action signal is preserved as
+    `market_state.raw_entry_signal` for the decision trace.
+
+    BUG-002 surface fix per IMPROVEMENT_SUGGESTIONS_v1.md §1.3 + §4:
+    on every shipped row the two fields are equal by construction
+    (the panel's `coherence_check` resolver compares them directly),
+    while the `coherence.supersede_reason` field labels *why* the
+    raw signal was overridden — sentiment_demotion, horizon_demotion,
+    or consensus_or_factor_fit when neither of those fired but the
+    bucket vote still moved away from the raw price verdict (e.g.
+    not enough strategies are long to promote HOLD→BUY).
+    """
+    ms_dict = row.get("market_state") or {}
+    raw_entry_sig = ms_dict.get("entry_signal")
+    supersede_reason: str | None
+    if raw_entry_sig and raw_entry_sig != bucket:
+        if sentiment_demoted:
+            supersede_reason = "sentiment_demotion"
+        elif horizon_demoted:
+            supersede_reason = "horizon_demotion"
+        else:
+            supersede_reason = "consensus_or_factor_fit"
+        ms_dict["raw_entry_signal"] = raw_entry_sig
+        ms_dict["entry_signal"] = bucket
+        ms_dict["entry_signal_superseded_by"] = bucket
+        ms_dict["entry_signal_note"] = (
+            f"Raw price signal was {raw_entry_sig}; final verdict "
+            f"is {bucket} (reason: {supersede_reason})."
+        )
+        row["market_state"] = ms_dict
+    else:
+        supersede_reason = None
+    final_entry_sig = ms_dict.get("entry_signal", bucket)
+    row["coherence"] = {
+        "today_bucket": bucket,
+        "entry_signal": final_entry_sig,
+        "raw_entry_signal": ms_dict.get("raw_entry_signal", raw_entry_sig),
+        "consistent": final_entry_sig == bucket,
+        "supersede_reason": supersede_reason,
+    }
+
+
 def apply_sentiment_demotion(
     *,
     bucket: str,
@@ -794,23 +845,16 @@ def _attach_bucket_and_rationale(
             # UI can show "BUY → WAIT because the swing horizon said
             # AVOID at the 100th percentile" instead of just "WAIT".
             r["horizon_demoted"] = horizon_demoted
-            # Annotate market_state.entry_signal when the bucket
-            # overrode it (sentiment / horizon / range demotion fired).
-            # Otherwise any tool surfacing both fields side-by-side
-            # — MCP evaluate, raw JSON, swagger docs — shows what
-            # reads as a contradiction (entry_signal=BUY +
-            # bucket=AVOID on the same row). The annotation makes the
-            # priority explicit: bucket wins, entry_signal is the
-            # raw price input.
-            ms_dict = r.get("market_state") or {}
-            entry_sig = ms_dict.get("entry_signal")
-            if entry_sig and entry_sig != bucket:
-                ms_dict["entry_signal_superseded_by"] = bucket
-                ms_dict["entry_signal_note"] = (
-                    f"Raw price signal is {entry_sig}, but the final "
-                    f"verdict is {bucket} — see `bucket` for the answer."
-                )
-                r["market_state"] = ms_dict
+            # Coherence enforcement (BUG-002 fix per
+            # IMPROVEMENT_SUGGESTIONS_v1.md §1.3 + §4) — extracted
+            # to enforce_coherence() so the contract is unit-testable
+            # in isolation.
+            enforce_coherence(
+                r,
+                bucket=bucket,
+                sentiment_demoted=sentiment_demoted,
+                horizon_demoted=horizon_demoted,
+            )
             if rationale_dict is not None:
                 r["rationale"] = rationale_dict
             # Top-level price target keys land on every row of this
