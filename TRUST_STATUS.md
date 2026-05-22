@@ -1,6 +1,6 @@
 # TradePro — Trust Status
 
-**Last updated:** 2026-05-21 (Decide-page surfaces)
+**Last updated:** 2026-05-22 (regression panel + known open bugs)
 
 Per-metric audit of every number a user sees on the Decide page. Each
 metric is graded **🟢 Green / 🟡 Yellow / 🔴 Red** against this rubric:
@@ -23,6 +23,42 @@ correct in isolation), but Colombia election in 10 days + oil at
 $105 + MACD just fired = real-trader BUY. **Until the catalyst
 sprint ships (DATA_ROADMAP §13.5), TradePro is a passive-investing
 tool, not an event-driven trading tool.** Trade accordingly.
+
+---
+
+## Regression panel · known open bugs
+
+The eval suite at `tradepro_eval_regression.yaml` (16 cases, 8
+categories) is the system-behaviour source of truth. Three bugs
+are encoded as explicit cases so they cannot silently re-regress.
+Run them with `uv run tradepro-regression-panel` — non-zero exit
+code = at least one case is failing.
+
+### 🔴 BUG-001 — bucket fires BUY despite trend-filter fail
+**Symptom:** `bucket = BUY` while `market_state.trend_ok = false`
+(price below SMA200). First caught on BABA 2026-05-20.
+**Where it lives:** `compute_bucket` in `strategies/tradepro_strategies/compare.py`.
+**Tracked by:** SCB-002 (ABBV), SCB-003 (APLD) in the panel.
+**Promote when:** every SCB-* case in the panel reports `pass`.
+
+### 🔴 BUG-002 — bucket vs entry_signal contradiction
+**Symptom:** `coherence_check` fails — `bucket` and
+`market_state.entry_signal` disagree on the same row (e.g.
+`bucket=BUY` while `entry_signal=WAIT`). The two are computed by
+separate code paths and the panel asserts they must agree.
+**Where it lives:** `derive_entry_signal` vs `compute_bucket`
+divergence in `compare.py`.
+**Tracked by:** SCB-001 (BABA), SCB-002 (ABBV), SCB-003 (APLD).
+**Promote when:** all `coherence_check: PASS` cases report `pass`.
+
+### 🔴 BUG-003 — Finnhub analyst-upgrades feed returning 0 events
+**Symptom:** Upgrade events not surfacing for ADRs (BABA upgrade
+missed 2026-05-20). Already called out in Section 6 below; tracked
+here for completeness with the other open regressions.
+**Where it lives:** Finnhub integration audit, task #71.
+**Tracked by:** SCB-001 (BABA) `analyst_upgrades_seen` assertion.
+**Promote when:** BABA upgrade event flows through into the
+compare row and the assertion passes.
 
 ---
 
