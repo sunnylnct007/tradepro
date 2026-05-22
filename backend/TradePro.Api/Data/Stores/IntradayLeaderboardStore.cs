@@ -61,6 +61,18 @@ public sealed class PostgresIntradayLeaderboardStore : IIntradayLeaderboardStore
         // can GROUP BY. Coalesce null/missing realized_pnl to 0 so a
         // strategy that emitted zero orders still shows a 0 cell
         // rather than disappearing from the matrix.
+        //
+        // The query UNIONs two shapes:
+        //   1. New shape (commit f25bcba+): per-symbol entry has a
+        //      `strategies[]` array, one entry per registered strategy
+        //      with its own fills + realized_pnl.
+        //   2. Legacy shape (pre-f25bcba): per-symbol entry carries
+        //      `fills` and `realized_pnl_usd` directly with no nested
+        //      strategies — workers running stale code emit this. We
+        //      surface those under a synthetic strategy label
+        //      `(legacy)` so the data still rolls up; a fresh worker
+        //      run will overwrite the row with the proper per-strategy
+        //      breakdown.
         const string sql = @"
 WITH per_strategy AS (
     SELECT
@@ -78,6 +90,24 @@ WITH per_strategy AS (
       AND sr.state = 'Completed'
       AND r->>'symbol' IS NOT NULL
       AND s->>'strategy' IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+        sr.completed_at_utc AS session_at,
+        r->>'symbol' AS symbol,
+        '(legacy)' AS strategy,
+        COALESCE((r->>'fills')::int, 0) AS fills,
+        COALESCE((r->>'realized_pnl_usd')::numeric, 0) AS realized_pnl_usd
+    FROM session_requests sr
+        CROSS JOIN LATERAL jsonb_array_elements(
+            COALESCE(sr.result_summary->'results', '[]'::jsonb)) AS r
+    WHERE sr.kind = 'intraday'
+      AND sr.state = 'Completed'
+      AND r->>'symbol' IS NOT NULL
+      AND (r->'strategies' IS NULL
+           OR jsonb_typeof(r->'strategies') <> 'array'
+           OR jsonb_array_length(r->'strategies') = 0)
 )
 SELECT symbol, strategy,
        COUNT(*)::int AS sessions,
