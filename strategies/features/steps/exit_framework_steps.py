@@ -5,6 +5,7 @@ from __future__ import annotations
 from behave import given, then, when
 
 from tradepro_strategies.exit_framework import (
+    build_ibkr_order_instructions,
     compute_exit_levels,
     compute_position_sizing,
     gate_check_rr,
@@ -166,3 +167,71 @@ def step_check_max_loss(context, expected: float) -> None:
 @then('there is no position sizing')
 def step_no_sizing(context) -> None:
     assert context.sizing is None, f"expected None, got {context.sizing!r}"
+
+
+# ─────────── IBKR order instructions ───────────
+
+
+@given('a {direction} direction with entry {entry:g} stop {stop:g} target {target:g} quantity {qty:d}')
+def step_ibkr_inputs(context, direction: str, entry: float, stop: float, target: float, qty: int) -> None:
+    context.ibkr_direction = direction
+    context.ibkr_entry = float(entry)
+    context.ibkr_stop = float(stop)
+    context.ibkr_target = float(target)
+    context.ibkr_qty = qty
+
+
+@when('I build the IBKR order instructions')
+def step_build_ibkr(context) -> None:
+    context.ibkr = build_ibkr_order_instructions(
+        direction=context.ibkr_direction,
+        entry_price=context.ibkr_entry,
+        stop_loss=context.ibkr_stop,
+        take_profit=context.ibkr_target,
+        quantity=context.ibkr_qty,
+    )
+
+
+@then('the entry_order action is "{action}" with quantity {qty:d} and limit_price {price:g}')
+def step_check_entry_order(context, action: str, qty: int, price: float) -> None:
+    eo = context.ibkr.get("entry_order") or {}
+    assert eo.get("action") == action, f"entry action: expected {action}, got {eo.get('action')}"
+    assert eo.get("quantity") == qty, f"entry qty: expected {qty}, got {eo.get('quantity')}"
+    assert abs(eo.get("limit_price", 0) - price) < 0.01, (
+        f"entry limit_price: expected {price}, got {eo.get('limit_price')}"
+    )
+
+
+@then('the profit_taker action is "{action}" with quantity {qty:d} and limit_price {price:g}')
+def step_check_profit_taker(context, action: str, qty: int, price: float) -> None:
+    pt = context.ibkr.get("profit_taker") or {}
+    assert pt.get("action") == action
+    assert pt.get("quantity") == qty
+    assert abs(pt.get("limit_price", 0) - price) < 0.01
+
+
+@then('the stop_loss action is "{action}" with quantity {qty:d} and stop_price {price:g}')
+def step_check_stop_loss(context, action: str, qty: int, price: float) -> None:
+    sl = context.ibkr.get("stop_loss") or {}
+    assert sl.get("action") == action
+    assert sl.get("quantity") == qty
+    assert abs(sl.get("stop_price", 0) - price) < 0.01
+
+
+@then('the oca_required flag is {flag}')
+def step_check_oca(context, flag: str) -> None:
+    want = flag == "True"
+    assert context.ibkr.get("oca_required") == want, (
+        f"oca_required: expected {want}, got {context.ibkr.get('oca_required')}"
+    )
+
+
+@then('the instructions contain a refusal note mentioning "{needle}"')
+def step_check_refusal(context, needle: str) -> None:
+    note = (context.ibkr or {}).get("note", "")
+    assert needle.lower() in note.lower(), (
+        f"refusal note {note!r} does not mention {needle!r}"
+    )
+    assert "entry_order" not in (context.ibkr or {}), (
+        "refused IBKR card should not carry an entry_order block"
+    )

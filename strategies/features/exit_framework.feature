@@ -105,3 +105,18 @@ Feature: Intraday + swing exit framework
     And the FX rate is 1.25 GBPUSD
     When I compute position sizing
     Then there is no position sizing
+
+  # ─────────── build_ibkr_order_instructions ───────────
+
+  Scenario: BUY signal produces a complete IBKR bracket-order block
+    Given a BUY direction with entry 213.50 stop 207.20 target 226.40 quantity 13
+    When I build the IBKR order instructions
+    Then the entry_order action is "BUY" with quantity 13 and limit_price 213.50
+    And the profit_taker action is "SELL" with quantity 13 and limit_price 226.40
+    And the stop_loss action is "SELL" with quantity 13 and stop_price 207.20
+    And the oca_required flag is True
+
+  Scenario: non-BUY direction is refused (long-only today)
+    Given a SELL direction with entry 100.00 stop 105.00 target 90.00 quantity 10
+    When I build the IBKR order instructions
+    Then the instructions contain a refusal note mentioning "BUY"

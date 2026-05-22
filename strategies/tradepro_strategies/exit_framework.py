@@ -190,6 +190,55 @@ class PositionSizing:
         }
 
 
+def build_ibkr_order_instructions(
+    *,
+    direction: str,
+    entry_price: float,
+    stop_loss: float,
+    take_profit: float,
+    quantity: int,
+) -> dict:
+    """Translate a BUY signal + exit levels + position size into the
+    "what to type into IBKR" block per SIGNAL_CARD_SPEC_v1.md §3 / §5.
+    Returns the same shape the spec specifies: entry_order +
+    profit_taker + stop_loss + OCA flag.
+
+    Long-only for now — direction must be "BUY". Short / cover orders
+    will land when Track B's IBKR TWS API integration adds the
+    other side."""
+    if direction.upper() != "BUY":
+        return {"note": f"IBKR instructions only generated for BUY signals; got {direction!r}"}
+    return {
+        "note": "Place as bracket order via Exit Strategy button on position.",
+        "entry_order": {
+            "action": "BUY",
+            "quantity": quantity,
+            "order_type": "LIMIT",
+            "limit_price": round(entry_price, 2),
+            "tif": "DAY",
+        },
+        "profit_taker": {
+            "action": "SELL",
+            "quantity": quantity,
+            "order_type": "LIMIT",
+            "limit_price": round(take_profit, 2),
+            "tif": "GTC",
+        },
+        "stop_loss": {
+            "action": "SELL",
+            "quantity": quantity,
+            "order_type": "STOP",
+            "stop_price": round(stop_loss, 2),
+            "tif": "GTC",
+        },
+        "oca_required": True,
+        "oca_note": (
+            "Use Exit Strategy from position panel. Both exit orders "
+            "must share the same OCA group."
+        ),
+    }
+
+
 def compute_position_sizing(
     *,
     entry_price_usd: float,

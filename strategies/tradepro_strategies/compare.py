@@ -15,6 +15,7 @@ answer "given today, what should I do?" directly from this payload.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -882,15 +883,58 @@ def _attach_bucket_and_rationale(
         # gets momentum defaults when ATR is missing. The exit block
         # is set on every row for this symbol so any row can be
         # rendered in isolation.
-        from .exit_framework import compute_exit_levels, gate_check_rr
+        from .exit_framework import (
+            build_ibkr_order_instructions,
+            compute_exit_levels,
+            compute_position_sizing,
+            gate_check_rr,
+        )
         best_strategy_name = best.get("strategy", "")
         best_strategy_type = strategy_type_for(best_strategy_name)
+        entry_price_val = ms.get("last_price")
         exit_levels = compute_exit_levels(
-            entry_price=ms.get("last_price"),
+            entry_price=entry_price_val,
             atr_14=ms.get("atr_14"),
             strategy_type=best_strategy_type,
         )
         rr_gate_pass, rr_gate_reason = gate_check_rr(exit_levels)
+
+        # Position sizing + IBKR card. Only meaningful on a BUY
+        # bucket — WAIT / AVOID rows don't carry an entry intent.
+        # Account size + risk + FX come from env vars with sensible
+        # defaults; once the user-facing Settings page exposes them
+        # this wiring picks the value from the settings store
+        # without touching call sites.
+        sizing_dict: dict | None = None
+        ibkr_instructions: dict | None = None
+        if bucket == "BUY" and exit_levels is not None and entry_price_val:
+            try:
+                acct = float(os.environ.get("TRADEPRO_ACCOUNT_SIZE_GBP", "10000"))
+                risk_pct = float(
+                    os.environ.get("TRADEPRO_RISK_PER_TRADE_PCT", "1.0")
+                ) / 100.0
+                fx = float(os.environ.get("TRADEPRO_FX_GBPUSD", "1.27"))
+            except ValueError:
+                acct, risk_pct, fx = 10000.0, 0.01, 1.27
+            stop_distance_usd = max(
+                entry_price_val - exit_levels.stop_loss, 0.0
+            )
+            sizing = compute_position_sizing(
+                entry_price_usd=entry_price_val,
+                stop_distance_usd=stop_distance_usd,
+                account_size_gbp=acct,
+                risk_per_trade_pct=risk_pct,
+                fx_rate_gbpusd=fx,
+            )
+            if sizing is not None:
+                sizing_dict = sizing.to_dict()
+                ibkr_instructions = build_ibkr_order_instructions(
+                    direction="BUY",
+                    entry_price=entry_price_val,
+                    stop_loss=exit_levels.stop_loss,
+                    take_profit=exit_levels.take_profit,
+                    quantity=sizing.suggested_shares,
+                )
 
         # Build the rationale once per symbol from the best row's data.
         try:
@@ -993,6 +1037,8 @@ def _attach_bucket_and_rationale(
                 "reason": rr_gate_reason,
                 "floor": 2.0,
             }
+            r["sizing"] = sizing_dict
+            r["ibkr_order_instructions"] = ibkr_instructions
             # Coherence enforcement (BUG-002 fix per
             # IMPROVEMENT_SUGGESTIONS_v1.md §1.3 + §4) — extracted
             # to enforce_coherence() so the contract is unit-testable
