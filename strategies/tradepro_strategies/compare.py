@@ -23,6 +23,7 @@ import pandas as pd
 
 from .backtest import BacktestConfig, FeeModel, run_backtest
 from .cache import ensure_cached
+from .catalysts import extract_catalysts
 from .external_consensus import ExternalConsensus, _fetch_info, fetch_consensus
 from .fundamentals import Fundamentals, fetch_fundamentals
 from .llm import get_provider as get_llm_provider
@@ -208,6 +209,11 @@ def _row_for(
     # produced — even on backtest failure paths — so news rendering
     # doesn't depend on the rest of the pipeline succeeding.
     enriched_news = _merge_scored(news, scored_news)
+    # Catalyst overlay (Phase 17.3) — pull dated events out of the
+    # same headlines we already display. The list lands on every row
+    # the same way `news` does, so the UI can render it on any of
+    # the no-data / error / success paths without conditionals.
+    catalysts_list = [c.to_dict() for c in extract_catalysts(enriched_news)]
     history = list(earnings_history or [])
     if prices.empty:
         return {
@@ -228,6 +234,7 @@ def _row_for(
             "fundamentals": fundamentals.to_dict(),
             "news": enriched_news,
             "news_via": news_via,
+            "catalysts": catalysts_list,
             "sentiment_summary": sentiment_summary.to_dict(),
             "sentiment_status": sentiment_status,
             "currency": currency,
@@ -276,6 +283,7 @@ def _row_for(
             "fundamentals": fundamentals.to_dict(),
             "news": enriched_news,
             "news_via": news_via,
+            "catalysts": catalysts_list,
             "sentiment_summary": sentiment_summary.to_dict(),
             "sentiment_status": sentiment_status,
             "currency": currency,
@@ -352,6 +360,7 @@ def _row_for(
         "fundamentals": fundamentals.to_dict(),
         "news": enriched_news,
         "news_via": news_via,
+        "catalysts": catalysts_list,
         "sentiment_summary": sentiment_summary.to_dict(),
         "sentiment_status": sentiment_status,
         "currency": currency,

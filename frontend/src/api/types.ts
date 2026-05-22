@@ -327,6 +327,32 @@ export interface CompareNewsItem {
   sentiment_error?: string | null;
 }
 
+/** A dated event extracted from a news headline (Phase 17.3 — the
+ * Catalyst sprint). Surfaces on Symbol Deep Dive Section 5 as chips
+ * with the kind icon + occurs_on countdown ("Election · 10 days
+ * away"). The motivating example was Ecopetrol on 2026-05-21: the
+ * extractor pulls Colombia election (with date), OPEC+ oil surge,
+ * and Q1 earnings from the same headline list TradePro already
+ * fetches. */
+export interface CompareCatalyst {
+  /** One of: election | earnings | central_bank | commodity | regulatory */
+  kind: string;
+  /** The headline that surfaced this catalyst. */
+  title: string;
+  /** ISO date (YYYY-MM-DD) of the event itself, or null when only
+   * relative ("next week", "in 10 days") was knowable. */
+  occurs_on: string | null;
+  /** ISO datetime when the headline was published. */
+  surfaced_at: string | null;
+  /** Extractor confidence in [0, 1]. 1.0 = explicit date match,
+   * 0.7 = relative-date match ("in 10 days"), 0.5 = keyword only. */
+  confidence: number;
+  /** Source URL. */
+  link?: string | null;
+  /** One-line explanation of which keyword fired. Shows in tooltip. */
+  rationale?: string;
+}
+
 export interface CompareSentimentSummary {
   items_considered: number;
   mean_sentiment: number | null;
@@ -479,6 +505,10 @@ export interface CompareRow {
    * label the panel so the reader doesn't think the headlines are
    * fund-specific. Bug #13. */
   news_via?: string | null;
+  /** Dated catalysts extracted from the same news headlines (Phase
+   * 17.3 of the catalyst sprint). Empty array when nothing matched.
+   * Pre-sorted: dated catalysts first, sooner first, then undated. */
+  catalysts?: CompareCatalyst[];
   /** Latest monthly analyst recommendation counts (Finnhub free tier).
    * bull_score = (strongBuy + buy) - (sell + strongSell); mom_change
    * is the change vs. the prior month — positive means analysts are

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { TrustDot, TrustLegend } from "../components/TrustDot";
 import type {
+  CompareCatalyst,
   CompareLatestResponse,
   CompareNewsItem,
   CompareRow,
@@ -181,6 +182,7 @@ function PageShell(props: {
           items={row.news ?? []}
           summary={row.sentiment_summary}
           newsVia={row.news_via ?? null}
+          catalysts={row.catalysts ?? []}
         />
       )}
       {state === "ready" && row && (
@@ -625,8 +627,9 @@ function SectionNews(props: {
   items: CompareNewsItem[];
   summary?: CompareSentimentSummary;
   newsVia: string | null;
+  catalysts: CompareCatalyst[];
 }) {
-  const { items, summary, newsVia } = props;
+  const { items, summary, newsVia, catalysts } = props;
   const mean = summary?.mean_sentiment ?? null;
   const matNeg = summary?.material_negative_count ?? 0;
   // Header turns red when material_negative_count >= 2 — explicit
@@ -672,6 +675,7 @@ function SectionNews(props: {
           via proxy: {newsVia} — these headlines are about the proxy, not the symbol directly
         </div>
       )}
+      <CatalystChips catalysts={catalysts} />
       <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
         {items.map((item, i) => (
           <NewsRow key={i} item={item} index={i} />
@@ -679,6 +683,116 @@ function SectionNews(props: {
       </div>
     </section>
   );
+}
+
+// ----------------------------------------------------------------------
+// Catalyst chips — dated events extracted from the same news headlines
+// (Phase 17.3 of DATA_ROADMAP §13.5). Renders above the news list with
+// kind-coded chips. Each chip shows the catalyst kind, a relative
+// countdown to occurs_on when present, and the source title in the
+// tooltip. Empty list = no chip row shown (don't waste vertical space).
+// ----------------------------------------------------------------------
+
+function CatalystChips(props: { catalysts: CompareCatalyst[] }) {
+  if (!props.catalysts || props.catalysts.length === 0) return null;
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        padding: "8px 10px",
+        borderRadius: 6,
+        background: "rgba(155, 110, 255, 0.06)",
+        border: "1px solid rgba(155, 110, 255, 0.25)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "#cbb6ff",
+          marginBottom: 6,
+        }}
+      >
+        Catalysts (extracted from headlines)
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {props.catalysts.map((c, i) => (
+          <CatalystChip key={i} catalyst={c} />
+        ))}
+      </div>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
+        Pure-keyword extraction (no LLM). Pure-technical bucket above is
+        unchanged — these chips annotate why a trade may exist beyond
+        the technical signal alone. See DATA_ROADMAP §13.5 catalyst sprint.
+      </div>
+    </div>
+  );
+}
+
+function CatalystChip(props: { catalyst: CompareCatalyst }) {
+  const { catalyst: c } = props;
+  const { label, icon, colour } = catalystVisual(c.kind);
+  const daysAway = c.occurs_on ? daysFromNow(c.occurs_on) : null;
+  const countdown =
+    daysAway == null ? ""
+      : daysAway < 0 ? ` · ${Math.abs(daysAway)}d ago`
+      : daysAway === 0 ? " · today"
+      : daysAway === 1 ? " · tomorrow"
+      : ` · ${daysAway}d away`;
+  const tooltip =
+    `${label}${countdown}\n` +
+    `Date: ${c.occurs_on ?? "undated"}\n` +
+    `Confidence: ${(c.confidence * 100).toFixed(0)}%\n` +
+    `Source: ${c.title}` +
+    (c.rationale ? `\nWhy: ${c.rationale}` : "");
+  return (
+    <span
+      title={tooltip}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "3px 8px",
+        borderRadius: 12,
+        fontSize: 11,
+        fontWeight: 600,
+        background: `rgba(${colour}, 0.12)`,
+        border: `1px solid rgba(${colour}, 0.4)`,
+        color: `rgb(${colour})`,
+        cursor: "help",
+      }}
+    >
+      <span aria-hidden>{icon}</span>
+      <span>{label}{countdown}</span>
+    </span>
+  );
+}
+
+function catalystVisual(kind: string): { label: string; icon: string; colour: string } {
+  switch (kind) {
+    case "election":
+      return { label: "Election", icon: "🗳", colour: "111, 169, 255" };
+    case "earnings":
+      return { label: "Earnings", icon: "📊", colour: "31, 193, 107" };
+    case "central_bank":
+      return { label: "Central bank", icon: "🏦", colour: "210, 153, 34" };
+    case "commodity":
+      return { label: "Commodity", icon: "🛢", colour: "248, 81, 73" };
+    case "regulatory":
+      return { label: "Regulatory", icon: "⚖", colour: "203, 182, 255" };
+    default:
+      return { label: kind, icon: "•", colour: "180, 180, 180" };
+  }
+}
+
+function daysFromNow(iso: string): number | null {
+  const target = Date.parse(iso);
+  if (Number.isNaN(target)) return null;
+  const now = Date.now();
+  const oneDay = 1000 * 60 * 60 * 24;
+  return Math.round((target - now) / oneDay);
 }
 
 function NewsRow(props: { item: CompareNewsItem; index: number }) {
