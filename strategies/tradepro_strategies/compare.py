@@ -875,6 +875,23 @@ def _attach_bucket_and_rationale(
             bucket=bucket, reason=reason, conviction=conviction,
         )
 
+        # Exit framework — ② of the Alpha Engine. Compute stop_loss /
+        # take_profit at signal time so the UI / IBKR card has the
+        # mandatory exit triad ready without the user doing math.
+        # Anchor on the best row's strategy_type so a momentum signal
+        # gets momentum defaults when ATR is missing. The exit block
+        # is set on every row for this symbol so any row can be
+        # rendered in isolation.
+        from .exit_framework import compute_exit_levels, gate_check_rr
+        best_strategy_name = best.get("strategy", "")
+        best_strategy_type = strategy_type_for(best_strategy_name)
+        exit_levels = compute_exit_levels(
+            entry_price=ms.get("last_price"),
+            atr_14=ms.get("atr_14"),
+            strategy_type=best_strategy_type,
+        )
+        rr_gate_pass, rr_gate_reason = gate_check_rr(exit_levels)
+
         # Build the rationale once per symbol from the best row's data.
         try:
             facts = gather_facts(
@@ -966,6 +983,16 @@ def _attach_bucket_and_rationale(
             r["conviction"] = conviction
             r["conviction_reason"] = conviction_reason
             r["conviction_demoted"] = conviction_demoted
+            # Exit framework block per SIGNAL_CARD_SPEC_v1.md §3. Carry
+            # stop / target / RR alongside the verdict so the UI /
+            # MCP / IBKR-order-instructions panel can render the
+            # "what to type" card without re-deriving.
+            r["exit"] = exit_levels.to_dict() if exit_levels else None
+            r["rr_gate"] = {
+                "passed": rr_gate_pass,
+                "reason": rr_gate_reason,
+                "floor": 2.0,
+            }
             # Coherence enforcement (BUG-002 fix per
             # IMPROVEMENT_SUGGESTIONS_v1.md §1.3 + §4) — extracted
             # to enforce_coherence() so the contract is unit-testable
