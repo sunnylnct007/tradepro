@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
+import { SymbolAnalysisCard } from "../components/SymbolAnalysisCard";
 import { TrustDot, TrustLegend } from "../components/TrustDot";
 import type {
   CompareCatalyst,
@@ -171,6 +172,9 @@ function PageShell(props: {
 
       {state === "ready" && row && (
         <SectionVerdict row={row} allRows={allRows} />
+      )}
+      {state === "ready" && row && (
+        <SymbolAnalysisCard row={row} />
       )}
       {state === "ready" && row?.combined_verdict && (
         <SectionCombinedVerdict cv={row.combined_verdict} />
