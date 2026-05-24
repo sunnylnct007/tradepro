@@ -686,6 +686,29 @@ def build_server():
         Cite as ``live://signal_ledger/stats``."""
         return _json(t.get_signal_ledger_stats(source, symbol, lookback_days))
 
+    @mcp.tool()
+    @instrumented("get_long_term_fundamentals")
+    def get_long_term_fundamentals(symbol: str, years: int = 5) -> str:
+        """Long-term fundamental analysis for *symbol*.
+
+        Fetches multi-year annual financials (income statement, balance
+        sheet, cash flow) and returns:
+          • revenue_cagr_3y / _5y, margin series, ROE, FCF conversion
+          • quality grade (A–F) with positive / negative signals
+          • valuation snapshot: forward P/E, P/B, EV/EBITDA
+          • peer comparison (up to 3 peers, abbreviated metrics)
+          • sector template: which KPIs matter + what yfinance is missing
+          • warnings: ADR FX drag, sparse data, missing sector info
+
+        For Indian stocks use the NSE ticker (HDFCBANK.NS, TCS.NS, etc.)
+        to get INR-denominated figures.  Banking-specific metrics (NIM,
+        GNPA, CASA) and IT metrics (TCV, attrition) are NOT available
+        from yfinance — the ``template.yfinance_gaps`` list tells you
+        where to find them instead.
+
+        Cite as ``live://fundamentals/longterm/<SYMBOL>``."""
+        return _json(t.get_long_term_fundamentals(symbol, years))
+
     # ---- RESOURCES (URIs the client can read directly) --------------------
 
     @mcp.resource("tradepro://compare/{universe}")
