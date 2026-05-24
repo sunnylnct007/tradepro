@@ -593,6 +593,99 @@ def build_server():
             "saved_to": str(path),
         })
 
+    # ---- Alpha engine: COMPASS, sector RS, EPS revision, macro regime, ledger ----
+
+    @mcp.tool()
+    @instrumented("get_compass_score")
+    def get_compass_score(symbol: str) -> str:
+        """Full 6-factor COMPASS score for any ticker on demand.
+
+        Fetches live prices (ensure_cached), yfinance fundamentals,
+        sector RS (12w relative strength vs benchmark ETF), and EPS
+        revision from stored weekly snapshots. Analyst and sentiment
+        factors default to neutral when not pre-scored — to include
+        analyst consensus call get_analyst_recommendations first.
+
+        Returns: score (0–100), signal (BUY/WATCH/HOLD/TRIM),
+        conviction (HIGH/MEDIUM/LOW), per-factor breakdown, macro_gated
+        flag, and the current macro risk mode.
+
+        Takes ~4–8s. Cite as ``live://compass/<SYMBOL>``."""
+        return _json(t.get_compass_score(symbol))
+
+    @mcp.tool()
+    @instrumented("get_sector_rs")
+    def get_sector_rs(symbol: str) -> str:
+        """12-week sector relative strength for a symbol vs its
+        benchmark sector ETF (e.g. NVDA→SOXX, AAPL→XLK, HSBA.L→EWU).
+
+        Returns rs_score (0–10), rs_12w_pct (raw outperformance),
+        sector ETF used, symbol_12w_pct, etf_12w_pct, and a fallback
+        flag (True when SPY was used because the sector was unknown).
+
+        rs_score ≥ 7 means the stock is outperforming its sector —
+        a tailwind for the COMPASS sector RS factor.
+
+        Cite as ``live://sector_rs/<SYMBOL>``."""
+        return _json(t.get_sector_rs(symbol))
+
+    @mcp.tool()
+    @instrumented("get_eps_revision")
+    def get_eps_revision(symbol: str) -> str:
+        """EPS revision direction from locally-stored weekly snapshots.
+
+        Reports whether analyst EPS estimates were raised (up), cut
+        (down), or held flat over the last ~90 days. Data comes from
+        snapshots written by ``tradepro-refresh --eps-snapshot`` (runs
+        every Sunday evening). Returns direction, revision_pct,
+        delta_90d, current_estimate, snapshots_count, and as_of date.
+
+        Prerequisite: ≥2 snapshots must exist for the symbol — if
+        ``direction`` is ``insufficient_data``, schedule the Sunday
+        cron or run the refresh manually once.
+
+        Cite as ``live://eps_revision/<SYMBOL>``."""
+        return _json(t.get_eps_revision(symbol))
+
+    @mcp.tool()
+    @instrumented("get_macro_regime")
+    def get_macro_regime() -> str:
+        """Current macro risk mode: GREEN (1), AMBER (2), or RED (3).
+
+        Computed from live VIX, 10-year treasury yield change, and HYG
+        high-yield credit spread via yfinance. Day-keyed cache means
+        repeat calls within the same calendar day cost nothing.
+
+        Risk-mode implications for COMPASS:
+          GREEN (1) — full size (1.0×), BUY signals allowed
+          AMBER (2) — reduced size (0.6×), BUY signals dampened to WATCH
+          RED (3)   — zero new longs (0.0×), all signals macro_gated
+
+        Cite as ``live://macro_regime``."""
+        return _json(t.get_macro_regime())
+
+    @mcp.tool()
+    @instrumented("get_signal_ledger_stats")
+    def get_signal_ledger_stats(
+        source: str | None = None,
+        symbol: str | None = None,
+        lookback_days: int | None = None,
+    ) -> str:
+        """Performance stats from the local COMPASS signal ledger.
+
+        The ledger at ``~/.tradepro/signal_ledger.jsonl`` records every
+        signal fired by the COMPASS and CATALYST engines. Stats include
+        hit_rate_pct, expectancy_pct, total_closed, avg_holding_days,
+        and avg_return_pct. Filter by source (COMPASS or CATALYST),
+        symbol, and/or lookback_days.
+
+        Also returns open_signals — the count of still-live signals
+        whose outcome hasn't been recorded yet. Use to assess track
+        record quality before acting on a new signal.
+
+        Cite as ``live://signal_ledger/stats``."""
+        return _json(t.get_signal_ledger_stats(source, symbol, lookback_days))
+
     # ---- RESOURCES (URIs the client can read directly) --------------------
 
     @mcp.resource("tradepro://compare/{universe}")
