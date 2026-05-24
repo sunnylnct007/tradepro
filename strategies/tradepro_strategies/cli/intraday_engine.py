@@ -77,11 +77,11 @@ _DEFAULT_INTRADAY: dict[str, Any] = {
     "sessionStartUtc": "13:30",
     "sessionEndUtc": "20:00",
     "gate": {
-        "minRiskRewardRatio": 2.0,
+        "minRiskRewardRatio": 1.5,
         "maxSpreadPct": 0.3,
         "minConfidence": 0.70,
     },
-    "autoPlaceConfidenceThreshold": 0.85,
+    "autoPlaceConfidenceThreshold": 0.72,
     "riskPerTradeUsd": 100.0,
 }
 

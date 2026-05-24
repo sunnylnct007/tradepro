@@ -1195,6 +1195,775 @@ verdicts. Phase 7+.
   },
 ];
 
+// ---------------------------------------------------------------------------
+// TRADE SUPPORT topics
+// ---------------------------------------------------------------------------
+
+HELP_TOPICS.push(
+  {
+    slug: "compass-score",
+    title: "COMPASS alpha score",
+    summary: "What the 0–100 COMPASS score means, how each factor is weighted, and how to act on BUY / WATCH / HOLD / TRIM signals.",
+    emoji: "🧭",
+    sections: [
+      {
+        heading: "What is COMPASS?",
+        body: `
+**COMPASS** stands for *Continuous Multi-factor Alpha Scoring*. It
+gives every stock or ETF a single number from 0 to 100 that
+summarises how attractive the investment looks *right now* across
+six independent evidence streams.
+
+Think of it as a second opinion that runs alongside the existing
+technical analysis. The technical rules on the Decide page tell
+you *when* to enter (trend, RSI, range position). COMPASS tells
+you *which names are worth entering* — the ones where multiple
+different types of evidence are all pointing the same way at once.
+        `,
+      },
+      {
+        heading: "The six factors (and their weights)",
+        body: `
+| Factor | Weight | What it measures |
+|---|---|---|
+| **Momentum** | 20% | 12-week price trend + RSI positioning |
+| **Earnings revision** | 20% | Are analysts raising or cutting their EPS estimates? |
+| **Sector relative strength** | 15% | Is this stock beating or lagging its own sector ETF? |
+| **Quality** | 15% | Return-on-equity, debt load, free-cash-flow |
+| **Analyst consensus** | 15% | Direction of upgrades + price-target upside |
+| **Sentiment** | 10% | Recent news tone |
+| **Valuation** | 5% | Forward P/E vs sector |
+
+Each factor produces a sub-score from 0 (very negative) to 10
+(very positive). The weighted average of the six sub-scores
+maps onto the 0–100 COMPASS number.
+        `,
+      },
+      {
+        heading: "BUY / WATCH / HOLD / TRIM signals",
+        body: `
+The score maps to a recommended action:
+
+| Score | Signal | What it means |
+|---|---|---|
+| **72–100** | BUY | Strong multi-factor confluence. Most factors agree this is a good entry. |
+| **55–71** | WATCH | More positive than negative but not yet a compelling entry. Add to your watchlist; wait for RSI pullback or confirmation. |
+| **40–54** | HOLD | Mixed picture. If you already own it, no urgent reason to sell. If flat, no strong reason to buy. |
+| **0–39** | TRIM | Multiple factors deteriorating. Existing positions deserve scrutiny; new money should look elsewhere. |
+
+**Important:** COMPASS is not a trigger — it is a filter. A BUY
+signal from COMPASS combined with a technical BUY on the Decide
+page is the highest-conviction setup. COMPASS BUY with technical
+WAIT means "good stock, bad moment — be patient."
+        `,
+      },
+      {
+        heading: "Conviction grades",
+        body: `
+Alongside the signal, COMPASS shows a conviction grade:
+
+- **HIGH** (score ≥ 78) — the evidence is strong and consistent.
+  Multiple factors in the top quartile. Size positions normally.
+- **MEDIUM** (score 60–77) — a clear directional lean but some
+  factors are mixed. Size positions at 70–80% of normal.
+- **LOW** (score < 60) — marginal. If in doubt, reduce size or skip.
+
+The conviction grade on the Compare row reflects the COMPASS
+conviction, *not* the technical conviction from the strategy vote.
+They can disagree — that disagreement is useful information.
+        `,
+      },
+      {
+        heading: "The macro gate",
+        body: `
+COMPASS respects the macro regime (see "Macro regime gate →").
+When the macro gate is AMBER, COMPASS can still produce a BUY
+signal but it is automatically downgraded to WATCH on the row.
+When the gate is RED, the score is shown but flagged as
+**macro-gated** — meaning "the alpha is there, but the market
+environment says reduce risk right now."
+
+This means you will never see a COMPASS BUY on the Decide page
+during a RED-regime period, even if every individual factor is
+maxed out.
+        `,
+      },
+      {
+        heading: "Where to find it on the app",
+        body: `
+The COMPASS score, signal, and conviction appear on every expanded
+row on the Decide page — look for the **COMPASS** section below
+the technical bucket. You can also read the full factor breakdown
+there: each of the six factors shows its sub-score and a one-line
+evidence note.
+
+The score is also available via the MCP tools if you're using
+Claude Desktop: \`get_compare()\` returns \`compass_score\` and
+\`compass_breakdown\` on every row.
+        `,
+      },
+    ],
+  },
+
+  {
+    slug: "macro-regime",
+    title: "Macro regime gate",
+    summary: "How the GREEN / AMBER / RED traffic light works, what drives each level, and how it changes your position sizing.",
+    emoji: "🚦",
+    sections: [
+      {
+        heading: "Why a regime gate?",
+        body: `
+Individual stock analysis tells you whether *this name* is good.
+Macro regime tells you whether *right now* is a safe time to put
+money to work at all.
+
+A stock can have a perfect COMPASS score of 95/100 and still lose
+money if a VIX spike or credit market seizure is under way. The
+macro regime gate is a top-down circuit breaker: if the broad
+market environment says "reduce risk", the gate shrinks or stops
+all new entries regardless of how good the individual alpha looks.
+        `,
+      },
+      {
+        heading: "The three levels",
+        body: `
+| Level | Colour | What it means | Position sizing |
+|---|---|---|---|
+| 1 | 🟢 GREEN | Normal environment. VIX ≤ 22, credit spread healthy, rates not spiking. | Full size (1.0×) |
+| 2 | 🟡 AMBER | Elevated stress. One of the three signals is flashing. Reduce but don't stop. | Reduced (0.6×) |
+| 3 | 🔴 RED | Severe stress. Multiple signals in danger zone simultaneously. | Stop new entries (0.0×) |
+
+"Position sizing" means the multiplier applied to whatever your
+normal risk-per-trade is. If you normally risk £100 per trade and
+the regime is AMBER, you risk £60. RED means you don't open new
+positions until the gate clears.
+        `,
+      },
+      {
+        heading: "What drives the gate",
+        body: `
+Three signals are checked each trading day:
+
+**VIX (the "fear gauge"):** the market's implied expectation of
+future volatility in the S&P 500. VIX ≥ 22 triggers AMBER.
+VIX ≥ 32 triggers RED. In quiet markets VIX is 12–18; during
+2020 COVID it hit 82; 2022 rate shock peaked around 36.
+
+**HYG credit spread:** high-yield bond ETF drawdown from its
+52-week peak. When junk bonds sell off it means credit markets
+are stressed — companies with debt are seen as riskier. Drawdown
+≥ 4% triggers AMBER; ≥ 8% triggers RED.
+
+**10-year Treasury yield trend:** if the 10Y has risen more than
+0.40 percentage points over the last 60 days, AMBER. Rising rates
+compress equity valuations, especially growth stocks. This check
+alone can never trigger RED — it needs VIX or HYG to confirm.
+        `,
+      },
+      {
+        heading: "Where to see it on the app",
+        body: `
+The macro context bar at the top of the Decide page shows the
+current regime in text: "VIX 16.7 (normal) · 10Y 4.56% (rising)
+· risk_mode=GREEN". The same info appears in the daily email
+digest's macro section.
+
+When the gate is AMBER or RED, a banner appears on the Decide
+page explaining which signals triggered it and what it means for
+your entries. COMPASS signals are silently downgraded; the
+banner explains why a COMPASS BUY may show as WATCH.
+        `,
+      },
+    ],
+  },
+
+  {
+    slug: "sector-rs",
+    title: "Sector relative strength",
+    summary: "What 12-week relative strength vs the sector ETF measures, and why a stock leading its peers is a stronger buy candidate.",
+    emoji: "📡",
+    sections: [
+      {
+        heading: "Why compare to the sector, not the market?",
+        body: `
+If NVDA is up 25% over 12 weeks, is that good? It depends. If the
+whole semiconductor sector (SOXX) is up 30% over the same period,
+NVDA is actually *underperforming its own peer group* by 5%. The
+market is choosing other semis over NVDA. Something is wrong
+specifically with this name — not with semis in general.
+
+Conversely, if NVDA is up 25% and SOXX is up only 10%, NVDA is
+outperforming its sector by +15 percentage points. The market is
+*specifically choosing NVDA* over the rest of the group. That's a
+signal that institutional money is flowing into this name.
+        `,
+      },
+      {
+        heading: "How the 12-week RS number is calculated",
+        body: `
+1. Fetch the closing price from 12 weeks ago (60 trading days).
+2. Calculate: \`symbol_return = (price_now / price_12w_ago - 1) × 100\`.
+3. Do the same for the sector ETF.
+4. \`RS = symbol_return - etf_return\` (percentage points).
+
+A positive RS means the stock is outperforming its sector.
+Negative means it's lagging. Zero means it's moving exactly with
+the sector (no alpha).
+        `,
+      },
+      {
+        heading: "Score mapping",
+        body: `
+The raw percentage-point RS is mapped to a 0–10 sub-score for
+COMPASS:
+
+| RS (pp) | Score | Interpretation |
+|---|---|---|
+| +15 or more | 10 | Market leader — strong buy candidate |
+| +8 to +14 | 9 | Clear outperformer |
+| +4 to +7 | 7 | Mild outperformer |
+| +1 to +3 | 6 | Slight edge |
+| -1 to +1 | 5 | Inline — neutral |
+| -1 to -4 | 4 | Mild laggard |
+| -4 to -8 | 3 | Underperformer |
+| -8 to -15 | 2 | Weak — investigate why |
+| -15 or less | 1 | Sector is leaving this name behind |
+        `,
+      },
+      {
+        heading: "Sector ETF mapping",
+        body: `
+For 40+ common names, TradePro uses a curated sector ETF:
+
+| Symbol(s) | Sector ETF | Why |
+|---|---|---|
+| NVDA, MU, ASML, AMD, INTC | SOXX | Philadelphia Semiconductor Index |
+| AAPL, MSFT, PLTR, CRM | XLK | Technology Select Sector |
+| META, NFLX, GOOGL | XLC | Communication Services |
+| JPM, BAC, GS, V | XLF | Financials |
+| HSBA.L, AZN.L, SHEL.L | EWU | iShares MSCI United Kingdom |
+| VUKE.L, VUSA.L, VWRL.L | SPY | Used as a global proxy for broad ETFs |
+
+For symbols not in the curated list, TradePro looks up the sector
+from Yahoo Finance and maps to the appropriate ETF. If that also
+fails, it falls back to SPY (the S&P 500) as a broad market proxy.
+The Decide row shows which ETF was used so you can spot a fallback.
+        `,
+      },
+    ],
+  },
+
+  {
+    slug: "eps-revision",
+    title: "EPS revision tracker",
+    summary: "Why analyst earnings estimate changes are a leading alpha factor, and how TradePro tracks the 90-day revision for every stock.",
+    emoji: "📈",
+    sections: [
+      {
+        heading: "Why earnings estimates matter more than earnings",
+        body: `
+A company beating earnings expectations is big news — but only if
+the expectations haven't already been revised up to capture that
+beat. What actually moves stock prices is **whether estimates are
+rising or falling over time**.
+
+If analysts were expecting Micron to earn $15/share next year and
+over 90 days they've collectively revised that up to $19/share,
+something has fundamentally improved in the business: maybe memory
+demand is stronger, maybe margins are better, maybe guidance was
+raised. Price follows earnings estimates with a lag.
+
+This is why EPS revision is one of the strongest and most
+consistent alpha factors in quant finance — not whether earnings
+are high, but whether they're getting *higher*.
+        `,
+      },
+      {
+        heading: "How the tracker works",
+        body: `
+Every Sunday evening (before Monday's market opens), a scheduled
+job records the current **forward EPS** (analysts' consensus
+next-12-months earnings estimate) for every stock in TradePro's
+watchlists. The data comes from Yahoo Finance's \`forwardEps\`
+field — the same consensus estimate you'd see on a broker's
+research page, updated within ~24 hours of any analyst change.
+
+After about 90 days of snapshots you can see the direction of
+travel:
+
+- **\`direction: up\`** — estimates have risen. Analysts are raising
+  their forecasts. Strong positive signal.
+- **\`direction: down\`** — estimates are being cut. Weak signal;
+  investigate before buying.
+- **\`direction: flat\`** — no meaningful change (< £0.01 delta).
+  Neutral.
+- **\`direction: insufficient_data\`** — fewer than 30 days of
+  snapshots, or ETF with no analyst coverage.
+        `,
+      },
+      {
+        heading: "The 90-day revision percentage",
+        body: `
+The tracker computes \`revision_pct = (current_estimate / estimate_90d_ago - 1) × 100\`.
+
+Example for Micron (MU):
+- 90 days ago: forward EPS = £15.10
+- Today: forward EPS = £19.88
+- Revision = +31.6% ← strong positive revision
+
+This feeds COMPASS's earnings revision factor (20% weight). The
+factor score maps revision_pct to 0–10 — large positive revisions
+score near 10, large cuts score near 0.
+        `,
+      },
+      {
+        heading: "ETFs and no-coverage symbols",
+        body: `
+ETFs don't have analyst EPS coverage (they track an index, not
+a company). The tracker simply skips them — no error, no warning.
+The COMPASS earnings revision factor for ETFs defaults to 5
+(neutral) so the score isn't penalised.
+
+For individual stocks with thin analyst coverage (micro-caps,
+foreign-listed names), Yahoo Finance may not have a \`forwardEps\`
+value. These are also skipped silently. Build up a few months of
+weekly snapshots before relying on the revision factor for thinly
+covered names.
+        `,
+      },
+      {
+        heading: "How to trigger the weekly snapshot manually",
+        body: `
+The snapshot runs automatically every Sunday via launchd. To run
+it manually (e.g. after adding new symbols to a watchlist):
+
+\`\`\`bash
+# Run for a specific watchlist
+uv run tradepro-refresh --watchlist us_semis --eps-snapshot
+
+# Run for multiple watchlists
+uv run tradepro-refresh --watchlist us_megacap_sample --eps-snapshot
+uv run tradepro-refresh --watchlist us_sp100_sample --eps-snapshot
+
+# Trigger via launchd (no terminal window needed)
+launchctl start com.tradepro.eps-snapshot
+\`\`\`
+
+Snapshots are stored at \`~/.tradepro/eps_snapshots/<SYMBOL>.json\`.
+Each file is a JSON array of \`{date, forward_eps}\` entries, capped
+at 104 entries (~2 years of weekly history).
+        `,
+      },
+    ],
+  },
+
+  {
+    slug: "signal-ledger",
+    title: "Signal ledger & model performance",
+    summary: "How TradePro logs every signal permanently, and how to use hit rate and expectancy to judge whether the models are actually working.",
+    emoji: "📋",
+    sections: [
+      {
+        heading: "Why log every signal?",
+        body: `
+Every model that produces signals can be made to look good by only
+talking about its wins. TradePro's signal ledger prevents this by
+logging **every single signal the moment it fires** — win or lose,
+before the outcome is known.
+
+The ledger is append-only: nothing is ever deleted. Once a signal
+is written, it is part of the permanent evidence record.
+
+This means: after 3 months of signals, you can run
+\`ledger.compute_stats()\` and get the **actual, unbiased hit rate**
+of COMPASS vs reality. No cherry-picking. If the hit rate is 35%,
+you know the model needs work. If it's 65%+, you have evidence that
+the alpha is real.
+        `,
+      },
+      {
+        heading: "Signal lifecycle",
+        body: `
+Every signal goes through three states:
+
+1. **OPEN** — signal fired, waiting for the entry zone to be
+   reached or for the expiry date to pass.
+2. **ACTIVE** — price touched the entry level; position is live.
+3. **CLOSED** — one of four outcomes recorded:
+   - \`HIT_TARGET\` — price reached the target ✅
+   - \`STOPPED_OUT\` — price hit the stop loss ❌
+   - \`EXPIRED\` — position didn't trigger before the expiry date
+   - \`MANUAL_CLOSE\` — closed by the operator for any other reason
+
+For each closed signal the ledger also records: exit price,
+return_pct, and holding_days.
+        `,
+      },
+      {
+        heading: "Hit rate and expectancy",
+        body: `
+**Hit rate** is simply the percentage of closed signals that hit
+their target. A hit rate of 60% means 6 out of 10 signals worked.
+
+But hit rate alone is misleading. A model with 80% hit rate but
+tiny wins and huge losses can still lose money overall. That's why
+expectancy matters:
+
+\`expectancy = (hit_rate × avg_winner%) + ((1 - hit_rate) × avg_loser%)\`
+
+A positive expectancy means the model makes money in the long run.
+A negative expectancy means it loses, regardless of hit rate.
+
+Example:
+- Hit rate 60%, avg win +3.5%, avg loss -2.0%
+- Expectancy = 0.60 × 3.5 + 0.40 × (-2.0) = **+1.3%** per signal
+
+That's a good model. Run it 50 times a year and you're up ~65% on
+your risk capital purely from model edge — before any compounding.
+        `,
+      },
+      {
+        heading: "Where the ledger lives",
+        body: `
+The ledger is stored at \`~/.tradepro/signal_ledger.jsonl\` — one
+JSON object per line, one line per signal event. It survives Mac
+reboots; it never gets wiped by a redeploy. It's a plain text file
+you can open in any editor.
+
+The ledger is **not yet surfaced on a dedicated page in the UI** —
+that's on the roadmap (Phase B: portfolio simulation). For now,
+you can query it with a Python one-liner:
+
+\`\`\`python
+from tradepro_strategies.signal_ledger import SignalLedger
+ledger = SignalLedger()
+stats = ledger.compute_stats(source="COMPASS")
+print(stats)
+# → {"hit_rate_pct": 63.2, "expectancy_pct": 1.45, "total_closed": 44, ...}
+\`\`\`
+
+Or filter by symbol:
+\`\`\`python
+stats = ledger.compute_stats(source="COMPASS", symbol="NVDA")
+\`\`\`
+
+Or filter to recent 30 days:
+\`\`\`python
+stats = ledger.compute_stats(source="COMPASS", lookback_days=30)
+\`\`\`
+        `,
+      },
+      {
+        heading: "Building the evidence base",
+        body: `
+The ledger is most useful after **at least 30 closed signals**.
+With fewer than that, hit rate estimates are too noisy to act on
+(a coin flip can score 70% hit rate over 10 flips).
+
+Build the ledger by running signals consistently and resisting the
+temptation to intervene manually in winning trades before the
+target is reached (that inflates hit rate artificially). Let the
+model run for a full market cycle: a bull phase, a choppy phase,
+and ideally a mini-drawdown.
+
+After ~3 months of COMPASS signals you'll have enough data to:
+- Tune the entry score threshold (currently 72 — raise if too many WATCH signals flop)
+- Tune the expiry window (currently 5 days for CATALYST, open for COMPASS)
+- Compare COMPASS performance sector by sector (does it work better in semis than energy?)
+        `,
+      },
+    ],
+  },
+
+// ---------------------------------------------------------------------------
+// IT / OPS topics
+// ---------------------------------------------------------------------------
+
+  {
+    slug: "scheduling",
+    title: "Scheduling & automation",
+    summary: "How the Mac launchd jobs are set up, the three key schedules, how to pause/resume, and how to add the weekly EPS snapshot.",
+    emoji: "⏱️",
+    sections: [
+      {
+        heading: "Overview — what runs automatically",
+        body: `
+TradePro uses macOS **launchd** (the Mac equivalent of cron) to
+run background jobs. All jobs live in \`~/Library/LaunchAgents/\` as
+\`.plist\` files. They survive Mac reboots and missed fires are
+replayed when the Mac wakes up.
+
+Five jobs make up the full automation stack:
+
+| Job | Cadence | What it does |
+|---|---|---|
+| \`com.tradepro.worker\` | Every 30 min (persistent) | Runs compare + heartbeat |
+| \`com.tradepro.refresh\` | 4× daily at fixed UTC times | Alternative to worker for cron fans |
+| \`com.tradepro.email-digest\` | Daily 23:00 UTC | Sends the daily signal email |
+| \`com.tradepro.paper\` | Daily 14:30 UTC | Paper trading session |
+| \`com.tradepro.eps-snapshot\` | Sunday 20:00 UTC | Records weekly EPS estimates |
+| \`com.tradepro.intraday-engine\` | Continuous (KeepAlive) | Intraday paper strategy engine |
+        `,
+      },
+      {
+        heading: "Worker mode vs cron mode",
+        body: `
+**Worker mode** (default, recommended):
+- One persistent job (\`com.tradepro.worker\`) runs compare every
+  30 minutes and sends heartbeats every 5 minutes.
+- The Mac UI always shows the worker as "alive".
+- Better for active traders who check the app during the day.
+
+**Cron (refresh+heartbeat) mode:**
+- \`com.tradepro.refresh\` fires at 07:00, 12:00, 17:00, 22:30 UTC.
+- \`com.tradepro.heartbeat\` pings every 15 minutes.
+- Better if your Mac sleeps a lot or you don't need fresh data
+  between the four fixed fire times.
+
+Switch modes:
+\`\`\`bash
+# Switch to worker mode
+bash strategies/scripts/install-launchd.sh --worker
+
+# Switch to cron mode
+bash strategies/scripts/install-launchd.sh --refresh
+\`\`\`
+        `,
+      },
+      {
+        heading: "Adding the weekly EPS snapshot",
+        body: `
+The EPS snapshot job is NOT installed by default (it's a new
+feature). Add it alongside whichever main mode you use:
+
+\`\`\`bash
+# Worker mode + EPS snapshot
+bash strategies/scripts/install-launchd.sh --eps-snapshot
+
+# Cron mode + EPS snapshot
+bash strategies/scripts/install-launchd.sh --refresh --eps-snapshot
+
+# Full stack: worker + intraday + EPS snapshot
+bash strategies/scripts/install-launchd.sh --intraday --eps-snapshot
+\`\`\`
+
+The job fires every Sunday at 20:00 UTC. It runs
+\`tradepro-refresh --eps-snapshot\` on all stock watchlists
+(\`us_semis\`, \`us_megacap_sample\`, \`us_sp100_sample\`, etc.).
+
+To trigger it manually any time:
+\`\`\`bash
+launchctl start com.tradepro.eps-snapshot
+\`\`\`
+        `,
+      },
+      {
+        heading: "Pausing and resuming without unloading",
+        body: `
+You can pause the worker or intraday engine without unloading the
+launchd job (which would require re-running the installer):
+
+\`\`\`bash
+# Pause the worker (next cycle sees the file and skips)
+touch ~/.tradepro/worker.pause
+
+# Resume
+rm ~/.tradepro/worker.pause
+
+# Pause the intraday engine
+touch ~/.tradepro/intraday-engine.pause
+
+# Resume
+rm ~/.tradepro/intraday-engine.pause
+\`\`\`
+
+The email digest and EPS snapshot don't have a pause file — they
+fire once per day/week and finish in under 5 minutes, so pausing
+via \`launchctl bootout\` is fine for those.
+        `,
+      },
+      {
+        heading: "Checking what ran and when",
+        body: `
+All jobs log to \`~/.tradepro/logs/\`. Key files:
+
+\`\`\`bash
+# Today's compare run log
+tail -100 ~/.tradepro/logs/worker-$(date +%Y-%m-%d).log
+
+# Last Sunday's EPS snapshot
+tail -100 ~/.tradepro/logs/eps-snapshot-$(date -u +%Y-%m-%d).log
+
+# Email digest
+tail -50 ~/.tradepro/logs/email-$(date +%Y-%m-%d).log
+
+# Paper session
+tail -50 ~/.tradepro/logs/paper-$(date +%Y-%m-%d).log
+\`\`\`
+
+The Health page in the app also shows the Mac worker's last
+heartbeat time so you can confirm the worker is alive without
+opening a terminal.
+        `,
+      },
+    ],
+  },
+
+  {
+    slug: "ops-runbook",
+    title: "IT operations runbook",
+    summary: "Quick-reference checklist for IT operators: health checks, log locations, manual refresh, restarting jobs, and common fixes.",
+    emoji: "🔧",
+    sections: [
+      {
+        heading: "First 60-second health check",
+        body: `
+Open the **Health page** (\`/health\`) in the app. It shows:
+
+1. **API status** — is the .NET API reachable?
+2. **Worker liveness** — when did the Mac last ping? Green = within
+   30 min, amber = 30 min–2 h, red = stale > 2 h.
+3. **Compare cache freshness** — is there data less than 24 h old?
+4. **External integrations** — Yahoo Finance, Finnhub, T212, Ollama.
+
+If all four are green you're done. If anything is amber or red,
+read on.
+        `,
+      },
+      {
+        heading: "Worker is showing as stale",
+        body: `
+**Check if the launchd job is loaded:**
+\`\`\`bash
+launchctl list | grep tradepro
+\`\`\`
+You should see \`com.tradepro.worker\` (or \`com.tradepro.refresh\`
+and \`com.tradepro.heartbeat\` in cron mode).
+
+**Check the log for errors:**
+\`\`\`bash
+tail -50 ~/.tradepro/logs/worker-$(date +%Y-%m-%d).log
+# or for the heartbeat specifically:
+tail -20 ~/.tradepro/logs/worker-heartbeat-$(date +%Y-%m-%d).log
+\`\`\`
+
+**Restart the worker:**
+\`\`\`bash
+launchctl bootout "gui/$UID" \
+  ~/Library/LaunchAgents/com.tradepro.worker.plist
+launchctl bootstrap "gui/$UID" \
+  ~/Library/LaunchAgents/com.tradepro.worker.plist
+\`\`\`
+
+**If the job is not loaded at all**, re-run the installer:
+\`\`\`bash
+bash strategies/scripts/install-launchd.sh
+\`\`\`
+        `,
+      },
+      {
+        heading: "Manual price refresh",
+        body: `
+Trigger a fresh compare run right now without waiting for the
+next scheduled fire:
+
+\`\`\`bash
+# Trigger via launchd (no terminal window, no logs to watch)
+launchctl start com.tradepro.worker   # one extra cycle
+
+# OR run directly in terminal (you see output in real time)
+cd ~/sourcecode/tradepro/tradepro/strategies
+uv run tradepro-compare --universe etf_uk_core --push
+uv run tradepro-compare --universe us_semis --push
+\`\`\`
+
+For all universes at once:
+\`\`\`bash
+bash strategies/scripts/refresh.sh
+\`\`\`
+        `,
+      },
+      {
+        heading: "Checking the EPS snapshot history",
+        body: `
+Check which symbols have snapshot data and how many weeks back:
+
+\`\`\`bash
+ls ~/.tradepro/eps_snapshots/ | wc -l   # total symbols
+
+# Check a specific symbol
+cat ~/.tradepro/eps_snapshots/NVDA.json | python3 -c \
+  "import json,sys; d=json.load(sys.stdin); print(f'{len(d)} snapshots, latest {d[-1][\"date\"]}')"
+\`\`\`
+
+Run a manual Python check:
+\`\`\`python
+from tradepro_strategies.eps_tracker import get_eps_revision
+print(get_eps_revision("NVDA"))
+# → {"direction": "up", "revision_pct": 12.4, "delta_90d": 2.1, ...}
+\`\`\`
+        `,
+      },
+      {
+        heading: "Common errors and fixes",
+        body: `
+**"Yahoo Finance quota exceeded" errors in the log:**
+Rate limit hit. Wait 10–15 minutes and run again. The refresh script
+is idempotent — already-cached symbols won't be re-fetched.
+
+**"uv not found" error:**
+Install uv: \`curl -LsSf https://astral.sh/uv/install.sh | sh\`
+Then restart the terminal (or run \`source ~/.bashrc\`).
+
+**API returns empty / stale data on the Decide page:**
+1. Check the worker is running (see above).
+2. Check the compare cache: \`ls -lh ~/.tradepro/cache/compare/\`
+3. Push the latest cache manually: \`uv run tradepro-push\`
+
+**Ollama / LLM rationale missing:**
+Ollama may not be running. Start it: \`ollama serve\`
+Check it's accessible: \`curl http://localhost:11434/api/tags\`
+The engine degrades gracefully — rows will show a template
+rationale rather than an LLM one; buckets are unaffected.
+
+**Trading 212 badge shows "demo" but you want live:**
+Update the T212 config in Settings → put the live API key in AWS
+Secrets Manager at \`tradepro/all\` (key: \`Trading212__ApiKey\`) and
+redeploy the API on EC2.
+        `,
+      },
+      {
+        heading: "Full reinstall (nuclear option)",
+        body: `
+If jobs are behaving strangely, a clean reinstall takes under
+2 minutes:
+
+\`\`\`bash
+# 1. Unload all jobs
+for plist in ~/Library/LaunchAgents/com.tradepro.*.plist; do
+  launchctl bootout "gui/$UID" "$plist" 2>/dev/null || true
+  rm -f "$plist"
+done
+
+# 2. Reinstall with your preferred flags
+cd ~/sourcecode/tradepro/tradepro/strategies
+bash scripts/install-launchd.sh --intraday --eps-snapshot
+
+# 3. Verify
+launchctl list | grep tradepro
+\`\`\`
+
+This is safe — it only touches launchd job registrations, not
+your cached data or credentials.
+        `,
+      },
+    ],
+  }
+);
+
+// ---------------------------------------------------------------------------
+
 export function topicBySlug(slug: string): HelpTopic | undefined {
   return HELP_TOPICS.find((t) => t.slug === slug);
 }

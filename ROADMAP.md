@@ -18,6 +18,56 @@ those assumptions change.
 Tracks meaningful work that's already in `main` so this doc stops drifting
 out of date. Each entry is one line: what changed and why it mattered.
 
+**Week of 2026-05-24 — COMPASS alpha engine + macro regime gate (Sprint 1 + 2):**
+
+- ✅ **Macro Regime Gate** (`macro_regime.py` + `market_context.py`). Three-level
+  traffic light (GREEN / AMBER / RED) computed from VIX + HYG credit-spread drawdown
+  + 10Y yield trend. `get_risk_mode()` returns 1/2/3; `size_multiplier()` maps to
+  1.0× / 0.6× / 0.0×. `MarketContext` now carries `hyg_drawdown_pct` and `risk_mode`
+  so every downstream consumer (COMPASS, email digest, paper engine) reads the same
+  gate without an extra fetch. Day-keyed `@lru_cache` — one live data pull per session.
+- ✅ **COMPASS — Continuous Multi-factor Alpha Scoring** (`compass_scorer.py`).
+  6-factor 0–100 score per symbol: momentum (20%), earnings revision (20%), quality
+  (15%), sector relative strength (15%), analyst consensus (15%), sentiment (10%),
+  valuation (5%). Signal thresholds: BUY ≥72, WATCH ≥55, HOLD ≥40, TRIM <40.
+  Macro gate: AMBER dampens BUY→WATCH; RED sets `macro_gated=True`. Conviction grades
+  (HIGH/MEDIUM/LOW) and a per-factor evidence breakdown shipped on every result.
+- ✅ **Sector Relative Strength** (`sector_rs.py`). 12-week symbol return vs sector
+  ETF proxy. Curated SYMBOL_SECTOR_ETF map covers 40+ names (NVDA/MU/ASML→SOXX,
+  AAPL/MSFT→XLK, HSBA.L/AZN.L→EWU, VUKE.L→SPY). Unknown symbols fall back via
+  yfinance sector lookup, then SPY. Score mapping: +15%→10, down to <-15%→1. Feeds
+  directly into COMPASS sector_rs factor.
+- ✅ **EPS Revision Tracker** (`eps_tracker.py` + `cli/refresh.py --eps-snapshot`).
+  Weekly snapshots of yfinance `forwardEps` per symbol stored at
+  `~/.tradepro/eps_snapshots/`. `get_eps_revision()` returns 90-day delta + direction
+  (up/down/flat/insufficient_data). `batch_record_snapshots()` concurrent via
+  `ThreadPoolExecutor`. Weekly cron entry point:
+  `tradepro-refresh --watchlist <X> --eps-snapshot`. Feeds COMPASS earnings_revision
+  factor; ETFs + no-coverage symbols skipped gracefully.
+- ✅ **Signal Ledger** (`signal_ledger.py`). Append-only JSONL evidence log at
+  `~/.tradepro/signal_ledger.jsonl`. Every COMPASS / CATALYST signal fired is
+  immediately persisted with UUID, entry/stop/target, expires_at. `close_signal()`
+  stamps outcome (HIT_TARGET / STOPPED_OUT / EXPIRED / MANUAL_CLOSE), exit_price,
+  return_pct, holding_days. `compute_stats()` returns hit_rate_pct + expectancy_pct
+  per model/symbol/lookback window — the evidence base that answers "is the model
+  actually working?" Atomic rewrite via `.tmp` file for safe in-place updates.
+- ✅ **COMPASS wired into compare.py**. Computed once per symbol in the hot path
+  (after the ichimoku_promote block, before `for r in sym_rows:`). Result stamped on
+  every row: `compass_score`, `compass_signal`, `compass_conviction`,
+  `compass_breakdown`. Full try/except guard — a scorer failure never breaks a
+  compare run. Sector RS + EPS revision fetched best-effort alongside.
+- ✅ **CompassMomentum intraday paper strategy**
+  (`paper/strategies/compass_momentum.py`). Entry: COMPASS ≥68 AND RSI(14) <62 AND
+  price >SMA20. COMPASS resolved once per symbol per session (lazy on first bar, then
+  memoised). Stop = entry × (1 − stop_pct, default 2%); target = entry + 2× risk.
+  Exit: RSI exhaustion ≥72 OR hard stop OR EOD flatten. Risk-envelope size cap
+  applied. `confidence` field on every Order derived from COMPASS score/100 so the
+  pre-trade gate sees a semantically meaningful probability.
+- ✅ **Paper gate recalibration** (`cli/intraday_engine.py`). `autoPlaceConfidenceThreshold`
+  0.85 → 0.72; `minRiskRewardRatio` 2.0 → 1.5. Previous defaults produced zero fills
+  — new values are calibrated to the realistic signal distribution we now have with
+  COMPASS + CompassMomentum.
+
 **Week of 2026-05-18 — unicorn-grade foundations:**
 
 - ✅ **Phase 5 — Postgres migration of every store**. All 9 in-memory +
@@ -882,7 +932,7 @@ peers". To get genuine alpha we need uncorrelated signal families.
 | 2. Valuation | Is this cheap? | ✅ basket-relative P/E (stocks) + yield (ETFs) hybrid lens. Historical-P/E vs own median still needs snapshot store. |
 | 3. Cross-sectional / factor | How does this rank vs peers? | ✅ rank + zscore annotation per row |
 | 4. Event-driven | Recent earnings beat + retreat? | ✅ `BEAT_AND_RETREAT` signal + Finnhub forward calendar (May 2026) |
-| 5. Macro overlay | What regime are we in? | ⚠️ partial via etf_macro_proxies |
+| 5. Macro overlay | What regime are we in? | ✅ `macro_regime.py`: VIX + HYG credit spread + 10Y yield → GREEN/AMBER/RED gate; `size_multiplier()` drives COMPASS + paper engine sizing (May 2026) |
 | 6. Sentiment | What's the news saying? | ✅ two-tier demotion: BUY→WAIT at -0.30, any→AVOID at -0.45 |
 
 **Build order:**
@@ -895,6 +945,12 @@ peers". To get genuine alpha we need uncorrelated signal families.
 5. ✅ **Horizon Classification Engine** (TRADEPRO-SPEC-001 §6) — splits
    the verdict into swing / long-term / passive horizons so the same
    instrument gets independently-scored advice per holding period
+5a. ✅ **COMPASS Model** — 6-factor 0–100 alpha score (momentum 20%,
+    earnings revision 20%, sector RS 15%, quality 15%, analyst 15%,
+    sentiment 10%, valuation 5%). Macro-gated; wired into every
+    compare.py row + CompassMomentum paper strategy. EPS revision
+    tracker + signal ledger shipped as supporting infrastructure.
+    (May 2026 — Sprint 1 + 2)
 6. Tranche-based position sizing: T1=40% now, T2=30% on RSI ≤ 35,
    T3=30% on RSI ≤ 30; max 20% per name; cash sleeve for reserves
 7. Exit rules: profit target T1×1.20 (sell 40%), stop T1×0.85 (full),

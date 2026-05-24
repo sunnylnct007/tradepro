@@ -2109,6 +2109,196 @@ def get_watchlist(name: str) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Alpha engine: COMPASS scorer, sector RS, EPS revision, macro regime, ledger
+# ---------------------------------------------------------------------------
+
+def get_compass_score(symbol: str) -> dict:
+    """Compute the full 6-factor COMPASS score for a symbol on demand.
+
+    Builds the required row dict from live price data (via ensure_cached +
+    market_state), yfinance fundamentals, sector RS (compute_sector_rs), and
+    EPS revision (eps_tracker). Analyst and sentiment factors default to
+    neutral when not pre-scored. Takes ~4–8s (price + fundamentals fetches).
+
+    Cite as ``live://compass/<SYMBOL>``.
+    """
+    if not symbol or not symbol.strip():
+        return _err("get_compass_score", "symbol is required")
+    sym = symbol.strip().upper()
+    try:
+        from datetime import timedelta
+        from ..cache import ensure_cached
+        from ..market_state import market_state as _market_state
+        from ..compass_scorer import compute_compass_score
+        from ..sector_rs import compute_sector_rs
+        from .. import eps_tracker as _eps_tracker
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=400)
+        prices = ensure_cached("yahoo", sym, start, end)
+        if prices.empty:
+            return _err("get_compass_score", "no price data — invalid symbol?", symbol=sym)
+
+        ms = _market_state(sym, prices)
+        ms_dict = ms.to_dict()
+
+        # Fetch yfinance fundamentals for valuation + quality factors.
+        fund_dict: dict = {}
+        try:
+            import yfinance as yf
+            info = yf.Ticker(sym).info or {}
+            fund_dict = {
+                "forward_pe":       info.get("forwardPE"),
+                "free_cashflow":    info.get("freeCashflow"),
+                "legal_type":       info.get("legalType"),
+                "returnOnEquity":   info.get("returnOnEquity"),
+                "debtToEquity":     info.get("debtToEquity"),
+            }
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Minimal row dict expected by compute_compass_score.
+        row: dict = {
+            "symbol": sym,
+            "market_state": ms_dict,
+            "fundamentals": fund_dict,
+            "stats": {},             # sharpe unknown without backtest → neutral quality
+            "external_consensus": {},  # analyst data not pre-scored on-demand
+            "sentiment_summary": {},   # news sentiment not pre-scored on-demand
+        }
+
+        sector_rs = compute_sector_rs(sym)
+
+        eps_rev: dict | None = None
+        try:
+            eps_rev = _eps_tracker.get_eps_revision(sym)
+        except Exception:  # noqa: BLE001
+            pass
+
+        result = compute_compass_score(sym, row, sector_rs_result=sector_rs, eps_revision=eps_rev)
+        out = result.to_dict()
+        out["_source"] = f"live://compass/{sym}"
+        out["fetched_at"] = _now_iso()
+        out["sector_rs"] = sector_rs
+        out["eps_revision"] = eps_rev
+        return out
+    except Exception as e:  # noqa: BLE001
+        return _err("get_compass_score", str(e), symbol=sym)
+
+
+def get_sector_rs(symbol: str) -> dict:
+    """12-week sector relative strength for a symbol vs its benchmark ETF.
+
+    Returns ``rs_score`` (0–10), ``rs_12w_pct`` (raw outperformance pct),
+    the sector ETF used, and whether SPY fallback was applied.
+
+    Cite as ``live://sector_rs/<SYMBOL>``.
+    """
+    if not symbol or not symbol.strip():
+        return _err("get_sector_rs", "symbol is required")
+    sym = symbol.strip().upper()
+    try:
+        from ..sector_rs import compute_sector_rs
+        result = compute_sector_rs(sym)
+        result["_source"] = f"live://sector_rs/{sym}"
+        result["fetched_at"] = _now_iso()
+        result["ok"] = result.get("error") is None
+        return result
+    except Exception as e:  # noqa: BLE001
+        return _err("get_sector_rs", str(e), symbol=sym)
+
+
+def get_eps_revision(symbol: str) -> dict:
+    """EPS revision direction from locally-stored weekly snapshots.
+
+    Reports whether analyst EPS estimates have been raised (up), lowered
+    (down), or held flat over the last ~90 days. Requires that
+    ``tradepro-refresh --eps-snapshot`` has run at least twice for the
+    symbol so there is a comparison point.
+
+    Cite as ``live://eps_revision/<SYMBOL>``.
+    """
+    if not symbol or not symbol.strip():
+        return _err("get_eps_revision", "symbol is required")
+    sym = symbol.strip().upper()
+    try:
+        from .. import eps_tracker as _eps
+        result = _eps.get_eps_revision(sym)
+        result["_source"] = f"live://eps_revision/{sym}"
+        result["fetched_at"] = _now_iso()
+        result["ok"] = result.get("direction") != "insufficient_data"
+        return result
+    except Exception as e:  # noqa: BLE001
+        return _err("get_eps_revision", str(e), symbol=sym)
+
+
+def get_macro_regime() -> dict:
+    """Current macro risk mode — GREEN (1), AMBER (2), or RED (3).
+
+    Computed from live VIX, 10Y treasury yield change, and HYG credit
+    spread via yfinance. Responses are day-keyed LRU cached so repeat
+    calls within the same calendar day are free.
+
+    Size multipliers: GREEN=1.0×  AMBER=0.6×  RED=0.0× (no new longs).
+
+    Cite as ``live://macro_regime``.
+    """
+    try:
+        from ..macro_regime import regime_summary, get_risk_mode, risk_mode_label, size_multiplier
+        mode = get_risk_mode()
+        summary = regime_summary()
+        return {
+            "_source": "live://macro_regime",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "risk_mode": mode,
+            "label": risk_mode_label(mode),
+            "size_multiplier": size_multiplier(mode),
+            "summary": summary,
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("get_macro_regime", str(e))
+
+
+def get_signal_ledger_stats(
+    source: str | None = None,
+    symbol: str | None = None,
+    lookback_days: int | None = None,
+) -> dict:
+    """Performance stats from the local signal ledger.
+
+    The ledger is an append-only JSONL file at
+    ``~/.tradepro/signal_ledger.jsonl`` written as each COMPASS signal
+    fires. Stats include hit rate, expectancy, total closed, avg holding
+    days, and avg return — optionally filtered by source (COMPASS /
+    CATALYST), symbol, and lookback window.
+
+    Cite as ``live://signal_ledger/stats``.
+    """
+    try:
+        from ..signal_ledger import SignalLedger
+        ledger = SignalLedger()
+        stats = ledger.compute_stats(source=source, symbol=symbol,
+                                     lookback_days=lookback_days)
+        open_count = len(ledger.load_open())
+        return {
+            "_source": "live://signal_ledger/stats",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "filter": {
+                "source": source,
+                "symbol": symbol,
+                "lookback_days": lookback_days,
+            },
+            "open_signals": open_count,
+            **stats,
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("get_signal_ledger_stats", str(e),
+                    source=source, symbol=symbol)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 

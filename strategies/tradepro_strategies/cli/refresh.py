@@ -24,6 +24,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--provider", default="yahoo", choices=["yahoo", "stooq", "binance"])
     p.add_argument("--interval", default="1d")
     p.add_argument("--years", type=int, default=10)
+    p.add_argument(
+        "--eps-snapshot",
+        action="store_true",
+        default=False,
+        help=(
+            "After price refresh, record a forwardEps snapshot for every symbol "
+            "via yfinance. Run weekly (e.g. Sunday evening cron). ETFs and "
+            "symbols without analyst coverage are skipped silently."
+        ),
+    )
     return p.parse_args()
 
 
@@ -56,6 +66,17 @@ def main() -> None:
     print(f"\n{ok}/{len(symbols)} symbols refreshed")
     if errors:
         sys.exit(1)
+
+    # --eps-snapshot: record weekly forwardEps snapshots for the same list.
+    # Designed for a Sunday-evening cron so COMPASS has a fresh EPS revision
+    # factor before the new trading week opens.
+    if getattr(args, "eps_snapshot", False):
+        print("\nrecording EPS snapshots …")
+        from ..eps_tracker import batch_record_snapshots
+        eps_results = batch_record_snapshots(symbols)
+        recorded = sum(1 for v in eps_results.values() if v is not None)
+        skipped = len(eps_results) - recorded
+        print(f"  {recorded} snapshots recorded, {skipped} skipped (ETF / no coverage)")
 
 
 if __name__ == "__main__":
