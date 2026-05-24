@@ -10,10 +10,17 @@ update when you start a new lane.
 ### Lane A — Quant Engine (other session, branch `feat/quant-engine`)
 - **Owner**: other Claude session
 - **Scope**: trader-provided quantitative strategy implementation
-- **Files**: TBD — please list here so I don't touch them
-- **Recent commits**: COMPASS scorer, sector RS, EPS revision, macro
-  regime, long-term fundamental engine (`fundamental_analysis.py`),
-  signal_ledger, all merged into `feat/sprint1-2-integration`
+- **Files** (observed in working tree, not yet committed):
+  - `strategies/tradepro_strategies/quant_engine/`
+    - `__init__.py`, `config.py`, `ensemble.py`, `fx_strategy.py`,
+      `monte_carlo.py`, `portfolio_metrics.py`, `regime_filter.py`,
+      `sleeve.py`, `vol_targeting.py`, `walk_forward.py`
+  - `compose.yaml` (active modification)
+- **Lane B will NOT touch** any of the above. Please add features /
+  steps under the same dir prefix so test ownership is unambiguous.
+- **Recent commits** (already on `main` / `feat/sprint1-2-integration`):
+  COMPASS scorer, sector RS, EPS revision, macro regime, long-term
+  fundamental engine (`fundamental_analysis.py`), signal_ledger.
 
 ### Lane B — Track 2 Core Portfolio + Symbol Analysis Card (this session, branch `feat/fundamental-analysis`)
 - **Owner**: this Claude session
@@ -26,8 +33,8 @@ update when you start a new lane.
   - `strategies/tradepro_strategies/mcp/` — only the `get_symbol_analysis`
     tool block; other MCP tools belong to Lane A
 - **Next up**:
-  1. ✅ MCP `get_symbol_analysis` (just shipped — 10abf61)
-  2. Module ⑦ Manual MF Sleeve
+  1. ✅ MCP `get_symbol_analysis` (10abf61)
+  2. **In progress** — Module ⑦ Manual MF Sleeve
   3. Promote Lane A's A-F grade to drive Entry Timing's quality signal
   4. UI surface for the Symbol Analysis Card
 
@@ -58,3 +65,6 @@ Symbol Analysis Card already consumes Lane A's outputs:
   wrapper (10abf61); 506/506 behave green at HEAD of
   `feat/fundamental-analysis`. Lane A on `feat/quant-engine` starting
   a trader-provided strategy.
+- 2026-05-24 — Lane B picked up Module ⑦ Manual MF Sleeve. Lane A
+  spotted in working tree: `tradepro_strategies/quant_engine/`
+  (10 files, not yet committed).
