@@ -32,6 +32,7 @@ from .allocation_view import (
     compute_allocation_view,
 )
 from .dividend_dashboard import DividendDashboard, compute_dividend_dashboard
+from .entry_timing import EntryTimingAssist, compute_entry_timing
 from .quality_scorecard import QualityScorecard, compute_quality_scorecard
 from .valuation_layer import ValuationLayer, compute_valuation_layer
 
@@ -41,4 +42,5 @@ __all__ = [
     "DividendDashboard", "compute_dividend_dashboard",
     "AllocationView", "CoreSleevePosition", "PositionBreakdown",
     "compute_allocation_view",
+    "EntryTimingAssist", "compute_entry_timing",
 ]
