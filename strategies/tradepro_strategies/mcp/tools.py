@@ -2329,6 +2329,45 @@ def get_long_term_fundamentals(symbol: str, years: int = 5) -> dict:
         return _err("get_long_term_fundamentals", str(e), symbol=symbol)
 
 
+def run_portfolio_metrics(returns_list: list[float], equity_list: list[float]) -> dict:
+    """Compute Sharpe, Sortino, MaxDD, Calmar, Omega for a returns series."""
+    try:
+        import pandas as pd
+        from ..quant_engine.portfolio_metrics import summarise
+        r = pd.Series(returns_list)
+        eq = pd.Series(equity_list)
+        return summarise(eq, r)
+    except Exception as e:  # noqa: BLE001
+        return _err("run_portfolio_metrics", str(e))
+
+
+def run_monte_carlo(returns_list: list[float], years: int = 10, n_sims: int = 1000,
+                    initial: float = 10_000.0) -> dict:
+    """Block-bootstrap Monte Carlo projection from a daily returns series."""
+    try:
+        import pandas as pd
+        from ..quant_engine.monte_carlo import MonteCarloSimulator
+        r = pd.Series(returns_list)
+        mc = MonteCarloSimulator(r)
+        result = mc.run(initial=initial, years=years, n_sims=n_sims)
+        return {"summary": result.summary, "n_sims": result.n_sims, "years": result.years}
+    except Exception as e:  # noqa: BLE001
+        return _err("run_monte_carlo", str(e))
+
+
+def run_walk_forward(returns_list: list[float], dates_list: list[str],
+                     target_vol: float = 0.12, max_leverage: float = 1.5) -> dict:
+    """Walk-forward OOS validation on a daily returns series with dates."""
+    try:
+        import pandas as pd
+        from ..quant_engine.walk_forward import WalkForwardValidator
+        r = pd.Series(returns_list, index=pd.to_datetime(dates_list))
+        _, windows = WalkForwardValidator(r, target_vol=target_vol, max_leverage=max_leverage).run()
+        return {"windows": [w.__dict__ for w in windows], "n_windows": len(windows)}
+    except Exception as e:  # noqa: BLE001
+        return _err("run_walk_forward", str(e))
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 

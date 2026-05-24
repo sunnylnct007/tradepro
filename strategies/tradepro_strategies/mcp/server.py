@@ -709,6 +709,55 @@ def build_server():
         Cite as ``live://fundamentals/longterm/<SYMBOL>``."""
         return _json(t.get_long_term_fundamentals(symbol, years))
 
+    # ---- Quant engine: portfolio metrics, Monte Carlo, walk-forward --------
+
+    @mcp.tool()
+    @instrumented("run_portfolio_metrics")
+    def run_portfolio_metrics(
+        returns_list: list,
+        equity_list: list,
+    ) -> str:
+        """Compute Sharpe, Sortino, MaxDD, Calmar, Omega for a daily returns
+        series. Pass returns as a list of floats and the corresponding
+        equity curve (cumprod of 1+returns times initial capital) as a
+        list of floats.
+
+        Returns: cagr_pct, sharpe, sortino, max_drawdown_pct, calmar, omega."""
+        return _json(t.run_portfolio_metrics(returns_list, equity_list))
+
+    @mcp.tool()
+    @instrumented("run_monte_carlo")
+    def run_monte_carlo(
+        returns_list: list,
+        years: int = 10,
+        n_sims: int = 1000,
+        initial: float = 10_000.0,
+    ) -> str:
+        """Block-bootstrap Monte Carlo projection from a daily returns series.
+
+        Draws 21-day blocks from `returns_list` to build `n_sims` synthetic
+        `years`-long equity paths starting at `initial`. Returns the
+        distribution of final values, CAGRs, max drawdowns, and probabilities
+        (p_lose_money, p_double, p_5x) across all paths."""
+        return _json(t.run_monte_carlo(returns_list, years, n_sims, initial))
+
+    @mcp.tool()
+    @instrumented("run_walk_forward")
+    def run_walk_forward(
+        returns_list: list,
+        dates_list: list,
+        target_vol: float = 0.12,
+        max_leverage: float = 1.5,
+    ) -> str:
+        """Walk-forward OOS validation on a daily returns series with dates.
+
+        `returns_list` and `dates_list` (ISO date strings) must be the same
+        length. Runs 5 rolling train/test windows (2018-2025 by default)
+        and returns per-window: vol_scalar, test_sharpe, test_cagr_pct,
+        n_test_days. Use to validate that a vol-targeting strategy is not
+        overfitted to a specific in-sample period."""
+        return _json(t.run_walk_forward(returns_list, dates_list, target_vol, max_leverage))
+
     # ---- RESOURCES (URIs the client can read directly) --------------------
 
     @mcp.resource("tradepro://compare/{universe}")
