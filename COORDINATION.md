@@ -34,7 +34,7 @@ update when you start a new lane.
     tool block; other MCP tools belong to Lane A
 - **Next up**:
   1. ✅ MCP `get_symbol_analysis` (10abf61)
-  2. **In progress** — Module ⑦ Manual MF Sleeve
+  2. ✅ Module ⑦ Manual MF Sleeve (d7b51c2 — all 7 Track 2 modules now landed)
   3. Promote Lane A's A-F grade to drive Entry Timing's quality signal
   4. UI surface for the Symbol Analysis Card
 
@@ -52,6 +52,22 @@ update when you start a new lane.
   `strategies/cookies.txt` are leftover dev artefacts — neither lane
   should clean them up without flagging.
 
+## Staging discipline (post-collision 2026-05-24)
+
+Both sessions read this before any `git add`:
+
+1. **Verify current branch first** — `git status` first line must
+   match your lane. If not, `git checkout <your-branch>` BEFORE any
+   `git add`.
+2. **Never `git add .` or `git add -A`** — always pass explicit file
+   paths so a colocated session's index doesn't sweep in.
+3. **Before commit, re-run `git status`** — confirm the staged set is
+   exactly what you intended. If you see paths you don't own,
+   `git reset HEAD <those paths>` before committing.
+4. **One commit at a time** — wait for the other session to finish
+   theirs (visible via `git log -1`) before starting yours, to avoid
+   index-state races.
+
 ## Convergence point
 
 Symbol Analysis Card already consumes Lane A's outputs:
@@ -68,3 +84,18 @@ Symbol Analysis Card already consumes Lane A's outputs:
 - 2026-05-24 — Lane B picked up Module ⑦ Manual MF Sleeve. Lane A
   spotted in working tree: `tradepro_strategies/quant_engine/`
   (10 files, not yet committed).
+- 2026-05-24 — **commit-collision incident**: Lane B attempted to
+  commit MF Sleeve while working tree HEAD was on `feat/quant-engine`
+  (both sessions share the filesystem). The shared staging index held
+  Lane A's quant_engine paths AND Lane B's MF Sleeve paths
+  simultaneously. The resulting commit `5c17bbd` on `feat/quant-engine`
+  contains **Lane A's content but Lane B's commit message** ("Manual
+  MF Sleeve"). Lane B re-committed MF Sleeve cleanly on
+  `feat/fundamental-analysis` as `d7b51c2`.
+  **Lane A — before pushing `feat/quant-engine`, please either:**
+    - `git commit --amend` 5c17bbd to use your own message, or
+    - `git reset --soft HEAD^` and re-commit fresh with your message.
+  Either preserves the file contents — only the message changes.
+- 2026-05-24 — Lane B shipped Manual MF Sleeve (`d7b51c2` on
+  `feat/fundamental-analysis`). 14 scenarios green. All 7 Track 2
+  modules now landed.
