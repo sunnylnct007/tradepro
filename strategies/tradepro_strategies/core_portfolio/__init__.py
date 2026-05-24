@@ -28,5 +28,9 @@ dict; compare.py / new endpoints attach them per-symbol. MCP tools
 from __future__ import annotations
 
 from .quality_scorecard import QualityScorecard, compute_quality_scorecard
+from .valuation_layer import ValuationLayer, compute_valuation_layer
 
-__all__ = ["QualityScorecard", "compute_quality_scorecard"]
+__all__ = [
+    "QualityScorecard", "compute_quality_scorecard",
+    "ValuationLayer", "compute_valuation_layer",
+]

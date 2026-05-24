@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Weekly EPS snapshot — fires every Sunday at 20:00 UTC, giving COMPASS
+  fresh earnings-revision data before Monday's pre-market opens.
+
+  What it does: calls tradepro-refresh --eps-snapshot on every stock
+  watchlist, recording forwardEps from yfinance into
+  ~/.tradepro/eps_snapshots/<SYMBOL>.json.  ETFs and symbols without
+  analyst coverage are skipped silently.  Same-day entries are
+  deduplicated so re-running is safe.
+
+  The job takes 2-5 minutes depending on symbol count and Yahoo latency.
+  It is NOT run at load (RunAtLoad=false) — only fires on its schedule
+  or when manually triggered.
+
+  Install (any mode):
+    bash strategies/scripts/install-launchd.sh --eps-snapshot
+    bash strategies/scripts/install-launchd.sh --refresh --eps-snapshot
+    bash strategies/scripts/install-launchd.sh --worker --eps-snapshot
+
+  Manual trigger (for testing):
+    launchctl start com.tradepro.eps-snapshot
+
+  Check last run:
+    tail -100 ~/.tradepro/logs/eps-snapshot-$(date -u +%Y-%m-%d).log
+
+  Stop / unload:
+    launchctl bootout "gui/$UID" \
+      ~/Library/LaunchAgents/com.tradepro.eps-snapshot.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.eps-snapshot</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{PROJECT_DIR}}/scripts/eps-snapshot.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+  </dict>
+
+  <!--
+    Fire once per week, Sunday 20:00 UTC.
+    launchd Weekday convention: 0 = Sunday, 1 = Monday, ..., 6 = Saturday.
+    If the Mac is asleep at 20:00 UTC, launchd fires the job when it
+    next wakes up (within the same calendar day).
+  -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Weekday</key>
+      <integer>0</integer>
+      <key>Hour</key>
+      <integer>20</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/eps-snapshot-launchd-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/eps-snapshot-launchd-stderr.log</string>
+
+  <!-- Single shot, not persistent. -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
