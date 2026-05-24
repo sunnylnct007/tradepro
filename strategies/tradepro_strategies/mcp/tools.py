@@ -2299,6 +2299,87 @@ def get_signal_ledger_stats(
                     source=source, symbol=symbol)
 
 
+def get_symbol_analysis(
+    symbol: str,
+    universe: str | None = None,
+    drawdown_pct: float | None = None,
+) -> dict:
+    """Unified Symbol Analysis Card — fuses TECHNICAL (compare-row
+    bucket / conviction / coherence / exit framework / RR gate / sizing
+    / IBKR instructions / earnings + news context) with FUNDAMENTAL
+    (Quality Scorecard ★, Valuation Layer ATTRACTIVE/FAIR/STRETCHED,
+    Dividend Dashboard STRONG/STEADY/UNDER_PRESSURE, Entry Timing
+    ACCUMULATE/WATCH/NEUTRAL, and long-term A-F grade from the
+    multi-year fundamental engine).
+
+    Returns a single ``primary_horizon_recommendation`` token answering
+    "is this short / medium / long-term?":
+
+      AVOID            grade F OR (technical AVOID + valuation STRETCHED)
+      LONG_TERM_HOLD   grade A/B + valuation not STRETCHED + dividend STRONG/STEADY
+      MEDIUM_TERM_ADD  entry_timing ACCUMULATE
+      SHORT_TERM_TRADE technical BUY + conviction HIGH/MEDIUM + RR gate passed
+      WATCH            technical WAIT OR quality < ★★★
+      INSUFFICIENT     fallthrough — see warnings
+
+    Inputs:
+      symbol        — ticker (yfinance form: AAPL, HDFCBANK.NS, etc.)
+      universe      — when supplied, pulls the compare-row from
+                      /api/compare/latest for the technical block.
+                      None → fundamental-only card.
+      drawdown_pct  — current % off 52w high (drives Entry Timing
+                      ACCUMULATE). When None, Entry Timing reads
+                      INSUFFICIENT.
+
+    Cite as ``live://symbol_analysis/<SYMBOL>``. This is the platform's
+    single source of truth for "show me both lenses on this symbol".
+    """
+    if not symbol or not symbol.strip():
+        return _err("get_symbol_analysis", "symbol is required")
+    sym = symbol.strip().upper()
+    compare_row: dict | None = None
+    if universe:
+        try:
+            data = _get("/api/compare/latest", params={"universe": universe})
+            rows = data.get("payload", {}).get("rows", []) or []
+            matches = [r for r in rows if (r.get("symbol") or "").upper() == sym]
+            if matches:
+                # Prefer the best-Sharpe row when multiple strategies
+                # cover this symbol — that's the row whose technical
+                # block deserves to be the headline.
+                def _sharpe(r: dict) -> float:
+                    s = (r.get("stats") or {}).get("sharpe")
+                    try:
+                        return float(s) if s is not None else float("-inf")
+                    except (TypeError, ValueError):
+                        return float("-inf")
+                matches.sort(key=_sharpe, reverse=True)
+                compare_row = matches[0]
+        except Exception as e:  # noqa: BLE001
+            return _err("get_symbol_analysis",
+                        f"compare-row fetch failed: {e}",
+                        symbol=sym, universe=universe)
+
+    try:
+        from ..core_portfolio import build_symbol_analysis_card
+        card = build_symbol_analysis_card(
+            sym,
+            compare_row=compare_row,
+            drawdown_pct=drawdown_pct,
+        )
+    except Exception as e:  # noqa: BLE001
+        return _err("get_symbol_analysis", str(e), symbol=sym)
+
+    out = card.to_dict()
+    out["_source"] = f"live://symbol_analysis/{sym}"
+    out["fetched_at"] = _now_iso()
+    out["ok"] = True
+    out["compare_row_source"] = (
+        f"tradepro://compare/{universe}/best/{sym}" if compare_row else None
+    )
+    return out
+
+
 def get_long_term_fundamentals(symbol: str, years: int = 5) -> dict:
     """Multi-year fundamental analysis: revenue CAGR, margin trends,
     ROE, FCF conversion, D/E, quality verdict, peer comparison, and

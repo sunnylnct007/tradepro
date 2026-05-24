@@ -687,6 +687,39 @@ def build_server():
         return _json(t.get_signal_ledger_stats(source, symbol, lookback_days))
 
     @mcp.tool()
+    @instrumented("get_symbol_analysis")
+    def get_symbol_analysis(
+        symbol: str,
+        universe: str | None = None,
+        drawdown_pct: float | None = None,
+    ) -> str:
+        """Unified Symbol Analysis Card — TradePro's single-call answer
+        to "show me both technical and fundamental on this symbol".
+
+        Fuses TECHNICAL (bucket / conviction / coherence / exit / RR /
+        sizing / IBKR / earnings + news) with FUNDAMENTAL (Quality ★,
+        Valuation ATTRACTIVE/FAIR/STRETCHED, Dividend STRONG/STEADY,
+        Entry Timing ACCUMULATE, and the A-F long-term grade from the
+        multi-year fundamental engine).
+
+        Returns a single ``primary_horizon_recommendation`` token:
+        LONG_TERM_HOLD / MEDIUM_TERM_ADD / SHORT_TERM_TRADE / AVOID /
+        WATCH / INSUFFICIENT. Pair the token with the rationale field
+        and the per-lens blocks for a full picture.
+
+        Args:
+          symbol        — ticker in yfinance form (AAPL, HDFCBANK.NS).
+          universe      — when supplied, pulls the technical block from
+                          /api/compare/latest for that universe; the
+                          best-Sharpe matching row wins.  None ⇒
+                          fundamental-only card.
+          drawdown_pct  — current % off 52w high. Drives Entry Timing
+                          ACCUMULATE; omit for fundamentals-only verdicts.
+
+        Cite as ``live://symbol_analysis/<SYMBOL>``."""
+        return _json(t.get_symbol_analysis(symbol, universe, drawdown_pct))
+
+    @mcp.tool()
     @instrumented("get_long_term_fundamentals")
     def get_long_term_fundamentals(symbol: str, years: int = 5) -> str:
         """Long-term fundamental analysis for *symbol*.
