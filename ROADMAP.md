@@ -18,6 +18,50 @@ those assumptions change.
 Tracks meaningful work that's already in `main` so this doc stops drifting
 out of date. Each entry is one line: what changed and why it mattered.
 
+**Week of 2026-05-25 — Track 2 Core Portfolio complete + Symbol Analysis Card:**
+
+- ✅ **Track 2 — Core Portfolio (Compounder) mode**. All 7 fundamentals
+  modules under `core_portfolio/` shipped with Compounder-mode signal
+  vocabulary distinct from Track 1's BUY/WAIT/AVOID:
+  - ① `quality_scorecard.py` — ROE / ROA / FCF margin / D-E / profit
+    margin / current ratio scored 0–10 each, averaged to a 0–5 ★ rating.
+  - ② `valuation_layer.py` — trailing/forward P/E, P/B, EV/EBITDA, PEG
+    aggregated to ATTRACTIVE / FAIR / STRETCHED / UNKNOWN.
+  - ③ `dividend_dashboard.py` — yield, 5y CAGR, payout ratio,
+    consecutive-growth years, projected £ income → STRONG / STEADY /
+    UNDER_PRESSURE / NONE.
+  - ④ `allocation_view.py` — core-sleeve tracker (25% target, ±2.5%
+    band), weighted yield, projected income, sleeve vs portfolio %.
+  - ⑤ `entry_timing.py` — dip-accumulation alert combining quality +
+    valuation + drawdown. Now consumes Lane A's A-F grade as the
+    quality signal when supplied (stars fallback otherwise).
+  - ⑥ `etf_xray.py` — holdings-overlap detector via min-weight
+    intersection (flags VTI+QQQ-style consolidation) + DRIP projector.
+  - ⑦ `manual_mf_sleeve.py` — manual-NAV tracker for UK ISA / Indian /
+    offshore funds with no live API; FX-normalised to GBP, NAV
+    freshness, region + asset-type mix, SIP totals.
+- ✅ **Symbol Analysis Card** (`core_portfolio/symbol_analysis_card.py`).
+  Platform-level orchestrator that fuses the compare-row technical
+  block (bucket / conviction / coherence / exit / RR / sizing / IBKR /
+  earnings + news context) with Track 2 fundamentals AND the other
+  dev's A-F long-term grade into one card. Returns a single
+  `primary_horizon_recommendation` token answering "is this short /
+  medium / long-term?" — LONG_TERM_HOLD / MEDIUM_TERM_ADD /
+  SHORT_TERM_TRADE / AVOID / WATCH / INSUFFICIENT.
+- ✅ **MCP `get_symbol_analysis(symbol, universe, drawdown_pct)`**.
+  Single LLM-callable tool wrapping the Symbol Analysis Card.
+  Optionally folds the best-Sharpe compare row from the named
+  universe for the technical lens.
+- ✅ **Lane A — quant_engine** (parallel session, `feat/quant-engine`).
+  Trader-provided **complementary systematic-trading framework**:
+  Ichimoku-based equity + FX strategies, vol targeting (HOP scalar),
+  walk-forward validation, Monte Carlo stress, regime filter (SPY
+  200-SMA gate), ensemble combiner, portfolio metrics (Sharpe,
+  Sortino, MaxDD, Calmar, CAGR, Omega). Library code is pure (no
+  fetching) — production callers must wrap through `cache.py`.
+  Signal generators, not portfolio management — fits as an additional
+  lens in the Symbol Analysis Card alongside technical / fundamental.
+
 **Week of 2026-05-24 — COMPASS alpha engine + macro regime gate (Sprint 1 + 2):**
 
 - ✅ **Macro Regime Gate** (`macro_regime.py` + `market_context.py`). Three-level

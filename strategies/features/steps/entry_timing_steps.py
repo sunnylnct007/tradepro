@@ -51,6 +51,11 @@ def step_market_state(context, pct: float) -> None:
     context.et_drawdown = None
 
 
+@given('a long-term grade "{grade}"')
+def step_grade(context, grade: str) -> None:
+    context.et_long_term_grade = grade
+
+
 @when('I compute entry timing for "{symbol}"')
 def step_compute(context, symbol: str) -> None:
     context.et = compute_entry_timing(
@@ -59,6 +64,7 @@ def step_compute(context, symbol: str) -> None:
         valuation=context.et_valuation,
         market_state=getattr(context, "et_market_state", None),
         drawdown_pct=getattr(context, "et_drawdown", None),
+        long_term_grade=getattr(context, "et_long_term_grade", None),
     )
 
 
@@ -90,4 +96,12 @@ def step_drawdown_check(context, expected: float) -> None:
     assert actual is not None, "drawdown is None"
     assert abs(actual - expected) < 0.5, (
         f"drawdown: expected ~{expected}, got {actual}"
+    )
+
+
+@then('the entry quality_source is "{expected}"')
+def step_quality_source(context, expected: str) -> None:
+    actual = context.et.quality_source
+    assert actual == expected, (
+        f"quality_source: expected {expected!r}, got {actual!r}"
     )

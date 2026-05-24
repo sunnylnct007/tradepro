@@ -14,10 +14,43 @@ runs. Read it when:
   symbol — see the companion doc [EVALUATION.md](EVALUATION.md) for
   the metrics, this doc for the philosophy.
 
-## The three layers
+## The three layers (plus two analytical tracks)
 
-TradePro has strategies in three distinct layers, and "strategy" means
-something slightly different in each.
+TradePro has strategies in three distinct layers (Layer 1–3 below) and
+two analytical tracks that consume them:
+
+- **Track 1 — Trading signals** (Layers 1, 2, 3) — produces BUY / SELL
+  / HOLD signals on bars. The historical heart of the platform.
+- **Track 2 — Core Portfolio / Compounder** (Compounder-mode vocabulary,
+  distinct from BUY/WAIT/AVOID) — fundamentals-driven view for the
+  ~25% core sleeve. Seven modules under
+  [`strategies/tradepro_strategies/core_portfolio/`](strategies/tradepro_strategies/core_portfolio/)
+  — quality scorecard (★), valuation layer (ATTRACTIVE/FAIR/STRETCHED),
+  dividend dashboard (STRONG/STEADY/UNDER_PRESSURE), allocation view
+  (UNDERWEIGHT/ON_TARGET/OVERWEIGHT), entry timing (ACCUMULATE/WATCH/
+  NEUTRAL), ETF X-Ray (overlap detector + DRIP), manual MF sleeve
+  (UK/Indian/offshore NAV-entry tracker). All seven landed
+  2026-05-25.
+- **Lane A — Quant Engine** (parallel work,
+  [`strategies/tradepro_strategies/quant_engine/`](strategies/tradepro_strategies/quant_engine/))
+  — trader-provided systematic-trading framework: Ichimoku-based
+  equity + FX strategies, vol targeting (Hurst-Ooi-Pedersen scalar),
+  walk-forward validation, Monte Carlo stress, regime filter,
+  ensemble combiner, portfolio metrics. **Complementary** to the
+  Layer-1 signal strategies — these are quant-strategy signal
+  generators with full out-of-sample validation, not portfolio
+  management. Plugged into the paper engine via
+  `paper/strategies/ichimoku_equity.py` + `ichimoku_fx_mr.py`.
+
+The platform-level fusion lives in
+[`core_portfolio/symbol_analysis_card.py`](strategies/tradepro_strategies/core_portfolio/symbol_analysis_card.py)
+— `build_symbol_analysis_card(symbol, …)` returns one unified card
+with the technical block, the fundamental block, the long-term A-F
+grade, and a single `primary_horizon_recommendation` token
+(LONG_TERM_HOLD / MEDIUM_TERM_ADD / SHORT_TERM_TRADE / AVOID / WATCH
+/ INSUFFICIENT). Exposed as MCP tool `get_symbol_analysis`.
+
+The rest of this doc covers Track 1's three signal layers in detail.
 
 ### Layer 1 — Daily signal strategies (`ISignalStrategy`, .NET)
 
