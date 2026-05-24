@@ -4,33 +4,41 @@ import { useAuth } from "../auth/AuthProvider";
 import { ModePill } from "./ModePill";
 import { T212ModeBadge } from "./T212ModeBadge";
 
-// Primary nav reflects the actual decision flow: pick what to invest in
-// (Decide), drill into a single symbol (Research), test a strategy
-// (Backtest), or read the underlying research notes (Docs). Utility
-// pages (Scanner, Charts, Health, Settings, Help) sit behind a thinner
-// visual treatment so they don't compete with the four primary entry
-// points. Routes themselves haven't changed — only the labels and
-// grouping — so bookmarks and the deployed CI URL maps still resolve.
-const primaryNav: { to: string; label: string; end?: boolean }[] = [
-  { to: "/compare", label: "Decide" },
-  { to: "/portfolio", label: "Portfolio" },
-  { to: "/signals", label: "Research" },
-  { to: "/simulations", label: "Backtest" },
-  { to: "/paper-backtest", label: "Paper" },
-  { to: "/intraday/leaderboard", label: "Intraday" },
-  { to: "/documents", label: "Docs" },
+// Two named groups:
+//
+//  TRADING — pages a trader opens daily to make decisions.
+//            Decide is the index (full 5-strategy vote + COMPASS score);
+//            Portfolio shows live positions; Research / Backtest /
+//            Paper / Intraday are the deeper tools.
+//
+//  OPS     — pages an operator or IT person opens to check system
+//            health, adjust settings, and access the help system.
+//            Trade Guide + IT Guide are quick-access deep-links into
+//            the relevant Help sections.
+//
+// Routes haven't changed — only labels and grouping — so bookmarks
+// and the deployed CI URL maps still resolve correctly.
+
+const tradingNav: { to: string; label: string; end?: boolean }[] = [
+  { to: "/compare",             label: "Decide"    },
+  { to: "/portfolio",           label: "Portfolio"  },
+  { to: "/signals",             label: "Research"   },
+  { to: "/simulations",         label: "Backtest"   },
+  { to: "/paper-backtest",      label: "Paper"      },
+  { to: "/intraday/leaderboard",label: "Intraday"   },
+  { to: "/scanner",             label: "Scanner"    },
+  { to: "/documents",           label: "Docs"       },
 ];
 
-const utilityNav: { to: string; label: string; end?: boolean }[] = [
-  // Single-strategy scanner — kept for power-user exploration, but
-  // it's no longer the index. The default workflow runs through
-  // Decide which already aggregates the full 5-strategy vote.
-  { to: "/scanner", label: "Scanner" },
-  { to: "/charts", label: "Charts" },
-  { to: "/health", label: "Health" },
-  { to: "/settings", label: "Settings" },
-  { to: "/help", label: "Help" },
+const opsNav: { to: string; label: string; end?: boolean }[] = [
+  { to: "/charts",                    label: "Charts"       },
+  { to: "/health",                    label: "Health"       },
+  { to: "/settings",                  label: "Settings"     },
+  { to: "/help/trade-support",        label: "Trade Guide"  },
+  { to: "/help/ops-runbook",          label: "IT Guide"     },
+  { to: "/help",                      label: "All Help", end: true },
 ];
+
 
 const primaryLinkStyle = ({ isActive }: { isActive: boolean }) => ({
   padding: "6px 12px",
@@ -59,7 +67,7 @@ export function Layout() {
   const { user, firebaseAvailable, error, signIn, signOut } = useAuth();
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
       <header
         style={{
           display: "flex",
@@ -72,6 +80,8 @@ export function Layout() {
           position: "sticky",
           top: 0,
           zIndex: 10,
+          overflowX: "hidden",
+          minWidth: 0,
         }}
       >
         <div
@@ -102,22 +112,57 @@ export function Layout() {
           </span>
           TradePro
         </div>
-        <nav style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          {primaryNav.map((item) => (
+        <nav style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", minWidth: 0, overflow: "hidden" }}>
+          {/* ── TRADING group ─────────────────────────────────────── */}
+          <span
+            aria-hidden
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--text-muted)",
+              opacity: 0.6,
+              marginRight: 2,
+              userSelect: "none",
+            }}
+          >
+            Trading
+          </span>
+          {tradingNav.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} style={primaryLinkStyle}>
               {item.label}
             </NavLink>
           ))}
+
+          {/* ── section divider ───────────────────────────────────── */}
           <span
             aria-hidden
             style={{
               width: 1,
               height: 18,
               background: "var(--border)",
-              margin: "0 8px",
+              margin: "0 10px",
             }}
           />
-          {utilityNav.map((item) => (
+
+          {/* ── OPS group ─────────────────────────────────────────── */}
+          <span
+            aria-hidden
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--text-muted)",
+              opacity: 0.6,
+              marginRight: 2,
+              userSelect: "none",
+            }}
+          >
+            Ops
+          </span>
+          {opsNav.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} style={utilityLinkStyle}>
               {item.label}
             </NavLink>
