@@ -22,6 +22,11 @@ def _make_ledger(context) -> SignalLedger:
     if not hasattr(context, "_tmp_dir"):
         context._tmp_dir = tempfile.mkdtemp()
     path = Path(context._tmp_dir) / "test_ledger.jsonl"
+    # Always start each scenario with a clean file — Behave's before_scenario
+    # hook does not clear _tmp_dir, so the file can accumulate records from
+    # previous scenarios in the same feature run.
+    if path.exists():
+        path.unlink()
     context._ledger_path = path
     ledger = SignalLedger(path=path)
     context.ledger = ledger

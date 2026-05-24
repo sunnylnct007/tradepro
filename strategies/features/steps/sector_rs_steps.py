@@ -81,10 +81,11 @@ def step_mock_price_returns(context, sym_ret, symbol, etf_ret, etf):
 
 @when("I call compute_sector_rs for \"{symbol}\"")
 def step_compute_rs_with_mocks(context, symbol):
-    if hasattr(context, "_price_mock") and context._price_mock is None:
-        with patch("tradepro_strategies.sector_rs._price_return", return_value=None):
-            context._rs_result = compute_sector_rs(symbol)
-    elif hasattr(context, "_sym_ret"):
+    # _sym_ret (specific named mock values) takes priority over the generic
+    # _price_mock=None "return nothing" mock so that stale _price_mock state
+    # from a previous scenario cannot shadow the intended mock for this one.
+    if hasattr(context, "_sym_ret"):
+        # Named mock values — highest priority; avoids stale _price_mock bleed-over
         def _fake_price_return(sym, *args, **kwargs):
             sym = sym.upper()
             if sym == context._price_sym:
@@ -93,6 +94,10 @@ def step_compute_rs_with_mocks(context, symbol):
                 return context._etf_ret
             return None
         with patch("tradepro_strategies.sector_rs._price_return", side_effect=_fake_price_return):
+            context._rs_result = compute_sector_rs(symbol)
+    elif hasattr(context, "_price_mock") and context._price_mock is None:
+        # Return-None mock — for the "price fetch failure" scenario
+        with patch("tradepro_strategies.sector_rs._price_return", return_value=None):
             context._rs_result = compute_sector_rs(symbol)
     else:
         context._rs_result = compute_sector_rs(symbol)

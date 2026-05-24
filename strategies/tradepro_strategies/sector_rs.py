@@ -35,6 +35,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
+import yfinance as yf  # module-level so steps can patch tradepro_strategies.sector_rs.yf
+
 from .cache import ensure_cached
 
 _log = logging.getLogger(__name__)
@@ -117,7 +119,6 @@ def get_sector_etf(symbol: str) -> tuple[str, bool]:
         return SYMBOL_SECTOR_ETF[sym], False
 
     try:
-        import yfinance as yf
         info = yf.Ticker(sym).info or {}
         sector_raw = (info.get("sector") or "").lower()
         if sector_raw in SECTOR_ETF:
