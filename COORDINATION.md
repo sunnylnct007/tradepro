@@ -92,10 +92,20 @@ Symbol Analysis Card already consumes Lane A's outputs:
   contains **Lane A's content but Lane B's commit message** ("Manual
   MF Sleeve"). Lane B re-committed MF Sleeve cleanly on
   `feat/fundamental-analysis` as `d7b51c2`.
-  **Lane A — before pushing `feat/quant-engine`, please either:**
-    - `git commit --amend` 5c17bbd to use your own message, or
-    - `git reset --soft HEAD^` and re-commit fresh with your message.
-  Either preserves the file contents — only the message changes.
+  **Resolved 2026-05-25**: Lane A amended their commit before either
+  side pushed. New SHA `412e160`
+  ("feat(quant-engine): sleeve portfolio, vol targeting, walk-forward,
+  Monte Carlo + FX mean-reversion"). A side-effect of the amend
+  created a stray copy of the same commit on
+  `feat/fundamental-analysis` as `edab4a7`; Lane B reset back to
+  3b69d10. No data lost on either side.
 - 2026-05-24 — Lane B shipped Manual MF Sleeve (`d7b51c2` on
   `feat/fundamental-analysis`). 14 scenarios green. All 7 Track 2
   modules now landed.
+- 2026-05-25 — Lane B starting #3: promote Lane A's A-F grade (from
+  `fundamental_analysis.analyse_long_term`) into Entry Timing's
+  quality signal. The grade becomes a parallel quality path alongside
+  the existing 4★ gate. User clarified Lane A's quant_engine is
+  **complementary systematic-trading strategies** (signal generators,
+  not portfolio management) — fits well as an additional lens in the
+  Symbol Analysis Card alongside technical / fundamental.
