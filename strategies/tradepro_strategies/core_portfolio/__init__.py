@@ -1,0 +1,32 @@
+"""Core Portfolio / Compounder mode — Track 2 of TradePro.
+
+Fundamentals-driven view for the ~25% "core sleeve" — high-quality
+assets that compound quietly over years. Different paradigm from the
+momentum-driven swing/intraday engine: never asks "should I buy
+today?", asks "is this a quality asset, fairly valued, and
+compounding my wealth?".
+
+Signal vocabulary differs from Track 1 (Swing/Intraday):
+  - Quality:    ★ to ★★★★★ (component scores 0-10)
+  - Valuation:  ATTRACTIVE / FAIR / STRETCHED (not BUY / WAIT / AVOID)
+  - Dividend:   sustainability + 5y growth trend
+  - Entry:      dip-accumulation alert (not a buy signal)
+
+Modules (per TradePro_Roadmap_May2026.docx §Track 2):
+  1. quality_scorecard       — ROE / FCF / D/E / CAGR per equity
+  2. valuation_layer         — P/E vs 5y avg, P/FCF, EV/EBITDA
+  3. dividend_dashboard      — yield, CAGR, payout ratio
+  4. allocation_view         — core sleeve tracker
+  5. entry_timing_assist     — dip-accumulation alert combiner
+  6. etf_xray                — holdings overlap detector
+  7. manual_mf_sleeve        — UK/Indian/offshore MF NAV entry
+
+Each module is a pure-Python helper that produces a JSON-serialisable
+dict; compare.py / new endpoints attach them per-symbol. MCP tools
+(per task #85) wrap each one for LLM analysis.
+"""
+from __future__ import annotations
+
+from .quality_scorecard import QualityScorecard, compute_quality_scorecard
+
+__all__ = ["QualityScorecard", "compute_quality_scorecard"]
