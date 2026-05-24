@@ -1060,6 +1060,25 @@ def _attach_bucket_and_rationale(
             }
             break
 
+        # COMPASS alpha score — computed once per symbol, stamped on every
+        # row below.  Uses data already assembled in `best`; sector RS and
+        # EPS revision are best-effort (None → neutral factor score 5).
+        # Wrapped in a broad try/except so a scorer bug never breaks compare.
+        try:
+            from .compass_scorer import compute_compass_score
+            from .sector_rs import compute_sector_rs
+            from .eps_tracker import get_eps_revision
+            _sector_rs_res = compute_sector_rs(symbol)
+            _eps_rev_res = get_eps_revision(symbol)
+            _compass_res = compute_compass_score(
+                symbol, best,
+                sector_rs_result=_sector_rs_res,
+                eps_revision=_eps_rev_res,
+            )
+            _compass_dict = _compass_res.to_dict()
+        except Exception:  # noqa: BLE001 — never break compare run
+            _compass_dict = None
+
         # Copy bucket + reason + sentiment-demoted flag + rationale onto
         # every row for this symbol so the frontend can render any row's
         # expand panel without re-deriving.
@@ -1144,6 +1163,12 @@ def _attach_bucket_and_rationale(
                 r["stop_level"] = ichimoku_promote["stop_level"]
                 r["rr_ratio"] = ichimoku_promote["rr_ratio"]
                 r["price_target_source"] = ichimoku_promote["price_target_source"]
+            # COMPASS multi-factor alpha score — computed once per symbol
+            # above, stamped on every row so any strategy row carries it.
+            r["compass_score"] = _compass_dict.get("score") if _compass_dict else None
+            r["compass_signal"] = _compass_dict.get("signal") if _compass_dict else None
+            r["compass_conviction"] = _compass_dict.get("conviction") if _compass_dict else None
+            r["compass_breakdown"] = _compass_dict if _compass_dict else None
 
 
 def _merge_scored(news: list[NewsItem], scored: list[ScoredHeadline]) -> list[dict]:
