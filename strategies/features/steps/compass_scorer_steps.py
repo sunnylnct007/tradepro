@@ -271,7 +271,7 @@ def step_assert_signal(context, expected):
     )
 
 
-@then("the signal is \"WATCH\" or \"HOLD\"")
+@then("the compass signal is WATCH or HOLD")
 def step_signal_watch_or_hold(context):
     sig = context._compass_result.signal
     assert sig in ("WATCH", "HOLD"), f"expected WATCH or HOLD, got {sig!r}"

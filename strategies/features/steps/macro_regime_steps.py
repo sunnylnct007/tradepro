@@ -11,11 +11,11 @@ import json
 from behave import given, then, when
 
 from tradepro_strategies.macro_regime import (
-    _compute_risk_mode,
     invalidate_cache,
     risk_mode_label,
     size_multiplier,
 )
+from tradepro_strategies.market_context import _compute_risk_mode
 
 
 @given("the macro regime module is imported")

@@ -22,7 +22,7 @@ Feature: EPS revision tracker
     Given a temporary snapshot directory
     And a ticker factory returning forwardEps=None for "ETFSYM"
     When I call record_snapshot for "ETFSYM"
-    Then the result is None
+    Then the EPS record result is None
     And no snapshot file is created for "ETFSYM"
 
   Scenario: Same-day duplicate is deduplicated

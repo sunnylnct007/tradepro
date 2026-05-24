@@ -145,7 +145,7 @@ def step_file_one_entry(context, n, eps):
     assert entries[0]["forward_eps"] == eps
 
 
-@then("the result is None")
+@then("the EPS record result is None")
 def step_result_none(context):
     assert context._record_result is None
 

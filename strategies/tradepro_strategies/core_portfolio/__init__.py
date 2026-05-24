@@ -27,6 +27,10 @@ dict; compare.py / new endpoints attach them per-symbol. MCP tools
 """
 from __future__ import annotations
 
+from .allocation_view import (
+    AllocationView, CoreSleevePosition, PositionBreakdown,
+    compute_allocation_view,
+)
 from .dividend_dashboard import DividendDashboard, compute_dividend_dashboard
 from .quality_scorecard import QualityScorecard, compute_quality_scorecard
 from .valuation_layer import ValuationLayer, compute_valuation_layer
@@ -35,4 +39,6 @@ __all__ = [
     "QualityScorecard", "compute_quality_scorecard",
     "ValuationLayer", "compute_valuation_layer",
     "DividendDashboard", "compute_dividend_dashboard",
+    "AllocationView", "CoreSleevePosition", "PositionBreakdown",
+    "compute_allocation_view",
 ]
