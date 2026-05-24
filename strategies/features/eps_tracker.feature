@@ -48,7 +48,7 @@ Feature: EPS revision tracker
   # ──────────────────────────────────────────────────────────────────
 
   Scenario: Upward revision over 90 days
-    Given a temporary snapshot directory with snapshots for "BULLSYM":
+    Given a temporary snapshot directory with snapshots for "BULLSYM"
       | date       | forward_eps |
       | 2026-01-15 | 15.10       |
       | 2026-04-15 | 19.88       |
@@ -59,7 +59,7 @@ Feature: EPS revision tracker
     And current_estimate is 19.88
 
   Scenario: Downward revision over 90 days
-    Given a temporary snapshot directory with snapshots for "BEARSYM":
+    Given a temporary snapshot directory with snapshots for "BEARSYM"
       | date       | forward_eps |
       | 2026-01-15 | 8.00        |
       | 2026-04-15 | 6.00        |
@@ -68,7 +68,7 @@ Feature: EPS revision tracker
     And revision_pct is approximately -25.0
 
   Scenario: Flat revision (< 1 cent change)
-    Given a temporary snapshot directory with snapshots for "FLATSYM":
+    Given a temporary snapshot directory with snapshots for "FLATSYM"
       | date       | forward_eps |
       | 2026-01-15 | 5.005       |
       | 2026-04-15 | 5.005       |
@@ -92,7 +92,7 @@ Feature: EPS revision tracker
     Then snapshots_count is 5
 
   Scenario: as_of reflects the most recent snapshot date
-    Given a temporary snapshot directory with snapshots for "DATESYM":
+    Given a temporary snapshot directory with snapshots for "DATESYM"
       | date       | forward_eps |
       | 2026-03-01 | 7.0         |
       | 2026-04-15 | 7.5         |

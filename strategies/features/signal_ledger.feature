@@ -92,7 +92,7 @@ Feature: Signal ledger
     And expectancy_pct is None
 
   Scenario: compute_stats with three wins and two losses
-    Given a fresh temp-file ledger with closed signals:
+    Given a fresh temp-file ledger with closed signals
       | source  | outcome      | return_pct |
       | COMPASS | HIT_TARGET   | 3.0        |
       | COMPASS | HIT_TARGET   | 4.0        |

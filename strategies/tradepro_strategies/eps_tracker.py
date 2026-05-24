@@ -118,7 +118,7 @@ def get_eps_revision(symbol: str) -> dict:
             }
         candidates = old_candidates
 
-    baseline = max(candidates, key=lambda s: s["date"])
+    baseline = min(candidates, key=lambda s: s["date"])
     past = baseline.get("forward_eps")
     if past is None or past == 0:
         return _no_data(sym, "baseline snapshot has no forward_eps")

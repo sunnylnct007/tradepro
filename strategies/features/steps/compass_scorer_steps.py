@@ -16,89 +16,161 @@ from tradepro_strategies.compass_scorer import compute_compass_score, CompassRes
 # ── synthetic row factories ────────────────────────────────────────
 
 def _strong_row(symbol: str = "TEST") -> dict:
-    """Row that will score high across most COMPASS factors."""
+    """Row that scores ≥ 78 (HIGH conviction, BUY signal).
+
+    Factor scores with strong_sector_rs + eps_up:
+      momentum=10, eps=10, quality=9, sector_rs=9, analyst=8, sentiment=9, valuation=6
+      raw = 2.0+2.0+1.35+1.35+1.20+0.90+0.30 = 9.10 → score 91
+    """
     return {
         "symbol": symbol,
-        "close": 200.0,
-        "open": 182.0,           # strong 12w momentum proxy
-        "high": 205.0,
-        "low": 180.0,
-        "volume": 5_000_000,
-        "rsi": 52.0,             # not overbought
-        "sma_200": 170.0,        # well above 200d
-        "pct_52w_range": 0.65,
-        "return_12w": 22.0,
-        "sentiment_score": 0.6,
-        "analyst_score": 0.8,    # strong analyst consensus
-        "forward_pe": 18.0,
-        "roe": 0.28,
-        "debt_to_equity": 0.3,
-        "fcf_yield": 0.05,
-        # fundamentals sub-dict (optional)
-        "fundamentals": {
-            "forwardPE": 18.0,
-            "returnOnEquity": 0.28,
-            "debtToEquity": 0.3,
-            "freeCashflow": 5e9,
-            "marketCap": 100e9,
+        "market_state": {
+            "momentum_3m_pct": 25.0,   # ≥20 → base=9
+            "range_pct": 60.0,         # ≤80 → no WATCH override on BUY
         },
-    }
-
-
-def _weak_row(symbol: str = "WEAK") -> dict:
-    """Row that will score low across COMPASS factors."""
-    return {
-        "symbol": symbol,
-        "close": 50.0,
-        "open": 70.0,            # significant price decline
-        "high": 52.0,
-        "low": 48.0,
-        "volume": 500_000,
-        "rsi": 72.0,             # overbought (despite downtrend — contradictory, but score is low)
-        "sma_200": 75.0,         # well below 200d
-        "pct_52w_range": 0.05,
-        "return_12w": -18.0,
-        "sentiment_score": -0.7,
-        "analyst_score": 0.1,
-        "forward_pe": 45.0,
-        "roe": 0.03,
-        "debt_to_equity": 3.5,
-        "fcf_yield": -0.02,
+        "cross_sectional_momentum": {
+            "rank_pct": 0.85,          # ≥0.75 → peer rank bonus +1
+        },
         "fundamentals": {
-            "forwardPE": 45.0,
-            "returnOnEquity": 0.03,
-            "debtToEquity": 350.0,
-            "freeCashflow": -1e8,
-            "marketCap": 5e9,
+            "free_cashflow": 5e9,      # positive FCF → base=7; sharpe≥0.8 → 9
+            "forward_pe": 18.0,        # 18≤pe<28 → score=6
+            "legal_type": "Stock",
+        },
+        "stats": {
+            "sharpe": 0.9,             # ≥0.8 → quality base=9
+        },
+        "external_consensus": {
+            "bullScoreLatest": 8,
+            "strongBuy": 5,
+            "buy": 3,
+            "hold": 2,
+            "sell": 0,
+            "strongSell": 0,
+            "momChange": 1,            # turning bullish → +1
+        },
+        "sentiment_summary": {
+            "mean_sentiment": 0.5,     # ≥0.5 → score=9
+            "material_negative_count": 0,
         },
     }
 
 
 def _neutral_row(symbol: str = "NEUT") -> dict:
-    """Row that will score near the middle of the COMPASS range."""
+    """Row that scores 60-71 (MEDIUM conviction, WATCH signal).
+
+    Factor scores with neutral_sector_rs + eps_flat:
+      momentum=7, eps=5, quality=7, sector_rs=5, analyst=7, sentiment=7, valuation=6
+      raw = 1.40+1.0+1.05+0.75+1.05+0.70+0.30 = 6.25 → score 62.5
+    """
     return {
         "symbol": symbol,
-        "close": 100.0,
-        "open": 99.0,
-        "high": 102.0,
-        "low": 97.0,
-        "volume": 1_000_000,
-        "rsi": 50.0,
-        "sma_200": 98.0,
-        "pct_52w_range": 0.50,
-        "return_12w": 2.0,
-        "sentiment_score": 0.0,
-        "analyst_score": 0.5,
-        "forward_pe": 22.0,
-        "roe": 0.12,
-        "debt_to_equity": 1.0,
-        "fcf_yield": 0.02,
+        "market_state": {
+            "momentum_3m_pct": 12.0,   # ≥10 → base=7
+            "range_pct": 55.0,
+        },
+        "cross_sectional_momentum": {
+            "rank_pct": 0.60,          # no peer rank bonus
+        },
         "fundamentals": {
-            "forwardPE": 22.0,
-            "returnOnEquity": 0.12,
-            "debtToEquity": 100.0,
-            "freeCashflow": 1e9,
-            "marketCap": 50e9,
+            "free_cashflow": 1e9,      # positive FCF → base=7
+            "forward_pe": 22.0,        # 18≤pe<28 → score=6
+            "legal_type": "Stock",
+        },
+        "stats": {
+            "sharpe": 0.6,             # ≥0.5 → quality stays base=7
+        },
+        "external_consensus": {
+            "bullScoreLatest": 7,
+            "strongBuy": 3,
+            "buy": 4,
+            "hold": 2,
+            "sell": 1,
+            "strongSell": 0,
+            "momChange": 0,            # no momentum change
+        },
+        "sentiment_summary": {
+            "mean_sentiment": 0.25,    # ≥0.2 → score=7
+            "material_negative_count": 0,
+        },
+    }
+
+
+def _medium_weak_row(symbol: str = "MEDWK") -> dict:
+    """Row that scores 40-54 (HOLD signal, LOW conviction).
+
+    Factor scores with neutral_sector_rs + eps_flat:
+      momentum=4, eps=5, quality=4, sector_rs=5, analyst=4, sentiment=3, valuation=4
+      raw = 0.80+1.0+0.60+0.75+0.60+0.30+0.20 = 4.25 → score 42.5
+    """
+    return {
+        "symbol": symbol,
+        "market_state": {
+            "momentum_3m_pct": -1.5,   # ≥-3 → base=5
+            "range_pct": 40.0,
+        },
+        "cross_sectional_momentum": {
+            "rank_pct": 0.20,          # ≤0.25 → bonus=-1 → score=4
+        },
+        "fundamentals": {
+            "free_cashflow": -1e8,     # ≤0 → base=2; sharpe≥0.8 → base=4
+            "forward_pe": 30.0,        # 28≤pe<45 → score=4
+            "legal_type": "Stock",
+        },
+        "stats": {
+            "sharpe": 0.85,            # ≥0.8 offset on negative FCF → base=4
+        },
+        "external_consensus": {
+            "bullScoreLatest": 4,
+            "strongBuy": 2,
+            "buy": 2,
+            "hold": 4,
+            "sell": 2,
+            "strongSell": 0,
+            "momChange": -1,           # turning bearish → -1 → score=4
+        },
+        "sentiment_summary": {
+            "mean_sentiment": -0.15,   # ≥-0.3 → score=3
+            "material_negative_count": 0,
+        },
+    }
+
+
+def _weak_row(symbol: str = "WEAK") -> dict:
+    """Row that scores < 40 (TRIM signal).
+
+    Factor scores with weak_sector_rs + eps_down:
+      momentum=0, eps=1, quality=2, sector_rs=2, analyst=2, sentiment=0, valuation=2
+      raw = 0+0.20+0.30+0.30+0.30+0+0.10 = 1.20 → score 12
+    """
+    return {
+        "symbol": symbol,
+        "market_state": {
+            "momentum_3m_pct": -15.0,  # ≤-10 → base=1
+            "range_pct": 5.0,
+        },
+        "cross_sectional_momentum": {
+            "rank_pct": 0.10,          # ≤0.25 → bonus=-1 → clamps to 0
+        },
+        "fundamentals": {
+            "free_cashflow": -1e9,     # cash burn → base=2; sharpe too low for offset
+            "forward_pe": 55.0,        # ≥45 → score=2
+            "legal_type": "Stock",
+        },
+        "stats": {
+            "sharpe": -0.2,            # negative → no quality offset
+        },
+        "external_consensus": {
+            "bullScoreLatest": 2,
+            "strongBuy": 1,
+            "buy": 1,
+            "hold": 3,
+            "sell": 3,
+            "strongSell": 2,
+            "momChange": -2,           # strongly turning bearish → score clamps
+        },
+        "sentiment_summary": {
+            "mean_sentiment": -0.6,    # < -0.3 → score=1; mat_neg≥2 → score-1=0
+            "material_negative_count": 3,
         },
     }
 
@@ -162,19 +234,28 @@ def step_any_row(context, symbol):
 
 @given("a row engineered to yield COMPASS score of {target:d}")
 def step_engineered_row(context, target):
-    # Use strong row for high targets, weak for low, neutral for mid
+    # 4-tier bucketing so each expected signal/conviction range uses the
+    # correct row factory.  Thresholds match COMPASS signal boundaries:
+    #   ≥70 → strong   (score ≈ 91 → BUY / HIGH)
+    #   55–69 → neutral (score ≈ 62 → WATCH / MEDIUM)
+    #   40–54 → medium-weak (score ≈ 42 → HOLD / LOW)
+    #   <40  → weak    (score ≈ 12 → TRIM / LOW)
     if target >= 70:
         context._row = _strong_row("HIGH")
         context._sector_rs = _strong_sector_rs()
         context._eps_rev = _eps_up()
-    elif target <= 40:
-        context._row = _weak_row("LOW")
-        context._sector_rs = _weak_sector_rs()
-        context._eps_rev = _eps_down()
-    else:
+    elif target >= 55:
         context._row = _neutral_row("MID")
         context._sector_rs = _neutral_sector_rs()
         context._eps_rev = _eps_flat()
+    elif target >= 40:
+        context._row = _medium_weak_row("HOLD")
+        context._sector_rs = _neutral_sector_rs()
+        context._eps_rev = _eps_flat()
+    else:
+        context._row = _weak_row("LOW")
+        context._sector_rs = _weak_sector_rs()
+        context._eps_rev = _eps_down()
     context._target_score = target
 
 

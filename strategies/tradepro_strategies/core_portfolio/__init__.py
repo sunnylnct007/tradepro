@@ -33,7 +33,14 @@ from .allocation_view import (
 )
 from .dividend_dashboard import DividendDashboard, compute_dividend_dashboard
 from .entry_timing import EntryTimingAssist, compute_entry_timing
+from .etf_xray import (
+    EtfOverlapReport, EtfXray, OverlapContribution,
+    compute_etf_xray, compute_overlap, project_drip_value,
+)
 from .quality_scorecard import QualityScorecard, compute_quality_scorecard
+from .symbol_analysis_card import (
+    HorizonRecommendation, SymbolAnalysisCard, build_symbol_analysis_card,
+)
 from .valuation_layer import ValuationLayer, compute_valuation_layer
 
 __all__ = [
@@ -43,4 +50,7 @@ __all__ = [
     "AllocationView", "CoreSleevePosition", "PositionBreakdown",
     "compute_allocation_view",
     "EntryTimingAssist", "compute_entry_timing",
+    "EtfXray", "EtfOverlapReport", "OverlapContribution",
+    "compute_etf_xray", "compute_overlap", "project_drip_value",
+    "SymbolAnalysisCard", "HorizonRecommendation", "build_symbol_analysis_card",
 ]

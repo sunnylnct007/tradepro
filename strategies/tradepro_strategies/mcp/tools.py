@@ -2299,6 +2299,36 @@ def get_signal_ledger_stats(
                     source=source, symbol=symbol)
 
 
+def get_long_term_fundamentals(symbol: str, years: int = 5) -> dict:
+    """Multi-year fundamental analysis: revenue CAGR, margin trends,
+    ROE, FCF conversion, D/E, quality verdict, peer comparison, and
+    sector-specific KPI gaps.
+
+    Pulls annual income stmt / balance sheet / cash flow from yfinance
+    (typically 4 annual periods available).  Results include:
+
+    - ``trends``        — computed metrics (CAGR, margins, ROE, FCF)
+    - ``quality``       — grade A-F + positive / negative signals
+    - ``info_snapshot`` — valuation multiples (P/E, P/B, EV/EBITDA)
+    - ``peers``         — abbreviated metrics for up to 3 known peers
+    - ``template``      — sector-specific KPI guidance + data gaps
+    - ``warnings``      — data quality notes (e.g. ADR FX drag,
+                          sparse yfinance coverage)
+
+    Cite as ``live://fundamentals/longterm/<SYMBOL>``.
+
+    For Indian banking / IT stocks use the NSE ticker (e.g. HDFCBANK.NS,
+    TCS.NS) for INR-denominated figures.  yfinance does not provide NIM,
+    GNPA, CASA or TCV — the ``template.yfinance_gaps`` list names each
+    missing metric and where to find it instead.
+    """
+    try:
+        from ..fundamental_analysis import analyse_long_term
+        return analyse_long_term(symbol, years=years)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_long_term_fundamentals", str(e), symbol=symbol)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 

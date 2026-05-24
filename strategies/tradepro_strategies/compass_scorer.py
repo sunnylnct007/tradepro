@@ -47,6 +47,13 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+# Module-level import so BDD steps can patch
+# tradepro_strategies.compass_scorer.macro_regime.get_risk_mode
+try:
+    from . import macro_regime  # noqa: F401  (re-exported for test patching)
+except ImportError:
+    macro_regime = None  # type: ignore[assignment]
+
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -93,6 +100,7 @@ class CompassResult:
 
     def to_dict(self) -> dict:
         return {
+            "symbol": self.symbol,
             "score": round(self.score, 1),
             "signal": self.signal,
             "conviction": self.conviction,
@@ -152,13 +160,14 @@ def compute_compass_score(
     signal = _score_to_signal(score, row)
     conviction = _score_to_conviction(score)
 
-    # Macro gate from Sprint 1 — lazy import so this module works standalone
+    # Macro gate — uses the module-level `macro_regime` import so BDD tests
+    # can patch tradepro_strategies.compass_scorer.macro_regime.get_risk_mode
     macro_mode = 1
     macro_gated = False
     try:
-        from .macro_regime import get_risk_mode
-        macro_mode = get_risk_mode()
-        macro_gated = (macro_mode == 3)
+        if macro_regime is not None:
+            macro_mode = macro_regime.get_risk_mode()
+            macro_gated = (macro_mode == 3)
     except Exception:  # noqa: BLE001
         pass
 
