@@ -407,6 +407,48 @@ def earnings_trace_row(signal: dict) -> dict | None:
     }
 
 
+def batch_upcoming_earnings(
+    symbols: list[str],
+    api_base: str,
+    *,
+    days: int = 30,
+    max_workers: int = 8,
+) -> dict[str, dict | None]:
+    """Fetch upcoming earnings for every symbol in `symbols` concurrently.
+
+    Returns a dict keyed by uppercased symbol. Value is the same shape as
+    `fetch_upcoming_earnings` — {date, days_until, hour, eps_estimate,
+    revenue_estimate} — or None when nothing is scheduled / Finnhub is off.
+
+    Use for nightly cron: call once with the full watchlist so the
+    CATALYST detector and email digest both read from one fresh dict.
+
+    Example:
+        calendar = batch_upcoming_earnings(["MU", "NVDA", "AAPL"], api_base)
+        for sym, ev in calendar.items():
+            if ev and ev["days_until"] <= 14:
+                print(f"{sym} reports in {ev['days_until']}d")
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results: dict[str, dict | None] = {}
+
+    def _fetch_one(sym: str) -> tuple[str, dict | None]:
+        return sym.upper(), fetch_upcoming_earnings(sym, api_base, days=days)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_fetch_one, s): s for s in symbols}
+        for fut in as_completed(futures):
+            try:
+                sym, ev = fut.result()
+                results[sym] = ev
+            except Exception as exc:  # noqa: BLE001
+                results[futures[fut].upper()] = None
+                _log.warning("batch_upcoming_earnings failed for %s: %s", futures[fut], exc)
+
+    return results
+
+
 def _safe(x: Any) -> float | None:
     if x is None:
         return None
