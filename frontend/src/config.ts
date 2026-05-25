@@ -6,15 +6,22 @@ const fromEnv = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
 const sameOrigin =
   typeof window !== "undefined" ? window.location.origin : "http://localhost:5080";
 
-// Python sidecar that exposes build_symbol_analysis_card over HTTP.
-// Defaults to localhost:8002 for local dev; production deployments
-// proxy through the .NET API at /api/symbol-analysis/ so the sidecar
-// isn't reachable directly.
+// Python sidecar that exposes build_symbol_analysis_card.
+// Default routes through the .NET API at /api/symbol-analysis/{ticker}
+// (auth-enforced + production-safe). VITE_ANALYSIS_BASE_URL overrides
+// to talk to the sidecar directly — useful for local dev when running
+// only `uv run tradepro-analysis-server` without the .NET API.
 const analysisFromEnv = (import.meta.env.VITE_ANALYSIS_BASE_URL ?? "").trim();
+const analysisBaseUrl =
+  analysisFromEnv !== "" ? analysisFromEnv : (fromEnv !== "" ? fromEnv : sameOrigin);
+const analysisDirect = analysisFromEnv !== "";
 
 export const config = {
   apiBaseUrl: fromEnv !== "" ? fromEnv : sameOrigin,
-  analysisBaseUrl: analysisFromEnv !== "" ? analysisFromEnv : "http://localhost:8002",
+  analysisBaseUrl,
+  // True when calling the sidecar directly (override set); false when
+  // routing through the .NET API /api/symbol-analysis/ proxy.
+  analysisDirect,
   defaultCurrency: import.meta.env.VITE_DEFAULT_CURRENCY ?? "GBP",
   defaultProvider: import.meta.env.VITE_DEFAULT_PROVIDER ?? "yahoo",
 };

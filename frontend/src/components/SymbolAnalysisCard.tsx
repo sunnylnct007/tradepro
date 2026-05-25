@@ -34,6 +34,7 @@
 import { useEffect, useState } from "react";
 import type React from "react";
 import { config } from "../config";
+import { getIdToken } from "../firebase";
 import type { CompareRow } from "../api/types";
 
 type Horizon =
@@ -156,10 +157,21 @@ export function SymbolAnalysisCard(props: { row: CompareRow; universe?: string |
     // slowest call (~3 yfinance round-trips). The user can opt in
     // via a follow-up "Refresh long-term" button.
     params.set("skip_long_term", "true");
-    const url = `${config.analysisBaseUrl}/symbol/${encodeURIComponent(row.symbol)}/analysis?${params}`;
+    const ticker = encodeURIComponent(row.symbol);
+    // Direct: GET /symbol/{ticker}/analysis (sidecar shape, dev only).
+    // Proxied: GET /api/symbol-analysis/{ticker} (.NET auth-enforced).
+    const path = config.analysisDirect
+      ? `/symbol/${ticker}/analysis`
+      : `/api/symbol-analysis/${ticker}`;
+    const url = `${config.analysisBaseUrl}${path}?${params}`;
     (async () => {
       try {
-        const resp = await fetch(url);
+        const headers: Record<string, string> = {};
+        if (!config.analysisDirect) {
+          const token = await getIdToken();
+          if (token) headers.Authorization = `Bearer ${token}`;
+        }
+        const resp = await fetch(url, { headers });
         if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
         const envelope = (await resp.json()) as AnalysisCardEnvelope;
         if (!cancelled) setAnalysis({ state: "ok", envelope });

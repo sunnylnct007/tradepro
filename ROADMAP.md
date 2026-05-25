@@ -13,6 +13,78 @@ those assumptions change.
 
 ---
 
+## Order Management System (OMS) — proper persistence + lifecycle
+
+**Status:** PLANNED. Started ad-hoc placement (Trading 212 pending-orders queue
++ /api/orders log). For algorithmic trading we need a proper OMS so every order
+the platform ever placed — manual, paper, algo, multi-leg — is queryable in one
+place with a complete state-machine trail.
+
+**Why now:** as Track 1 (intraday algo), Lane A (quant-engine systematic
+strategies), and Track 2 (Compounder allocation tactics) all start placing
+orders programmatically, the existing `pending_orders` table alone won't scale:
+no strategy_id linkage, no parent/child orders for brackets, no cancel-on-mode-
+switch hook, no fill-by-fill reconciliation, no broker_request_id idempotency.
+
+**OMS design sketch (to be expanded in a dedicated spec):**
+
+1. **`oms_orders`** — canonical lifecycle row per order, append-only state changes
+   via `oms_order_events`. Columns:
+   - `id` (uuid, pk)
+   - `client_order_id` (uuid, unique — our idempotency key)
+   - `broker` (`T212_DEMO` / `T212_LIVE` / `IBKR` / `PAPER`)
+   - `broker_order_id` (nullable; populated post-acknowledgement)
+   - `parent_order_id` (nullable — bracket / OCO grouping)
+   - `strategy_id` (nullable for manual orders; FK to paper_strategies)
+   - `signal_id` (nullable; FK to signal_ledger entry that fired it)
+   - `decision_id` (FK to `decisions` — the mode/policy state that authorised it)
+   - `symbol`, `side` (BUY/SELL), `qty`, `order_type` (MKT/LMT/STP/STP_LMT)
+   - `limit_price`, `stop_price`, `time_in_force` (DAY/GTC/IOC)
+   - `state` (`PENDING_APPROVAL` / `SENT` / `WORKING` / `PARTIAL` / `FILLED`
+     / `CANCELLED` / `REJECTED` / `EXPIRED`)
+   - `placed_by` (`HUMAN` / `STRATEGY_AUTO`)
+   - `created_at_utc`, `last_state_change_at_utc`
+   - `cancelled_reason` (text — `USER_FLIP_TO_MANUAL` / `STRATEGY_KILL_SWITCH`
+     / `RISK_LIMIT` / `BROKER_REJECT`)
+
+2. **`oms_order_events`** — append-only state-machine log. Every state change
+   writes one row with the prior + new state, the broker payload that triggered
+   it, and the request/response IDs. Reconstruct the full history of any order
+   from a single SQL filter.
+
+3. **`oms_fills`** — per-fill rows (an order can fill in multiple chunks).
+   Columns: order_id, fill_id, qty, price, fee, currency, fill_at_utc,
+   broker_fill_id.
+
+4. **`decisions`** — policy/mode state that orders point at. Every Settings
+   change (placement mode flip, kill-switch toggle, risk limit change) writes
+   a row here. When a decision flips manual → auto or auto → manual, a worker
+   walks the cascade table to cancel/leave-alone working orders per policy.
+
+5. **OMS service layer** — single `IOmsService` interface that ALL placement
+   paths go through (Settings approve, intraday engine auto-place, MCP-driven
+   one-off). No more `pending_orders` direct writes outside the service. The
+   service owns:
+   - idempotency check on `client_order_id`
+   - state-machine transitions (illegal transitions raise)
+   - cascade actions on mode flip
+   - retry/resync against broker (poll for state changes the broker didn't push)
+
+6. **Migration plan** — existing `pending_orders` becomes a projection /
+   compatibility view over `oms_orders`. The Mac engine + .NET API switch
+   to the new service one path at a time; the old table stays writable
+   during transition to keep the daily plist running.
+
+**Tickets to write:**
+- T#A OMS schema + migration (oms_orders, oms_order_events, oms_fills, decisions)
+- T#B IOmsService implementation + idempotency
+- T#C Mode-flip cascade worker — kill working orders when user goes manual
+- T#D Wire intraday engine + paper-pending-order ingest through IOmsService
+- T#E UI: orders table on /portfolio + filter by strategy / state / broker
+- T#F Reconciliation worker — poll broker for state changes the API missed
+
+---
+
 ## Recently shipped (May 2026)
 
 Tracks meaningful work that's already in `main` so this doc stops drifting
