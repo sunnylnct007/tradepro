@@ -246,7 +246,23 @@ class Engine:
                         "strategy %s on_session_end raised", reg.strategy.strategy_id,
                     )
 
-        return self.ledger.to_snapshot()
+        snapshot = self.ledger.to_snapshot()
+        self.attach_decisions(snapshot)
+        return snapshot
+
+    def attach_decisions(self, snapshot: dict, *, limit: int = 50) -> None:
+        """Inject each strategy's recent decision trace into the
+        ledger snapshot. Lives on the engine (not the ledger) because
+        the ledger only knows strategy_ids — strategy instances live
+        in registrations here. Callers that re-snapshot after run()
+        (e.g. CLI rebuilds with include_fills) must re-apply this."""
+        for entry in snapshot.get("strategies", []):
+            sid = entry.get("strategy_id")
+            reg = self.registrations.get(sid)
+            if reg is None:
+                entry["decisions"] = []
+                continue
+            entry["decisions"] = reg.strategy.recent_decisions(limit=limit)
 
     # ----- Internal coroutines -------------------------------------
 

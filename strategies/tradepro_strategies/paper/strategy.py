@@ -32,10 +32,11 @@ Design notes — the WHY behind shape choices:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Deque
 
 
 class OrderSide(str, Enum):
@@ -186,6 +187,11 @@ class Strategy(ABC):
     # Symbols with an order emitted but no fill seen yet. Engine maintains
     # this around `emit → on_fill`; strategies query via has_order_in_flight().
     _in_flight_symbols: set[str] = field(default_factory=set)
+    # Per-(symbol) ring buffer of recent decision records. Bounded so a
+    # multi-symbol, multi-bar session can't blow memory; the snapshot
+    # publishes the most-recent slice across all symbols.
+    _decisions: dict[str, Deque[dict[str, Any]]] = field(default_factory=dict)
+    decision_buffer_size: int = 50
 
     # --- Lifecycle hooks the engine calls --------------------------
 
@@ -260,3 +266,49 @@ class Strategy(ABC):
 
     def recall(self, key: str, default: Any = None) -> Any:
         return self._state.get(key, default)
+
+    # --- Decision trace ---------------------------------------------
+
+    def log_decision(
+        self,
+        *,
+        symbol: str,
+        action: str,
+        reason: str,
+        bar_ts: datetime | None = None,
+        **detail: Any,
+    ) -> None:
+        """Record a per-bar decision so the UI can answer "why didn't
+        strategy X trade Y today?".
+
+        `action` is a short token ("fire-buy", "skip-warmup",
+        "skip-flat-signal", ...). `reason` is a free-text one-liner.
+        `detail` collects optional structured fields (signal value,
+        warmup-progress, gate verdict, etc.). The buffer is per-symbol
+        and bounded by `decision_buffer_size`; old entries roll off.
+        """
+        buf = self._decisions.get(symbol)
+        if buf is None:
+            buf = deque(maxlen=self.decision_buffer_size)
+            self._decisions[symbol] = buf
+        buf.append({
+            "bar_ts": bar_ts.isoformat() if bar_ts is not None else None,
+            "symbol": symbol,
+            "action": action,
+            "reason": reason,
+            "detail": detail,
+        })
+
+    def recent_decisions(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Flatten the per-symbol ring buffers into a single list sorted
+        by `bar_ts` (newest first). `limit` caps the result; None returns
+        everything in the buffers."""
+        merged: list[dict[str, Any]] = []
+        for buf in self._decisions.values():
+            merged.extend(buf)
+        # bar_ts may be None for decisions logged outside on_bar; sort
+        # those to the end so the live trace stays time-ordered.
+        merged.sort(key=lambda d: d.get("bar_ts") or "", reverse=True)
+        if limit is not None:
+            return merged[:limit]
+        return merged

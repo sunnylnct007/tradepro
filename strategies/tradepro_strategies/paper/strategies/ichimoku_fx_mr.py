@@ -206,11 +206,22 @@ class IchimokuFXMeanReversionStrategy(Strategy):
 
         # Pause gate.
         if self._overrides is not None and self._overrides.is_paused(self.strategy_id):
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-paused",
+                reason="strategy is paused via overrides registry",
+            )
             return []
 
         # Pair whitelist (if a non-empty list was provided).
         pairs = p.get("pairs") or []
         if pairs and pair not in pairs:
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-not-whitelisted",
+                reason=f"pair {pair} not in configured whitelist",
+                whitelist_size=len(pairs),
+            )
             return []
 
         # Force-close trumps any signal.
@@ -220,6 +231,12 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             pos = self._fx_positions.get(pair, 0)
             if pos != 0:
                 side = OrderSide.SELL if pos > 0 else OrderSide.BUY
+                self.log_decision(
+                    symbol=pair, bar_ts=bar.timestamp,
+                    action="fire-force-close",
+                    reason="override registry requested force-close",
+                    side=side.value, quantity=abs(pos),
+                )
                 return [Order(
                     strategy_id=self.strategy_id,
                     symbol=pair,
@@ -228,6 +245,11 @@ class IchimokuFXMeanReversionStrategy(Strategy):
                     type=OrderType.MARKET,
                     tag=f"IchimokuFXMR FORCE_CLOSE {pair} qty={abs(pos)}",
                 )]
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-force-close-flat",
+                reason="force-close requested but position already flat",
+            )
             return []
 
         # Accumulate rolling OHLC.
@@ -242,6 +264,13 @@ class IchimokuFXMeanReversionStrategy(Strategy):
 
         # Warmup gate -- collect history, no orders until we've seen enough bars.
         if self._bar_counts[pair] < warmup:
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-warmup",
+                reason=f"warmup {self._bar_counts[pair]}/{warmup} bars",
+                bars_seen=self._bar_counts[pair],
+                bars_required=warmup,
+            )
             return []
 
         # Compute the latest reversion signal.
@@ -278,7 +307,21 @@ class IchimokuFXMeanReversionStrategy(Strategy):
 
         current = self._fx_positions.get(pair, 0)
         delta = target - current
-        if delta == 0 or vetoed:
+        if vetoed:
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-vetoed",
+                reason="override registry vetoed this bar",
+                signal=signal, target=target, current=current,
+            )
+            return []
+        if delta == 0:
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-no-delta",
+                reason="target position matches current — nothing to do",
+                signal=signal, target=target, current=current,
+            )
             return []
 
         # ── LLM signal gate — only on NEW entries from flat ─────────────
@@ -292,6 +335,12 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             if gate_decision.action == GateDecision.VETOED:
                 _log.info(
                     "IchimokuFXMR LLM gate VETOED %s: %s", pair, gate_decision.reason
+                )
+                self.log_decision(
+                    symbol=pair, bar_ts=bar.timestamp,
+                    action="skip-llm-vetoed",
+                    reason=f"LLM gate vetoed: {gate_decision.reason}",
+                    signal=signal, target=target,
                 )
                 return []
             llm_scale = gate_decision.scale_factor
@@ -319,12 +368,27 @@ class IchimokuFXMeanReversionStrategy(Strategy):
 
         qty = abs(delta) * unit_qty
         if qty <= 0:
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-zero-qty",
+                reason="vol-target sizing rounded to 0 units",
+                signal=signal, target=target, current=current,
+                unit_qty=unit_qty,
+            )
             return []
 
         side = OrderSide.BUY if delta > 0 else OrderSide.SELL
         tag = (
             f"IchimokuFXMR {pair} signal={signal:+.2f} "
             f"target={target} current={current} delta={delta:+d}"
+        )
+        action_label = "fire-buy" if side == OrderSide.BUY else "fire-sell"
+        self.log_decision(
+            symbol=pair, bar_ts=bar.timestamp,
+            action=action_label,
+            reason=f"signal {signal:+.2f} → target {target:+d} from current {current:+d}",
+            signal=signal, target=target, current=current, delta=delta,
+            quantity=qty, order_type="LIMIT" if price_ov is not None else "MARKET",
         )
 
         if price_ov is not None:
