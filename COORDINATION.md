@@ -1,130 +1,73 @@
 # Multi-Claude Coordination
 
-Two Claude Code sessions are working on this repo concurrently on the
-same Mac. We can't message each other directly — this file is the
-shared whiteboard. Both sessions: read this before starting work,
-update when you start a new lane.
+Two Claude Code sessions may work on this repo concurrently on the same Mac.
+Read this before starting any work. Update when you start something new.
 
-## Lanes (as of 2026-05-25)
+**Last updated: 2026-05-25**
 
-### Lane A — Quant Engine + Paper Bridge + LLM Gate (branch `feat/quant-engine`)
-- **Owner**: Lane A Claude session
-- **Status**: **PR #14 OPEN — ready to merge** (https://github.com/sunnylnct007/tradepro/pull/new/feat/quant-engine)
-- **Commits on branch** (5 commits ahead of main):
-  - `412e160` quant_engine — Ichimoku sleeve, vol targeting, walk-forward, Monte Carlo, FX mean-reversion
-  - `ad08e3c` paper trading bridge — IchimokuEquityStrategy, IchimokuFXMeanReversionStrategy, OverrideRegistry, BrokerFactory, signal_bridge
-  - `b73ff35` LLM signal gate, StrategyConfigRegistry, StrategyRunner, 5 MCP tools
-  - `cb317ca` LLM gate wired into both strategies (579 BDD scenarios green)
-- **Files owned by Lane A** (do NOT touch):
-  - `strategies/tradepro_strategies/quant_engine/` (10 files)
-  - `strategies/tradepro_strategies/paper/llm_gate.py`
-  - `strategies/tradepro_strategies/paper/overrides.py`
-  - `strategies/tradepro_strategies/paper/signal_bridge.py`
-  - `strategies/tradepro_strategies/paper/broker_factory.py`
-  - `strategies/tradepro_strategies/paper/strategy_config.py`
-  - `strategies/tradepro_strategies/paper/strategy_runner.py`
-  - `strategies/tradepro_strategies/paper/strategies/ichimoku_equity.py`
-  - `strategies/tradepro_strategies/paper/strategies/ichimoku_fx_mr.py`
-  - `strategies/features/paper_quant_strategies.feature`
-  - `strategies/features/quant_engine.feature`
-  - `strategies/features/llm_signal_gate.feature`
-  - `docs/QUANT_ENGINE_GAPS.md`
-- **Immediate next step** (one session after PR merges):
-  Add `--strategy ichimoku_equity|ichimoku_fx_mr` flag to
-  `cli/paper_session.py` so the quant strategies can be launched from the
-  terminal against T212 demo. Engine + BarBus infrastructure is already in
-  place — this is a ~2h wiring task.
+---
 
-### Lane B — Track 2 Core Portfolio + Symbol Analysis Card (this session, branch `feat/fundamental-analysis`)
-- **Owner**: this Claude session
-- **Scope**:
-  - `strategies/tradepro_strategies/core_portfolio/` — all 7 modules
-    (Quality, Valuation, Dividend, Allocation, Entry Timing, ETF X-Ray,
-    Manual MF Sleeve — ⑦ pending)
-  - `strategies/tradepro_strategies/core_portfolio/symbol_analysis_card.py`
-    — orchestrator fusing technical (compare row) + fundamental
-  - `strategies/tradepro_strategies/mcp/` — only the `get_symbol_analysis`
-    tool block; other MCP tools belong to Lane A
-- **Next up**:
-  1. ✅ MCP `get_symbol_analysis` (10abf61)
-  2. ✅ Module ⑦ Manual MF Sleeve (d7b51c2 — all 7 Track 2 modules now landed)
-  3. Promote Lane A's A-F grade to drive Entry Timing's quality signal
-  4. UI surface for the Symbol Analysis Card
+## Current branch: main (both lanes merged)
+
+There are no active feature branches. All work lands directly on `main`.
+**No active edits in progress.** All files are currently safe to touch.
+
+---
+
+## Active work
+
+**None right now.** If you are starting something, add a section here first,
+list the files you will touch, and commit this file before editing anything else.
+
+---
+
+## Shipped features (on main, newest first)
+
+| Commit | What |
+|--------|------|
+| `590570a` | SQS trigger queue — real-time Mac↔UI messaging (parked: inert until terraform applied + env var set; REST polling is the active fallback) |
+| `8b68505` | Paper scheduling + UI trigger: launchd plists, `tradepro-paper-watch` daemon, `/paper-live` React page, `run-paper` / `poll-paper` backend ops endpoints |
+| `4b8485c` | Quant engine + paper bridge + LLM gate: Ichimoku sleeves, vol targeting, walk-forward, Monte Carlo, FX mean-reversion, 579 BDD scenarios green |
+| `3952132` | Fundamental analysis + all 7 Track 2 core-portfolio modules + Symbol Analysis Card + MCP `get_symbol_analysis` |
+
+---
+
+## Key files — who last touched what
+
+| Area | Files | Last commit |
+|------|-------|-------------|
+| Paper strategies | `paper/strategies/ichimoku_equity.py`, `ichimoku_fx_mr.py` | `4b8485c` |
+| Paper daemon | `cli/paper_daemon.py` | `590570a` |
+| Ops endpoints | `backend/.../Endpoints/OpsEndpoints.cs` | `590570a` |
+| SQS service | `backend/.../Providers/SqsTriggerService.cs` | `590570a` |
+| MCP server/tools | `mcp/server.py`, `mcp/tools.py` | `8b68505` |
+| React Paper page | `frontend/src/pages/PaperLive.tsx` | `8b68505` |
+| Terraform (ccit-infra) | `modules/tradepro-demo/main.tf` + variables + outputs | ccit-infra `6c0e302` |
+| Quant engine | `quant_engine/` (10 files) | `4b8485c` |
+| Core portfolio | `core_portfolio/` (7 modules) | `3952132` |
+
+---
 
 ## Rules of engagement
 
-- **Branches** — keep work on the named feature branch above; merge to
-  `main` only after the other lane confirms it is at a stop point.
-- **Touching the other lane's files** — read freely, edit only with a
-  prior note here saying why.
-- **Local branch switches** — if you switch branches in the working
-  tree, leave a note here ("switched to feat/quant-engine for X") so
-  the other session knows before they stage anything.
+- **Before any `git add`** — run `git status` and confirm you own every file listed.
+  Never `git add .` or `git add -A`; always pass explicit file paths.
+- **Before commit** — re-run `git status` and verify the staged set is exactly what
+  you intended. `git reset HEAD <path>` anything you don't own before committing.
+- **One commit at a time** — check `git log -1` to confirm the other session isn't
+  mid-commit before you start yours.
+- **Starting new work** — add an "Active work" section above with the files you plan
+  to touch, commit this file first, then start editing.
+- **Reading any file** — always fine; edit with the above protocol.
 - **Stashes** — never `git stash drop` a stash you didn't create.
-- **Untracked files** in `strategies/.claude/`, `strategies/0`,
-  `strategies/cookies.txt` are leftover dev artefacts — neither lane
-  should clean them up without flagging.
+- **ccit-infra** — separate repo at `/Users/skumar/sourcecode/ccit-infra`; note changes
+  here just like tradepro changes.
 
-## Staging discipline (post-collision 2026-05-24)
+---
 
-Both sessions read this before any `git add`:
+## Session log
 
-1. **Verify current branch first** — `git status` first line must
-   match your lane. If not, `git checkout <your-branch>` BEFORE any
-   `git add`.
-2. **Never `git add .` or `git add -A`** — always pass explicit file
-   paths so a colocated session's index doesn't sweep in.
-3. **Before commit, re-run `git status`** — confirm the staged set is
-   exactly what you intended. If you see paths you don't own,
-   `git reset HEAD <those paths>` before committing.
-4. **One commit at a time** — wait for the other session to finish
-   theirs (visible via `git log -1`) before starting yours, to avoid
-   index-state races.
-
-## Convergence point
-
-Symbol Analysis Card already consumes Lane A's outputs:
-- `analyse_long_term()` → fundamental.long_term_grade
-- COMPASS / sector RS / EPS revision — TBD whether these become
-  additional fundamental-block lenses; flag a proposal here when ready
-
-## Active session log
-
-- 2026-05-24 — Lane B shipped Symbol Analysis Card (3dd5d4e) + MCP
-  wrapper (10abf61); 506/506 behave green at HEAD of
-  `feat/fundamental-analysis`. Lane A on `feat/quant-engine` starting
-  a trader-provided strategy.
-- 2026-05-24 — Lane B picked up Module ⑦ Manual MF Sleeve. Lane A
-  spotted in working tree: `tradepro_strategies/quant_engine/`
-  (10 files, not yet committed).
-- 2026-05-24 — **commit-collision incident**: Lane B attempted to
-  commit MF Sleeve while working tree HEAD was on `feat/quant-engine`
-  (both sessions share the filesystem). The shared staging index held
-  Lane A's quant_engine paths AND Lane B's MF Sleeve paths
-  simultaneously. The resulting commit `5c17bbd` on `feat/quant-engine`
-  contains **Lane A's content but Lane B's commit message** ("Manual
-  MF Sleeve"). Lane B re-committed MF Sleeve cleanly on
-  `feat/fundamental-analysis` as `d7b51c2`.
-  **Resolved 2026-05-25**: Lane A amended their commit before either
-  side pushed. New SHA `412e160`
-  ("feat(quant-engine): sleeve portfolio, vol targeting, walk-forward,
-  Monte Carlo + FX mean-reversion"). A side-effect of the amend
-  created a stray copy of the same commit on
-  `feat/fundamental-analysis` as `edab4a7`; Lane B reset back to
-  3b69d10. No data lost on either side.
-- 2026-05-24 — Lane B shipped Manual MF Sleeve (`d7b51c2` on
-  `feat/fundamental-analysis`). 14 scenarios green. All 7 Track 2
-  modules now landed.
-- 2026-05-25 — Lane B starting #3: promote Lane A's A-F grade (from
-  `fundamental_analysis.analyse_long_term`) into Entry Timing's
-  quality signal. The grade becomes a parallel quality path alongside
-  the existing 4★ gate. User clarified Lane A's quant_engine is
-  **complementary systematic-trading strategies** (signal generators,
-  not portfolio management) — fits well as an additional lens in the
-  Symbol Analysis Card alongside technical / fundamental.
-- 2026-05-25 — Lane A **completed paper trading stack** (PR #14 opened).
-  5 commits: quant engine → paper bridge → LLM gate → LLM gate wired into
-  both strategies. 579/579 BDD green. Branch pushed as
-  `feat/quant-engine`. NOT touching `feat/fundamental-analysis` or
-  `tradepro-laneB/` working tree. Next task: wire `--strategy` flag into
-  `cli/paper_session.py` after PR merges.
+- 2026-05-25 — Both lanes merged to main. Single stream going forward.
+- 2026-05-25 — Shipped: paper scheduling + UI trigger (`8b68505`).
+- 2026-05-25 — Shipped: SQS trigger queue (`590570a`, parked — REST polling is live fallback).
+- 2026-05-25 — **Session ended. No active edits. All files safe.**
