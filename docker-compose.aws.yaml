@@ -110,11 +110,15 @@ services:
     healthcheck:
       # /health is intentionally public (uptime pings shouldn't need a
       # token). Matches the dev compose contract.
+      # start_period bumped 30s → 90s because Postgres migrations +
+      # SecretsBundleLoader can take 60s+ on cold start, which was
+      # marking the container unhealthy permanently and blocking the
+      # frontend from ever starting (see task #17, 2026-05-25).
       test: ["CMD", "curl", "-fsS", "http://localhost:5080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 90s
 
   # ── Frontend (nginx + Vite static bundle) ─────────────────
   # No longer host-exposed directly — Caddy below terminates TLS and
@@ -134,8 +138,14 @@ services:
       # the file is missing or empty; /health stays public.
       - /opt/tradepro/.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
+      # Was `service_healthy` — switched to `service_started` because
+      # a slow API healthcheck was leaving the frontend permanently
+      # un-started (nginx never bound port 80, Caddy then couldn't
+      # proxy, site went down). nginx already proxies /api/* to api:5080
+      # so a brief window where the API isn't ready manifests as 502s
+      # on /api routes — acceptable vs site-down.
       api:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       # The healthcheck hits /health (which bypasses basic auth) so
       # the container reports healthy without needing credentials.
