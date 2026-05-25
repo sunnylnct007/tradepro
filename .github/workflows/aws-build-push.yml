@@ -77,6 +77,11 @@ jobs:
           tags: |
             ${{ steps.tags.outputs.api_sha }}
             ${{ steps.tags.outputs.api_latest }}
+          # Bake commit + build time into the image so /health/details
+          # can answer "is this the SHA I just pushed?" without SSM.
+          build-args: |
+            BACKEND_COMMIT=${{ github.sha }}
+            BACKEND_BUILD_TIME=${{ github.event.head_commit.timestamp }}
           # Layer cache lives in the ECR repo as the `:cache` tag —
           # keeps subsequent builds fast without an extra registry.
           cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.API_REPO }}:cache

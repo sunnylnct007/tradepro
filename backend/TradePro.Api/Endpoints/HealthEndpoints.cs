@@ -1,3 +1,5 @@
+using Dapper;
+using Npgsql;
 using TradePro.Api.Simulation;
 
 namespace TradePro.Api.Endpoints;
@@ -47,7 +49,12 @@ public static class HealthEndpoints
         // the Health page can render. Public (no auth) so a user with a
         // broken dev login can still see what's wrong.
         app.MapGet("/health/details",
-            (ICompareStore compareStore, IHeartbeatStore heartbeatStore, IHostEnvironment env) =>
+            async (
+                ICompareStore compareStore,
+                IHeartbeatStore heartbeatStore,
+                IHostEnvironment env,
+                NpgsqlDataSource db,
+                CancellationToken ct) =>
         {
             var summaries = compareStore.ListUniverses();
             var hb = heartbeatStore.GetLatest();
@@ -94,6 +101,31 @@ public static class HealthEndpoints
                 : workerLiveness == "late" || freshness.Any(f => f.tone == "stale") ? "warn"
                 : "ok";
 
+            // Postgres liveness ping — round-trip a trivial query so a
+            // dead/migrating DB shows up red on the Health page rather
+            // than as a confusing "all green" + 500s on every other
+            // endpoint. Measured in ms so latency drift is visible.
+            var pgUp = false;
+            long? pgLatencyMs = null;
+            string? pgError = null;
+            try
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                await using var conn = await db.OpenConnectionAsync(ct);
+                _ = await conn.ExecuteScalarAsync<int>("SELECT 1;");
+                sw.Stop();
+                pgUp = true;
+                pgLatencyMs = sw.ElapsedMilliseconds;
+            }
+            catch (Exception ex)
+            {
+                pgError = ex.Message;
+            }
+
+            var apiUptimeSeconds = (int)(DateTime.UtcNow
+                - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()
+            ).TotalSeconds;
+
             return Results.Ok(new
             {
                 verdict,
@@ -102,11 +134,26 @@ public static class HealthEndpoints
                 gitSha = Environment.GetEnvironmentVariable("GIT_SHA")
                     ?? Environment.GetEnvironmentVariable("GITHUB_SHA")
                     ?? "unknown",
+                // Deployment provenance — set during Docker build via
+                // --build-arg (CI workflow). Lets the operator confirm
+                // "is the live container the commit I just pushed?"
+                // without SSM-ing into the host.
+                deploy = new
+                {
+                    backendCommit = Environment.GetEnvironmentVariable("BACKEND_COMMIT") ?? "unknown",
+                    backendBuildTime = Environment.GetEnvironmentVariable("BACKEND_BUILD_TIME") ?? "unknown",
+                    apiUptimeSeconds,
+                    postgres = new
+                    {
+                        connected = pgUp,
+                        latencyMs = pgLatencyMs,
+                        error = pgError,
+                    },
+                },
                 api = new
                 {
                     status = "ok",
-                    uptimeSeconds =
-                        (int)(DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds,
+                    uptimeSeconds = apiUptimeSeconds,
                 },
                 worker = new
                 {

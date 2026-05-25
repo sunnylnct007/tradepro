@@ -23,6 +23,12 @@ interface HealthDetailsResponse {
   utc: string;
   environment: string;
   gitSha: string;
+  deploy?: {
+    backendCommit: string;
+    backendBuildTime: string;
+    apiUptimeSeconds: number;
+    postgres: { connected: boolean; latencyMs: number | null; error: string | null };
+  };
   api: { status: string; uptimeSeconds: number };
   worker: {
     liveness: "alive" | "late" | "down";
@@ -111,6 +117,37 @@ export function HealthPage() {
             <Row label="Uptime" value={fmtUptime(data.api.uptimeSeconds)} />
             <Row label="Server time" value={new Date(data.utc).toLocaleString()} />
           </Card>
+
+          {data.deploy && (
+            <Card title="Deployment">
+              <Row
+                label="Build commit"
+                value={
+                  data.deploy.backendCommit === "unknown"
+                    ? "—"
+                    : data.deploy.backendCommit.slice(0, 8)
+                }
+                mono
+              />
+              <Row
+                label="Built at"
+                value={
+                  data.deploy.backendBuildTime === "unknown"
+                    ? "—"
+                    : new Date(data.deploy.backendBuildTime).toLocaleString()
+                }
+              />
+              <Row
+                label="Postgres"
+                value={
+                  data.deploy.postgres.connected
+                    ? `up · ${data.deploy.postgres.latencyMs ?? "?"} ms`
+                    : `DOWN — ${data.deploy.postgres.error ?? "no error returned"}`
+                }
+                colour={data.deploy.postgres.connected ? "var(--up)" : "var(--down)"}
+              />
+            </Card>
+          )}
 
           <Card title="Strategy Engine">
             <Row

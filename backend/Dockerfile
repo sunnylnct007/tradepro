@@ -48,7 +48,15 @@ COPY --from=build /app/publish .
 
 # Listen on 5080 inside the container (compose maps host:8081 → 5080).
 # Production environment so the API requires real auth, real CORS, etc.
-ENV ASPNETCORE_URLS=http://+:5080 \
+# Build provenance — set by CI via --build-arg in aws-build-push.yml.
+# Surfaces in /health/details so the operator can verify "is the
+# running container actually the commit I just pushed?" without
+# SSM-ing into the host.
+ARG BACKEND_COMMIT=unknown
+ARG BACKEND_BUILD_TIME=unknown
+ENV BACKEND_COMMIT=${BACKEND_COMMIT} \
+    BACKEND_BUILD_TIME=${BACKEND_BUILD_TIME} \
+    ASPNETCORE_URLS=http://+:5080 \
     ASPNETCORE_ENVIRONMENT=Production \
     DOTNET_RUNNING_IN_CONTAINER=true \
     DOTNET_PRINT_TELEMETRY_MESSAGE=false
