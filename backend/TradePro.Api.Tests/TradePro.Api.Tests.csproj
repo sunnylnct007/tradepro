@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TradePro.Api.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Local dev box only ships .NET 9 runtime; CI uses the 8.0 image
+         the API targets. RollForward lets the 9.x runtime execute the
+         8.0-built test host so devs don't have to install net8 too. -->
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- xUnit test framework + adapter for `dotnet test`. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+
+    <!-- Testcontainers spins up a real ephemeral Postgres in Docker for
+         each test fixture so we test against the real driver + the real
+         migration SQL instead of an in-memory shim. Requires Docker on
+         the dev machine + the CI runner. -->
+    <PackageReference Include="Testcontainers.PostgreSql" Version="3.10.0" />
+
+    <!-- Mirror the runtime stack so test code can `new` the same Store
+         classes the API uses. Versions pinned to TradePro.Api. -->
+    <PackageReference Include="Npgsql" Version="8.0.4" />
+    <PackageReference Include="Dapper" Version="2.1.35" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TradePro.Api\TradePro.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The container fixture applies these migrations once per test
+         class instance via the same MigrationRunner the API uses. -->
+    <None Include="..\TradePro.Api\db\migrations\*.sql"
+          Link="db\migrations\%(FileName)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
