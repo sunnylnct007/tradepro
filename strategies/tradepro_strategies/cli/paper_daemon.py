@@ -219,6 +219,14 @@ def _parse_params(raw: dict, default_broker: str) -> dict:
         lookback_days = int(params.get("lookback_days") or 0)
     except (TypeError, ValueError):
         lookback_days = 0
+    # Strategy-specific minimums. ichimoku_fx_mr's reversion signal
+    # needs ~2573 hourly bars before it produces non-zero output
+    # (max(horizons)*4 + max(smooths) + 5 = 624*4+72+5). 200 calendar
+    # days of FX 1h bars clears that. PaperLive + scheduled launchd
+    # jobs don't expose a lookback knob — applying it here keeps the
+    # quant strategy usable regardless of trigger source.
+    if lookback_days == 0 and strategy == "ichimoku_fx_mr":
+        lookback_days = 200
     return {
         "strategy": strategy,
         "symbols": symbols,
@@ -308,6 +316,28 @@ def _per_symbol_breakdown(strategies: list[dict]) -> list[dict]:
     return list(by_symbol.values())
 
 
+def _resolved_symbols(snapshot: dict) -> list[str]:
+    """The set of symbols the strategy actually received bars for.
+
+    Walks snapshot.strategies[].bars_seen because that captures every
+    symbol the strategy's on_bar saw, regardless of whether it ended
+    the session with a position. Falls back to position symbols (for
+    older snapshots without bars_seen). Returns sorted for stable
+    UI rendering.
+    """
+    seen: set[str] = set()
+    for s in snapshot.get("strategies") or []:
+        for b in s.get("bars_seen") or []:
+            sym = b.get("symbol")
+            if sym:
+                seen.add(sym)
+        for p in s.get("positions") or []:
+            sym = p.get("symbol")
+            if sym:
+                seen.add(sym)
+    return sorted(seen)
+
+
 def _summarize_snapshot(snapshot: dict) -> dict:
     """Flatten a paper-snapshot into result_summary-friendly fields."""
     if not snapshot:
@@ -334,12 +364,19 @@ def run_session_for_params(params: dict, dry_run: bool) -> tuple[int, dict, str]
     one subprocess handles the whole request. Returns exit code,
     result_summary, and command string for logging.
     """
-    symbols = params["symbols"] or []
+    requested_symbols = params["symbols"] or []
     args = build_command(params)
     exit_code, snapshot = run_session(args, dry_run)
+    # Prefer the resolved symbol set (what the strategy actually saw)
+    # over the trigger payload's. For ichimoku_fx_mr the payload is
+    # empty (the strategy expands to all G10 pairs), and displaying
+    # `symbols: []` in result_summary looks like nothing ran.
+    resolved = _resolved_symbols(snapshot)
+    symbols = resolved or requested_symbols
     summary = {
         "strategy": params["strategy"],
         "symbols": symbols,
+        "symbols_requested": requested_symbols,
         "symbols_run": len(symbols),
         **_summarize_snapshot(snapshot),
     }
