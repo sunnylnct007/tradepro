@@ -5,22 +5,35 @@ same Mac. We can't message each other directly — this file is the
 shared whiteboard. Both sessions: read this before starting work,
 update when you start a new lane.
 
-## Lanes (as of 2026-05-24)
+## Lanes (as of 2026-05-25)
 
-### Lane A — Quant Engine (other session, branch `feat/quant-engine`)
-- **Owner**: other Claude session
-- **Scope**: trader-provided quantitative strategy implementation
-- **Files** (observed in working tree, not yet committed):
-  - `strategies/tradepro_strategies/quant_engine/`
-    - `__init__.py`, `config.py`, `ensemble.py`, `fx_strategy.py`,
-      `monte_carlo.py`, `portfolio_metrics.py`, `regime_filter.py`,
-      `sleeve.py`, `vol_targeting.py`, `walk_forward.py`
-  - `compose.yaml` (active modification)
-- **Lane B will NOT touch** any of the above. Please add features /
-  steps under the same dir prefix so test ownership is unambiguous.
-- **Recent commits** (already on `main` / `feat/sprint1-2-integration`):
-  COMPASS scorer, sector RS, EPS revision, macro regime, long-term
-  fundamental engine (`fundamental_analysis.py`), signal_ledger.
+### Lane A — Quant Engine + Paper Bridge + LLM Gate (branch `feat/quant-engine`)
+- **Owner**: Lane A Claude session
+- **Status**: **PR #14 OPEN — ready to merge** (https://github.com/sunnylnct007/tradepro/pull/new/feat/quant-engine)
+- **Commits on branch** (5 commits ahead of main):
+  - `412e160` quant_engine — Ichimoku sleeve, vol targeting, walk-forward, Monte Carlo, FX mean-reversion
+  - `ad08e3c` paper trading bridge — IchimokuEquityStrategy, IchimokuFXMeanReversionStrategy, OverrideRegistry, BrokerFactory, signal_bridge
+  - `b73ff35` LLM signal gate, StrategyConfigRegistry, StrategyRunner, 5 MCP tools
+  - `cb317ca` LLM gate wired into both strategies (579 BDD scenarios green)
+- **Files owned by Lane A** (do NOT touch):
+  - `strategies/tradepro_strategies/quant_engine/` (10 files)
+  - `strategies/tradepro_strategies/paper/llm_gate.py`
+  - `strategies/tradepro_strategies/paper/overrides.py`
+  - `strategies/tradepro_strategies/paper/signal_bridge.py`
+  - `strategies/tradepro_strategies/paper/broker_factory.py`
+  - `strategies/tradepro_strategies/paper/strategy_config.py`
+  - `strategies/tradepro_strategies/paper/strategy_runner.py`
+  - `strategies/tradepro_strategies/paper/strategies/ichimoku_equity.py`
+  - `strategies/tradepro_strategies/paper/strategies/ichimoku_fx_mr.py`
+  - `strategies/features/paper_quant_strategies.feature`
+  - `strategies/features/quant_engine.feature`
+  - `strategies/features/llm_signal_gate.feature`
+  - `docs/QUANT_ENGINE_GAPS.md`
+- **Immediate next step** (one session after PR merges):
+  Add `--strategy ichimoku_equity|ichimoku_fx_mr` flag to
+  `cli/paper_session.py` so the quant strategies can be launched from the
+  terminal against T212 demo. Engine + BarBus infrastructure is already in
+  place — this is a ~2h wiring task.
 
 ### Lane B — Track 2 Core Portfolio + Symbol Analysis Card (this session, branch `feat/fundamental-analysis`)
 - **Owner**: this Claude session
@@ -109,3 +122,9 @@ Symbol Analysis Card already consumes Lane A's outputs:
   **complementary systematic-trading strategies** (signal generators,
   not portfolio management) — fits well as an additional lens in the
   Symbol Analysis Card alongside technical / fundamental.
+- 2026-05-25 — Lane A **completed paper trading stack** (PR #14 opened).
+  5 commits: quant engine → paper bridge → LLM gate → LLM gate wired into
+  both strategies. 579/579 BDD green. Branch pushed as
+  `feat/quant-engine`. NOT touching `feat/fundamental-analysis` or
+  `tradepro-laneB/` working tree. Next task: wire `--strategy` flag into
+  `cli/paper_session.py` after PR merges.
