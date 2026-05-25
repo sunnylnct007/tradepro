@@ -146,6 +146,13 @@ builder.Services.AddSingleton<IPaperSnapshotStore, PostgresPaperSnapshotStore>()
 builder.Services.AddSingleton<IPendingOrdersStore, PostgresPendingOrdersStore>();
 builder.Services.AddSingleton<ISessionRequestsStore, PostgresSessionRequestsStore>();
 builder.Services.AddSingleton<IPaperStrategyStatusStore, PostgresPaperStrategyStatusStore>();
+// OMS Phase 1 — order persistence + lifecycle. Mode service depends on
+// the OmsService for the cancel-on-flip path, so register OmsService
+// first. Mode service is Singleton so the in-memory "current mode"
+// state survives across requests (Phase 1; Phase 2 swaps to a
+// persisted impl).
+builder.Services.AddSingleton<TradePro.Api.Oms.IOmsService, TradePro.Api.Oms.PostgresOmsService>();
+builder.Services.AddSingleton<TradePro.Api.Oms.IOmsModeService, TradePro.Api.Oms.InMemoryOmsModeService>();
 builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderboardStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills
@@ -191,6 +198,7 @@ api.MapIntegrationsEndpoints();
 api.MapInstrumentEndpoints();
 api.MapPaperBacktestEndpoints();
 api.MapOrdersEndpoints();
+api.MapOmsEndpoints();
 // User-facing ops queue (run-intraday + list / cancel). Mac worker
 // routes mount on the ingest group below — same store, different
 // trust boundary.
