@@ -248,6 +248,7 @@ class Engine:
 
         snapshot = self.ledger.to_snapshot()
         self.attach_decisions(snapshot)
+        self.attach_bars(snapshot)
         return snapshot
 
     def attach_decisions(self, snapshot: dict, *, limit: int = 50) -> None:
@@ -263,6 +264,18 @@ class Engine:
                 entry["decisions"] = []
                 continue
             entry["decisions"] = reg.strategy.recent_decisions(limit=limit)
+
+    def attach_bars(self, snapshot: dict, *, limit: int = 300) -> None:
+        """Inject each strategy's recently-seen bars into the snapshot
+        so the UI can render a "what data fed in" tab alongside the
+        decisions trace. Same re-apply rule as attach_decisions."""
+        for entry in snapshot.get("strategies", []):
+            sid = entry.get("strategy_id")
+            reg = self.registrations.get(sid)
+            if reg is None:
+                entry["bars_seen"] = []
+                continue
+            entry["bars_seen"] = reg.strategy.recent_bars(limit=limit)
 
     # ----- Internal coroutines -------------------------------------
 
@@ -342,6 +355,10 @@ class Engine:
             # Apply any fills that landed since the last bar BEFORE
             # giving the strategy a chance to decide on this bar.
             self._drain_strategy_fills(strategy, fill_q)
+            # Record the bar for the snapshot's "bars_seen" trace
+            # before handing it to on_bar so post-mortem matches
+            # exactly what the strategy saw.
+            strategy.record_bar(msg.bar)
             try:
                 orders = strategy.on_bar(msg.bar) or []
             except Exception:

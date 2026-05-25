@@ -141,6 +141,21 @@ export const api = {
   cancelOpsSession: (requestId: string) =>
     post<unknown, {}>(
       `/api/ops/sessions/${encodeURIComponent(requestId)}/cancel`, {}),
+  // Single-session lookup for the Session Detail page. Returns the
+  // full snake_case envelope (request_id, params, result_summary, ...).
+  getOpsSession: (requestId: string) =>
+    get<{
+      request_id: string;
+      kind: string;
+      params: unknown;
+      state: string;
+      requested_at_utc: string;
+      claimed_at_utc: string | null;
+      claimed_by: string | null;
+      completed_at_utc: string | null;
+      result_summary: unknown;
+      error: string | null;
+    }>(`/api/ops/sessions/${encodeURIComponent(requestId)}`),
   paperSnapshots: () =>
     get<Array<{
       sessionLabel: string;

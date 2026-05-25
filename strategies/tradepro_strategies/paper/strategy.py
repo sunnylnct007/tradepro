@@ -192,6 +192,12 @@ class Strategy(ABC):
     # publishes the most-recent slice across all symbols.
     _decisions: dict[str, Deque[dict[str, Any]]] = field(default_factory=dict)
     decision_buffer_size: int = 50
+    # Per-symbol ring buffer of bars the strategy actually received.
+    # 300 = roughly one 1m equity session per symbol; FX hourly fits weeks.
+    # Snapshot publishes via Engine.attach_bars so the UI can show
+    # "what data fed into the strategy" alongside decisions + fills.
+    _bars_seen: dict[str, Deque[dict[str, Any]]] = field(default_factory=dict)
+    bar_buffer_size: int = 300
 
     # --- Lifecycle hooks the engine calls --------------------------
 
@@ -311,4 +317,37 @@ class Strategy(ABC):
         merged.sort(key=lambda d: d.get("bar_ts") or "", reverse=True)
         if limit is not None:
             return merged[:limit]
+        return merged
+
+    # --- Bar capture -------------------------------------------------
+
+    def record_bar(self, bar: "Bar") -> None:
+        """Append `bar` to the per-symbol ring buffer. Called by the
+        engine just before `on_bar(bar)` so the snapshot can answer
+        "what data did the strategy see?" without having to replay the
+        session. Strategies don't call this themselves."""
+        buf = self._bars_seen.get(bar.symbol)
+        if buf is None:
+            buf = deque(maxlen=self.bar_buffer_size)
+            self._bars_seen[bar.symbol] = buf
+        buf.append({
+            "ts": bar.timestamp.isoformat(),
+            "symbol": bar.symbol,
+            "open": float(bar.open),
+            "high": float(bar.high),
+            "low": float(bar.low),
+            "close": float(bar.close),
+            "volume": int(bar.volume),
+        })
+
+    def recent_bars(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """All bars in the per-symbol buffers, time-ordered ascending
+        (oldest first). `limit` keeps the most recent `limit` after
+        merging across symbols."""
+        merged: list[dict[str, Any]] = []
+        for buf in self._bars_seen.values():
+            merged.extend(buf)
+        merged.sort(key=lambda b: b.get("ts") or "")
+        if limit is not None and len(merged) > limit:
+            return merged[-limit:]
         return merged

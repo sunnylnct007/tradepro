@@ -57,6 +57,17 @@ public static class OpsEndpoints
             return Results.Ok(new { sessions = rows.Select(Envelope).ToArray() });
         });
 
+        // Single-session lookup. Backs the Session Detail page so it can
+        // render the full snapshot (bars_seen, decisions, fills, positions)
+        // even when navigated to directly via URL.
+        group.MapGet("/sessions/{requestId}", (string requestId, ISessionRequestsStore store) =>
+        {
+            var req = store.Get(requestId);
+            return req is null
+                ? Results.NotFound(new { error = $"no session with id {requestId}" })
+                : Results.Ok(Envelope(req));
+        });
+
         // Cancel a still-Pending row. Once Claimed the work is on the
         // Mac and cancel becomes a no-op — the row stays in Claimed
         // until Mac reports back.

@@ -340,9 +340,10 @@ def main(argv: list[str] | None = None) -> int:
     # Re-snapshot with recent fills so the Paper page Live tab renders
     # the per-strategy fill log + open positions.
     snapshot = engine.ledger.to_snapshot(include_fills=args.push_fills)
-    # Re-apply decisions: ledger.to_snapshot doesn't know about strategy
-    # instances, so the engine owns this side-channel.
+    # Re-apply decisions and bars_seen: ledger.to_snapshot doesn't know
+    # about strategy instances, so the engine owns this side-channel.
     engine.attach_decisions(snapshot)
+    engine.attach_bars(snapshot)
     snapshot["kind"] = "paper-snapshot"
     snapshot["session_label"] = (
         f"{args.strategy}-{(session_date or datetime.utcnow()).date().isoformat()}"
