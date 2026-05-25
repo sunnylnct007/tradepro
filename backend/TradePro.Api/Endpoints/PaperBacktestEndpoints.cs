@@ -40,6 +40,46 @@ public static class PaperBacktestEndpoints
             return cur is null ? Results.NotFound() : Results.Ok(cur);
         });
 
+        // Promotion-lifecycle overrides for the strategy catalog. Each
+        // strategy ships with a code default `status` (the Python
+        // ClassVar); operators override here without redeploying. UI
+        // reads ListAll into a dict and merges client-side, so a single
+        // catalog GET + one overrides GET serves the whole Strategies
+        // page state.
+        var status = app.MapGroup("/paper/strategy-status").WithTags("PaperBacktest");
+        status.MapGet("/", (IPaperStrategyStatusStore store) =>
+            Results.Ok(new { overrides = store.ListAll() }));
+
+        status.MapPost("/{strategyId}", (
+            string strategyId,
+            StatusUpdate payload,
+            IPaperStrategyStatusStore store,
+            HttpContext ctx
+        ) =>
+        {
+            if (string.IsNullOrWhiteSpace(payload.Status))
+                return Results.BadRequest(new { error = "status is required" });
+            // Mirror the SQL CHECK so the API returns a clean 400 rather
+            // than a Postgres CHECK violation 500.
+            var allowed = new[] { "evaluating", "backtest-ok", "scheduled", "live-eligible" };
+            if (!allowed.Contains(payload.Status))
+                return Results.BadRequest(new
+                {
+                    error = $"status must be one of {string.Join(", ", allowed)}",
+                });
+            var who = ctx.User?.Identity?.Name
+                ?? ctx.Request.Headers["X-User"].FirstOrDefault()
+                ?? "anonymous";
+            var row = store.Upsert(strategyId, payload.Status, who);
+            return Results.Ok(row);
+        });
+
+        status.MapDelete("/{strategyId}", (string strategyId, IPaperStrategyStatusStore store) =>
+        {
+            var removed = store.Clear(strategyId);
+            return removed ? Results.NoContent() : Results.NotFound();
+        });
+
         // Live snapshots from the latest paper-engine sessions — full
         // ledger (positions + recent fills + P&L) per session label.
         // Powers the Live tab on the Paper page.
@@ -160,3 +200,7 @@ public static class PaperBacktestEndpoints
         return app;
     }
 }
+
+/// <summary>POST body for /api/paper/strategy-status/{strategyId}.</summary>
+public sealed record StatusUpdate(string Status);
+
