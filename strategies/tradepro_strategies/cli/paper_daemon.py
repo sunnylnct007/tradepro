@@ -187,7 +187,7 @@ def build_command(params: dict) -> list[str]:
         "--symbols", ",".join(params["symbols"]),
         "--capital-usd", str(params["capital_usd"]),
         "--placement-mode", params["placement_mode"],
-        "--session-date", date.today().isoformat(),  # required by yfinance/t212 profiles
+        "--date", date.today().isoformat(),  # required by yfinance/t212 profiles (paper_session flag is --date)
         "--push",
     ]
     if params["interval"]:
