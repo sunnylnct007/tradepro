@@ -285,6 +285,14 @@ export function PaperLive() {
       const res = await api.runPaperSession({
         strategy,
         symbols,
+        // Explicit broker so the daemon doesn't fall back to its
+        // default. T212 → router posts intents to pending_orders
+        // queue (manual placement_mode) → human Approve → .NET's
+        // Trading212DemoClient places to demo.trading212.com. Without
+        // this PaperLive triggers were going to broker=yfinance (the
+        // daemon default after commit 770fb17) which simulates fills
+        // locally and never touches T212.
+        broker: "t212",
         capital_usd: capitalUsd,
         placement_mode: placementMode,
       });
@@ -304,6 +312,7 @@ export function PaperLive() {
       const res = await api.runPaperSession({
         strategy: job.strategy,
         symbols: [...job.symbols],
+        broker: "t212",
         capital_usd: job.capital_usd,
         placement_mode: placementMode,
       });
