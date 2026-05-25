@@ -329,6 +329,21 @@ export const api = {
       `/api/oms/orders/${encodeURIComponent(orderId)}/cancel`,
       { Reason: reason },
     ),
+  omsPositions: (strategyId?: string) =>
+    get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string }> }>(
+      "/api/oms/positions", strategyId ? { strategyId } : undefined,
+    ),
+  omsPositionsDiff: (account: "demo" | "live" = "demo", strategyId?: string) =>
+    get<{
+      account: string;
+      strategyId: string | null;
+      brokerEnabled: boolean;
+      t212Error: string | null;
+      fetchedAtUtc: string;
+      totalSymbols: number;
+      drifted: number;
+      rows: Array<{ symbol: string; omsQty: number; t212Qty: number; diff: number }>;
+    }>("/api/oms/positions/diff", strategyId ? { account, strategyId } : { account }),
   omsMode: () => get<{ mode: string }>("/api/oms/mode"),
   setOmsMode: (mode: "auto" | "manual") =>
     post<{ mode: string; prior: string }, { Mode: string }>(

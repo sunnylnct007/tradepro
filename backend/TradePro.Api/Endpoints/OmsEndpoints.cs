@@ -111,6 +111,72 @@ public static class OmsEndpoints
             return Results.Ok(new { positions = rows });
         });
 
+        // Reconciliation: OMS-derived position vs T212 broker reality.
+        // Drift = bug (T212 rejected something we recorded, or the
+        // operator placed a manual trade outside the OMS). Surfaces
+        // every (symbol) row with omsQty + t212Qty + diff, defaulting
+        // to demo because that's where the trader's strategy is booking.
+        // Task #29 — reconciliation; Phase 2 will run this on a timer
+        // and alert on drift > threshold instead of pull-on-demand.
+        positions.MapGet("/diff",
+            async (
+                string? strategyId,
+                string? account,
+                IOmsService oms,
+                TradePro.Api.Providers.Trading212.Trading212Client liveClient,
+                TradePro.Api.Providers.Trading212.Trading212DemoClient demoClient,
+                CancellationToken ct) =>
+        {
+            var useDemo = !string.Equals(account, "live", StringComparison.OrdinalIgnoreCase);
+            var brokerLabel = useDemo ? "T212_DEMO" : "T212_LIVE";
+            var omsRows = (await oms.ListPositionsAsync(strategyId))
+                .Where(p => p.Broker == brokerLabel)
+                .ToList();
+            var t212 = useDemo
+                ? await demoClient.GetPositionsAsync(ct)
+                : await liveClient.GetPositionsAsync(ct);
+            // Project T212 to a per-symbol dict. T212 uses tickers like
+            // "AMZN_US_EQ"; the strategy stores plain "AMZN" — strip
+            // the suffix here so the join works for the common case.
+            // FX rows have no suffix today (post-015204a) so they pass
+            // through as-is.
+            var t212BySymbol = t212.Positions
+                .GroupBy(p =>
+                {
+                    var t = p.Instrument?.Ticker ?? p.Ticker ?? "";
+                    var underscore = t.IndexOf('_');
+                    return underscore > 0 ? t[..underscore] : t;
+                })
+                .ToDictionary(g => g.Key, g => g.Sum(p => p.Quantity));
+
+            // Union of (symbol) across both sources so a one-sided
+            // position (OMS has it, T212 doesn't, or vice versa) is
+            // visible as a non-zero diff instead of silently dropping.
+            var omsBySymbol = omsRows
+                .GroupBy(r => r.Symbol)
+                .ToDictionary(g => g.Key, g => g.Sum(r => r.Quantity));
+            var allSymbols = omsBySymbol.Keys.Union(t212BySymbol.Keys).OrderBy(s => s).ToList();
+            var rows = allSymbols.Select(sym => new
+            {
+                symbol = sym,
+                omsQty = omsBySymbol.GetValueOrDefault(sym, 0),
+                t212Qty = t212BySymbol.GetValueOrDefault(sym, 0),
+                diff = omsBySymbol.GetValueOrDefault(sym, 0) - t212BySymbol.GetValueOrDefault(sym, 0),
+            }).ToList();
+            var drifted = rows.Count(r => r.diff != 0);
+            return Results.Ok(new
+            {
+                account = useDemo ? "demo" : "live",
+                strategyId,
+                brokerEnabled = useDemo ? demoClient.IsEnabled : liveClient.IsEnabled,
+                t212Error = t212.Error,
+                fetchedAtUtc = DateTime.UtcNow,
+                totalSymbols = rows.Count,
+                drifted,
+                rows,
+            });
+        });
+
         // ── mode toggle ───────────────────────────────────────────
         var mode = app.MapGroup("/oms/mode").WithTags("OMS");
 
