@@ -221,6 +221,8 @@ TRADEPRO_T212_API_SECRET=...`}</pre>
         <TrustLegend />
       </div>
 
+      <PositionDriftPanel account={account} />
+
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
@@ -368,6 +370,147 @@ function Td({
       {children}
     </td>
   );
+}
+
+/**
+ * Position drift — compares OMS-derived positions against T212 broker
+ * actuals via /api/oms/positions/diff. Drift = bug (T212 rejected
+ * something we marked filled, or operator placed outside the OMS).
+ * Collapsed by default so it doesn't shout when everything matches;
+ * the header reveals the drift count so a non-zero state is visible.
+ */
+function PositionDriftPanel({ account }: { account: "demo" | "live" }) {
+  const [diff, setDiff] = useState<Awaited<ReturnType<typeof api.omsPositionsDiff>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const refresh = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const d = await api.omsPositionsDiff(account);
+      setDiff(d);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Auto-load once; account flip refreshes.
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account]);
+
+  if (error) {
+    return (
+      <div style={driftBoxStyle("rgba(239,68,68,0.06)", "rgba(239,68,68,0.3)")}>
+        <span style={{ fontSize: 12, color: "var(--down)" }}>
+          Position drift check failed: {error}
+        </span>
+      </div>
+    );
+  }
+  if (!diff) {
+    return (
+      <div style={driftBoxStyle()}>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading drift check…</span>
+      </div>
+    );
+  }
+
+  const drifted = diff.drifted;
+  const tone = drifted === 0 ? "ok" : "warn";
+  const bg = tone === "ok" ? "rgba(31,193,107,0.06)" : "rgba(217,119,6,0.08)";
+  const border = tone === "ok" ? "rgba(31,193,107,0.25)" : "rgba(217,119,6,0.3)";
+  const fg = tone === "ok" ? "#1fc16b" : "#d97706";
+
+  return (
+    <div style={driftBoxStyle(bg, border)}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: fg, fontWeight: 600 }}>
+          {drifted === 0
+            ? `✓ OMS matches T212 ${account} across ${diff.totalSymbols} symbol${diff.totalSymbols === 1 ? "" : "s"}`
+            : `⚠ ${drifted} symbol${drifted === 1 ? "" : "s"} drifted between OMS and T212 ${account}`}
+        </span>
+        {drifted > 0 && (
+          <button
+            onClick={() => setExpanded((x) => !x)}
+            style={{
+              padding: "2px 8px", fontSize: 11,
+              border: "1px solid var(--border)", borderRadius: 4,
+              background: "transparent", color: "var(--text-dim)",
+              cursor: "pointer",
+            }}
+          >
+            {expanded ? "hide" : "show"} rows
+          </button>
+        )}
+        <button
+          onClick={refresh}
+          disabled={busy}
+          style={{
+            padding: "2px 8px", fontSize: 11,
+            border: "1px solid var(--border)", borderRadius: 4,
+            background: "transparent", color: "var(--text-muted)",
+            cursor: busy ? "wait" : "pointer",
+            marginLeft: "auto",
+          }}
+        >
+          {busy ? "checking…" : "recheck"}
+        </button>
+      </div>
+      {expanded && drifted > 0 && (
+        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8, fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: "var(--text-dim)" }}>
+              <th style={{ textAlign: "left", padding: "4px 8px" }}>Symbol</th>
+              <th style={{ textAlign: "right", padding: "4px 8px" }}>OMS qty</th>
+              <th style={{ textAlign: "right", padding: "4px 8px" }}>T212 qty</th>
+              <th style={{ textAlign: "right", padding: "4px 8px" }}>Diff</th>
+            </tr>
+          </thead>
+          <tbody>
+            {diff.rows.filter((r) => r.diff !== 0).map((r) => (
+              <tr key={r.symbol} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ padding: "4px 8px" }}>{r.symbol}</td>
+                <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>{r.omsQty}</td>
+                <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>{r.t212Qty}</td>
+                <td
+                  style={{
+                    padding: "4px 8px",
+                    textAlign: "right",
+                    fontFamily: "monospace",
+                    color: r.diff > 0 ? "#1fc16b" : "#ef4444",
+                    fontWeight: 600,
+                  }}
+                >
+                  {r.diff > 0 ? "+" : ""}{r.diff}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {diff.t212Error && (
+        <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
+          T212 fetch warning: {diff.t212Error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function driftBoxStyle(bg?: string, border?: string): React.CSSProperties {
+  return {
+    padding: "8px 12px",
+    marginBottom: 12,
+    background: bg ?? "rgba(255,255,255,0.03)",
+    border: `1px solid ${border ?? "var(--border)"}`,
+    borderRadius: 6,
+  };
 }
 
 function AccountToggle({
