@@ -16,6 +16,7 @@ import { Scanner } from "./pages/Scanner";
 import { Settings } from "./pages/Settings";
 import { Signals } from "./pages/Signals";
 import { Simulations } from "./pages/Simulations";
+import { Strategies } from "./pages/Strategies";
 import { SymbolDeepDive } from "./pages/SymbolDeepDive";
 
 const router = createBrowserRouter([
@@ -41,6 +42,7 @@ const router = createBrowserRouter([
       // header lands today, sections 2-10 follow incrementally.
       { path: "symbol/:ticker", element: <SymbolDeepDive /> },
       { path: "simulations", element: <Simulations /> },
+      { path: "strategies", element: <Strategies /> },
       { path: "paper-backtest", element: <PaperBacktest /> },
       // Intraday strategy leaderboard — per-(symbol, strategy)
       // cumulative P&L rolled up from completed session_requests.
