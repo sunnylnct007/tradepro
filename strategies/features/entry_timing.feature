@@ -95,3 +95,62 @@ Feature: Entry Timing Assist — dip-accumulation alert
     When I compute entry timing for "MSFT"
     Then the entry verdict is "ACCUMULATE"
     And the entry drawdown is approximately 18.5
+
+  # ──────────────────────────────────────────────────────────────────
+  # Lane A's multi-year A-F grade as the preferred quality signal
+  # ──────────────────────────────────────────────────────────────────
+
+  Scenario: grade A passes the quality gate even when ★ would not
+    Given a quality scorecard with stars 2
+    And a valuation layer with verdict "ATTRACTIVE"
+    And drawdown of 15.0 percent from 52w high
+    And a long-term grade "A"
+    When I compute entry timing for "MULTIYEAR_WINS"
+    Then the entry verdict is "ACCUMULATE"
+    And the entry quality_source is "grade"
+    And the entry rationale mentions "grade A"
+
+  Scenario: grade B also passes the quality gate
+    Given a quality scorecard with stars 3
+    And a valuation layer with verdict "ATTRACTIVE"
+    And drawdown of 12.0 percent from 52w high
+    And a long-term grade "B"
+    When I compute entry timing for "STRONG_TRENDS"
+    Then the entry verdict is "ACCUMULATE"
+    And the entry quality_source is "grade"
+
+  Scenario: grade C fails the quality gate even when ★ would pass
+    Given a quality scorecard with stars 5
+    And a valuation layer with verdict "ATTRACTIVE"
+    And drawdown of 15.0 percent from 52w high
+    And a long-term grade "C"
+    When I compute entry timing for "SNAPSHOT_WAS_LUCKY"
+    Then the entry verdict is "WATCH"
+    And the entry quality_source is "grade"
+    And the entry rationale mentions "quality"
+
+  Scenario: grade F fails the quality gate
+    Given a quality scorecard with stars 5
+    And a valuation layer with verdict "ATTRACTIVE"
+    And drawdown of 20.0 percent from 52w high
+    And a long-term grade "F"
+    When I compute entry timing for "DETERIORATING"
+    Then the entry verdict is "WATCH"
+    And the entry quality_source is "grade"
+
+  Scenario: no grade falls back to ★ stars (5★ + ATTRACTIVE + dip → ACCUMULATE)
+    Given a quality scorecard with stars 5
+    And a valuation layer with verdict "ATTRACTIVE"
+    And drawdown of 15.0 percent from 52w high
+    When I compute entry timing for "FALLBACK"
+    Then the entry verdict is "ACCUMULATE"
+    And the entry quality_source is "stars"
+
+  Scenario: grade lowercase is normalised
+    Given a quality scorecard with stars 2
+    And a valuation layer with verdict "ATTRACTIVE"
+    And drawdown of 15.0 percent from 52w high
+    And a long-term grade "a"
+    When I compute entry timing for "NORMALISE"
+    Then the entry verdict is "ACCUMULATE"
+    And the entry quality_source is "grade"

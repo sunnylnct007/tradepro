@@ -158,6 +158,7 @@ def _compose_fundamental(
         valuation=valuation,
         drawdown_pct=drawdown_pct,
         market_state=market_state,
+        long_term_grade=(long_term_grade or {}).get("grade") if long_term_grade else None,
     )
 
     return {

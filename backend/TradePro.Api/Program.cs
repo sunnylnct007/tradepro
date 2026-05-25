@@ -185,6 +185,7 @@ api.MapCompareEndpoints();
 api.MapWorkerHealthEndpoints();
 api.MapSettingsEndpoints();
 api.MapDocumentEndpoints();
+api.MapSymbolAnalysisEndpoints();
 api.MapIntegrationsEndpoints();
 api.MapInstrumentEndpoints();
 api.MapPaperBacktestEndpoints();

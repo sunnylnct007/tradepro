@@ -51,6 +51,7 @@ dev = [
 ]
 
 [project.scripts]
+tradepro-analysis-server = "tradepro_strategies.cli.analysis_server:main"
 tradepro-backtest = "tradepro_strategies.cli.run_backtest:main"
 tradepro-compare = "tradepro_strategies.cli.run_comparison:main"
 tradepro-doc-upload = "tradepro_strategies.cli.doc_upload:main"

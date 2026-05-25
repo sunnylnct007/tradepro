@@ -37,6 +37,9 @@ from .etf_xray import (
     EtfOverlapReport, EtfXray, OverlapContribution,
     compute_etf_xray, compute_overlap, project_drip_value,
 )
+from .manual_mf_sleeve import (
+    MFHoldingProjection, MFSleeve, ManualMFHolding, compute_mf_sleeve,
+)
 from .quality_scorecard import QualityScorecard, compute_quality_scorecard
 from .symbol_analysis_card import (
     HorizonRecommendation, SymbolAnalysisCard, build_symbol_analysis_card,
@@ -52,5 +55,6 @@ __all__ = [
     "EntryTimingAssist", "compute_entry_timing",
     "EtfXray", "EtfOverlapReport", "OverlapContribution",
     "compute_etf_xray", "compute_overlap", "project_drip_value",
+    "ManualMFHolding", "MFSleeve", "MFHoldingProjection", "compute_mf_sleeve",
     "SymbolAnalysisCard", "HorizonRecommendation", "build_symbol_analysis_card",
 ]

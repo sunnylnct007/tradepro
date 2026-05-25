@@ -68,11 +68,19 @@ MIN_DRAWDOWN_PCT = 10.0
 @dataclass
 class EntryTimingAssist:
     """Output of compute_entry_timing(). Maps to the Track 2 dip-
-    accumulation card."""
+    accumulation card.
+
+    The quality signal is sourced from EITHER the multi-year A-F grade
+    (preferred, when supplied — comes from fundamental_analysis's
+    analyse_long_term) OR the single-snapshot ★ rating (fallback).
+    `quality_source` records which one drove the verdict so the UI
+    can show the user."""
     symbol: str
     verdict: Verdict
     signals_passing: int                # 0-3
     quality_stars: int | None
+    long_term_grade: str | None         # A / B / C / D / F (preferred quality signal)
+    quality_source: str                 # "grade" / "stars" / "missing"
     valuation_verdict: str | None       # ATTRACTIVE / FAIR / STRETCHED / UNKNOWN
     drawdown_from_52w_high_pct: float | None
     rationale: str
@@ -83,6 +91,8 @@ class EntryTimingAssist:
             "verdict":                      self.verdict,
             "signals_passing":              self.signals_passing,
             "quality_stars":                self.quality_stars,
+            "long_term_grade":              self.long_term_grade,
+            "quality_source":               self.quality_source,
             "valuation_verdict":            self.valuation_verdict,
             "drawdown_from_52w_high_pct":   (round(self.drawdown_from_52w_high_pct, 2)
                                               if self.drawdown_from_52w_high_pct is not None else None),
@@ -128,6 +138,39 @@ def _resolve_drawdown(
     return None
 
 
+# Grades that pass the multi-year quality gate. The grade is from
+# Lane A's fundamental_analysis.analyse_long_term — A means
+# best-in-class on every multi-year trend (revenue growth, margin
+# stability, ROE, FCF, balance sheet); B means strong on most.
+# C / D / F deliberately fall short of the compounder bar.
+_PASSING_GRADES = ("A", "B")
+
+
+def _quality_signal(
+    *,
+    long_term_grade: str | None,
+    stars: int | None,
+    min_stars: int,
+) -> tuple[bool | None, str]:
+    """Resolve the quality signal. Grade preferred; stars fallback.
+
+    Returns (passing, source) where source is 'grade', 'stars', or
+    'missing'. ``passing`` is True/False/None — None means the signal
+    is missing entirely and the caller must mark INSUFFICIENT.
+    """
+    if long_term_grade:
+        g = long_term_grade.upper().strip()
+        if g in _PASSING_GRADES:
+            return True, "grade"
+        # C / D / F all fail the gate; F is fundamentally rejected and
+        # the orchestrator already maps grade F to AVOID — entry_timing
+        # only needs to record the fail.
+        return False, "grade"
+    if stars is not None:
+        return (stars >= min_stars), "stars"
+    return None, "missing"
+
+
 def compute_entry_timing(
     symbol: str,
     *,
@@ -135,6 +178,7 @@ def compute_entry_timing(
     valuation: ValuationLayer | None,
     market_state: dict | None = None,
     drawdown_pct: float | None = None,
+    long_term_grade: str | None = None,
     min_quality_stars: int = MIN_QUALITY_STARS,
     min_drawdown_pct: float = MIN_DRAWDOWN_PCT,
 ) -> EntryTimingAssist:
@@ -148,9 +192,15 @@ def compute_entry_timing(
       market_state      — compare.py row's market_state dict (looks up
                           pct_off_52w_high_pct), OR
       drawdown_pct      — explicit drawdown override (test path)
+      long_term_grade   — A / B / C / D / F from Lane A's multi-year
+                          fundamental engine. When supplied, takes
+                          precedence over the ★ snapshot for the
+                          quality gate (multi-year trend is a stronger
+                          signal than a single-quarter snapshot). When
+                          None, falls back to ★ stars >= min_quality_stars.
 
     Returns ACCUMULATE only when ALL THREE signals pass:
-      - quality stars >= min_quality_stars (default 4)
+      - quality (grade A/B OR stars >= min_quality_stars if no grade)
       - valuation overall_verdict == ATTRACTIVE
       - drawdown_from_52w_high >= min_drawdown_pct (default 10%)
 
@@ -165,11 +215,17 @@ def compute_entry_timing(
 
     quality_stars = quality.stars if quality is not None else None
     valuation_verdict = valuation.overall_verdict if valuation is not None else None
+    quality_pass, quality_source = _quality_signal(
+        long_term_grade=long_term_grade,
+        stars=quality_stars,
+        min_stars=min_quality_stars,
+    )
+    grade_norm = long_term_grade.upper().strip() if long_term_grade else None
 
     # Detect missing inputs FIRST — INSUFFICIENT is honest; pretending
     # the dip isn't real because we don't have data is misleading.
     missing: list[str] = []
-    if quality_stars is None:
+    if quality_pass is None:
         missing.append("quality")
     if valuation_verdict is None or valuation_verdict == "UNKNOWN":
         missing.append("valuation")
@@ -182,21 +238,27 @@ def compute_entry_timing(
             verdict="INSUFFICIENT",
             signals_passing=0,
             quality_stars=quality_stars,
+            long_term_grade=grade_norm,
+            quality_source=quality_source,
             valuation_verdict=valuation_verdict,
             drawdown_from_52w_high_pct=drawdown,
             rationale=f"insufficient data: {', '.join(missing)} missing",
         )
 
-    quality_pass = quality_stars >= min_quality_stars
     valuation_pass = valuation_verdict == "ATTRACTIVE"
     drawdown_pass = drawdown >= min_drawdown_pct
 
-    signals_passing = sum([quality_pass, valuation_pass, drawdown_pass])
+    signals_passing = sum([bool(quality_pass), valuation_pass, drawdown_pass])
+
+    quality_phrase = (
+        f"grade {grade_norm}" if quality_source == "grade"
+        else f"{quality_stars}★"
+    )
 
     if signals_passing == 3:
         verdict = "ACCUMULATE"
         rationale = (
-            f"All three signals agree: {quality_stars}★ quality, "
+            f"All three signals agree: {quality_phrase} quality, "
             f"valuation {valuation_verdict}, {drawdown:.1f}% off 52w high. "
             f"Historical accumulation zone — opportunistic DCA candidate."
         )
@@ -208,14 +270,14 @@ def compute_entry_timing(
             else "drawdown"
         )
         rationale = (
-            f"2 of 3 signals: {quality_stars}★ quality, valuation "
+            f"2 of 3 signals: {quality_phrase} quality, valuation "
             f"{valuation_verdict}, {drawdown:.1f}% off 52w high. "
             f"Missing {missing_signal} confluence — keep watching."
         )
     else:
         verdict = "NEUTRAL"
         rationale = (
-            f"Only {signals_passing} of 3 signals: {quality_stars}★ "
+            f"Only {signals_passing} of 3 signals: {quality_phrase} "
             f"quality, valuation {valuation_verdict}, {drawdown:.1f}% off "
             f"52w high. No edge over routine DCA — accumulate on schedule."
         )
@@ -225,6 +287,8 @@ def compute_entry_timing(
         verdict=verdict,
         signals_passing=signals_passing,
         quality_stars=quality_stars,
+        long_term_grade=grade_norm,
+        quality_source=quality_source,
         valuation_verdict=valuation_verdict,
         drawdown_from_52w_high_pct=drawdown,
         rationale=rationale,

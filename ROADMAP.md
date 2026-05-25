@@ -13,10 +13,126 @@ those assumptions change.
 
 ---
 
+## Order Management System (OMS) — proper persistence + lifecycle
+
+**Status:** PLANNED. Started ad-hoc placement (Trading 212 pending-orders queue
++ /api/orders log). For algorithmic trading we need a proper OMS so every order
+the platform ever placed — manual, paper, algo, multi-leg — is queryable in one
+place with a complete state-machine trail.
+
+**Why now:** as Track 1 (intraday algo), Lane A (quant-engine systematic
+strategies), and Track 2 (Compounder allocation tactics) all start placing
+orders programmatically, the existing `pending_orders` table alone won't scale:
+no strategy_id linkage, no parent/child orders for brackets, no cancel-on-mode-
+switch hook, no fill-by-fill reconciliation, no broker_request_id idempotency.
+
+**OMS design sketch (to be expanded in a dedicated spec):**
+
+1. **`oms_orders`** — canonical lifecycle row per order, append-only state changes
+   via `oms_order_events`. Columns:
+   - `id` (uuid, pk)
+   - `client_order_id` (uuid, unique — our idempotency key)
+   - `broker` (`T212_DEMO` / `T212_LIVE` / `IBKR` / `PAPER`)
+   - `broker_order_id` (nullable; populated post-acknowledgement)
+   - `parent_order_id` (nullable — bracket / OCO grouping)
+   - `strategy_id` (nullable for manual orders; FK to paper_strategies)
+   - `signal_id` (nullable; FK to signal_ledger entry that fired it)
+   - `decision_id` (FK to `decisions` — the mode/policy state that authorised it)
+   - `symbol`, `side` (BUY/SELL), `qty`, `order_type` (MKT/LMT/STP/STP_LMT)
+   - `limit_price`, `stop_price`, `time_in_force` (DAY/GTC/IOC)
+   - `state` (`PENDING_APPROVAL` / `SENT` / `WORKING` / `PARTIAL` / `FILLED`
+     / `CANCELLED` / `REJECTED` / `EXPIRED`)
+   - `placed_by` (`HUMAN` / `STRATEGY_AUTO`)
+   - `created_at_utc`, `last_state_change_at_utc`
+   - `cancelled_reason` (text — `USER_FLIP_TO_MANUAL` / `STRATEGY_KILL_SWITCH`
+     / `RISK_LIMIT` / `BROKER_REJECT`)
+
+2. **`oms_order_events`** — append-only state-machine log. Every state change
+   writes one row with the prior + new state, the broker payload that triggered
+   it, and the request/response IDs. Reconstruct the full history of any order
+   from a single SQL filter.
+
+3. **`oms_fills`** — per-fill rows (an order can fill in multiple chunks).
+   Columns: order_id, fill_id, qty, price, fee, currency, fill_at_utc,
+   broker_fill_id.
+
+4. **`decisions`** — policy/mode state that orders point at. Every Settings
+   change (placement mode flip, kill-switch toggle, risk limit change) writes
+   a row here. When a decision flips manual → auto or auto → manual, a worker
+   walks the cascade table to cancel/leave-alone working orders per policy.
+
+5. **OMS service layer** — single `IOmsService` interface that ALL placement
+   paths go through (Settings approve, intraday engine auto-place, MCP-driven
+   one-off). No more `pending_orders` direct writes outside the service. The
+   service owns:
+   - idempotency check on `client_order_id`
+   - state-machine transitions (illegal transitions raise)
+   - cascade actions on mode flip
+   - retry/resync against broker (poll for state changes the broker didn't push)
+
+6. **Migration plan** — existing `pending_orders` becomes a projection /
+   compatibility view over `oms_orders`. The Mac engine + .NET API switch
+   to the new service one path at a time; the old table stays writable
+   during transition to keep the daily plist running.
+
+**Tickets to write:**
+- T#A OMS schema + migration (oms_orders, oms_order_events, oms_fills, decisions)
+- T#B IOmsService implementation + idempotency
+- T#C Mode-flip cascade worker — kill working orders when user goes manual
+- T#D Wire intraday engine + paper-pending-order ingest through IOmsService
+- T#E UI: orders table on /portfolio + filter by strategy / state / broker
+- T#F Reconciliation worker — poll broker for state changes the API missed
+
+---
+
 ## Recently shipped (May 2026)
 
 Tracks meaningful work that's already in `main` so this doc stops drifting
 out of date. Each entry is one line: what changed and why it mattered.
+
+**Week of 2026-05-25 — Track 2 Core Portfolio complete + Symbol Analysis Card:**
+
+- ✅ **Track 2 — Core Portfolio (Compounder) mode**. All 7 fundamentals
+  modules under `core_portfolio/` shipped with Compounder-mode signal
+  vocabulary distinct from Track 1's BUY/WAIT/AVOID:
+  - ① `quality_scorecard.py` — ROE / ROA / FCF margin / D-E / profit
+    margin / current ratio scored 0–10 each, averaged to a 0–5 ★ rating.
+  - ② `valuation_layer.py` — trailing/forward P/E, P/B, EV/EBITDA, PEG
+    aggregated to ATTRACTIVE / FAIR / STRETCHED / UNKNOWN.
+  - ③ `dividend_dashboard.py` — yield, 5y CAGR, payout ratio,
+    consecutive-growth years, projected £ income → STRONG / STEADY /
+    UNDER_PRESSURE / NONE.
+  - ④ `allocation_view.py` — core-sleeve tracker (25% target, ±2.5%
+    band), weighted yield, projected income, sleeve vs portfolio %.
+  - ⑤ `entry_timing.py` — dip-accumulation alert combining quality +
+    valuation + drawdown. Now consumes Lane A's A-F grade as the
+    quality signal when supplied (stars fallback otherwise).
+  - ⑥ `etf_xray.py` — holdings-overlap detector via min-weight
+    intersection (flags VTI+QQQ-style consolidation) + DRIP projector.
+  - ⑦ `manual_mf_sleeve.py` — manual-NAV tracker for UK ISA / Indian /
+    offshore funds with no live API; FX-normalised to GBP, NAV
+    freshness, region + asset-type mix, SIP totals.
+- ✅ **Symbol Analysis Card** (`core_portfolio/symbol_analysis_card.py`).
+  Platform-level orchestrator that fuses the compare-row technical
+  block (bucket / conviction / coherence / exit / RR / sizing / IBKR /
+  earnings + news context) with Track 2 fundamentals AND the other
+  dev's A-F long-term grade into one card. Returns a single
+  `primary_horizon_recommendation` token answering "is this short /
+  medium / long-term?" — LONG_TERM_HOLD / MEDIUM_TERM_ADD /
+  SHORT_TERM_TRADE / AVOID / WATCH / INSUFFICIENT.
+- ✅ **MCP `get_symbol_analysis(symbol, universe, drawdown_pct)`**.
+  Single LLM-callable tool wrapping the Symbol Analysis Card.
+  Optionally folds the best-Sharpe compare row from the named
+  universe for the technical lens.
+- ✅ **Lane A — quant_engine** (parallel session, `feat/quant-engine`).
+  Trader-provided **complementary systematic-trading framework**:
+  Ichimoku-based equity + FX strategies, vol targeting (HOP scalar),
+  walk-forward validation, Monte Carlo stress, regime filter (SPY
+  200-SMA gate), ensemble combiner, portfolio metrics (Sharpe,
+  Sortino, MaxDD, Calmar, CAGR, Omega). Library code is pure (no
+  fetching) — production callers must wrap through `cache.py`.
+  Signal generators, not portfolio management — fits as an additional
+  lens in the Symbol Analysis Card alongside technical / fundamental.
 
 **Week of 2026-05-24 — COMPASS alpha engine + macro regime gate (Sprint 1 + 2):**
 
