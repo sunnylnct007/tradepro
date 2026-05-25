@@ -85,6 +85,8 @@ class CompassMomentumIntraday(Strategy):
     COMPASS confirms the underlying multi-factor alpha edge is intact.
     """
 
+    source = "alpha-engine"
+
     @staticmethod
     def default_params() -> dict[str, Any]:
         return {

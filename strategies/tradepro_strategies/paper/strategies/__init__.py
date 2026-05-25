@@ -32,6 +32,9 @@ from ..registry import (
 from ..strategy import Strategy
 from .bollinger_bounce import BollingerBounceIntraday
 from .ma_crossover import MovingAverageCrossoverIntraday
+from .compass_momentum import CompassMomentumIntraday  # noqa: F401 — registers
+from .ichimoku_equity import IchimokuEquityStrategy  # noqa: F401 — registers
+from .ichimoku_fx_mr import IchimokuFXMeanReversionStrategy  # noqa: F401 — registers
 from .opening_range_breakout import OpeningRangeBreakout
 from .vwap_mean_reversion import VWAPMeanReversion
 

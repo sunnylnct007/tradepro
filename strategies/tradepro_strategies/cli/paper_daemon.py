@@ -219,14 +219,21 @@ def _parse_params(raw: dict, default_broker: str) -> dict:
         lookback_days = int(params.get("lookback_days") or 0)
     except (TypeError, ValueError):
         lookback_days = 0
-    # Strategy-specific minimums. ichimoku_fx_mr's reversion signal
-    # needs ~2573 hourly bars before it produces non-zero output
-    # (max(horizons)*4 + max(smooths) + 5 = 624*4+72+5). 200 calendar
-    # days of FX 1h bars clears that. PaperLive + scheduled launchd
-    # jobs don't expose a lookback knob — applying it here keeps the
-    # quant strategy usable regardless of trigger source.
-    if lookback_days == 0 and strategy == "ichimoku_fx_mr":
-        lookback_days = 200
+    # Honour the strategy's declared default_lookback_days when the
+    # trigger payload didn't supply one. Pulled from the registry so
+    # we don't hardcode per-strategy knowledge in the daemon — when a
+    # trader ships a new strategy with `default_lookback_days = N`,
+    # the daemon picks it up automatically. Import lazily so the
+    # daemon's startup cost stays low; registry has internal caching.
+    if lookback_days == 0:
+        try:
+            from ..paper import registry as _registry
+            import tradepro_strategies.paper.strategies  # noqa: F401  triggers registration
+            spec = _registry.get(strategy)
+            lookback_days = int(getattr(spec.cls, "default_lookback_days", 0) or 0)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("could not resolve default_lookback_days for %s: %s", strategy, exc)
+            lookback_days = 0
     return {
         "strategy": strategy,
         "symbols": symbols,

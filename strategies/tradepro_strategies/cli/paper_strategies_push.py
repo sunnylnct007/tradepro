@@ -16,12 +16,10 @@ from __future__ import annotations
 import json
 
 from ..paper import registry as strategy_registry
-from ..paper.strategies import (  # noqa: F401  triggers decorator registration
-    BollingerBounceIntraday,
-    MovingAverageCrossoverIntraday,
-    OpeningRangeBreakout,
-    VWAPMeanReversion,
-)
+# Importing the package triggers every @register_strategy decorator via
+# strategies/__init__.py. Don't trim individual imports here — every
+# missing one means a strategy silently disappears from the catalog.
+import tradepro_strategies.paper.strategies  # noqa: F401
 from . import push_to_api
 
 
@@ -29,7 +27,10 @@ def build_catalog() -> dict:
     """Snapshot the registry into a JSON-friendly payload. Pulls the
     class docstring (first non-empty paragraph) for the description,
     so the UI tooltip stays in lock-step with the code without a
-    separate metadata file."""
+    separate metadata file. Also surfaces provenance + lifecycle
+    metadata (source / status / default_lookback_days) so the UI can
+    render trader-vs-scaffold badges and pre-fill lookback without
+    operators having to know strategy internals."""
     items = []
     for name in strategy_registry.list_names():
         spec = strategy_registry.get(name)
@@ -43,6 +44,9 @@ def build_catalog() -> dict:
             "name": name,
             "class": f"{cls.__module__}:{cls.__name__}",
             "summary": summary,
+            "source": getattr(cls, "source", "scaffold"),
+            "status": getattr(cls, "status", "evaluating"),
+            "default_lookback_days": getattr(cls, "default_lookback_days", 0),
             "default_params": spec.default_params(),
         })
     return {

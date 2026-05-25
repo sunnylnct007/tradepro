@@ -155,6 +155,9 @@ class IchimokuFXMeanReversionStrategy(Strategy):
     of OHLC, a signed integer position (in units), and the latest signal.
     """
 
+    source = "trader-quant"
+    default_lookback_days = 200  # signal early-returns 0 until ~2573 1h bars
+
     _closes: dict[str, deque] = field(default_factory=dict)
     _highs: dict[str, deque] = field(default_factory=dict)
     _lows: dict[str, deque] = field(default_factory=dict)

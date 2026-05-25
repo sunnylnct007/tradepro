@@ -67,6 +67,9 @@ class IchimokuEquityStrategy(Strategy):
     first bar of the new session.
     """
 
+    source = "trader-quant"
+    default_lookback_days = 0  # daily bars; reads cache directly
+
     # Internal state (NOT in default_params — set in __post_init__).
     _positions: dict[str, int] = field(default_factory=dict)
     _daily_signals: dict[str, tuple[float, float, dict]] = field(default_factory=dict)

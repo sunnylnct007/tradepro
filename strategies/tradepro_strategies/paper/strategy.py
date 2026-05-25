@@ -36,7 +36,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Deque
+from typing import Any, ClassVar, Deque
 
 
 class OrderSide(str, Enum):
@@ -184,6 +184,24 @@ class Strategy(ABC):
     risk: "RiskLimits | None" = None
     positions: dict[str, Position] = field(default_factory=dict)
     _state: dict[str, Any] = field(default_factory=dict)
+    # ── Provenance + promotion lifecycle (ClassVar, not @dataclass fields) ──
+    # ClassVar so subclasses can override with a plain class attribute
+    # (`source = "trader-quant"`) without having to redeclare as a
+    # dataclass field — and so the values stay class-level rather than
+    # per-instance. Operators override `status` at runtime via the
+    # paper_strategy_status DB store; `source` and `default_lookback_days`
+    # are immutable per strategy class.
+    #
+    # `source`: "trader-quant" | "alpha-engine" | "scaffold". Surfaces in
+    # the UI to distinguish trader-provided work from textbook examples.
+    # `status`: code-default position in the promotion lifecycle —
+    # "evaluating" | "backtest-ok" | "scheduled" | "live-eligible".
+    # `default_lookback_days`: historical bars the strategy needs before
+    # its signal goes non-zero. Daemon defaults the lookback knob from
+    # this when the trigger payload doesn't supply one. 0 = none needed.
+    source: ClassVar[str] = "scaffold"
+    status: ClassVar[str] = "evaluating"
+    default_lookback_days: ClassVar[int] = 0
     # Symbols with an order emitted but no fill seen yet. Engine maintains
     # this around `emit → on_fill`; strategies query via has_order_in_flight().
     _in_flight_symbols: set[str] = field(default_factory=set)
