@@ -295,4 +295,79 @@ export const api = {
     }
     return resp.json();
   },
+
+  // OMS — order lifecycle. /api/oms/* lives in OmsEndpoints.cs; backs
+  // the OmsOrders page. Field names are PascalCase because .NET
+  // serializes records that way (no [JsonPropertyName] overrides).
+  omsOrders: (states?: string[], limit = 100) => {
+    const q: Record<string, string | number> = { limit };
+    if (states && states.length) q.states = states.join(",");
+    return get<{ orders: OmsOrderRow[] }>("/api/oms/orders", q);
+  },
+  omsOrderEvents: (orderId: string) =>
+    get<{ events: OmsOrderEventRow[] }>(
+      `/api/oms/orders/${encodeURIComponent(orderId)}/events`,
+    ),
+  omsApprove: (orderId: string) =>
+    post<OmsOrderRow, {}>(
+      `/api/oms/orders/${encodeURIComponent(orderId)}/approve`,
+      {},
+    ),
+  omsReject: (orderId: string, reason: string) =>
+    post<OmsOrderRow, { Reason: string }>(
+      `/api/oms/orders/${encodeURIComponent(orderId)}/reject`,
+      { Reason: reason },
+    ),
+  omsCancel: (orderId: string, reason: string) =>
+    post<OmsOrderRow, { Reason: string }>(
+      `/api/oms/orders/${encodeURIComponent(orderId)}/cancel`,
+      { Reason: reason },
+    ),
+  omsMode: () => get<{ mode: string }>("/api/oms/mode"),
+  setOmsMode: (mode: "auto" | "manual") =>
+    post<{ mode: string; prior: string }, { Mode: string }>(
+      "/api/oms/mode",
+      { Mode: mode },
+    ),
+};
+
+export type OmsOrderRow = {
+  id: string;
+  clientOrderId: string;
+  broker: string;
+  brokerOrderId: string | null;
+  strategyId: string | null;
+  symbol: string;
+  side: "BUY" | "SELL";
+  qty: number;
+  orderType: "MKT" | "LMT" | "STP" | "STP_LMT";
+  limitPrice: number | null;
+  stopPrice: number | null;
+  timeInForce: string;
+  state:
+    | "PENDING_APPROVAL"
+    | "SUBMITTED"
+    | "WORKING"
+    | "PARTIALLY_FILLED"
+    | "FILLED"
+    | "CANCELLED"
+    | "REJECTED"
+    | "EXPIRED";
+  placedBy: "HUMAN" | "STRATEGY_AUTO";
+  filledQty: number;
+  avgFillPrice: number | null;
+  cancelledReason: string | null;
+  createdAtUtc: string;
+  lastStateChangeAtUtc: string;
+};
+
+export type OmsOrderEventRow = {
+  id: number;
+  orderId: string;
+  eventType: string;
+  priorState: string | null;
+  newState: string;
+  actor: string;
+  detailJson: string | null;
+  occurredAtUtc: string;
 };
