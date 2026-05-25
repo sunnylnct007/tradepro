@@ -50,16 +50,21 @@ export function Portfolio() {
   const [universes, setUniverses] = useState<CompareUniverseSummary[]>([]);
   const [universeRows, setUniverseRows] = useState<Record<string, CompareRow[]>>({});
   const [error, setError] = useState<string | null>(null);
+  // Default to demo because that's where the trader's strategy is
+  // booking right now. Live requires explicit opt-in.
+  const [account, setAccount] = useState<"demo" | "live">("demo");
 
-  // Pull T212 positions on mount.
+  // Pull T212 positions whenever the account toggle flips.
   useEffect(() => {
     let cancelled = false;
-    fetch(`${config.apiBaseUrl}/api/integrations/trading212/positions`)
+    setResp(null);
+    setError(null);
+    fetch(`${config.apiBaseUrl}/api/integrations/trading212/positions?account=${account}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
       .then((d) => { if (!cancelled) setResp(d as T212PositionsResponse); })
       .catch((e) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
-  }, []);
+  }, [account]);
 
   // Pull every cached universe so we can cross-reference symbols → verdict.
   useEffect(() => {
@@ -107,12 +112,26 @@ export function Portfolio() {
   if (error) {
     return <Frame><div style={emptyStyle}>Couldn't load portfolio: {error}</div></Frame>;
   }
+  const accountToggle = (
+    <AccountToggle account={account} onChange={setAccount} />
+  );
+
   if (!resp) {
-    return <Frame><div style={emptyStyle}>Loading positions…</div></Frame>;
+    return (
+      <Frame>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          {accountToggle}
+        </div>
+        <div style={emptyStyle}>Loading {account} positions…</div>
+      </Frame>
+    );
   }
   if (!resp.enabled) {
     return (
       <Frame>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          {accountToggle}
+        </div>
         <div style={emptyStyle}>
           <h2 style={{ margin: 0, color: "var(--text)" }}>Trading 212 not connected</h2>
           <p style={{ marginTop: 8 }}>
@@ -138,6 +157,9 @@ TRADEPRO_T212_API_SECRET=...`}</pre>
     if (resp.error) {
       return (
         <Frame>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            {accountToggle}
+          </div>
           <div style={{ ...emptyStyle, borderColor: "var(--down)", color: "var(--down)" }}>
             <h2 style={{ margin: 0, color: "var(--down)" }}>
               Couldn't reach Trading 212 ({resp.mode})
@@ -166,6 +188,9 @@ TRADEPRO_T212_API_SECRET=...`}</pre>
     }
     return (
       <Frame>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          {accountToggle}
+        </div>
         <div style={emptyStyle}>
           No open positions in your T212 {resp.mode} account.
         </div>
@@ -181,7 +206,10 @@ TRADEPRO_T212_API_SECRET=...`}</pre>
   return (
     <Frame>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Your portfolio</h1>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+          <h1 style={{ margin: 0, fontSize: 22 }}>Your portfolio</h1>
+          {accountToggle}
+        </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
           T212 <TrustDot id="portfolio.t212_chip" /> · <ModeChip mode={resp.mode} /> · {resp.positionCount} position{resp.positionCount === 1 ? "" : "s"} ·
           {" "}<span style={{ color: totalUnrealised >= 0 ? "var(--up)" : "var(--down)", fontWeight: 600 }}>
@@ -339,5 +367,62 @@ function Td({
     <td className={className} style={{ padding: "8px 10px", textAlign: align, ...style }}>
       {children}
     </td>
+  );
+}
+
+function AccountToggle({
+  account,
+  onChange,
+}: {
+  account: "demo" | "live";
+  onChange: (a: "demo" | "live") => void;
+}) {
+  // Demo first because it's the safer default — Live needs explicit click.
+  // Live is red-tinted to make sure no one accidentally trades real money
+  // thinking they're on the demo screen.
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      {(["demo", "live"] as const).map((a) => (
+        <button
+          key={a}
+          onClick={() => onChange(a)}
+          style={{
+            padding: "3px 10px",
+            fontSize: 11,
+            borderRadius: 999,
+            border: `1px solid ${
+              account === a
+                ? a === "live"
+                  ? "#ef4444"
+                  : "#4f8cff"
+                : "var(--border)"
+            }`,
+            background:
+              account === a
+                ? a === "live"
+                  ? "rgba(239,68,68,0.10)"
+                  : "rgba(79,140,255,0.10)"
+                : "transparent",
+            color:
+              account === a
+                ? a === "live"
+                  ? "#ef4444"
+                  : "#4f8cff"
+                : "var(--text-dim)",
+            cursor: "pointer",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            fontWeight: 600,
+          }}
+          title={
+            a === "demo"
+              ? "Trading 212 demo account (paper money)"
+              : "Trading 212 LIVE account (real money)"
+          }
+        >
+          {a}
+        </button>
+      ))}
+    </div>
   );
 }

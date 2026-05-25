@@ -89,26 +89,41 @@ public static class IntegrationsEndpoints
         // user which world they're looking at.
         app.MapGet("/integrations/trading212/positions",
             async (
-                Trading212Client client,
-                Trading212PositionsCache cache,
+                string? account,
+                Trading212Client liveClient,
+                Trading212DemoClient demoClient,
+                Trading212PositionsCache liveCache,
                 CancellationToken ct) =>
             {
-                if (!client.IsEnabled)
+                // ?account=live|demo. Demo is the default because that's
+                // what every operator looks at unless they explicitly
+                // switched the platform into Live mode. Stops the
+                // Portfolio page showing real-money positions by accident
+                // when only the demo account has trades in it.
+                var useDemo = !string.Equals(account, "live", StringComparison.OrdinalIgnoreCase);
+                var isEnabled = useDemo ? demoClient.IsEnabled : liveClient.IsEnabled;
+                var modeLabel = useDemo ? demoClient.Mode : liveClient.Mode;
+
+                if (!isEnabled)
                 {
                     return Results.Ok(new
                     {
                         enabled = false,
-                        mode = client.Mode,
-                        message = "Trading212 integration is disabled. Set Trading212:Mode and credentials.",
+                        mode = modeLabel,
+                        message = useDemo
+                            ? "T212 demo client is disabled. Set Trading212Demo:ApiKey to enable."
+                            : "Trading212 integration is disabled. Set Trading212:Mode and credentials.",
                         positions = Array.Empty<object>(),
                     });
                 }
-                // Cache wraps the upstream client so multiple consumers
-                // (HoldingsHealthCard + Portfolio page) on the same
-                // session don't trip T212's 1 req/1s limit. Returns a
-                // result envelope carrying FromCache + AgeSeconds so
-                // the UI can show "as of 12s ago" honestly.
-                var result = await cache.GetAsync(ct);
+                // Live path goes through the cache (HoldingsHealthCard +
+                // Portfolio + email digest all hit it; rate limit is
+                // 1 req/sec). Demo is rarer and bypasses cache for now
+                // — adds a TODO to add Trading212DemoPositionsCache if
+                // demo traffic grows.
+                var result = useDemo
+                    ? await demoClient.GetPositionsAsync(ct)
+                    : await liveCache.GetAsync(ct);
                 var rows = result.Positions.Select(p =>
                 {
                     decimal? unrealisedPct = null;
@@ -149,7 +164,7 @@ public static class IntegrationsEndpoints
                 return Results.Ok(new
                 {
                     enabled = true,
-                    mode = client.Mode,
+                    mode = modeLabel,
                     fetchedAtUtc = DateTime.UtcNow,
                     positionCount = rows.Count,
                     positions = rows,
