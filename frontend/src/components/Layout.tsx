@@ -4,41 +4,60 @@ import { useAuth } from "../auth/AuthProvider";
 import { ModePill } from "./ModePill";
 import { T212ModeBadge } from "./T212ModeBadge";
 
-// Two named groups:
+// Two personas drive the nav layout:
 //
-//  TRADING — pages a trader opens daily to make decisions.
-//            Decide is the index (full 5-strategy vote + COMPASS score);
-//            Portfolio shows live positions; Research / Backtest /
-//            Paper / Intraday are the deeper tools.
+//   Trader        — opens MARKET / RESEARCH / PAPER all day. These
+//                   sit on the left, get the primary-link styling, and
+//                   are scanned in workflow order: decide → research →
+//                   sim → paper-trade.
+//   IT analyst    — opens SYSTEM when something looks wrong (broker
+//                   disconnected, scheduled job missed, deploy issue)
+//                   or when triaging via Support / IT Guide runbooks.
+//                   Sits on the right with muted utility-link styling.
 //
-//  OPS     — pages an operator or IT person opens to check system
-//            health, adjust settings, and access the help system.
-//            Trade Guide + IT Guide are quick-access deep-links into
-//            the relevant Help sections.
+//  MARKET   — daily decision surface. Decide is the index; Portfolio
+//             shows live positions; Strategies runs ad-hoc; Scanner
+//             explores a single strategy across the universe.
+//  RESEARCH — analysis tools. Research (signals) is the COMPASS
+//             explorer; Backtest is historical simulation; Charts is
+//             the data dashboard; Docs is the ETF reference library.
+//  PAPER    — paper-trading lifecycle. Paper is the live session
+//             monitor (Session Detail page deep-links from here);
+//             PA Reports + Intraday roll up history.
+//  SYSTEM   — diagnostics + config + runbooks. Health is the live API
+//             status; Settings owns brokers + flags; Support is the
+//             trader-facing help; IT Guide is the ops runbook.
 //
 // Routes haven't changed — only labels and grouping — so bookmarks
 // and the deployed CI URL maps still resolve correctly.
 
-const tradingNav: { to: string; label: string; end?: boolean }[] = [
-  { to: "/compare",             label: "Decide"    },
-  { to: "/portfolio",           label: "Portfolio"  },
-  { to: "/strategies",          label: "Strategies" },
-  { to: "/signals",             label: "Research"   },
-  { to: "/simulations",         label: "Backtest"   },
-  { to: "/paper-live",          label: "Paper"      },
-  { to: "/paper-backtest",      label: "PA Reports" },
-  { to: "/intraday/leaderboard",label: "Intraday"   },
-  { to: "/scanner",             label: "Scanner"    },
-  { to: "/documents",           label: "Docs"       },
+type NavItem = { to: string; label: string; end?: boolean };
+
+const marketNav: NavItem[] = [
+  { to: "/compare",      label: "Decide"     },
+  { to: "/portfolio",    label: "Portfolio"  },
+  { to: "/strategies",   label: "Strategies" },
+  { to: "/scanner",      label: "Scanner"    },
 ];
 
-const opsNav: { to: string; label: string; end?: boolean }[] = [
-  { to: "/charts",                    label: "Charts"       },
-  { to: "/health",                    label: "Health"       },
-  { to: "/settings",                  label: "Settings"     },
-  { to: "/help/trade-support",        label: "Support"      },
-  { to: "/help/ops-runbook",          label: "IT Guide"     },
-  { to: "/help",                      label: "Help", end: true },
+const researchNav: NavItem[] = [
+  { to: "/signals",      label: "Research"   },
+  { to: "/simulations",  label: "Backtest"   },
+  { to: "/charts",       label: "Charts"     },
+  { to: "/documents",    label: "Docs"       },
+];
+
+const paperNav: NavItem[] = [
+  { to: "/paper-live",           label: "Paper"      },
+  { to: "/paper-backtest",       label: "PA Reports" },
+  { to: "/intraday/leaderboard", label: "Intraday"   },
+];
+
+const systemNav: NavItem[] = [
+  { to: "/health",             label: "Health"   },
+  { to: "/settings",           label: "Settings" },
+  { to: "/help/trade-support", label: "Support"  },
+  { to: "/help/ops-runbook",   label: "IT Guide" },
 ];
 
 
@@ -64,6 +83,55 @@ const utilityLinkStyle = ({ isActive }: { isActive: boolean }) => ({
   letterSpacing: "0.02em",
   transition: "background 0.15s ease, color 0.15s ease",
 });
+
+function NavGroup({
+  label,
+  items,
+  linkStyle,
+}: {
+  label: string;
+  items: NavItem[];
+  linkStyle: ({ isActive }: { isActive: boolean }) => React.CSSProperties;
+}) {
+  return (
+    <>
+      <span
+        aria-hidden
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--text-muted)",
+          opacity: 0.6,
+          marginRight: 2,
+          userSelect: "none",
+        }}
+      >
+        {label}
+      </span>
+      {items.map((item) => (
+        <NavLink key={item.to} to={item.to} end={item.end} style={linkStyle}>
+          {item.label}
+        </NavLink>
+      ))}
+    </>
+  );
+}
+
+function Divider() {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 1,
+        height: 18,
+        background: "var(--border)",
+        margin: "0 10px",
+      }}
+    />
+  );
+}
 
 export function Layout() {
   const { user, firebaseAvailable, error, signIn, signOut } = useAuth();
@@ -115,60 +183,13 @@ export function Layout() {
           TradePro
         </div>
         <nav style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", minWidth: 0, overflow: "hidden" }}>
-          {/* ── TRADING group ─────────────────────────────────────── */}
-          <span
-            aria-hidden
-            style={{
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "var(--text-muted)",
-              opacity: 0.6,
-              marginRight: 2,
-              userSelect: "none",
-            }}
-          >
-            Trading
-          </span>
-          {tradingNav.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} style={primaryLinkStyle}>
-              {item.label}
-            </NavLink>
-          ))}
-
-          {/* ── section divider ───────────────────────────────────── */}
-          <span
-            aria-hidden
-            style={{
-              width: 1,
-              height: 18,
-              background: "var(--border)",
-              margin: "0 10px",
-            }}
-          />
-
-          {/* ── OPS group ─────────────────────────────────────────── */}
-          <span
-            aria-hidden
-            style={{
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "var(--text-muted)",
-              opacity: 0.6,
-              marginRight: 2,
-              userSelect: "none",
-            }}
-          >
-            Ops
-          </span>
-          {opsNav.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} style={utilityLinkStyle}>
-              {item.label}
-            </NavLink>
-          ))}
+          <NavGroup label="Market"   items={marketNav}   linkStyle={primaryLinkStyle} />
+          <Divider />
+          <NavGroup label="Research" items={researchNav} linkStyle={primaryLinkStyle} />
+          <Divider />
+          <NavGroup label="Paper"    items={paperNav}    linkStyle={primaryLinkStyle} />
+          <Divider />
+          <NavGroup label="System"   items={systemNav}   linkStyle={utilityLinkStyle} />
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           {/* Top-level Intraday / Long-term switch. Persisted to
