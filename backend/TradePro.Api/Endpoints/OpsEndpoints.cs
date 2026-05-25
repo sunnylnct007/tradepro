@@ -74,6 +74,33 @@ public static class OpsEndpoints
         group.MapGet("/leaderboard", (IIntradayLeaderboardStore store) =>
             Results.Ok(store.Build()));
 
+        // Queue a paper-trading session. Params: strategy, symbols (array),
+        // capital_usd, broker, placement_mode, interval. Mac daemon polls
+        // /ops/poll-paper to claim the row and run tradepro-paper.
+        group.MapPost("/run-paper", (JsonElement payload, ISessionRequestsStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            var req = store.Put("paper_session", payload);
+            return Results.Ok(Envelope(req));
+        });
+
+        // List paper-session requests (pending + recent terminal).
+        group.MapGet("/paper-sessions", (int? limit, ISessionRequestsStore store) =>
+        {
+            var rows = store.List("paper_session", limit ?? 50);
+            return Results.Ok(new { sessions = rows.Select(Envelope).ToArray() });
+        });
+
+        // Cancel a pending paper-session request.
+        group.MapPost("/paper-sessions/{requestId}/cancel", (string requestId, ISessionRequestsStore store) =>
+        {
+            var req = store.Cancel(requestId);
+            return req is null
+                ? Results.NotFound(new { error = $"no session with id {requestId}" })
+                : Results.Ok(Envelope(req));
+        });
+
         return app;
     }
 
@@ -112,6 +139,40 @@ public static class OpsEndpoints
                     : Results.Ok(Envelope(req));
             }
 
+            JsonElement? summary = null;
+            if (payload.ValueKind == JsonValueKind.Object
+                && payload.TryGetProperty("result_summary", out var s))
+            {
+                summary = s;
+            }
+            var done = store.MarkCompleted(requestId, summary);
+            return done is null
+                ? Results.NotFound(new { error = $"no session with id {requestId}" })
+                : Results.Ok(Envelope(done));
+        });
+
+        // Mac daemon polls this for pending paper-session requests.
+        group.MapPost("/poll-paper", (JsonElement payload, ISessionRequestsStore store) =>
+        {
+            var host = ReadStringOrDefault(payload, "host", "mac");
+            var req = store.Claim("paper_session", host);
+            return req is null
+                ? Results.Ok(new { claimed = false })
+                : Results.Ok(new { claimed = true, session = Envelope(req) });
+        });
+
+        // Mac reports completion (or failure) of a paper-session request.
+        group.MapPost("/complete-paper/{requestId}", (string requestId, JsonElement payload, ISessionRequestsStore store) =>
+        {
+            var status = ReadStringOrDefault(payload, "status", "completed").ToLowerInvariant();
+            if (status == "failed")
+            {
+                var error = ReadStringOrDefault(payload, "error", "unspecified failure");
+                var req = store.MarkFailed(requestId, error);
+                return req is null
+                    ? Results.NotFound(new { error = $"no session with id {requestId}" })
+                    : Results.Ok(Envelope(req));
+            }
             JsonElement? summary = null;
             if (payload.ValueKind == JsonValueKind.Object
                 && payload.TryGetProperty("result_summary", out var s))

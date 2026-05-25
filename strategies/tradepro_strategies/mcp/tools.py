@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -2501,6 +2503,93 @@ def get_paper_override_history(strategy_name: str) -> dict:
         }
     except Exception as e:  # noqa: BLE001
         return _err("get_paper_override_history", str(e))
+
+
+# ---------------------------------------------------------------------------
+# Paper session runner (MCP tool — launches tradepro-paper locally)
+# ---------------------------------------------------------------------------
+
+# Map run_id → Popen so the LLM can poll status after launching.
+_PAPER_RUNS: dict[str, subprocess.Popen] = {}
+
+
+def run_paper_session(
+    strategy: str = "ichimoku_equity",
+    symbols: list[str] | None = None,
+    capital_usd: float = 100_000.0,
+    broker: str = "t212",
+    placement_mode: str = "manual",
+    interval: str | None = None,
+) -> dict:
+    """Launch tradepro-paper as a subprocess. Returns immediately with
+    a run_id so the caller can poll get_paper_run_status(run_id)."""
+    import sys as _sys
+
+    run_id = f"paper_{int(time.time())}_{strategy}"
+    syms = symbols or ["AAPL", "MSFT", "NVDA"]
+    started_at = _now_iso()
+
+    args: list[str] = [
+        _sys.executable, "-m", "tradepro_strategies.cli.paper_session",
+        "--broker", broker,
+        "--strategy", strategy,
+        "--symbols", ",".join(syms),
+        "--capital-usd", str(capital_usd),
+        "--placement-mode", placement_mode,
+        "--push",
+    ]
+    if interval:
+        args += ["--interval", interval]
+
+    try:
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    except OSError as exc:
+        return _err("run_paper_session", f"failed to launch subprocess: {exc}")
+
+    _PAPER_RUNS[run_id] = proc
+
+    return {
+        "_source": f"paper://run/{run_id}",
+        "run_id": run_id,
+        "strategy": strategy,
+        "symbols": syms,
+        "capital_usd": capital_usd,
+        "broker": broker,
+        "placement_mode": placement_mode,
+        "interval": interval,
+        "started_at": started_at,
+        "state": "running",
+        "pid": proc.pid,
+    }
+
+
+def get_paper_run_status(run_id: str) -> dict:
+    """Check the status of a running or completed paper session."""
+    proc = _PAPER_RUNS.get(run_id)
+    if proc is None:
+        return _err("get_paper_run_status", f"run_id not found: {run_id}")
+
+    exit_code = proc.poll()  # None = still running, int = finished
+
+    if exit_code is None:
+        state = "running"
+    elif exit_code == 0:
+        state = "completed"
+    else:
+        state = "failed"
+
+    return {
+        "_source": f"paper://run/{run_id}",
+        "run_id": run_id,
+        "state": state,
+        "exit_code": exit_code,
+        "pid": proc.pid,
+    }
 
 
 def _now_iso() -> str:

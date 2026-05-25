@@ -1011,6 +1011,35 @@ def build_server():
         / audit / debugging."""
         return _json(t.get_paper_override_history(strategy_name))
 
+    @mcp.tool()
+    @instrumented("run_paper_session")
+    def run_paper_session(
+        strategy: str = "ichimoku_equity",
+        symbols: str | None = None,
+        capital_usd: float = 100_000.0,
+        broker: str = "t212",
+        placement_mode: str = "manual",
+        interval: str | None = None,
+    ) -> str:
+        """Launch a paper trading session on the local Mac engine.
+        `symbols` is a comma-separated string (e.g. "AAPL,MSFT,NVDA").
+        Returns a run_id to poll with get_paper_run_status."""
+        syms = [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
+        return _json(t.run_paper_session(
+            strategy=strategy,
+            symbols=syms,
+            capital_usd=capital_usd,
+            broker=broker,
+            placement_mode=placement_mode,
+            interval=interval,
+        ))
+
+    @mcp.tool()
+    @instrumented("get_paper_run_status")
+    def get_paper_run_status(run_id: str) -> str:
+        """Check status of a paper session launched by run_paper_session."""
+        return _json(t.get_paper_run_status(run_id))
+
     return mcp
 
 

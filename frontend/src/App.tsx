@@ -4,6 +4,7 @@ import { Layout } from "./components/Layout";
 import { TradingModeProvider } from "./contexts/TradingMode";
 import { Compare } from "./pages/Compare";
 import { PaperBacktest } from "./pages/PaperBacktest";
+import { PaperLive } from "./pages/PaperLive";
 import { Dashboard } from "./pages/Dashboard";
 import { DocumentDetail } from "./pages/DocumentDetail";
 import { Documents } from "./pages/Documents";
@@ -42,6 +43,7 @@ const router = createBrowserRouter([
       { path: "symbol/:ticker", element: <SymbolDeepDive /> },
       { path: "simulations", element: <Simulations /> },
       { path: "paper-backtest", element: <PaperBacktest /> },
+      { path: "paper-live", element: <PaperLive /> },
       // Intraday strategy leaderboard — per-(symbol, strategy)
       // cumulative P&L rolled up from completed session_requests.
       // Powers the "did this strategy actually make money on this

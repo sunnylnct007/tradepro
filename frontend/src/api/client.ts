@@ -156,6 +156,36 @@ export const api = {
       `/api/paper/pending-orders/${encodeURIComponent(orderId)}/reject${qs}`, {});
   },
 
+  // Paper-session trigger queue
+  runPaperSession: (params: {
+    strategy: string;
+    symbols: string[];
+    capital_usd: number;
+    broker?: string;
+    placement_mode?: string;
+    interval?: string | null;
+  }) =>
+    post<{ request_id: string; state: string; params: unknown }, typeof params>(
+      "/api/ops/run-paper", params
+    ),
+
+  paperSessions: (limit = 50) =>
+    get<{ sessions: Array<{
+      request_id: string;
+      kind: string;
+      params: unknown;
+      state: string;
+      requested_at_utc: string;
+      claimed_at_utc: string | null;
+      claimed_by: string | null;
+      completed_at_utc: string | null;
+      result_summary: unknown;
+      error: string | null;
+    }> }>("/api/ops/paper-sessions", { limit }),
+
+  cancelPaperSession: (requestId: string) =>
+    post<unknown, {}>(`/api/ops/paper-sessions/${encodeURIComponent(requestId)}/cancel`, {}),
+
   uploadDocument: async (
     file: File,
     title: string,
