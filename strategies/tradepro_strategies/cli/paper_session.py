@@ -1,18 +1,39 @@
 """tradepro-paper — run one paper-trading session end-to-end.
 
 Picks a broker profile (replay / yfinance / t212 / ibkr / stub_live),
-instantiates the engine, registers one strategy, and prints the ledger
+instantiates the engine, registers a strategy, and prints the ledger
 snapshot. Designed for "smoke a single session from the terminal".
 
-Examples:
-    # Backtest one ORB session against yfinance bars, sim fills
-    uv run tradepro-paper --broker yfinance --symbol AAPL --date 2026-05-15
+Strategies
+----------
+  orb              (default)
+    Intraday Opening-Range-Breakout. 1m bars, single symbol.
+    Example:
+        uv run tradepro-paper --broker yfinance --symbol AAPL --strategy orb
 
-    # Same session, but route fills to the T212 demo account
-    uv run tradepro-paper --broker t212 --symbol AAPL --date 2026-05-15
+  ichimoku_equity
+    Daily Ichimoku trend-following on up to 50 equities.  MOO signal
+    fires on the first daily bar.  Fetches own 700-day history via the
+    on-disk cache (no extra bar-feed data required beyond triggering).
+    Example:
+        uv run tradepro-paper \\
+            --broker t212 \\
+            --strategy ichimoku_equity \\
+            --symbols AAPL,MSFT,NVDA,TSLA \\
+            --capital-usd 100000 \\
+            --sleeve-size 20 \\
+            --interval 1d
 
-    # Live IBKR paper account (account starts with "DU")
-    uv run tradepro-paper --broker ibkr --symbol AAPL --account DU1234567
+  ichimoku_fx_mr
+    Hourly G10 FX mean-reversion (fade-the-break) across all 10 pairs.
+    Warmup = 200 bars; positions are signed (+1/-1/±2/±3 units).
+    Example:
+        uv run tradepro-paper \\
+            --broker t212 \\
+            --strategy ichimoku_fx_mr \\
+            --symbols EURUSD,GBPUSD,USDJPY \\
+            --capital-usd 50000 \\
+            --interval 1h
 
 T212 live trading requires both `--allow-real-orders` AND the env
 var `TRADEPRO_T212_ALLOW_LIVE=1` — same two-key gate the router enforces.
@@ -34,6 +55,16 @@ from ..paper.profiles import build_multi_broker_session, build_session
 from ..paper.strategies.opening_range_breakout import OpeningRangeBreakout
 
 
+_STRATEGY_CHOICES = ("orb", "ichimoku_equity", "ichimoku_fx_mr")
+
+# Sensible interval defaults per strategy — overridden by --interval.
+_DEFAULT_INTERVALS = {
+    "orb": "1m",
+    "ichimoku_equity": "1d",
+    "ichimoku_fx_mr": "1h",
+}
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="tradepro-paper",
@@ -48,6 +79,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--strategy",
+        choices=_STRATEGY_CHOICES,
+        default="orb",
+        help=(
+            "Trading strategy to run. "
+            "orb=Opening Range Breakout (intraday, single symbol); "
+            "ichimoku_equity=Daily Ichimoku trend-following (multi-symbol, MOO); "
+            "ichimoku_fx_mr=Hourly G10 FX mean-reversion (multi-pair). "
+            "Default: orb"
+        ),
+    )
+    p.add_argument(
         "--multi-mode", choices=["shadow", "dispatch"], default="shadow",
         help="Only used with a multi-broker --broker list. "
              "shadow=send every order to every broker; dispatch=route by strategy_id.",
@@ -56,48 +99,97 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--bar-source", choices=["yfinance", "ibkr", "replay"], default="yfinance",
         help="Bar feed used with multi-broker mode (single-broker mode derives this from --broker).",
     )
-    p.add_argument("--symbol", required=True, help="Symbol to trade (e.g. AAPL)")
+    # ── Symbol args ──────────────────────────────────────────────────────
+    # --symbol: legacy single-symbol (backward-compat for orb)
+    # --symbols: comma-separated, preferred for ichimoku_equity / ichimoku_fx_mr
+    p.add_argument(
+        "--symbol", default=None,
+        help="Single symbol (e.g. AAPL). For multi-symbol strategies prefer --symbols.",
+    )
+    p.add_argument(
+        "--symbols", default=None,
+        help=(
+            "Comma-separated symbols/pairs (e.g. AAPL,MSFT,NVDA). "
+            "For ichimoku_fx_mr defaults to all 10 G10 pairs if omitted."
+        ),
+    )
     p.add_argument(
         "--date", default=None,
         help="Session date YYYY-MM-DD (required for replay/yfinance/t212/stub_live)",
     )
-    p.add_argument("--strategy-id", default="orb_default",
-                   help="strategy_id stamped onto orders + ledger book")
+    p.add_argument("--strategy-id", default=None,
+                   help="strategy_id stamped onto orders + ledger book "
+                        "(defaults to the strategy name).")
     p.add_argument("--capital-usd", type=float, default=100_000.0,
-                   help="Sub-account capital used by risk % checks")
+                   help="Sub-account capital (total) used by risk + sizing.")
+    # ── ORB knobs ────────────────────────────────────────────────────────
     p.add_argument("--max-position-value-usd", type=float, default=10_000.0,
-                   help="Hard cap on |position_value| in dollars")
+                   help="[orb] Hard cap on |position_value| in dollars.")
     p.add_argument("--risk-per-trade-usd", type=float, default=100.0,
-                   help="Dollars risked on the stop for the strategy")
+                   help="[orb] Dollars risked on the stop.")
     p.add_argument("--range-minutes", type=int, default=15,
-                   help="ORB opening-range window length")
-    p.add_argument("--interval", default="1m",
-                   help="Yfinance interval (1m/5m/15m/1h)")
+                   help="[orb] Opening-range window length (minutes).")
+    # ── Ichimoku equity knobs ────────────────────────────────────────────
+    p.add_argument("--sleeve-size", type=int, default=20,
+                   help="[ichimoku_equity] Max concurrent positions in the sleeve.")
+    p.add_argument("--target-vol", type=float, default=0.12,
+                   help="[ichimoku_equity/fx_mr] Annual vol target for sizing (default 0.12).")
+    p.add_argument("--max-leverage", type=float, default=1.5,
+                   help="[ichimoku_equity] Max leverage scalar (default 1.5).")
+    p.add_argument("--no-regime-filter", action="store_true",
+                   help="[ichimoku_equity] Disable the SPY 200-SMA regime gate.")
+    # ── Ichimoku FX knobs ────────────────────────────────────────────────
+    p.add_argument("--warmup-bars", type=int, default=200,
+                   help="[ichimoku_fx_mr] Bars of history before signals fire.")
+    # ── Shared bar knobs ─────────────────────────────────────────────────
+    p.add_argument("--interval", default=None,
+                   help="Yfinance interval (1m/5m/15m/1h/1d). "
+                        "Defaults: orb→1m, ichimoku_equity→1d, ichimoku_fx_mr→1h.")
     p.add_argument("--pace-seconds", default=None,
-                   help="Replay pace: float seconds, 'realtime', or omit for as-fast-as-possible")
-    # T212 knobs
+                   help="Replay pace: float seconds, 'realtime', or omit for "
+                        "as-fast-as-possible.")
+    # ── T212 knobs ───────────────────────────────────────────────────────
     p.add_argument("--t212-mode", choices=["demo", "live"], default="demo")
     p.add_argument("--allow-real-orders", action="store_true",
-                   help="Live trading opt-in (must also set the corresponding env var)")
+                   help="Live trading opt-in (must also set the corresponding env var).")
     p.add_argument("--placement-mode", choices=["auto", "manual"], default=None,
-                   help="auto = strategy posts to T212 directly. "
-                        "manual = strategy pushes the order to the API's "
-                        "pending queue; you Approve/Reject from the Paper "
-                        "page → 'Pending orders' panel. "
-                        "Omitted = read setting from /api/settings, "
-                        "fall back to 'manual' if API unreachable.")
-    # IBKR knobs
+                   help="auto=strategy posts to T212 directly. "
+                        "manual=push to pending queue for human Approve/Reject. "
+                        "Omitted=read from /api/settings, fall back to 'manual'.")
+    # ── IBKR knobs ───────────────────────────────────────────────────────
     p.add_argument("--account", default=None,
-                   help="IBKR account id (DU... = paper, U... = live)")
+                   help="IBKR account id (DU...=paper, U...=live).")
     p.add_argument("--ibkr-timeframe-seconds", type=int, default=60)
+    # ── Push knobs ───────────────────────────────────────────────────────
     p.add_argument("--push", action="store_true",
-                   help="POST the ledger snapshot (positions + recent fills) "
-                        "to the API after the session so the Paper page Live "
-                        "tab can render it.")
+                   help="POST the ledger snapshot to the API after the session "
+                        "so the Paper page Live tab can render it.")
     p.add_argument("--push-fills", type=int, default=50,
-                   help="How many most-recent fills per strategy to include "
-                        "in the push (default 50). 0 = positions/aggregates only.")
+                   help="Most-recent fills per strategy to include in the push "
+                        "(default 50). 0=positions/aggregates only.")
     return p.parse_args(argv)
+
+
+def _resolve_symbols(args: argparse.Namespace) -> list[str]:
+    """Merge --symbol and --symbols into a deduplicated list."""
+    out: list[str] = []
+    if args.symbols:
+        out.extend(s.strip().upper() for s in args.symbols.split(",") if s.strip())
+    if args.symbol:
+        sym = args.symbol.strip().upper()
+        if sym not in out:
+            out.append(sym)
+    if not out:
+        if args.strategy in ("ichimoku_fx_mr",):
+            # Default to all G10 pairs.
+            from ..quant_engine.fx_strategy import G10_PAIRS
+            out = list(G10_PAIRS.keys())
+        else:
+            raise SystemExit(
+                "ERROR: at least one symbol is required. "
+                "Use --symbol AAPL or --symbols AAPL,MSFT,NVDA"
+            )
+    return out
 
 
 def _resolve_session_date(arg: str | None) -> datetime | None:
@@ -114,13 +206,67 @@ def _resolve_pace(arg: str | None) -> float | str | None:
     return float(arg)
 
 
+def _build_strategy(args: argparse.Namespace, symbols: list[str]):
+    """Construct the chosen strategy object."""
+    strategy_name = args.strategy
+    strategy_id = args.strategy_id or strategy_name
+
+    if strategy_name == "orb":
+        return OpeningRangeBreakout(
+            strategy_id=strategy_id,
+            params={
+                "range_minutes": args.range_minutes,
+                "risk_per_trade_usd": args.risk_per_trade_usd,
+            },
+            risk=RiskLimits(
+                max_position_value_usd=args.max_position_value_usd,
+                allow_short=False,
+            ),
+        )
+
+    if strategy_name == "ichimoku_equity":
+        from ..paper.strategies.ichimoku_equity import IchimokuEquityStrategy
+        return IchimokuEquityStrategy(
+            strategy_id=strategy_id,
+            params={
+                "symbols": symbols,
+                "capital_usd": args.capital_usd,
+                "sleeve_size": args.sleeve_size,
+                "target_vol": args.target_vol,
+                "max_leverage": args.max_leverage,
+                "use_regime_filter": not args.no_regime_filter,
+            },
+        )
+
+    if strategy_name == "ichimoku_fx_mr":
+        from ..paper.strategies.ichimoku_fx_mr import IchimokuFXMeanReversionStrategy
+        return IchimokuFXMeanReversionStrategy(
+            strategy_id=strategy_id,
+            params={
+                "pairs": symbols,
+                "capital_usd": args.capital_usd,
+                "vol_target": args.target_vol,
+                "warmup_bars": args.warmup_bars,
+            },
+        )
+
+    raise ValueError(f"Unknown strategy {strategy_name!r}")
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    log = logging.getLogger("tradepro.cli")
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     session_date = _resolve_session_date(args.date)
+    symbols = _resolve_symbols(args)
+
+    # Interval: CLI flag → strategy default.
+    if args.interval is None:
+        args.interval = _DEFAULT_INTERVALS.get(args.strategy, "1m")
+        log.info("interval defaulted to %s for strategy %s", args.interval, args.strategy)
 
     # Placement-mode resolution: explicit CLI flag wins, else fetch
     # the user's UI-set value from /api/settings, else fall back to
@@ -130,22 +276,28 @@ def main(argv: list[str] | None = None) -> int:
         from ..api_settings import get_placement_mode
         api_mode = get_placement_mode()
         resolved_placement_mode = api_mode or "manual"
-        logging.getLogger("tradepro.cli").info(
+        log.info(
             "placement-mode resolved to %s (source=%s)",
             resolved_placement_mode,
             "api-settings" if api_mode else "default",
         )
     else:
         resolved_placement_mode = args.placement_mode
-        logging.getLogger("tradepro.cli").info(
-            "placement-mode = %s (source=cli flag)", resolved_placement_mode)
+        log.info("placement-mode = %s (source=cli flag)", resolved_placement_mode)
     args.placement_mode = resolved_placement_mode
 
     broker_list = [b.strip() for b in args.broker.split(",") if b.strip()]
+
+    # For daily / multi-symbol strategies the bar bus only needs to
+    # deliver one trigger bar per symbol — the strategy fetches its own
+    # history.  Use the first symbol as the bus anchor; the strategy's
+    # on_bar handles the full list itself.
+    bus_symbols = symbols if len(symbols) <= 5 else symbols[:5]
+
     if len(broker_list) > 1:
         bus, router = build_multi_broker_session(
             brokers=broker_list,
-            symbols=[args.symbol],
+            symbols=bus_symbols,
             mode=args.multi_mode,
             bar_source=args.bar_source,
             session_date=session_date,
@@ -160,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         bus, router = build_session(
             broker=broker_list[0],
-            symbols=[args.symbol],
+            symbols=bus_symbols,
             session_date=session_date,
             interval=args.interval,
             pace_seconds=_resolve_pace(args.pace_seconds),
@@ -172,33 +324,30 @@ def main(argv: list[str] | None = None) -> int:
             ibkr_timeframe_seconds=args.ibkr_timeframe_seconds,
         )
 
-    strategy = OpeningRangeBreakout(
-        strategy_id=args.strategy_id,
-        params={
-            "range_minutes": args.range_minutes,
-            "risk_per_trade_usd": args.risk_per_trade_usd,
-        },
-        risk=RiskLimits(
-            max_position_value_usd=args.max_position_value_usd,
-            allow_short=False,
-        ),
-    )
+    strategy = _build_strategy(args, symbols)
 
     engine = Engine(bus=bus, router=router)
     engine.register_strategy(
-        strategy, symbols=[args.symbol], capital_usd=args.capital_usd,
+        strategy, symbols=symbols, capital_usd=args.capital_usd,
     )
 
+    log.info(
+        "Starting %s session: strategy=%s symbols=%s broker=%s interval=%s",
+        args.strategy, strategy.strategy_id, symbols, args.broker, args.interval,
+    )
     asyncio.run(engine.run(session_date or datetime.utcnow()))
-    # Re-snapshot with recent fills included so the Live tab on the
-    # Paper page can render the per-strategy fill log + open positions.
+
+    # Re-snapshot with recent fills so the Paper page Live tab renders
+    # the per-strategy fill log + open positions.
     snapshot = engine.ledger.to_snapshot(include_fills=args.push_fills)
     snapshot["kind"] = "paper-snapshot"
     snapshot["session_label"] = (
-        f"{args.symbol}-{(session_date or datetime.utcnow()).date().isoformat()}"
+        f"{args.strategy}-{(session_date or datetime.utcnow()).date().isoformat()}"
     )
     snapshot["broker"] = args.broker
+    snapshot["symbols"] = symbols
     print(json.dumps(snapshot, indent=2, default=str))
+
     if args.push:
         from . import push_to_api
         base, token = push_to_api.load_credentials()
