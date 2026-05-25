@@ -272,6 +272,15 @@ class Strategy(ABC):
     def clear_order_in_flight(self, symbol: str) -> None:
         self._in_flight_symbols.discard(symbol)
 
+    def seed_positions(self, positions: dict[str, int]) -> None:
+        """Initialise the strategy's internal position state from an
+        external snapshot (typically OMS-derived). Default is a no-op;
+        strategies that hold cross-bar position state (e.g. signed
+        unit counts for FX mean-reversion) override this so reruns
+        compute delta = target - current instead of re-emitting full
+        entries. See task #28."""
+        return None
+
     def position_for(self, symbol: str) -> Position:
         """Get or lazy-create the Position for a symbol. Strategies
         always read through this — never `self.positions[symbol]`

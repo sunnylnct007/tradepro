@@ -258,6 +258,44 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
     raise ValueError(f"Unknown strategy {strategy_name!r}")
 
 
+def _seed_strategy_positions_from_oms(strategy) -> None:
+    """Fetch current OMS-derived positions for this strategy and let
+    the strategy initialise its internal position state. Phase 2 of
+    task #28 — without this, every rerun computes from flat and
+    re-emits the same intents, doubling our exposure.
+
+    Best-effort: API unreachable, strategy without a `seed_positions`
+    hook, or any other failure → log and continue. The strategy keeps
+    its existing flat-start default.
+    """
+    if not hasattr(strategy, "seed_positions"):
+        return
+    try:
+        import requests
+        from . import push_to_api
+        base, token = push_to_api.load_credentials()
+        url = f"{base.rstrip('/')}/api/oms/positions"
+        params = {"strategyId": strategy.strategy_id}
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        resp.raise_for_status()
+        rows = resp.json().get("positions") or []
+        # Project to {symbol: signed_int_qty}. Strategy decides how to
+        # interpret (e.g. ichimoku_fx_mr stores signed unit counts).
+        positions = {r["symbol"]: int(round(float(r["quantity"]))) for r in rows}
+        if positions:
+            log = logging.getLogger("tradepro.cli")
+            log.info(
+                "OMS seed: %s starting with positions %s",
+                strategy.strategy_id, positions,
+            )
+            strategy.seed_positions(positions)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("tradepro.cli").warning(
+            "OMS position seed failed (%s) — strategy starts flat", exc,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -331,6 +369,14 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     strategy = _build_strategy(args, symbols)
+
+    # Seed strategy with current positions from OMS so reruns compute
+    # delta (target - current) instead of re-emitting full entry every
+    # time. Best-effort — OMS unreachable doesn't fail the session;
+    # strategy just falls back to flat-start behaviour (its existing
+    # default). See task #28.
+    if args.push:
+        _seed_strategy_positions_from_oms(strategy)
 
     engine = Engine(bus=bus, router=router)
     engine.register_strategy(

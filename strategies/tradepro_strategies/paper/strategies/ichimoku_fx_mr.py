@@ -203,6 +203,14 @@ class IchimokuFXMeanReversionStrategy(Strategy):
         # the warmup window spans many "sessions" in the engine's view.
         return None
 
+    def seed_positions(self, positions: dict[str, int]) -> None:  # type: ignore[override]
+        """Seed signed unit positions per pair so reruns compute the
+        right delta (target - current) instead of re-emitting full
+        entries on every run. Wired into paper_session via
+        /api/oms/positions. See task #28."""
+        for pair, qty in positions.items():
+            self._fx_positions[pair] = int(qty)
+
     def on_bar(self, bar: Bar) -> list[Order]:
         p = self._p()
         pair = bar.symbol
