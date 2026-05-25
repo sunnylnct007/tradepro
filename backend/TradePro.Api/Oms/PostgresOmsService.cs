@@ -222,6 +222,35 @@ public sealed class PostgresOmsService : IOmsService
         return (await GetAsync(orderId))!;
     }
 
+    public async Task<IReadOnlyList<OmsPosition>> ListPositionsAsync(string? strategyId)
+    {
+        await using var conn = await _db.OpenConnectionAsync();
+        // Sign-flip the SELL fills so the SUM yields signed net qty.
+        // Weighted avg = SUM(qty * price) / SUM(qty) on the absolute
+        // qty so a zero-net position doesn't divide by zero.
+        var (where, args) = strategyId is null
+            ? ("WHERE o.strategy_id IS NOT NULL", (object)new { })
+            : ("WHERE o.strategy_id = @sid", (object)new { sid = strategyId });
+        var rows = await conn.QueryAsync<OmsPosition>($@"
+            SELECT
+                o.strategy_id      AS StrategyId,
+                o.symbol           AS Symbol,
+                o.broker           AS Broker,
+                SUM(CASE WHEN o.side = 'BUY' THEN f.qty ELSE -f.qty END) AS Quantity,
+                CASE WHEN SUM(f.qty) = 0 THEN NULL
+                     ELSE SUM(f.qty * f.price) / SUM(f.qty)
+                END                AS AvgPrice,
+                MAX(f.fill_at_utc) AS LastFillAtUtc
+            FROM oms_orders o
+            JOIN oms_fills f ON f.order_id = o.id
+            {where}
+            GROUP BY o.strategy_id, o.symbol, o.broker
+            HAVING SUM(CASE WHEN o.side = 'BUY' THEN f.qty ELSE -f.qty END) <> 0
+            ORDER BY o.strategy_id, o.symbol;",
+            args);
+        return rows.ToList();
+    }
+
     public async Task<IReadOnlyList<OmsOrderEvent>> ListEventsAsync(Guid orderId)
     {
         await using var conn = await _db.OpenConnectionAsync();

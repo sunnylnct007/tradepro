@@ -52,7 +52,27 @@ public interface IOmsService
 
     /// <summary>Event trail for an order, oldest first.</summary>
     Task<IReadOnlyList<OmsOrderEvent>> ListEventsAsync(Guid orderId);
+
+    /// <summary>Derive net position per (strategy_id, symbol) from
+    /// FILLED + PARTIALLY_FILLED rows. BUY adds, SELL subtracts.
+    /// Strategies seed _fx_positions from this on session_start so
+    /// rerunning a strategy doesn't double up on intents
+    /// ("continuous optimization" — task #28). `strategyId` filters;
+    /// null returns positions across every strategy.</summary>
+    Task<IReadOnlyList<OmsPosition>> ListPositionsAsync(string? strategyId);
 }
+
+/// <summary>One row of the OMS-derived position view. quantity is
+/// signed (BUY positive, SELL negative). avgPrice is the weighted
+/// average across the contributing fills, or null when net qty is 0.</summary>
+public sealed record OmsPosition(
+    string StrategyId,
+    string Symbol,
+    string Broker,
+    decimal Quantity,
+    decimal? AvgPrice,
+    DateTime LastFillAtUtc
+);
 
 /// <summary>Global OMS mode store. Auto = strategy intents auto-approve.
 /// Manual = intents sit in PENDING_APPROVAL until a human approves

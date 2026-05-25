@@ -99,6 +99,18 @@ public static class OmsEndpoints
                 }
             });
 
+        // Net positions derived from OMS fills. Strategies consume
+        // this on session_start to seed their internal _fx_positions
+        // so reruns don't double up on intents ("continuous
+        // optimization" — task #28). Filter by ?strategyId= for a
+        // single-strategy view; omit for everything.
+        var positions = app.MapGroup("/oms/positions").WithTags("OMS");
+        positions.MapGet("/", async (string? strategyId, IOmsService oms) =>
+        {
+            var rows = await oms.ListPositionsAsync(strategyId);
+            return Results.Ok(new { positions = rows });
+        });
+
         // ── mode toggle ───────────────────────────────────────────
         var mode = app.MapGroup("/oms/mode").WithTags("OMS");
 
