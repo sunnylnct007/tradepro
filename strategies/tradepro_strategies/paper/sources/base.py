@@ -7,10 +7,48 @@ import asyncio
 import heapq
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..bar_bus import BarBus, ReplayBarBus
 from ..strategy import Bar
+
+
+def _lookback_dates(session_date: datetime, lookback_days: int) -> list[datetime]:
+    """Return [session_date - lookback_days, ..., session_date] inclusive.
+
+    Used by the source-backed buses to drive multi-day warmup fetches
+    one calendar day at a time. The per-day call shape preserves the
+    BarSource contract and reuses the parquet cache per-(symbol, day),
+    so re-running the same window costs zero network bandwidth after
+    the first run.
+    """
+    if lookback_days < 0:
+        raise ValueError("lookback_days must be >= 0")
+    days = []
+    base = session_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    for d in range(lookback_days, -1, -1):
+        days.append(base - timedelta(days=d))
+    return days
+
+
+async def _fetch_window(
+    source: "BarSource",
+    symbol: str,
+    session_date: datetime,
+    interval: str,
+    lookback_days: int,
+) -> list[Bar]:
+    """Fetch a window of bars covering (session_date - lookback_days)
+    through session_date inclusive. Concurrent per-day calls so a 120-
+    day FX warmup doesn't take 120× one-day latency."""
+    days = _lookback_dates(session_date, lookback_days)
+    per_day = await asyncio.gather(*[
+        source.fetch(symbol, d, interval) for d in days
+    ])
+    merged: list[Bar] = []
+    for bars in per_day:
+        merged.extend(bars)
+    return merged
 
 
 class BarSource(ABC):
@@ -39,6 +77,10 @@ class SourceBackedBus(BarBus):
     The bus calls `source.fetch(...)` once at the start of `run()`,
     then hands the bars to a `ReplayBarBus` for pacing + queue emission.
     Lets the rest of the engine stay source-agnostic.
+
+    `lookback_days` extends the fetch window backwards from session_date
+    so a strategy that needs N-bar warmup can satisfy it before the
+    session_date's own bars arrive.
     """
 
     source: BarSource = None  # type: ignore[assignment]
@@ -46,6 +88,7 @@ class SourceBackedBus(BarBus):
     session_date: datetime | None = None
     interval: str = "1m"
     pace_seconds: float | str | None = None
+    lookback_days: int = 0
     name: str = "source_backed_bus"
 
     async def run(
@@ -57,7 +100,10 @@ class SourceBackedBus(BarBus):
             raise ValueError(
                 "SourceBackedBus requires source + symbol + session_date"
             )
-        bars = await self.source.fetch(self.symbol, self.session_date, self.interval)
+        bars = await _fetch_window(
+            self.source, self.symbol, self.session_date, self.interval,
+            self.lookback_days,
+        )
         replay = ReplayBarBus(
             bars=bars, pace_seconds=self.pace_seconds, name=self.name,
         )
@@ -84,6 +130,7 @@ class MultiSymbolSourceBackedBus(BarBus):
     session_date: datetime | None = None
     interval: str = "1m"
     pace_seconds: float | str | None = None
+    lookback_days: int = 0
     name: str = "multi_symbol_source_backed_bus"
 
     async def run(
@@ -96,7 +143,10 @@ class MultiSymbolSourceBackedBus(BarBus):
                 "MultiSymbolSourceBackedBus requires source + symbols + session_date"
             )
         per_symbol_bars = await asyncio.gather(*[
-            self.source.fetch(sym, self.session_date, self.interval)
+            _fetch_window(
+                self.source, sym, self.session_date, self.interval,
+                self.lookback_days,
+            )
             for sym in self.symbols
         ])
         # heapq.merge sorts by Bar.timestamp; each per-symbol list is

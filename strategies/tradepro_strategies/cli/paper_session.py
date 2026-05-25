@@ -167,6 +167,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--push-fills", type=int, default=50,
                    help="Most-recent fills per strategy to include in the push "
                         "(default 50). 0=positions/aggregates only.")
+    p.add_argument("--lookback-days", type=int, default=0,
+                   help="Extend the Yahoo bar fetch backwards from --date by N "
+                        "days so warmup-hungry strategies (ichimoku_fx_mr needs "
+                        "~107 days for 1h bars) can satisfy their gate. 0=session "
+                        "date only (default; correct for ma_crossover/ORB).")
     return p.parse_args(argv)
 
 
@@ -322,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
             ibkr_default_account=args.account,
             ibkr_allow_real_orders=args.allow_real_orders,
             ibkr_timeframe_seconds=args.ibkr_timeframe_seconds,
+            lookback_days=args.lookback_days,
         )
 
     strategy = _build_strategy(args, symbols)

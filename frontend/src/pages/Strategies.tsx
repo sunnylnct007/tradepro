@@ -53,6 +53,13 @@ export function Strategies() {
   // on weekends/holidays when today's data is empty.
   const todayIso = new Date().toISOString().slice(0, 10);
   const [dateFor, setDateFor] = useState<Record<string, string>>({});
+  // Per-strategy lookback (days). ichimoku_fx_mr defaults to 200 because
+  // its signal early-returns 0 until n >= max(horizons)*4 + max(smooths) + 5
+  // = 2573 bars — at ~13 trading-day 1h-bars after weekend gaps, 200
+  // calendar days produces ~2600+ bars which clears the gate. Other
+  // strategies don't need any lookback. The user can override per row.
+  const lookbackDefault = (name: string) => (name === "ichimoku_fx_mr" ? 200 : 0);
+  const [lookbackFor, setLookbackFor] = useState<Record<string, number>>({});
 
   const loadSessions = useCallback(async () => {
     try {
@@ -102,6 +109,7 @@ export function Strategies() {
       return;
     }
     const session_date = dateFor[strategy.name] || todayIso;
+    const lookback_days = lookbackFor[strategy.name] ?? lookbackDefault(strategy.name);
     setBusyName(strategy.name);
     setError(null);
     try {
@@ -109,6 +117,7 @@ export function Strategies() {
         strategy: strategy.name,
         symbols: [symbol],
         session_date,
+        lookback_days,
         params: strategy.default_params,
       });
       await loadSessions();
@@ -153,6 +162,7 @@ export function Strategies() {
               <Th>Summary</Th>
               <Th>Symbol</Th>
               <Th>Session date</Th>
+              <Th>Lookback (days)</Th>
               <Th>Trigger</Th>
             </tr>
           </thead>
@@ -183,6 +193,22 @@ export function Strategies() {
                     onChange={e => setDateFor({ ...dateFor, [s.name]: e.target.value })}
                     style={inputStyle}
                     title="Use a past trading day on weekends/holidays to get real bars"
+                  />
+                </Td>
+                <Td>
+                  <input
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={lookbackFor[s.name] ?? lookbackDefault(s.name)}
+                    onChange={e =>
+                      setLookbackFor({
+                        ...lookbackFor,
+                        [s.name]: Math.max(0, Number(e.target.value) || 0),
+                      })
+                    }
+                    style={{ ...inputStyle, width: 80 }}
+                    title="Extend bar fetch backwards from session date. ichimoku_fx_mr needs ~200 days to clear its 2573-bar gate; intraday strategies leave at 0. First run is slow; subsequent runs hit the parquet cache."
                   />
                 </Td>
                 <Td>

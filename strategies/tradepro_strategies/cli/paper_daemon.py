@@ -213,6 +213,12 @@ def _parse_params(raw: dict, default_broker: str) -> dict:
     # trigger payload sent (UI date picker for "run against last Friday").
     # None means: paper_session falls back to today.
     session_date = params.get("session_date") or None
+    # lookback_days extends the bar fetch backwards for warmup-hungry
+    # strategies. 0 = single session only.
+    try:
+        lookback_days = int(params.get("lookback_days") or 0)
+    except (TypeError, ValueError):
+        lookback_days = 0
     return {
         "strategy": strategy,
         "symbols": symbols,
@@ -221,6 +227,7 @@ def _parse_params(raw: dict, default_broker: str) -> dict:
         "placement_mode": placement_mode,
         "interval": interval,
         "session_date": session_date,
+        "lookback_days": lookback_days,
     }
 
 
@@ -241,6 +248,8 @@ def build_command(params: dict) -> list[str]:
     ]
     if params["interval"]:
         args += ["--interval", str(params["interval"])]
+    if params.get("lookback_days"):
+        args += ["--lookback-days", str(params["lookback_days"])]
     return args
 
 

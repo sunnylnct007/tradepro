@@ -62,6 +62,7 @@ def build_session(
     ibkr_default_account: str | None = None,
     ibkr_allow_real_orders: bool = False,
     ibkr_timeframe_seconds: int = 60,
+    lookback_days: int = 0,
 ) -> tuple[BarBus, OrderRouter]:
     """Construct (bus, router) for a session.
 
@@ -91,7 +92,7 @@ def build_session(
         return bus, router
 
     if broker == "yfinance":
-        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds)
+        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds, lookback_days)
         router = PaperOrderRouter(
             slippage_bps=slippage_bps,
             commission_per_trade=commission_per_trade,
@@ -101,7 +102,7 @@ def build_session(
 
     if broker == "t212":
         # Yahoo for bars (T212 has none), T212 for execution.
-        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds)
+        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds, lookback_days)
         router = T212OrderRouter(
             mode=t212_mode,
             allow_real_orders=t212_allow_real_orders,
@@ -124,7 +125,7 @@ def build_session(
         return bus, router
 
     if broker == "stub_live":
-        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds)
+        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds, lookback_days)
         router = StubLiveRouter()
         return bus, router
 
@@ -175,7 +176,7 @@ def build_multi_broker_session(
     """
     symbols = list(symbols)
     if bar_source == "yfinance":
-        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds)
+        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds, lookback_days)
     elif bar_source == "ibkr":
         conn = ibkr_connection or IBKRConnection()
         bus = IBKRBarBus(symbols=symbols, connection=conn)
@@ -222,6 +223,7 @@ def _yfinance_bus(
     session_date: datetime | None,
     interval: str,
     pace_seconds: float | str | None,
+    lookback_days: int = 0,
 ) -> BarBus:
     """Yahoo-backed bus, wrapped with the standard source chain:
     Parquet cache → Yahoo → Finnhub. The cache makes repeated
@@ -230,7 +232,10 @@ def _yfinance_bus(
 
     Single-symbol returns a `SourceBackedBus`; multi-symbol returns a
     `MultiSymbolSourceBackedBus` that fetches every symbol concurrently
-    and replays a merged, timestamp-ordered stream through one bus."""
+    and replays a merged, timestamp-ordered stream through one bus.
+    `lookback_days` extends the fetch window backwards from session_date
+    so warmup-hungry strategies (e.g. ichimoku_fx_mr needs ~107 hourly
+    days) can satisfy their gate before the session's own bars arrive."""
     if session_date is None:
         raise ValueError("yfinance / t212 / stub_live profiles require `session_date`")
     if not symbols:
@@ -243,6 +248,7 @@ def _yfinance_bus(
             session_date=session_date,
             interval=interval,
             pace_seconds=pace_seconds,
+            lookback_days=lookback_days,
         )
     return MultiSymbolSourceBackedBus(
         source=source,
@@ -250,6 +256,7 @@ def _yfinance_bus(
         session_date=session_date,
         interval=interval,
         pace_seconds=pace_seconds,
+        lookback_days=lookback_days,
     )
 
 
