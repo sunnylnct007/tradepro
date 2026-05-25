@@ -20,14 +20,16 @@ ARG DOTNET_RUNTIME=mcr.microsoft.com/dotnet/aspnet:8.0
 FROM ${DOTNET_SDK} AS build
 WORKDIR /src
 
-# Restore in a layer that only invalidates when csproj/sln changes —
-# saves ~30s on routine code-only edits.
-COPY TradePro.sln ./
+# Restore the API project only. The .sln also references
+# TradePro.Api.Tests/ now (xUnit + Testcontainers, OMS Phase 1a) but
+# tests don't belong in the runtime image — building the sln would
+# fail here because the tests csproj isn't COPY'd in.
 COPY TradePro.Api/TradePro.Api.csproj TradePro.Api/
-RUN dotnet restore TradePro.sln
+RUN dotnet restore TradePro.Api/TradePro.Api.csproj
 
-# Source + publish.
-COPY . .
+# Source + publish. COPY only the API source to keep the image lean
+# and avoid pulling in tests on the next layer change.
+COPY TradePro.Api/ TradePro.Api/
 RUN dotnet publish TradePro.Api/TradePro.Api.csproj \
     --configuration Release \
     --no-restore \
