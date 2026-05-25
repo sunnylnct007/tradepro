@@ -27,6 +27,13 @@ public interface IPendingOrdersStore
     PendingOrder? MarkFailed(string orderId, string error, string? responseBody);
     PendingOrder? MarkRejected(string orderId, string? reason);
     IReadOnlyList<PendingOrder> List(int limit = 200);
+
+    /// <summary>Bulk-reject every Pending row matching the optional
+    /// ticker LIKE pattern (SQL LIKE syntax, e.g. "%_US_EQ"). Pass
+    /// null pattern to reject ALL Pending rows. Returns the count
+    /// rejected. Used to clear stale legacy rows the operator can't
+    /// approve (broken ticker mappings, schema changes, etc).</summary>
+    int RejectAllPending(string? tickerLikePattern, string? reason);
 }
 
 public enum PendingOrderState
@@ -135,6 +142,36 @@ public sealed class InMemoryPendingOrdersStore : IPendingOrdersStore
             .ThenByDescending(o => o.ReceivedAtUtc)
             .Take(limit)
             .ToArray();
+
+    public int RejectAllPending(string? tickerLikePattern, string? reason)
+    {
+        var count = 0;
+        var pattern = tickerLikePattern;
+        var reasonText = reason ?? "bulk_reject";
+        foreach (var key in _byId.Keys.ToList())
+        {
+            if (!_byId.TryGetValue(key, out var o)) continue;
+            if (o.State != PendingOrderState.Pending) continue;
+            // SQL LIKE → simple glob match (% wildcard) for the in-memory
+            // path. Used in unit tests; prod hits the Postgres impl.
+            if (pattern is not null && !LikeMatch(o.T212Ticker, pattern)) continue;
+            _byId[key] = o with
+            {
+                State = PendingOrderState.Rejected,
+                DecidedAtUtc = DateTime.UtcNow,
+                RejectionReason = reasonText,
+            };
+            count++;
+        }
+        return count;
+    }
+
+    private static bool LikeMatch(string value, string pattern)
+    {
+        // SQL LIKE %x → glob *x. Just convert and use a Regex.
+        var rx = "^" + System.Text.RegularExpressions.Regex.Escape(pattern).Replace("%", ".*") + "$";
+        return System.Text.RegularExpressions.Regex.IsMatch(value ?? "", rx);
+    }
 
     private PendingOrder? Mutate(string orderId, Func<PendingOrder, PendingOrder> f)
     {

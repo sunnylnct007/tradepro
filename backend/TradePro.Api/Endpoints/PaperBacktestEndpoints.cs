@@ -101,6 +101,21 @@ public static class PaperBacktestEndpoints
         var pending = app.MapGroup("/paper/pending-orders").WithTags("PaperBacktest");
         pending.MapGet("/", (IPendingOrdersStore store) => Results.Ok(store.List()));
 
+        // Bulk-reject every Pending row. Used to clear stale legacy
+        // rows the operator can't approve (broken ticker mappings,
+        // schema changes, etc). Optional tickerLike filter narrows by
+        // SQL LIKE — e.g. "%_US_EQ" to target only the broken FX rows
+        // generated before commit 015204a, leaving healthy equity
+        // rows alone.
+        pending.MapPost("/reject-all", (
+            BulkRejectBody body, IPendingOrdersStore store) =>
+        {
+            var count = store.RejectAllPending(
+                tickerLikePattern: string.IsNullOrWhiteSpace(body.TickerLike) ? null : body.TickerLike,
+                reason: string.IsNullOrWhiteSpace(body.Reason) ? "bulk_reject" : body.Reason);
+            return Results.Ok(new { rejected = count });
+        });
+
         pending.MapPost("/{orderId}/approve",
             async (string orderId, IPendingOrdersStore store, OrdersRepository ordersRepo,
                    Trading212DemoClient t212demo, ILoggerFactory lf, CancellationToken ct) =>
@@ -203,4 +218,8 @@ public static class PaperBacktestEndpoints
 
 /// <summary>POST body for /api/paper/strategy-status/{strategyId}.</summary>
 public sealed record StatusUpdate(string Status);
+
+/// <summary>POST body for /api/paper/pending-orders/reject-all.
+/// TickerLike is a SQL LIKE pattern; null/empty = reject all Pending.</summary>
+public sealed record BulkRejectBody(string? TickerLike, string? Reason);
 

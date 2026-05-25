@@ -131,6 +131,23 @@ public sealed class PostgresPendingOrdersStore : IPendingOrdersStore
         return ReadOne(conn, orderId);
     }
 
+    public int RejectAllPending(string? tickerLikePattern, string? reason)
+    {
+        using var conn = _db.OpenConnection();
+        var (where, args) = tickerLikePattern is null
+            ? ("WHERE state = 'Pending'",
+                (object)new { reason = reason ?? "bulk_reject" })
+            : ("WHERE state = 'Pending' AND t212_ticker LIKE @pattern",
+                (object)new { reason = reason ?? "bulk_reject", pattern = tickerLikePattern });
+        return conn.Execute($@"
+            UPDATE pending_orders SET
+                state = 'Rejected',
+                decided_at_utc = NOW(),
+                rejection_reason = @reason
+            {where};",
+            args);
+    }
+
     public IReadOnlyList<PendingOrder> List(int limit = 200)
     {
         using var conn = _db.OpenConnection();

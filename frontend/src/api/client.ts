@@ -235,6 +235,12 @@ export const api = {
     return post<unknown, {}>(
       `/api/paper/pending-orders/${encodeURIComponent(orderId)}/reject${qs}`, {});
   },
+  // Bulk-reject Pending rows. tickerLike is a SQL LIKE pattern;
+  // pass undefined to reject ALL Pending. Returns { rejected: N }.
+  bulkRejectPending: (tickerLike?: string, reason?: string) =>
+    post<{ rejected: number }, { TickerLike?: string; Reason?: string }>(
+      "/api/paper/pending-orders/reject-all",
+      { TickerLike: tickerLike, Reason: reason }),
 
   // Paper-session trigger queue
   runPaperSession: (params: {

@@ -391,9 +391,35 @@ function PendingOrdersPanel(props: {
   onApprove: (id: string) => void | Promise<void>;
   onReject: (id: string, reason?: string) => void | Promise<void>;
 }) {
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkErr, setBulkErr] = useState<string | null>(null);
+
   if (props.orders === null) return <div style={{ color: "var(--text-muted)" }}>Loading…</div>;
   const pending = props.orders.filter((o) => o.state === "Pending");
   const history = props.orders.filter((o) => o.state !== "Pending");
+
+  // Detect the legacy "EURUSD_US_EQ" rows the strategy generated before
+  // commit 015204a fixed the T212 ticker mapping. These can never
+  // approve cleanly (T212 doesn't have *_US_EQ FX instruments) so we
+  // offer a one-click way to mass-reject them.
+  const brokenFxCount = pending.filter((o) =>
+    /^(EUR|GBP|USD|AUD|NZD)[A-Z]{3}_US_EQ$/.test(o.t212Ticker ?? ""),
+  ).length;
+
+  const bulkReject = async (tickerLike: string | undefined, label: string) => {
+    if (!confirm(`Reject ${label}? They'll move to History as 'bulk_reject'.`)) return;
+    setBulkBusy(true);
+    setBulkErr(null);
+    try {
+      await api.bulkRejectPending(tickerLike, "bulk_reject_stale");
+      // Caller refreshes via the event stream; small grace period.
+      await new Promise((r) => setTimeout(r, 500));
+      window.location.reload();
+    } catch (e) {
+      setBulkErr(String(e));
+      setBulkBusy(false);
+    }
+  };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
       <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.55, maxWidth: 820 }}>
@@ -404,6 +430,48 @@ function PendingOrdersPanel(props: {
         <br />
         Trigger from the Mac: <code>tradepro-paper --broker t212 --placement-mode manual --symbol AAPL --date 2026-05-15</code>
       </div>
+
+      {(pending.length > 0 || bulkErr) && (
+        <section style={{
+          display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center",
+          padding: "8px 12px",
+          background: "rgba(217,119,6,0.06)",
+          border: "1px solid rgba(217,119,6,0.25)",
+          borderRadius: 6,
+        }}>
+          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+            Stale-rows cleanup:
+          </div>
+          {brokenFxCount > 0 && (
+            <button
+              onClick={() => bulkReject("%_US_EQ", `${brokenFxCount} legacy FX rows with broken _US_EQ ticker`)}
+              disabled={bulkBusy}
+              style={{
+                padding: "4px 10px", fontSize: 11,
+                border: "1px solid #d97706", borderRadius: 4,
+                background: "transparent", color: "#d97706",
+                cursor: bulkBusy ? "wait" : "pointer",
+              }}
+              title="Mass-reject the EURUSD_US_EQ/etc rows generated before the ticker fix"
+            >
+              Reject {brokenFxCount} broken FX rows
+            </button>
+          )}
+          <button
+            onClick={() => bulkReject(undefined, `ALL ${pending.length} Pending rows`)}
+            disabled={bulkBusy || pending.length === 0}
+            style={{
+              padding: "4px 10px", fontSize: 11,
+              border: "1px solid var(--border)", borderRadius: 4,
+              background: "transparent", color: "var(--text-muted)",
+              cursor: bulkBusy ? "wait" : "pointer",
+            }}
+          >
+            Reject all {pending.length}
+          </button>
+          {bulkErr && <span style={{ fontSize: 11, color: "var(--down)" }}>{bulkErr}</span>}
+        </section>
+      )}
 
       <section>
         <div className="stat-label">Awaiting review ({pending.length})</div>
