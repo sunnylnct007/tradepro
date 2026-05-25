@@ -15,11 +15,19 @@ Regime gate:
 Vol-targeted sizing:
   qty = min(max_leverage, target_vol / realised_vol_60d) x capital_per_slot / price
 
+LLM signal gate (optional, fail_open by default):
+  For each new ENTRY signal, the gate evaluates recent news sentiment.
+  VETOED  -> order suppressed (advisory, not hard-stop).
+  BOOSTED -> qty multiplied by scale_factor (typically 1.25).
+  Exits are NEVER gated — you can always close a position.
+  Pass `_llm_gate` in params to inject a pre-built LLMSignalGate for
+  testing or manual construction without the strategy config registry.
+
 Manual overrides (checked on every bar via OverrideRegistry):
   PAUSE         -> skip all signal generation this session
   VETO_ORDER    -> discard the pending order for this symbol (one-shot)
   PRICE_OVERRIDE -> convert MARKET to LIMIT at specified price (one-shot)
-  SIZE_OVERRIDE  -> change qty before submission (one-shot)
+  SIZE_OVERRIDE  -> change qty before submission (one-shot; beats LLM scale)
   FORCE_CLOSE   -> emit opposing market order immediately (one-shot)
 
 Injectable _data_fn for testing:
@@ -35,6 +43,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from ..llm_gate import GateDecision, LLMSignalGate
 from ..overrides import OverrideRegistry
 from ..registry import register_strategy
 from ..signal_bridge import (
@@ -64,6 +73,7 @@ class IchimokuEquityStrategy(Strategy):
     _realised_vols: dict[str, float | None] = field(default_factory=dict)
     _moo_fired: set[str] = field(default_factory=set)
     _overrides: OverrideRegistry | None = None
+    _gate: LLMSignalGate | None = None
 
     @staticmethod
     def default_params() -> dict[str, Any]:
@@ -85,6 +95,10 @@ class IchimokuEquityStrategy(Strategy):
             "moo_window_bars": 1,
             "_data_fn": None,
             "_override_registry": None,
+            # Injectable LLMSignalGate — set to a pre-built gate for tests
+            # or leave None to disable the LLM layer (gate is opt-in here;
+            # production uses StrategyRunner to build and inject it).
+            "_llm_gate": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -99,6 +113,8 @@ class IchimokuEquityStrategy(Strategy):
             # shared across strategies that didn't explicitly inject one.
             reg = _default_registry()
         self._overrides = reg
+        # LLM gate — use injected instance if provided (tests / runner).
+        self._gate = p.get("_llm_gate") or None
 
     def on_session_start(self, session_date) -> None:  # type: ignore[override]
         self._daily_signals.clear()
@@ -153,6 +169,28 @@ class IchimokuEquityStrategy(Strategy):
 
         # Long entry.
         if signal >= 1.0 and position == 0:
+            # ── LLM signal gate ─────────────────────────────────────────
+            # Runs BEFORE sizing so BOOSTED decisions can scale the qty.
+            # The gate is advisory (fail_open=True default): an LLM error
+            # never blocks trading. Exits are never gated — we can always
+            # close a position regardless of news sentiment.
+            gate_decision = (
+                self._gate.evaluate(sym, signal)
+                if self._gate is not None
+                else GateDecision(
+                    action=GateDecision.APPROVED, scale_factor=1.0,
+                    reason="no gate configured",
+                )
+            )
+            if gate_decision.action == GateDecision.VETOED:
+                _log.info(
+                    "IchimokuEquity LLM gate VETOED %s: %s", sym, gate_decision.reason
+                )
+                return []
+            # scale_factor = 1.0 (normal) or >1.0 (boosted)
+            llm_scale = gate_decision.scale_factor
+            # ────────────────────────────────────────────────────────────
+
             qty = size_from_vol_target(
                 price=bar.close,
                 capital=p["capital_usd"] / max(1, int(p["sleeve_size"])),
@@ -160,6 +198,10 @@ class IchimokuEquityStrategy(Strategy):
                 realised_vol=vol,
                 max_leverage=p["max_leverage"],
             )
+            # Apply LLM boost to algo-computed size.
+            qty = int(qty * llm_scale)
+
+            # Human size override beats LLM scaling (explicit trader intent).
             if self._overrides is not None:
                 size_ov = self._overrides.get_size_override(self.strategy_id, sym)
                 if size_ov is not None and size_ov > 0:
@@ -172,11 +214,16 @@ class IchimokuEquityStrategy(Strategy):
                 return []
 
             cloud_pos = meta.get("cloud_position", "?") if meta else "?"
+            gate_tag = (
+                f" llm={gate_decision.action}"
+                if gate_decision.action != GateDecision.APPROVED
+                else ""
+            )
             tag = (
                 f"IchimokuEquity MOO entry {sym} "
-                f"signal=1 cloud={cloud_pos} vol={vol:.3f}"
+                f"signal=1 cloud={cloud_pos} vol={vol:.3f}{gate_tag}"
                 if vol is not None
-                else f"IchimokuEquity MOO entry {sym} signal=1 cloud={cloud_pos}"
+                else f"IchimokuEquity MOO entry {sym} signal=1 cloud={cloud_pos}{gate_tag}"
             )
 
             if price_ov is not None:
@@ -198,7 +245,7 @@ class IchimokuEquityStrategy(Strategy):
                 tag=tag,
             )]
 
-        # Long exit (signal flipped flat while we held).
+        # Long exit — NEVER gated; always execute.
         if signal < 1.0 and position > 0:
             return [Order(
                 strategy_id=self.strategy_id,

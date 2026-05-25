@@ -16,6 +16,7 @@ from behave import given, then, when
 
 from tradepro_strategies.paper.broker_factory import create_router
 from tradepro_strategies.paper.brokers.t212 import T212OrderRouter
+from tradepro_strategies.paper.llm_gate import GateDecision, LLMGateConfig, LLMSignalGate
 from tradepro_strategies.paper.overrides import (
     OverrideAction,
     OverrideRegistry,
@@ -634,4 +635,249 @@ def step_fx_order_qty(context, qty: int) -> None:
     assert orders_with_qty, (
         f"no FX order with qty {qty}; got "
         f"{[(o.symbol, o.side, o.quantity) for o in context.fx_orders]}"
+    )
+
+
+# ====================================================================== #
+# LLM gate helpers — shared by Sections 6 + 7                             #
+# ====================================================================== #
+
+from dataclasses import dataclass as _dc
+
+
+@_dc
+class _FakeScoredHeadline:
+    """Minimal scored-headline stand-in for LLM gate injection in tests."""
+    sentiment: float
+    material: bool
+
+
+def _make_fake_news_fn(n: int = 1):
+    """Returns a news_fn that yields n headline stubs (no timestamp)."""
+    class _Headline:
+        published_at = None
+    headlines = [_Headline() for _ in range(n)]
+
+    def news_fn(symbol, max_items):
+        return headlines[:max_items]
+
+    return news_fn
+
+
+def _make_vetoing_gate() -> LLMSignalGate:
+    """Gate that always scores sentiment < -0.4 → VETOED."""
+    def score_fn(headlines, provider):
+        return [_FakeScoredHeadline(sentiment=-0.8, material=True) for _ in headlines]
+
+    return LLMSignalGate(
+        LLMGateConfig(
+            enabled=True,
+            sentiment_veto_below=-0.4,
+            min_material_for_veto=1,
+            fail_open=True,
+        ),
+        _news_fn=_make_fake_news_fn(1),
+        _score_fn=score_fn,
+    )
+
+
+def _make_boosting_gate() -> LLMSignalGate:
+    """Gate that always scores sentiment > +0.5 → APPROVED_BOOSTED (1.25x)."""
+    def score_fn(headlines, provider):
+        return [_FakeScoredHeadline(sentiment=0.8, material=True) for _ in headlines]
+
+    return LLMSignalGate(
+        LLMGateConfig(
+            enabled=True,
+            sentiment_boost_above=0.5,
+            boost_multiplier=1.25,
+            fail_open=True,
+        ),
+        _news_fn=_make_fake_news_fn(1),
+        _score_fn=score_fn,
+    )
+
+
+def _make_disabled_gate() -> LLMSignalGate:
+    """Gate with enabled=False — always APPROVED regardless of news."""
+    return LLMSignalGate(LLMGateConfig(enabled=False))
+
+
+def _make_error_gate() -> LLMSignalGate:
+    """Gate whose score_fn always raises — with fail_open=True → APPROVED."""
+    def news_fn(symbol, max_items):
+        class _H:
+            published_at = None
+        return [_H()]
+
+    def score_fn(headlines, provider):
+        raise RuntimeError("simulated LLM scoring failure")
+
+    return LLMSignalGate(
+        LLMGateConfig(enabled=True, fail_open=True),
+        _news_fn=news_fn,
+        _score_fn=score_fn,
+    )
+
+
+# ====================================================================== #
+# Section 6: IchimokuEquityStrategy with LLM gate                          #
+# ====================================================================== #
+
+def _build_equity_strategy_with_gate(
+    symbol: str,
+    trend: str,
+    gate: LLMSignalGate,
+    seed: int = 42,
+) -> tuple[IchimokuEquityStrategy, OverrideRegistry]:
+    df_sym = _make_daily_df(trend=trend, seed=seed)
+    df_spy = _make_daily_df(trend="up", seed=11)
+    dfs = {symbol: df_sym, "SPY": df_spy}
+
+    def data_fn(s: str) -> pd.DataFrame | None:
+        return dfs.get(s)
+
+    reg = OverrideRegistry(_fresh_registry_path())
+    strat = IchimokuEquityStrategy(
+        strategy_id=f"ie_{symbol.lower()}_gated",
+        params={
+            "symbols": [symbol],
+            "capital_usd": 20_000.0,
+            "sleeve_size": 1,
+            "_data_fn": data_fn,
+            "_override_registry": reg,
+            "_llm_gate": gate,
+        },
+    )
+    strat.on_session_start(datetime.now(timezone.utc))
+    return strat, reg
+
+
+@given(
+    'an IchimokuEquityStrategy with a DISABLED LLM gate '
+    'bound to "{sym}" with an uptrending feed'
+)
+def step_strat_disabled_gate_uptrend(context, sym: str) -> None:
+    context.strat, context.registry = _build_equity_strategy_with_gate(
+        sym, "up", _make_disabled_gate()
+    )
+    context.symbol = sym
+
+
+@given(
+    'an IchimokuEquityStrategy with a VETOING LLM gate '
+    'bound to "{sym}" with an uptrending feed'
+)
+def step_strat_vetoing_gate_uptrend(context, sym: str) -> None:
+    context.strat, context.registry = _build_equity_strategy_with_gate(
+        sym, "up", _make_vetoing_gate()
+    )
+    context.symbol = sym
+
+
+@given(
+    'an IchimokuEquityStrategy with a BOOSTING LLM gate '
+    'bound to "{sym}" with an uptrending feed'
+)
+def step_strat_boosting_gate_uptrend(context, sym: str) -> None:
+    context.strat, context.registry = _build_equity_strategy_with_gate(
+        sym, "up", _make_boosting_gate()
+    )
+    context.symbol = sym
+
+
+@given(
+    'an IchimokuEquityStrategy with a VETOING LLM gate '
+    'bound to "{sym}" with a downtrending feed'
+)
+def step_strat_vetoing_gate_downtrend(context, sym: str) -> None:
+    context.strat, context.registry = _build_equity_strategy_with_gate(
+        sym, "down", _make_vetoing_gate()
+    )
+    context.symbol = sym
+
+
+@given(
+    'an IchimokuEquityStrategy with an ERROR LLM gate '
+    'bound to "{sym}" with an uptrending feed'
+)
+def step_strat_error_gate_uptrend(context, sym: str) -> None:
+    context.strat, context.registry = _build_equity_strategy_with_gate(
+        sym, "up", _make_error_gate()
+    )
+    context.symbol = sym
+
+
+@then("the order quantity is greater than base quantity without boost")
+def step_order_qty_boosted(context) -> None:
+    """Verify that the BOOSTED qty (1.25x) exceeds the un-boosted baseline.
+
+    Parameters from _build_equity_strategy_with_gate:
+      price=250.0, capital=20_000/1=20_000, target_vol=0.12,
+      realised_vol=None → scalar=1.0, max_leverage=1.5
+      base_qty = int(1.0 * 20_000 / 250.0) = 80
+      boosted_qty = int(80 * 1.25) = 100
+    """
+    assert len(context.orders) == 1, f"expected 1 order, got {len(context.orders)}"
+    actual = context.orders[0].quantity
+    base = size_from_vol_target(
+        price=250.0, capital=20_000.0,
+        target_vol=0.12, realised_vol=None, max_leverage=1.5,
+    )
+    assert actual > base, (
+        f"expected qty > {base} (1.0x baseline), got {actual} — boost not applied?"
+    )
+
+
+# ====================================================================== #
+# Section 7: IchimokuFXMeanReversionStrategy with LLM gate                 #
+# ====================================================================== #
+
+def _build_fx_strategy_with_gate(
+    pair: str,
+    gate: LLMSignalGate,
+    warmup: int = 200,
+    horizons: tuple = (24, 48),
+    smooths: tuple = (12, 24),
+) -> tuple[IchimokuFXMeanReversionStrategy, OverrideRegistry]:
+    reg = OverrideRegistry(_fresh_registry_path())
+    strat = IchimokuFXMeanReversionStrategy(
+        strategy_id=f"fxmr_{pair.lower()}_gated",
+        params={
+            "pairs": [pair],
+            "capital_usd": 50_000.0,
+            "vol_target": 0.10,
+            "pos_cap": 3,
+            "warmup_bars": warmup,
+            "horizons": horizons,
+            "smooths": smooths,
+            "_override_registry": reg,
+            "_llm_gate": gate,
+        },
+    )
+    strat.on_session_start(datetime.now(timezone.utc))
+    return strat, reg
+
+
+@given(
+    'an IchimokuFXMeanReversionStrategy with a VETOING LLM gate '
+    'bound to pair "{pair}" with engineered bearish break'
+)
+def step_fx_strat_vetoing_gate_break(context, pair: str) -> None:
+    context.fx_strat, context.registry = _build_fx_strategy_with_gate(
+        pair, _make_vetoing_gate(),
+        warmup=200, horizons=(24, 48), smooths=(12, 24),
+    )
+    context.pair = pair
+    context.fx_bars = _engineered_bearish_break_bars(pair, n_pre=300, n_break=60)
+
+
+@given(
+    'an IchimokuFXMeanReversionStrategy with a VETOING LLM gate '
+    'bound to pair "{pair}"'
+)
+def step_fx_strat_vetoing_gate(context, pair: str) -> None:
+    context.fx_strat, context.registry = _build_fx_strategy_with_gate(
+        pair, _make_vetoing_gate(),
+        warmup=200, horizons=(24, 48), smooths=(12, 24),
     )

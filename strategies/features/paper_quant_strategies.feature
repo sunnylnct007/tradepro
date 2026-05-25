@@ -177,3 +177,56 @@ Feature: Paper-trading bridge for the quant engine
     When I apply a SIZE_OVERRIDE for "EURUSD" quantity 9 on the FX strategy
     And I drive the strategy to compute its signal
     Then the emitted FX order has quantity 9
+
+  # ------------------------------------------------------------------ #
+  # Section 6: LLM gate integrated in IchimokuEquityStrategy            #
+  # ------------------------------------------------------------------ #
+
+  Scenario: LLM gate disabled — BUY order emits normally
+    Given an IchimokuEquityStrategy with a DISABLED LLM gate bound to "AAPL" with an uptrending feed
+    When I send one daily bar for "AAPL"
+    Then a BUY MARKET order is emitted for "AAPL"
+
+  Scenario: LLM gate VETOED — no BUY order emitted
+    Given an IchimokuEquityStrategy with a VETOING LLM gate bound to "AAPL" with an uptrending feed
+    When I send one daily bar for "AAPL"
+    Then no orders are emitted
+
+  Scenario: LLM gate APPROVED_BOOSTED — order quantity is scaled up
+    Given an IchimokuEquityStrategy with a BOOSTING LLM gate bound to "AAPL" with an uptrending feed
+    When I send one daily bar for "AAPL"
+    Then a BUY MARKET order is emitted for "AAPL"
+    And the order quantity is greater than base quantity without boost
+
+  Scenario: LLM gate does not block exits — SELL fires regardless
+    Given an IchimokuEquityStrategy with a VETOING LLM gate bound to "AAPL" with a downtrending feed
+    And the strategy already holds 10 shares of "AAPL"
+    When I send one daily bar for "AAPL"
+    Then a SELL MARKET order is emitted for "AAPL"
+
+  Scenario: LLM gate fail_open — order emits when LLM raises an exception
+    Given an IchimokuEquityStrategy with an ERROR LLM gate bound to "AAPL" with an uptrending feed
+    When I send one daily bar for "AAPL"
+    Then a BUY MARKET order is emitted for "AAPL"
+
+  Scenario: Human SIZE_OVERRIDE takes priority over LLM boost scaling
+    Given an IchimokuEquityStrategy with a BOOSTING LLM gate bound to "AAPL" with an uptrending feed
+    When I apply a SIZE_OVERRIDE for "AAPL" quantity 3 on the strategy
+    And I send one daily bar for "AAPL"
+    Then the emitted order has quantity 3
+
+  # ------------------------------------------------------------------ #
+  # Section 7: LLM gate integrated in IchimokuFXMeanReversionStrategy   #
+  # ------------------------------------------------------------------ #
+
+  Scenario: FX LLM gate VETOED — no entry order emitted
+    Given an IchimokuFXMeanReversionStrategy with a VETOING LLM gate bound to pair "EURUSD" with engineered bearish break
+    When I drive the strategy to compute its signal
+    Then no FX orders are emitted
+
+  Scenario: FX LLM gate does not block exits from an existing position
+    Given an IchimokuFXMeanReversionStrategy with a VETOING LLM gate bound to pair "EURUSD"
+    And the FX strategy already holds 2 units of "EURUSD"
+    When I apply a FORCE_CLOSE for "EURUSD" on the FX strategy
+    And I send one hourly bar for "EURUSD"
+    Then a SELL FX order is emitted for "EURUSD" with quantity 2

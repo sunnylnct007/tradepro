@@ -11,6 +11,12 @@ Design:
   - Vol-targeted sizing: qty proportional to vol_target / realised_vol_480h.
   - Max position per pair capped at POS_CAP = 3 units.
 
+LLM signal gate (optional, fail_open by default):
+  New ENTRIES from flat (current == 0) are evaluated before order emission.
+  VETOED  -> entry suppressed; exits always pass through.
+  BOOSTED -> unit_qty scaled by scale_factor.
+  Pass `_llm_gate` in params to inject a pre-built gate for testing.
+
 Override support: same OverrideRegistry.
 
 Injectable _data_fn: fn(pair_name) -> pd.DataFrame | None
@@ -26,6 +32,7 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
+from ..llm_gate import GateDecision, LLMSignalGate
 from ..overrides import OverrideRegistry
 from ..registry import register_strategy
 from ..signal_bridge import size_from_vol_target
@@ -155,6 +162,7 @@ class IchimokuFXMeanReversionStrategy(Strategy):
     _bar_counts: dict[str, int] = field(default_factory=dict)
     _last_signal: dict[str, float] = field(default_factory=dict)
     _overrides: OverrideRegistry | None = None
+    _gate: LLMSignalGate | None = None
 
     @staticmethod
     def default_params() -> dict[str, Any]:
@@ -170,6 +178,9 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             "provider": "yahoo",
             "_data_fn": None,
             "_override_registry": None,
+            # Injectable LLMSignalGate — set for tests or leave None to
+            # disable the LLM layer. Production uses StrategyRunner to inject.
+            "_llm_gate": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -182,6 +193,7 @@ class IchimokuFXMeanReversionStrategy(Strategy):
         if reg is None:
             reg = _default_registry()
         self._overrides = reg
+        self._gate = p.get("_llm_gate") or None
 
     def on_session_start(self, session_date) -> None:  # type: ignore[override]
         # Rolling state survives sessions on purpose: FX runs 24/5 and
@@ -269,6 +281,22 @@ class IchimokuFXMeanReversionStrategy(Strategy):
         if delta == 0 or vetoed:
             return []
 
+        # ── LLM signal gate — only on NEW entries from flat ─────────────
+        # Exits (delta moves back towards 0 from an open position) are never
+        # gated: we can always reduce/close a position. Entries from flat
+        # (current == 0) are evaluated: VETOED suppresses the order;
+        # APPROVED_BOOSTED scales the unit_qty.
+        llm_scale = 1.0
+        if current == 0 and self._gate is not None:
+            gate_decision = self._gate.evaluate(pair, float(abs(target)))
+            if gate_decision.action == GateDecision.VETOED:
+                _log.info(
+                    "IchimokuFXMR LLM gate VETOED %s: %s", pair, gate_decision.reason
+                )
+                return []
+            llm_scale = gate_decision.scale_factor
+        # ────────────────────────────────────────────────────────────────
+
         # Vol-targeted UNIT size (small for FX; "units" here are share-equivalents).
         unit_qty = size_from_vol_target(
             price=bar.close,
@@ -277,8 +305,10 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             realised_vol=None,  # use neutral sizing; per-pair vol is approx via signal cap
             max_leverage=1.5,
         )
+        # Apply LLM boost before human overrides.
+        unit_qty = int(unit_qty * llm_scale)
 
-        # Size override (applies per-bar, one-shot).
+        # Size override (applies per-bar, one-shot; beats LLM scale).
         if self._overrides is not None:
             size_ov = self._overrides.get_size_override(self.strategy_id, pair)
             if size_ov is not None and size_ov > 0:
