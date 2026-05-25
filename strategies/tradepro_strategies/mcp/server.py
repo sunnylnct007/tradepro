@@ -709,6 +709,55 @@ def build_server():
         Cite as ``live://fundamentals/longterm/<SYMBOL>``."""
         return _json(t.get_long_term_fundamentals(symbol, years))
 
+    # ---- Quant engine: portfolio metrics, Monte Carlo, walk-forward --------
+
+    @mcp.tool()
+    @instrumented("run_portfolio_metrics")
+    def run_portfolio_metrics(
+        returns_list: list,
+        equity_list: list,
+    ) -> str:
+        """Compute Sharpe, Sortino, MaxDD, Calmar, Omega for a daily returns
+        series. Pass returns as a list of floats and the corresponding
+        equity curve (cumprod of 1+returns times initial capital) as a
+        list of floats.
+
+        Returns: cagr_pct, sharpe, sortino, max_drawdown_pct, calmar, omega."""
+        return _json(t.run_portfolio_metrics(returns_list, equity_list))
+
+    @mcp.tool()
+    @instrumented("run_monte_carlo")
+    def run_monte_carlo(
+        returns_list: list,
+        years: int = 10,
+        n_sims: int = 1000,
+        initial: float = 10_000.0,
+    ) -> str:
+        """Block-bootstrap Monte Carlo projection from a daily returns series.
+
+        Draws 21-day blocks from `returns_list` to build `n_sims` synthetic
+        `years`-long equity paths starting at `initial`. Returns the
+        distribution of final values, CAGRs, max drawdowns, and probabilities
+        (p_lose_money, p_double, p_5x) across all paths."""
+        return _json(t.run_monte_carlo(returns_list, years, n_sims, initial))
+
+    @mcp.tool()
+    @instrumented("run_walk_forward")
+    def run_walk_forward(
+        returns_list: list,
+        dates_list: list,
+        target_vol: float = 0.12,
+        max_leverage: float = 1.5,
+    ) -> str:
+        """Walk-forward OOS validation on a daily returns series with dates.
+
+        `returns_list` and `dates_list` (ISO date strings) must be the same
+        length. Runs 5 rolling train/test windows (2018-2025 by default)
+        and returns per-window: vol_scalar, test_sharpe, test_cagr_pct,
+        n_test_days. Use to validate that a vol-targeting strategy is not
+        overfitted to a specific in-sample period."""
+        return _json(t.run_walk_forward(returns_list, dates_list, target_vol, max_leverage))
+
     # ---- RESOURCES (URIs the client can read directly) --------------------
 
     @mcp.resource("tradepro://compare/{universe}")
@@ -876,6 +925,91 @@ def build_server():
                 f"  4. For the top 1-3, summarise the supporting signals."
             ),
         )
+
+    # ---- Paper trading: strategy config, LLM gate, overrides --------------
+
+    @mcp.tool()
+    @instrumented("get_paper_strategy_status")
+    def get_paper_strategy_status() -> str:
+        """Status of every configured paper trading strategy: enabled flag,
+        paused flag (from OverrideRegistry), current params, LLM gate
+        settings, last config update. Use this to render the UI overview
+        page and as the first step before tuning anything."""
+        return _json(t.get_paper_strategy_status())
+
+    @mcp.tool()
+    @instrumented("update_paper_strategy_config")
+    def update_paper_strategy_config(symbol: str, params_json: str) -> str:
+        """Merge-update a paper strategy's parameters. `symbol` is the
+        strategy name (e.g. "ichimoku_equity"); `params_json` is a JSON
+        object whose keys are merged into the stored params. Existing
+        keys not mentioned in the payload are preserved. Changes take
+        effect at next session start."""
+        try:
+            params = json.loads(params_json) if params_json else {}
+        except json.JSONDecodeError as e:
+            return _json({
+                "ok": False,
+                "error": f"invalid params_json: {e}",
+            })
+        if not isinstance(params, dict):
+            return _json({
+                "ok": False,
+                "error": "params_json must decode to a JSON object",
+            })
+        return _json(t.update_paper_strategy_config(symbol, params))
+
+    @mcp.tool()
+    @instrumented("configure_paper_llm_gate")
+    def configure_paper_llm_gate(
+        strategy_name: str,
+        enabled: bool = True,
+        sentiment_veto_below: float = -0.4,
+        sentiment_boost_above: float = 0.5,
+        boost_multiplier: float = 1.25,
+    ) -> str:
+        """Configure the LLM signal gate for a strategy. The gate sits in
+        front of order emission: it can VETO trades on very negative news
+        or BOOST size on very positive news. Defaults are conservative
+        (veto<-0.4, boost>+0.5, 1.25× boost). Changes are live immediately."""
+        return _json(t.configure_paper_llm_gate(
+            strategy_name,
+            enabled=enabled,
+            sentiment_veto_below=sentiment_veto_below,
+            sentiment_boost_above=sentiment_boost_above,
+            boost_multiplier=boost_multiplier,
+        ))
+
+    @mcp.tool()
+    @instrumented("apply_paper_override")
+    def apply_paper_override(
+        strategy_name: str,
+        action: str,
+        symbol: str | None = None,
+        price: float | None = None,
+        qty: int | None = None,
+        note: str = "",
+    ) -> str:
+        """Apply a manual trader override to a paper strategy. Actions:
+        PAUSE / RESUME (persistent), VETO_ORDER / PRICE_OVERRIDE /
+        SIZE_OVERRIDE / FORCE_CLOSE (one-shot — consumed on first read).
+        `symbol=None` is a wildcard for PAUSE/RESUME."""
+        return _json(t.apply_paper_override(
+            strategy_name=strategy_name,
+            action=action,
+            symbol=symbol,
+            price=price,
+            qty=qty,
+            note=note,
+        ))
+
+    @mcp.tool()
+    @instrumented("get_paper_override_history")
+    def get_paper_override_history(strategy_name: str) -> str:
+        """Snapshot of every override currently in the registry for
+        `strategy_name` — does NOT consume one-shots. For UI display
+        / audit / debugging."""
+        return _json(t.get_paper_override_history(strategy_name))
 
     return mcp
 

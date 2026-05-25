@@ -294,3 +294,105 @@ The .NET backend already reads its own secrets via the standard ASP.NET configur
 - `PAPER_TRADING.md` — every CLI command, env var, and broker option
 - `tradepro_strategies/paper/__init__.py` — top-level imports + roadmap
 - Each module's docstring carries WHY-style commentary, not just WHAT
+
+---
+
+## Quant Engine (Sprint 3)
+
+Location: `tradepro_strategies/quant_engine/`
+
+The quant engine implements a multi-sleeve systematic equity portfolio with
+volatility targeting, walk-forward OOS validation, Monte Carlo projection, and
+an intraday G10 FX mean-reversion strategy. It is designed around the trader's
+reference strategy files and adapted to use TradePro's existing Ichimoku
+indicator and caching infrastructure.
+
+### Three Sleeves
+
+The portfolio is organised into three sleeves — independent sub-strategies that
+are equal-weight combined at the ensemble level:
+
+| Sleeve | Tickers | Logic |
+|---|---|---|
+| `equity_large` | 50 S&P large-caps (`QuantEngineConfig.large_50`) | Long when Close > cloud_high AND tenkan > kijun |
+| `equity_hibeta` | 30 high-beta names (beta ≥ 1.5 vs SPY) | Same Ichimoku signal on high-momentum names |
+| `gold` | GLD | Single ticker, same signal logic |
+
+Each ticker in a sleeve contributes a weight of `1/sleeve_size` when long and
+0 when flat. Transaction costs (`cost_bps / 10_000` per unit delta-weight) are
+charged on every position change.
+
+### Regime Filter (SPY 200-SMA)
+
+An optional `RegimeFilter` zeroes all sleeve signals on bear-regime days
+(SPY < its 200-day SMA). This prevents new longs during confirmed downtrends.
+The filter is stateless — it re-reads the SPY close series on construction.
+
+### Vol Targeting (Hurst-Ooi-Pedersen 2017)
+
+After combining the three sleeves into an equal-weight portfolio, a vol-targeting
+scalar is applied:
+
+```
+scalar_t = target_vol / realised_vol_{t-1}   (capped at max_leverage)
+```
+
+The `shift(1)` ensures no look-ahead bias. Default `target_vol=0.12` (12%
+annualised), `max_leverage=1.5`. Source: Hurst, Ooi & Pedersen (2017),
+"A Century of Evidence on Trend-Following Investing."
+
+### Walk-Forward OOS Validation
+
+`WalkForwardValidator` runs 5 rolling train/test windows (2018-2025 by default).
+For each window, it:
+1. Estimates the vol scalar on the train period (single scalar = target_vol / train_std).
+2. Applies the fixed scalar to the test year.
+3. Reports `test_sharpe`, `test_cagr_pct`, `n_test_days`.
+
+This avoids overfitting to a single in-sample period and gives an honest OOS
+track record. Note: window 5 (test=2025) is a partial year as of 2026-05 —
+see `docs/QUANT_ENGINE_GAPS.md` Gap 7.
+
+### Monte Carlo Block-Bootstrap
+
+`MonteCarloSimulator` draws 21-trading-day blocks from the empirical returns
+distribution and assembles them into synthetic paths. This preserves
+autocorrelation and fat-tail structure better than IID sampling. 1000 paths
+× 10 years is the standard run. The summary reports:
+- Percentile distribution of final values (p5 to p95)
+- `p_lose_money`, `p_double`, `p_5x`
+- Max drawdown distribution (p5/p25/p50/p75/p95)
+
+### Intraday FX Mean-Reversion
+
+`FXMeanReversionStrategy` ("fade the break") applies Ichimoku on hourly G10
+FX data and takes the opposite position to the breakout signal:
+- Price above cloud (would be bullish) → go SHORT (expect reversion)
+- Price below cloud (would be bearish) → go LONG (expect reversion)
+
+Positions are vol-scaled and capped at `POS_CAP=3` units. The portfolio PnL
+is the equal-weight mean across all pairs. Supported pairs: `G10_PAIRS` dict
+in `fx_strategy.py` (10 pairs).
+
+### Phase 2 — FinBERT Signal Veto
+
+Planned for Phase 2:
+- If S_t = 1 (long signal) AND FinBERT(headlines) < -0.4 → veto the signal
+- If FinBERT > +0.5 → apply 1.25x conviction multiplier to position size
+- Bridge to `news_sentiment.py` is the integration point
+
+### MCP Tools (Sprint 3)
+
+Three new MCP tools are registered in `mcp/server.py`:
+
+| Tool | Purpose |
+|---|---|
+| `run_portfolio_metrics` | Sharpe, Sortino, MaxDD, Calmar, Omega from a returns list |
+| `run_monte_carlo` | Block-bootstrap Monte Carlo projection |
+| `run_walk_forward` | 5-window rolling OOS validation |
+
+### Known Gaps
+
+See `docs/QUANT_ENGINE_GAPS.md` for 10 identified gaps with severity and fix
+paths. Critical gaps before production use: data caching (Gap 1) and rate
+limiting on the data fetcher (Gap 8).
