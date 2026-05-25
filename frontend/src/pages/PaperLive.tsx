@@ -84,6 +84,34 @@ function getStrategyFromParams(params: unknown): string {
   return "—";
 }
 
+// Static schedule definition — mirrors scripts/launchd/*.plist
+const SCHEDULE = [
+  {
+    job: "paper-equity",
+    schedule: "Weekdays 13:35",
+    strategy: "ichimoku_equity" as Strategy,
+    symbols: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "BRK-B", "JPM", "V"],
+    capital_usd: 100_000,
+    notes: "8:35 ET — just after US open",
+  },
+  {
+    job: "paper-fx",
+    schedule: "Weekdays 22:05",
+    strategy: "ichimoku_fx_mr" as Strategy,
+    symbols: [],
+    capital_usd: 50_000,
+    notes: "6:05 ET — NY FX session · safe on UK holidays",
+  },
+  {
+    job: "paper-watch",
+    schedule: "Every 2 min",
+    strategy: null,
+    symbols: [],
+    capital_usd: 0,
+    notes: "Picks up UI-triggered sessions (no adhoc trigger)",
+  },
+] as const;
+
 export function PaperLive() {
   // ── Form state ────────────────────────────────────────────────────────────
   const [strategy, setStrategy] = useState<Strategy>("ichimoku_equity");
@@ -97,6 +125,7 @@ export function PaperLive() {
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [triggeringJob, setTriggeringJob] = useState<string | null>(null);
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -143,6 +172,25 @@ export function PaperLive() {
       showToast("err", String(e));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // ── Trigger a scheduled job ad-hoc ───────────────────────────────────────
+  async function handleTriggerScheduled(job: typeof SCHEDULE[0] | typeof SCHEDULE[1]) {
+    setTriggeringJob(job.job);
+    try {
+      const res = await api.runPaperSession({
+        strategy: job.strategy,
+        symbols: [...job.symbols],
+        capital_usd: job.capital_usd,
+        placement_mode: placementMode,
+      });
+      showToast("ok", `${job.job} queued — id ${res.request_id.slice(0, 8)}`);
+      loadSessions();
+    } catch (e) {
+      showToast("err", `Failed to queue ${job.job}: ${String(e)}`);
+    } finally {
+      setTriggeringJob(null);
     }
   }
 
@@ -526,63 +574,71 @@ export function PaperLive() {
                 <th style={{ textAlign: "left", padding: "8px 12px" }}>Schedule (UTC)</th>
                 <th style={{ textAlign: "left", padding: "8px 12px" }}>Strategy</th>
                 <th style={{ textAlign: "left", padding: "8px 12px" }}>Notes</th>
+                <th style={{ textAlign: "right", padding: "8px 12px" }} />
               </tr>
             </thead>
             <tbody>
-              {[
-                {
-                  job: "paper-equity",
-                  schedule: "Weekdays 13:35",
-                  strategy: "ichimoku_equity",
-                  notes: "8:35 ET — just after US open",
-                },
-                {
-                  job: "paper-fx",
-                  schedule: "Weekdays 22:05",
-                  strategy: "ichimoku_fx_mr",
-                  notes: "6:05 ET — NY FX session · safe on UK holidays",
-                },
-                {
-                  job: "paper-watch",
-                  schedule: "Every 2 min",
-                  strategy: "all",
-                  notes: "Picks up UI-triggered sessions",
-                },
-              ].map((row, idx, arr) => (
-                <tr
-                  key={row.job}
-                  style={{
-                    borderBottom: idx < arr.length - 1 ? "1px solid var(--border)" : "none",
-                  }}
-                >
-                  <td
+              {SCHEDULE.map((row, idx) => {
+                const canTrigger = row.strategy !== null;
+                const isTriggering = triggeringJob === row.job;
+                return (
+                  <tr
+                    key={row.job}
                     style={{
-                      padding: "10px 12px",
-                      fontFamily: "monospace",
-                      fontSize: 11,
-                      color: "var(--text-dim)",
+                      borderBottom: idx < SCHEDULE.length - 1 ? "1px solid var(--border)" : "none",
                     }}
                   >
-                    {row.job}
-                  </td>
-                  <td style={{ padding: "10px 12px", color: "var(--text)" }}>
-                    {row.schedule}
-                  </td>
-                  <td
-                    style={{
-                      padding: "10px 12px",
-                      fontFamily: "monospace",
-                      fontSize: 11,
-                      color: "var(--text)",
-                    }}
-                  >
-                    {row.strategy}
-                  </td>
-                  <td style={{ padding: "10px 12px", color: "var(--text-muted)" }}>
-                    {row.notes}
-                  </td>
-                </tr>
-              ))}
+                    <td
+                      style={{
+                        padding: "10px 12px",
+                        fontFamily: "monospace",
+                        fontSize: 11,
+                        color: "var(--text-dim)",
+                      }}
+                    >
+                      {row.job}
+                    </td>
+                    <td style={{ padding: "10px 12px", color: "var(--text)" }}>
+                      {row.schedule}
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 12px",
+                        fontFamily: "monospace",
+                        fontSize: 11,
+                        color: "var(--text)",
+                      }}
+                    >
+                      {row.strategy ?? "—"}
+                    </td>
+                    <td style={{ padding: "10px 12px", color: "var(--text-muted)" }}>
+                      {row.notes}
+                    </td>
+                    <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                      {canTrigger && (
+                        <button
+                          onClick={() => handleTriggerScheduled(row as typeof SCHEDULE[0])}
+                          disabled={isTriggering || !!triggeringJob}
+                          style={{
+                            fontSize: 11,
+                            padding: "4px 12px",
+                            borderRadius: 6,
+                            border: "1px solid var(--border)",
+                            background: isTriggering
+                              ? "var(--bg-hover)"
+                              : "transparent",
+                            color: "var(--text)",
+                            cursor: isTriggering ? "default" : "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {isTriggering ? "Queuing…" : "▶ Run now"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -602,6 +658,7 @@ export function PaperLive() {
           <code style={{ fontFamily: "monospace" }}>/tmp/tradepro-paper-*.log</code>
         </p>
       </div>
+
 
       {/* ── Snapshots link ────────────────────────────────────────────────── */}
       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
