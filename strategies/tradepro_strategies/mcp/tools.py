@@ -2368,6 +2368,141 @@ def run_walk_forward(returns_list: list[float], dates_list: list[str],
         return _err("run_walk_forward", str(e))
 
 
+# ── Paper trading: strategy config & LLM gate ─────────────────────────
+
+def get_paper_strategy_status() -> dict:
+    """Return status of all configured paper trading strategies + LLM gate state."""
+    try:
+        from ..paper.strategy_config import StrategyConfigRegistry
+        from ..paper.overrides import OverrideRegistry
+        reg = StrategyConfigRegistry()
+        ov = OverrideRegistry()
+        configs = reg.all_configs()
+        return {
+            "strategies": [reg.to_status_dict(c.strategy_name, ov) for c in configs],
+            "count": len(configs),
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("get_paper_strategy_status", str(e))
+
+
+def update_paper_strategy_config(strategy_name: str, params: dict) -> dict:
+    """Update a strategy's parameters. Changes take effect at next session start."""
+    try:
+        from ..paper.strategy_config import StrategyConfigRegistry
+        reg = StrategyConfigRegistry()
+        updated = reg.update_params(strategy_name, params or {})
+        return {
+            "strategy_name": updated.strategy_name,
+            "params": updated.params,
+            "updated_at": updated.updated_at,
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("update_paper_strategy_config", str(e))
+
+
+def configure_paper_llm_gate(
+    strategy_name: str,
+    enabled: bool = True,
+    sentiment_veto_below: float = -0.4,
+    sentiment_boost_above: float = 0.5,
+    boost_multiplier: float = 1.25,
+    provider_purpose: str = "sentiment",
+    max_headlines: int = 5,
+    fail_open: bool = True,
+) -> dict:
+    """Configure the LLM signal gate for a strategy. Changes are live immediately."""
+    try:
+        from ..paper.llm_gate import LLMGateConfig
+        from ..paper.strategy_config import StrategyConfigRegistry
+        gate_cfg = LLMGateConfig(
+            enabled=enabled,
+            provider_purpose=provider_purpose,
+            sentiment_veto_below=sentiment_veto_below,
+            sentiment_boost_above=sentiment_boost_above,
+            boost_multiplier=boost_multiplier,
+            max_headlines=max_headlines,
+            fail_open=fail_open,
+        )
+        reg = StrategyConfigRegistry()
+        updated = reg.update_llm_gate(strategy_name, gate_cfg)
+        return {
+            "strategy_name": strategy_name,
+            "llm_gate": updated.llm_gate,
+            "updated_at": updated.updated_at,
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("configure_paper_llm_gate", str(e))
+
+
+def apply_paper_override(
+    strategy_name: str,
+    action: str,
+    symbol: str | None = None,
+    price: float | None = None,
+    qty: int | None = None,
+    note: str = "",
+) -> dict:
+    """Apply a manual override to a paper trading strategy.
+
+    Actions: PAUSE, RESUME, VETO_ORDER, PRICE_OVERRIDE, SIZE_OVERRIDE, FORCE_CLOSE
+    """
+    try:
+        from ..paper.overrides import OverrideAction, OverrideRegistry, StrategyOverride
+        try:
+            act = OverrideAction(action.upper())
+        except ValueError:
+            return _err(
+                "apply_paper_override",
+                f"Unknown action {action!r}. Valid: {[a.value for a in OverrideAction]}",
+            )
+        params: dict[str, Any] = {}
+        if price is not None:
+            params["price"] = price
+        if qty is not None:
+            params["quantity"] = qty
+        reg = OverrideRegistry()
+        reg.apply(StrategyOverride(
+            strategy_name=strategy_name,
+            action=act,
+            symbol=symbol,
+            params=params,
+            note=note,
+        ))
+        return {
+            "strategy_name": strategy_name,
+            "action": action,
+            "symbol": symbol,
+            "applied": True,
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("apply_paper_override", str(e))
+
+
+def get_paper_override_history(strategy_name: str) -> dict:
+    """Return all active overrides for a strategy."""
+    try:
+        from ..paper.overrides import OverrideRegistry
+        reg = OverrideRegistry()
+        overrides = reg.all_overrides(strategy_name)
+        return {
+            "strategy_name": strategy_name,
+            "overrides": [
+                {
+                    "action": o.action.value,
+                    "symbol": o.symbol,
+                    "params": o.params,
+                    "created_at": o.created_at,
+                    "note": o.note,
+                }
+                for o in overrides
+            ],
+            "count": len(overrides),
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("get_paper_override_history", str(e))
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 

@@ -926,6 +926,91 @@ def build_server():
             ),
         )
 
+    # ---- Paper trading: strategy config, LLM gate, overrides --------------
+
+    @mcp.tool()
+    @instrumented("get_paper_strategy_status")
+    def get_paper_strategy_status() -> str:
+        """Status of every configured paper trading strategy: enabled flag,
+        paused flag (from OverrideRegistry), current params, LLM gate
+        settings, last config update. Use this to render the UI overview
+        page and as the first step before tuning anything."""
+        return _json(t.get_paper_strategy_status())
+
+    @mcp.tool()
+    @instrumented("update_paper_strategy_config")
+    def update_paper_strategy_config(symbol: str, params_json: str) -> str:
+        """Merge-update a paper strategy's parameters. `symbol` is the
+        strategy name (e.g. "ichimoku_equity"); `params_json` is a JSON
+        object whose keys are merged into the stored params. Existing
+        keys not mentioned in the payload are preserved. Changes take
+        effect at next session start."""
+        try:
+            params = json.loads(params_json) if params_json else {}
+        except json.JSONDecodeError as e:
+            return _json({
+                "ok": False,
+                "error": f"invalid params_json: {e}",
+            })
+        if not isinstance(params, dict):
+            return _json({
+                "ok": False,
+                "error": "params_json must decode to a JSON object",
+            })
+        return _json(t.update_paper_strategy_config(symbol, params))
+
+    @mcp.tool()
+    @instrumented("configure_paper_llm_gate")
+    def configure_paper_llm_gate(
+        strategy_name: str,
+        enabled: bool = True,
+        sentiment_veto_below: float = -0.4,
+        sentiment_boost_above: float = 0.5,
+        boost_multiplier: float = 1.25,
+    ) -> str:
+        """Configure the LLM signal gate for a strategy. The gate sits in
+        front of order emission: it can VETO trades on very negative news
+        or BOOST size on very positive news. Defaults are conservative
+        (veto<-0.4, boost>+0.5, 1.25× boost). Changes are live immediately."""
+        return _json(t.configure_paper_llm_gate(
+            strategy_name,
+            enabled=enabled,
+            sentiment_veto_below=sentiment_veto_below,
+            sentiment_boost_above=sentiment_boost_above,
+            boost_multiplier=boost_multiplier,
+        ))
+
+    @mcp.tool()
+    @instrumented("apply_paper_override")
+    def apply_paper_override(
+        strategy_name: str,
+        action: str,
+        symbol: str | None = None,
+        price: float | None = None,
+        qty: int | None = None,
+        note: str = "",
+    ) -> str:
+        """Apply a manual trader override to a paper strategy. Actions:
+        PAUSE / RESUME (persistent), VETO_ORDER / PRICE_OVERRIDE /
+        SIZE_OVERRIDE / FORCE_CLOSE (one-shot — consumed on first read).
+        `symbol=None` is a wildcard for PAUSE/RESUME."""
+        return _json(t.apply_paper_override(
+            strategy_name=strategy_name,
+            action=action,
+            symbol=symbol,
+            price=price,
+            qty=qty,
+            note=note,
+        ))
+
+    @mcp.tool()
+    @instrumented("get_paper_override_history")
+    def get_paper_override_history(strategy_name: str) -> str:
+        """Snapshot of every override currently in the registry for
+        `strategy_name` — does NOT consume one-shots. For UI display
+        / audit / debugging."""
+        return _json(t.get_paper_override_history(strategy_name))
+
     return mcp
 
 
