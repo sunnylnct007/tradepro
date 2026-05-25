@@ -196,7 +196,7 @@ export function Strategies() {
                 <Th>Enqueued</Th>
                 <Th>Claimed by</Th>
                 <Th>Result</Th>
-                <Th></Th>
+                <Th>{" "}</Th>
               </tr>
             </thead>
             <tbody>
@@ -249,7 +249,7 @@ export function Strategies() {
   );
 }
 
-const Th = ({ children }: { children: React.ReactNode }) =>
+const Th = ({ children }: { children?: React.ReactNode }) =>
   <th style={{
     textAlign: "left",
     padding: "8px 10px",
