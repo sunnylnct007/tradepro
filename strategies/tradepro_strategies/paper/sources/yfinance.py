@@ -17,11 +17,43 @@ Older calls return empty with a "delisted / no price data" error —
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from ..strategy import Bar
 from .base import BarSource
+
+
+log = logging.getLogger("tradepro.paper.sources.yfinance")
+
+
+# Canonical pair → Yahoo ticker. Internal code uses the canonical
+# name (e.g. Bar.symbol, strategy.pairs); only the fetch boundary
+# translates. Note USDJPY/USDCHF/USDCAD use Yahoo's terse JPY=X etc.
+_FX_YAHOO_TICKER: dict[str, str] = {
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "JPY=X",
+    "AUDUSD": "AUDUSD=X",
+    "USDCHF": "CHF=X",
+    "USDCAD": "CAD=X",
+    "NZDUSD": "NZDUSD=X",
+    "EURGBP": "EURGBP=X",
+    "EURJPY": "EURJPY=X",
+    "GBPJPY": "GBPJPY=X",
+}
+
+
+def _yahoo_ticker(symbol: str) -> str:
+    """Translate a canonical symbol to the ticker Yahoo expects.
+
+    Pass-through for symbols that already carry a Yahoo suffix
+    (`EURUSD=X`, `BTC-USD`) or for regular equities (`AAPL`).
+    """
+    if "=" in symbol or symbol.endswith("-USD"):
+        return symbol
+    return _FX_YAHOO_TICKER.get(symbol.upper(), symbol)
 
 
 @dataclass
@@ -46,11 +78,16 @@ class YfinanceSource(BarSource):
 
         start = session_date.date().isoformat()
         end_dt = session_date.date() + timedelta(days=1)
+        yahoo_ticker = _yahoo_ticker(symbol)
+        if yahoo_ticker != symbol:
+            log.debug("yfinance: %s → %s", symbol, yahoo_ticker)
         df = yf.download(
-            symbol, start=start, end=end_dt.isoformat(),
+            yahoo_ticker, start=start, end=end_dt.isoformat(),
             interval=interval, auto_adjust=False, progress=False,
         )
         if df.empty:
+            log.info("yfinance: no bars for %s (%s) %s–%s @ %s",
+                     symbol, yahoo_ticker, start, end_dt.isoformat(), interval)
             return []
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel("Ticker")
@@ -66,6 +103,8 @@ class YfinanceSource(BarSource):
                 else ts
             )
             bars.append(Bar(
+                # Preserve the canonical symbol so downstream filters
+                # (strategy.pairs, ledger keys) still match.
                 symbol=symbol,
                 timestamp=ts_utc.to_pydatetime() if hasattr(ts_utc, "to_pydatetime") else ts_utc,
                 open=float(row["Open"]),
