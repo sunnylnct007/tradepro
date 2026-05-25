@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { PaperSubNav } from "../components/PaperSubNav";
 
 // Paper-session trigger and monitor page.
 // Lets the trader queue a paper trading session via the ops
@@ -342,6 +343,7 @@ export function PaperLive() {
 
   return (
     <div>
+      <PaperSubNav />
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <h2 style={{ margin: "0 0 4px" }}>Paper Trading</h2>
       <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 0, marginBottom: 20 }}>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api, OmsOrderRow } from "../api/client";
+import { PaperSubNav } from "../components/PaperSubNav";
 
 // OMS Orders page — single surface for every order the platform ever
 // placed. Replaces the per-broker pending_orders queue ad-hoc UI.
@@ -175,6 +176,7 @@ export function OmsOrders() {
 
   return (
     <div style={{ padding: 24 }}>
+      <PaperSubNav />
       <header
         style={{
           display: "flex",

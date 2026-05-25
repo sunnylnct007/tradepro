@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { PaperSubNav } from "../components/PaperSubNav";
 import { useEventStream } from "../hooks/useEventStream";
 
 // Paper-trading backtest dashboard. List of reports the Mac has
@@ -235,6 +236,7 @@ export function PaperBacktest() {
 
   return (
     <div>
+      <PaperSubNav />
       <h2 style={{ margin: "0 0 4px" }}>Backtest</h2>
       <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 0 }}>
         Paper-trading walk-forward + multi-strategy comparator results pushed

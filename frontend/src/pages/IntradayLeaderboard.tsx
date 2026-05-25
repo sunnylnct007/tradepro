@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { config } from "../config";
 import { getIdToken } from "../firebase";
+import { PaperSubNav } from "../components/PaperSubNav";
 
 /** Per-(symbol, strategy) cumulative outcomes across every completed
  * intraday session. Answers the user's "if I'd used strategy X on
@@ -70,6 +71,7 @@ export function IntradayLeaderboard() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 1100 }}>
+      <PaperSubNav />
       <div>
         <h1 style={{ margin: 0, fontSize: 24 }}>Intraday strategy leaderboard</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 760 }}>
