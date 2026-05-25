@@ -500,6 +500,109 @@ export function PaperLive() {
         )}
       </div>
 
+      {/* ── Automatic schedule ───────────────────────────────────────────── */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 14, color: "var(--text-dim)" }}>
+          Automatic schedule
+        </h3>
+        <div
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            overflow: "hidden",
+            maxWidth: 680,
+          }}
+        >
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr
+                style={{
+                  borderBottom: "1px solid var(--border)",
+                  color: "var(--text-dim)",
+                  background: "var(--bg-hover, rgba(255,255,255,0.03))",
+                }}
+              >
+                <th style={{ textAlign: "left", padding: "8px 12px" }}>Job</th>
+                <th style={{ textAlign: "left", padding: "8px 12px" }}>Schedule (UTC)</th>
+                <th style={{ textAlign: "left", padding: "8px 12px" }}>Strategy</th>
+                <th style={{ textAlign: "left", padding: "8px 12px" }}>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                {
+                  job: "paper-equity",
+                  schedule: "Weekdays 13:35",
+                  strategy: "ichimoku_equity",
+                  notes: "8:35 ET — just after US open",
+                },
+                {
+                  job: "paper-fx",
+                  schedule: "Weekdays 22:05",
+                  strategy: "ichimoku_fx_mr",
+                  notes: "6:05 ET — NY FX session · safe on UK holidays",
+                },
+                {
+                  job: "paper-watch",
+                  schedule: "Every 2 min",
+                  strategy: "all",
+                  notes: "Picks up UI-triggered sessions",
+                },
+              ].map((row, idx, arr) => (
+                <tr
+                  key={row.job}
+                  style={{
+                    borderBottom: idx < arr.length - 1 ? "1px solid var(--border)" : "none",
+                  }}
+                >
+                  <td
+                    style={{
+                      padding: "10px 12px",
+                      fontFamily: "monospace",
+                      fontSize: 11,
+                      color: "var(--text-dim)",
+                    }}
+                  >
+                    {row.job}
+                  </td>
+                  <td style={{ padding: "10px 12px", color: "var(--text)" }}>
+                    {row.schedule}
+                  </td>
+                  <td
+                    style={{
+                      padding: "10px 12px",
+                      fontFamily: "monospace",
+                      fontSize: 11,
+                      color: "var(--text)",
+                    }}
+                  >
+                    {row.strategy}
+                  </td>
+                  <td style={{ padding: "10px 12px", color: "var(--text-muted)" }}>
+                    {row.notes}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+          Install once from the repo root:{" "}
+          <code
+            style={{
+              fontFamily: "monospace",
+              background: "var(--bg-hover)",
+              padding: "1px 6px",
+              borderRadius: 4,
+            }}
+          >
+            bash scripts/install_paper_schedules.sh
+          </code>
+          {" · "}logs at{" "}
+          <code style={{ fontFamily: "monospace" }}>/tmp/tradepro-paper-*.log</code>
+        </p>
+      </div>
+
       {/* ── Snapshots link ────────────────────────────────────────────────── */}
       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
         <Link
