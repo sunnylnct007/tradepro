@@ -48,6 +48,11 @@ export function Strategies() {
   const [error, setError] = useState<string | null>(null);
   const [busyName, setBusyName] = useState<string | null>(null);
   const [symbolFor, setSymbolFor] = useState<Record<string, string>>({});
+  // Session date per strategy. Missing entries fall back to today —
+  // lets the trader trigger "what would equity have done last Friday"
+  // on weekends/holidays when today's data is empty.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [dateFor, setDateFor] = useState<Record<string, string>>({});
 
   const loadSessions = useCallback(async () => {
     try {
@@ -96,12 +101,14 @@ export function Strategies() {
       setError(`enter a symbol for ${strategy.name} before triggering`);
       return;
     }
+    const session_date = dateFor[strategy.name] || todayIso;
     setBusyName(strategy.name);
     setError(null);
     try {
       await api.runIntraday({
         strategy: strategy.name,
         symbols: [symbol],
+        session_date,
         params: strategy.default_params,
       });
       await loadSessions();
@@ -145,6 +152,7 @@ export function Strategies() {
               <Th>Name</Th>
               <Th>Summary</Th>
               <Th>Symbol</Th>
+              <Th>Session date</Th>
               <Th>Trigger</Th>
             </tr>
           </thead>
@@ -165,6 +173,16 @@ export function Strategies() {
                     value={symbolFor[s.name] || ""}
                     onChange={e => setSymbolFor({ ...symbolFor, [s.name]: e.target.value })}
                     style={inputStyle}
+                  />
+                </Td>
+                <Td>
+                  <input
+                    type="date"
+                    value={dateFor[s.name] || todayIso}
+                    max={todayIso}
+                    onChange={e => setDateFor({ ...dateFor, [s.name]: e.target.value })}
+                    style={inputStyle}
+                    title="Use a past trading day on weekends/holidays to get real bars"
                   />
                 </Td>
                 <Td>

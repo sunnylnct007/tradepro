@@ -209,6 +209,10 @@ def _parse_params(raw: dict, default_broker: str) -> dict:
     broker = params.get("broker", default_broker)
     placement_mode = params.get("placement_mode", "manual")
     interval = params.get("interval") or None  # None → use strategy default
+    # session_date is opaque to the daemon — we just forward whatever the
+    # trigger payload sent (UI date picker for "run against last Friday").
+    # None means: paper_session falls back to today.
+    session_date = params.get("session_date") or None
     return {
         "strategy": strategy,
         "symbols": symbols,
@@ -216,11 +220,15 @@ def _parse_params(raw: dict, default_broker: str) -> dict:
         "broker": broker,
         "placement_mode": placement_mode,
         "interval": interval,
+        "session_date": session_date,
     }
 
 
 def build_command(params: dict) -> list[str]:
     """Construct the tradepro-paper subprocess argument list."""
+    # User-supplied session_date wins; otherwise default to today so a
+    # missing flag from older clients still produces a runnable session.
+    session_date = params.get("session_date") or date.today().isoformat()
     args = [
         sys.executable, "-m", "tradepro_strategies.cli.paper_session",
         "--broker", params["broker"],
@@ -228,7 +236,7 @@ def build_command(params: dict) -> list[str]:
         "--symbols", ",".join(params["symbols"]),
         "--capital-usd", str(params["capital_usd"]),
         "--placement-mode", params["placement_mode"],
-        "--date", date.today().isoformat(),  # required by yfinance/t212 profiles (paper_session flag is --date)
+        "--date", session_date,  # paper_session flag is --date
         "--push",
     ]
     if params["interval"]:
