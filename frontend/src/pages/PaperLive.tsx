@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 
@@ -84,6 +84,183 @@ function getStrategyFromParams(params: unknown): string {
   return "—";
 }
 
+// Decision shape pushed by the paper engine (commit 19f4cbe).
+type DecisionEntry = {
+  bar_ts?: string;
+  symbol?: string;
+  action?: string;
+  reason?: string;
+  detail?: Record<string, unknown>;
+};
+
+type StrategyEntry = {
+  strategy_id?: string;
+  decisions?: DecisionEntry[];
+  positions?: unknown[];
+  recent_fills?: unknown[];
+  fills_count?: number;
+  equity?: number;
+  realised_pnl?: number;
+};
+
+function extractStrategies(resultSummary: unknown): StrategyEntry[] {
+  if (!resultSummary || typeof resultSummary !== "object") return [];
+  const s = (resultSummary as Record<string, unknown>).strategies;
+  return Array.isArray(s) ? (s as StrategyEntry[]) : [];
+}
+
+function downloadSessionJson(s: Session) {
+  const filename = `paper-session-${s.request_id.slice(0, 8)}.json`;
+  const blob = new Blob([JSON.stringify(s, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function decisionActionColour(action: string | undefined): string {
+  if (!action) return "var(--text-dim)";
+  if (action.startsWith("fire-")) return "#1fc16b";
+  if (action.startsWith("skip-")) return "var(--text-muted)";
+  return "var(--text-dim)";
+}
+
+const actionButtonStyle: React.CSSProperties = {
+  fontSize: 11,
+  padding: "4px 10px",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+  background: "transparent",
+  cursor: "pointer",
+};
+
+function SessionDetailRow({ session }: { session: Session }) {
+  const strategies = extractStrategies(session.result_summary);
+  return (
+    <tr style={{ background: "rgba(255,255,255,0.02)" }}>
+      <td colSpan={6} style={{ padding: "12px 16px" }}>
+        {strategies.length === 0 ? (
+          <div style={{ color: "var(--text-dim)", fontSize: 12 }}>
+            No structured strategy data on this session yet — the daemon
+            either hasn't run, or completed with a legacy summary shape.
+          </div>
+        ) : (
+          strategies.map((strat, i) => {
+            const decisions = strat.decisions || [];
+            const byAction = decisions.reduce<Record<string, number>>(
+              (acc, d) => {
+                const a = d.action || "(unknown)";
+                acc[a] = (acc[a] || 0) + 1;
+                return acc;
+              },
+              {},
+            );
+            return (
+              <div key={i} style={{ marginBottom: 16 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text)",
+                    fontWeight: 600,
+                    marginBottom: 4,
+                  }}
+                >
+                  {strat.strategy_id || `strategy ${i}`}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>
+                  fills={strat.fills_count ?? 0} · equity=
+                  {(strat.equity ?? 0).toFixed(2)} · realised=
+                  {(strat.realised_pnl ?? 0).toFixed(2)} · decisions=
+                  {decisions.length}
+                </div>
+                {Object.keys(byAction).length > 0 && (
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+                    {Object.entries(byAction)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([a, n]) => (
+                        <span key={a} style={{ marginRight: 12 }}>
+                          <span style={{ color: decisionActionColour(a) }}>{a}</span>
+                          : {n}
+                        </span>
+                      ))}
+                  </div>
+                )}
+                {decisions.length === 0 ? (
+                  <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                    No decisions captured (strategy may pre-date the trace
+                    instrumentation, or never reached on_bar).
+                  </div>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ color: "var(--text-dim)" }}>
+                        <th style={{ textAlign: "left", padding: "4px 8px" }}>Bar UTC</th>
+                        <th style={{ textAlign: "left", padding: "4px 8px" }}>Symbol</th>
+                        <th style={{ textAlign: "left", padding: "4px 8px" }}>Action</th>
+                        <th style={{ textAlign: "left", padding: "4px 8px" }}>Reason</th>
+                        <th style={{ textAlign: "left", padding: "4px 8px" }}>Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {decisions
+                        .slice(-50)
+                        .reverse()
+                        .map((d, j) => (
+                          <tr key={j} style={{ borderTop: "1px solid var(--border)" }}>
+                            <td
+                              style={{
+                                padding: "4px 8px",
+                                fontFamily: "monospace",
+                                color: "var(--text-muted)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {d.bar_ts ? d.bar_ts.slice(11, 19) : "—"}
+                            </td>
+                            <td style={{ padding: "4px 8px", color: "var(--text-dim)" }}>
+                              {d.symbol || "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "4px 8px",
+                                color: decisionActionColour(d.action),
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {d.action || "—"}
+                            </td>
+                            <td style={{ padding: "4px 8px", color: "var(--text-dim)" }}>
+                              {d.reason || "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "4px 8px",
+                                fontFamily: "monospace",
+                                color: "var(--text-muted)",
+                                fontSize: 10,
+                              }}
+                            >
+                              {d.detail ? JSON.stringify(d.detail) : ""}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })
+        )}
+      </td>
+    </tr>
+  );
+}
+
 // Static schedule definition — mirrors scripts/launchd/*.plist
 const SCHEDULE = [
   {
@@ -126,6 +303,7 @@ export function PaperLive() {
   const [queueError, setQueueError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [triggeringJob, setTriggeringJob] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -476,8 +654,8 @@ export function PaperLive() {
                       : JSON.stringify(s.result_summary).slice(0, 120)
                     : "—";
                   return (
+                  <React.Fragment key={s.request_id}>
                     <tr
-                      key={s.request_id}
                       style={{
                         borderBottom:
                           idx < sessions.length - 1
@@ -522,26 +700,38 @@ export function PaperLive() {
                       >
                         {summary}
                       </td>
-                      <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                      <td style={{ padding: "10px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
+                        <button
+                          onClick={() =>
+                            setExpandedId(expandedId === s.request_id ? null : s.request_id)
+                          }
+                          style={actionButtonStyle}
+                          title="Inspect bars, decisions, fills"
+                        >
+                          {expandedId === s.request_id ? "Hide" : "Details"}
+                        </button>
+                        <button
+                          onClick={() => downloadSessionJson(s)}
+                          style={{ ...actionButtonStyle, marginLeft: 6 }}
+                          title="Download the full session payload as JSON"
+                        >
+                          Export
+                        </button>
                         {(isPending || isClaimed) && (
                           <button
                             onClick={() => handleCancel(s.request_id)}
                             disabled={isCancelling}
-                            style={{
-                              fontSize: 11,
-                              padding: "4px 10px",
-                              color: "var(--text-muted)",
-                              border: "1px solid var(--border)",
-                              borderRadius: 6,
-                              background: "transparent",
-                              cursor: "pointer",
-                            }}
+                            style={{ ...actionButtonStyle, marginLeft: 6 }}
                           >
                             {isCancelling ? "Cancelling…" : "Cancel"}
                           </button>
                         )}
                       </td>
                     </tr>
+                    {expandedId === s.request_id && (
+                      <SessionDetailRow session={s} />
+                    )}
+                  </React.Fragment>
                   );
                 })}
               </tbody>

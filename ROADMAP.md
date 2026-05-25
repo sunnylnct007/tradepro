@@ -40,6 +40,42 @@ action button can hit the live account.
 
 ---
 
+## Strategy playground — synthetic-input simulator
+
+**Status:** PLANNED (user request 2026-05-25).
+
+**Why:** When a strategy fails to trade in paper (e.g. `ichimoku_fx_mr`
+returning signal=0 with 1000+ bars), we currently have no way to ask "what
+would the strategy do if I fed it X?" The fix today is to write throwaway
+Python smokes, which is invisible to non-coders and not exportable. A UI
+sandbox closes that loop: pick a strategy, paste/upload OHLCV bars (or
+synthetic patterns like trend / chop / breakout), see decisions + orders +
+P&L without touching the daemon.
+
+**Approach:**
+1. New `/playground` page. Strategy picker (reuses paper-strategies catalog).
+2. Bar input: paste CSV, upload file, OR pick a preset (trend up / range /
+   breakout / NFP day from history). Validates min-bar count vs strategy
+   warmup gate; warns if insufficient.
+3. Backend `/api/playground/run` POSTs to a Python sidecar that runs the
+   strategy through an in-memory `ReplayBarBus` + `PaperOrderRouter`,
+   returning the same `paper-snapshot` shape PaperLive already renders.
+4. Renders the same Why panel + Export JSON UI the PaperLive page uses,
+   so the investigation toolchain stays consistent.
+5. Bonus: save a playground run as a "fixture" attached to a strategy so
+   the next time someone touches that strategy code, they can re-run the
+   fixture and diff the decisions (regression-test ergonomics for
+   non-coders).
+
+**Tickets:**
+- T#SP1 `/api/playground/run` sidecar endpoint
+- T#SP2 `/playground` page with strategy + bar-source picker
+- T#SP3 Bar presets library (trend / chop / breakout / NFP-day)
+- T#SP4 Reuse PaperLive Why panel + Export JSON
+- T#SP5 Fixture save + diff against committed baseline
+
+---
+
 ## IBKR integration — paper-first
 
 **Status:** PLANNED (user request 2026-05-25).
