@@ -22,6 +22,7 @@ import { T212ModeBadge } from "./T212ModeBadge";
 const tradingNav: { to: string; label: string; end?: boolean }[] = [
   { to: "/compare",             label: "Decide"    },
   { to: "/portfolio",           label: "Portfolio"  },
+  { to: "/strategies",          label: "Strategies" },
   { to: "/signals",             label: "Research"   },
   { to: "/simulations",         label: "Backtest"   },
   { to: "/paper-live",          label: "Paper"      },
@@ -35,9 +36,9 @@ const opsNav: { to: string; label: string; end?: boolean }[] = [
   { to: "/charts",                    label: "Charts"       },
   { to: "/health",                    label: "Health"       },
   { to: "/settings",                  label: "Settings"     },
-  { to: "/help/trade-support",        label: "Trade Guide"  },
+  { to: "/help/trade-support",        label: "Support"      },
   { to: "/help/ops-runbook",          label: "IT Guide"     },
-  { to: "/help",                      label: "All Help", end: true },
+  { to: "/help",                      label: "Help", end: true },
 ];
 
 
@@ -73,8 +74,8 @@ export function Layout() {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 20,
-          padding: "14px 28px",
+          gap: 14,
+          padding: "6px 20px",
           borderBottom: "1px solid var(--border)",
           background: "rgba(11, 18, 32, 0.85)",
           backdropFilter: "blur(8px)",

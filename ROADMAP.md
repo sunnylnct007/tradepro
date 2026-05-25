@@ -13,6 +13,62 @@ those assumptions change.
 
 ---
 
+## Portfolio safety — default to T212 DEMO
+
+**Status:** PLANNED (user request 2026-05-25).
+
+**Problem:** the Portfolio page currently reads from the live T212 account
+(`Trading212Client` → `/equity/positions`). On a fresh sign-in or accidental
+"Run" click, real-money positions are visible by default — and worse, any
+action button can hit the live account.
+
+**Fix:**
+1. Default `Trading212Mode` to `demo` everywhere — Portfolio reads, paper
+   approvals, MCP `get_portfolio`. The `Trading212DemoClient` already exists
+   (sibling type to enforce "this code path can never hit live").
+2. Settings page gains an explicit `Account: DEMO / LIVE` pill at the very
+   top — red border + confirmation modal when toggling to LIVE.
+3. Visual: every page header shows a small `LIVE` chip when live mode is
+   on (red bg). Demo shows a neutral `DEMO` chip so the user always knows.
+4. Auth lock: only the owner UID (sunnylnct007@gmail.com) can flip to LIVE.
+
+**Tickets:**
+- T#P1 Portfolio backend: route reads through `IT212Client` interface that
+  resolves to demo or live by `Settings.Trading212Mode`
+- T#P2 Frontend mode chip + confirmation modal on toggle
+- T#P3 Owner-UID gate on the toggle endpoint
+
+---
+
+## IBKR integration — paper-first
+
+**Status:** PLANNED (user request 2026-05-25).
+
+**Why:** T212 covers equities + ETFs + some FX but no options, futures, or
+extended-hours. IBKR is the eventual home for the algo + quant strategies
+that need richer instrument coverage. Same paper-first principle as T212:
+start with paper trading, prove the wiring, switch to live by toggle.
+
+**Approach:**
+1. `IBKRClient` mirroring the `Trading212Client` shape so the OMS service
+   sees a single `IBroker` interface — same `IBrokerOrder` /
+   `IBrokerFill` types. New `oms_orders.broker = 'IBKR_PAPER' | 'IBKR_LIVE'`.
+2. Connect via IB Gateway (TWS API) running on Mac initially. AWS-side
+   batch execution comes later via `ib-insync` or `ibapi` containerised.
+3. Paper account credentials go into `tradepro/all` Secrets Manager under
+   `ibkr-paper-username` / `ibkr-paper-password` (same pattern as T212).
+4. Strategies page Run button gains a `Broker: T212 / IBKR` picker.
+5. Portfolio page gains an IBKR positions panel alongside T212.
+
+**Tickets:**
+- T#I1 IBKRClient with paper-mode connect + positions / orders / fills
+- T#I2 IBroker abstraction over T212Client + IBKRClient
+- T#I3 OMS broker enum extension + migration
+- T#I4 Strategies page broker picker
+- T#I5 Portfolio page IBKR positions panel
+
+---
+
 ## Order Management System (OMS) — proper persistence + lifecycle
 
 **Status:** PLANNED. Started ad-hoc placement (Trading 212 pending-orders queue

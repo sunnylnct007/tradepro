@@ -113,6 +113,34 @@ export const api = {
         default_params: Record<string, unknown>;
       }>;
     }>("/api/paper/strategies/"),
+
+  // Ops queue — UI-driven strategy runs (task #68 / #69). User
+  // enqueues; Mac claims; status flows back to /api/ops/sessions.
+  opsSessions: (kind?: string, limit = 100) =>
+    get<{
+      sessions: Array<{
+        requestId: string;
+        kind: string;
+        status: string;
+        payload: Record<string, unknown>;
+        claimedBy: string | null;
+        enqueuedAtUtc: string;
+        claimedAtUtc: string | null;
+        completedAtUtc: string | null;
+        resultSummary: Record<string, unknown> | null;
+      }>;
+    }>("/api/ops/sessions", { kind, limit }),
+  runIntraday: (payload: Record<string, unknown>) =>
+    post<{
+      requestId: string;
+      kind: string;
+      status: string;
+      payload: Record<string, unknown>;
+      enqueuedAtUtc: string;
+    }, Record<string, unknown>>("/api/ops/run-intraday", payload),
+  cancelOpsSession: (requestId: string) =>
+    post<unknown, {}>(
+      `/api/ops/sessions/${encodeURIComponent(requestId)}/cancel`, {}),
   paperSnapshots: () =>
     get<Array<{
       sessionLabel: string;
