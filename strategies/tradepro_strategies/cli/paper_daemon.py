@@ -268,10 +268,33 @@ def run_session(args: list[str], dry_run: bool) -> tuple[int, dict]:
     return result.returncode, snapshot
 
 
+def _per_symbol_breakdown(strategies: list[dict]) -> list[dict]:
+    """Collapse per-strategy open positions into a per-symbol view.
+
+    Only `positions` (not fills) are exposed per-symbol because the
+    snapshot's recent_fills list is empty unless paper_session is run
+    with --push-fills, and fills_count is per-strategy not per-symbol.
+    """
+    by_symbol: dict[str, dict] = {}
+    for s in strategies:
+        for p in s.get("positions") or []:
+            symbol = p.get("symbol")
+            if not symbol:
+                continue
+            entry = by_symbol.setdefault(symbol, {
+                "symbol": symbol,
+                "quantity": 0,
+                "unrealised_pnl": 0.0,
+            })
+            entry["quantity"] += int(p.get("quantity") or 0)
+            entry["unrealised_pnl"] += float(p.get("unrealised_pnl") or 0.0)
+    return list(by_symbol.values())
+
+
 def _summarize_snapshot(snapshot: dict) -> dict:
     """Flatten a paper-snapshot into result_summary-friendly fields."""
     if not snapshot:
-        return {"fills": 0, "equity": 0.0, "positions": 0}
+        return {"fills": 0, "equity": 0.0, "positions": 0, "per_symbol": []}
     strategies = snapshot.get("strategies") or []
     fills = sum(int(s.get("fills_count") or 0) for s in strategies)
     equity = sum(float(s.get("equity") or 0.0) for s in strategies)
@@ -282,66 +305,28 @@ def _summarize_snapshot(snapshot: dict) -> dict:
         "equity": equity,
         "realised_pnl": realised,
         "positions": positions,
+        "per_symbol": _per_symbol_breakdown(strategies),
         "session_label": snapshot.get("session_label"),
     }
 
 
 def run_session_for_params(params: dict, dry_run: bool) -> tuple[int, dict, str]:
-    """Run one or more subprocesses for the params.
+    """Run a single subprocess for the params.
 
-    ``YfinanceIntradayBus`` is single-symbol today, so multi-symbol requests
-    must be fanned out as N subprocesses. Returns aggregated exit code,
+    The bar bus multiplexes N symbols (MultiSymbolSourceBackedBus) so
+    one subprocess handles the whole request. Returns exit code,
     result_summary, and command string for logging.
     """
     symbols = params["symbols"] or []
-    if len(symbols) <= 1:
-        args = build_command(params)
-        exit_code, snapshot = run_session(args, dry_run)
-        summary = {
-            "strategy": params["strategy"],
-            "symbols": symbols,
-            **_summarize_snapshot(snapshot),
-        }
-        return exit_code, summary, " ".join(args)
-
-    log.info("fan-out: %d symbols → %d subprocesses (yfinance bus is single-symbol)",
-             len(symbols), len(symbols))
-    per_symbol: list[dict] = []
-    worst_exit = 0
-    last_cmd = ""
-    totals = {"fills": 0, "equity": 0.0, "realised_pnl": 0.0, "positions": 0}
-    for symbol in symbols:
-        sub_params = dict(params)
-        sub_params["symbols"] = [symbol]
-        args = build_command(sub_params)
-        last_cmd = " ".join(args)
-        exit_code, snapshot = run_session(args, dry_run)
-        flat = _summarize_snapshot(snapshot)
-        per_symbol.append({
-            "symbol": symbol,
-            "ok": exit_code == 0,
-            "exit_code": exit_code,
-            "fills": flat["fills"],
-            "equity": flat["equity"],
-            "realised_pnl": flat["realised_pnl"],
-            "positions": flat["positions"],
-        })
-        for k in ("fills", "positions"):
-            totals[k] += flat[k]
-        for k in ("equity", "realised_pnl"):
-            totals[k] += flat[k]
-        if exit_code != 0 and worst_exit == 0:
-            worst_exit = exit_code
-
+    args = build_command(params)
+    exit_code, snapshot = run_session(args, dry_run)
     summary = {
         "strategy": params["strategy"],
         "symbols": symbols,
         "symbols_run": len(symbols),
-        "symbols_ok": sum(1 for r in per_symbol if r["ok"]),
-        "per_symbol": per_symbol,
-        **totals,
+        **_summarize_snapshot(snapshot),
     }
-    return worst_exit, summary, last_cmd
+    return exit_code, summary, " ".join(args)
 
 
 # ---------------------------------------------------------------------------

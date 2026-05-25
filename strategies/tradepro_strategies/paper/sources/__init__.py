@@ -28,7 +28,7 @@ behind the same `fetch(symbol, date, interval) → list[Bar]` contract.
 The Engine's BarBus stays in-process; only the source layer crosses
 the network.
 """
-from .base import BarSource, SourceBackedBus
+from .base import BarSource, MultiSymbolSourceBackedBus, SourceBackedBus
 from .cache import CachedSource, ParquetBarStore
 from .fallback import FallbackSource
 from .finnhub import FinnhubSource
@@ -37,6 +37,7 @@ from .yfinance import YfinanceSource
 __all__ = [
     "BarSource",
     "SourceBackedBus",
+    "MultiSymbolSourceBackedBus",
     "CachedSource",
     "ParquetBarStore",
     "FallbackSource",

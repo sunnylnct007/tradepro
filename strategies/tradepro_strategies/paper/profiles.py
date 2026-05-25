@@ -37,6 +37,7 @@ from .sources import (
     CachedSource,
     FallbackSource,
     FinnhubSource,
+    MultiSymbolSourceBackedBus,
     SourceBackedBus,
     YfinanceSource,
 )
@@ -227,19 +228,25 @@ def _yfinance_bus(
     backtests of the same session free; the Finnhub fallback covers
     Yahoo's 60-day intraday window limit and transient 5xx blips.
 
-    Single-symbol today — multi-symbol replay needs a multiplexing
-    wrapper that interleaves bars in timestamp order, which is a
-    follow-up commit."""
+    Single-symbol returns a `SourceBackedBus`; multi-symbol returns a
+    `MultiSymbolSourceBackedBus` that fetches every symbol concurrently
+    and replays a merged, timestamp-ordered stream through one bus."""
     if session_date is None:
         raise ValueError("yfinance / t212 / stub_live profiles require `session_date`")
-    if len(symbols) != 1:
-        raise ValueError(
-            f"YfinanceIntradayBus is single-symbol today; got {symbols}. "
-            f"Run one Engine per symbol, or wait for the multiplex wrapper."
+    if not symbols:
+        raise ValueError("yfinance / t212 / stub_live profiles require at least one symbol")
+    source = default_bar_source()
+    if len(symbols) == 1:
+        return SourceBackedBus(
+            source=source,
+            symbol=symbols[0],
+            session_date=session_date,
+            interval=interval,
+            pace_seconds=pace_seconds,
         )
-    return SourceBackedBus(
-        source=default_bar_source(),
-        symbol=symbols[0],
+    return MultiSymbolSourceBackedBus(
+        source=source,
+        symbols=symbols,
         session_date=session_date,
         interval=interval,
         pace_seconds=pace_seconds,
