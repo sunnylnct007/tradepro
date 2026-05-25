@@ -13,6 +13,12 @@ Two operating modes
       Poll exactly once, run the session if one was claimed, then exit.
       Designed for launchd WatchPaths triggers.
 
+SQS mode (preferred when TRADEPRO_PAPER_SQS_URL is set):
+      tradepro-paper-watch --sqs-url https://sqs.eu-west-1.amazonaws.com/...
+      OR export TRADEPRO_PAPER_SQS_URL=...
+      Long-polls SQS (WaitTimeSeconds=20) instead of REST polling.
+      Falls back to REST polling if boto3 is not installed.
+
 Authentication
 --------------
   Reads the ingest bearer token from get_secret("ingest-api-token") or
@@ -34,6 +40,7 @@ API surface (added to .NET backend in parallel)
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import subprocess
@@ -196,6 +203,105 @@ def run_session(args: list[str], dry_run: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
+# SQS helpers
+# ---------------------------------------------------------------------------
+
+def _sqs_client(sqs_url: str):  # noqa: ARG001
+    """Return a boto3 SQS client, or None if boto3 is not installed."""
+    try:
+        import boto3  # noqa: PLC0415
+        return boto3.client("sqs")
+    except ImportError:
+        log.warning("boto3 not installed — falling back to REST polling")
+        return None
+
+
+def receive_sqs_message(sqs_client, sqs_url: str) -> tuple[dict | None, str | None]:
+    """Long-poll SQS for one trigger message.
+
+    Returns (session_info_dict, receipt_handle) or (None, None) if no message.
+    receipt_handle must be passed to delete_sqs_message() after processing.
+    WaitTimeSeconds=20 keeps the connection open for up to 20 s — near-instant
+    delivery, minimal API calls (1 call per 20 s when queue is empty).
+    """
+    try:
+        resp = sqs_client.receive_message(
+            QueueUrl=sqs_url,
+            MaxNumberOfMessages=1,
+            WaitTimeSeconds=20,
+            AttributeNames=["All"],
+            MessageAttributeNames=["All"],
+        )
+        messages = resp.get("Messages", [])
+        if not messages:
+            return None, None
+        msg = messages[0]
+        receipt_handle = msg["ReceiptHandle"]
+        try:
+            body = json.loads(msg["Body"])
+        except (json.JSONDecodeError, KeyError):
+            log.warning(
+                "SQS message body is not valid JSON — deleting and skipping: %s",
+                msg.get("Body", "")[:200],
+            )
+            sqs_client.delete_message(QueueUrl=sqs_url, ReceiptHandle=receipt_handle)
+            return None, None
+        # params may be top-level or nested under a "params" key
+        raw_params = body.get("params", body)
+        request_id = body.get("request_id", f"sqs_{int(time.time())}")
+        return {"request_id": request_id, "raw_params": raw_params}, receipt_handle
+    except Exception as exc:  # noqa: BLE001
+        log.warning("SQS receive failed: %s — will retry", exc)
+        return None, None
+
+
+def delete_sqs_message(sqs_client, sqs_url: str, receipt_handle: str) -> None:
+    """Delete a processed SQS message (prevents re-delivery)."""
+    try:
+        sqs_client.delete_message(QueueUrl=sqs_url, ReceiptHandle=receipt_handle)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("SQS delete failed (message may re-appear): %s", exc)
+
+
+def sqs_loop(
+    *,
+    sqs_client,
+    sqs_url: str,
+    api_base: str,
+    token: str,
+    default_broker: str,
+    dry_run: bool,
+    once: bool,
+) -> None:
+    """Event-driven loop: block on SQS long-poll, run session on message."""
+    log.info("SQS mode: long-polling %s (WaitTimeSeconds=20)", sqs_url)
+    while True:
+        session_info, receipt_handle = receive_sqs_message(sqs_client, sqs_url)
+        if session_info is not None:
+            request_id = session_info["request_id"]
+            params = _parse_params(session_info["raw_params"], default_broker)
+            log.info("SQS trigger received: request_id=%s params=%s", request_id, params)
+            # Delete BEFORE running so message is not re-delivered if the
+            # process crashes mid-session. The DB row is the authoritative record.
+            delete_sqs_message(sqs_client, sqs_url, receipt_handle)
+            cmd = build_command(params)
+            exit_code = run_session(cmd, dry_run)
+            cmd_str = " ".join(cmd)
+            if exit_code == 0:
+                complete_success(api_base, token, request_id, cmd_str)
+            else:
+                complete_failure(api_base, token, request_id, exit_code)
+            if once:
+                return
+        else:
+            # No message after 20 s long-poll timeout — loop immediately.
+            # SQS handles the wait internally via WaitTimeSeconds; no sleep needed.
+            if once:
+                log.info("SQS: no pending trigger found (--once mode, exiting)")
+                return
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
@@ -207,12 +313,38 @@ def daemon_loop(
     default_broker: str,
     dry_run: bool,
     once: bool,
+    sqs_url: str = "",
 ) -> None:
     log.info(
-        "paper-daemon starting (api=%s interval=%ds once=%s dry_run=%s)",
-        api_base, interval, once, dry_run,
+        "paper-daemon starting (api=%s interval=%ds once=%s dry_run=%s sqs=%s)",
+        api_base, interval, once, dry_run, sqs_url or "disabled",
     )
 
+    # ------------------------------------------------------------------
+    # SQS mode (preferred)
+    # ------------------------------------------------------------------
+    if sqs_url:
+        client = _sqs_client(sqs_url)
+        if client is not None:
+            sqs_loop(
+                sqs_client=client,
+                sqs_url=sqs_url,
+                api_base=api_base,
+                token=token,
+                default_broker=default_broker,
+                dry_run=dry_run,
+                once=once,
+            )
+            return
+        # boto3 missing — fall through to REST polling
+        log.warning(
+            "TRADEPRO_PAPER_SQS_URL is set but boto3 unavailable — "
+            "falling back to REST polling"
+        )
+
+    # ------------------------------------------------------------------
+    # REST polling fallback (original behaviour)
+    # ------------------------------------------------------------------
     while True:
         data = poll_once(api_base, token)
 
@@ -279,6 +411,16 @@ def main() -> None:
         help="Explicit bearer token (rarely needed; prefer TRADEPRO_INGEST_TOKEN env var).",
     )
     parser.add_argument(
+        "--sqs-url",
+        default=None,
+        metavar="URL",
+        help=(
+            "SQS queue URL for event-driven triggers. "
+            "Overrides TRADEPRO_PAPER_SQS_URL. "
+            "Requires boto3; falls back to REST polling if boto3 is missing."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -302,6 +444,8 @@ def main() -> None:
 
     api_base = _api_base(args.api_url)
 
+    sqs_url = args.sqs_url or os.environ.get("TRADEPRO_PAPER_SQS_URL", "")
+
     daemon_loop(
         api_base=api_base,
         token=token,
@@ -309,6 +453,7 @@ def main() -> None:
         default_broker=args.broker,
         dry_run=args.dry_run,
         once=args.once,
+        sqs_url=sqs_url,
     )
 
 

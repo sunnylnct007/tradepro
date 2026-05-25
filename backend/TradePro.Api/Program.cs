@@ -149,6 +149,7 @@ builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderb
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills
 // all leave a trail. See VISION.md Principle 3.
+builder.Services.AddSingleton<SqsTriggerService>();
 builder.Services.AddSingleton<OrdersRepository>();
 builder.Services.AddSingleton<EventStream>();
 

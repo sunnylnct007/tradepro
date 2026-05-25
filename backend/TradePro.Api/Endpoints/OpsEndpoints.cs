@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TradePro.Api.Auth;
 using TradePro.Api.Data.Stores;
+using TradePro.Api.Providers;
 using TradePro.Api.Simulation;
 // IIntradayLeaderboardStore lives in TradePro.Api.Data.Stores too;
 // the using above covers it.
@@ -77,11 +78,12 @@ public static class OpsEndpoints
         // Queue a paper-trading session. Params: strategy, symbols (array),
         // capital_usd, broker, placement_mode, interval. Mac daemon polls
         // /ops/poll-paper to claim the row and run tradepro-paper.
-        group.MapPost("/run-paper", (JsonElement payload, ISessionRequestsStore store) =>
+        group.MapPost("/run-paper", (JsonElement payload, ISessionRequestsStore store, SqsTriggerService sqsTrigger) =>
         {
             if (payload.ValueKind != JsonValueKind.Object)
                 return Results.BadRequest(new { error = "payload must be a JSON object" });
             var req = store.Put("paper_session", payload);
+            sqsTrigger.SendTrigger(req.RequestId, payload);  // fire-and-forget
             return Results.Ok(Envelope(req));
         });
 
