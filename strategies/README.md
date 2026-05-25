@@ -149,6 +149,65 @@ uv run tradepro-push --kind backtest ../out/barc_sma.json
 Automate with `launchd` — drop a plist into `~/Library/LaunchAgents/` that
 runs the command every evening after the US close.
 
+## Paper trading
+
+Run a live paper session against T212 demo manually:
+
+```bash
+# Equity — Ichimoku trend-following (daily, MOO signal)
+uv run tradepro-paper --broker t212 --strategy ichimoku_equity \
+    --symbols AAPL,MSFT,NVDA,TSLA --capital-usd 100000 \
+    --placement-mode manual --push
+
+# FX — Ichimoku mean-reversion (hourly, all G10 pairs)
+# Safe to run on weekends / UK bank holidays — FX is 24/5
+uv run tradepro-paper --broker t212 --strategy ichimoku_fx_mr \
+    --capital-usd 50000 --placement-mode manual --push
+```
+
+`--placement-mode manual` queues orders for human Approve/Reject in the UI.
+`--push` sends the session snapshot to the API so the Paper page updates.
+
+### Automatic scheduling (Mac launchd)
+
+The `scripts/launchd/` folder contains plists that fire the above commands
+automatically. Install them once:
+
+```bash
+# From the repo root (tradepro/tradepro/), NOT from inside strategies/
+bash scripts/install_paper_schedules.sh
+```
+
+This loads three launchd jobs:
+
+| Job | Schedule | What it runs |
+|-----|----------|--------------|
+| `com.tradepro.paper-equity` | Weekdays 13:35 UTC (8:35 ET) | `ichimoku_equity` on 10 US names |
+| `com.tradepro.paper-fx` | Weekdays 22:05 UTC (6:05 ET) | `ichimoku_fx_mr` on all G10 pairs |
+| `com.tradepro.paper-watch` | Every 2 min | Polls for UI-triggered sessions |
+
+Check logs:
+
+```bash
+tail -f /tmp/tradepro-paper-equity.log
+tail -f /tmp/tradepro-paper-fx.log
+tail -f /tmp/tradepro-paper-watch.log
+```
+
+Uninstall:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.tradepro.paper-*.plist
+```
+
+### UI trigger
+
+Open the Paper page in the web UI (`/paper-live`), pick a strategy, and click
+**Run Session**. The Mac daemon (`tradepro-paper-watch`) picks it up within
+60 seconds and runs the session.
+
+---
+
 ## Adding a strategy
 
 1. Create `tradepro_strategies/strategies/<name>.py` exporting a function that
