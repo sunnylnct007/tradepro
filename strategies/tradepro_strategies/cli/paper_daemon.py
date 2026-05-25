@@ -126,21 +126,62 @@ def _complete(api_base: str, token: str, request_id: str, payload: dict) -> None
         log.warning("complete-paper failed for %s: %s", request_id, exc)
 
 
-def complete_success(api_base: str, token: str, request_id: str, command: str) -> None:
+def complete_success(
+    api_base: str,
+    token: str,
+    request_id: str,
+    command: str,
+    summary: dict | None = None,
+) -> None:
+    payload: dict = {"exit_code": 0, "command": command}
+    if summary:
+        payload.update(summary)
     _complete(api_base, token, request_id, {
         "status": "completed",
-        "result_summary": {
-            "exit_code": 0,
-            "command": command,
-        },
+        "result_summary": payload,
     })
 
 
-def complete_failure(api_base: str, token: str, request_id: str, exit_code: int) -> None:
+def complete_failure(
+    api_base: str,
+    token: str,
+    request_id: str,
+    exit_code: int,
+    error: str | None = None,
+) -> None:
     _complete(api_base, token, request_id, {
         "status": "failed",
-        "error": f"exit_code={exit_code}",
+        "error": error or f"exit_code={exit_code}",
     })
+
+
+# ---------------------------------------------------------------------------
+# Snapshot extraction
+# ---------------------------------------------------------------------------
+
+def _extract_snapshots_from_stdout(stdout: str) -> list[dict]:
+    """Best-effort: parse any `paper-snapshot` JSON blocks printed to stdout.
+
+    The subprocess pretty-prints the snapshot to stdout before pushing to the
+    backend. We scan for top-level JSON objects whose `kind == "paper-snapshot"`.
+    """
+    if not stdout:
+        return []
+    decoder = json.JSONDecoder()
+    snapshots: list[dict] = []
+    pos = 0
+    while pos < len(stdout):
+        idx = stdout.find("{", pos)
+        if idx < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(stdout, idx)
+            if isinstance(obj, dict) and obj.get("kind") == "paper-snapshot":
+                snapshots.append(obj)
+            pos = end
+        except json.JSONDecodeError:
+            pos = idx + 1
+    return snapshots
 
 
 # ---------------------------------------------------------------------------
@@ -195,21 +236,112 @@ def build_command(params: dict) -> list[str]:
     return args
 
 
-def run_session(args: list[str], dry_run: bool) -> int:
-    """Run tradepro-paper as a subprocess. Returns the exit code."""
+def run_session(args: list[str], dry_run: bool) -> tuple[int, dict]:
+    """Run tradepro-paper as a subprocess.
+
+    Returns ``(exit_code, snapshot)`` where ``snapshot`` is the last
+    ``paper-snapshot`` JSON block printed to stdout (or ``{}`` if none).
+    Stdout / stderr are mirrored to the daemon log so existing tooling
+    that watches /tmp/tradepro-paper-watch.log still works.
+    """
     cmd_str = " ".join(args)
     if dry_run:
         log.info("[dry-run] would run: %s", cmd_str)
-        return 0
+        return 0, {}
 
     log.info("launching paper session: %s", cmd_str)
     try:
-        result = subprocess.run(args, check=False)
-        log.info("paper session finished with exit_code=%d", result.returncode)
-        return result.returncode
+        result = subprocess.run(args, check=False, capture_output=True, text=True)
     except OSError as exc:
         log.error("failed to launch subprocess: %s", exc)
-        return 1
+        return 1, {}
+
+    # Tee output to keep launchd log readable for humans.
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+
+    log.info("paper session finished with exit_code=%d", result.returncode)
+    snapshots = _extract_snapshots_from_stdout(result.stdout or "")
+    snapshot = snapshots[-1] if snapshots else {}
+    return result.returncode, snapshot
+
+
+def _summarize_snapshot(snapshot: dict) -> dict:
+    """Flatten a paper-snapshot into result_summary-friendly fields."""
+    if not snapshot:
+        return {"fills": 0, "equity": 0.0, "positions": 0}
+    strategies = snapshot.get("strategies") or []
+    fills = sum(int(s.get("fills_count") or 0) for s in strategies)
+    equity = sum(float(s.get("equity") or 0.0) for s in strategies)
+    realised = sum(float(s.get("realised_pnl") or 0.0) for s in strategies)
+    positions = sum(len(s.get("positions") or []) for s in strategies)
+    return {
+        "fills": fills,
+        "equity": equity,
+        "realised_pnl": realised,
+        "positions": positions,
+        "session_label": snapshot.get("session_label"),
+    }
+
+
+def run_session_for_params(params: dict, dry_run: bool) -> tuple[int, dict, str]:
+    """Run one or more subprocesses for the params.
+
+    ``YfinanceIntradayBus`` is single-symbol today, so multi-symbol requests
+    must be fanned out as N subprocesses. Returns aggregated exit code,
+    result_summary, and command string for logging.
+    """
+    symbols = params["symbols"] or []
+    if len(symbols) <= 1:
+        args = build_command(params)
+        exit_code, snapshot = run_session(args, dry_run)
+        summary = {
+            "strategy": params["strategy"],
+            "symbols": symbols,
+            **_summarize_snapshot(snapshot),
+        }
+        return exit_code, summary, " ".join(args)
+
+    log.info("fan-out: %d symbols → %d subprocesses (yfinance bus is single-symbol)",
+             len(symbols), len(symbols))
+    per_symbol: list[dict] = []
+    worst_exit = 0
+    last_cmd = ""
+    totals = {"fills": 0, "equity": 0.0, "realised_pnl": 0.0, "positions": 0}
+    for symbol in symbols:
+        sub_params = dict(params)
+        sub_params["symbols"] = [symbol]
+        args = build_command(sub_params)
+        last_cmd = " ".join(args)
+        exit_code, snapshot = run_session(args, dry_run)
+        flat = _summarize_snapshot(snapshot)
+        per_symbol.append({
+            "symbol": symbol,
+            "ok": exit_code == 0,
+            "exit_code": exit_code,
+            "fills": flat["fills"],
+            "equity": flat["equity"],
+            "realised_pnl": flat["realised_pnl"],
+            "positions": flat["positions"],
+        })
+        for k in ("fills", "positions"):
+            totals[k] += flat[k]
+        for k in ("equity", "realised_pnl"):
+            totals[k] += flat[k]
+        if exit_code != 0 and worst_exit == 0:
+            worst_exit = exit_code
+
+    summary = {
+        "strategy": params["strategy"],
+        "symbols": symbols,
+        "symbols_run": len(symbols),
+        "symbols_ok": sum(1 for r in per_symbol if r["ok"]),
+        "per_symbol": per_symbol,
+        **totals,
+    }
+    return worst_exit, summary, last_cmd
 
 
 # ---------------------------------------------------------------------------
@@ -294,11 +426,9 @@ def sqs_loop(
             # Delete BEFORE running so message is not re-delivered if the
             # process crashes mid-session. The DB row is the authoritative record.
             delete_sqs_message(sqs_client, sqs_url, receipt_handle)
-            cmd = build_command(params)
-            exit_code = run_session(cmd, dry_run)
-            cmd_str = " ".join(cmd)
+            exit_code, summary, cmd_str = run_session_for_params(params, dry_run)
             if exit_code == 0:
-                complete_success(api_base, token, request_id, cmd_str)
+                complete_success(api_base, token, request_id, cmd_str, summary)
             else:
                 complete_failure(api_base, token, request_id, exit_code)
             if once:
@@ -362,12 +492,10 @@ def daemon_loop(
             # Backend wraps the session in a "session" envelope with snake_case keys.
             request_id: str = (data.get("session") or {}).get("request_id", "unknown")
             params = _parse_params(data, default_broker)
-            args = build_command(params)
-            exit_code = run_session(args, dry_run)
-            cmd_str = " ".join(args)
+            exit_code, summary, cmd_str = run_session_for_params(params, dry_run)
 
             if exit_code == 0:
-                complete_success(api_base, token, request_id, cmd_str)
+                complete_success(api_base, token, request_id, cmd_str, summary)
             else:
                 complete_failure(api_base, token, request_id, exit_code)
 
