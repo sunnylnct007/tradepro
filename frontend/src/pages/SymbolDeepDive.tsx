@@ -174,7 +174,7 @@ function PageShell(props: {
         <SectionVerdict row={row} allRows={allRows} />
       )}
       {state === "ready" && row && (
-        <SymbolAnalysisCard row={row} />
+        <SymbolAnalysisCard row={row} universe={universe} />
       )}
       {state === "ready" && row?.combined_verdict && (
         <SectionCombinedVerdict cv={row.combined_verdict} />
