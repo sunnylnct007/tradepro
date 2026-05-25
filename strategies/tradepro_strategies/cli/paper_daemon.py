@@ -29,10 +29,11 @@ API surface (added to .NET backend in parallel)
   POST /api/ops/poll-paper
       Request body: {}
       Response (no pending session): {"claimed": false}
-      Response (session claimed):    {"claimed": true, "requestId": "...",
-                                      "params": {...}}
+      Response (session claimed):    {"claimed": true,
+                                      "session": {"request_id": "...",
+                                                  "params": {...}, ...}}
 
-  POST /api/ops/complete-intraday/{requestId}
+  POST /api/ops/complete-paper/{requestId}
       Body: {"status": "completed"|"failed",
              "result_summary": {...},   # on success
              "error": "..."}            # on failure
@@ -46,6 +47,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import date
 
 import requests
 
@@ -115,13 +117,13 @@ def poll_once(api_base: str, token: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def _complete(api_base: str, token: str, request_id: str, payload: dict) -> None:
-    url = f"{api_base}/api/ops/complete-intraday/{request_id}"
+    url = f"{api_base}/api/ops/complete-paper/{request_id}"
     try:
         resp = requests.post(url, headers=_headers(token), json=payload, timeout=30)
         resp.raise_for_status()
-        log.info("complete-intraday OK: request_id=%s status=%s", request_id, payload.get("status"))
+        log.info("complete-paper OK: request_id=%s status=%s", request_id, payload.get("status"))
     except requests.RequestException as exc:
-        log.warning("complete-intraday failed for %s: %s", request_id, exc)
+        log.warning("complete-paper failed for %s: %s", request_id, exc)
 
 
 def complete_success(api_base: str, token: str, request_id: str, command: str) -> None:
@@ -146,8 +148,15 @@ def complete_failure(api_base: str, token: str, request_id: str, exit_code: int)
 # ---------------------------------------------------------------------------
 
 def _parse_params(raw: dict, default_broker: str) -> dict:
-    """Extract and normalise session params from the poll-paper response."""
-    params = raw.get("params") or {}
+    """Extract and normalise session params from the poll-paper response.
+
+    The backend wraps the session in a "session" envelope:
+      {"claimed": true, "session": {"request_id": "...", "params": {...}}}
+    Fall back to reading directly from raw for SQS messages which use a
+    flat structure.
+    """
+    session = raw.get("session") or {}
+    params = session.get("params") or raw.get("params") or {}
     strategy = params.get("strategy", "ichimoku_equity")
     symbols_raw = params.get("symbols", ["AAPL", "MSFT", "NVDA"])
     # Accept both a list and a comma-separated string.
@@ -178,6 +187,7 @@ def build_command(params: dict) -> list[str]:
         "--symbols", ",".join(params["symbols"]),
         "--capital-usd", str(params["capital_usd"]),
         "--placement-mode", params["placement_mode"],
+        "--session-date", date.today().isoformat(),  # required by yfinance/t212 profiles
         "--push",
     ]
     if params["interval"]:
@@ -349,7 +359,8 @@ def daemon_loop(
         data = poll_once(api_base, token)
 
         if data is not None:
-            request_id: str = data.get("requestId", "unknown")
+            # Backend wraps the session in a "session" envelope with snake_case keys.
+            request_id: str = (data.get("session") or {}).get("request_id", "unknown")
             params = _parse_params(data, default_broker)
             args = build_command(params)
             exit_code = run_session(args, dry_run)

@@ -104,12 +104,13 @@ public sealed class PostgresSessionRequestsStore : ISessionRequestsStore
 
     public SessionRequest? Cancel(string requestId)
     {
-        // Only Pending rows can be cancelled — once Claimed the work
-        // is in flight on the Mac and cancel is moot.
+        // Allow cancelling both Pending and Claimed rows. Claimed means the
+        // Mac daemon grabbed the row but may have crashed before completing —
+        // the UI needs a way to clean those up without waiting for a timeout.
         using var conn = _db.OpenConnection();
         conn.Execute(@"
             UPDATE session_requests SET state = 'Cancelled', completed_at_utc = NOW()
-            WHERE request_id = @requestId AND state = 'Pending';",
+            WHERE request_id = @requestId AND state IN ('Pending', 'Claimed');",
             new { requestId });
         return ReadOne(conn, requestId);
     }

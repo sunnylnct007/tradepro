@@ -464,7 +464,9 @@ export function PaperLive() {
               </thead>
               <tbody>
                 {sessions.map((s, idx) => {
-                  const isPending = s.state.toLowerCase() === "pending";
+                  const stateLC = s.state.toLowerCase();
+                  const isPending = stateLC === "pending";
+                  const isClaimed = stateLC === "claimed";
                   const isCancelling = cancellingId === s.request_id;
                   const summary = s.error
                     ? s.error
@@ -521,7 +523,7 @@ export function PaperLive() {
                         {summary}
                       </td>
                       <td style={{ padding: "10px 12px", textAlign: "right" }}>
-                        {isPending && (
+                        {(isPending || isClaimed) && (
                           <button
                             onClick={() => handleCancel(s.request_id)}
                             disabled={isCancelling}
