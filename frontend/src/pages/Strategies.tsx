@@ -19,15 +19,59 @@
  * Closes the trader's loop: "trigger the quant strategy from the
  * browser, see it run, see the output" — no Mac CLI required.
  */
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 
 type Strategy = {
   name: string;
   class: string;
   summary: string;
+  source?: string;                 // "trader-quant" | "alpha-engine" | "scaffold"
+  status?: string;                 // code default
+  default_lookback_days?: number;
   default_params: Record<string, unknown>;
 };
+
+type StatusOverride = {
+  StrategyId: string;
+  Status: string;
+  UpdatedAtUtc: string;
+  UpdatedBy: string;
+};
+
+// Promotion lifecycle — keep ordered so "promote" cycles forward.
+const STATUS_FLOW = ["evaluating", "backtest-ok", "scheduled", "live-eligible"] as const;
+type LifecycleStatus = (typeof STATUS_FLOW)[number];
+
+function nextStatus(current: string): LifecycleStatus | null {
+  const idx = (STATUS_FLOW as readonly string[]).indexOf(current);
+  if (idx === -1 || idx === STATUS_FLOW.length - 1) return null;
+  return STATUS_FLOW[idx + 1];
+}
+
+function sourceBadge(source: string | undefined): { label: string; bg: string; fg: string } {
+  switch (source) {
+    case "trader-quant":
+      return { label: "TRADER", bg: "rgba(31,193,107,0.12)", fg: "#1fc16b" };
+    case "alpha-engine":
+      return { label: "ALPHA", bg: "rgba(79,140,255,0.12)", fg: "#4f8cff" };
+    default:
+      return { label: "SCAFFOLD", bg: "rgba(107,114,128,0.12)", fg: "#9ca3af" };
+  }
+}
+
+function statusBadge(status: string): { bg: string; fg: string } {
+  switch (status) {
+    case "live-eligible":
+      return { bg: "rgba(31,193,107,0.18)", fg: "#1fc16b" };
+    case "scheduled":
+      return { bg: "rgba(79,140,255,0.15)", fg: "#4f8cff" };
+    case "backtest-ok":
+      return { bg: "rgba(217,119,6,0.15)", fg: "#d97706" };
+    default: // evaluating
+      return { bg: "rgba(107,114,128,0.15)", fg: "#9ca3af" };
+  }
+}
 
 type Session = {
   requestId: string;
@@ -53,13 +97,60 @@ export function Strategies() {
   // on weekends/holidays when today's data is empty.
   const todayIso = new Date().toISOString().slice(0, 10);
   const [dateFor, setDateFor] = useState<Record<string, string>>({});
-  // Per-strategy lookback (days). ichimoku_fx_mr defaults to 200 because
-  // its signal early-returns 0 until n >= max(horizons)*4 + max(smooths) + 5
-  // = 2573 bars — at ~13 trading-day 1h-bars after weekend gaps, 200
-  // calendar days produces ~2600+ bars which clears the gate. Other
-  // strategies don't need any lookback. The user can override per row.
-  const lookbackDefault = (name: string) => (name === "ichimoku_fx_mr" ? 200 : 0);
+  // Per-strategy lookback (days). Default comes from the catalog's
+  // `default_lookback_days` (declared on the strategy ClassVar) so a
+  // new trader-shipped strategy with N-day warmup just works. User can
+  // override per row before triggering.
   const [lookbackFor, setLookbackFor] = useState<Record<string, number>>({});
+  // Runtime status overrides keyed by strategy_id. Merge with catalog
+  // status: override wins when set, otherwise catalog default.
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, StatusOverride>>({});
+  const [expandedName, setExpandedName] = useState<string | null>(null);
+  const [promotingName, setPromotingName] = useState<string | null>(null);
+
+  const effectiveStatus = (s: Strategy): string =>
+    statusOverrides[s.name]?.Status || s.status || "evaluating";
+
+  const loadStatusOverrides = useCallback(async () => {
+    try {
+      const { overrides } = await api.strategyStatusOverrides();
+      const map: Record<string, StatusOverride> = {};
+      for (const o of overrides) map[o.StrategyId] = o;
+      setStatusOverrides(map);
+    } catch (e) {
+      // Non-fatal: page still works without overrides (catalog defaults
+      // are used). Log so a stale deploy is visible.
+      console.warn("strategyStatusOverrides failed:", e);
+    }
+  }, []);
+
+  const promote = async (s: Strategy) => {
+    const target = nextStatus(effectiveStatus(s));
+    if (!target) return;
+    setPromotingName(s.name);
+    setError(null);
+    try {
+      await api.setStrategyStatus(s.name, target);
+      await loadStatusOverrides();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setPromotingName(null);
+    }
+  };
+
+  const resetStatus = async (s: Strategy) => {
+    setPromotingName(s.name);
+    setError(null);
+    try {
+      await api.clearStrategyStatus(s.name);
+      await loadStatusOverrides();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setPromotingName(null);
+    }
+  };
 
   const loadSessions = useCallback(async () => {
     try {
@@ -75,9 +166,13 @@ export function Strategies() {
     setLoading(true);
     (async () => {
       try {
+        // Load catalog + sessions in parallel; status overrides are
+        // best-effort (loadStatusOverrides swallows its own errors so
+        // a stale deploy doesn't blank the page).
         const [s, q] = await Promise.all([
           api.paperStrategies(),
           api.opsSessions(undefined, 30),
+          loadStatusOverrides(),
         ]);
         if (cancelled) return;
         setStrategies(s.strategies);
@@ -91,7 +186,7 @@ export function Strategies() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [loadStatusOverrides]);
 
   // Auto-refresh sessions every 5s while any row is non-terminal.
   useEffect(() => {
@@ -109,7 +204,8 @@ export function Strategies() {
       return;
     }
     const session_date = dateFor[strategy.name] || todayIso;
-    const lookback_days = lookbackFor[strategy.name] ?? lookbackDefault(strategy.name);
+    const lookback_days =
+      lookbackFor[strategy.name] ?? strategy.default_lookback_days ?? 0;
     setBusyName(strategy.name);
     setError(null);
     try {
@@ -159,69 +255,177 @@ export function Strategies() {
           <thead>
             <tr>
               <Th>Name</Th>
-              <Th>Summary</Th>
+              <Th>Status</Th>
               <Th>Symbol</Th>
               <Th>Session date</Th>
-              <Th>Lookback (days)</Th>
-              <Th>Trigger</Th>
+              <Th>Lookback</Th>
+              <Th>Actions</Th>
             </tr>
           </thead>
           <tbody>
-            {strategies.map(s => (
-              <tr key={s.name}>
-                <Td>
-                  <div style={{ fontWeight: 600 }}>{s.name}</div>
-                  <div style={smallMuted}>{s.class}</div>
-                </Td>
-                <Td>
-                  <div style={{ fontSize: 13 }}>{s.summary}</div>
-                </Td>
-                <Td>
-                  <input
-                    type="text"
-                    placeholder="AAPL"
-                    value={symbolFor[s.name] || ""}
-                    onChange={e => setSymbolFor({ ...symbolFor, [s.name]: e.target.value })}
-                    style={inputStyle}
-                  />
-                </Td>
-                <Td>
-                  <input
-                    type="date"
-                    value={dateFor[s.name] || todayIso}
-                    max={todayIso}
-                    onChange={e => setDateFor({ ...dateFor, [s.name]: e.target.value })}
-                    style={inputStyle}
-                    title="Use a past trading day on weekends/holidays to get real bars"
-                  />
-                </Td>
-                <Td>
-                  <input
-                    type="number"
-                    min={0}
-                    max={365}
-                    value={lookbackFor[s.name] ?? lookbackDefault(s.name)}
-                    onChange={e =>
-                      setLookbackFor({
-                        ...lookbackFor,
-                        [s.name]: Math.max(0, Number(e.target.value) || 0),
-                      })
-                    }
-                    style={{ ...inputStyle, width: 80 }}
-                    title="Extend bar fetch backwards from session date. ichimoku_fx_mr needs ~200 days to clear its 2573-bar gate; intraday strategies leave at 0. First run is slow; subsequent runs hit the parquet cache."
-                  />
-                </Td>
-                <Td>
-                  <button
-                    onClick={() => runStrategy(s)}
-                    disabled={busyName === s.name}
-                    style={runButtonStyle(busyName === s.name)}
-                  >
-                    {busyName === s.name ? "Queueing…" : "Run intraday"}
-                  </button>
-                </Td>
-              </tr>
-            ))}
+            {strategies.map(s => {
+              const srcB = sourceBadge(s.source);
+              const status = effectiveStatus(s);
+              const statB = statusBadge(status);
+              const isOverridden = !!statusOverrides[s.name];
+              const next = nextStatus(status);
+              const isPromoting = promotingName === s.name;
+              const expanded = expandedName === s.name;
+              return (
+                <React.Fragment key={s.name}>
+                  <tr>
+                    <Td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <button
+                          onClick={() => setExpandedName(expanded ? null : s.name)}
+                          style={chevronStyle}
+                          title={expanded ? "Hide params" : "Show default params"}
+                        >
+                          {expanded ? "▾" : "▸"}
+                        </button>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontWeight: 600 }}>{s.name}</span>
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                letterSpacing: "0.06em",
+                                padding: "2px 5px",
+                                borderRadius: 4,
+                                background: srcB.bg,
+                                color: srcB.fg,
+                              }}
+                              title={`source: ${s.source ?? "scaffold"}`}
+                            >
+                              {srcB.label}
+                            </span>
+                          </div>
+                          <div style={smallMuted}>{s.summary}</div>
+                        </div>
+                      </div>
+                    </Td>
+                    <Td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            background: statB.bg,
+                            color: statB.fg,
+                            letterSpacing: "0.03em",
+                          }}
+                          title={isOverridden ? "operator override" : "code default"}
+                        >
+                          {status}
+                          {isOverridden ? " *" : ""}
+                        </span>
+                      </div>
+                    </Td>
+                    <Td>
+                      <input
+                        type="text"
+                        placeholder="AAPL"
+                        value={symbolFor[s.name] || ""}
+                        onChange={e => setSymbolFor({ ...symbolFor, [s.name]: e.target.value })}
+                        style={inputStyle}
+                      />
+                    </Td>
+                    <Td>
+                      <input
+                        type="date"
+                        value={dateFor[s.name] || todayIso}
+                        max={todayIso}
+                        onChange={e => setDateFor({ ...dateFor, [s.name]: e.target.value })}
+                        style={inputStyle}
+                        title="Use a past trading day on weekends/holidays to get real bars"
+                      />
+                    </Td>
+                    <Td>
+                      <input
+                        type="number"
+                        min={0}
+                        max={365}
+                        value={lookbackFor[s.name] ?? s.default_lookback_days ?? 0}
+                        onChange={e =>
+                          setLookbackFor({
+                            ...lookbackFor,
+                            [s.name]: Math.max(0, Number(e.target.value) || 0),
+                          })
+                        }
+                        style={{ ...inputStyle, width: 70 }}
+                        title="Extend bar fetch backwards from session date. Default comes from strategy.default_lookback_days. First run is slow; subsequent runs hit the parquet cache."
+                      />
+                    </Td>
+                    <Td>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          onClick={() => runStrategy(s)}
+                          disabled={busyName === s.name}
+                          style={runButtonStyle(busyName === s.name)}
+                        >
+                          {busyName === s.name ? "Queueing…" : "Run"}
+                        </button>
+                        {next && (
+                          <button
+                            onClick={() => promote(s)}
+                            disabled={isPromoting}
+                            style={promoteButtonStyle(isPromoting)}
+                            title={`Promote to ${next}`}
+                          >
+                            {isPromoting ? "…" : `→ ${next}`}
+                          </button>
+                        )}
+                        {isOverridden && (
+                          <button
+                            onClick={() => resetStatus(s)}
+                            disabled={isPromoting}
+                            style={resetButtonStyle}
+                            title="Drop the runtime override and fall back to the code default"
+                          >
+                            reset
+                          </button>
+                        )}
+                      </div>
+                    </Td>
+                  </tr>
+                  {expanded && (
+                    <tr style={{ background: "rgba(255,255,255,0.02)" }}>
+                      <td colSpan={6} style={{ padding: "10px 14px" }}>
+                        <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>
+                          {s.class} · default_lookback_days={s.default_lookback_days ?? 0}
+                          {isOverridden && (
+                            <>
+                              {" · "}
+                              override:{" "}
+                              <span style={{ color: "var(--text-muted)" }}>
+                                {statusOverrides[s.name]?.UpdatedBy} at{" "}
+                                {new Date(statusOverrides[s.name]?.UpdatedAtUtc).toLocaleString()}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        <pre
+                          style={{
+                            margin: 0,
+                            padding: 10,
+                            background: "var(--bg-hover, rgba(255,255,255,0.03))",
+                            border: "1px solid var(--border)",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            color: "var(--text-dim)",
+                            overflowX: "auto",
+                          }}
+                        >
+                          {JSON.stringify(s.default_params, null, 2)}
+                        </pre>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </section>
@@ -393,6 +597,40 @@ const cancelButtonStyle: React.CSSProperties = {
   background: "transparent",
   color: "#a83a3a",
   border: "1px solid #a83a3a",
+  borderRadius: 4,
+  cursor: "pointer",
+};
+const chevronStyle: React.CSSProperties = {
+  width: 18,
+  height: 18,
+  padding: 0,
+  fontSize: 11,
+  background: "transparent",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
+  borderRadius: 3,
+  cursor: "pointer",
+  lineHeight: "1",
+};
+function promoteButtonStyle(busy: boolean): React.CSSProperties {
+  return {
+    padding: "4px 9px",
+    fontSize: 11,
+    fontWeight: 500,
+    background: busy ? "transparent" : "transparent",
+    color: busy ? "var(--text-muted)" : "#1fc16b",
+    border: `1px solid ${busy ? "var(--border)" : "#1fc16b"}`,
+    borderRadius: 4,
+    cursor: busy ? "wait" : "pointer",
+    whiteSpace: "nowrap",
+  };
+}
+const resetButtonStyle: React.CSSProperties = {
+  padding: "4px 9px",
+  fontSize: 11,
+  background: "transparent",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
   borderRadius: 4,
   cursor: "pointer",
 };

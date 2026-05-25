@@ -110,9 +110,46 @@ export const api = {
         name: string;
         class: string;
         summary: string;
+        source?: string;                 // "trader-quant" | "alpha-engine" | "scaffold"
+        status?: string;                 // code default; overridden via strategyStatusOverrides
+        default_lookback_days?: number;  // pre-fill for the Lookback (days) input
         default_params: Record<string, unknown>;
       }>;
     }>("/api/paper/strategies/"),
+
+  // Promotion-lifecycle overrides keyed by strategy_id. Merge client-
+  // side with paperStrategies — the override wins when present, otherwise
+  // catalog status is the source of truth.
+  strategyStatusOverrides: () =>
+    get<{
+      overrides: Array<{
+        StrategyId: string;
+        Status: string;
+        UpdatedAtUtc: string;
+        UpdatedBy: string;
+      }>;
+    }>("/api/paper/strategy-status/"),
+
+  setStrategyStatus: (strategyId: string, status: string) =>
+    post<unknown, { Status: string }>(
+      `/api/paper/strategy-status/${encodeURIComponent(strategyId)}`,
+      { Status: status },
+    ),
+
+  clearStrategyStatus: async (strategyId: string) => {
+    // .NET MapDelete; no `del` helper today, use raw fetch.
+    const headers = await authHeaders();
+    const resp = await fetch(
+      new URL(
+        `/api/paper/strategy-status/${encodeURIComponent(strategyId)}`,
+        config.apiBaseUrl,
+      ),
+      { method: "DELETE", headers },
+    );
+    if (!resp.ok && resp.status !== 404) {
+      throw new Error(`${resp.status} ${resp.statusText}`);
+    }
+  },
 
   // Ops queue — UI-driven strategy runs (task #68 / #69). User
   // enqueues; Mac claims; status flows back to /api/ops/sessions.
