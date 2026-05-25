@@ -72,6 +72,33 @@ public static class OmsEndpoints
             async (Guid orderId, ReasonBody body, HttpContext ctx, IOmsService oms) =>
                 await TransitionResult(() => oms.CancelAsync(orderId, ResolveActor(ctx), body.Reason)));
 
+        // Record a fill. Called by the daemon's audit push (Phase 1d)
+        // and, post-Phase 2, by the broker callback handler when a
+        // real fill arrives. Idempotent at the OmsService layer via
+        // FOR UPDATE on the parent row + delta math.
+        orders.MapPost("/{orderId:guid}/fill",
+            async (Guid orderId, FillBody body, HttpContext ctx, IOmsService oms) =>
+            {
+                if (body.Qty <= 0)
+                    return Results.BadRequest(new { error = "qty must be > 0" });
+                try
+                {
+                    var row = await oms.RecordFillAsync(
+                        orderId,
+                        body.Qty,
+                        body.Price,
+                        body.Fee,
+                        string.IsNullOrWhiteSpace(body.Currency) ? "USD" : body.Currency,
+                        body.BrokerFillId,
+                        ResolveActor(ctx));
+                    return Results.Ok(row);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.Conflict(new { error = ex.Message });
+                }
+            });
+
         // ── mode toggle ───────────────────────────────────────────
         var mode = app.MapGroup("/oms/mode").WithTags("OMS");
 
@@ -117,4 +144,11 @@ public static class OmsEndpoints
 
     public sealed record ReasonBody(string Reason);
     public sealed record ModeBody(string Mode);
+    public sealed record FillBody(
+        decimal Qty,
+        decimal Price,
+        decimal Fee = 0,
+        string? Currency = null,
+        string? BrokerFillId = null
+    );
 }

@@ -47,6 +47,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from datetime import date
 
 import requests
@@ -140,6 +141,120 @@ def complete_success(
         "status": "completed",
         "result_summary": payload,
     })
+
+
+# ---------------------------------------------------------------------------
+# OMS audit-trail push (Phase 1d)
+# ---------------------------------------------------------------------------
+
+def _post_oms_fills_from_snapshot(
+    api_base: str,
+    token: str,
+    snapshot: dict,
+    strategy_name: str,
+    broker: str,
+) -> int:
+    """For each fill in the snapshot, write an audit row to /api/oms.
+
+    Best-effort: a single fill failing doesn't abort the rest, and the
+    overall function never raises. Returns the count of fills posted so
+    the daemon log shows traffic.
+
+    For each fill we EnqueueAsync (PENDING_APPROVAL), Approve
+    (SUBMITTED), and RecordFill (FILLED) in three calls. The OMS
+    transitions are atomic per-call; in Phase 2 these collapse into
+    real-time interception before the broker so the order is in OMS
+    BEFORE it fills, not after.
+    """
+    if not snapshot:
+        return 0
+    strategies = snapshot.get("strategies") or []
+    headers = {**_headers(token)}
+    base_url = f"{api_base.rstrip('/')}/api/oms"
+    posted = 0
+    for entry in strategies:
+        sid = entry.get("strategy_id") or strategy_name
+        for fill in entry.get("recent_fills") or []:
+            try:
+                # 1) Enqueue intent. ClientOrderId derived from fill's
+                # order_id so retries are idempotent (the OMS unique
+                # index dedupes). Falls back to UUID when the fill
+                # snapshot didn't include an order_id.
+                client_id = fill.get("order_id") or str(uuid.uuid4())
+                # OMS expects a UUID-typed ClientOrderId; if order_id
+                # isn't UUID-shaped, hash it into one deterministically.
+                try:
+                    client_uuid = str(uuid.UUID(client_id))
+                except Exception:
+                    client_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, client_id))
+
+                intent = {
+                    "ClientOrderId": client_uuid,
+                    "Broker": _broker_to_oms_label(broker),
+                    "Symbol": fill.get("symbol") or "",
+                    "Side": (fill.get("side") or "").upper(),
+                    "Qty": float(fill.get("quantity") or 0),
+                    "OrderType": "MKT",
+                    "StrategyId": sid,
+                    "PlacedBy": "STRATEGY_AUTO",
+                }
+                if intent["Qty"] <= 0:
+                    continue
+                r = requests.post(f"{base_url}/orders", json=intent, headers=headers, timeout=15)
+                r.raise_for_status()
+                order_id = r.json().get("id")
+                if not order_id:
+                    continue
+
+                # 2) Auto-approve so the FILL transition is valid (Approve
+                # requires PENDING_APPROVAL → SUBMITTED).
+                r = requests.post(
+                    f"{base_url}/orders/{order_id}/approve",
+                    headers=headers, timeout=15,
+                )
+                if r.status_code == 409:
+                    # Already approved on a previous retry — fine.
+                    pass
+                else:
+                    r.raise_for_status()
+
+                # 3) Record the fill itself.
+                fill_payload = {
+                    "qty": float(fill.get("quantity") or 0),
+                    "price": float(fill.get("fill_price") or 0),
+                    "fee": float(fill.get("commission") or 0),
+                    "currency": "USD",
+                    "brokerFillId": str(fill.get("order_id") or ""),
+                    "actor": "daemon",
+                }
+                r = requests.post(
+                    f"{base_url}/orders/{order_id}/fill",
+                    json=fill_payload, headers=headers, timeout=15,
+                )
+                # POST /fill endpoint doesn't exist yet (Phase 2). Until
+                # then, OMS records the order intent + approval; fills
+                # arrive via the snapshot's recent_fills surfaced
+                # separately. Treat 404 as benign.
+                if r.status_code not in (200, 404):
+                    r.raise_for_status()
+                posted += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("OMS post failed for %s/%s: %s",
+                            sid, fill.get("symbol"), exc)
+    if posted:
+        log.info("OMS: posted %d order(s) from snapshot", posted)
+    return posted
+
+
+def _broker_to_oms_label(broker: str) -> str:
+    """Map the daemon's broker string to the OMS CHECK enum value."""
+    mapping = {
+        "t212": "T212_DEMO",
+        "yfinance": "PAPER",
+        "replay": "PAPER",
+        "ibkr": "IBKR_PAPER",
+    }
+    return mapping.get(broker.lower(), "PAPER")
 
 
 def complete_failure(
@@ -364,12 +479,23 @@ def _summarize_snapshot(snapshot: dict) -> dict:
     }
 
 
-def run_session_for_params(params: dict, dry_run: bool) -> tuple[int, dict, str]:
+def run_session_for_params(
+    params: dict,
+    dry_run: bool,
+    *,
+    api_base: str | None = None,
+    token: str | None = None,
+) -> tuple[int, dict, str]:
     """Run a single subprocess for the params.
 
     The bar bus multiplexes N symbols (MultiSymbolSourceBackedBus) so
     one subprocess handles the whole request. Returns exit code,
     result_summary, and command string for logging.
+
+    `api_base` + `token` enable the OMS audit push (Phase 1d): after
+    the session completes, every fill in the snapshot is replayed
+    into /api/oms/orders so the OMS UI sees the full trade history.
+    Best-effort — OMS being unreachable does NOT fail the session.
     """
     requested_symbols = params["symbols"] or []
     args = build_command(params)
@@ -387,6 +513,17 @@ def run_session_for_params(params: dict, dry_run: bool) -> tuple[int, dict, str]
         "symbols_run": len(symbols),
         **_summarize_snapshot(snapshot),
     }
+    # OMS audit push (Phase 1d). Phase 2 will intercept BEFORE the
+    # broker call so OMS sees PENDING_APPROVAL state before fills land.
+    if api_base and token and exit_code == 0:
+        try:
+            posted = _post_oms_fills_from_snapshot(
+                api_base, token, snapshot, params["strategy"], params["broker"],
+            )
+            if posted:
+                summary["oms_orders_posted"] = posted
+        except Exception as exc:  # noqa: BLE001
+            log.warning("OMS audit push failed (continuing): %s", exc)
     return exit_code, summary, " ".join(args)
 
 
@@ -472,7 +609,9 @@ def sqs_loop(
             # Delete BEFORE running so message is not re-delivered if the
             # process crashes mid-session. The DB row is the authoritative record.
             delete_sqs_message(sqs_client, sqs_url, receipt_handle)
-            exit_code, summary, cmd_str = run_session_for_params(params, dry_run)
+            exit_code, summary, cmd_str = run_session_for_params(
+                params, dry_run, api_base=api_base, token=token,
+            )
             if exit_code == 0:
                 complete_success(api_base, token, request_id, cmd_str, summary)
             else:
@@ -538,7 +677,9 @@ def daemon_loop(
             # Backend wraps the session in a "session" envelope with snake_case keys.
             request_id: str = (data.get("session") or {}).get("request_id", "unknown")
             params = _parse_params(data, default_broker)
-            exit_code, summary, cmd_str = run_session_for_params(params, dry_run)
+            exit_code, summary, cmd_str = run_session_for_params(
+                params, dry_run, api_base=api_base, token=token,
+            )
 
             if exit_code == 0:
                 complete_success(api_base, token, request_id, cmd_str, summary)
@@ -576,8 +717,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--broker",
-        default="t212",
-        help="Default broker when the trigger request omits one (default: t212).",
+        default="yfinance",
+        help=(
+            "Default broker when the trigger request omits one. "
+            "yfinance = PaperOrderRouter (sim fills locally, no API key needed). "
+            "t212 = real T212 demo (needs TRADEPRO_T212_API_KEY; otherwise "
+            "every order is rejected and you see fills=0)."
+        ),
     )
     parser.add_argument(
         "--api-url",
