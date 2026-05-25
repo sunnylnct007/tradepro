@@ -84,6 +84,105 @@ function getStrategyFromParams(params: unknown): string {
   return "—";
 }
 
+// Render result_summary as readable chips instead of raw-JSON soup.
+// Order matters — fills first because that's the "did it trade?"
+// signal the operator scans for. Symbols compressed if >6 to keep
+// the cell width manageable.
+function formatResultSummary(s: Session): React.ReactNode {
+  if (s.error) {
+    return <span style={{ color: "var(--down)", fontSize: 12 }}>{s.error}</span>;
+  }
+  const rs = s.result_summary;
+  if (!rs || typeof rs !== "object") {
+    return <span style={{ color: "var(--text-dim)", fontSize: 12 }}>—</span>;
+  }
+  const r = rs as Record<string, unknown>;
+  const num = (k: string) => (typeof r[k] === "number" ? (r[k] as number) : undefined);
+  const arr = (k: string) => (Array.isArray(r[k]) ? (r[k] as unknown[]) : undefined);
+
+  const fills = num("fills") ?? 0;
+  const equity = num("equity");
+  const realised = num("realised_pnl");
+  const positions = num("positions") ?? 0;
+  const symbols = (arr("symbols") as string[] | undefined) ?? [];
+  const omsPosted = num("oms_orders_posted");
+  const strategies = arr("strategies") ?? [];
+  let decisions = 0;
+  for (const st of strategies) {
+    const ds = (st as Record<string, unknown> | null)?.decisions;
+    if (Array.isArray(ds)) decisions += ds.length;
+  }
+
+  const symbolLabel =
+    symbols.length === 0
+      ? "0 symbols"
+      : symbols.length <= 6
+      ? symbols.join(", ")
+      : `${symbols.slice(0, 6).join(", ")} +${symbols.length - 6}`;
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 11, lineHeight: 1.5 }}>
+      <Chip
+        label={`${fills} fills`}
+        tone={fills > 0 ? "ok" : "muted"}
+      />
+      {equity !== undefined && (
+        <Chip label={`equity ${equity.toFixed(2)}`} tone="muted" />
+      )}
+      {realised !== undefined && realised !== 0 && (
+        <Chip
+          label={`pnl ${realised >= 0 ? "+" : ""}${realised.toFixed(2)}`}
+          tone={realised >= 0 ? "ok" : "down"}
+        />
+      )}
+      {positions > 0 && <Chip label={`${positions} open`} tone="muted" />}
+      <Chip label={symbolLabel} tone="muted" mono title={symbols.join(",")} />
+      {omsPosted !== undefined && omsPosted > 0 && (
+        <Chip label={`oms ${omsPosted}`} tone="ok" />
+      )}
+      {decisions > 0 && (
+        <Chip label={`${decisions} decisions`} tone="muted" />
+      )}
+    </div>
+  );
+}
+
+function Chip({
+  label,
+  tone = "muted",
+  mono = false,
+  title,
+}: {
+  label: string;
+  tone?: "ok" | "down" | "muted";
+  mono?: boolean;
+  title?: string;
+}) {
+  const colour =
+    tone === "ok" ? "#1fc16b" : tone === "down" ? "#ef4444" : "var(--text-dim)";
+  const bg =
+    tone === "ok"
+      ? "rgba(31,193,107,0.10)"
+      : tone === "down"
+      ? "rgba(239,68,68,0.10)"
+      : "rgba(255,255,255,0.04)";
+  return (
+    <span
+      title={title}
+      style={{
+        padding: "2px 7px",
+        borderRadius: 4,
+        background: bg,
+        color: colour,
+        fontFamily: mono ? "monospace" : undefined,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 function downloadSessionJson(s: Session) {
   const filename = `paper-session-${s.request_id.slice(0, 8)}.json`;
   const blob = new Blob([JSON.stringify(s, null, 2)], { type: "application/json" });
@@ -491,13 +590,7 @@ export function PaperLive() {
                   const isPending = stateLC === "pending";
                   const isClaimed = stateLC === "claimed";
                   const isCancelling = cancellingId === s.request_id;
-                  const summary = s.error
-                    ? s.error
-                    : s.result_summary
-                    ? typeof s.result_summary === "string"
-                      ? s.result_summary
-                      : JSON.stringify(s.result_summary).slice(0, 120)
-                    : "—";
+                  const summary = formatResultSummary(s);
                   return (
                     <tr
                       key={s.request_id}
@@ -536,12 +629,15 @@ export function PaperLive() {
                         style={{
                           padding: "10px 12px",
                           color: s.error ? "var(--down)" : "var(--text-dim)",
-                          maxWidth: 320,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
+                          maxWidth: 360,
                         }}
-                        title={typeof summary === "string" ? summary : undefined}
+                        title={
+                          s.error
+                            ? s.error
+                            : s.result_summary
+                            ? JSON.stringify(s.result_summary)
+                            : undefined
+                        }
                       >
                         {summary}
                       </td>
