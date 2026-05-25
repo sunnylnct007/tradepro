@@ -370,6 +370,32 @@ class T212OrderRouter(OrderRouter):
         return {"Authorization": self.api_key}
 
 
+# T212 FX ticker mapping. Operator-configurable because T212's
+# actual instrument codes for FX vary by account type and need to be
+# verified against /equity/metadata/instruments. The default values
+# below use the bare pair name (placeholder); update after pulling
+# T212's instruments registry for your account.
+#
+# Background: the prior helper silently produced "EURUSD_US_EQ" for
+# every FX symbol because the US-equity fallback caught all alnum
+# tickers. T212 had no such instrument → orders went to Failed →
+# operators saw "cannot approve" 400s on PA Reports. Now FX is
+# explicit + tunable so the actual symbol T212 expects is one config
+# line away, no code change.
+_T212_FX_TICKER: dict[str, str] = {
+    "EURUSD": "EURUSD",
+    "GBPUSD": "GBPUSD",
+    "USDJPY": "USDJPY",
+    "AUDUSD": "AUDUSD",
+    "USDCHF": "USDCHF",
+    "USDCAD": "USDCAD",
+    "NZDUSD": "NZDUSD",
+    "EURGBP": "EURGBP",
+    "EURJPY": "EURJPY",
+    "GBPJPY": "GBPJPY",
+}
+
+
 def _to_t212_ticker(symbol: str) -> str:
     """Convert a Yahoo-style symbol to a T212 ticker.
 
@@ -377,12 +403,15 @@ def _to_t212_ticker(symbol: str) -> str:
     deliberately tiny — the Production move is to fetch the full
     /equity/metadata/instruments registry once per session and look
     up by name. For now: the common US-equity suffix covers the ORB
-    use case (large-cap liquid US names).
-
-    Non-US symbols (LON.L, EUR.PA) should NOT pass through this
-    function unchanged — they need explicit per-venue mapping. Raise
-    loudly so we don't accidentally route to the wrong instrument.
+    use case (large-cap liquid US names) and the _T212_FX_TICKER
+    table covers G10 FX. Other non-US symbols (LON.L, EUR.PA) still
+    raise loudly so we don't accidentally route to the wrong
+    instrument and leave broken pending_orders rows the operator
+    can't approve.
     """
+    upper = symbol.upper()
+    if upper in _T212_FX_TICKER:
+        return _T212_FX_TICKER[upper]
     if "_" in symbol:
         return symbol  # already a T212 ticker
     if symbol.isascii() and symbol.replace(".", "").isalnum() and "." not in symbol:
