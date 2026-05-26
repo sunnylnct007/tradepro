@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CockpitCard } from "../components/CockpitCard";
+import { InlineHint } from "../components/InlineHint";
 import { PlotlyChart } from "../components/PlotlyChart";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
@@ -716,16 +717,19 @@ function KpiStrip({
           ? `${ccy} ${cash.free.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
           : "—"}
         sub={cash?.enabled === false ? "T212 disabled" : undefined}
+        hint="Cash available for new orders on the selected T212 account (Invest product). Refreshed every cockpit poll."
       />
       <KpiCell
         label="Open orders"
         value={String(openOrders)}
         tone={openOrders > 0 ? "info" : undefined}
+        hint="OMS orders in flight — PENDING_APPROVAL / SUBMITTED / WORKING / PARTIALLY_FILLED. Excludes terminal states."
       />
       <KpiCell
         label="Fills today"
         value={String(fillsToday)}
         tone={fillsToday > 0 ? "ok" : undefined}
+        hint="Count of OMS orders whose state changed to FILLED today (UTC). Resets at 00:00 UTC."
       />
       <KpiCell
         label="Today's P&L"
@@ -733,23 +737,26 @@ function KpiStrip({
           ? "—"
           : `${pnlSrc >= 0 ? "+" : ""}${ccy} ${pnlSrc.toFixed(2)}`}
         tone={pnlSrc == null ? undefined : pnlSrc >= 0 ? "ok" : "down"}
+        hint="Sum of unrealised P&L across current T212 positions. Excludes realised P&L from positions already closed today."
       />
       <KpiCell
         label="Warnings"
         value={String(warningCount)}
         tone={warningCount > 0 ? "warn" : undefined}
+        hint="Count of issues flagged in the Warnings panel below: T212 / OMS fetch errors, rejected orders, integration failures."
       />
     </div>
   );
 }
 
 function KpiCell({
-  label, value, sub, tone,
+  label, value, sub, tone, hint,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: "ok" | "warn" | "down" | "info";
+  hint?: string;
 }) {
   const fg =
     tone === "ok" ? "#1fc16b" :
@@ -764,6 +771,7 @@ function KpiCell({
         textTransform: "uppercase", letterSpacing: "0.06em",
       }}>
         {label}
+        {hint && <InlineHint text={hint} />}
       </div>
       <div style={{
         fontSize: 18, fontWeight: 700, fontFamily: "monospace",
