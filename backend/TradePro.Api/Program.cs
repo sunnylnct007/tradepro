@@ -220,6 +220,9 @@ api.MapOpsUserEndpoints();
 // routes mount on the ingest group below.
 api.MapQuantEndpoints();
 
+// SSE event stream — AllowAnonymous (EventSource can't send auth headers).
+app.MapEventsEndpoints();
+
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");
 ingest.MapIngestEndpoints();

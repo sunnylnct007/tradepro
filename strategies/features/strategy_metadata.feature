@@ -18,11 +18,11 @@ Feature: Strategy provenance + lifecycle metadata
     Then its source is "trader-quant"
     And its default_lookback_days is 200
 
-  Scenario: ichimoku_equity is trader-quant with no lookback
+  Scenario: ichimoku_equity is trader-quant with 1-day lookback
     Given the paper strategies package is imported
     When I look up the "ichimoku_equity" strategy class
     Then its source is "trader-quant"
-    And its default_lookback_days is 0
+    And its default_lookback_days is 1
 
   Scenario: compass_momentum is alpha-engine
     Given the paper strategies package is imported
