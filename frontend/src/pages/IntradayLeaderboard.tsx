@@ -118,7 +118,46 @@ export function IntradayLeaderboard() {
         </div>
       )}
 
-      {data && data.sessionCount > 0 && (
+      {/* Insufficient-data state. A 1×1 grid (or 1 strategy across 1 symbol)
+          doesn't tell the trader anything useful — the leaderboard's value
+          is comparison, not absolute numbers. Show an actionable empty-
+          state instead, mention what's missing + how to grow the matrix. */}
+      {data && data.sessionCount > 0 &&
+       (data.symbols.length < 2 || data.strategies.length < 2) && (
+        <div
+          className="card"
+          style={{
+            padding: "14px 16px",
+            color: "var(--text-dim)",
+            borderLeft: "3px solid #f59e0b",
+            background: "rgba(245,158,11,0.06)",
+          }}
+        >
+          <strong style={{ color: "#f59e0b" }}>Not enough data to compare.</strong>{" "}
+          The leaderboard needs ≥2 strategies AND ≥2 symbols to surface
+          meaningful per-cell attribution — you currently have{" "}
+          <strong style={{ color: "var(--text)" }}>{data.strategies.length}</strong>{" "}
+          strateg{data.strategies.length === 1 ? "y" : "ies"} across{" "}
+          <strong style={{ color: "var(--text)" }}>{data.symbols.length}</strong>{" "}
+          symbol{data.symbols.length === 1 ? "" : "s"} from{" "}
+          <strong style={{ color: "var(--text)" }}>{data.sessionCount}</strong>{" "}
+          session{data.sessionCount === 1 ? "" : "s"}. Run more strategies
+          and/or symbols (try the Trigger panel on{" "}
+          <a href="/trader" style={{ color: "var(--text)" }}>/trader</a>) and
+          the comparison surface will populate.
+          {data.lastSessionAtUtc && (
+            <>
+              {" · "}Last session:{" "}
+              <strong style={{ color: "var(--text)" }}>
+                {new Date(data.lastSessionAtUtc).toLocaleString()}
+              </strong>
+            </>
+          )}
+        </div>
+      )}
+
+      {data && data.sessionCount > 0 &&
+       data.symbols.length >= 2 && data.strategies.length >= 2 && (
         <>
           <div
             style={{

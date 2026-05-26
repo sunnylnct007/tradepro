@@ -41,6 +41,11 @@ type LatestSession = {
   completedAtUtc: string | null;
   decisions: DecisionEntry[];
   barsSeen: number;
+  // Per-strategy Plotly figure dicts emitted by the strategy's
+  // recent_charts() hook (ichimoku_equity emits one cloud chart
+  // per symbol). Lets the cockpit embed live signal viz without
+  // forcing the trader to drill into Session Detail.
+  charts: Record<string, unknown>;
 };
 type T212PosResp = {
   enabled: boolean;
@@ -139,9 +144,18 @@ export function TraderCockpit() {
         const strategies = (rs.strategies as Array<Record<string, unknown>>) || [];
         const decisions: DecisionEntry[] = [];
         let barsSeen = 0;
+        const charts: Record<string, unknown> = {};
+        // Top-level result_summary.charts (the quant-backtest CLI
+        // emits here; ichimoku_equity emits per-strategy).
+        const topCharts = rs.charts as Record<string, unknown> | undefined;
+        if (topCharts && typeof topCharts === "object") {
+          Object.assign(charts, topCharts);
+        }
         for (const st of strategies) {
           const bs = st.bars_seen as Array<unknown> | undefined;
           if (Array.isArray(bs)) barsSeen += bs.length;
+          const sc = st.charts as Record<string, unknown> | undefined;
+          if (sc && typeof sc === "object") Object.assign(charts, sc);
           const ds = st.decisions as Array<Record<string, unknown>>;
           if (!Array.isArray(ds)) continue;
           for (const d of ds) {
@@ -162,6 +176,7 @@ export function TraderCockpit() {
           completedAtUtc: s.completedAtUtc,
           decisions: decisions.slice(0, 30),
           barsSeen,
+          charts,
         });
       }
       setLatestSessions(Array.from(byStrategy.values()));
@@ -297,6 +312,23 @@ export function TraderCockpit() {
         warningCount={warnings.length}
       />
 
+      {/* ── Today's outcome — English summary of the day ─────────── */}
+      <TodayOutcome
+        orders={orders}
+        positions={positions}
+        latestSessions={latestSessions}
+      />
+
+      {/* ── Cockpit panels grid — 2-col on wide screens, full-width
+           cards (charts, wide tables) opt in via fullWidth prop. ──── */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
+          gap: 12,
+          alignItems: "start",
+        }}
+      >
       {/* ── Warnings (only visible when any) ────────────────────── */}
       {warnings.length > 0 && (
         <CockpitCard
@@ -305,6 +337,7 @@ export function TraderCockpit() {
           badge={warnings.length}
           tone="warn"
           defaultOpen
+          fullWidth
         >
           {warnings.map((w, i) => (
             <div
@@ -434,6 +467,7 @@ export function TraderCockpit() {
         title="Activity feed"
         badge={activityEvents.length || undefined}
         defaultOpen
+        fullWidth
       >
         {activityEvents.length === 0 ? (
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -445,12 +479,16 @@ export function TraderCockpit() {
         )}
       </CockpitCard>
 
+      {/* ── Strategy charts (Ichimoku cloud per symbol) ────────── */}
+      <StrategyChartsCard latestSessions={latestSessions} />
+
       {/* ── Order lifecycle Gantt ──────────────────────────────── */}
       <CockpitCard
         id="lifecycle"
         title="Order lifecycle (Gantt)"
         badge={orders.length || undefined}
         defaultOpen={false}
+        fullWidth
       >
         {orders.length === 0 ? (
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -471,6 +509,7 @@ export function TraderCockpit() {
           badge={latestSessions.reduce((n, s) =>
             n + s.decisions.filter((d) => d.action.startsWith("fire-")).length, 0) || undefined}
           tone="ok"
+          fullWidth
         >
           {latestSessions.map((s) => {
             const fired = s.decisions.filter((d) => d.action.startsWith("fire-"));
@@ -583,6 +622,204 @@ export function TraderCockpit() {
           {" · "}Per-order drill-in: <Link to="/oms" style={{ color: "var(--text-muted)" }}>OMS →</Link>
         </div>
       </CockpitCard>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * StrategyChartsCard — embed any Plotly figure the strategy emitted
+ * via recent_charts() directly on the cockpit. Today that's the
+ * per-symbol Ichimoku cloud + fill markers from ichimoku_equity.
+ * Defaults to closed so the heavy plotly.js bundle only lazy-loads
+ * when the trader explicitly opens it.
+ */
+function StrategyChartsCard({ latestSessions }: { latestSessions: LatestSession[] }) {
+  // Flatten charts across all latest sessions. Sort by strategy
+  // then by chart name for deterministic display.
+  const entries: Array<{ key: string; title: string; strategy: string; figure: unknown }> = [];
+  for (const s of latestSessions) {
+    for (const [name, fig] of Object.entries(s.charts ?? {})) {
+      entries.push({
+        key: `${s.strategy}.${name}`,
+        title: name,
+        strategy: s.strategy,
+        figure: fig,
+      });
+    }
+  }
+  entries.sort((a, b) => a.key.localeCompare(b.key));
+
+  return (
+    <CockpitCard
+      id="charts"
+      title="Strategy charts (live signal viz)"
+      badge={entries.length || undefined}
+      defaultOpen={false}
+      fullWidth
+    >
+      {entries.length === 0 ? (
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          No charts attached to the latest session yet. Strategies that
+          implement recent_charts() (today: ichimoku_equity → cloud chart
+          per symbol) populate this on the next completed run.
+        </span>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {entries.map((e) => (
+            <div key={e.key}>
+              <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 4 }}>
+                {e.strategy} · {e.title}
+              </div>
+              <PlotlyChart figure={e.figure as Record<string, unknown>} />
+            </div>
+          ))}
+        </div>
+      )}
+    </CockpitCard>
+  );
+}
+
+/**
+ * TodayOutcome — English summary at the top of the cockpit so the
+ * trader reads the day's story before scanning panels. Three lines
+ * max: what fired, what filled / failed, who carried / dragged P&L.
+ *
+ * All computed client-side from already-fetched cockpit state — no
+ * new endpoint. Hidden when nothing's happened today (no fires, no
+ * fills, no positions) so a quiet day isn't padded with placeholders.
+ */
+function TodayOutcome({
+  orders, positions, latestSessions,
+}: {
+  orders: OmsOrderRow[];
+  positions: T212PosResp | null;
+  latestSessions: LatestSession[];
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Fires today across all strategies' latest sessions.
+  let firesToday = 0;
+  const firingStrategies = new Set<string>();
+  for (const s of latestSessions) {
+    if ((s.completedAtUtc ?? "").slice(0, 10) !== today) continue;
+    for (const d of s.decisions) {
+      if (d.action.startsWith("fire-")) {
+        firesToday++;
+        firingStrategies.add(s.strategy);
+      }
+    }
+  }
+
+  // Orders that moved into a terminal state today.
+  const todayOrders = orders.filter(
+    (o) => o.lastStateChangeAtUtc.slice(0, 10) === today,
+  );
+  const fillsToday = todayOrders.filter((o) => o.state === "FILLED");
+  const rejectsToday = todayOrders.filter(
+    (o) => o.state === "REJECTED" || o.state === "CANCELLED",
+  );
+
+  // Symbol P&L contribution from positions (carry / drag).
+  const sortedPos = positions?.positions ?
+    [...positions.positions].filter((p) => p.unrealisedAbs != null)
+      .sort((a, b) => (b.unrealisedAbs ?? 0) - (a.unrealisedAbs ?? 0)) : [];
+  const carrier = sortedPos[0];
+  const dragger = sortedPos[sortedPos.length - 1];
+  const totalPnl = sortedPos.reduce((n, p) => n + (p.unrealisedAbs ?? 0), 0);
+
+  const nothingHappened =
+    firesToday === 0 && fillsToday.length === 0 &&
+    rejectsToday.length === 0 && sortedPos.length === 0;
+  if (nothingHappened) return null;
+
+  const ccy = positions?.positions[0]?.currency ?? "";
+  const pnlColor = totalPnl >= 0 ? "#1fc16b" : "#ef4444";
+
+  return (
+    <div
+      style={{
+        padding: "10px 14px",
+        marginBottom: 12,
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "rgba(168,85,247,0.04)",
+        fontSize: 12,
+        lineHeight: 1.6,
+        color: "var(--text)",
+      }}
+    >
+      <div style={{
+        fontSize: 9, color: "var(--text-muted)",
+        textTransform: "uppercase", letterSpacing: "0.06em",
+        marginBottom: 4,
+      }}>
+        Today
+      </div>
+      <div>
+        {firesToday > 0 ? (
+          <>
+            <strong style={{ color: "#a855f7" }}>{firesToday} signal{firesToday === 1 ? "" : "s"}</strong>{" "}
+            fired from{" "}
+            <strong>{Array.from(firingStrategies).join(", ")}</strong>
+            {fillsToday.length > 0 && (
+              <>
+                {" · "}
+                <strong style={{ color: "#1fc16b" }}>{fillsToday.length} filled</strong>
+              </>
+            )}
+            {rejectsToday.length > 0 && (
+              <>
+                {" · "}
+                <strong style={{ color: "#ef4444" }}>{rejectsToday.length} rejected</strong>
+              </>
+            )}
+          </>
+        ) : fillsToday.length > 0 || rejectsToday.length > 0 ? (
+          <>
+            No new signals fired today.{" "}
+            {fillsToday.length > 0 && (
+              <>
+                <strong style={{ color: "#1fc16b" }}>{fillsToday.length} fill{fillsToday.length === 1 ? "" : "s"}</strong>{" "}
+                cleared (earlier intent).{" "}
+              </>
+            )}
+            {rejectsToday.length > 0 && (
+              <strong style={{ color: "#ef4444" }}>
+                {rejectsToday.length} rejected — check the histogram on /oms.
+              </strong>
+            )}
+          </>
+        ) : (
+          <>Strategies ran but emitted no signals. No order activity yet.</>
+        )}
+      </div>
+      {sortedPos.length > 0 && (
+        <div>
+          Unrealised P&L:{" "}
+          <strong style={{ color: pnlColor, fontFamily: "monospace" }}>
+            {totalPnl >= 0 ? "+" : ""}{ccy} {totalPnl.toFixed(2)}
+          </strong>
+          {carrier && (carrier.unrealisedAbs ?? 0) > 0 && (
+            <>
+              {" · "}biggest carry:{" "}
+              <strong>{carrier.ticker}</strong>{" "}
+              <span style={{ color: "#1fc16b", fontFamily: "monospace" }}>
+                +{(carrier.unrealisedAbs ?? 0).toFixed(2)}
+              </span>
+            </>
+          )}
+          {dragger && dragger !== carrier && (dragger.unrealisedAbs ?? 0) < 0 && (
+            <>
+              {" · "}biggest drag:{" "}
+              <strong>{dragger.ticker}</strong>{" "}
+              <span style={{ color: "#ef4444", fontFamily: "monospace" }}>
+                {(dragger.unrealisedAbs ?? 0).toFixed(2)}
+              </span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

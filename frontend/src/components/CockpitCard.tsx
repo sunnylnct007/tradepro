@@ -22,6 +22,7 @@ export function CockpitCard({
   defaultOpen = true,
   actions,
   children,
+  fullWidth = false,
 }: {
   id: string;
   title: string;
@@ -30,6 +31,12 @@ export function CockpitCard({
   defaultOpen?: boolean;
   actions?: React.ReactNode;
   children: React.ReactNode;
+  /**
+   * When the cockpit lays panels out in a CSS grid, set `fullWidth`
+   * on cards whose content (charts, wide tables) reads better
+   * spanning every grid column. Has no effect outside a grid parent.
+   */
+  fullWidth?: boolean;
 }) {
   const storageKey = `cockpit.card.${id}.open`;
   const [open, setOpen] = useState<boolean>(() => {
@@ -62,7 +69,8 @@ export function CockpitCard({
         border: "1px solid var(--border)",
         borderRadius: 8,
         background: "var(--surface-1, rgba(255,255,255,0.02))",
-        marginBottom: 12,
+        marginBottom: 0,
+        gridColumn: fullWidth ? "1 / -1" : undefined,
       }}
     >
       <header
