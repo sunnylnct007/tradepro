@@ -7,6 +7,7 @@ import { PaperBacktest } from "./pages/PaperBacktest";
 import { PaperLive } from "./pages/PaperLive";
 import { OmsOrders } from "./pages/OmsOrders";
 import { SessionDetail } from "./pages/SessionDetail";
+import { TraderCockpit } from "./pages/TraderCockpit";
 import { Dashboard } from "./pages/Dashboard";
 import { DocumentDetail } from "./pages/DocumentDetail";
 import { Documents } from "./pages/Documents";
@@ -50,6 +51,7 @@ const router = createBrowserRouter([
       { path: "paper-live", element: <PaperLive /> },
       { path: "paper-live/session/:id", element: <SessionDetail /> },
       { path: "oms", element: <OmsOrders /> },
+      { path: "trader", element: <TraderCockpit /> },
       // Intraday strategy leaderboard — per-(symbol, strategy)
       // cumulative P&L rolled up from completed session_requests.
       // Powers the "did this strategy actually make money on this

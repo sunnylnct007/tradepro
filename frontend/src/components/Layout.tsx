@@ -35,6 +35,7 @@ import { T212ModeBadge } from "./T212ModeBadge";
 type NavItem = { to: string; label: string; end?: boolean };
 
 const marketNav: NavItem[] = [
+  { to: "/trader",       label: "Cockpit"    },
   { to: "/compare",      label: "Decide"     },
   { to: "/portfolio",    label: "Portfolio"  },
   { to: "/strategies",   label: "Strategies" },
