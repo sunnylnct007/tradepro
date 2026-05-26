@@ -13,6 +13,112 @@ those assumptions change.
 
 ---
 
+## Risk module — pre-trade checks, position sizing, kill switches
+
+**Status:** PLANNED (foundational — every algo platform needs this
+before live capital). Sized into phases so we ship the highest-value
+gates first and the trader gets visible safety as it lands.
+
+**Why:** today the OMS accepts any intent the strategy emits and the
+trader manually decides Approve / Reject. Live trading needs hard
+gates that *block* an order before it hits the broker — not just an
+amber warning afterwards. A bug in a strategy that re-fires a 1000-
+share order every tick would bankrupt the account before a human
+notices. The kill switches sit upstream of OMS approve and downstream
+of strategy emit so they apply uniformly to manual + auto modes.
+
+### Where it plugs in
+```
+strategy.on_bar → Order   ┐
+                          ▼
+                   ┌──────────────┐
+                   │ RiskModule   │  ◄── block / size / annotate
+                   │  - pre-trade │
+                   │  - sizing    │
+                   │  - kill sw.  │
+                   └──────┬───────┘
+                          ▼
+                   OMS.enqueue (PENDING_APPROVAL or REJECTED-by-risk)
+                          ▼
+                   Broker placement
+```
+Settings live in `app_settings_kv` so the trader tunes every limit
+from /settings without a code change.
+
+### Phase 1 — pre-trade gate + hard limits (foundational)
+- **Order size cap** per symbol (notional + share count)
+- **Order velocity** — max N orders per strategy per minute (anti-runaway)
+- **Cash availability** check against T212 free balance (block when
+  order cost > free * safety_margin)
+- **Symbol blacklist** — DB-backed (operator can flag specific tickers
+  off-limits, e.g. illiquid ETFs)
+- **Risk events table** — every block / sizing-adjustment recorded
+  with reason so the trader can audit "why didn't this fire?"
+- **/risk page** — read-only board of today's events + current cap
+  utilisation.
+
+### Phase 2 — position sizing engines
+- **Risk-per-trade** (% of capital, stop-distance aware) — replaces
+  the strategy's bare qty when configured.
+- **Vol-targeted** — already in ichimoku_equity; lift into a shared
+  RiskModule so other strategies can opt in without re-implementing.
+- **Kelly / fractional-Kelly** for high-confidence signals.
+
+### Phase 3 — exits + stops
+- **Mandatory stop on every entry** (intraday rule from memory — see
+  [intraday_exit_framework]) — RiskModule rejects entries without
+  a stop attached.
+- **Time-based exit** — flatten at 15-min-before-close for intraday.
+- **ATR-trailing stop** as a strategy-attached option.
+
+### Phase 4 — portfolio-level
+- **Sector exposure cap** — % of portfolio per GICS sector (we have
+  this metadata from the universe scraper).
+- **Correlation-aware sizing** — size down when adding a position
+  correlated with existing holdings.
+- **Beta / currency exposure** rolled up per request.
+
+### Phase 5 — kill switches + circuit breakers
+- **Daily loss limit** — when realised + unrealised loss exceeds
+  threshold, auto-flip OMS to Manual mode + page the operator. No
+  new entries until reset.
+- **Per-strategy circuit breaker** — strategy X breaches its budget
+  → strategy X auto-disabled, others keep running.
+- **Connection-loss handler** — Mac daemon drops T212 for >N
+  minutes → auto-cancel open orders + flag.
+- **Stale-signal detector** — strategy hasn't emitted a decision in
+  M minutes when it should have → mark as down.
+
+### Phase 6 — risk reporting + stress
+- **Daily risk report** (one-pager email at session close): max DD,
+  win rate, fill quality, current exposures, cap utilisation.
+- **Stress scenarios** — replay 2008 / COVID / flash-crash bar data
+  against current positions to estimate worst-case loss.
+- **VaR / CVaR** with rolling 60-day distribution.
+
+### Implementation principles
+- **Fail-closed**: when the risk module can't evaluate a check (DB
+  down, T212 unreachable), block the order. Better to miss a trade
+  than to leak capital.
+- **Settings, not constants**: every threshold lives in
+  app_settings_kv keyed under category "Risk" so the trader tunes
+  without redeploys.
+- **Audit everything**: a `risk_events` table records every block /
+  size-adjustment / kill-switch trip with timestamp + actor +
+  reason. Operator can grep it without re-running scenarios.
+- **Default to safe**: each new limit ships with a conservative
+  default that the trader can loosen later as they build trust.
+
+### Test discipline
+- xUnit on every gate (block, size, kill-switch transition).
+- Behave on the strategy → RiskModule → OMS chain.
+- Synthetic broker (mock T212 + IBKR) for fault-injection tests:
+  what happens when cash check 500s, when order velocity hits the
+  cap mid-batch, when the daily-loss switch trips during a
+  partial fill.
+
+---
+
 ## ichimoku_fx_mr v2 — multi-indicator intraday FX MR
 
 **Status:** PLANNED (user feedback 2026-05-26 — discuss with quant first).
