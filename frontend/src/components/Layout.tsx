@@ -61,6 +61,7 @@ const paperNav: NavItem[] = [
 
 const systemNav: NavItem[] = [
   { to: "/health",             label: "Health"   },
+  { to: "/universes",          label: "Universes"},
   { to: "/settings",           label: "Settings" },
   { to: "/help/trade-support", label: "Support"  },
   { to: "/help/ops-runbook",   label: "IT Guide" },

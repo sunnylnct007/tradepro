@@ -19,6 +19,7 @@ import { IntradayLeaderboard } from "./pages/IntradayLeaderboard";
 import { Portfolio } from "./pages/Portfolio";
 import { Scanner } from "./pages/Scanner";
 import { Settings } from "./pages/Settings";
+import { Universes } from "./pages/Universes";
 import { Signals } from "./pages/Signals";
 import { Simulations } from "./pages/Simulations";
 import { Strategies } from "./pages/Strategies";
@@ -70,6 +71,7 @@ const router = createBrowserRouter([
       { path: "charts", element: <Dashboard /> },
       { path: "health", element: <HealthPage /> },
       { path: "settings", element: <Settings /> },
+      { path: "universes", element: <Universes /> },
       { path: "help", element: <Help /> },
       { path: "help/:topic", element: <HelpTopic /> },
     ],
