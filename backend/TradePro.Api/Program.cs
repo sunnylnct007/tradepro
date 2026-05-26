@@ -151,7 +151,14 @@ builder.Services.AddSingleton<IPaperStrategyStatusStore, PostgresPaperStrategySt
 // first. Mode service is Singleton so the in-memory "current mode"
 // state survives across requests (Phase 1; Phase 2 swaps to a
 // persisted impl).
-builder.Services.AddSingleton<TradePro.Api.Oms.IOmsService, TradePro.Api.Oms.PostgresOmsService>();
+// OmsService factory so it can resolve Trading212DemoClient per-call
+// (transient HttpClient — singleton can't hold it without leaking the
+// HttpMessageHandler). The ILogger comes from the standard provider.
+builder.Services.AddSingleton<TradePro.Api.Oms.IOmsService>(sp =>
+    new TradePro.Api.Oms.PostgresOmsService(
+        sp.GetRequiredService<Npgsql.NpgsqlDataSource>(),
+        sp,
+        sp.GetRequiredService<ILogger<TradePro.Api.Oms.PostgresOmsService>>()));
 builder.Services.AddSingleton<TradePro.Api.Oms.IOmsModeService, TradePro.Api.Oms.InMemoryOmsModeService>();
 builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderboardStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders

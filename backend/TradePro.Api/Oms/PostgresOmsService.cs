@@ -1,7 +1,11 @@
 using Dapper;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using System.Data;
 using System.Text.Json;
+using TradePro.Api.Providers.Trading212;
 
 namespace TradePro.Api.Oms;
 
@@ -10,16 +14,41 @@ namespace TradePro.Api.Oms;
 /// transaction with the oms_order_events INSERT so a crash mid-update
 /// can't desync the snapshot row from its event log.
 ///
-/// Phase 1: no broker call. ApproveAsync just flips the row to
-/// SUBMITTED. Phase 2 plugs the existing Trading212Client into
-/// ApproveAsync so the OMS becomes the only thing that touches the
-/// broker.
+/// Phase 2 wiring: when ApproveAsync flips a T212_DEMO order to
+/// SUBMITTED, it also calls Trading212DemoClient.PlaceMarketOrderAsync
+/// inline so the OMS is the single thing that touches the broker.
+/// Trading212DemoClient is resolved per-call via IServiceProvider —
+/// it's a transient HttpClient and a singleton OmsService can't hold
+/// one without leaking its HttpMessageHandler. Tests skip the provider
+/// entirely (constructor accepts null) which preserves the Phase 1
+/// stub behaviour: state flips, no broker call.
 /// </summary>
 public sealed class PostgresOmsService : IOmsService
 {
     private readonly NpgsqlDataSource _db;
+    private readonly IServiceProvider? _services;
+    private readonly ILogger<PostgresOmsService> _log;
 
-    public PostgresOmsService(NpgsqlDataSource db) { _db = db; }
+    public PostgresOmsService(
+        NpgsqlDataSource db,
+        IServiceProvider? services = null,
+        ILogger<PostgresOmsService>? log = null)
+    {
+        _db = db;
+        _services = services;
+        _log = log ?? NullLogger<PostgresOmsService>.Instance;
+    }
+
+    private Trading212DemoClient? ResolveT212Demo()
+    {
+        // Per-call scope — Trading212DemoClient is transient, holding
+        // it on a singleton would leak HttpMessageHandlers. Returns
+        // null in tests (no service provider) so ApproveAsync skips
+        // the placement and preserves the Phase 1 stub behaviour.
+        if (_services is null) return null;
+        using var scope = _services.CreateScope();
+        return scope.ServiceProvider.GetService<Trading212DemoClient>();
+    }
 
     public async Task<OmsOrder> EnqueueAsync(OrderIntent intent, string actor)
     {
@@ -102,8 +131,12 @@ public sealed class PostgresOmsService : IOmsService
         return rows.ToList();
     }
 
-    public async Task<OmsOrder> ApproveAsync(Guid orderId, string actor) =>
-        await TransitionAsync(
+    public async Task<OmsOrder> ApproveAsync(Guid orderId, string actor)
+    {
+        // 1. Flip state to SUBMITTED + write the APPROVED event. State-
+        //    machine guard inside TransitionAsync rejects approve from
+        //    any non-PENDING_APPROVAL row.
+        var approved = await TransitionAsync(
             orderId, actor,
             allowedPriorStates: new[] { OmsState.PendingApproval },
             newState: OmsState.Submitted,
@@ -111,6 +144,71 @@ public sealed class PostgresOmsService : IOmsService
             extraSetSql: null,
             extraParams: null,
             cancelledReason: null);
+
+        // 2. If this is a T212_DEMO order AND the demo client is wired,
+        //    place against the broker inline. Failure → roll the order
+        //    to REJECTED with the T212 error in cancelled_reason so the
+        //    operator sees WHY it didn't make it to the broker on the
+        //    /oms page instead of an opaque SUBMITTED-stuck state.
+        //    Other brokers (PAPER, IBKR, T212_LIVE) skip placement —
+        //    PAPER fills via the engine's PaperOrderRouter; IBKR + LIVE
+        //    plug in here in later phases.
+        var t212Demo = ResolveT212Demo();
+        if (approved.Broker == "T212_DEMO" && t212Demo is not null)
+        {
+            var signedQty = approved.Side == "BUY"
+                ? Math.Abs(approved.Qty)
+                : -Math.Abs(approved.Qty);
+            try
+            {
+                var result = await t212Demo.PlaceMarketOrderAsync(
+                    approved.Symbol, signedQty, CancellationToken.None);
+
+                if (!string.IsNullOrEmpty(result.Error))
+                {
+                    _log.LogWarning(
+                        "T212 demo placement failed for OMS order {OrderId} ({Sym} {Side} {Qty}): {Error}",
+                        approved.Id, approved.Symbol, approved.Side, approved.Qty, result.Error);
+                    // Use the existing transition path so the event log
+                    // captures the rejection symmetrically with the
+                    // happy path.
+                    return await TransitionAsync(
+                        approved.Id, actor: "broker:T212_DEMO",
+                        allowedPriorStates: new[] { OmsState.Submitted },
+                        newState: OmsState.Rejected,
+                        eventType: "BROKER_REJECTED",
+                        extraSetSql: "cancelled_reason = @rejReason,",
+                        extraParams: new { rejReason = result.Error },
+                        cancelledReason: result.Error,
+                        detail: new { httpStatus = result.HttpStatus, body = result.ResponseBody });
+                }
+
+                // Success — record broker_order_id so future events
+                // (fills, broker-side cancels) can join back.
+                if (result.OrderId is long brokerId)
+                {
+                    await using var conn = await _db.OpenConnectionAsync();
+                    await conn.ExecuteAsync(@"
+                        UPDATE oms_orders
+                        SET broker_order_id = @bid
+                        WHERE id = @oid;",
+                        new { bid = brokerId.ToString(), oid = approved.Id });
+                }
+                return (await GetAsync(approved.Id))!;
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex,
+                    "T212 demo placement threw for OMS order {OrderId} — leaving SUBMITTED for operator review",
+                    approved.Id);
+                // Keep SUBMITTED state — transient T212 error shouldn't
+                // permanently kill the order. Operator can manually
+                // Cancel via /oms if needed.
+                return approved;
+            }
+        }
+        return approved;
+    }
 
     public async Task<OmsOrder> RejectAsync(Guid orderId, string actor, string reason) =>
         await TransitionAsync(

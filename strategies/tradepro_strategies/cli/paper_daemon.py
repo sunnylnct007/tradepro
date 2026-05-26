@@ -506,11 +506,18 @@ def run_session_for_params(
     # `symbols: []` in result_summary looks like nothing ran.
     resolved = _resolved_symbols(snapshot)
     symbols = resolved or requested_symbols
+    # Embed the per-strategy snapshot blocks so the Session Detail
+    # page's Bars / Decisions / Fills / Positions tabs render — they
+    # read result_summary.strategies[].{bars_seen,decisions,recent_fills,
+    # positions} directly. Bounded by Strategy.bar_buffer_size (300)
+    # and decision_buffer_size (50) per symbol so the JSONB blob stays
+    # manageable (~20-50 KB per session).
     summary = {
         "strategy": params["strategy"],
         "symbols": symbols,
         "symbols_requested": requested_symbols,
         "symbols_run": len(symbols),
+        "strategies": snapshot.get("strategies") or [],
         **_summarize_snapshot(snapshot),
     }
     # OMS audit push (Phase 1d). Phase 2 will intercept BEFORE the

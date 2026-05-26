@@ -327,33 +327,59 @@ class T212OrderRouter(OrderRouter):
                 "(env / SM / ~/.tradepro/credentials); skipping"
             )
             return
-        payload = {
-            "kind": "paper-pending-order",
-            "broker": "t212",
-            "broker_mode": self.mode,            # demo / live
-            "strategy_id": order.strategy_id,
-            "symbol": order.symbol,
-            "t212_ticker": _to_t212_ticker(order.symbol),
-            "side": order.side.value,
-            "quantity": int(order.quantity),
-            "order_type": order.type.value,
-            "tag": order.tag,
-            "suggested_at_utc": datetime.now(timezone.utc).isoformat(),
-            "bar_at_emit_close": float(approval.bar_at_approval.close),
-            "bar_at_emit_time": approval.bar_at_approval.timestamp.isoformat(),
+        # OMS Phase 2a: push the intent to /api/oms/orders so the
+        # operator approves it on the new /oms page (single placement
+        # surface) instead of the legacy PA Reports pending queue.
+        # ClientOrderId deterministically derived from
+        # (strategy_id, symbol, side, bar_ts) so a retry produces the
+        # same UUID — OMS's unique-index idempotency kicks in and we
+        # don't duplicate the intent.
+        import hashlib
+        import uuid as _uuid
+        bar_ts_iso = approval.bar_at_approval.timestamp.isoformat()
+        seed = f"{order.strategy_id}:{order.symbol}:{order.side.value}:{int(order.quantity)}:{bar_ts_iso}"
+        client_id = str(_uuid.UUID(hashlib.md5(seed.encode()).hexdigest()))
+        broker_label = "T212_DEMO" if self.mode == "demo" else "T212_LIVE"
+        intent = {
+            "ClientOrderId": client_id,
+            "Broker": broker_label,
+            "Symbol": _to_t212_ticker(order.symbol),
+            "Side": order.side.value,
+            "Qty": float(order.quantity),
+            "OrderType": order.type.value if order.type.value in ("MKT", "LMT", "STP", "STP_LMT") else "MKT",
+            "StrategyId": order.strategy_id,
+            "PlacedBy": "STRATEGY_AUTO",
+            "TimeInForce": "DAY",
         }
-        url = f"{api_base.rstrip('/')}/api/ingest/paper-pending-order"
+        url = f"{api_base.rstrip('/')}/api/oms/orders"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 resp = await client.post(
-                    url, json=payload,
+                    url, json=intent,
                     headers={"Authorization": f"Bearer {api_token}"},
                 )
                 resp.raise_for_status()
+                row = resp.json()
+                # Auto-mode: also send the approve call so OMS triggers
+                # broker placement immediately (Phase 2b — backend's
+                # OmsService.ApproveAsync calls Trading212DemoClient).
+                # Manual mode: leave in PENDING_APPROVAL for human review
+                # on the /oms page.
+                if self.placement_mode == "auto":
+                    approve_url = f"{api_base.rstrip('/')}/api/oms/orders/{row['id']}/approve"
+                    approve = await client.post(
+                        approve_url, json={},
+                        headers={"Authorization": f"Bearer {api_token}"},
+                    )
+                    if approve.status_code not in (200, 409):
+                        log.warning(
+                            "OMS auto-approve returned %s for %s: %s",
+                            approve.status_code, order.symbol, approve.text[:200],
+                        )
         except Exception:
             log.exception(
-                "Manual-mode pending-order push failed for %s — "
-                "human won't see this on the UI",
+                "OMS push failed for %s — "
+                "human won't see this on /oms page",
                 order.symbol,
             )
 
