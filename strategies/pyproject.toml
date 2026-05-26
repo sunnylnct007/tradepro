@@ -29,6 +29,10 @@ dependencies = [
     # text + tables + embedded chart PNGs in one pass. Loaded lazily
     # in email_pdf.py so it doesn't slow up other imports.
     "reportlab>=4.2",
+    # Interactive chart builder for the viz framework
+    # (tradepro_strategies.viz). Soft-imported only inside chart builders
+    # so non-viz code paths don't pay the import cost.
+    "plotly>=6.0",
 ]
 
 [project.optional-dependencies]
