@@ -136,11 +136,18 @@ class IchimokuEquityStrategy(Strategy):
 
         # Pause gate — short-circuit before any work.
         if self._overrides is not None and self._overrides.is_paused(self.strategy_id):
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp,
+                action="skip-paused",
+                reason="strategy is paused via overrides registry",
+            )
             return []
 
         # Symbols whitelist.
         symbols = p.get("symbols") or []
         if symbols and sym not in symbols:
+            # Non-whitelisted bars are routine noise — don't pollute
+            # the decision trace with one entry per off-universe bar.
             return []
 
         # Force-close trumps signal logic (one-shot).
@@ -150,6 +157,12 @@ class IchimokuEquityStrategy(Strategy):
             pos = self._positions.get(sym, 0)
             if pos != 0:
                 side = OrderSide.SELL if pos > 0 else OrderSide.BUY
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp,
+                    action="fire-force-close",
+                    reason="override registry requested force-close",
+                    qty=abs(pos), side=side.value, prior_position=pos,
+                )
                 return [Order(
                     strategy_id=self.strategy_id,
                     symbol=sym,
@@ -158,6 +171,11 @@ class IchimokuEquityStrategy(Strategy):
                     type=OrderType.MARKET,
                     tag=f"IchimokuEquity FORCE_CLOSE {sym} qty={abs(pos)}",
                 )]
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp,
+                action="skip-force-close-flat",
+                reason="force-close requested but position already flat",
+            )
             return []
 
         # MOO model: at most one decision per symbol per session.
@@ -172,9 +190,16 @@ class IchimokuEquityStrategy(Strategy):
         if self._overrides is not None and self._overrides.consume_veto(
             self.strategy_id, sym
         ):
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp,
+                action="skip-vetoed",
+                reason="override registry vetoed this signal",
+                signal=signal,
+            )
             return []
 
         position = self._positions.get(sym, 0)
+        cloud_pos = meta.get("cloud_position", "?") if meta else "?"
 
         # Long entry.
         if signal >= 1.0 and position == 0:
@@ -194,6 +219,12 @@ class IchimokuEquityStrategy(Strategy):
             if gate_decision.action == GateDecision.VETOED:
                 _log.info(
                     "IchimokuEquity LLM gate VETOED %s: %s", sym, gate_decision.reason
+                )
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp,
+                    action="skip-llm-vetoed",
+                    reason=f"LLM gate vetoed: {gate_decision.reason}",
+                    signal=signal, cloud_position=cloud_pos,
                 )
                 return []
             # scale_factor = 1.0 (normal) or >1.0 (boosted)
@@ -220,9 +251,14 @@ class IchimokuEquityStrategy(Strategy):
                 price_ov = None
 
             if qty <= 0:
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp,
+                    action="skip-zero-qty",
+                    reason="vol-target sizer returned non-positive quantity",
+                    signal=signal, vol=vol, price=float(bar.close),
+                )
                 return []
 
-            cloud_pos = meta.get("cloud_position", "?") if meta else "?"
             gate_tag = (
                 f" llm={gate_decision.action}"
                 if gate_decision.action != GateDecision.APPROVED
@@ -233,6 +269,20 @@ class IchimokuEquityStrategy(Strategy):
                 f"signal=1 cloud={cloud_pos} vol={vol:.3f}{gate_tag}"
                 if vol is not None
                 else f"IchimokuEquity MOO entry {sym} signal=1 cloud={cloud_pos}{gate_tag}"
+            )
+
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp,
+                action="fire-moo-entry",
+                reason=(
+                    f"signal=1 (close>cloud_top, tenkan>kijun, close>tenkan) "
+                    f"cloud={cloud_pos}"
+                ),
+                qty=qty, side="BUY", signal=signal,
+                vol=vol, llm_scale=llm_scale,
+                cloud_position=cloud_pos,
+                order_type="LMT" if price_ov is not None else "MKT",
+                limit_price=float(price_ov) if price_ov is not None else None,
             )
 
             if price_ov is not None:
@@ -256,6 +306,13 @@ class IchimokuEquityStrategy(Strategy):
 
         # Long exit — NEVER gated; always execute.
         if signal < 1.0 and position > 0:
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp,
+                action="fire-moo-exit",
+                reason=f"signal=0 with open long position {position}",
+                qty=position, side="SELL", signal=signal,
+                cloud_position=cloud_pos, prior_position=position,
+            )
             return [Order(
                 strategy_id=self.strategy_id,
                 symbol=sym,
@@ -264,6 +321,25 @@ class IchimokuEquityStrategy(Strategy):
                 type=OrderType.MARKET,
                 tag=f"IchimokuEquity MOO exit {sym} signal=0",
             )]
+
+        # Reached after the MOO gate but no entry / exit fired. Record
+        # the reason so a 0-fill session is explainable: cloud unfavour-
+        # able, already-long, no signal flip, etc.
+        if signal >= 1.0 and position > 0:
+            reason = f"signal=1 but already long {position}"
+            action_label = "skip-already-long"
+        elif signal < 1.0 and position == 0:
+            reason = f"signal=0 and flat (waiting for cloud-bull setup) cloud={cloud_pos}"
+            action_label = "skip-flat-no-signal"
+        else:
+            reason = f"signal={signal} cloud={cloud_pos} no MOO action"
+            action_label = "skip-no-action"
+        self.log_decision(
+            symbol=sym, bar_ts=bar.timestamp,
+            action=action_label, reason=reason,
+            signal=signal, position=position,
+            cloud_position=cloud_pos, vol=vol,
+        )
 
         return []
 
