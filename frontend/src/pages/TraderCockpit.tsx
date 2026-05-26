@@ -11,6 +11,7 @@ import { ActivityList } from "../components/cockpit/ActivityList";
 import { TodayOutcome } from "../components/cockpit/TodayOutcome";
 import { OrdersTable } from "../components/cockpit/OrdersTable";
 import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
+import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { api, OmsOrderRow } from "../api/client";
@@ -248,6 +249,7 @@ export function TraderCockpit() {
     { id: "fills",       title: "Trade executed" },
     { id: "activity",    title: "Activity feed" },
     { id: "trade-cards", title: "Trade cards" },
+    { id: "scan-grid",   title: "Symbol scan grid" },
     { id: "charts",      title: "Strategy charts" },
     { id: "lifecycle",   title: "Order lifecycle (Gantt)" },
     { id: "signals",     title: "Strategy signals" },
@@ -573,6 +575,14 @@ export function TraderCockpit() {
           positions={positions}
           latestSessions={latestSessions}
           onHide={() => widgets.hide("trade-cards")}
+        />
+      )}
+
+      {/* ── Symbol scan grid (compact card per symbol) ───────────── */}
+      {v("scan-grid") && (
+        <SymbolScanGrid
+          latestSessions={latestSessions}
+          onHide={() => widgets.hide("scan-grid")}
         />
       )}
 
