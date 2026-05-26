@@ -304,6 +304,9 @@ export function TraderCockpit() {
         </div>
       </div>
 
+      {/* ── System health row — trust before breadth ─────────────── */}
+      <SystemHealthRow />
+
       {/* ── KPI strip — always-visible single-glance status ──────── */}
       <KpiStrip
         cash={cash}
@@ -632,6 +635,149 @@ export function TraderCockpit() {
       </div>
     </div>
   );
+}
+
+/**
+ * SystemHealthRow — six compact pills showing whether the underlying
+ * chain the trader needs (API, Postgres, Mac daemon, T212, Finnhub,
+ * Yahoo) is healthy at this moment. Visible at the very top of the
+ * cockpit because the memory-rule "build trust before breadth" needs
+ * a single-glance "is the engine alive?" surface before the trader
+ * commits to a session.
+ *
+ * Pulls from /health/details + /health/integrations (both public).
+ * Polls every 60s. Each pill carries a tooltip explaining the
+ * verdict + how it's computed. Clicking the pill links to /health
+ * (the existing dedicated page) for the full breakdown.
+ */
+function SystemHealthRow() {
+  type Pill = { label: string; status: "ok" | "warn" | "down"; detail: string };
+  const [details, setDetails] = useState<Record<string, unknown> | null>(null);
+  const [integrations, setIntegrations] = useState<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    const tick = async () => {
+      try {
+        const d = await fetch(new URL("/health/details", config.apiBaseUrl).toString());
+        if (d.ok && live) setDetails(await d.json());
+      } catch { /* keep last good */ }
+      try {
+        const i = await fetch(new URL("/health/integrations", config.apiBaseUrl).toString());
+        if (i.ok && live) setIntegrations(await i.json());
+      } catch { /* best-effort */ }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 60_000);
+    return () => { live = false; clearInterval(id); };
+  }, []);
+
+  const pills: Pill[] = [];
+
+  // API
+  const apiUp = Number((details?.api as Record<string, unknown> | undefined)?.uptimeSeconds ?? 0);
+  pills.push({
+    label: "API",
+    status: details ? "ok" : "down",
+    detail: details
+      ? `Up ${fmtUptime(apiUp)} · commit ${String((details.deploy as Record<string, unknown> | undefined)?.backendCommit ?? "").slice(0, 7)}`
+      : "API unreachable — frontend can't fetch /health/details",
+  });
+
+  // Postgres
+  const pg = (details?.deploy as Record<string, unknown> | undefined)?.postgres as
+    Record<string, unknown> | undefined;
+  pills.push({
+    label: "Postgres",
+    status: pg?.connected ? "ok" : "down",
+    detail: pg?.connected
+      ? `Connected · ${pg.latencyMs ?? "?"}ms last probe`
+      : `Disconnected: ${pg?.error ?? "unknown"}`,
+  });
+
+  // Mac worker (Python daemon liveness)
+  const worker = details?.worker as Record<string, unknown> | undefined;
+  const liveness = (worker?.liveness as string) ?? "down";
+  const sinceLast = Number(worker?.sinceLastPingSeconds ?? -1);
+  pills.push({
+    label: "Mac daemon",
+    status: liveness === "alive" ? "ok" : liveness === "late" ? "warn" : "down",
+    detail: worker
+      ? `${liveness}${sinceLast >= 0 ? ` · last ping ${fmtUptime(sinceLast)} ago` : ""}${worker.host ? ` · host ${worker.host}` : ""}${worker.isProcessing ? " · processing" : ""}`
+      : "Mac worker hasn't pinged yet",
+  });
+
+  // T212 (from integrations probe)
+  const providers = (integrations?.providers as Array<Record<string, unknown>> | undefined) ?? [];
+  const t212 = providers.find((p) => p.provider === "trading212");
+  if (t212) {
+    pills.push({
+      label: "T212",
+      status: t212.status === "ok" ? "ok" : t212.status === "disabled" ? "warn" : "down",
+      detail: `${t212.label} (${t212.mode ?? "live"}) · ${t212.detail}`,
+    });
+  }
+
+  // Yahoo (data freshness)
+  const yahoo = providers.find((p) => p.provider === "yahoo");
+  if (yahoo) {
+    pills.push({
+      label: "Yahoo data",
+      status: yahoo.status === "ok" ? "ok" : "warn",
+      detail: `${yahoo.label} · ${yahoo.detail}`,
+    });
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex", gap: 6, flexWrap: "wrap",
+        marginBottom: 10, fontSize: 11,
+      }}
+    >
+      <span style={{
+        fontSize: 9, color: "var(--text-muted)",
+        textTransform: "uppercase", letterSpacing: "0.06em",
+        alignSelf: "center", marginRight: 2,
+      }}>
+        Health
+      </span>
+      {pills.map((p, i) => (
+        <Link
+          key={i}
+          to="/health"
+          title={p.detail}
+          style={{
+            display: "inline-flex", gap: 5, alignItems: "center",
+            padding: "2px 9px", borderRadius: 999, fontSize: 11,
+            border: `1px solid ${
+              p.status === "ok" ? "rgba(31,193,107,0.30)" :
+              p.status === "warn" ? "rgba(245,158,11,0.30)" :
+              "rgba(239,68,68,0.30)"
+            }`,
+            background:
+              p.status === "ok" ? "rgba(31,193,107,0.06)" :
+              p.status === "warn" ? "rgba(245,158,11,0.06)" :
+              "rgba(239,68,68,0.06)",
+            color: p.status === "ok" ? "#1fc16b" : p.status === "warn" ? "#f59e0b" : "#ef4444",
+            textDecoration: "none", letterSpacing: "0.02em",
+          }}
+        >
+          <span style={{ fontSize: 10 }}>
+            {p.status === "ok" ? "✓" : p.status === "warn" ? "⚠" : "✗"}
+          </span>
+          {p.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function fmtUptime(sec: number): string {
+  if (sec < 60) return `${Math.round(sec)}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+  return `${Math.floor(sec / 86400)}d`;
 }
 
 /**
