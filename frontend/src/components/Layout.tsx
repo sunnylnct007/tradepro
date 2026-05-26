@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { WorkerStatusBadge } from "./WorkerStatusBadge";
 import { useAuth } from "../auth/AuthProvider";
 import { ModePill } from "./ModePill";
+import { OmsModeBadge } from "./OmsModeBadge";
 import { T212ModeBadge } from "./T212ModeBadge";
 
 // Two personas drive the nav layout:
@@ -208,6 +209,7 @@ export function Layout() {
           {/* T212 broker mode chip — visible on every page so a user
            * can never confuse demo with real money. Hidden when
            * T212 isn't configured. */}
+          <OmsModeBadge />
           <T212ModeBadge />
           <span
             className="num"
