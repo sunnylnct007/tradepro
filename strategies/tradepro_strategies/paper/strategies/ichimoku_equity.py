@@ -373,17 +373,17 @@ class IchimokuEquityStrategy(Strategy):
                 df = self._fetch_df(sym, p)
                 if df is None or df.empty:
                     continue
-                # Fills for this symbol are tracked by the ledger,
-                # not directly on the strategy. Best-effort lookup:
-                # the engine's snapshot is what carries fills, and
-                # recent_charts is called *before* the snapshot is
-                # finalised. We pass an empty fills list here and
-                # rely on a follow-up step (engine attach_charts
-                # post-process) to overlay fills when we have them.
+                # Pull this strategy's own fills for the symbol so the
+                # chart can render BUY/SELL markers exactly where the
+                # MOO entry executed. Engine.record_fill (called before
+                # on_fill) populates self._fills_seen — no engine-
+                # ledger coupling needed.
+                fills_for_sym = self.recent_fills(symbol=sym)
                 out[f"ichimoku_cloud:{sym}"] = build_chart(
                     "ichimoku_cloud",
                     symbol=sym,
                     df=df,
+                    fills=fills_for_sym,
                     tenkan=p["tenkan"],
                     kijun=p["kijun"],
                     senkou_b=p["senkou_b"],

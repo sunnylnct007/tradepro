@@ -424,6 +424,13 @@ class Engine:
             fill = msg.fill
             self._apply_fill_to_strategy(strategy, fill)
             strategy.clear_order_in_flight(fill.symbol)
+            # Mirror the fill into the strategy's own ring buffer so
+            # recent_charts (and any future per-strategy fill view) can
+            # see what filled without depending on the engine ledger.
+            try:
+                strategy.record_fill(fill)
+            except Exception:
+                log.exception("strategy %s record_fill raised", strategy.strategy_id)
             try:
                 strategy.on_fill(fill)
             except Exception:

@@ -216,6 +216,15 @@ class Strategy(ABC):
     # "what data fed into the strategy" alongside decisions + fills.
     _bars_seen: dict[str, Deque[dict[str, Any]]] = field(default_factory=dict)
     bar_buffer_size: int = 300
+    # Per-symbol ring buffer of fills the strategy has actually seen.
+    # Engine calls record_fill before on_fill so any strategy that
+    # wants to overlay markers on a chart (recent_charts) or show a
+    # "what executed" table can read self.recent_fills() without
+    # depending on the engine ledger. 200 fills per symbol is large
+    # enough for a multi-day live session and small enough to embed
+    # in a snapshot.
+    _fills_seen: dict[str, Deque[dict[str, Any]]] = field(default_factory=dict)
+    fill_buffer_size: int = 200
 
     # --- Lifecycle hooks the engine calls --------------------------
 
@@ -377,6 +386,40 @@ class Strategy(ABC):
         merged.sort(key=lambda b: b.get("ts") or "")
         if limit is not None and len(merged) > limit:
             return merged[-limit:]
+        return merged
+
+    # --- Fill capture -------------------------------------------------
+
+    def record_fill(self, fill: "Fill") -> None:
+        """Append `fill` to the per-symbol ring buffer. Engine calls
+        this just before `on_fill(fill)` so any strategy that wants to
+        overlay markers on a chart (recent_charts) can read its own
+        fills without depending on the engine ledger."""
+        buf = self._fills_seen.get(fill.symbol)
+        if buf is None:
+            buf = deque(maxlen=self.fill_buffer_size)
+            self._fills_seen[fill.symbol] = buf
+        buf.append({
+            "time": fill.fill_time.isoformat(),
+            "symbol": fill.symbol,
+            "side": fill.side.value,
+            "quantity": float(fill.quantity),
+            "price": float(fill.fill_price),
+            "commission": float(getattr(fill, "commission", 0.0) or 0.0),
+            "order_id": getattr(fill, "order_id", ""),
+        })
+
+    def recent_fills(self, *, symbol: str | None = None) -> list[dict[str, Any]]:
+        """Fills for a single symbol if `symbol` is set, else all of
+        them merged + time-ordered ascending. Returns dicts (not Fill
+        objects) so snapshot serialisation is symmetric with
+        recent_bars / recent_decisions."""
+        if symbol is not None:
+            return list(self._fills_seen.get(symbol, ()))
+        merged: list[dict[str, Any]] = []
+        for buf in self._fills_seen.values():
+            merged.extend(buf)
+        merged.sort(key=lambda f: f.get("time") or "")
         return merged
 
     def recent_charts(self) -> dict[str, dict[str, Any]]:
