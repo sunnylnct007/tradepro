@@ -23,6 +23,8 @@ import { Signals } from "./pages/Signals";
 import { Simulations } from "./pages/Simulations";
 import { Strategies } from "./pages/Strategies";
 import { SymbolDeepDive } from "./pages/SymbolDeepDive";
+import { IchimokuEquity } from "./pages/IchimokuEquity";
+import { IchimokuFx } from "./pages/IchimokuFx";
 
 const router = createBrowserRouter([
   {
@@ -48,6 +50,8 @@ const router = createBrowserRouter([
       { path: "symbol/:ticker", element: <SymbolDeepDive /> },
       { path: "simulations", element: <Simulations /> },
       { path: "strategies", element: <Strategies /> },
+      { path: "strategies/ichimoku-equity", element: <IchimokuEquity /> },
+      { path: "strategies/ichimoku-fx", element: <IchimokuFx /> },
       { path: "paper-backtest", element: <PaperBacktest /> },
       { path: "paper-live", element: <PaperLive /> },
       { path: "paper-live/session/:id", element: <SessionDetail /> },
