@@ -521,6 +521,18 @@ export const api = {
       "/api/oms/mode",
       { Mode: mode },
     ),
+
+  // ── IT admin: raw-table browsers ─────────────────────────────
+  adminEvents: (p?: { event_type?: string; since_seq?: number; before_seq?: number; limit?: number }) =>
+    get<{ rows: AdminEventRow[] }>("/api/admin/events", p as Record<string, string | number | undefined>),
+  adminOrders: (p?: { symbol?: string; strategy?: string; mode?: string; limit?: number }) =>
+    get<{ rows: AdminOrderRow[] }>("/api/admin/orders", p as Record<string, string | number | undefined>),
+  adminFills: (p?: { order_id?: string; limit?: number }) =>
+    get<{ rows: AdminFillRow[] }>("/api/admin/fills", p as Record<string, string | number | undefined>),
+  adminOmsEvents: (p?: { order_id?: string; limit?: number }) =>
+    get<{ rows: AdminOmsEventRow[] }>("/api/admin/oms-events", p as Record<string, string | number | undefined>),
+  adminStrategyVersions: () =>
+    get<{ rows: AdminStrategyVersionRow[] }>("/api/admin/strategy-versions"),
 };
 
 export type OmsOrderRow = {
@@ -562,4 +574,67 @@ export type OmsOrderEventRow = {
   actor: string;
   detailJson: string | null;
   occurredAtUtc: string;
+};
+
+// ── IT admin raw-table row types ───────────────────────────────────
+export type AdminEventRow = {
+  seq: number;
+  event_type: string;
+  aggregate_id: string | null;
+  payload_text: string;
+  occurred_at: string;
+};
+
+export type AdminOrderRow = {
+  order_id: string;
+  correlation_id: string | null;
+  strategy_name: string;
+  strategy_version: string;
+  mode: string;
+  broker: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  order_type: string;
+  limit_price: number | null;
+  bar_at_emit_close: number | null;
+  bar_at_emit_time: string | null;
+  tag: string | null;
+  emitted_at_utc: string;
+  risk_decision: string | null;
+  risk_reason: string | null;
+  risk_decided_at: string | null;
+};
+
+export type AdminFillRow = {
+  fill_id: number;
+  order_id: string;
+  broker_order_id: string | null;
+  fill_qty: number;
+  fill_price: number;
+  commission: number;
+  filled_at_utc: string;
+  bar_at_fill_close: number | null;
+  bar_at_fill_time: string | null;
+};
+
+export type AdminOmsEventRow = {
+  id: number;
+  order_id: string;
+  event_type: string;
+  prior_state: string | null;
+  new_state: string;
+  actor: string;
+  detail_json: string | null;
+  occurred_at_utc: string;
+};
+
+export type AdminStrategyVersionRow = {
+  name: string;
+  version: string;
+  code_hash: string;
+  layer: string;
+  description: string;
+  registered_at: string;
+  deprecated_at: string | null;
 };

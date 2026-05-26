@@ -63,6 +63,7 @@ const systemNav: NavItem[] = [
   { to: "/health",             label: "Health"   },
   { to: "/universes",          label: "Universes"},
   { to: "/settings",           label: "Settings" },
+  { to: "/admin/data",         label: "IT Data"  },
   { to: "/help/trade-support", label: "Support"  },
   { to: "/help/ops-runbook",   label: "IT Guide" },
 ];
