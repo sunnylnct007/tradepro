@@ -202,6 +202,11 @@ class Strategy(ABC):
     source: ClassVar[str] = "scaffold"
     status: ClassVar[str] = "evaluating"
     default_lookback_days: ClassVar[int] = 0
+    # Operator-facing caveats that the cockpit surfaces as warning
+    # banners when this strategy is selected. Keep entries short +
+    # actionable — the trader is mid-flow when they read them. Empty
+    # list (default) means "no known limitations to flag".
+    caveats: ClassVar[list[str]] = []
     # Symbols with an order emitted but no fill seen yet. Engine maintains
     # this around `emit → on_fill`; strategies query via has_order_in_flight().
     _in_flight_symbols: set[str] = field(default_factory=set)

@@ -47,6 +47,11 @@ def build_catalog() -> dict:
             "source": getattr(cls, "source", "scaffold"),
             "status": getattr(cls, "status", "evaluating"),
             "default_lookback_days": getattr(cls, "default_lookback_days", 0),
+            # Operator-facing caveats — short, actionable strings the UI
+            # renders as a warning banner under the strategy pill so the
+            # trader can't accidentally treat a design-limited strategy
+            # as production-ready.
+            "caveats": list(getattr(cls, "caveats", []) or []),
             "default_params": spec.default_params(),
         })
     return {

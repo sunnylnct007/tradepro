@@ -113,6 +113,7 @@ export const api = {
         source?: string;                 // "trader-quant" | "alpha-engine" | "scaffold"
         status?: string;                 // code default; overridden via strategyStatusOverrides
         default_lookback_days?: number;  // pre-fill for the Lookback (days) input
+        caveats?: string[];              // operator-facing design limitations
         default_params: Record<string, unknown>;
       }>;
     }>("/api/paper/strategies/"),

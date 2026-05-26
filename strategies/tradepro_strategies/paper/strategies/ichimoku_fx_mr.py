@@ -156,7 +156,23 @@ class IchimokuFXMeanReversionStrategy(Strategy):
     """
 
     source = "trader-quant"
-    default_lookback_days = 200  # signal early-returns 0 until ~2573 1h bars
+    caveats = [
+        "DEMO / DESIGN-LIMITED. Ichimoku is a TREND-confirmation tool "
+        "originally tuned for daily Japanese equities. Using it for "
+        "intraday FX mean-reversion is contrarian to its design and "
+        "breaks down badly when EUR/USD / GBP/USD trends.",
+        "Single-indicator at hourly bars — the 26-bar displacement "
+        "lags real price by 26h. By the time the cloud shifts the MR "
+        "opportunity is often gone.",
+        "Missing: vol-regime filter (ATR z-score), session filter "
+        "(London/NY overlap), pairs cointegration. Production FX MR "
+        "usually layers all three on top of any single indicator.",
+        "Roadmap: ichimoku_fx_mr_v2 keeps Ichimoku as a regime filter "
+        "+ adds Bollinger Bands(20) + RSI(14) + ATR-based stop. Ask the "
+        "quant before relying on v1 for live capital.",
+    ]
+    # Bars-needed (2573 of 1h) means default_lookback_days=200.
+    default_lookback_days = 200
 
     _closes: dict[str, deque] = field(default_factory=dict)
     _highs: dict[str, deque] = field(default_factory=dict)

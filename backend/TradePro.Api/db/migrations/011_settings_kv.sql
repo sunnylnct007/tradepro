@@ -60,12 +60,13 @@ INSERT INTO app_settings_kv
     (key, value, value_type, label, description, category, min_value, max_value)
 VALUES
     ('strategy_optimisation_frequency_minutes',
-     '15'::jsonb, 'number',
+     '240'::jsonb, 'number',
      'Strategy optimisation frequency (minutes)',
      'How often the universe-wide optimiser re-evaluates each strategy. '
-     || 'Lower = fresher signals + more compute / data-provider load. '
-     || 'Higher = lower load, signals lag the market. Set to 0 to disable '
-     || 'the optimiser entirely (manual triggers still work).',
+     || 'Default 240 (4h) — most strategies don''t benefit from sub-hour '
+     || 'cadence and we save data-provider load. Lower = fresher signals + '
+     || 'more compute. Set to 0 to disable continuous optimisation entirely '
+     || '(manual triggers still work). Read by the daemon on its next tick.',
      'Trading', 0, 1440),
     ('daemon_universe_default',
      '"sp500"'::jsonb, 'string',

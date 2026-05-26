@@ -120,6 +120,9 @@ export function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
           onPick={(n) => void pickUniverse(n)}
         />
       )}
+      {selected && selected.caveats && selected.caveats.length > 0 && (
+        <CaveatsBanner caveats={selected.caveats} strategy={selected.name} />
+      )}
       {selected && (
         <SessionInputs
           isFx={selected.name === "ichimoku_fx_mr"}
@@ -287,6 +290,44 @@ function SessionInputs({
       >
         {submitting ? "Queueing…" : "Run"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * CaveatsBanner — amber warning block listing the design limitations
+ * (Strategy.caveats Python ClassVar → API → here) of the selected
+ * strategy. Shows when caveats is non-empty so the trader can't
+ * accidentally treat a design-limited strategy as production-ready.
+ *
+ * Pattern from the trader feedback: ichimoku_fx_mr uses a trend tool
+ * for mean-reversion which is contrarian to Ichimoku's design. Banner
+ * makes that visible right where the trigger happens.
+ */
+function CaveatsBanner({ caveats, strategy }: { caveats: string[]; strategy: string }) {
+  return (
+    <div
+      style={{
+        marginBottom: 10,
+        padding: "8px 12px",
+        border: "1px solid rgba(245,158,11,0.35)",
+        background: "rgba(245,158,11,0.06)",
+        borderRadius: 6,
+        fontSize: 11,
+        color: "var(--text)",
+        lineHeight: 1.45,
+      }}
+    >
+      <div style={{
+        fontSize: 10, color: "#f59e0b", fontWeight: 700,
+        letterSpacing: "0.06em", textTransform: "uppercase",
+        marginBottom: 4,
+      }}>
+        ⚠ {strategy} — known limitations
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {caveats.map((c, i) => (<li key={i} style={{ marginBottom: 2 }}>{c}</li>))}
+      </ul>
     </div>
   );
 }

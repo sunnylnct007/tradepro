@@ -68,6 +68,15 @@ class IchimokuEquityStrategy(Strategy):
     """
 
     source = "trader-quant"
+    caveats = [
+        "Daily MOO entries (one per symbol per session) — designed for "
+        "multi-week / multi-year holds, not intraday entries.",
+        "Single-indicator (Ichimoku) trend filter — vulnerable to a "
+        "regime shift from trend to range. Re-evaluate the signal on "
+        "regime breaks (SPY < 200-SMA, vol spikes).",
+        "Vol-target sizing uses the last 60d realised vol — fast vol "
+        "spikes lag in the position sizer.",
+    ]
     # Strategy reads daily history straight from the on-disk cache,
     # but the paper engine still needs at least one minute bar per
     # symbol for `on_bar` to fire and the MOO entry to be emitted.

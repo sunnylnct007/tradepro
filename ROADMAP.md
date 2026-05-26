@@ -13,6 +13,40 @@ those assumptions change.
 
 ---
 
+## ichimoku_fx_mr v2 — multi-indicator intraday FX MR
+
+**Status:** PLANNED (user feedback 2026-05-26 — discuss with quant first).
+
+**Why:** v1 uses Ichimoku as the sole signal source for hourly FX
+mean-reversion. Ichimoku is a *trend-confirmation* tool tuned for
+daily Japanese equity bars; using it for intraday FX MR is contrarian
+to its design and breaks down badly in trending regimes. The hourly
+26-bar displacement also means the cloud lags real price by 26h —
+by then the MR opportunity has often already closed. Single-
+indicator strategies are fragile to regime shifts.
+
+**v2 design (proposed):**
+
+| Layer            | Indicator                          | Role |
+|------------------|------------------------------------|------|
+| Primary trigger  | Bollinger Band(20) z-score \|z\| > 2 | Fade extremes |
+| Confirmation     | RSI(14) > 70 / < 30                | Avoid false MR |
+| Vol regime gate  | ATR(14) z-score                    | Skip when vol exploding (trend regime) |
+| Session filter   | London/NY overlap (12:00-16:00 UTC)| FX MR works best in overlap |
+| Demotion only    | Ichimoku cloud                     | Don't fade if price firmly outside cloud (that's trend) |
+| Stop / size      | ATR-based                          | Vol-adjusted, not fixed |
+
+**Future v3:** EUR/USD vs GBP/USD cointegration pairs trade for the
+highest-confidence setups. Ornstein-Uhlenbeck fits with deviation
+thresholds.
+
+**Demo plan:** ship v1 with `caveats` banner surfaced in the cockpit
+Trigger panel (done 2026-05-26) + the strategy_optimisation_frequency
+default of 240 minutes (every 4h) so v1 doesn't burn data-provider
+quota while the quant reviews v2 design.
+
+---
+
 ## Portfolio safety — default to T212 DEMO
 
 **Status:** PLANNED (user request 2026-05-25).
