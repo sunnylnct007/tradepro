@@ -5,6 +5,7 @@ import { PlotlyChart } from "../components/PlotlyChart";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
+import { buildActivityFeed, activityTone, type ActivityEvent } from "../viz/activityFeed";
 
 /**
  * Trader cockpit — every piece of context the trader needs in one
@@ -230,6 +231,20 @@ export function TraderCockpit() {
     }
   };
 
+  // Merge orders + recent-session decisions into one chronological
+  // event stream. Top-of-cockpit "what happened today" view that
+  // replaces the three-panel (generated / placed / executed) read
+  // pattern with a single timeline.
+  const activityEvents = buildActivityFeed(
+    orders,
+    latestSessions.map((s) => ({
+      strategy: s.strategy,
+      requestId: s.requestId,
+      decisions: s.decisions,
+    })),
+    { limit: 50 },
+  );
+
   const approveAll = async () => {
     if (!pending.length) return;
     if (!confirm(`Approve all ${pending.length} pending intent${pending.length === 1 ? "" : "s"}?`)) return;
@@ -412,6 +427,23 @@ export function TraderCockpit() {
         )}
       </CockpitCard>
 
+      {/* ── Activity feed (unified signal / order / fill timeline) */}
+      <CockpitCard
+        id="activity"
+        title="Activity feed"
+        badge={activityEvents.length || undefined}
+        defaultOpen
+      >
+        {activityEvents.length === 0 ? (
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            No activity yet. Signal fires, OMS state changes, and fills land
+            here as one chronological timeline.
+          </span>
+        ) : (
+          <ActivityList events={activityEvents} />
+        )}
+      </CockpitCard>
+
       {/* ── Order lifecycle Gantt ──────────────────────────────── */}
       <CockpitCard
         id="lifecycle"
@@ -550,6 +582,76 @@ export function TraderCockpit() {
           {" · "}Per-order drill-in: <Link to="/oms" style={{ color: "var(--text-muted)" }}>OMS →</Link>
         </div>
       </CockpitCard>
+    </div>
+  );
+}
+
+/**
+ * ActivityList — render the chronological event feed. One row per
+ * event, colour-coded by kind, with click-through to the relevant
+ * detail page (OMS row or session detail). Kept compact so it can
+ * coexist with the three existing order panels rather than replacing
+ * them — both views serve different scan patterns (timeline vs.
+ * bucketed by state).
+ */
+function ActivityList({ events }: { events: ActivityEvent[] }) {
+  return (
+    <div
+      style={{
+        display: "flex", flexDirection: "column", gap: 4,
+        maxHeight: 360, overflowY: "auto",
+        paddingRight: 4,
+      }}
+    >
+      {events.map((e, i) => {
+        const tone = activityTone(e.kind);
+        const ts = e.time ? new Date(e.time) : null;
+        const body = (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "70px 18px 1fr",
+              gap: 8,
+              padding: "4px 6px",
+              borderRadius: 4,
+              fontSize: 12,
+              alignItems: "baseline",
+              borderLeft: `3px solid ${tone.fg}`,
+              background: "rgba(255,255,255,0.015)",
+            }}
+            title={`${e.kind} · ${e.strategyId ?? ""}`}
+          >
+            <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)" }}>
+              {ts ? ts.toLocaleTimeString([], { hour12: false }) : "—"}
+            </span>
+            <span style={{ color: tone.fg, textAlign: "center" }}>{tone.icon}</span>
+            <span style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+              <span style={{ color: tone.fg, fontWeight: 600, fontFamily: "monospace" }}>
+                {e.kind.replace(/_/g, " ")}
+              </span>
+              <span style={{ fontFamily: "monospace" }}>{e.label}</span>
+              {e.detail && (
+                <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
+                  {e.detail}
+                </span>
+              )}
+              {e.strategyId && (
+                <span style={{ color: "var(--text-muted)", fontSize: 10, marginLeft: "auto" }}>
+                  {e.strategyId}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+        if (e.href) {
+          return (
+            <Link key={i} to={e.href} style={{ textDecoration: "none", color: "inherit" }}>
+              {body}
+            </Link>
+          );
+        }
+        return <div key={i}>{body}</div>;
+      })}
     </div>
   );
 }
