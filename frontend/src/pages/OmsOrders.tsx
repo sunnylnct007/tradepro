@@ -119,13 +119,18 @@ export function OmsOrders() {
 
   const loadOrders = useCallback(async () => {
     try {
-      const states = Array.from(filterStates);
-      const { orders } = await api.omsOrders(states.length ? states : undefined, 200);
+      // Always fetch the full unfiltered list so the per-state pill
+      // counts reflect the global total, not the count within the
+      // current filter. Previously clicking FILLED then clicking it
+      // again collapsed every count to 0 because the API call
+      // requested only the un-deselected states and the trader lost
+      // sight of how many filled orders existed.
+      const { orders } = await api.omsOrders(undefined, 500);
       setOrders(orders);
     } catch (e) {
       setError(String(e));
     }
-  }, [filterStates]);
+  }, []);
 
   const loadMode = useCallback(async () => {
     try {
@@ -204,18 +209,32 @@ export function OmsOrders() {
     }
   };
 
-  // Apply the strategy filter on the client — orders array is small
-  // (≤200 rows) and the API doesn't expose a per-strategy filter today.
+  // Apply BOTH the strategy filter AND the state filter on the
+  // client. The API call deliberately returns everything (see
+  // loadOrders) so the state-pill counts stay accurate as the trader
+  // toggles pills off — deselecting FILLED hides filled rows from
+  // the table but the pill still shows "FILLED 7" so the trader can
+  // re-enable it without losing sight of the data behind it.
   const visibleOrders = useMemo(() => {
-    if (!strategyFilter) return orders;
-    return orders.filter((o) => o.strategyId === strategyFilter);
-  }, [orders, strategyFilter]);
+    return orders.filter((o) => {
+      if (strategyFilter && o.strategyId !== strategyFilter) return false;
+      if (filterStates.size > 0 && !filterStates.has(o.state as OmsState)) return false;
+      return true;
+    });
+  }, [orders, strategyFilter, filterStates]);
 
+  // Totals are computed from the full (strategy-scoped) order set,
+  // NOT from visibleOrders, so each pill's count survives a state-
+  // filter toggle. Strategy filter still applies — when scoped to
+  // one strategy, the pills show that strategy's state breakdown.
   const totals = useMemo(() => {
+    const scope = strategyFilter
+      ? orders.filter((o) => o.strategyId === strategyFilter)
+      : orders;
     const by: Record<string, number> = {};
-    for (const o of visibleOrders) by[o.state] = (by[o.state] || 0) + 1;
+    for (const o of scope) by[o.state] = (by[o.state] || 0) + 1;
     return by;
-  }, [visibleOrders]);
+  }, [orders, strategyFilter]);
 
   return (
     <div style={{ padding: 24 }}>

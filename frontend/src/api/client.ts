@@ -379,6 +379,56 @@ export const api = {
   // panel to smoke-test the OMS → T212 demo chain end-to-end without
   // a real strategy session. Strategy code calls the same endpoint
   // from the Mac daemon (paper/brokers/t212.py).
+  // Symbol universes (Wikipedia-scraped, curated via overrides).
+  // Worker pushes via tradepro-refresh-universes; trader picks from
+  // these on the Trigger forms.
+  universes: () =>
+    get<{
+      universes: Array<{
+        name: string;
+        sourceUrl: string;
+        symbolCount: number;
+        fetchedAtUtc: string;
+        source: string;
+        includedOverrides: number;
+        excludedOverrides: number;
+      }>;
+    }>("/api/universes/"),
+  universe: (name: string) =>
+    get<{
+      header: {
+        name: string;
+        sourceUrl: string;
+        symbolCount: number;
+        fetchedAtUtc: string;
+        source: string;
+      };
+      symbols: Array<{
+        ticker: string;
+        name: string | null;
+        sector: string | null;
+        industry: string | null;
+        overrideAction: "INCLUDE" | "EXCLUDE" | null;
+        effective: boolean;
+      }>;
+    }>(`/api/universes/${encodeURIComponent(name)}`),
+  setUniverseOverride: (name: string, body: { Ticker: string; Action: "INCLUDE" | "EXCLUDE"; Note?: string }) =>
+    post<{ ok: boolean }, typeof body>(
+      `/api/universes/${encodeURIComponent(name)}/overrides`, body),
+  clearUniverseOverride: async (name: string, ticker: string) => {
+    const headers = await authHeaders();
+    const resp = await fetch(
+      new URL(
+        `/api/universes/${encodeURIComponent(name)}/overrides/${encodeURIComponent(ticker)}`,
+        config.apiBaseUrl,
+      ),
+      { method: "DELETE", headers },
+    );
+    if (!resp.ok && resp.status !== 404) {
+      throw new Error(`${resp.status} ${resp.statusText}`);
+    }
+  },
+
   omsEnqueue: (intent: {
     ClientOrderId: string;
     Broker: string;
