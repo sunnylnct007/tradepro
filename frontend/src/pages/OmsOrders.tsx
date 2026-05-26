@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { api, OmsOrderRow } from "../api/client";
+import { api, OmsOrderRow, OmsOrderEventRow } from "../api/client";
 import { PaperSubNav } from "../components/PaperSubNav";
 
 // OMS Orders page — single surface for every order the platform ever
@@ -80,6 +80,26 @@ export function OmsOrders() {
   const [mode, setMode] = useState<"auto" | "manual" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  // Per-order event timeline state: {orderId → events[]|"loading"|"error"}.
+  // Lazy-loaded on first expand so the orders list stays fast.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [events, setEvents] = useState<Record<string, OmsOrderEventRow[] | "loading" | "error">>({});
+
+  const toggleEvents = async (orderId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(orderId) ? next.delete(orderId) : next.add(orderId);
+      return next;
+    });
+    if (events[orderId] !== undefined) return;
+    setEvents((e) => ({ ...e, [orderId]: "loading" }));
+    try {
+      const { events: rows } = await api.omsOrderEvents(orderId);
+      setEvents((e) => ({ ...e, [orderId]: rows }));
+    } catch {
+      setEvents((e) => ({ ...e, [orderId]: "error" }));
+    }
+  };
 
   const loadOrders = useCallback(async () => {
     try {
@@ -293,9 +313,29 @@ export function OmsOrders() {
                 const b = stateBadge(o.state);
                 const isOpen = OPEN_STATES.includes(o.state);
                 const busy = acting?.startsWith(o.id);
+                const isExpanded = expanded.has(o.id);
+                const evs = events[o.id];
                 return (
-                  <tr key={o.id} style={{ borderTop: "1px solid var(--border)" }}>
+                  <React.Fragment key={o.id}>
+                  <tr style={{ borderTop: "1px solid var(--border)" }}>
                     <Td mono>
+                      <button
+                        onClick={() => toggleEvents(o.id)}
+                        style={{
+                          marginRight: 6,
+                          padding: "0 5px",
+                          fontSize: 10,
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: 3,
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          minWidth: 18,
+                        }}
+                        title={isExpanded ? "Hide event trail" : "Show event trail"}
+                      >
+                        {isExpanded ? "▾" : "▸"}
+                      </button>
                       {o.createdAtUtc.slice(0, 19).replace("T", " ")}
                     </Td>
                     <Td>{o.strategyId ?? "—"}</Td>
@@ -357,6 +397,14 @@ export function OmsOrders() {
                       )}
                     </Td>
                   </tr>
+                  {isExpanded && (
+                    <tr style={{ background: "rgba(255,255,255,0.02)" }}>
+                      <td colSpan={10} style={{ padding: "10px 14px" }}>
+                        <EventTimeline evs={evs} />
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -402,4 +450,70 @@ function Td({
       {children}
     </td>
   );
+}
+
+function EventTimeline({
+  evs,
+}: {
+  evs: OmsOrderEventRow[] | "loading" | "error" | undefined;
+}) {
+  if (evs === "loading" || evs === undefined) {
+    return <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Loading events…</span>;
+  }
+  if (evs === "error") {
+    return <span style={{ fontSize: 11, color: "#ef4444" }}>Failed to load events.</span>;
+  }
+  if (evs.length === 0) {
+    return <span style={{ fontSize: 11, color: "var(--text-dim)" }}>No events recorded.</span>;
+  }
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+      <thead>
+        <tr style={{ color: "var(--text-dim)" }}>
+          <th style={{ textAlign: "left", padding: "3px 8px" }}>Time UTC</th>
+          <th style={{ textAlign: "left", padding: "3px 8px" }}>Event</th>
+          <th style={{ textAlign: "left", padding: "3px 8px" }}>Transition</th>
+          <th style={{ textAlign: "left", padding: "3px 8px" }}>Actor</th>
+          <th style={{ textAlign: "left", padding: "3px 8px" }}>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {evs.map((e) => (
+          <tr key={e.id} style={{ borderTop: "1px solid var(--border)" }}>
+            <td style={{ padding: "3px 8px", fontFamily: "monospace", color: "var(--text-muted)" }}>
+              {e.occurredAtUtc.slice(0, 19).replace("T", " ")}
+            </td>
+            <td
+              style={{
+                padding: "3px 8px",
+                color: eventTone(e.eventType),
+                fontWeight: 600,
+                fontFamily: "monospace",
+              }}
+            >
+              {e.eventType}
+            </td>
+            <td style={{ padding: "3px 8px", color: "var(--text-dim)" }}>
+              {(e.priorState ?? "—") + " → " + e.newState}
+            </td>
+            <td style={{ padding: "3px 8px", color: "var(--text-muted)" }}>{e.actor}</td>
+            <td style={{ padding: "3px 8px", fontFamily: "monospace", color: "var(--text-muted)", fontSize: 10 }}>
+              {e.detailJson ? truncate(e.detailJson, 160) : ""}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function eventTone(t: string): string {
+  if (t === "ENQUEUED" || t === "APPROVED" || t === "FILL") return "#4f8cff";
+  if (t === "REJECTED" || t === "BROKER_REJECTED" || t === "CANCEL_BROKER_FAILED") return "#ef4444";
+  if (t === "CANCELLED") return "var(--text-muted)";
+  return "var(--text)";
+}
+
+function truncate(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n) + "…";
 }
