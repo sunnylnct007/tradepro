@@ -378,3 +378,19 @@ class Strategy(ABC):
         if limit is not None and len(merged) > limit:
             return merged[-limit:]
         return merged
+
+    def recent_charts(self) -> dict[str, dict[str, Any]]:
+        """Return a ``{name → plotly_figure_json}`` map of charts the
+        strategy wants attached to the session snapshot.
+
+        Default: empty — strategies that want charts override this. The
+        engine calls it at session-end via ``attach_charts`` and the
+        result lands in ``result_summary.strategies[].charts``, which
+        the frontend's Session Detail "Charts" tab renders without any
+        further wiring.
+
+        Best practice: catch exceptions inside the override so a buggy
+        chart never sinks the session snapshot. The engine logs but
+        does not re-raise.
+        """
+        return {}

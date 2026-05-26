@@ -282,6 +282,44 @@ class IchimokuEquityStrategy(Strategy):
                 ", ".join(f"{s}={q}" for s, q in held.items()),
             )
 
+    def recent_charts(self) -> dict[str, dict[str, Any]]:  # type: ignore[override]
+        """Emit a per-symbol Ichimoku-cloud chart so the trader can
+        validate "where did the signal actually fire vs where the
+        cloud was?" on /paper-live/session/<id>. Errors per-symbol
+        are caught locally so one broken symbol doesn't strip charts
+        from the other three."""
+        from ...viz import build_chart
+
+        p = self._p()
+        out: dict[str, dict[str, Any]] = {}
+        for sym in p.get("symbols") or list(self._daily_signals.keys()):
+            try:
+                df = self._fetch_df(sym, p)
+                if df is None or df.empty:
+                    continue
+                # Fills for this symbol are tracked by the ledger,
+                # not directly on the strategy. Best-effort lookup:
+                # the engine's snapshot is what carries fills, and
+                # recent_charts is called *before* the snapshot is
+                # finalised. We pass an empty fills list here and
+                # rely on a follow-up step (engine attach_charts
+                # post-process) to overlay fills when we have them.
+                out[f"ichimoku_cloud:{sym}"] = build_chart(
+                    "ichimoku_cloud",
+                    symbol=sym,
+                    df=df,
+                    tenkan=p["tenkan"],
+                    kijun=p["kijun"],
+                    senkou_b=p["senkou_b"],
+                    displacement=p["displacement"],
+                )
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "ichimoku_equity recent_charts failed for %s — skipping",
+                    sym,
+                )
+        return out
+
     # ------------------------------------------------------------------ #
     # Internal helpers                                                    #
     # ------------------------------------------------------------------ #

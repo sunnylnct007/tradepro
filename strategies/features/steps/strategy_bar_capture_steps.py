@@ -152,7 +152,9 @@ def step_engine_replay_session(context, n: int) -> None:
 
 @when("the session completes")
 def step_session_completes(context) -> None:
-    asyncio.run(context.engine.run(datetime(2026, 5, 22)))
+    # Capture the snapshot so charts/decisions/bars assertions in
+    # downstream feature files can inspect it without re-running.
+    context.snapshot = asyncio.run(context.engine.run(datetime(2026, 5, 22)))
 
 
 @then('the strategy\'s bars_seen contains {n:d} entries for AAPL')

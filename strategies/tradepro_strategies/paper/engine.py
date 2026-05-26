@@ -249,6 +249,7 @@ class Engine:
         snapshot = self.ledger.to_snapshot()
         self.attach_decisions(snapshot)
         self.attach_bars(snapshot)
+        self.attach_charts(snapshot)
         return snapshot
 
     def attach_decisions(self, snapshot: dict, *, limit: int = 50) -> None:
@@ -276,6 +277,30 @@ class Engine:
                 entry["bars_seen"] = []
                 continue
             entry["bars_seen"] = reg.strategy.recent_bars(limit=limit)
+
+    def attach_charts(self, snapshot: dict) -> None:
+        """Ask each strategy for its Plotly chart bundle and attach to
+        the per-strategy snapshot entry under ``charts``.
+
+        Failures in any single strategy's ``recent_charts`` are logged
+        and that strategy gets an empty charts dict — never propagated
+        so a buggy chart can't sink the whole session snapshot.
+        """
+        for entry in snapshot.get("strategies", []):
+            sid = entry.get("strategy_id")
+            reg = self.registrations.get(sid)
+            if reg is None:
+                entry["charts"] = {}
+                continue
+            try:
+                charts = reg.strategy.recent_charts()
+                entry["charts"] = charts if isinstance(charts, dict) else {}
+            except Exception:
+                log.exception(
+                    "strategy %s recent_charts raised; attaching empty",
+                    reg.strategy.strategy_id,
+                )
+                entry["charts"] = {}
 
     # ----- Internal coroutines -------------------------------------
 

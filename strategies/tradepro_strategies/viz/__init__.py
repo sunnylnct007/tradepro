@@ -20,3 +20,4 @@ from .registry import (  # noqa: F401
 # Import side-effecting modules so their @register_chart decorators run.
 from . import backtest_4panel  # noqa: F401
 from . import monte_carlo_fan  # noqa: F401
+from . import ichimoku_cloud  # noqa: F401
