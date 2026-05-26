@@ -437,6 +437,9 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
                 "unrealized_pnl_usd": book.get("unrealized_pnl_usd"),
             })
 
+        # data_window_start = earliest date that contributed bars (from the
+        # holiday-aware lookback). None when lookback_days=0 or pre-market.
+        dws = getattr(bus, "data_window_start", None)
         return {
             "symbol": symbol,
             "ok": True,
@@ -444,6 +447,7 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
             "finished_at": datetime.now(timezone.utc).isoformat(),
             "strategies": per_strategy,
             "register_errors": register_errors,
+            "data_window_start": dws.date().isoformat() if dws else None,
         }
     except Exception as e:  # noqa: BLE001
         log.exception("symbol %s failed", symbol)

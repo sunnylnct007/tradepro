@@ -14,21 +14,29 @@ from ..strategy import Bar
 
 
 def _lookback_dates(session_date: datetime, lookback_days: int) -> list[datetime]:
-    """Return [session_date - lookback_days, ..., session_date] inclusive.
+    """Return candidate dates for a lookback window.
 
-    Used by the source-backed buses to drive multi-day warmup fetches
-    one calendar day at a time. The per-day call shape preserves the
-    BarSource contract and reuses the parquet cache per-(symbol, day),
-    so re-running the same window costs zero network bandwidth after
-    the first run.
+    Generates (lookback_days + 7) business days backward from session_date
+    so bank holidays never leave the window empty. _fetch_window filters
+    out empty fetch results and selects the most recent lookback_days
+    non-empty days, so callers always get a full warmup window even if
+    yesterday (or the past few days) were bank holidays.
+
+    lookback_days=0 returns only session_date (preserves single-day behaviour).
     """
     if lookback_days < 0:
         raise ValueError("lookback_days must be >= 0")
-    days = []
     base = session_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    for d in range(lookback_days, -1, -1):
-        days.append(base - timedelta(days=d))
-    return days
+    if lookback_days == 0:
+        return [base]
+    import pandas as pd
+    # Buffer of 7 covers two consecutive bank-holiday weeks (e.g. Easter).
+    n = lookback_days + 7
+    # Go back far enough in calendar days; bdate_range handles Mon-Fri.
+    start = base - timedelta(days=n * 3)
+    bdates = pd.bdate_range(start=start, end=base, freq="B")
+    # Keep the most recent n+1 business days (includes session_date if weekday).
+    return [ts.to_pydatetime().replace(tzinfo=None) for ts in bdates[-(n + 1):]]
 
 
 async def _fetch_window(
@@ -37,18 +45,43 @@ async def _fetch_window(
     session_date: datetime,
     interval: str,
     lookback_days: int,
-) -> list[Bar]:
-    """Fetch a window of bars covering (session_date - lookback_days)
-    through session_date inclusive. Concurrent per-day calls so a 120-
-    day FX warmup doesn't take 120× one-day latency."""
-    days = _lookback_dates(session_date, lookback_days)
-    per_day = await asyncio.gather(*[
-        source.fetch(symbol, d, interval) for d in days
-    ])
+) -> tuple[list[Bar], datetime | None]:
+    """Fetch a warmup window for (symbol, session_date).
+
+    Returns (bars, data_window_start) where data_window_start is the
+    earliest date that contributed bars to the lookback window (None if
+    lookback_days=0 or all lookback candidates were empty).
+
+    Holiday behaviour: candidate dates include a business-day buffer, so
+    when the most recent calendar days were bank holidays the window falls
+    back to the nearest available trading day rather than returning empty.
+    The final bar list always contains the most recent `lookback_days`
+    non-empty days' bars + session_date bars, in timestamp order.
+    """
+    base = session_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    candidates = _lookback_dates(session_date, lookback_days)
+
+    per_day = await asyncio.gather(*[source.fetch(symbol, d, interval) for d in candidates])
+
+    session_bars: list[Bar] = []
+    lookback_filled: list[tuple[datetime, list[Bar]]] = []
+    for d, bars in zip(candidates, per_day):
+        if d == base:
+            session_bars = bars
+        elif bars:
+            lookback_filled.append((d, bars))
+
+    # Take the most recent lookback_days non-empty days (ascending order).
+    selected = lookback_filled[-lookback_days:] if lookback_days > 0 else []
+
     merged: list[Bar] = []
-    for bars in per_day:
+    data_window_start: datetime | None = None
+    for d, bars in selected:
+        if data_window_start is None:
+            data_window_start = d
         merged.extend(bars)
-    return merged
+    merged.extend(session_bars)
+    return merged, data_window_start
 
 
 class BarSource(ABC):
@@ -81,6 +114,10 @@ class SourceBackedBus(BarBus):
     `lookback_days` extends the fetch window backwards from session_date
     so a strategy that needs N-bar warmup can satisfy it before the
     session_date's own bars arrive.
+
+    After `run()` completes, `data_window_start` holds the earliest date
+    that contributed lookback bars (None when lookback_days=0 or all
+    lookback candidates were empty/holiday).
     """
 
     source: BarSource = None  # type: ignore[assignment]
@@ -90,6 +127,7 @@ class SourceBackedBus(BarBus):
     pace_seconds: float | str | None = None
     lookback_days: int = 0
     name: str = "source_backed_bus"
+    data_window_start: datetime | None = field(default=None, init=False)
 
     async def run(
         self,
@@ -100,7 +138,7 @@ class SourceBackedBus(BarBus):
             raise ValueError(
                 "SourceBackedBus requires source + symbol + session_date"
             )
-        bars = await _fetch_window(
+        bars, self.data_window_start = await _fetch_window(
             self.source, self.symbol, self.session_date, self.interval,
             self.lookback_days,
         )
@@ -123,6 +161,9 @@ class MultiSymbolSourceBackedBus(BarBus):
     Each per-symbol fetch is independent — a source that returns []
     for one symbol does not stall the others, matching the BarSource
     contract.
+
+    After `run()` completes, `data_window_start` holds the earliest
+    non-empty lookback date across all symbols.
     """
 
     source: BarSource = None  # type: ignore[assignment]
@@ -132,6 +173,7 @@ class MultiSymbolSourceBackedBus(BarBus):
     pace_seconds: float | str | None = None
     lookback_days: int = 0
     name: str = "multi_symbol_source_backed_bus"
+    data_window_start: datetime | None = field(default=None, init=False)
 
     async def run(
         self,
@@ -142,13 +184,18 @@ class MultiSymbolSourceBackedBus(BarBus):
             raise ValueError(
                 "MultiSymbolSourceBackedBus requires source + symbols + session_date"
             )
-        per_symbol_bars = await asyncio.gather(*[
+        results = await asyncio.gather(*[
             _fetch_window(
                 self.source, sym, self.session_date, self.interval,
                 self.lookback_days,
             )
             for sym in self.symbols
         ])
+        per_symbol_bars = [bars for bars, _ in results]
+        window_starts = [ws for _, ws in results if ws is not None]
+        # Earliest non-empty lookback date across all symbols.
+        self.data_window_start = min(window_starts) if window_starts else None
+
         # heapq.merge sorts by Bar.timestamp; each per-symbol list is
         # already in timestamp order from the source contract.
         merged = list(heapq.merge(*per_symbol_bars, key=lambda b: b.timestamp))
