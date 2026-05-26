@@ -16,6 +16,12 @@ export function ModePill() {
     <div
       role="group"
       aria-label="Trading mode"
+      title={
+        "Trading mode (preference). Currently controls the explanatory " +
+        "copy on /decide. Roadmap: per-mode strategy menu, default " +
+        "lookback, P&L attribution. Toggle to set your default — pages " +
+        "that haven't wired in will be unchanged."
+      }
       style={{
         display: "inline-flex",
         gap: 2,
@@ -30,13 +36,13 @@ export function ModePill() {
         label="Long-term"
         active={mode === "long_term"}
         onClick={() => setMode("long_term")}
-        hint="Daily bars · multi-week to multi-year hold"
+        hint="Long-term: daily bars · multi-week to multi-year holds (ichimoku_equity universe)"
       />
       <Pill
         label="Intraday"
         active={mode === "intraday"}
         onClick={() => setMode("intraday")}
-        hint="1m/5m bars · same-session in/out"
+        hint="Intraday: 1m / 5m bars · same-session in / out (ichimoku_fx_mr, future ORB)"
       />
     </div>
   );
