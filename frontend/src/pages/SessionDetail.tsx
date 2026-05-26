@@ -909,7 +909,7 @@ function DecisionsTab({ rows, sessionId }: { rows: DecisionRow[]; sessionId: str
       kind="decisions"
       empty="No decisions captured. The strategy may predate the decision trace, or never reached on_bar."
       rows={rows}
-      headers={["bar_ts", "strategy_id", "symbol", "action", "reason", "detail"]}
+      headers={["bar_ts", "strategy_id", "symbol", "action", "reason", "detail", "→"]}
       render={(d) => (
         <>
           <td style={{ ...td, fontFamily: "monospace", color: "var(--text-muted)" }}>
@@ -923,6 +923,21 @@ function DecisionsTab({ rows, sessionId }: { rows: DecisionRow[]; sessionId: str
           <td style={td}>{d.reason}</td>
           <td style={{ ...td, fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>
             {Object.keys(d.detail || {}).length ? JSON.stringify(d.detail) : ""}
+          </td>
+          <td style={{ ...td, whiteSpace: "nowrap" }}>
+            {d.action.startsWith("fire-") && d.strategy_id ? (
+              <Link
+                to={`/oms?strategy=${encodeURIComponent(d.strategy_id)}`}
+                title="Open OMS filtered to orders from this strategy"
+                style={{
+                  fontSize: 10, color: "var(--text-muted)",
+                  textDecoration: "none",
+                  borderBottom: "1px dotted var(--text-muted)",
+                }}
+              >
+                OMS
+              </Link>
+            ) : ""}
           </td>
         </>
       )}

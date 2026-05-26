@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { PaperSubNav } from "../components/PaperSubNav";
 
@@ -236,6 +236,19 @@ const SCHEDULE = [
 ] as const;
 
 export function PaperLive() {
+  // Honour ?strategy=X in the URL so deep-links from an OMS row land
+  // already filtered to the sessions for that strategy. Empty = show all.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const strategyFilter = searchParams.get("strategy") ?? "";
+  const setStrategyFilter = (s: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (s) next.set("strategy", s);
+      else next.delete("strategy");
+      return next;
+    });
+  };
+
   // ── Form state ────────────────────────────────────────────────────────────
   const [strategy, setStrategy] = useState<Strategy>("ichimoku_equity");
   const [symbolsRaw, setSymbolsRaw] = useState("AAPL,MSFT,NVDA,TSLA");
@@ -564,6 +577,35 @@ export function PaperLive() {
           </div>
         )}
 
+        {strategyFilter && (
+          <div
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "6px 12px", marginBottom: 10,
+              fontSize: 12,
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "rgba(79,140,255,0.06)",
+            }}
+          >
+            <span style={{ color: "var(--text-dim)" }}>Filter:</span>
+            <span style={{ fontFamily: "monospace", color: "#4f8cff", fontWeight: 600 }}>
+              strategy={strategyFilter}
+            </span>
+            <button
+              onClick={() => setStrategyFilter("")}
+              style={{
+                marginLeft: "auto",
+                fontSize: 10, padding: "2px 8px",
+                background: "transparent", border: "1px solid var(--border)",
+                borderRadius: 4, color: "var(--text-dim)", cursor: "pointer",
+              }}
+            >
+              clear ×
+            </button>
+          </div>
+        )}
+
         {sessions !== null && sessions.length > 0 && (
           <div
             style={{
@@ -596,7 +638,12 @@ export function PaperLive() {
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s, idx) => {
+                {sessions
+                  .filter((s) =>
+                    !strategyFilter ||
+                    (s.params as { strategy?: string } | null)?.strategy === strategyFilter,
+                  )
+                  .map((s, idx) => {
                   const stateLC = s.state.toLowerCase();
                   const isPending = stateLC === "pending";
                   const isClaimed = stateLC === "claimed";

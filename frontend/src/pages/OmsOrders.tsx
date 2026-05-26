@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, OmsOrderRow, OmsOrderEventRow } from "../api/client";
 import { PaperSubNav } from "../components/PaperSubNav";
 import { PlotlyChart } from "../components/PlotlyChart";
@@ -75,6 +76,19 @@ const actionButton = (busy: boolean, kind: "ok" | "muted" | "danger" = "muted"):
 });
 
 export function OmsOrders() {
+  // Honour ?strategy=X in the URL so deep-links from Session Detail
+  // (resulting-OMS-order pivot) land already filtered.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const strategyFilter = searchParams.get("strategy") ?? "";
+  const setStrategyFilter = (s: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (s) next.set("strategy", s);
+      else next.delete("strategy");
+      return next;
+    });
+  };
+
   const [orders, setOrders] = useState<OmsOrderRow[]>([]);
   const [filterStates, setFilterStates] = useState<Set<OmsState>>(
     () => new Set(OPEN_STATES),
@@ -190,11 +204,18 @@ export function OmsOrders() {
     }
   };
 
+  // Apply the strategy filter on the client — orders array is small
+  // (≤200 rows) and the API doesn't expose a per-strategy filter today.
+  const visibleOrders = useMemo(() => {
+    if (!strategyFilter) return orders;
+    return orders.filter((o) => o.strategyId === strategyFilter);
+  }, [orders, strategyFilter]);
+
   const totals = useMemo(() => {
     const by: Record<string, number> = {};
-    for (const o of orders) by[o.state] = (by[o.state] || 0) + 1;
+    for (const o of visibleOrders) by[o.state] = (by[o.state] || 0) + 1;
     return by;
-  }, [orders]);
+  }, [visibleOrders]);
 
   return (
     <div style={{ padding: 24 }}>
@@ -283,7 +304,36 @@ export function OmsOrders() {
         })}
       </div>
 
-      {orders.length === 0 ? (
+      {strategyFilter && (
+        <div
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "6px 12px", marginBottom: 10,
+            fontSize: 12,
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            background: "rgba(79,140,255,0.06)",
+          }}
+        >
+          <span style={{ color: "var(--text-dim)" }}>Filter:</span>
+          <span style={{ fontFamily: "monospace", color: "#4f8cff", fontWeight: 600 }}>
+            strategy={strategyFilter}
+          </span>
+          <button
+            onClick={() => setStrategyFilter("")}
+            style={{
+              marginLeft: "auto",
+              fontSize: 10, padding: "2px 8px",
+              background: "transparent", border: "1px solid var(--border)",
+              borderRadius: 4, color: "var(--text-dim)", cursor: "pointer",
+            }}
+          >
+            clear ×
+          </button>
+        </div>
+      )}
+
+      {visibleOrders.length === 0 ? (
         <div style={{ padding: 32, color: "var(--text-dim)", fontSize: 13 }}>
           No orders match the current filter. Try expanding the state
           filter, or trigger a strategy from Strategies / Paper to
@@ -313,7 +363,7 @@ export function OmsOrders() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => {
+              {visibleOrders.map((o) => {
                 const b = stateBadge(o.state);
                 const isOpen = OPEN_STATES.includes(o.state);
                 const busy = acting?.startsWith(o.id);
@@ -342,7 +392,22 @@ export function OmsOrders() {
                       </button>
                       {o.createdAtUtc.slice(0, 19).replace("T", " ")}
                     </Td>
-                    <Td>{o.strategyId ?? "—"}</Td>
+                    <Td>
+                      {o.strategyId ? (
+                        <Link
+                          to={`/paper-live?strategy=${encodeURIComponent(o.strategyId)}`}
+                          style={{
+                            color: "inherit", textDecoration: "none",
+                            borderBottom: "1px dotted var(--text-muted)",
+                          }}
+                          title={`Open paper sessions filtered to ${o.strategyId}`}
+                        >
+                          {o.strategyId}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </Td>
                     <Td>{o.symbol}</Td>
                     <Td style={{ color: o.side === "BUY" ? "#1fc16b" : "#ef4444" }}>{o.side}</Td>
                     <Td mono>{o.qty}</Td>
