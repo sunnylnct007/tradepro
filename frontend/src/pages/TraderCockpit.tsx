@@ -6,6 +6,7 @@ import { PlotlyChart } from "../components/PlotlyChart";
 import { SystemHealthRow } from "../components/cockpit/SystemHealthRow";
 import { TriggerPanel } from "../components/cockpit/TriggerPanel";
 import { TradeCardsPanel } from "../components/cockpit/TradeCardsPanel";
+import { TestPlacementPanel } from "../components/cockpit/TestPlacementPanel";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { api, OmsOrderRow } from "../api/client";
@@ -1269,139 +1270,7 @@ function NoFiresDiagnostic({
  * and transitions OMS to FILLED — visible in cockpit "Order placed"
  * → "Trade executed".
  */
-function TestPlacementPanel({ onPlaced }: { onPlaced: () => void }) {
-  const [symbol, setSymbol] = useState("AAPL");
-  const [qty, setQty] = useState(1);
-  const [side, setSide] = useState<"BUY" | "SELL">("BUY");
-  const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
 
-  const fire = async () => {
-    setSubmitting(true);
-    setFeedback(null);
-    try {
-      // Generate a uuid for ClientOrderId — browser crypto API gives
-      // us this without an extra library. OMS dedupes on it so a
-      // double-click doesn't double-place.
-      const clientOrderId = crypto.randomUUID();
-      const enqueued = await api.omsEnqueue({
-        ClientOrderId: clientOrderId,
-        Broker: "T212_DEMO",
-        Symbol: symbol.toUpperCase(),
-        Side: side,
-        Qty: qty,
-        OrderType: "MKT",
-        StrategyId: "manual_test_cockpit",
-        PlacedBy: "HUMAN",
-        TimeInForce: "DAY",
-      });
-      // Auto-approve so it actually places at T212.
-      await api.omsApprove(enqueued.id);
-      setFeedback(
-        `✓ Enqueued + approved ${side} ${qty} ${symbol.toUpperCase()} — watch "Order placed" / "Trade executed" panels.`,
-      );
-      onPlaced();
-    } catch (e) {
-      setFeedback(`Failed: ${e}`);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div>
-      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>
-        Bypasses the strategy + Mac daemon — creates an OMS intent
-        directly + auto-approves so the .NET OmsService → T212 demo
-        chain runs end-to-end. Use after a redeploy to verify nothing
-        broke before triggering a real strategy run.
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-        <FieldGroup label="Symbol">
-          <input
-            type="text"
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            style={triggerInput}
-          />
-        </FieldGroup>
-        <FieldGroup label="Side">
-          <div style={{ display: "flex", gap: 4 }}>
-            {(["BUY", "SELL"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setSide(s)}
-                style={{
-                  ...triggerInput,
-                  width: 56,
-                  cursor: "pointer",
-                  color: side === s
-                    ? s === "BUY" ? "#1fc16b" : "#ef4444"
-                    : "var(--text-dim)",
-                  borderColor: side === s
-                    ? s === "BUY" ? "#1fc16b" : "#ef4444"
-                    : "var(--border)",
-                  fontWeight: side === s ? 600 : 400,
-                  textAlign: "center",
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </FieldGroup>
-        <FieldGroup label="Qty">
-          <input
-            type="number"
-            min={1}
-            max={1000}
-            value={qty}
-            onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
-            style={{ ...triggerInput, width: 80 }}
-          />
-        </FieldGroup>
-        <button
-          onClick={fire}
-          disabled={submitting}
-          style={{
-            padding: "6px 14px", fontSize: 12, fontWeight: 600,
-            background: submitting ? "var(--text-muted)" : "#4f8cff",
-            color: "white", border: "none", borderRadius: 4,
-            cursor: submitting ? "wait" : "pointer",
-          }}
-        >
-          {submitting ? "Placing…" : `Fire ${side} ${qty} ${symbol.toUpperCase()}`}
-        </button>
-      </div>
-      {feedback && (
-        <div style={{
-          marginTop: 8, fontSize: 11,
-          color: feedback.startsWith("✓") ? "#1fc16b" : "var(--down)",
-        }}>
-          {feedback}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function FieldGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <span style={{ fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-        {label}
-      </span>
-      {children}
-    </div>
-  );
-}
-
-const triggerInput: React.CSSProperties = {
-  padding: "5px 8px", fontSize: 12,
-  border: "1px solid var(--border)", borderRadius: 4,
-  background: "transparent", color: "var(--text)",
-};
 
 function fmtMoney(n: number | null | undefined, ccy?: string | null): string {
   if (n == null) return "—";
