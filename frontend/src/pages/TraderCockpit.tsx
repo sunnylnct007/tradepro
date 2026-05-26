@@ -7,12 +7,13 @@ import { TriggerPanel } from "../components/cockpit/TriggerPanel";
 import { TradeCardsPanel } from "../components/cockpit/TradeCardsPanel";
 import { TestPlacementPanel } from "../components/cockpit/TestPlacementPanel";
 import { KpiStrip } from "../components/cockpit/KpiStrip";
+import { ActivityList } from "../components/cockpit/ActivityList";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
-import { buildActivityFeed, activityTone, type ActivityEvent } from "../viz/activityFeed";
+import { buildActivityFeed } from "../viz/activityFeed";
 import type { T212Cash, DecisionEntry, LatestSession, T212PosResp } from "../types/cockpit";
 
 /**
@@ -880,75 +881,6 @@ function TodayOutcome({
   );
 }
 
-/**
- * ActivityList — render the chronological event feed. One row per
- * event, colour-coded by kind, with click-through to the relevant
- * detail page (OMS row or session detail). Kept compact so it can
- * coexist with the three existing order panels rather than replacing
- * them — both views serve different scan patterns (timeline vs.
- * bucketed by state).
- */
-function ActivityList({ events }: { events: ActivityEvent[] }) {
-  return (
-    <div
-      style={{
-        display: "flex", flexDirection: "column", gap: 4,
-        maxHeight: 360, overflowY: "auto",
-        paddingRight: 4,
-      }}
-    >
-      {events.map((e, i) => {
-        const tone = activityTone(e.kind);
-        const ts = e.time ? new Date(e.time) : null;
-        const body = (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "70px 18px 1fr",
-              gap: 8,
-              padding: "4px 6px",
-              borderRadius: 4,
-              fontSize: 12,
-              alignItems: "baseline",
-              borderLeft: `3px solid ${tone.fg}`,
-              background: "rgba(255,255,255,0.015)",
-            }}
-            title={`${e.kind} · ${e.strategyId ?? ""}`}
-          >
-            <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)" }}>
-              {ts ? ts.toLocaleTimeString([], { hour12: false }) : "—"}
-            </span>
-            <span style={{ color: tone.fg, textAlign: "center" }}>{tone.icon}</span>
-            <span style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-              <span style={{ color: tone.fg, fontWeight: 600, fontFamily: "monospace" }}>
-                {e.kind.replace(/_/g, " ")}
-              </span>
-              <span style={{ fontFamily: "monospace" }}>{e.label}</span>
-              {e.detail && (
-                <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
-                  {e.detail}
-                </span>
-              )}
-              {e.strategyId && (
-                <span style={{ color: "var(--text-muted)", fontSize: 10, marginLeft: "auto" }}>
-                  {e.strategyId}
-                </span>
-              )}
-            </span>
-          </div>
-        );
-        if (e.href) {
-          return (
-            <Link key={i} to={e.href} style={{ textDecoration: "none", color: "inherit" }}>
-              {body}
-            </Link>
-          );
-        }
-        return <div key={i}>{body}</div>;
-      })}
-    </div>
-  );
-}
 
 /**
  * KpiStrip — single-glance status bar pinned at the top of /trader.
