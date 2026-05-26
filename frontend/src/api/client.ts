@@ -329,6 +329,23 @@ export const api = {
       `/api/oms/orders/${encodeURIComponent(orderId)}/cancel`,
       { Reason: reason },
     ),
+  // T212 cash balance — Invest product (stocks/ETFs). CFD cash is
+  // a separate T212 endpoint not yet wired (follow-up).
+  t212Cash: (account: "demo" | "live" = "demo") =>
+    get<{
+      enabled: boolean;
+      mode: string;
+      message?: string;
+      free?: number | null;
+      invested?: number | null;
+      total?: number | null;
+      blocked?: number | null;
+      ppl?: number | null;
+      currency?: string | null;
+      error?: string | null;
+      fetchedAtUtc?: string;
+    }>("/api/integrations/trading212/cash", { account }),
+
   omsPositions: (strategyId?: string) =>
     get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string }> }>(
       "/api/oms/positions", strategyId ? { strategyId } : undefined,

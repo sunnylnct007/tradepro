@@ -226,6 +226,80 @@ public sealed class Trading212DemoClient
         }
     }
 
+    /// <summary>Fetch account cash from /equity/account/cash. This is
+    /// the T212 INVEST product's cash (stocks/ETFs); T212 CFD (FX +
+    /// leveraged) is a separate product with its own /cfd/* endpoints
+    /// and is not covered here yet — see follow-up task.</summary>
+    public async Task<Trading212CashResult> GetCashAsync(CancellationToken ct)
+    {
+        if (!_options.IsEnabled)
+        {
+            return new Trading212CashResult(
+                Free: null, Invested: null, Total: null, Blocked: null,
+                Ppl: null, Currency: null,
+                Error: "demo integration disabled", HttpStatus: 0);
+        }
+        try
+        {
+            using var resp = await _http.GetAsync("equity/account/cash", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = Snip(await SafeReadFullBody(resp, ct));
+                _log.LogWarning(
+                    "T212 demo /account/cash HTTP {Status}: {Body}",
+                    (int)resp.StatusCode, body);
+                return new Trading212CashResult(
+                    Free: null, Invested: null, Total: null, Blocked: null,
+                    Ppl: null, Currency: null,
+                    Error: $"HTTP {(int)resp.StatusCode}: {body}",
+                    HttpStatus: (int)resp.StatusCode);
+            }
+            var fullBody = await SafeReadFullBody(resp, ct);
+            decimal? Pick(System.Text.Json.JsonElement root, string name)
+            {
+                if (root.TryGetProperty(name, out var el)
+                    && el.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && el.TryGetDecimal(out var v))
+                    return v;
+                return null;
+            }
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(fullBody);
+                var r = doc.RootElement;
+                return new Trading212CashResult(
+                    Free: Pick(r, "free"),
+                    Invested: Pick(r, "invested"),
+                    Total: Pick(r, "total"),
+                    Blocked: Pick(r, "blocked"),
+                    Ppl: Pick(r, "ppl"),
+                    Currency: r.TryGetProperty("currency", out var cur)
+                        ? cur.GetString() : null,
+                    Error: null,
+                    HttpStatus: (int)resp.StatusCode);
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                _log.LogWarning(ex,
+                    "T212 demo /account/cash body unparseable: {Body}",
+                    Snip(fullBody));
+                return new Trading212CashResult(
+                    Free: null, Invested: null, Total: null, Blocked: null,
+                    Ppl: null, Currency: null,
+                    Error: ex.Message,
+                    HttpStatus: (int)resp.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "T212 demo /account/cash threw");
+            return new Trading212CashResult(
+                Free: null, Invested: null, Total: null, Blocked: null,
+                Ppl: null, Currency: null,
+                Error: ex.Message, HttpStatus: 0);
+        }
+    }
+
     /// <summary>Lightweight status probe — does the demo key auth at
     /// the /equity/account/cash endpoint? Used by the status endpoint
     /// to surface demo-side reachability alongside live.</summary>

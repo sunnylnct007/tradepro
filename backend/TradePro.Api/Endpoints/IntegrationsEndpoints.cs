@@ -87,12 +87,62 @@ public static class IntegrationsEndpoints
         // every response — `demo` for paper trading, `live` for real
         // money — so every consumer (UI, email, MCP) can show the
         // user which world they're looking at.
+        // Account cash snapshot for the chosen account. Used on the
+        // Portfolio header so the operator sees "free £49,500 ·
+        // invested £500" before deciding to place an order. T212
+        // Invest only — CFD (FX + leveraged) uses different endpoints
+        // and is a follow-up task (#39 + cfd cash).
+        app.MapGet("/integrations/trading212/cash",
+            async (
+                string? account,
+                Trading212DemoClient demoClient,
+                CancellationToken ct) =>
+            {
+                var useDemo = !string.Equals(account, "live", StringComparison.OrdinalIgnoreCase);
+                if (!useDemo)
+                {
+                    // Live cash via Trading212Client is a separate plug;
+                    // for now operators using live should curl directly.
+                    return Results.Ok(new
+                    {
+                        enabled = false,
+                        mode = "live",
+                        message = "Live cash fetch not wired yet; use demo.",
+                    });
+                }
+                if (!demoClient.IsEnabled)
+                {
+                    return Results.Ok(new
+                    {
+                        enabled = false,
+                        mode = "demo",
+                        message = "Set Trading212Demo:ApiKey to enable.",
+                    });
+                }
+                var cash = await demoClient.GetCashAsync(ct);
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    mode = "demo",
+                    fetchedAtUtc = DateTime.UtcNow,
+                    free = cash.Free,
+                    invested = cash.Invested,
+                    total = cash.Total,
+                    blocked = cash.Blocked,
+                    ppl = cash.Ppl,
+                    currency = cash.Currency,
+                    error = cash.Error,
+                    httpStatus = cash.HttpStatus,
+                });
+            });
+
         app.MapGet("/integrations/trading212/positions",
             async (
                 string? account,
                 Trading212Client liveClient,
                 Trading212DemoClient demoClient,
                 Trading212PositionsCache liveCache,
+                Trading212DemoPositionsCache demoCache,
                 CancellationToken ct) =>
             {
                 // ?account=live|demo. Demo is the default because that's
@@ -116,13 +166,12 @@ public static class IntegrationsEndpoints
                         positions = Array.Empty<object>(),
                     });
                 }
-                // Live path goes through the cache (HoldingsHealthCard +
-                // Portfolio + email digest all hit it; rate limit is
-                // 1 req/sec). Demo is rarer and bypasses cache for now
-                // — adds a TODO to add Trading212DemoPositionsCache if
-                // demo traffic grows.
+                // Both paths now cache — T212's 1 req/sec rate limit
+                // hit demo when the drift panel + Portfolio fetch raced,
+                // producing 429s on the trader's screen. Same TTL
+                // contract for both modes via parallel cache services.
                 var result = useDemo
-                    ? await demoClient.GetPositionsAsync(ct)
+                    ? await demoCache.GetAsync(ct)
                     : await liveCache.GetAsync(ct);
                 var rows = result.Positions.Select(p =>
                 {

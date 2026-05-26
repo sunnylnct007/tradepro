@@ -348,6 +348,21 @@ public sealed record Trading212CancelResult(
     int HttpStatus,
     string? ResponseBody);
 
+/// <summary>Account cash snapshot from /equity/account/cash.
+/// Free = available to trade; Invested = already deployed in
+/// positions; Total = Free + Invested + open P&L. Operator needs
+/// this prominently before placing orders — placing more than
+/// `Free` gets a T212 rejection ("insufficient cash").</summary>
+public sealed record Trading212CashResult(
+    decimal? Free,
+    decimal? Invested,
+    decimal? Total,
+    decimal? Blocked,
+    decimal? Ppl,
+    string? Currency,
+    string? Error,
+    int HttpStatus);
+
 /// <summary>Envelope for the positions call so the API endpoint can
 /// pass the failure reason (auth fail, 404, network) up to the UI
 /// instead of swallowing it as an empty list — that silent failure

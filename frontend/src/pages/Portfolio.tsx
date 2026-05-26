@@ -221,6 +221,7 @@ TRADEPRO_T212_API_SECRET=...`}</pre>
         <TrustLegend />
       </div>
 
+      <CashPanel account={account} />
       <PositionDriftPanel account={account} />
 
       <div style={{ overflowX: "auto" }}>
@@ -370,6 +371,140 @@ function Td({
       {children}
     </td>
   );
+}
+
+/**
+ * Cash panel — T212 account balance. Free is what's available to
+ * trade; Invested is already deployed in positions. Refuses to be
+ * silent on T212 errors because "I thought I had cash" is the worst
+ * failure mode before placing an order. Auto-refresh on account flip.
+ *
+ * CFD cash is separate (T212 splits Invest from CFD into different
+ * products); this panel shows Invest only today. Follow-up: add a
+ * CFD cash row beneath when /cfd/* client wiring lands.
+ */
+function CashPanel({ account }: { account: "demo" | "live" }) {
+  const [cash, setCash] = useState<Awaited<ReturnType<typeof api.t212Cash>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCash(null);
+    setError(null);
+    api
+      .t212Cash(account)
+      .then((d) => { if (!cancelled) setCash(d); })
+      .catch((e) => { if (!cancelled) setError(String(e)); });
+    return () => { cancelled = true; };
+  }, [account]);
+
+  if (error) {
+    return (
+      <div style={cashBoxStyle("rgba(239,68,68,0.06)", "rgba(239,68,68,0.3)")}>
+        <span style={{ fontSize: 12, color: "var(--down)" }}>
+          Cash fetch failed: {error}
+        </span>
+      </div>
+    );
+  }
+  if (!cash) {
+    return (
+      <div style={cashBoxStyle()}>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading cash…</span>
+      </div>
+    );
+  }
+  if (!cash.enabled) {
+    return (
+      <div style={cashBoxStyle()}>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {cash.message ?? "T212 cash not available."}
+        </span>
+      </div>
+    );
+  }
+  if (cash.error) {
+    return (
+      <div style={cashBoxStyle("rgba(239,68,68,0.06)", "rgba(239,68,68,0.3)")}>
+        <span style={{ fontSize: 12, color: "var(--down)" }}>
+          T212 cash error: {cash.error}
+        </span>
+      </div>
+    );
+  }
+  const ccy = cash.currency || "";
+  const fmt = (n: number | null | undefined) =>
+    n == null ? "—" : `${ccy} ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return (
+    <div style={cashBoxStyle("rgba(31,193,107,0.05)", "rgba(31,193,107,0.25)")}>
+      <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center" }}>
+        <CashStat label="Free" value={fmt(cash.free)} big tone="ok" />
+        <CashStat label="Invested" value={fmt(cash.invested)} />
+        <CashStat label="Total" value={fmt(cash.total)} />
+        {cash.blocked != null && cash.blocked !== 0 && (
+          <CashStat label="Blocked" value={fmt(cash.blocked)} tone="muted" />
+        )}
+        {cash.ppl != null && (
+          <CashStat
+            label="Open P&L"
+            value={fmt(cash.ppl)}
+            tone={cash.ppl >= 0 ? "ok" : "down"}
+          />
+        )}
+        <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-muted)" }}>
+          T212 {cash.mode.toUpperCase()} · Invest
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function CashStat({
+  label,
+  value,
+  big,
+  tone,
+}: {
+  label: string;
+  value: string;
+  big?: boolean;
+  tone?: "ok" | "down" | "muted";
+}) {
+  const fg =
+    tone === "ok"
+      ? "#1fc16b"
+      : tone === "down"
+      ? "#ef4444"
+      : tone === "muted"
+      ? "var(--text-muted)"
+      : "var(--text)";
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: big ? 20 : 14,
+          fontWeight: big ? 700 : 500,
+          color: fg,
+          fontFamily: "monospace",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function cashBoxStyle(bg?: string, border?: string): React.CSSProperties {
+  return {
+    padding: "10px 14px",
+    marginBottom: 12,
+    background: bg ?? "rgba(255,255,255,0.03)",
+    border: `1px solid ${border ?? "var(--border)"}`,
+    borderRadius: 6,
+  };
 }
 
 /**

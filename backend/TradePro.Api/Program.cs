@@ -107,6 +107,7 @@ builder.Services.AddSingleton<Trading212InstrumentsService>();
 // tripping T212's 1 req/1s rate limit on every navigation. On 429
 // the cache serves the last successful response with FromCache=true.
 builder.Services.AddSingleton<Trading212PositionsCache>();
+builder.Services.AddSingleton<Trading212DemoPositionsCache>();
 
 // Finnhub — off-by-default earnings-calendar provider. Free tier
 // signup gives 60 req/min which is plenty for occasional checks.

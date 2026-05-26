@@ -123,6 +123,8 @@ public static class OmsEndpoints
                 string? strategyId,
                 string? account,
                 IOmsService oms,
+                TradePro.Api.Providers.Trading212.Trading212PositionsCache liveCache,
+                TradePro.Api.Providers.Trading212.Trading212DemoPositionsCache demoCache,
                 TradePro.Api.Providers.Trading212.Trading212Client liveClient,
                 TradePro.Api.Providers.Trading212.Trading212DemoClient demoClient,
                 CancellationToken ct) =>
@@ -132,9 +134,11 @@ public static class OmsEndpoints
             var omsRows = (await oms.ListPositionsAsync(strategyId))
                 .Where(p => p.Broker == brokerLabel)
                 .ToList();
+            // Route through the same caches Portfolio uses so the drift
+            // panel doesn't trip the 1 req/sec T212 limit.
             var t212 = useDemo
-                ? await demoClient.GetPositionsAsync(ct)
-                : await liveClient.GetPositionsAsync(ct);
+                ? await demoCache.GetAsync(ct)
+                : await liveCache.GetAsync(ct);
             // Project T212 to a per-symbol dict. T212 uses tickers like
             // "AMZN_US_EQ"; the strategy stores plain "AMZN" — strip
             // the suffix here so the join works for the common case.
