@@ -78,12 +78,30 @@ P&L without touching the daemon.
 
 ## IBKR integration — paper-first
 
-**Status:** PLANNED (user request 2026-05-25).
+**Status:** PLANNED (user request 2026-05-25). **Now also subsumes
+the T212 CFD gap** — see "T212 CFD limitations" note below.
 
 **Why:** T212 covers equities + ETFs + some FX but no options, futures, or
 extended-hours. IBKR is the eventual home for the algo + quant strategies
 that need richer instrument coverage. Same paper-first principle as T212:
 start with paper trading, prove the wiring, switch to live by toggle.
+
+**T212 CFD limitations (2026-05-26):**
+T212 publishes a public API for its Invest product (`/api/v0/equity/*`)
+but does NOT expose CFD via public API. The FX strategy
+(ichimoku_fx_mr) needs CFD to actually trade FX since T212 Invest
+doesn't carry FX instruments. Consequences today:
+  - CFD cash + positions are invisible from TradePro (user's
+    £50k demo CFD balance can't be fetched).
+  - FX strategy intents land in OMS, can be approved on /oms, but
+    .NET's Trading212DemoClient.PlaceMarketOrderAsync fails because
+    `/equity/orders/market` doesn't know about EURUSD as an
+    instrument.
+  - Trader can still VALIDATE FX signals via the cockpit's "Strategy
+    signals" widget (commit 84f19c8) which surfaces fire-buy /
+    fire-sell decisions without execution.
+IBKR handles FX natively → IBKR integration replaces this gap
+entirely. No point building a parallel T212-CFD scrape path.
 
 **Approach:**
 1. `IBKRClient` mirroring the `Trading212Client` shape so the OMS service
