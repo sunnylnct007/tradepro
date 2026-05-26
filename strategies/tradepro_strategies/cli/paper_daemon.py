@@ -113,6 +113,34 @@ def poll_once(api_base: str, token: str) -> dict | None:
     return data
 
 
+def poll_backtest_once(api_base: str, token: str) -> dict | None:
+    """POST /api/ops/poll-backtest — sibling of poll-paper for quant
+    backtests. Same envelope shape: ``{claimed: true, session: {...}}``.
+
+    Mac runs both polls each tick so a single launchd agent services
+    paper sessions AND on-demand backtests without needing a second
+    daemon process. Backtest network calls (yfinance for SPY +
+    sleeve symbols) can take 5-30 s — that's fine, polling stays on
+    its 60 s cadence regardless.
+    """
+    url = f"{api_base}/api/ops/poll-backtest"
+    try:
+        resp = requests.post(url, headers=_headers(token), json={}, timeout=30)
+        resp.raise_for_status()
+        data: dict = resp.json()
+    except requests.RequestException as exc:
+        log.warning("poll-backtest request failed (%s): %s", url, exc)
+        return None
+
+    if not data.get("claimed"):
+        log.debug("poll-backtest: nothing pending")
+        return None
+
+    log.info("poll-backtest: claimed request_id=%s",
+             (data.get("session") or {}).get("request_id"))
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Complete
 # ---------------------------------------------------------------------------
@@ -267,6 +295,36 @@ def complete_failure(
     _complete(api_base, token, request_id, {
         "status": "failed",
         "error": error or f"exit_code={exit_code}",
+    })
+
+
+def _complete_backtest(
+    api_base: str, token: str, request_id: str, payload: dict,
+) -> None:
+    """POST /api/ops/complete-backtest/{id} — sibling of /complete-paper."""
+    url = f"{api_base}/api/ops/complete-backtest/{request_id}"
+    try:
+        resp = requests.post(url, headers=_headers(token), json=payload, timeout=30)
+        resp.raise_for_status()
+        log.info("complete-backtest OK: request_id=%s status=%s",
+                 request_id, payload.get("status"))
+    except requests.RequestException as exc:
+        log.warning("complete-backtest failed for %s: %s", request_id, exc)
+
+
+def complete_backtest_success(
+    api_base: str, token: str, request_id: str, summary: dict,
+) -> None:
+    _complete_backtest(api_base, token, request_id, {
+        "status": "completed", "result_summary": summary,
+    })
+
+
+def complete_backtest_failure(
+    api_base: str, token: str, request_id: str, error: str,
+) -> None:
+    _complete_backtest(api_base, token, request_id, {
+        "status": "failed", "error": error,
     })
 
 
@@ -535,6 +593,90 @@ def run_session_for_params(
 
 
 # ---------------------------------------------------------------------------
+# Backtest dispatch
+# ---------------------------------------------------------------------------
+
+# Markers emitted by ``tradepro-quant-backtest`` around the
+# result_summary JSON block so the daemon can extract a clean dict
+# from stdout regardless of yfinance / plotly noise.
+_BT_BEGIN = "BEGIN_QUANT_BACKTEST_RESULT"
+_BT_END = "END_QUANT_BACKTEST_RESULT"
+
+
+def _extract_backtest_result(stdout: str) -> dict | None:
+    """Parse the marker-delimited result_summary from CLI stdout.
+
+    Returns the parsed dict, or None if either marker is missing /
+    the embedded payload is not valid JSON. Last-occurrence wins (so
+    a retry inside the same subprocess still surfaces the final
+    summary, though today we only run one).
+    """
+    if not stdout:
+        return None
+    begin = stdout.rfind(_BT_BEGIN)
+    end = stdout.rfind(_BT_END)
+    if begin < 0 or end < 0 or end <= begin:
+        return None
+    raw = stdout[begin + len(_BT_BEGIN): end].strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        log.warning("backtest result JSON decode failed: %s", exc)
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
+def build_backtest_command(request_id: str, payload: dict) -> list[str]:
+    """Construct the tradepro-quant-backtest subprocess argument list.
+
+    Payload is passed inline via --payload so the daemon doesn't have
+    to write a temp file. Safe even for fat payloads — argv has a
+    generous limit (~256 KB on macOS) and our payloads are <2 KB
+    (lists of symbols + a couple of ints).
+    """
+    return [
+        sys.executable, "-m", "tradepro_strategies.cli.quant_backtest",
+        "--request-id", request_id,
+        "--payload", json.dumps(payload),
+    ]
+
+
+def run_backtest_for_params(
+    request_id: str, payload: dict, dry_run: bool,
+) -> tuple[int, dict | None, str]:
+    """Run tradepro-quant-backtest as a subprocess and parse its result.
+
+    Returns ``(exit_code, result_summary, command_string)``. On failure
+    the result_summary is None and the caller should post completion
+    as 'failed' with the exit code as the error code.
+    """
+    args = build_backtest_command(request_id, payload)
+    cmd_str = " ".join(args[:5]) + " --payload <" + str(len(args[-1])) + " bytes>"
+
+    if dry_run:
+        log.info("[dry-run] would run: %s", cmd_str)
+        return 0, None, cmd_str
+
+    log.info("launching quant backtest: %s", cmd_str)
+    try:
+        result = subprocess.run(args, check=False, capture_output=True, text=True)
+    except OSError as exc:
+        log.error("failed to launch quant-backtest subprocess: %s", exc)
+        return 1, None, cmd_str
+
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+
+    log.info("quant backtest finished with exit_code=%d", result.returncode)
+    summary = _extract_backtest_result(result.stdout or "")
+    return result.returncode, summary, cmd_str
+
+
+# ---------------------------------------------------------------------------
 # SQS helpers
 # ---------------------------------------------------------------------------
 
@@ -692,6 +834,27 @@ def daemon_loop(
                 complete_success(api_base, token, request_id, cmd_str, summary)
             else:
                 complete_failure(api_base, token, request_id, exit_code)
+
+        # Drain one quant-backtest request per tick too. Additive —
+        # if the API doesn't yet expose /poll-backtest, the network
+        # call logs a warning and returns None, which is harmless.
+        bt = poll_backtest_once(api_base, token)
+        if bt is not None:
+            session = bt.get("session") or {}
+            bt_request_id: str = session.get("request_id", "unknown")
+            bt_payload: dict = session.get("params") or {}
+            bt_exit, bt_summary, _ = run_backtest_for_params(
+                bt_request_id, bt_payload, dry_run,
+            )
+            if bt_exit == 0 and bt_summary is not None:
+                complete_backtest_success(api_base, token, bt_request_id, bt_summary)
+            else:
+                complete_backtest_failure(
+                    api_base, token, bt_request_id,
+                    f"exit_code={bt_exit}; result_summary missing"
+                    if bt_summary is None
+                    else f"exit_code={bt_exit}",
+                )
 
         if once:
             log.info("--once flag set, exiting after single poll")

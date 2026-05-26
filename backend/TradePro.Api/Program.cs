@@ -215,10 +215,15 @@ api.MapOmsEndpoints();
 // routes mount on the ingest group below — same store, different
 // trust boundary.
 api.MapOpsUserEndpoints();
+// /api/quant/backtest/* — UI-triggered quant backtests. Same
+// session_requests queue, kind="backtest". Worker poll/complete
+// routes mount on the ingest group below.
+api.MapQuantEndpoints();
 
 // Mac-pushed ingest routes (no human, static Bearer token).
 var ingest = app.MapGroup("/api");
 ingest.MapIngestEndpoints();
 ingest.MapOpsWorkerEndpoints();
+ingest.MapQuantWorkerEndpoints();
 
 app.Run();
