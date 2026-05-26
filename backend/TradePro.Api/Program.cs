@@ -220,6 +220,7 @@ api.MapSettingsKvEndpoints();
 // session_requests queue, kind="backtest". Worker poll/complete
 // routes mount on the ingest group below.
 api.MapQuantEndpoints();
+api.MapAdminEndpoints();
 
 // SSE event stream — AllowAnonymous (EventSource can't send auth headers).
 app.MapEventsEndpoints();
