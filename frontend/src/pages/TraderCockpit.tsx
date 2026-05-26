@@ -23,6 +23,20 @@ import { config } from "../config";
  */
 
 type T212Cash = Awaited<ReturnType<typeof api.t212Cash>>;
+
+type DecisionEntry = {
+  barTs: string | null;
+  symbol: string;
+  action: string;
+  reason: string;
+  detail: Record<string, unknown>;
+};
+type LatestSession = {
+  strategy: string;
+  requestId: string;
+  completedAtUtc: string | null;
+  decisions: DecisionEntry[];
+};
 type T212PosResp = {
   enabled: boolean;
   mode: string;
@@ -60,6 +74,11 @@ export function TraderCockpit() {
   const [positions, setPositions] = useState<T212PosResp | null>(null);
   const [posErr, setPosErr] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  // Latest completed session per strategy so the trader can validate
+  // signal output (fire-buy / fire-sell decisions) at-a-glance even
+  // when nothing actually executes at the broker — useful for FX
+  // strategies on CFD where T212 has no public API for placement.
+  const [latestSessions, setLatestSessions] = useState<LatestSession[]>([]);
 
   // Loaders — each fires independently so one slow source doesn't
   // block the others rendering.
@@ -97,6 +116,55 @@ export function TraderCockpit() {
 
   useEffect(() => { void loadOrders(); }, [loadOrders]);
   useEffect(() => { void loadCash(); void loadPositions(); }, [loadCash, loadPositions]);
+
+  // Latest sessions — pull the most recent Completed per strategy
+  // and extract the decision trace. Server-side data; we just project
+  // to a flat row list for rendering. Polls every 30s.
+  const loadSessions = useCallback(async () => {
+    try {
+      const { sessions } = await api.opsSessions(undefined, 20);
+      const completed = sessions.filter((s) => s.status === "Completed");
+      // Group by strategy and pick the newest per strategy.
+      const byStrategy = new Map<string, LatestSession>();
+      for (const s of completed) {
+        const rs = (s.resultSummary ?? {}) as Record<string, unknown>;
+        const strategy = (rs.strategy as string) || (s.payload as Record<string, unknown>)?.strategy as string;
+        if (!strategy) continue;
+        if (byStrategy.has(strategy)) continue;
+        const strategies = (rs.strategies as Array<Record<string, unknown>>) || [];
+        const decisions: DecisionEntry[] = [];
+        for (const st of strategies) {
+          const ds = st.decisions as Array<Record<string, unknown>>;
+          if (!Array.isArray(ds)) continue;
+          for (const d of ds) {
+            decisions.push({
+              barTs: (d.bar_ts as string) || null,
+              symbol: (d.symbol as string) || "",
+              action: (d.action as string) || "",
+              reason: (d.reason as string) || "",
+              detail: (d.detail as Record<string, unknown>) || {},
+            });
+          }
+        }
+        // Sort newest-first; cap to 30 per strategy to keep render light.
+        decisions.sort((a, b) => (b.barTs ?? "").localeCompare(a.barTs ?? ""));
+        byStrategy.set(strategy, {
+          strategy,
+          requestId: s.requestId,
+          completedAtUtc: s.completedAtUtc,
+          decisions: decisions.slice(0, 30),
+        });
+      }
+      setLatestSessions(Array.from(byStrategy.values()));
+    } catch {
+      // Non-fatal; signals panel just won't update.
+    }
+  }, []);
+  useEffect(() => { void loadSessions(); }, [loadSessions]);
+  useEffect(() => {
+    const t = setInterval(() => void loadSessions(), 30_000);
+    return () => clearInterval(t);
+  }, [loadSessions]);
 
   // Auto-refresh orders every 15s when ANY are open (not terminal).
   useEffect(() => {
@@ -318,6 +386,74 @@ export function TraderCockpit() {
           <OrdersTable rows={recent} acting={null} onApprove={() => {}} onReject={() => {}} onCancel={() => {}} />
         )}
       </CockpitCard>
+
+      {/* ── Strategy signals (validate without broker) ──────────── */}
+      {latestSessions.length > 0 && (
+        <CockpitCard
+          id="signals"
+          title="Strategy signals — latest run per strategy"
+          badge={latestSessions.reduce((n, s) =>
+            n + s.decisions.filter((d) => d.action.startsWith("fire-")).length, 0) || undefined}
+          tone="ok"
+        >
+          {latestSessions.map((s) => {
+            const fired = s.decisions.filter((d) => d.action.startsWith("fire-"));
+            const skipped = s.decisions.filter((d) => d.action.startsWith("skip-"));
+            return (
+              <div key={s.strategy} style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{s.strategy}</span>
+                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                    completed {s.completedAtUtc ? new Date(s.completedAtUtc).toLocaleTimeString() : "—"}
+                    {" · "}{fired.length} fire · {skipped.length} skip
+                  </span>
+                  <Link
+                    to={`/paper-live/session/${encodeURIComponent(s.requestId)}`}
+                    style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-muted)" }}
+                  >
+                    session detail →
+                  </Link>
+                </div>
+                {fired.length === 0 ? (
+                  <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                    No fire-* decisions this run (strategy chose not to trade — common when signal is in the dead zone).
+                  </div>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ color: "var(--text-dim)" }}>
+                        <th style={posTh}>Bar UTC</th>
+                        <th style={posTh}>Symbol</th>
+                        <th style={posTh}>Action</th>
+                        <th style={posTh}>Reason</th>
+                        <th style={posTh}>Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fired.slice(0, 10).map((d, i) => (
+                        <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
+                          <td style={{ ...posTd, fontFamily: "monospace", color: "var(--text-muted)" }}>
+                            {d.barTs ? d.barTs.slice(11, 19) : "—"}
+                          </td>
+                          <td style={posTd}>{d.symbol}</td>
+                          <td style={{ ...posTd, color: "#1fc16b", fontFamily: "monospace" }}>{d.action}</td>
+                          <td style={posTd}>{d.reason}</td>
+                          <td style={{ ...posTd, fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>
+                            {Object.keys(d.detail).length ? JSON.stringify(d.detail) : ""}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+            Showing top 10 fire-* decisions per strategy. Full timeline (incl. skip-* with reasons) in Session Detail.
+          </div>
+        </CockpitCard>
+      )}
 
       {/* ── Positions ────────────────────────────────────────────── */}
       <CockpitCard
