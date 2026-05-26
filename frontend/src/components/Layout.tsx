@@ -52,6 +52,7 @@ const researchNav: NavItem[] = [
 const paperNav: NavItem[] = [
   { to: "/paper-live",           label: "Paper"      },
   { to: "/oms",                  label: "OMS"        },
+  { to: "/backtests",            label: "Backtests"  },
   { to: "/paper-backtest",       label: "PA Reports" },
   { to: "/intraday/leaderboard", label: "Intraday"   },
 ];

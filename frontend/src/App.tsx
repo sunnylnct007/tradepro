@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
 import { Layout } from "./components/Layout";
 import { TradingModeProvider } from "./contexts/TradingMode";
+import { Backtests } from "./pages/Backtests";
 import { Compare } from "./pages/Compare";
 import { PaperBacktest } from "./pages/PaperBacktest";
 import { PaperLive } from "./pages/PaperLive";
@@ -50,6 +51,11 @@ const router = createBrowserRouter([
       { path: "paper-backtest", element: <PaperBacktest /> },
       { path: "paper-live", element: <PaperLive /> },
       { path: "paper-live/session/:id", element: <SessionDetail /> },
+      // /backtests — UI-triggered quant-engine backtests. Trigger
+      // form + queue list; the existing Session Detail page (linked
+      // from each row) renders the Plotly charts produced by the
+      // worker once the run completes.
+      { path: "backtests", element: <Backtests /> },
       { path: "oms", element: <OmsOrders /> },
       { path: "trader", element: <TraderCockpit /> },
       // Intraday strategy leaderboard — per-(symbol, strategy)

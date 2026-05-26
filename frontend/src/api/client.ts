@@ -272,6 +272,62 @@ export const api = {
   cancelPaperSession: (requestId: string) =>
     post<unknown, {}>(`/api/ops/paper-sessions/${encodeURIComponent(requestId)}/cancel`, {}),
 
+  // Quant backtest queue — /api/quant/backtest/*. The .NET endpoint
+  // enqueues a session_request with kind="backtest"; the Mac daemon
+  // claims it via /api/ops/poll-backtest and writes back the full
+  // result_summary (charts + ensemble summary + monte-carlo summary).
+  // Status flows back via getBacktest(); the existing Session Detail
+  // page (/paper-live/session/:id) renders the charts.
+  runBacktest: (req: {
+    Strategy: string;
+    Symbols: string[];
+    Start?: string | null;
+    End?: string | null;
+    InitialCapital?: number | null;
+    NSims?: number | null;
+    Years?: number | null;
+    Seed?: number | null;
+    Label?: string | null;
+  }) =>
+    post<{ requestId: string; state: string }, typeof req>(
+      "/api/quant/backtest/run", req,
+    ),
+
+  getBacktest: (requestId: string) =>
+    get<{
+      request_id: string;
+      kind: string;
+      params: unknown;
+      state: string;
+      requested_at_utc: string;
+      claimed_at_utc: string | null;
+      claimed_by: string | null;
+      completed_at_utc: string | null;
+      result_summary: unknown;
+      error: string | null;
+    }>(`/api/quant/backtest/${encodeURIComponent(requestId)}`),
+
+  listBacktests: (limit = 50) =>
+    get<{
+      backtests: Array<{
+        request_id: string;
+        kind: string;
+        params: unknown;
+        state: string;
+        requested_at_utc: string;
+        claimed_at_utc: string | null;
+        claimed_by: string | null;
+        completed_at_utc: string | null;
+        result_summary: unknown;
+        error: string | null;
+      }>;
+    }>("/api/quant/backtest/", { limit }),
+
+  cancelBacktest: (requestId: string) =>
+    post<unknown, {}>(
+      `/api/quant/backtest/${encodeURIComponent(requestId)}/cancel`, {},
+    ),
+
   uploadDocument: async (
     file: File,
     title: string,
