@@ -111,6 +111,12 @@ interface Decision {
   detail: Record<string, unknown>;
 }
 
+interface SymbolResult {
+  symbol: string;
+  ok: boolean;
+  data_window_start?: string | null;
+}
+
 interface ResultSummary {
   strategy?: string;
   requestId?: string;
@@ -118,6 +124,7 @@ interface ResultSummary {
   barsSeen?: number;
   decisions?: Decision[];
   charts?: Record<string, unknown>;
+  results?: SymbolResult[];
 }
 
 interface SessionRow {
@@ -261,6 +268,14 @@ export function IchimokuEquity() {
 
   const signalSymbols = new Set(decisions.map((d) => d.symbol));
 
+  // Collect distinct data_window_start dates from the latest completed session.
+  // When a bank holiday is skipped, this shows the actual date bars came from.
+  const dataWindowDates: string[] = (() => {
+    const results = resultSummary?.results ?? [];
+    const dates = new Set(results.map((r) => r.data_window_start).filter(Boolean) as string[]);
+    return [...dates].sort();
+  })();
+
   const t212Positions: T212Position[] = (() => {
     if (!t212?.positions?.length) return [];
     const filtered = t212.positions.filter(
@@ -335,6 +350,30 @@ export function IchimokuEquity() {
         badge={decisions.length || undefined}
         fullWidth
       >
+        {dataWindowDates.length > 0 && (
+          <div style={{ marginBottom: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {dataWindowDates.map((d) => (
+              <span
+                key={d}
+                title="Actual date bars were fetched from — may differ from session date when there is a bank holiday"
+                style={{
+                  display: "inline-block",
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#60a5fa",
+                  background: "rgba(96,165,250,0.12)",
+                  border: "1px solid rgba(96,165,250,0.25)",
+                  letterSpacing: "0.03em",
+                  cursor: "default",
+                }}
+              >
+                Data: {d}
+              </span>
+            ))}
+          </div>
+        )}
         {decisions.length === 0 ? (
           <p style={{ fontSize: 13, color: C.muted, margin: 0 }}>
             No signals yet — session pending or not yet started
