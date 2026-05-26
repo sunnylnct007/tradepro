@@ -902,46 +902,114 @@ function BarsTab({ rows, sessionId }: { rows: BarRow[]; sessionId: string }) {
   );
 }
 
+/**
+ * DecisionsTab — also the "scan grid" when the trader runs a strategy
+ * across a whole index. Adds action-class + symbol filters + a tiny
+ * summary line so a 500-row scan is navigable. With no filters set
+ * the behaviour is identical to before.
+ */
 function DecisionsTab({ rows, sessionId }: { rows: DecisionRow[]; sessionId: string }) {
+  const [actionClass, setActionClass] = useState<"all" | "fire" | "skip">("all");
+  const [symbolQuery, setSymbolQuery] = useState("");
+
+  const fires = rows.filter((r) => r.action.startsWith("fire-")).length;
+  const skips = rows.filter((r) => r.action.startsWith("skip-")).length;
+  const filtered = rows.filter((r) => {
+    if (actionClass === "fire" && !r.action.startsWith("fire-")) return false;
+    if (actionClass === "skip" && !r.action.startsWith("skip-")) return false;
+    if (symbolQuery && !r.symbol.toLowerCase().includes(symbolQuery.toLowerCase())) return false;
+    return true;
+  });
+
+  const Pill = ({ value, label, color }: { value: "all" | "fire" | "skip"; label: string; color: string }) => {
+    const active = actionClass === value;
+    return (
+      <button
+        onClick={() => setActionClass(value)}
+        style={{
+          padding: "3px 10px", fontSize: 11, borderRadius: 999,
+          border: `1px solid ${active ? color : "var(--border)"}`,
+          background: active ? `${color}1a` : "transparent",
+          color: active ? color : "var(--text-dim)",
+          cursor: "pointer", fontFamily: "monospace",
+          letterSpacing: "0.02em",
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
+
   return (
-    <DataTab
-      sessionId={sessionId}
-      kind="decisions"
-      empty="No decisions captured. The strategy may predate the decision trace, or never reached on_bar."
-      rows={rows}
-      headers={["bar_ts", "strategy_id", "symbol", "action", "reason", "detail", "→"]}
-      render={(d) => (
-        <>
-          <td style={{ ...td, fontFamily: "monospace", color: "var(--text-muted)" }}>
-            {d.bar_ts ? d.bar_ts.slice(0, 19).replace("T", " ") : "—"}
-          </td>
-          <td style={td}>{d.strategy_id}</td>
-          <td style={td}>{d.symbol}</td>
-          <td style={td}>
-            <ActionPill action={d.action} />
-          </td>
-          <td style={td}>{d.reason}</td>
-          <td style={{ ...td, fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>
-            {Object.keys(d.detail || {}).length ? JSON.stringify(d.detail) : ""}
-          </td>
-          <td style={{ ...td, whiteSpace: "nowrap" }}>
-            {d.action.startsWith("fire-") && d.strategy_id ? (
-              <Link
-                to={`/oms?strategy=${encodeURIComponent(d.strategy_id)}`}
-                title="Open OMS filtered to orders from this strategy"
-                style={{
-                  fontSize: 10, color: "var(--text-muted)",
-                  textDecoration: "none",
-                  borderBottom: "1px dotted var(--text-muted)",
-                }}
-              >
-                OMS
-              </Link>
-            ) : ""}
-          </td>
-        </>
-      )}
-    />
+    <>
+      <div
+        style={{
+          display: "flex", gap: 8, alignItems: "center",
+          flexWrap: "wrap", marginBottom: 10,
+        }}
+      >
+        <Pill value="all" label={`ALL ${rows.length}`} color="var(--text)" />
+        <Pill value="fire" label={`FIRE ${fires}`} color="#1fc16b" />
+        <Pill value="skip" label={`SKIP ${skips}`} color="#f59e0b" />
+        <input
+          type="text"
+          placeholder="filter symbol…"
+          value={symbolQuery}
+          onChange={(e) => setSymbolQuery(e.target.value)}
+          style={{
+            fontSize: 11, padding: "3px 8px",
+            background: "transparent",
+            border: "1px solid var(--border)",
+            borderRadius: 4,
+            color: "var(--text)", fontFamily: "monospace",
+            width: 140,
+          }}
+        />
+        {filtered.length !== rows.length && (
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            showing {filtered.length} of {rows.length}
+          </span>
+        )}
+      </div>
+      <DataTab
+        sessionId={sessionId}
+        kind="decisions"
+        empty="No decisions match the current filter. Try ALL or clear the symbol search."
+        rows={filtered}
+        headers={["bar_ts", "strategy_id", "symbol", "action", "reason", "detail", "→"]}
+        render={(d) => (
+          <>
+            <td style={{ ...td, fontFamily: "monospace", color: "var(--text-muted)" }}>
+              {d.bar_ts ? d.bar_ts.slice(0, 19).replace("T", " ") : "—"}
+            </td>
+            <td style={td}>{d.strategy_id}</td>
+            <td style={td}>{d.symbol}</td>
+            <td style={td}>
+              <ActionPill action={d.action} />
+            </td>
+            <td style={td}>{d.reason}</td>
+            <td style={{ ...td, fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>
+              {Object.keys(d.detail || {}).length ? JSON.stringify(d.detail) : ""}
+            </td>
+            <td style={{ ...td, whiteSpace: "nowrap" }}>
+              {d.action.startsWith("fire-") && d.strategy_id ? (
+                <Link
+                  to={`/oms?strategy=${encodeURIComponent(d.strategy_id)}`}
+                  title="Open OMS filtered to orders from this strategy"
+                  style={{
+                    fontSize: 10, color: "var(--text-muted)",
+                    textDecoration: "none",
+                    borderBottom: "1px dotted var(--text-muted)",
+                  }}
+                >
+                  OMS
+                </Link>
+              ) : ""}
+            </td>
+          </>
+        )}
+      />
+    </>
   );
 }
 
