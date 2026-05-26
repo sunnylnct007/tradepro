@@ -26,6 +26,26 @@ const ALL_STATES: OmsState[] = [
 
 const OPEN_STATES: OmsState[] = ["PENDING_APPROVAL", "SUBMITTED", "WORKING", "PARTIALLY_FILLED"];
 
+/**
+ * Known broker / symbol incompatibilities surfaced inline so the
+ * trader sees WHY a row is doomed before reading the cancelled_reason.
+ * T212 Invest API (the only T212 surface with a public REST endpoint)
+ * exposes equities + ETFs only — FX lives in their CFD product
+ * which has no public API. An EURUSD order via T212_DEMO is correctly
+ * routed but the API will 404 with "entity-not-found".
+ */
+const FX_PAIRS = new Set([
+  "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD",
+  "USDCAD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY",
+]);
+function isFxOnT212Invest(symbol: string, broker: string): boolean {
+  if (!broker.startsWith("T212")) return false;
+  const upper = symbol.toUpperCase();
+  // Match bare ("EURUSD") and underscore-suffixed ("EURUSD_FX") forms.
+  return FX_PAIRS.has(upper) ||
+    Array.from(FX_PAIRS).some((p) => upper.startsWith(p + "_") || upper === p);
+}
+
 function stateBadge(state: OmsState): { fg: string; bg: string } {
   switch (state) {
     case "FILLED":
@@ -427,7 +447,29 @@ export function OmsOrders() {
                         "—"
                       )}
                     </Td>
-                    <Td>{o.symbol}</Td>
+                    <Td>
+                      {o.symbol}
+                      {isFxOnT212Invest(o.symbol, o.broker) && (
+                        <span
+                          title={
+                            "T212's Invest API does not list FX instruments — FX is "
+                            + "CFD-only and has no public API. This order will 404 at "
+                            + "placement. Use broker=PAPER for simulated fills; FX live "
+                            + "needs IBKR (planned)."
+                          }
+                          style={{
+                            marginLeft: 6, fontSize: 9,
+                            padding: "0 5px", borderRadius: 999,
+                            background: "rgba(245,158,11,0.14)",
+                            color: "#f59e0b", fontWeight: 700,
+                            letterSpacing: "0.04em",
+                            cursor: "help",
+                          }}
+                        >
+                          T212 ✗ FX
+                        </span>
+                      )}
+                    </Td>
                     <Td style={{ color: o.side === "BUY" ? "#1fc16b" : "#ef4444" }}>{o.side}</Td>
                     <Td mono>{o.qty}</Td>
                     <Td mono>{o.filledQty}</Td>
