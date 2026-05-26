@@ -264,6 +264,46 @@ export function TraderCockpit() {
     await loadOrders();
   };
 
+  // Top-N approve — when a universe scan fires on (e.g.) 200 symbols
+  // the trader doesn't want to approve all 200 manually. Pick the N
+  // most-recent intents (proxy for "freshest signal") and approve only
+  // those. Today's ranking is just "newest first"; once strategies
+  // start emitting a numeric `confidence` we can rank by that.
+  // The cap defaults to whatever's stored in app_settings_kv key
+  // `top_n_signals_per_run` (default 5).
+  const [topN, setTopN] = useState<number>(5);
+  useEffect(() => {
+    api.settingsKv()
+      .then((r) => {
+        const row = r.settings.find((s) => s.key === "top_n_signals_per_run");
+        if (row && typeof row.value === "number") setTopN(row.value);
+      })
+      .catch(() => { /* settings endpoint optional */ });
+  }, []);
+
+  const approveTopN = async () => {
+    if (!pending.length) return;
+    const sorted = [...pending].sort(
+      (a, b) => b.createdAtUtc.localeCompare(a.createdAtUtc),
+    );
+    const cap = Math.min(topN, sorted.length);
+    const targets = sorted.slice(0, cap);
+    if (!confirm(
+      `Approve the ${cap} most-recent intent${cap === 1 ? "" : "s"}? ` +
+      `Reject the remaining ${sorted.length - cap}.`,
+    )) return;
+    for (const o of targets) {
+      try { await api.omsApprove(o.id); } catch { /* skip */ }
+    }
+    // The rest get rejected so the queue doesn't accumulate stale
+    // ones the trader never decided on. Auto-reject reason is
+    // explicit so the audit trail says why.
+    for (const o of sorted.slice(cap)) {
+      try { await api.omsReject(o.id, `auto_top${cap}_skip`); } catch { /* skip */ }
+    }
+    await loadOrders();
+  };
+
   return (
     <div style={{ padding: 20, maxWidth: 1280, margin: "0 auto" }}>
       {/* ── Account selector strip ──────────────────────────────── */}
@@ -423,13 +463,29 @@ export function TraderCockpit() {
         defaultOpen
         onHide={() => widgets.hide("intents")}
         actions={pending.length > 0 ? (
-          <button
-            onClick={approveAll}
-            style={miniButton("ok")}
-            title="Approve every pending intent"
-          >
-            approve all
-          </button>
+          <>
+            {pending.length > topN && (
+              <button
+                onClick={approveTopN}
+                style={miniButton("ok")}
+                title={
+                  `Approve the ${topN} most-recent (top of queue) and ` +
+                  `reject the rest. N is configurable in Settings ` +
+                  `(top_n_signals_per_run).`
+                }
+              >
+                approve top {topN}
+              </button>
+            )}
+            {" "}
+            <button
+              onClick={approveAll}
+              style={miniButton("muted")}
+              title="Approve every pending intent"
+            >
+              approve all
+            </button>
+          </>
         ) : null}
       >
         {pending.length === 0 ? (
