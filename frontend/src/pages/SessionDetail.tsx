@@ -326,6 +326,14 @@ export function SessionDetail() {
         </div>
       )}
 
+      <SessionSummaryHero
+        session={session}
+        strategies={strategies}
+        fills={fills}
+        decisions={decisions}
+        bars={bars}
+      />
+
       <AssumptionChips params={session.params} />
 
       <WhyNoOrdersBanner
@@ -446,6 +454,163 @@ function ExportButton({
 }
 
 /**
+ * SessionSummaryHero — narrative, trader-friendly summary at the top
+ * of Session Detail. Replaces the data-tables-first layout with a
+ * single block that answers "what ran, what happened, is there a
+ * problem" without the trader having to scan five tabs.
+ *
+ * Verdict is one of: FIRED (≥1 fill) · NO_FIRES (decisions present
+ * but none became orders) · NO_DECISIONS (bars seen but on_bar never
+ * decided) · NO_BARS (data didn't reach strategy) · NOT_STARTED
+ * (session not yet completed). Each verdict gets a colour + a one-
+ * line action so the trader knows what to do.
+ */
+function SessionSummaryHero({
+  session,
+  strategies,
+  fills,
+  decisions,
+  bars,
+}: {
+  session: Session;
+  strategies: StrategyEntry[];
+  fills: FillRow[];
+  decisions: DecisionRow[];
+  bars: BarRow[];
+}) {
+  const completed = (session.state ?? "").toLowerCase() === "completed";
+  const fires = decisions.filter((d) => d.action.startsWith("fire-")).length;
+  const skips = decisions.filter((d) => d.action.startsWith("skip-")).length;
+
+  type Verdict = "FIRED" | "NO_FIRES" | "NO_DECISIONS" | "NO_BARS" | "NOT_STARTED";
+  let verdict: Verdict;
+  if (!completed) verdict = "NOT_STARTED";
+  else if (fills.length > 0) verdict = "FIRED";
+  else if (bars.length === 0) verdict = "NO_BARS";
+  else if (decisions.length === 0) verdict = "NO_DECISIONS";
+  else verdict = "NO_FIRES";
+
+  const tone =
+    verdict === "FIRED" ? { fg: "#1fc16b", bg: "rgba(31,193,107,0.10)", border: "rgba(31,193,107,0.35)" } :
+    verdict === "NOT_STARTED" ? { fg: "var(--text-dim)", bg: "rgba(255,255,255,0.04)", border: "var(--border)" } :
+    { fg: "#f59e0b", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.35)" };
+
+  const label: Record<Verdict, string> = {
+    FIRED: `✓ ${fills.length} fill${fills.length === 1 ? "" : "s"}`,
+    NO_FIRES: "🟡 No fires (strategy decided, conditions didn't trigger)",
+    NO_DECISIONS: "🟡 No decisions (bars arrived, on_bar never decided)",
+    NO_BARS: "⚠ No bars delivered to strategy",
+    NOT_STARTED: "⏳ Not yet completed",
+  };
+  const action: Record<Verdict, string> = {
+    FIRED: "Review fills + positions tabs to validate execution.",
+    NO_FIRES: "Open the Decisions tab to see the top skip reasons.",
+    NO_DECISIONS: "Strategy may need a larger lookback to warm up — open the Bars tab to confirm bars arrived.",
+    NO_BARS: "Likely causes: triggered pre-market (no intraday bars yet), wrong session date, or daemon running stale code. Try re-triggering after market open.",
+    NOT_STARTED: "Mac worker hasn't picked up this request yet, or the run is still in flight.",
+  };
+
+  const params = (session.params || {}) as Record<string, unknown>;
+  const strategyName = params.strategy as string | undefined;
+  const symbolsArr = Array.isArray(params.symbols) ? (params.symbols as string[]) : [];
+
+  // Wall clock summary — small + monospace.
+  const enqAt = new Date(session.requested_at_utc);
+  const compAt = session.completed_at_utc ? new Date(session.completed_at_utc) : null;
+  const elapsedMs = compAt ? compAt.getTime() - enqAt.getTime() : null;
+  const elapsedText = elapsedMs == null ? "in flight"
+    : elapsedMs < 60_000 ? `${Math.round(elapsedMs / 1000)}s`
+    : `${Math.floor(elapsedMs / 60_000)}m ${Math.round((elapsedMs % 60_000) / 1000)}s`;
+
+  return (
+    <div
+      style={{
+        padding: "14px 18px",
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        borderRadius: 8,
+        marginBottom: 14,
+      }}
+    >
+      <div style={{ display: "flex", gap: 16, alignItems: "baseline", flexWrap: "wrap" }}>
+        <div style={{
+          fontSize: 16, fontWeight: 700, color: tone.fg, letterSpacing: "0.02em",
+        }}>
+          {label[verdict]}
+        </div>
+        {strategyName && (
+          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+            <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{strategyName}</span>
+            {symbolsArr.length > 0 && (
+              <>
+                {" on "}
+                <span style={{ fontFamily: "monospace" }}>{symbolsArr.join(", ")}</span>
+              </>
+            )}
+          </div>
+        )}
+        <div style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>
+          {enqAt.toLocaleTimeString()} → {compAt ? compAt.toLocaleTimeString() : "…"} · {elapsedText}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          gap: 12, marginTop: 14, marginBottom: 10,
+        }}
+      >
+        <SummaryStat label="Bars seen" value={bars.length} />
+        <SummaryStat
+          label="Decisions"
+          value={decisions.length}
+          sub={decisions.length > 0 ? `${fires} fire · ${skips} skip` : undefined}
+        />
+        <SummaryStat label="Fills" value={fills.length} highlight={fills.length > 0} />
+        <SummaryStat label="Strategies" value={strategies.length} />
+      </div>
+
+      <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.45 }}>
+        {action[verdict]}
+      </div>
+    </div>
+  );
+}
+
+function SummaryStat({
+  label, value, sub, highlight,
+}: {
+  label: string;
+  value: number;
+  sub?: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 10, color: "var(--text-muted)",
+        textTransform: "uppercase", letterSpacing: "0.06em",
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 22, fontWeight: 700, fontFamily: "monospace",
+        color: highlight ? "#1fc16b" : "var(--text)",
+        marginTop: 2,
+      }}>
+        {value}
+      </div>
+      {sub && (
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * AssumptionChips — surface the strategy run's most diagnostic config
  * fields as chips directly under the session header so the trader
  * never has to scroll the JSON params blob to know what assumptions
@@ -549,8 +714,10 @@ function ParamsCard({ params }: { params: unknown }) {
  *
  * Render rules:
  *   - Hidden when fills.length > 0 (a normal run).
- *   - Hidden when session.state !== 'completed' (still running / failed
- *     → error banner above covers that).
+ *   - Hidden when the session isn't terminal (still running / failed
+ *     → error banner above covers that). Match is case-insensitive
+ *     because the backend ships ``Completed`` (PascalCase) while
+ *     other call sites use ``completed``.
  *   - Per strategy verdict ordered: no_bars > no_decisions >
  *     all_wait > unknown.
  */
@@ -566,7 +733,7 @@ function WhyNoOrdersBanner({
   onJumpTo: (tab: Tab) => void;
 }) {
   if (fills.length > 0) return null;
-  if (session.state !== "completed") return null;
+  if ((session.state ?? "").toLowerCase() !== "completed") return null;
   if (strategies.length === 0) return null;
 
   // Aggregate per-strategy diagnosis.

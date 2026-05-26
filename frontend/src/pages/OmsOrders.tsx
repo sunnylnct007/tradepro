@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api, OmsOrderRow, OmsOrderEventRow } from "../api/client";
 import { PaperSubNav } from "../components/PaperSubNav";
+import { PlotlyChart } from "../components/PlotlyChart";
+import { buildRejectReasonsFigure } from "../viz/rejectReasons";
 
 // OMS Orders page — single surface for every order the platform ever
 // placed. Replaces the per-broker pending_orders queue ad-hoc UI.
@@ -256,6 +258,8 @@ export function OmsOrders() {
           {error}
         </div>
       )}
+
+      <RejectReasonsWidget orders={orders} />
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
         {ALL_STATES.map((s) => {
@@ -516,4 +520,47 @@ function eventTone(t: string): string {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n) + "…";
+}
+
+/**
+ * RejectReasonsWidget — collapsible Plotly bar of cancelled_reason
+ * counts across REJECTED + CANCELLED + EXPIRED orders. Hidden when
+ * there are zero failures (don't waste vertical space).
+ *
+ * Renders only when there's something to show so this is invisible
+ * on a clean queue. When orders fail in clusters (e.g. T212 returns
+ * INSUFFICIENT_FUNDS twenty times in a row) the trader sees a single
+ * dominant red bar and fixes the root cause instead of cancelling
+ * twenty rows.
+ */
+function RejectReasonsWidget({ orders }: { orders: OmsOrderRow[] }) {
+  const REJECT_STATES = new Set(["REJECTED", "CANCELLED", "EXPIRED"]);
+  const failing = orders.filter((o) => REJECT_STATES.has(o.state));
+  if (failing.length === 0) return null;
+  return (
+    <details
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        padding: 10,
+        marginBottom: 12,
+        background: "rgba(239,68,68,0.04)",
+      }}
+    >
+      <summary
+        style={{
+          cursor: "pointer",
+          color: "#ef4444",
+          fontWeight: 600,
+          fontSize: 12,
+          userSelect: "none",
+        }}
+      >
+        Reject / cancel reasons ({failing.length} failed orders)
+      </summary>
+      <div style={{ marginTop: 8 }}>
+        <PlotlyChart figure={buildRejectReasonsFigure(failing)} />
+      </div>
+    </details>
+  );
 }

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CockpitCard } from "../components/CockpitCard";
+import { PlotlyChart } from "../components/PlotlyChart";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
+import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
 
 /**
  * Trader cockpit — every piece of context the trader needs in one
@@ -399,6 +401,24 @@ export function TraderCockpit() {
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>No fills yet.</span>
         ) : (
           <OrdersTable rows={recent} acting={null} onApprove={() => {}} onReject={() => {}} onCancel={() => {}} />
+        )}
+      </CockpitCard>
+
+      {/* ── Order lifecycle Gantt ──────────────────────────────── */}
+      <CockpitCard
+        id="lifecycle"
+        title="Order lifecycle (Gantt)"
+        badge={orders.length || undefined}
+        defaultOpen={false}
+      >
+        {orders.length === 0 ? (
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            No orders yet. Fires from a strategy run or the Test placement
+            panel will appear here as horizontal bars from enqueue to terminal,
+            colour-coded by state.
+          </span>
+        ) : (
+          <PlotlyChart figure={buildOrderLifecycleFigure(orders)} />
         )}
       </CockpitCard>
 
