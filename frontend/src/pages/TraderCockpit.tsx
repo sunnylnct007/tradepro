@@ -36,6 +36,7 @@ type LatestSession = {
   requestId: string;
   completedAtUtc: string | null;
   decisions: DecisionEntry[];
+  barsSeen: number;
 };
 type T212PosResp = {
   enabled: boolean;
@@ -133,7 +134,10 @@ export function TraderCockpit() {
         if (byStrategy.has(strategy)) continue;
         const strategies = (rs.strategies as Array<Record<string, unknown>>) || [];
         const decisions: DecisionEntry[] = [];
+        let barsSeen = 0;
         for (const st of strategies) {
+          const bs = st.bars_seen as Array<unknown> | undefined;
+          if (Array.isArray(bs)) barsSeen += bs.length;
           const ds = st.decisions as Array<Record<string, unknown>>;
           if (!Array.isArray(ds)) continue;
           for (const d of ds) {
@@ -153,6 +157,7 @@ export function TraderCockpit() {
           requestId: s.requestId,
           completedAtUtc: s.completedAtUtc,
           decisions: decisions.slice(0, 30),
+          barsSeen,
         });
       }
       setLatestSessions(Array.from(byStrategy.values()));
@@ -425,9 +430,10 @@ export function TraderCockpit() {
                   </Link>
                 </div>
                 {fired.length === 0 ? (
-                  <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-                    No fire-* decisions this run (strategy chose not to trade — common when signal is in the dead zone).
-                  </div>
+                  <NoFiresDiagnostic
+                    barsSeen={s.barsSeen}
+                    skipped={skipped}
+                  />
                 ) : (
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                     <thead>
@@ -598,6 +604,63 @@ function Stat({
     <div>
       <div style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</div>
       <div style={{ fontSize: big ? 20 : 14, fontWeight: big ? 700 : 500, color: fg, fontFamily: "monospace" }}>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * NoFiresDiagnostic — inline explainer shown in the cockpit Strategy
+ * signals widget when a session completed but emitted zero fire-*
+ * decisions. Without this the operator sees "No fire-* decisions"
+ * and has no actionable insight. We surface the top skip reasons
+ * (or warmup/data hints when even skips are empty) so the trader
+ * can decide whether to widen lookback, switch symbols, or accept
+ * that the day genuinely had no trade.
+ */
+function NoFiresDiagnostic({
+  barsSeen,
+  skipped,
+}: {
+  barsSeen: number;
+  skipped: DecisionEntry[];
+}) {
+  // No data at all → broken feed / wrong symbol mapping.
+  if (barsSeen === 0 && skipped.length === 0) {
+    return (
+      <div style={{ fontSize: 11, color: "#f59e0b" }}>
+        ⚠ Strategy saw 0 bars + logged 0 decisions. Likely: source
+        feed misconfigured or symbols rejected. Open Session Detail
+        to inspect the run.
+      </div>
+    );
+  }
+  // Bars came in but on_bar never ran (warmup not reached).
+  if (skipped.length === 0) {
+    return (
+      <div style={{ fontSize: 11, color: "#f59e0b" }}>
+        ⚠ Saw {barsSeen} bars but logged 0 decisions — warmup likely
+        not reached. Try a larger lookback or older session date.
+      </div>
+    );
+  }
+  // Aggregate top skip reasons.
+  const reasonCounts = new Map<string, number>();
+  for (const d of skipped) reasonCounts.set(d.reason, (reasonCounts.get(d.reason) ?? 0) + 1);
+  const top = Array.from(reasonCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+  return (
+    <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+      No fire-* decisions — strategy chose not to trade. Top skip reasons:
+      <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
+        {top.map(([reason, count]) => (
+          <li key={reason}>
+            <span style={{ fontFamily: "monospace" }}>{reason}</span>
+            {" "}
+            <span style={{ color: "var(--text-muted)" }}>×{count}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
