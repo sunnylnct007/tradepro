@@ -9,6 +9,7 @@ import { TestPlacementPanel } from "../components/cockpit/TestPlacementPanel";
 import { KpiStrip } from "../components/cockpit/KpiStrip";
 import { ActivityList } from "../components/cockpit/ActivityList";
 import { TodayOutcome } from "../components/cockpit/TodayOutcome";
+import { OrdersTable } from "../components/cockpit/OrdersTable";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { api, OmsOrderRow } from "../api/client";
@@ -757,105 +758,6 @@ function StrategyChartsCard({
  * clock day matters less than the broker's session boundary.
  */
 
-function OrdersTable({
-  rows, acting, onApprove, onReject, onCancel, allowApprove,
-}: {
-  rows: OmsOrderRow[];
-  acting: string | null;
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
-  onCancel: (id: string) => void;
-  allowApprove?: boolean;
-}) {
-  return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-      <thead>
-        <tr style={{ color: "var(--text-dim)" }}>
-          <th style={posTh}>Time</th>
-          <th style={posTh}>Strategy</th>
-          <th style={posTh}>Symbol</th>
-          <th style={posTh}>Side</th>
-          <th style={{ ...posTh, textAlign: "right" }}>Qty</th>
-          <th style={posTh}>State</th>
-          <th style={posTh}>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((o) => {
-          const busy = acting?.startsWith(o.id);
-          return (
-            <tr key={o.id} style={{ borderTop: "1px solid var(--border)" }}>
-              <td style={{ ...posTd, fontFamily: "monospace", color: "var(--text-muted)" }}>
-                {o.createdAtUtc.slice(11, 19)}
-              </td>
-              <td style={posTd}>{o.strategyId ?? "—"}</td>
-              <td style={posTd}>{o.symbol}</td>
-              <td style={{ ...posTd, color: o.side === "BUY" ? "#1fc16b" : "#ef4444" }}>{o.side}</td>
-              <td style={{ ...posTd, textAlign: "right", fontFamily: "monospace" }}>{o.qty}</td>
-              <td style={posTd}>
-                <StatePill state={o.state} />
-                {(o.state === "REJECTED" || o.state === "CANCELLED") && o.cancelledReason && (
-                  <span
-                    title={o.cancelledReason}
-                    style={{
-                      display: "inline-block", marginLeft: 6,
-                      fontSize: 10, color: o.state === "REJECTED" ? "#ef4444" : "var(--text-muted)",
-                      maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis",
-                      whiteSpace: "nowrap", verticalAlign: "middle",
-                    }}
-                  >
-                    {o.cancelledReason}
-                  </span>
-                )}
-              </td>
-              <td style={{ ...posTd, whiteSpace: "nowrap" }}>
-                {allowApprove && o.state === "PENDING_APPROVAL" && (
-                  <>
-                    <button onClick={() => onApprove(o.id)} disabled={busy} style={miniButton("ok")}>approve</button>{" "}
-                    <button onClick={() => onReject(o.id)} disabled={busy} style={miniButton("down")}>reject</button>{" "}
-                  </>
-                )}
-                {["PENDING_APPROVAL", "SUBMITTED", "WORKING", "PARTIALLY_FILLED"].includes(o.state) && (
-                  <button onClick={() => onCancel(o.id)} disabled={busy} style={miniButton("muted")}>cancel</button>
-                )}
-                <Link
-                  to="/oms"
-                  style={{ ...miniButton("muted"), textDecoration: "none", marginLeft: 4 }}
-                >
-                  →
-                </Link>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-/**
- * StatePill — color-coded OMS state badge so the trader can scan
- * "what state is this order in" at a glance instead of reading text.
- * Green = filled. Blue = in-flight. Amber = needs human. Red = bad.
- * Muted gray = terminal benign (cancelled, expired).
- */
-function StatePill({ state }: { state: string }) {
-  const tone =
-    state === "FILLED" ? { bg: "rgba(31,193,107,0.15)", fg: "#1fc16b" } :
-    state === "SUBMITTED" || state === "WORKING" || state === "PARTIALLY_FILLED"
-      ? { bg: "rgba(79,140,255,0.15)", fg: "#4f8cff" } :
-    state === "PENDING_APPROVAL" ? { bg: "rgba(245,158,11,0.15)", fg: "#f59e0b" } :
-    state === "REJECTED" ? { bg: "rgba(239,68,68,0.15)", fg: "#ef4444" } :
-    { bg: "rgba(255,255,255,0.06)", fg: "var(--text-dim)" };
-  return (
-    <span style={{
-      fontSize: 10, padding: "1px 6px", borderRadius: 999,
-      background: tone.bg, color: tone.fg, fontFamily: "monospace",
-    }}>
-      {state}
-    </span>
-  );
-}
 
 function Stat({
   label, value, big, tone,
