@@ -594,6 +594,13 @@ export function PaperLive() {
         )}
       />
 
+      {/* ── Attribution (fills + P&L by strategy / symbol) ───────── */}
+      <AttributionView
+        sessions={(sessions ?? []).filter((s) =>
+          analystSessionMatch(s, { strategy: strategyFilter, from: dateFrom, to: dateTo, verdicts: verdictFilter }),
+        )}
+      />
+
       {/* ── Session queue ─────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 28 }}>
         <div
@@ -930,6 +937,190 @@ export function PaperLive() {
     </div>
   );
 }
+
+/**
+ * AttributionView — answers "is this strategy worth running?" by
+ * aggregating fills + realised + unrealised P&L per strategy (and
+ * per symbol within strategy) across the filtered sessions. All
+ * client-side aggregation over session.result_summary — no new
+ * endpoint, same data the SignalExplorer reads.
+ *
+ * Two tables in one collapsible panel:
+ *   1. By strategy — sum of sessions' equity / realised / unrealised
+ *      / fills_count / commission_paid. Top-line attribution.
+ *   2. By symbol — flattens recent_fills across all sessions and
+ *      sums signed notional + count per symbol. Useful for spotting
+ *      whether one symbol is carrying or dragging the strategy.
+ */
+function AttributionView({ sessions }: { sessions: Session[] }) {
+  type StrategyAgg = {
+    strategy: string;
+    sessionCount: number;
+    fills: number;
+    realised: number;
+    unrealised: number;
+    commission: number;
+    equityLast: number; // most recent session's equity, for at-a-glance
+  };
+  type SymbolAgg = {
+    symbol: string;
+    fills: number;
+    buyQty: number;
+    sellQty: number;
+    notional: number;
+  };
+
+  const byStrategy = new Map<string, StrategyAgg>();
+  const bySymbol = new Map<string, SymbolAgg>();
+
+  // Sessions arrive newest-first from the API — iterating in that
+  // order means equityLast captures the most-recent value as the
+  // first write per strategy.
+  for (const s of sessions) {
+    const rs = (s.result_summary ?? {}) as Record<string, unknown>;
+    const strategies = (rs.strategies as Array<Record<string, unknown>>) ?? [];
+    for (const st of strategies) {
+      const sid = (st.strategy_id as string) || "—";
+      const agg = byStrategy.get(sid) ?? {
+        strategy: sid, sessionCount: 0, fills: 0,
+        realised: 0, unrealised: 0, commission: 0, equityLast: 0,
+      };
+      agg.sessionCount += 1;
+      agg.fills += Number(st.fills_count ?? 0);
+      agg.realised += Number(st.realised_pnl ?? 0);
+      agg.unrealised += Number(st.unrealised_pnl ?? 0);
+      agg.commission += Number(st.commission_paid ?? 0);
+      if (agg.equityLast === 0 && st.equity != null) {
+        agg.equityLast = Number(st.equity);
+      }
+      byStrategy.set(sid, agg);
+
+      const fills = (st.recent_fills as Array<Record<string, unknown>>) ?? [];
+      for (const f of fills) {
+        const sym = (f.symbol as string) || "—";
+        const side = (f.side as string) || "";
+        const qty = Number(f.quantity ?? 0);
+        const price = Number(f.fill_price ?? 0);
+        const sa = bySymbol.get(sym) ?? {
+          symbol: sym, fills: 0, buyQty: 0, sellQty: 0, notional: 0,
+        };
+        sa.fills += 1;
+        if (side === "BUY") sa.buyQty += qty;
+        else if (side === "SELL") sa.sellQty += qty;
+        sa.notional += qty * price;
+        bySymbol.set(sym, sa);
+      }
+    }
+  }
+
+  const strategyRows = Array.from(byStrategy.values())
+    .sort((a, b) => (b.realised + b.unrealised) - (a.realised + a.unrealised));
+  const symbolRows = Array.from(bySymbol.values())
+    .sort((a, b) => b.fills - a.fills);
+
+  if (strategyRows.length === 0 && symbolRows.length === 0) return null;
+  return (
+    <details
+      style={{
+        marginBottom: 16,
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "rgba(31,193,107,0.04)",
+        padding: 10,
+      }}
+    >
+      <summary style={{
+        cursor: "pointer", fontWeight: 600, fontSize: 12,
+        color: "#1fc16b", userSelect: "none",
+      }}>
+        Attribution — {strategyRows.length} strateg{strategyRows.length === 1 ? "y" : "ies"}
+        {" · "}{symbolRows.length} symbol{symbolRows.length === 1 ? "" : "s"}
+        {" · "}{strategyRows.reduce((n, r) => n + r.fills, 0)} fills
+      </summary>
+      <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div>
+          <h4 style={{ margin: "0 0 6px", fontSize: 12, color: "var(--text-dim)" }}>By strategy</h4>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr style={{ color: "var(--text-muted)", textAlign: "left" }}>
+                <th style={attTh}>Strategy</th>
+                <th style={attThRight}>Sessions</th>
+                <th style={attThRight}>Fills</th>
+                <th style={attThRight}>Realised</th>
+                <th style={attThRight}>Unreal</th>
+                <th style={attThRight}>Total P&L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {strategyRows.map((r) => {
+                const total = r.realised + r.unrealised;
+                return (
+                  <tr key={r.strategy} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={attTd}>{r.strategy}</td>
+                    <td style={attTdRight}>{r.sessionCount}</td>
+                    <td style={attTdRight}>{r.fills}</td>
+                    <td style={{ ...attTdRight, color: r.realised >= 0 ? "#1fc16b" : "#ef4444" }}>
+                      {r.realised.toFixed(2)}
+                    </td>
+                    <td style={{ ...attTdRight, color: r.unrealised >= 0 ? "#1fc16b" : "#ef4444" }}>
+                      {r.unrealised.toFixed(2)}
+                    </td>
+                    <td style={{
+                      ...attTdRight,
+                      fontWeight: 700,
+                      color: total >= 0 ? "#1fc16b" : "#ef4444",
+                    }}>
+                      {total.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h4 style={{ margin: "0 0 6px", fontSize: 12, color: "var(--text-dim)" }}>By symbol</h4>
+          {symbolRows.length === 0 ? (
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              No fills in the filtered sessions to attribute.
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead>
+                <tr style={{ color: "var(--text-muted)", textAlign: "left" }}>
+                  <th style={attTh}>Symbol</th>
+                  <th style={attThRight}>Fills</th>
+                  <th style={attThRight}>Buy qty</th>
+                  <th style={attThRight}>Sell qty</th>
+                  <th style={attThRight}>Notional</th>
+                </tr>
+              </thead>
+              <tbody>
+                {symbolRows.slice(0, 20).map((r) => (
+                  <tr key={r.symbol} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={attTd}>{r.symbol}</td>
+                    <td style={attTdRight}>{r.fills}</td>
+                    <td style={attTdRight}>{r.buyQty}</td>
+                    <td style={attTdRight}>{r.sellQty}</td>
+                    <td style={attTdRight}>{r.notional.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </details>
+  );
+}
+
+const attTh: React.CSSProperties = {
+  padding: "3px 6px", fontSize: 10,
+  textTransform: "uppercase", letterSpacing: "0.04em",
+};
+const attThRight: React.CSSProperties = { ...attTh, textAlign: "right" };
+const attTd: React.CSSProperties = { padding: "3px 6px", fontFamily: "monospace" };
+const attTdRight: React.CSSProperties = { ...attTd, textAlign: "right" };
 
 /**
  * analystSessionMatch — single predicate that combines all analyst-
