@@ -225,5 +225,6 @@ var ingest = app.MapGroup("/api");
 ingest.MapIngestEndpoints();
 ingest.MapOpsWorkerEndpoints();
 ingest.MapQuantWorkerEndpoints();
+ingest.MapUniverseWorkerEndpoints();
 
 app.Run();
