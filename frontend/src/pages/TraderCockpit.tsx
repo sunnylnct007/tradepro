@@ -562,9 +562,20 @@ function OrdersTable({
               <td style={{ ...posTd, color: o.side === "BUY" ? "#1fc16b" : "#ef4444" }}>{o.side}</td>
               <td style={{ ...posTd, textAlign: "right", fontFamily: "monospace" }}>{o.qty}</td>
               <td style={posTd}>
-                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "rgba(255,255,255,0.06)", color: "var(--text-dim)" }}>
-                  {o.state}
-                </span>
+                <StatePill state={o.state} />
+                {(o.state === "REJECTED" || o.state === "CANCELLED") && o.cancelledReason && (
+                  <span
+                    title={o.cancelledReason}
+                    style={{
+                      display: "inline-block", marginLeft: 6,
+                      fontSize: 10, color: o.state === "REJECTED" ? "#ef4444" : "var(--text-muted)",
+                      maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis",
+                      whiteSpace: "nowrap", verticalAlign: "middle",
+                    }}
+                  >
+                    {o.cancelledReason}
+                  </span>
+                )}
               </td>
               <td style={{ ...posTd, whiteSpace: "nowrap" }}>
                 {allowApprove && o.state === "PENDING_APPROVAL" && (
@@ -588,6 +599,30 @@ function OrdersTable({
         })}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * StatePill — color-coded OMS state badge so the trader can scan
+ * "what state is this order in" at a glance instead of reading text.
+ * Green = filled. Blue = in-flight. Amber = needs human. Red = bad.
+ * Muted gray = terminal benign (cancelled, expired).
+ */
+function StatePill({ state }: { state: string }) {
+  const tone =
+    state === "FILLED" ? { bg: "rgba(31,193,107,0.15)", fg: "#1fc16b" } :
+    state === "SUBMITTED" || state === "WORKING" || state === "PARTIALLY_FILLED"
+      ? { bg: "rgba(79,140,255,0.15)", fg: "#4f8cff" } :
+    state === "PENDING_APPROVAL" ? { bg: "rgba(245,158,11,0.15)", fg: "#f59e0b" } :
+    state === "REJECTED" ? { bg: "rgba(239,68,68,0.15)", fg: "#ef4444" } :
+    { bg: "rgba(255,255,255,0.06)", fg: "var(--text-dim)" };
+  return (
+    <span style={{
+      fontSize: 10, padding: "1px 6px", borderRadius: 999,
+      background: tone.bg, color: tone.fg, fontFamily: "monospace",
+    }}>
+      {state}
+    </span>
   );
 }
 
