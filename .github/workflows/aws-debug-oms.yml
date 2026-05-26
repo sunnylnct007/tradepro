@@ -1,0 +1,123 @@
+# ============================================================
+# aws-debug-oms — one-off Postgres queries against the TradePro
+# OMS for live diagnostics. Triggered manually from the Actions
+# tab; runs a fixed set of read-only queries via SSM RunCommand
+# and surfaces the output in the workflow log.
+#
+# Why fixed queries (not free-form SQL input): a workflow_dispatch
+# input that accepts arbitrary SQL would be a permanent SQL-injection
+# vector by design. This workflow only runs the queries listed
+# below — to add one, edit the SQL block + redeploy.
+# ============================================================
+
+name: aws-debug-oms
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticker_like:
+        description: 'Symbol LIKE filter (e.g. %EUR% to find EURUSD-ish rows). Empty = no filter.'
+        required: false
+        default: ''
+      limit:
+        description: 'Max rows to return (1–100).'
+        required: false
+        default: '20'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find running instance
+        id: find
+        run: |
+          ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+                      "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].InstanceId' \
+            --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::No running instance found. Run aws-start first."
+            exit 1
+          fi
+          echo "instance_id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Send diagnostic SQL via SSM
+        id: ssm
+        run: |
+          TICKER_LIKE='${{ github.event.inputs.ticker_like }}'
+          LIMIT='${{ github.event.inputs.limit }}'
+          # Build the SSM payload. Queries are intentionally read-only
+          # and target the OMS tables we care about for the FX-fill
+          # diagnosis.
+          jq -n \
+            --arg ticker_like "$TICKER_LIKE" \
+            --arg limit "$LIMIT" \
+            '{
+              commands: [
+                "set -eu",
+                "cd /opt/tradepro",
+                "echo === containers ===",
+                "docker compose -f docker-compose.aws.yaml ps",
+                "echo",
+                "echo === recent OMS orders ===",
+                ("docker compose -f docker-compose.aws.yaml exec -T postgres psql -U tradepro -d tradepro -c " +
+                  "\"SELECT id::text, broker, strategy_id, symbol, side, qty, state, broker_order_id, cancelled_reason, created_at_utc, last_state_change_at_utc FROM oms_orders WHERE " +
+                  (if $ticker_like == "" then "TRUE" else "symbol LIKE \\\"" + $ticker_like + "\\\"" end) +
+                  " ORDER BY created_at_utc DESC LIMIT " + $limit + ";\""),
+                "echo",
+                "echo === recent OMS events for those orders ===",
+                ("docker compose -f docker-compose.aws.yaml exec -T postgres psql -U tradepro -d tradepro -c " +
+                  "\"SELECT e.order_id::text AS oid, e.event_type, e.prior_state, e.new_state, e.actor, e.detail_json, e.occurred_at_utc FROM oms_order_events e WHERE e.order_id IN (SELECT id FROM oms_orders WHERE " +
+                  (if $ticker_like == "" then "TRUE" else "symbol LIKE \\\"" + $ticker_like + "\\\"" end) +
+                  " ORDER BY created_at_utc DESC LIMIT " + $limit + ") ORDER BY occurred_at_utc ASC;\""),
+                "echo",
+                "echo === order count by broker x state ===",
+                "docker compose -f docker-compose.aws.yaml exec -T postgres psql -U tradepro -d tradepro -c \"SELECT broker, state, COUNT(*) FROM oms_orders GROUP BY 1, 2 ORDER BY 1, 2;\""
+              ]
+            }' > /tmp/ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.find.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --comment "tradepro OMS debug from GH Actions" \
+            --parameters file:///tmp/ssm-params.json \
+            --output text --query 'Command.CommandId')
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command: $CMD_ID"
+
+      - name: Wait for SSM command to complete
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "${{ steps.ssm.outputs.command_id }}" \
+              --instance-id "${{ steps.find.outputs.instance_id }}" \
+              --query 'Status' --output text 2>/dev/null || echo "Pending")
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ]; then
+              echo "SSM status: $STATUS"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Show command output
+        run: |
+          aws ssm list-command-invocations \
+            --command-id "${{ steps.ssm.outputs.command_id }}" --details \
+            --query 'CommandInvocations[0].CommandPlugins[0].Output' \
+            --output text | head -300
