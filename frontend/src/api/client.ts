@@ -319,6 +319,24 @@ export const api = {
       `/api/oms/orders/${encodeURIComponent(orderId)}/approve`,
       {},
     ),
+  // Manual OrderIntent enqueue — used by the cockpit "Test placement"
+  // panel to smoke-test the OMS → T212 demo chain end-to-end without
+  // a real strategy session. Strategy code calls the same endpoint
+  // from the Mac daemon (paper/brokers/t212.py).
+  omsEnqueue: (intent: {
+    ClientOrderId: string;
+    Broker: string;
+    Symbol: string;
+    Side: "BUY" | "SELL";
+    Qty: number;
+    OrderType: "MKT" | "LMT" | string;
+    StrategyId: string;
+    PlacedBy: string;
+    TimeInForce?: string;
+    LimitPrice?: number | null;
+    StopPrice?: number | null;
+  }) =>
+    post<OmsOrderRow, typeof intent>(`/api/oms/orders`, intent),
   omsReject: (orderId: string, reason: string) =>
     post<OmsOrderRow, { Reason: string }>(
       `/api/oms/orders/${encodeURIComponent(orderId)}/reject`,

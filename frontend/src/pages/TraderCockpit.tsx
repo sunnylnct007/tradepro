@@ -294,6 +294,11 @@ export function TraderCockpit() {
         <TriggerPanel onTriggered={() => { void loadOrders(); void loadSessions(); }} />
       </CockpitCard>
 
+      {/* ── Manual test placement (skip the strategy, smoke the chain) */}
+      <CockpitCard id="testorder" title="Test placement (manual OMS → T212 demo)" defaultOpen={false}>
+        <TestPlacementPanel onPlaced={() => void loadOrders()} />
+      </CockpitCard>
+
       {/* ── Cash ─────────────────────────────────────────────────── */}
       <CockpitCard
         id="cash"
@@ -593,6 +598,137 @@ function Stat({
     <div>
       <div style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</div>
       <div style={{ fontSize: big ? 20 : 14, fontWeight: big ? 700 : 500, color: fg, fontFamily: "monospace" }}>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * TestPlacementPanel — operator smoke test for the OMS → T212 demo
+ * chain. Bypasses the strategy / Mac daemon entirely: submits an
+ * OrderIntent directly to /api/oms/orders and auto-approves so the
+ * .NET OmsService → Trading212DemoClient → T212 demo path runs end-
+ * to-end. Useful for verifying the broker wiring before triggering a
+ * real strategy session, and for sanity checks after a redeploy.
+ *
+ * Defaults: BUY 1 AAPL (small enough to not move T212's demo cash
+ * meaningfully; symbol T212 always has). Operator can override.
+ *
+ * After approve, the fill poller picks up T212's fill within ~30s
+ * and transitions OMS to FILLED — visible in cockpit "Order placed"
+ * → "Trade executed".
+ */
+function TestPlacementPanel({ onPlaced }: { onPlaced: () => void }) {
+  const [symbol, setSymbol] = useState("AAPL");
+  const [qty, setQty] = useState(1);
+  const [side, setSide] = useState<"BUY" | "SELL">("BUY");
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const fire = async () => {
+    setSubmitting(true);
+    setFeedback(null);
+    try {
+      // Generate a uuid for ClientOrderId — browser crypto API gives
+      // us this without an extra library. OMS dedupes on it so a
+      // double-click doesn't double-place.
+      const clientOrderId = crypto.randomUUID();
+      const enqueued = await api.omsEnqueue({
+        ClientOrderId: clientOrderId,
+        Broker: "T212_DEMO",
+        Symbol: symbol.toUpperCase(),
+        Side: side,
+        Qty: qty,
+        OrderType: "MKT",
+        StrategyId: "manual_test_cockpit",
+        PlacedBy: "HUMAN",
+        TimeInForce: "DAY",
+      });
+      // Auto-approve so it actually places at T212.
+      await api.omsApprove(enqueued.id);
+      setFeedback(
+        `✓ Enqueued + approved ${side} ${qty} ${symbol.toUpperCase()} — watch "Order placed" / "Trade executed" panels.`,
+      );
+      onPlaced();
+    } catch (e) {
+      setFeedback(`Failed: ${e}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>
+        Bypasses the strategy + Mac daemon — creates an OMS intent
+        directly + auto-approves so the .NET OmsService → T212 demo
+        chain runs end-to-end. Use after a redeploy to verify nothing
+        broke before triggering a real strategy run.
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+        <FieldGroup label="Symbol">
+          <input
+            type="text"
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            style={triggerInput}
+          />
+        </FieldGroup>
+        <FieldGroup label="Side">
+          <div style={{ display: "flex", gap: 4 }}>
+            {(["BUY", "SELL"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setSide(s)}
+                style={{
+                  ...triggerInput,
+                  width: 56,
+                  cursor: "pointer",
+                  color: side === s
+                    ? s === "BUY" ? "#1fc16b" : "#ef4444"
+                    : "var(--text-dim)",
+                  borderColor: side === s
+                    ? s === "BUY" ? "#1fc16b" : "#ef4444"
+                    : "var(--border)",
+                  fontWeight: side === s ? 600 : 400,
+                  textAlign: "center",
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </FieldGroup>
+        <FieldGroup label="Qty">
+          <input
+            type="number"
+            min={1}
+            max={1000}
+            value={qty}
+            onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
+            style={{ ...triggerInput, width: 80 }}
+          />
+        </FieldGroup>
+        <button
+          onClick={fire}
+          disabled={submitting}
+          style={{
+            padding: "6px 14px", fontSize: 12, fontWeight: 600,
+            background: submitting ? "var(--text-muted)" : "#4f8cff",
+            color: "white", border: "none", borderRadius: 4,
+            cursor: submitting ? "wait" : "pointer",
+          }}
+        >
+          {submitting ? "Placing…" : `Fire ${side} ${qty} ${symbol.toUpperCase()}`}
+        </button>
+      </div>
+      {feedback && (
+        <div style={{
+          marginTop: 8, fontSize: 11,
+          color: feedback.startsWith("✓") ? "#1fc16b" : "var(--down)",
+        }}>
+          {feedback}
+        </div>
+      )}
     </div>
   );
 }
