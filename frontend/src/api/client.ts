@@ -379,6 +379,36 @@ export const api = {
   // panel to smoke-test the OMS → T212 demo chain end-to-end without
   // a real strategy session. Strategy code calls the same endpoint
   // from the Mac daemon (paper/brokers/t212.py).
+  // Free-form key-value settings (migration 011_settings_kv.sql).
+  // Each row has metadata (label, description, value_type, min/max,
+  // allowed_values) so the UI renders the right input automatically.
+  settingsKv: () =>
+    get<{
+      settings: Array<{
+        key: string;
+        value: unknown;
+        valueType: string;
+        label: string | null;
+        description: string | null;
+        category: string;
+        minValue: number | null;
+        maxValue: number | null;
+        allowedValues: unknown;
+        updatedAtUtc: string;
+        updatedBy: string;
+      }>;
+    }>("/api/settings-kv/"),
+  updateSettingKv: async (key: string, value: unknown) => {
+    const url = new URL(`/api/settings-kv/${encodeURIComponent(key)}`, config.apiBaseUrl);
+    const resp = await fetch(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify(value),
+    });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    return resp.json();
+  },
+
   // Symbol universes (Wikipedia-scraped, curated via overrides).
   // Worker pushes via tradepro-refresh-universes; trader picks from
   // these on the Trigger forms.

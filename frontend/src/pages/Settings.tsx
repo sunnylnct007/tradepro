@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { config } from "../config";
 import { getIdToken } from "../firebase";
+import { SettingsKvSection } from "../components/settings/SettingsKvSection";
 
 /** UI-editable runtime config.
  *
@@ -219,6 +220,13 @@ export function Settings() {
           {error}
         </div>
       )}
+
+      {/* Free-form key-value settings (migration 011_settings_kv.sql).
+          New operator-tunable knobs (strategy optimisation cadence,
+          daemon universe, daily run UTC, top-N picker) are added here
+          without a code change. Lives above the typed AppSettings
+          sections so the trader's most-frequent edits are top-of-page. */}
+      <SettingsKvSection />
 
       {savedAt && !dirty && (
         <div className="card" style={{ borderLeft: "3px solid var(--up)", color: "var(--text-dim)", padding: "8px 12px", fontSize: 12 }}>
