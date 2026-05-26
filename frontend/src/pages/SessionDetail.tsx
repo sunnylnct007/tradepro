@@ -292,6 +292,13 @@ export function SessionDetail() {
         </div>
       )}
 
+      <WhyNoOrdersBanner
+        session={session}
+        strategies={strategies}
+        fills={fills}
+        onJumpTo={(t) => setTab(t)}
+      />
+
       <div
         style={{
           display: "flex",
@@ -380,6 +387,126 @@ function ParamsCard({ params }: { params: unknown }) {
     >
       {JSON.stringify(params, null, 2)}
     </pre>
+  );
+}
+
+/**
+ * WhyNoOrdersBanner — shown above the tabs when the session completed
+ * but emitted 0 fills. Without this the operator sees blank tabs and
+ * has no idea whether the strategy was starved of data, blocked by a
+ * filter, or just chose WAIT for every bar. We diagnose each
+ * strategy and call out the most likely culprit so they don't have
+ * to crawl the Decisions tab to find out.
+ *
+ * Render rules:
+ *   - Hidden when fills.length > 0 (a normal run).
+ *   - Hidden when session.state !== 'completed' (still running / failed
+ *     → error banner above covers that).
+ *   - Per strategy verdict ordered: no_bars > no_decisions >
+ *     all_wait > unknown.
+ */
+function WhyNoOrdersBanner({
+  session,
+  strategies,
+  fills,
+  onJumpTo,
+}: {
+  session: Session;
+  strategies: StrategyEntry[];
+  fills: FillRow[];
+  onJumpTo: (tab: Tab) => void;
+}) {
+  if (fills.length > 0) return null;
+  if (session.state !== "completed") return null;
+  if (strategies.length === 0) return null;
+
+  // Aggregate per-strategy diagnosis.
+  const items = strategies.map((s) => {
+    const bars = (s.bars_seen ?? []).length;
+    const decisions = s.decisions ?? [];
+    const reasonCounts = new Map<string, number>();
+    for (const d of decisions) {
+      reasonCounts.set(d.reason, (reasonCounts.get(d.reason) ?? 0) + 1);
+    }
+    const topReason = Array.from(reasonCounts.entries())
+      .sort((a, b) => b[1] - a[1])[0];
+
+    let verdict: "no_bars" | "no_decisions" | "all_wait" | "unknown" = "unknown";
+    let detail = "";
+    if (bars === 0) {
+      verdict = "no_bars";
+      detail = "Strategy never saw a bar. Likely: source feed misconfigured, " +
+        "symbols rejected (FX vs equity mapping), or data window empty for the session date.";
+    } else if (decisions.length === 0) {
+      verdict = "no_decisions";
+      detail = `Saw ${bars} bars but logged 0 decisions. Likely: warmup not reached ` +
+        "(strategy needs more lookback than provided), or on_bar errored silently.";
+    } else if (topReason && /wait|hold|skip|warm/i.test(topReason[0])) {
+      verdict = "all_wait";
+      detail = `${decisions.length} decisions, top reason: "${topReason[0]}" ` +
+        `(${topReason[1]}×). Strategy ran cleanly but conditions never triggered an entry.`;
+    } else {
+      verdict = "unknown";
+      detail = `${bars} bars, ${decisions.length} decisions, 0 fills. ` +
+        "Check Decisions tab for the actual reasoning chain.";
+    }
+    return { sid: s.strategy_id ?? "—", bars, decisions: decisions.length, verdict, detail, topReason };
+  });
+
+  return (
+    <div
+      style={{
+        padding: "10px 14px",
+        background: "rgba(245,158,11,0.08)",
+        border: "1px solid rgba(245,158,11,0.35)",
+        borderRadius: 6,
+        marginBottom: 16,
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#f59e0b" }}>
+        Why no orders?
+      </div>
+      <ul style={{ margin: 0, padding: "0 0 0 18px", fontSize: 12, color: "var(--text)" }}>
+        {items.map((it, i) => (
+          <li key={i} style={{ marginBottom: 4 }}>
+            <span style={{ fontFamily: "monospace", color: "var(--text-dim)" }}>
+              {it.sid}
+            </span>
+            {" — "}
+            <span style={{
+              color: it.verdict === "all_wait" ? "var(--text-dim)" : "#f59e0b",
+              fontWeight: 500,
+            }}>
+              {it.verdict.replace("_", " ")}
+            </span>
+            {": "}
+            {it.detail}
+          </li>
+        ))}
+      </ul>
+      <div style={{ marginTop: 8, fontSize: 11 }}>
+        <button
+          onClick={() => onJumpTo("Decisions")}
+          style={{
+            background: "transparent", border: "1px solid var(--border)",
+            color: "var(--text-dim)", padding: "3px 10px", borderRadius: 4,
+            fontSize: 11, cursor: "pointer", marginRight: 6,
+          }}
+        >
+          Open Decisions tab →
+        </button>
+        <button
+          onClick={() => onJumpTo("Bars")}
+          style={{
+            background: "transparent", border: "1px solid var(--border)",
+            color: "var(--text-dim)", padding: "3px 10px", borderRadius: 4,
+            fontSize: 11, cursor: "pointer",
+          }}
+        >
+          Open Bars tab →
+        </button>
+      </div>
+    </div>
   );
 }
 
