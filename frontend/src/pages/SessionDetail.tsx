@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
+import { PlotlyChart } from "../components/PlotlyChart";
 
 // Session Detail page — opens via /paper-live/session/:id from PaperLive.
 // Renders the full per-session snapshot as tabbed data frames:
@@ -74,13 +75,43 @@ type StrategyEntry = {
   positions?: Omit<PositionRow, "strategy_id">[];
 };
 
-const TABS = ["Overview", "Bars", "Decisions", "Fills", "Positions"] as const;
+const TABS = ["Overview", "Bars", "Decisions", "Fills", "Positions", "Charts"] as const;
 type Tab = (typeof TABS)[number];
 
 function extractStrategies(rs: unknown): StrategyEntry[] {
   if (!rs || typeof rs !== "object") return [];
   const s = (rs as Record<string, unknown>).strategies;
   return Array.isArray(s) ? (s as StrategyEntry[]) : [];
+}
+
+/**
+ * Extract Plotly figure JSON dicts from the result_summary.
+ *
+ * Backend writes them to ``result_summary.charts`` as a
+ * ``{chart_name: plotly_figure_dict}`` map. We accept either that
+ * top-level shape or a per-strategy ``charts`` block so the engine
+ * is free to attach charts at whichever scope is most natural.
+ */
+function extractCharts(rs: unknown, strategies: StrategyEntry[]): Array<{ key: string; title: string; figure: unknown }> {
+  const out: Array<{ key: string; title: string; figure: unknown }> = [];
+  if (rs && typeof rs === "object") {
+    const top = (rs as Record<string, unknown>).charts;
+    if (top && typeof top === "object") {
+      for (const [name, fig] of Object.entries(top as Record<string, unknown>)) {
+        out.push({ key: `session.${name}`, title: name, figure: fig });
+      }
+    }
+  }
+  for (const s of strategies) {
+    const sc = (s as unknown as Record<string, unknown>).charts;
+    if (sc && typeof sc === "object") {
+      const sid = s.strategy_id ?? "—";
+      for (const [name, fig] of Object.entries(sc as Record<string, unknown>)) {
+        out.push({ key: `${sid}.${name}`, title: `${sid} · ${name}`, figure: fig });
+      }
+    }
+  }
+  return out;
 }
 
 function flatten<TIn, TOut>(
@@ -245,12 +276,15 @@ export function SessionDetail() {
     );
   }
 
+  const charts = extractCharts(session.result_summary, strategies);
+
   const counts: Record<Tab, number> = {
     Overview: strategies.length,
     Bars: bars.length,
     Decisions: decisions.length,
     Fills: fills.length,
     Positions: positions.length,
+    Charts: charts.length,
   };
 
   return (
@@ -341,6 +375,44 @@ export function SessionDetail() {
       {tab === "Positions" && (
         <PositionsTab rows={positions} sessionId={session.request_id} />
       )}
+      {tab === "Charts" && <ChartsTab charts={charts} />}
+    </div>
+  );
+}
+
+/**
+ * ChartsTab — renders every Plotly figure embedded in
+ * result_summary.charts (or per-strategy .charts). Each figure is
+ * rendered with the shared PlotlyChart component; new charts on the
+ * backend show up here automatically.
+ *
+ * Empty-state mirrors the other tabs' tone — the trader sees an
+ * explanation rather than a blank panel.
+ */
+function ChartsTab({
+  charts,
+}: {
+  charts: Array<{ key: string; title: string; figure: unknown }>;
+}) {
+  if (charts.length === 0) {
+    return (
+      <div style={{ color: "var(--text-dim)", fontSize: 12 }}>
+        No charts attached to this session. Strategies opt in by
+        emitting Plotly figure JSON into result_summary.charts at
+        session end — see the viz framework docs.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {charts.map((c) => (
+        <div key={c.key}>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 4 }}>
+            {c.title}
+          </div>
+          <PlotlyChart figure={c.figure as Record<string, unknown>} />
+        </div>
+      ))}
     </div>
   );
 }
