@@ -181,6 +181,51 @@ public sealed class Trading212DemoClient
         }
     }
 
+    /// <summary>Cancel a working order via DELETE /equity/orders/{id}.
+    /// Used by OmsService.CancelAsync when the operator flips
+    /// Auto → Manual and we need to wipe in-flight broker orders.
+    /// `brokerOrderId` is the T212-side id (oms_orders.broker_order_id).
+    /// Returns Ok=true on 2xx; surfaces the response body on any
+    /// failure so the operator sees WHY the cancel didn't land.</summary>
+    public async Task<Trading212CancelResult> CancelOrderAsync(
+        string brokerOrderId, CancellationToken ct)
+    {
+        if (!_options.IsEnabled)
+        {
+            return new Trading212CancelResult(
+                Ok: false, Error: "demo integration disabled",
+                HttpStatus: 0, ResponseBody: null);
+        }
+        try
+        {
+            using var resp = await _http.DeleteAsync($"equity/orders/{brokerOrderId}", ct);
+            var snippet = Snip(await SafeReadFullBody(resp, ct));
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning(
+                    "T212 demo cancel-order returned HTTP {Status} brokerOrderId={Id} body={Body}",
+                    (int)resp.StatusCode, brokerOrderId, snippet);
+                return new Trading212CancelResult(
+                    Ok: false,
+                    Error: $"HTTP {(int)resp.StatusCode}: {snippet}",
+                    HttpStatus: (int)resp.StatusCode,
+                    ResponseBody: snippet);
+            }
+            return new Trading212CancelResult(
+                Ok: true, Error: null,
+                HttpStatus: (int)resp.StatusCode,
+                ResponseBody: snippet);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex,
+                "T212 demo cancel-order threw brokerOrderId={Id}", brokerOrderId);
+            return new Trading212CancelResult(
+                Ok: false, Error: ex.Message,
+                HttpStatus: 0, ResponseBody: null);
+        }
+    }
+
     /// <summary>Lightweight status probe — does the demo key auth at
     /// the /equity/account/cash endpoint? Used by the status endpoint
     /// to surface demo-side reachability alongside live.</summary>

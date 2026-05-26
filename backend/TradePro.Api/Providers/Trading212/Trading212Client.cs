@@ -338,6 +338,16 @@ public sealed record Trading212PlaceResult(
     int HttpStatus,
     string? ResponseBody);
 
+/// <summary>Result of DELETE /equity/orders/{id}. Ok=true on 2xx.
+/// Error + ResponseBody populated on failure so the operator sees
+/// the T212-side reason (e.g. "order already cancelled" or
+/// "not found") instead of a silent broker mismatch.</summary>
+public sealed record Trading212CancelResult(
+    bool Ok,
+    string? Error,
+    int HttpStatus,
+    string? ResponseBody);
+
 /// <summary>Envelope for the positions call so the API endpoint can
 /// pass the failure reason (auth fail, 404, network) up to the UI
 /// instead of swallowing it as an empty list — that silent failure

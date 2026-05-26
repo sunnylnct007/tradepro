@@ -221,8 +221,18 @@ public sealed class PostgresOmsService : IOmsService
             cancelledReason: null,
             detail: new { reason });
 
-    public async Task<OmsOrder> CancelAsync(Guid orderId, string actor, string reason) =>
-        await TransitionAsync(
+    public async Task<OmsOrder> CancelAsync(Guid orderId, string actor, string reason)
+    {
+        // 1. Read the row BEFORE the state transition so we know
+        //    whether the broker actually has it (broker_order_id != null
+        //    means we got past Approve and T212 acknowledged).
+        var existing = await GetAsync(orderId);
+
+        // 2. Flip OMS state to CANCELLED first — even if the broker
+        //    cancel fails, the OMS row reflects operator intent. The
+        //    follow-up broker call is best-effort and logs on failure;
+        //    drift surfaces on the Portfolio drift panel.
+        var cancelled = await TransitionAsync(
             orderId, actor,
             allowedPriorStates: OmsState.OpenStates,
             newState: OmsState.Cancelled,
@@ -230,6 +240,51 @@ public sealed class PostgresOmsService : IOmsService
             extraSetSql: "cancelled_reason = @reason,",
             extraParams: new { reason },
             cancelledReason: reason);
+
+        // 3. If T212 has the order on its books, tell it to drop it.
+        //    No-op for PAPER, IBKR, T212_LIVE (live cancel via
+        //    Trading212Client is a future plug; demo-only for now).
+        if (existing is { Broker: "T212_DEMO", BrokerOrderId: { Length: > 0 } brokerId })
+        {
+            var demo = ResolveT212Demo();
+            if (demo is not null)
+            {
+                try
+                {
+                    var result = await demo.CancelOrderAsync(brokerId, CancellationToken.None);
+                    if (!result.Ok)
+                    {
+                        _log.LogWarning(
+                            "T212 demo cancel failed for OMS {OrderId} brokerId={BrokerId}: {Error}",
+                            orderId, brokerId, result.Error);
+                        // Append a CANCEL_BROKER_FAILED event so the
+                        // operator sees the broker-side reason on the
+                        // Session Detail / OMS events tab.
+                        await using var conn = await _db.OpenConnectionAsync();
+                        await InsertEventAsync(conn, tx: null, orderId,
+                            eventType: "CANCEL_BROKER_FAILED",
+                            priorState: OmsState.Cancelled,
+                            newState: OmsState.Cancelled,
+                            actor: "broker:T212_DEMO",
+                            detail: new
+                            {
+                                brokerId,
+                                httpStatus = result.HttpStatus,
+                                body = result.ResponseBody,
+                                error = result.Error,
+                            });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex,
+                        "T212 demo cancel threw for OMS {OrderId} brokerId={BrokerId} — OMS marked Cancelled, broker may still hold the order",
+                        orderId, brokerId);
+                }
+            }
+        }
+        return cancelled;
+    }
 
     public async Task<IReadOnlyList<Guid>> CancelAllOpenAsync(string actor, string reason)
     {
@@ -451,7 +506,7 @@ public sealed class PostgresOmsService : IOmsService
     }
 
     private static async Task InsertEventAsync(
-        NpgsqlConnection conn, IDbTransaction tx, Guid orderId,
+        NpgsqlConnection conn, IDbTransaction? tx, Guid orderId,
         string eventType, string? priorState, string newState,
         string actor, object? detail)
     {
