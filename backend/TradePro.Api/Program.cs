@@ -161,6 +161,10 @@ builder.Services.AddSingleton<TradePro.Api.Oms.IOmsService>(sp =>
         sp,
         sp.GetRequiredService<ILogger<TradePro.Api.Oms.PostgresOmsService>>()));
 builder.Services.AddSingleton<TradePro.Api.Oms.IOmsModeService, TradePro.Api.Oms.InMemoryOmsModeService>();
+// Background poller that polls T212 demo for fills/cancellations on
+// SUBMITTED orders and transitions OMS accordingly. Closes the
+// SUBMITTED → FILLED loop without operator intervention.
+builder.Services.AddHostedService<TradePro.Api.Oms.OmsFillPoller>();
 builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderboardStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills

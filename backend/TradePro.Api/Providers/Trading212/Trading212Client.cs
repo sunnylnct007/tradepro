@@ -348,6 +348,22 @@ public sealed record Trading212CancelResult(
     int HttpStatus,
     string? ResponseBody);
 
+/// <summary>Snapshot of a single broker-side order, returned by
+/// GET /equity/orders/{id}. Used by the fill-poll worker to drive
+/// OMS state forward. Status values per T212: NEW · WORKING ·
+/// FILLED · CANCELLED · REJECTED. "GONE" is our own sentinel for
+/// "T212 returned 404, treat as terminal" so the poller doesn't
+/// loop on completed orders that aged out of T212's cache.</summary>
+public sealed record Trading212OrderStatus(
+    long BrokerOrderId,
+    string? Status,
+    string? Ticker,
+    decimal? Quantity,
+    decimal? FilledQuantity,
+    decimal? FilledValue,
+    int HttpStatus,
+    string? Error);
+
 /// <summary>Account cash snapshot from /equity/account/cash.
 /// Free = available to trade; Invested = already deployed in
 /// positions; Total = Free + Invested + open P&L. Operator needs

@@ -226,6 +226,72 @@ public sealed class Trading212DemoClient
         }
     }
 
+    /// <summary>Fetch a single order's current state from T212 via
+    /// GET /equity/orders/{id}. Used by the background fill-poll
+    /// worker to update OMS rows from SUBMITTED → FILLED / CANCELLED
+    /// without operator intervention.</summary>
+    public async Task<Trading212OrderStatus?> GetOrderStatusAsync(
+        long brokerOrderId, CancellationToken ct)
+    {
+        if (!_options.IsEnabled) return null;
+        try
+        {
+            using var resp = await _http.GetAsync($"equity/orders/{brokerOrderId}", ct);
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                // Order completed + aged out of T212's hot cache. Treat
+                // as terminal but unknown status so the poller doesn't
+                // keep retrying forever.
+                return new Trading212OrderStatus(
+                    BrokerOrderId: brokerOrderId,
+                    Status: "GONE", Ticker: null, Quantity: null,
+                    FilledQuantity: null, FilledValue: null,
+                    HttpStatus: 404, Error: "not found on broker");
+            }
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = Snip(await SafeReadFullBody(resp, ct));
+                return new Trading212OrderStatus(
+                    BrokerOrderId: brokerOrderId,
+                    Status: null, Ticker: null, Quantity: null,
+                    FilledQuantity: null, FilledValue: null,
+                    HttpStatus: (int)resp.StatusCode, Error: body);
+            }
+            var fullBody = await SafeReadFullBody(resp, ct);
+            using var doc = System.Text.Json.JsonDocument.Parse(fullBody);
+            var r = doc.RootElement;
+            decimal? Num(string k)
+            {
+                if (r.TryGetProperty(k, out var el)
+                    && el.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && el.TryGetDecimal(out var v)) return v;
+                return null;
+            }
+            string? Str(string k) =>
+                r.TryGetProperty(k, out var el)
+                    && el.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? el.GetString() : null;
+            return new Trading212OrderStatus(
+                BrokerOrderId: brokerOrderId,
+                Status: Str("status"),
+                Ticker: Str("ticker"),
+                Quantity: Num("quantity"),
+                FilledQuantity: Num("filledQuantity"),
+                FilledValue: Num("filledValue"),
+                HttpStatus: (int)resp.StatusCode,
+                Error: null);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "T212 demo /orders/{Id} threw", brokerOrderId);
+            return new Trading212OrderStatus(
+                BrokerOrderId: brokerOrderId,
+                Status: null, Ticker: null, Quantity: null,
+                FilledQuantity: null, FilledValue: null,
+                HttpStatus: 0, Error: ex.Message);
+        }
+    }
+
     /// <summary>Fetch account cash from /equity/account/cash. This is
     /// the T212 INVEST product's cash (stocks/ETFs); T212 CFD (FX +
     /// leveraged) is a separate product with its own /cfd/* endpoints
