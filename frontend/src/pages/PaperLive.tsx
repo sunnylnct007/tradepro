@@ -235,18 +235,70 @@ const SCHEDULE = [
   },
 ] as const;
 
+type Verdict = "FIRED" | "NO_FIRES" | "NO_DECISIONS" | "NO_BARS" | "ERROR" | "PENDING";
+
+/**
+ * Classify a session for the verdict filter. Mirrors the SessionDetail
+ * hero verdict so the analyst's filter pills match what they see when
+ * they drill into a row.
+ */
+function sessionVerdict(s: Session): Verdict {
+  const completed = (s.state ?? "").toLowerCase() === "completed";
+  if (!completed) return s.error ? "ERROR" : "PENDING";
+  const rs = (s.result_summary ?? {}) as Record<string, unknown>;
+  const strategies = (rs.strategies as Array<Record<string, unknown>>) ?? [];
+  let fills = 0;
+  let bars = 0;
+  let decisions = 0;
+  for (const st of strategies) {
+    fills += Number(st.fills_count ?? 0);
+    bars += Array.isArray(st.bars_seen) ? (st.bars_seen as unknown[]).length : 0;
+    decisions += Array.isArray(st.decisions) ? (st.decisions as unknown[]).length : 0;
+  }
+  if (fills > 0) return "FIRED";
+  if (bars === 0) return "NO_BARS";
+  if (decisions === 0) return "NO_DECISIONS";
+  return "NO_FIRES";
+}
+
+const VERDICT_TONE: Record<Verdict, { fg: string; bg: string }> = {
+  FIRED:         { fg: "#1fc16b", bg: "rgba(31,193,107,0.10)" },
+  NO_FIRES:      { fg: "#f59e0b", bg: "rgba(245,158,11,0.08)" },
+  NO_DECISIONS:  { fg: "#f59e0b", bg: "rgba(245,158,11,0.08)" },
+  NO_BARS:       { fg: "#ef4444", bg: "rgba(239,68,68,0.08)" },
+  ERROR:         { fg: "#ef4444", bg: "rgba(239,68,68,0.08)" },
+  PENDING:       { fg: "var(--text-dim)", bg: "var(--bg-hover, rgba(255,255,255,0.04))" },
+};
+
 export function PaperLive() {
-  // Honour ?strategy=X in the URL so deep-links from an OMS row land
-  // already filtered to the sessions for that strategy. Empty = show all.
+  // Honour URL params so deep-links from elsewhere (OMS, dashboards)
+  // land already filtered. All filters are URL-driven → shareable.
   const [searchParams, setSearchParams] = useSearchParams();
   const strategyFilter = searchParams.get("strategy") ?? "";
-  const setStrategyFilter = (s: string) => {
+  const dateFrom = searchParams.get("from") ?? "";
+  const dateTo = searchParams.get("to") ?? "";
+  const verdictFilter = new Set(
+    (searchParams.get("verdict") ?? "")
+      .split(",")
+      .filter(Boolean) as Verdict[],
+  );
+
+  const setParam = (key: string, value: string) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      if (s) next.set("strategy", s);
-      else next.delete("strategy");
+      if (value) next.set(key, value);
+      else next.delete(key);
       return next;
     });
+  };
+  const setStrategyFilter = (s: string) => setParam("strategy", s);
+  const setDateFrom = (s: string) => setParam("from", s);
+  const setDateTo = (s: string) => setParam("to", s);
+  const toggleVerdict = (v: Verdict) => {
+    const next = new Set(verdictFilter);
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    setParam("verdict", Array.from(next).join(","));
   };
 
   // ── Form state ────────────────────────────────────────────────────────────
@@ -525,6 +577,23 @@ export function PaperLive() {
         </div>
       </div>
 
+      {/* ── Analyst filters (always-visible, URL-driven) ─────────── */}
+      <AnalystFilters
+        from={dateFrom}
+        to={dateTo}
+        verdicts={verdictFilter}
+        setFrom={setDateFrom}
+        setTo={setDateTo}
+        toggleVerdict={toggleVerdict}
+      />
+
+      {/* ── Cross-session signal explorer ─────────────────────────── */}
+      <SignalExplorer
+        sessions={(sessions ?? []).filter((s) =>
+          analystSessionMatch(s, { strategy: strategyFilter, from: dateFrom, to: dateTo, verdicts: verdictFilter }),
+        )}
+      />
+
       {/* ── Session queue ─────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 28 }}>
         <div
@@ -640,8 +709,12 @@ export function PaperLive() {
               <tbody>
                 {sessions
                   .filter((s) =>
-                    !strategyFilter ||
-                    (s.params as { strategy?: string } | null)?.strategy === strategyFilter,
+                    analystSessionMatch(s, {
+                      strategy: strategyFilter,
+                      from: dateFrom,
+                      to: dateTo,
+                      verdicts: verdictFilter,
+                    }),
                   )
                   .map((s, idx) => {
                   const stateLC = s.state.toLowerCase();
@@ -855,5 +928,221 @@ export function PaperLive() {
         </Link>
       </div>
     </div>
+  );
+}
+
+/**
+ * analystSessionMatch — single predicate that combines all analyst-
+ * hub filters (strategy, date range, verdict). URL-driven so the
+ * filter state is shareable via copy-paste.
+ */
+function analystSessionMatch(
+  s: Session,
+  opts: { strategy: string; from: string; to: string; verdicts: Set<Verdict> },
+): boolean {
+  if (opts.strategy) {
+    const sp = (s.params as { strategy?: string } | null);
+    if (sp?.strategy !== opts.strategy) return false;
+  }
+  if (opts.from) {
+    if ((s.requested_at_utc ?? "").slice(0, 10) < opts.from) return false;
+  }
+  if (opts.to) {
+    if ((s.requested_at_utc ?? "").slice(0, 10) > opts.to) return false;
+  }
+  if (opts.verdicts.size > 0) {
+    if (!opts.verdicts.has(sessionVerdict(s))) return false;
+  }
+  return true;
+}
+
+/**
+ * AnalystFilters — URL-driven date range + verdict pills. Sits above
+ * the session queue so the analyst can scope a question ("show me
+ * Friday's NO_BARS runs") without scrolling. Clearing a filter
+ * removes it from the URL too — bookmarkable empty state.
+ */
+function AnalystFilters({
+  from, to, verdicts, setFrom, setTo, toggleVerdict,
+}: {
+  from: string; to: string; verdicts: Set<Verdict>;
+  setFrom: (s: string) => void; setTo: (s: string) => void;
+  toggleVerdict: (v: Verdict) => void;
+}) {
+  const allVerdicts: Verdict[] = ["FIRED", "NO_FIRES", "NO_DECISIONS", "NO_BARS", "ERROR", "PENDING"];
+  return (
+    <div
+      style={{
+        display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap",
+        padding: "10px 14px",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--bg-hover, rgba(255,255,255,0.02))",
+        marginBottom: 12, fontSize: 12,
+      }}
+    >
+      <span style={{
+        fontSize: 10, color: "var(--text-muted)",
+        textTransform: "uppercase", letterSpacing: "0.06em",
+      }}>
+        Filters
+      </span>
+      <label style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+        <span style={{ color: "var(--text-dim)" }}>from</span>
+        <input
+          type="date"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          style={dateInputStyle}
+        />
+      </label>
+      <label style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+        <span style={{ color: "var(--text-dim)" }}>to</span>
+        <input
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          style={dateInputStyle}
+        />
+      </label>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {allVerdicts.map((v) => {
+          const active = verdicts.has(v);
+          const tone = VERDICT_TONE[v];
+          return (
+            <button
+              key={v}
+              onClick={() => toggleVerdict(v)}
+              style={{
+                fontSize: 10, padding: "2px 9px",
+                border: `1px solid ${active ? tone.fg : "var(--border)"}`,
+                borderRadius: 999,
+                background: active ? tone.bg : "transparent",
+                color: active ? tone.fg : "var(--text-dim)",
+                cursor: "pointer", letterSpacing: "0.04em",
+                fontFamily: "monospace", fontWeight: 600,
+              }}
+            >
+              {v}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const dateInputStyle: React.CSSProperties = {
+  fontSize: 11,
+  padding: "3px 6px",
+  background: "transparent",
+  color: "var(--text)",
+  border: "1px solid var(--border)",
+  borderRadius: 4,
+  fontFamily: "monospace",
+};
+
+/**
+ * SignalExplorer — flatten every fire-* decision across the filtered
+ * sessions into one chronological table. Lets the analyst answer
+ * "what did the strategies actually fire today?" without opening
+ * each session detail individually. Skips are excluded by default —
+ * NO_FIRES sessions surface those via the verdict filter + drill-in.
+ */
+function SignalExplorer({ sessions }: { sessions: Session[] }) {
+  type SignalRow = {
+    time: string;
+    strategy: string;
+    symbol: string;
+    action: string;
+    reason: string;
+    requestId: string;
+  };
+  const rows: SignalRow[] = [];
+  for (const s of sessions) {
+    const rs = (s.result_summary ?? {}) as Record<string, unknown>;
+    const strategies = (rs.strategies as Array<Record<string, unknown>>) ?? [];
+    for (const st of strategies) {
+      const sid = (st.strategy_id as string) || "—";
+      const decisions = (st.decisions as Array<Record<string, unknown>>) ?? [];
+      for (const d of decisions) {
+        const action = (d.action as string) || "";
+        if (!action.startsWith("fire-")) continue;
+        rows.push({
+          time: (d.bar_ts as string) || s.requested_at_utc,
+          strategy: sid,
+          symbol: (d.symbol as string) || "",
+          action,
+          reason: (d.reason as string) || "",
+          requestId: s.request_id,
+        });
+      }
+    }
+  }
+  rows.sort((a, b) => (b.time || "").localeCompare(a.time || ""));
+
+  if (rows.length === 0) return null;
+  return (
+    <details
+      style={{
+        marginBottom: 16,
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "rgba(168,85,247,0.04)",
+        padding: 10,
+      }}
+      open
+    >
+      <summary style={{
+        cursor: "pointer", fontWeight: 600, fontSize: 12,
+        color: "#a855f7", userSelect: "none",
+      }}>
+        Signals fired ({rows.length}) — across filtered sessions
+      </summary>
+      <div style={{ marginTop: 8, maxHeight: 320, overflowY: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
+              <th style={{ padding: "4px 8px" }}>Bar UTC</th>
+              <th style={{ padding: "4px 8px" }}>Strategy</th>
+              <th style={{ padding: "4px 8px" }}>Symbol</th>
+              <th style={{ padding: "4px 8px" }}>Action</th>
+              <th style={{ padding: "4px 8px" }}>Reason</th>
+              <th style={{ padding: "4px 8px" }}>→</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, 100).map((r, i) => (
+              <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ padding: "3px 8px", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                  {(r.time || "").slice(0, 19).replace("T", " ")}
+                </td>
+                <td style={{ padding: "3px 8px" }}>{r.strategy}</td>
+                <td style={{ padding: "3px 8px" }}>{r.symbol}</td>
+                <td style={{ padding: "3px 8px", color: "#1fc16b", fontFamily: "monospace" }}>{r.action}</td>
+                <td style={{ padding: "3px 8px", color: "var(--text-dim)" }}>{r.reason}</td>
+                <td style={{ padding: "3px 8px" }}>
+                  <Link
+                    to={`/paper-live/session/${encodeURIComponent(r.requestId)}`}
+                    style={{
+                      fontSize: 10, color: "var(--text-muted)",
+                      textDecoration: "none",
+                      borderBottom: "1px dotted var(--text-muted)",
+                    }}
+                  >
+                    session
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length > 100 && (
+          <div style={{ marginTop: 6, fontSize: 10, color: "var(--text-muted)" }}>
+            Showing top 100 of {rows.length} — refine filters to narrow.
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
