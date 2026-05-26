@@ -5,6 +5,8 @@ import { InlineHint } from "../components/InlineHint";
 import { PlotlyChart } from "../components/PlotlyChart";
 import { SystemHealthRow } from "../components/cockpit/SystemHealthRow";
 import { TriggerPanel } from "../components/cockpit/TriggerPanel";
+import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
+import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
@@ -224,6 +226,30 @@ export function TraderCockpit() {
     { limit: 50 },
   );
 
+  // Widget visibility — per-trader localStorage persistence. Catalog
+  // is declared once + the cockpit renders each CockpitCard wrapped
+  // in `isVisible(id) ? ... : null`. Adding a new widget = add an
+  // entry to WIDGETS + wrap its render. Lifecycle is symmetric:
+  // click × on the card → moves to HiddenWidgetsBar; click the pill
+  // → restored.
+  const WIDGETS: WidgetMeta[] = [
+    { id: "warnings",    title: "Warnings" },
+    { id: "trigger",     title: "Trigger session" },
+    { id: "testorder",   title: "Test placement" },
+    { id: "cash",        title: "Cash" },
+    { id: "intents",     title: "Order generated" },
+    { id: "submitted",   title: "Order placed" },
+    { id: "fills",       title: "Trade executed" },
+    { id: "activity",    title: "Activity feed" },
+    { id: "trade-cards", title: "Trade cards" },
+    { id: "charts",      title: "Strategy charts" },
+    { id: "lifecycle",   title: "Order lifecycle (Gantt)" },
+    { id: "signals",     title: "Strategy signals" },
+    { id: "positions",   title: "Overall position" },
+  ];
+  const widgets = useHiddenWidgets("cockpit.hidden");
+  const v = (id: string) => !widgets.isHidden(id);
+
   const approveAll = async () => {
     if (!pending.length) return;
     if (!confirm(`Approve all ${pending.length} pending intent${pending.length === 1 ? "" : "s"}?`)) return;
@@ -287,6 +313,15 @@ export function TraderCockpit() {
 
       {/* ── Cockpit panels grid — 2-col on wide screens, full-width
            cards (charts, wide tables) opt in via fullWidth prop. ──── */}
+      {/* Hidden widgets toolbar — pills to restore anything the
+          trader has × out of the panel grid. */}
+      <HiddenWidgetsBar
+        widgets={WIDGETS}
+        hidden={widgets.hidden}
+        onShow={widgets.show}
+        onShowAll={widgets.showAll}
+      />
+
       <div
         style={{
           display: "grid",
@@ -296,12 +331,13 @@ export function TraderCockpit() {
         }}
       >
       {/* ── Warnings (only visible when any) ────────────────────── */}
-      {warnings.length > 0 && (
+      {v("warnings") && warnings.length > 0 && (
         <CockpitCard
           id="warnings"
           title="Warnings"
           badge={warnings.length}
           tone="warn"
+          onHide={() => widgets.hide("warnings")}
           defaultOpen
           fullWidth
         >
@@ -320,21 +356,31 @@ export function TraderCockpit() {
       )}
 
       {/* ── Trigger (compact run form) ──────────────────────────── */}
-      <CockpitCard id="trigger" title="Trigger session" defaultOpen={false}>
+      {v("trigger") && (
+      <CockpitCard id="trigger" title="Trigger session" defaultOpen={false}
+        onHide={() => widgets.hide("trigger")}
+      >
         <TriggerPanel onTriggered={() => { void loadOrders(); void loadSessions(); }} />
       </CockpitCard>
+      )}
 
       {/* ── Manual test placement (skip the strategy, smoke the chain) */}
-      <CockpitCard id="testorder" title="Test placement (manual OMS → T212 demo)" defaultOpen={false}>
+      {v("testorder") && (
+      <CockpitCard id="testorder" title="Test placement (manual OMS → T212 demo)" defaultOpen={false}
+        onHide={() => widgets.hide("testorder")}
+      >
         <TestPlacementPanel onPlaced={() => void loadOrders()} />
       </CockpitCard>
+      )}
 
       {/* ── Cash ─────────────────────────────────────────────────── */}
+      {v("cash") && (
       <CockpitCard
         id="cash"
         title="Cash"
         badge={cash?.free != null ? `${cash.currency ?? ""} ${cash.free.toLocaleString()}` : undefined}
         tone="ok"
+        onHide={() => widgets.hide("cash")}
       >
         {!cash ? (
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading…</span>
@@ -360,14 +406,17 @@ export function TraderCockpit() {
           </div>
         )}
       </CockpitCard>
+      )}
 
       {/* ── Pending intents (action required) ───────────────────── */}
+      {v("intents") && (
       <CockpitCard
         id="intents"
         title="Order generated — awaiting approval"
         badge={pending.length || undefined}
         tone={pending.length > 0 ? "warn" : "default"}
         defaultOpen
+        onHide={() => widgets.hide("intents")}
         actions={pending.length > 0 ? (
           <button
             onClick={approveAll}
@@ -393,12 +442,15 @@ export function TraderCockpit() {
           />
         )}
       </CockpitCard>
+      )}
 
       {/* ── Submitted (in flight at broker) ─────────────────────── */}
+      {v("submitted") && (
       <CockpitCard
         id="submitted"
         title="Order placed — awaiting fill"
         badge={submitted.length || undefined}
+        onHide={() => widgets.hide("submitted")}
       >
         {submitted.length === 0 ? (
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Nothing in flight.</span>
@@ -412,13 +464,16 @@ export function TraderCockpit() {
           />
         )}
       </CockpitCard>
+      )}
 
       {/* ── Recent fills ────────────────────────────────────────── */}
+      {v("fills") && (
       <CockpitCard
         id="fills"
         title="Trade executed (recent)"
         badge={recent.length || undefined}
         tone={recent.length > 0 ? "ok" : "default"}
+        onHide={() => widgets.hide("fills")}
       >
         {recent.length === 0 ? (
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>No fills yet.</span>
@@ -426,14 +481,17 @@ export function TraderCockpit() {
           <OrdersTable rows={recent} acting={null} onApprove={() => {}} onReject={() => {}} onCancel={() => {}} />
         )}
       </CockpitCard>
+      )}
 
       {/* ── Activity feed (unified signal / order / fill timeline) */}
+      {v("activity") && (
       <CockpitCard
         id="activity"
         title="Activity feed"
         badge={activityEvents.length || undefined}
         defaultOpen
         fullWidth
+        onHide={() => widgets.hide("activity")}
       >
         {activityEvents.length === 0 ? (
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -444,24 +502,35 @@ export function TraderCockpit() {
           <ActivityList events={activityEvents} />
         )}
       </CockpitCard>
+      )}
 
       {/* ── Trade cards (signal → order → fill → P&L chain) ──────── */}
-      <TradeCardsPanel
-        orders={orders}
-        positions={positions}
-        latestSessions={latestSessions}
-      />
+      {v("trade-cards") && (
+        <TradeCardsPanel
+          orders={orders}
+          positions={positions}
+          latestSessions={latestSessions}
+          onHide={() => widgets.hide("trade-cards")}
+        />
+      )}
 
       {/* ── Strategy charts (Ichimoku cloud per symbol) ────────── */}
-      <StrategyChartsCard latestSessions={latestSessions} />
+      {v("charts") && (
+        <StrategyChartsCard
+          latestSessions={latestSessions}
+          onHide={() => widgets.hide("charts")}
+        />
+      )}
 
       {/* ── Order lifecycle Gantt ──────────────────────────────── */}
+      {v("lifecycle") && (
       <CockpitCard
         id="lifecycle"
         title="Order lifecycle (Gantt)"
         badge={orders.length || undefined}
         defaultOpen={false}
         fullWidth
+        onHide={() => widgets.hide("lifecycle")}
       >
         {orders.length === 0 ? (
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -473,9 +542,10 @@ export function TraderCockpit() {
           <PlotlyChart figure={buildOrderLifecycleFigure(orders)} />
         )}
       </CockpitCard>
+      )}
 
       {/* ── Strategy signals (validate without broker) ──────────── */}
-      {latestSessions.length > 0 && (
+      {v("signals") && latestSessions.length > 0 && (
         <CockpitCard
           id="signals"
           title="Strategy signals — latest run per strategy"
@@ -483,6 +553,7 @@ export function TraderCockpit() {
             n + s.decisions.filter((d) => d.action.startsWith("fire-")).length, 0) || undefined}
           tone="ok"
           fullWidth
+          onHide={() => widgets.hide("signals")}
         >
           {latestSessions.map((s) => {
             const fired = s.decisions.filter((d) => d.action.startsWith("fire-"));
@@ -545,10 +616,12 @@ export function TraderCockpit() {
       )}
 
       {/* ── Positions ────────────────────────────────────────────── */}
+      {v("positions") && (
       <CockpitCard
         id="positions"
         title="Overall position"
         badge={positions?.enabled ? positions.positionCount || undefined : undefined}
+        onHide={() => widgets.hide("positions")}
       >
         {!positions ? (
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading…</span>
@@ -595,6 +668,7 @@ export function TraderCockpit() {
           {" · "}Per-order drill-in: <Link to="/oms" style={{ color: "var(--text-muted)" }}>OMS →</Link>
         </div>
       </CockpitCard>
+      )}
       </div>
     </div>
   );
@@ -617,11 +691,12 @@ export function TraderCockpit() {
  * the moment a signal fires.
  */
 function TradeCardsPanel({
-  orders, positions, latestSessions,
+  orders, positions, latestSessions, onHide,
 }: {
   orders: OmsOrderRow[];
   positions: T212PosResp | null;
   latestSessions: LatestSession[];
+  onHide?: () => void;
 }) {
   type Card = {
     key: string;
@@ -679,6 +754,7 @@ function TradeCardsPanel({
       badge={visible.length || undefined}
       defaultOpen={visible.length > 0}
       fullWidth
+      onHide={onHide}
     >
       {visible.length === 0 ? (
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -848,7 +924,12 @@ function ChainStep({
  * Defaults to closed so the heavy plotly.js bundle only lazy-loads
  * when the trader explicitly opens it.
  */
-function StrategyChartsCard({ latestSessions }: { latestSessions: LatestSession[] }) {
+function StrategyChartsCard({
+  latestSessions, onHide,
+}: {
+  latestSessions: LatestSession[];
+  onHide?: () => void;
+}) {
   // Flatten charts across all latest sessions. Sort by strategy
   // then by chart name for deterministic display.
   const entries: Array<{ key: string; title: string; strategy: string; figure: unknown }> = [];
@@ -871,6 +952,7 @@ function StrategyChartsCard({ latestSessions }: { latestSessions: LatestSession[
       badge={entries.length || undefined}
       defaultOpen={false}
       fullWidth
+      onHide={onHide}
     >
       {entries.length === 0 ? (
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
