@@ -1732,9 +1732,15 @@ function TestPlacementPanel({ onPlaced }: { onPlaced: () => void }) {
  */
 function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
   type Strat = Awaited<ReturnType<typeof api.paperStrategies>>["strategies"][number];
+  type Universe = Awaited<ReturnType<typeof api.universes>>["universes"][number];
   const [strategies, setStrategies] = useState<Strat[]>([]);
+  const [universes, setUniverses] = useState<Universe[]>([]);
   const [selected, setSelected] = useState<Strat | null>(null);
-  const [symbol, setSymbol] = useState("");
+  // Symbols editable as a comma-separated string so trader can paste
+  // / hand-curate after picking a universe. Run() splits + cleans.
+  const [symbolsText, setSymbolsText] = useState("");
+  const [pickedUniverse, setPickedUniverse] = useState<string | null>(null);
+  const [loadingUniverse, setLoadingUniverse] = useState(false);
   const todayIso = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(todayIso);
   const [lookback, setLookback] = useState<number | null>(null);
@@ -1746,22 +1752,47 @@ function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
     api.paperStrategies()
       .then((r) => { if (!cancelled) setStrategies(r.strategies); })
       .catch((e) => { if (!cancelled) setFeedback(`Strategy catalog failed: ${e}`); });
+    // Universe catalog — optional (older API images won't have the
+    // endpoint). Silent on failure so the trigger form still works.
+    api.universes()
+      .then((r) => { if (!cancelled) setUniverses(r.universes); })
+      .catch(() => { /* universe pipeline not yet ingested */ });
     return () => { cancelled = true; };
   }, []);
 
   const pick = (s: Strat) => {
     setSelected(s);
     setLookback(s.default_lookback_days ?? 0);
-    // FX strategy defaults to G10 — no symbol needed.
-    if (s.name === "ichimoku_fx_mr") setSymbol("");
-    else if (!symbol) setSymbol("AAPL");
+    if (s.name === "ichimoku_fx_mr") setSymbolsText("");
+    else if (!symbolsText) setSymbolsText("AAPL,MSFT,NVDA,TSLA");
+  };
+
+  // Pick a universe → fetch its symbols (effective only — applies
+  // include/exclude overrides server-side) and replace the symbols
+  // textbox. Trader can edit afterwards (sometimes you want to scan
+  // a subset).
+  const pickUniverse = async (name: string) => {
+    setLoadingUniverse(true);
+    setPickedUniverse(name);
+    try {
+      const u = await api.universe(name);
+      const tickers = u.symbols.filter((s) => s.effective).map((s) => s.ticker);
+      setSymbolsText(tickers.join(","));
+      setFeedback(`Loaded ${tickers.length} symbols from ${name}`);
+    } catch (e) {
+      setFeedback(`Universe load failed: ${e}`);
+    } finally {
+      setLoadingUniverse(false);
+    }
   };
 
   const run = async () => {
     if (!selected) return;
     const isFx = selected.name === "ichimoku_fx_mr";
-    if (!isFx && !symbol.trim()) {
-      setFeedback("Enter a symbol before triggering");
+    const symbols = isFx ? [] :
+      symbolsText.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    if (!isFx && symbols.length === 0) {
+      setFeedback("Enter at least one symbol before triggering");
       return;
     }
     setSubmitting(true);
@@ -1769,12 +1800,12 @@ function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
     try {
       await api.runIntraday({
         strategy: selected.name,
-        symbols: isFx ? [] : [symbol.trim().toUpperCase()],
+        symbols,
         session_date: date,
         lookback_days: lookback ?? 0,
         params: selected.default_params,
       });
-      setFeedback(`✓ Queued ${selected.name} for ${date}`);
+      setFeedback(`✓ Queued ${selected.name} on ${symbols.length || "G10"} symbols for ${date}`);
       onTriggered();
     } catch (e) {
       setFeedback(`Failed: ${e}`);
@@ -1815,16 +1846,55 @@ function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
               );
             })}
           </div>
+          {/* Universe picker — only render when there's any ingested
+              + when a non-FX strategy is selected. Pills, not a
+              dropdown, per memory rule. */}
+          {selected && selected.name !== "ichimoku_fx_mr" && universes.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10, alignItems: "baseline" }}>
+              <span style={{
+                fontSize: 9, color: "var(--text-muted)",
+                textTransform: "uppercase", letterSpacing: "0.06em",
+              }}>
+                Universe
+              </span>
+              {universes.map((u) => {
+                const isPicked = pickedUniverse === u.name;
+                return (
+                  <button
+                    key={u.name}
+                    onClick={() => void pickUniverse(u.name)}
+                    disabled={loadingUniverse}
+                    title={`${u.symbolCount} symbols · fetched ${new Date(u.fetchedAtUtc).toLocaleString()}${
+                      u.excludedOverrides ? ` · ${u.excludedOverrides} excluded by you` : ""
+                    }`}
+                    style={{
+                      padding: "3px 9px", fontSize: 10, borderRadius: 999,
+                      border: `1px solid ${isPicked ? "#a855f7" : "var(--border)"}`,
+                      background: isPicked ? "rgba(168,85,247,0.10)" : "transparent",
+                      color: isPicked ? "#a855f7" : "var(--text-dim)",
+                      cursor: loadingUniverse ? "wait" : "pointer",
+                      fontFamily: "monospace", letterSpacing: "0.02em",
+                    }}
+                  >
+                    {u.name}
+                    <span style={{ marginLeft: 4, opacity: 0.7 }}>
+                      {u.symbolCount - u.excludedOverrides}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {selected && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-              <FieldGroup label="Symbol">
-                <input
-                  type="text"
-                  placeholder={selected.name === "ichimoku_fx_mr" ? "G10 (auto)" : "AAPL"}
-                  value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
+              <FieldGroup label={`Symbols${symbolsText ? ` (${symbolsText.split(",").filter(Boolean).length})` : ""}`}>
+                <textarea
+                  placeholder={selected.name === "ichimoku_fx_mr" ? "G10 (auto)" : "AAPL,MSFT,NVDA — or pick a Universe pill above"}
+                  value={symbolsText}
+                  onChange={(e) => setSymbolsText(e.target.value)}
                   disabled={selected.name === "ichimoku_fx_mr"}
-                  style={triggerInput}
+                  rows={2}
+                  style={{ ...triggerInput, width: 280, fontFamily: "monospace", resize: "vertical" }}
                 />
               </FieldGroup>
               <FieldGroup label="Session date">
