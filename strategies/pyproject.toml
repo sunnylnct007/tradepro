@@ -74,6 +74,7 @@ tradepro-push = "tradepro_strategies.cli.push_to_api:main"
 tradepro-quant-backtest = "tradepro_strategies.cli.quant_backtest:main"
 tradepro-regression-panel = "tradepro_strategies.cli.regression_panel:main"
 tradepro-refresh = "tradepro_strategies.cli.refresh:main"
+tradepro-refresh-universes = "tradepro_strategies.cli.refresh_universes:main"
 tradepro-worker = "tradepro_strategies.cli.worker:main"
 
 [build-system]
