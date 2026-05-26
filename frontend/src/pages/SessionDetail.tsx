@@ -292,6 +292,8 @@ export function SessionDetail() {
         </div>
       )}
 
+      <AssumptionChips params={session.params} />
+
       <WhyNoOrdersBanner
         session={session}
         strategies={strategies}
@@ -368,6 +370,81 @@ function ExportButton({
     >
       Download CSV ({rows.length})
     </button>
+  );
+}
+
+/**
+ * AssumptionChips — surface the strategy run's most diagnostic config
+ * fields as chips directly under the session header so the trader
+ * never has to scroll the JSON params blob to know what assumptions
+ * the run was made under.
+ *
+ * Selection is heuristic: we cherry-pick known-important fields and
+ * fall back gracefully when a field is missing. Unknown / one-off
+ * params still live in the full ParamsCard on the Overview tab.
+ */
+function AssumptionChips({ params }: { params: unknown }) {
+  if (!params || typeof params !== "object") return null;
+  const p = params as Record<string, unknown>;
+  const chips: { label: string; value: string; tone?: "warn" | "info" | "ok" }[] = [];
+  const push = (label: string, value: unknown, tone?: "warn" | "info" | "ok") => {
+    if (value === undefined || value === null || value === "") return;
+    chips.push({ label, value: String(value), tone });
+  };
+  push("strategy", p.strategy, "info");
+  if (Array.isArray(p.symbols)) {
+    push("symbols", (p.symbols as unknown[]).join(", "));
+  }
+  push("session_date", p.session_date ?? p.date);
+  push("placement_mode", p.placement_mode,
+       p.placement_mode === "auto" ? "warn" : "info");
+  push("lookback_days", p.lookback_days ?? p.lookback);
+  push("capital_usd", p.capital_usd ?? p.capital);
+  push("provider", p.provider);
+  if (p.use_regime_filter !== undefined) {
+    push("regime_filter", p.use_regime_filter ? "on" : "off",
+         p.use_regime_filter === false ? "warn" : undefined);
+  }
+  if (p._llm_gate !== undefined) {
+    push("llm_gate", p._llm_gate ? "on" : "off");
+  }
+  if (chips.length === 0) return null;
+  return (
+    <div
+      style={{
+        display: "flex", flexWrap: "wrap", gap: 6,
+        marginBottom: 12,
+      }}
+    >
+      {chips.map((c, i) => (
+        <span
+          key={i}
+          style={{
+            display: "inline-flex", gap: 6, alignItems: "baseline",
+            fontSize: 11, lineHeight: 1.4,
+            padding: "3px 9px", borderRadius: 999,
+            background: c.tone === "warn" ? "rgba(245,158,11,0.10)"
+              : c.tone === "ok" ? "rgba(31,193,107,0.10)"
+              : "var(--bg-hover, rgba(255,255,255,0.04))",
+            border: `1px solid ${c.tone === "warn" ? "rgba(245,158,11,0.30)"
+              : c.tone === "ok" ? "rgba(31,193,107,0.30)"
+              : "var(--border)"}`,
+          }}
+        >
+          <span style={{ color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", fontSize: 9 }}>
+            {c.label}
+          </span>
+          <span style={{
+            fontFamily: "monospace",
+            color: c.tone === "warn" ? "#f59e0b"
+              : c.tone === "ok" ? "#1fc16b"
+              : "var(--text)",
+          }}>
+            {c.value}
+          </span>
+        </span>
+      ))}
+    </div>
   );
 }
 

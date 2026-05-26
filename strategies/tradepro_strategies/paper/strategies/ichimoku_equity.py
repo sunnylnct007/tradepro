@@ -68,7 +68,13 @@ class IchimokuEquityStrategy(Strategy):
     """
 
     source = "trader-quant"
-    default_lookback_days = 0  # daily bars; reads cache directly
+    # Strategy reads daily history straight from the on-disk cache,
+    # but the paper engine still needs at least one minute bar per
+    # symbol for `on_bar` to fire and the MOO entry to be emitted.
+    # default_lookback_days=1 ensures the previous trading day's
+    # bars are fetched so triggering pre-market (before US open)
+    # still produces a usable session.
+    default_lookback_days = 1
 
     # Internal state (NOT in default_params — set in __post_init__).
     _positions: dict[str, int] = field(default_factory=dict)
