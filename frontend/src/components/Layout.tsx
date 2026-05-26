@@ -36,6 +36,7 @@ type NavItem = { to: string; label: string; end?: boolean };
 
 const marketNav: NavItem[] = [
   { to: "/trader",       label: "Cockpit"    },
+  { to: "/scan",         label: "Scan"       },
   { to: "/compare",      label: "Decide"     },
   { to: "/portfolio",    label: "Portfolio"  },
   { to: "/strategies",   label: "Strategies" },
