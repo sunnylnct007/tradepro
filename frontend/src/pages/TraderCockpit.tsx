@@ -289,6 +289,11 @@ export function TraderCockpit() {
         </CockpitCard>
       )}
 
+      {/* ── Trigger (compact run form) ──────────────────────────── */}
+      <CockpitCard id="trigger" title="Trigger session" defaultOpen={false}>
+        <TriggerPanel onTriggered={() => { void loadOrders(); void loadSessions(); }} />
+      </CockpitCard>
+
       {/* ── Cash ─────────────────────────────────────────────────── */}
       <CockpitCard
         id="cash"
@@ -591,6 +596,179 @@ function Stat({
     </div>
   );
 }
+
+/**
+ * TriggerPanel — compact form to fire a strategy session without
+ * navigating to /strategies. Loads the strategy catalog once,
+ * renders the strategies as pills (no dropdowns per memory rule),
+ * click expands an inline form with symbol + date + lookback +
+ * Run. Defaults pre-filled from strategy.default_lookback_days.
+ */
+function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
+  type Strat = Awaited<ReturnType<typeof api.paperStrategies>>["strategies"][number];
+  const [strategies, setStrategies] = useState<Strat[]>([]);
+  const [selected, setSelected] = useState<Strat | null>(null);
+  const [symbol, setSymbol] = useState("");
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(todayIso);
+  const [lookback, setLookback] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.paperStrategies()
+      .then((r) => { if (!cancelled) setStrategies(r.strategies); })
+      .catch((e) => { if (!cancelled) setFeedback(`Strategy catalog failed: ${e}`); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const pick = (s: Strat) => {
+    setSelected(s);
+    setLookback(s.default_lookback_days ?? 0);
+    // FX strategy defaults to G10 — no symbol needed.
+    if (s.name === "ichimoku_fx_mr") setSymbol("");
+    else if (!symbol) setSymbol("AAPL");
+  };
+
+  const run = async () => {
+    if (!selected) return;
+    const isFx = selected.name === "ichimoku_fx_mr";
+    if (!isFx && !symbol.trim()) {
+      setFeedback("Enter a symbol before triggering");
+      return;
+    }
+    setSubmitting(true);
+    setFeedback(null);
+    try {
+      await api.runIntraday({
+        strategy: selected.name,
+        symbols: isFx ? [] : [symbol.trim().toUpperCase()],
+        session_date: date,
+        lookback_days: lookback ?? 0,
+        params: selected.default_params,
+      });
+      setFeedback(`✓ Queued ${selected.name} for ${date}`);
+      onTriggered();
+    } catch (e) {
+      setFeedback(`Failed: ${e}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      {strategies.length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          Loading strategies…
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {strategies.map((s) => {
+              const isSelected = selected?.name === s.name;
+              const tone = s.source === "trader-quant" ? "#1fc16b"
+                : s.source === "alpha-engine" ? "#4f8cff"
+                : "var(--text-dim)";
+              return (
+                <button
+                  key={s.name}
+                  onClick={() => pick(s)}
+                  style={{
+                    padding: "4px 11px", fontSize: 11, borderRadius: 999,
+                    border: `1px solid ${isSelected ? tone : "var(--border)"}`,
+                    background: isSelected ? `${tone}1a` : "transparent",
+                    color: isSelected ? tone : "var(--text-dim)",
+                    cursor: "pointer", fontFamily: "monospace",
+                  }}
+                  title={s.summary}
+                >
+                  {s.name}
+                </button>
+              );
+            })}
+          </div>
+          {selected && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+              <FieldGroup label="Symbol">
+                <input
+                  type="text"
+                  placeholder={selected.name === "ichimoku_fx_mr" ? "G10 (auto)" : "AAPL"}
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                  disabled={selected.name === "ichimoku_fx_mr"}
+                  style={triggerInput}
+                />
+              </FieldGroup>
+              <FieldGroup label="Session date">
+                <input
+                  type="date"
+                  value={date}
+                  max={todayIso}
+                  onChange={(e) => setDate(e.target.value)}
+                  style={triggerInput}
+                />
+              </FieldGroup>
+              <FieldGroup label="Lookback (days)">
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={lookback ?? 0}
+                  onChange={(e) => setLookback(Number(e.target.value))}
+                  style={{ ...triggerInput, width: 70 }}
+                />
+              </FieldGroup>
+              <button
+                onClick={run}
+                disabled={submitting}
+                style={{
+                  padding: "6px 14px", fontSize: 12, fontWeight: 600,
+                  background: submitting ? "var(--text-muted)" : "#1fc16b",
+                  color: "white", border: "none", borderRadius: 4,
+                  cursor: submitting ? "wait" : "pointer",
+                }}
+              >
+                {submitting ? "Queueing…" : "Run"}
+              </button>
+            </div>
+          )}
+          {feedback && (
+            <div style={{
+              marginTop: 8, fontSize: 11,
+              color: feedback.startsWith("✓") ? "#1fc16b" : "var(--down)",
+            }}>
+              {feedback}
+            </div>
+          )}
+          {selected && (
+            <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)" }}>
+              {selected.summary}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function FieldGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <span style={{ fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+const triggerInput: React.CSSProperties = {
+  padding: "5px 8px", fontSize: 12,
+  border: "1px solid var(--border)", borderRadius: 4,
+  background: "transparent", color: "var(--text)",
+};
 
 function fmtMoney(n: number | null | undefined, ccy?: string | null): string {
   if (n == null) return "—";
