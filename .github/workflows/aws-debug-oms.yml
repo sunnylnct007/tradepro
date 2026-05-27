@@ -90,11 +90,8 @@ jobs:
                 "echo === order count by broker x state ===",
                 "docker compose -f docker-compose.aws.yaml exec -T postgres psql -U tradepro -d tradepro -c \"SELECT broker, state, COUNT(*) FROM oms_orders GROUP BY 1, 2 ORDER BY 1, 2;\"",
                 "echo",
-                "echo === API logs (last 200 lines, filtered for errors / warnings) ===",
-                "docker compose -f docker-compose.aws.yaml logs --tail=200 api 2>&1 | grep -E \"error|exception|fail|warn|500|stack|System\\\\.|Npgsql\" -i || true",
-                "echo",
-                "echo === API logs (last 80 lines raw) ===",
-                "docker compose -f docker-compose.aws.yaml logs --tail=80 api 2>&1 || true",
+                "echo === API logs (last 150 lines raw) ===",
+                "docker compose -f docker-compose.aws.yaml logs --tail=150 api 2>&1 || true",
                 "echo",
                 "echo === session_requests recent (kind=intraday) ===",
                 "docker compose -f docker-compose.aws.yaml exec -T postgres psql -U tradepro -d tradepro -c \"SELECT request_id, kind, state, requested_at_utc, claimed_by, error FROM session_requests WHERE kind = 'intraday' ORDER BY requested_at_utc DESC LIMIT 5;\""
