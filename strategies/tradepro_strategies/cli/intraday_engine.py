@@ -330,6 +330,22 @@ def _resolve_enabled_strategies(cfg: dict) -> dict[str, dict]:
     if "opening_range_breakout" in available and "orb" in available:
         available.discard("opening_range_breakout")
 
+    # /scan trigger sends `strategy` (singular) + `params` at the top
+    # level — that's the trader explicitly saying "run THIS strategy
+    # on this universe". Honour it: build a single-entry strategies
+    # block from the singular field so the engine actually runs the
+    # named strategy (and not the textbook default fan-out which
+    # excludes ichimoku_equity — the trader's quant Ichimoku). Without
+    # this, /scan ichimoku_equity silently runs orb + vwap +
+    # bollinger + ma_crossover instead.
+    explicit = cfg.get("strategy")
+    if isinstance(explicit, str) and explicit.strip():
+        name = explicit.strip()
+        if name in available:
+            params = cfg.get("params")
+            return {name: dict(params) if isinstance(params, dict) else {}}
+        log.warning("explicit strategy %r is not in the registry; falling back", name)
+
     settings_block = cfg.get("strategies")
     if not isinstance(settings_block, dict) or not settings_block:
         return {name: {} for name in _INTRADAY_DEFAULT_STRATEGY_NAMES
