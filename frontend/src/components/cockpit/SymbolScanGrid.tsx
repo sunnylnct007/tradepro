@@ -13,7 +13,7 @@
  *   * Click a card → drills into the session detail decisions tab
  *     pre-filtered to that symbol.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CockpitCard } from "../CockpitCard";
 import type { LatestSession } from "../../types/cockpit";
@@ -36,7 +36,27 @@ export function SymbolScanGrid({
   latestSessions: LatestSession[];
   onHide?: () => void;
 }) {
-  const cards = useMemo(() => collectCards(latestSessions), [latestSessions]);
+  // Date filter — default to today's UTC session only so the grid
+  // doesn't muddle "yesterday's signals" with "today's signals" when
+  // multiple runs exist. Opt-in to historical via the pill.
+  const [scope, setScope] = useState<"today" | "all">(() => {
+    if (typeof window === "undefined") return "today";
+    const saved = localStorage.getItem("cockpit.scan-grid.scope");
+    return saved === "all" ? "all" : "today";
+  });
+  useEffect(() => {
+    try { localStorage.setItem("cockpit.scan-grid.scope", scope); } catch { /* noop */ }
+  }, [scope]);
+
+  const sessionsInScope = useMemo(() => {
+    if (scope === "all") return latestSessions;
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    return latestSessions.filter(
+      (s) => (s.completedAtUtc ?? "").slice(0, 10) === todayUtc,
+    );
+  }, [latestSessions, scope]);
+
+  const cards = useMemo(() => collectCards(sessionsInScope), [sessionsInScope]);
   const [actionFilter, setActionFilter] = useState<"all" | "fire" | "skip">("all");
   const [query, setQuery] = useState("");
 
@@ -75,6 +95,9 @@ export function SymbolScanGrid({
             fires={fireCount}
             skips={skipCount}
             visible={visible.length}
+            scope={scope}
+            setScope={setScope}
+            hiddenSessionCount={latestSessions.length - sessionsInScope.length}
           />
           {visible.length === 0 ? (
             <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "12px 0" }}>
@@ -127,6 +150,7 @@ function collectCards(latestSessions: LatestSession[]): Card[] {
 function FilterBar({
   actionFilter, setActionFilter, query, setQuery,
   total, fires, skips, visible,
+  scope, setScope, hiddenSessionCount,
 }: {
   actionFilter: "all" | "fire" | "skip";
   setActionFilter: (a: "all" | "fire" | "skip") => void;
@@ -136,12 +160,22 @@ function FilterBar({
   fires: number;
   skips: number;
   visible: number;
+  scope: "today" | "all";
+  setScope: (s: "today" | "all") => void;
+  hiddenSessionCount: number;
 }) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
       <FilterPill value="all"  current={actionFilter} setter={setActionFilter} label={`ALL ${total}`} color="var(--text)" />
       <FilterPill value="fire" current={actionFilter} setter={setActionFilter} label={`FIRE ${fires}`} color="#1fc16b" />
       <FilterPill value="skip" current={actionFilter} setter={setActionFilter} label={`SKIP ${skips}`} color="#f59e0b" />
+      <span style={{ width: 1, height: 14, background: "var(--border)" }} />
+      <ScopePill value="today" current={scope} setter={setScope}
+        label={hiddenSessionCount > 0
+          ? `Today only (${hiddenSessionCount} older hidden)`
+          : "Today only"}
+      />
+      <ScopePill value="all" current={scope} setter={setScope} label="Include past" />
       <input
         type="text"
         placeholder="filter symbol…"
@@ -160,6 +194,31 @@ function FilterBar({
         </span>
       )}
     </div>
+  );
+}
+
+function ScopePill({
+  value, current, setter, label,
+}: {
+  value: "today" | "all";
+  current: "today" | "all";
+  setter: (v: "today" | "all") => void;
+  label: string;
+}) {
+  const active = value === current;
+  return (
+    <button
+      onClick={() => setter(value)}
+      style={{
+        padding: "3px 10px", fontSize: 11, borderRadius: 999,
+        border: `1px solid ${active ? "#4f8cff" : "var(--border)"}`,
+        background: active ? "rgba(79,140,255,0.10)" : "transparent",
+        color: active ? "#4f8cff" : "var(--text-dim)",
+        cursor: "pointer", fontFamily: "monospace", letterSpacing: "0.02em",
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
