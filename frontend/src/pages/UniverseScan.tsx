@@ -31,7 +31,12 @@ type Universe = Awaited<ReturnType<typeof api.universes>>["universes"][number];
 
 export function UniverseScan() {
   const [params, setParams] = useSearchParams();
-  const [strategies, setStrategies] = useState<Strat[]>([]);
+  const [allStrategies, setAllStrategies] = useState<Strat[]>([]);
+  // Filter to trader-quant entries only — scaffolds (orb, bollinger,
+  // ma_crossover etc.) aren't ready for universe scans and confused
+  // the trader looking for "Ichi". Until those mature their statuses
+  // they're hidden here; the catalog at /strategies still lists them.
+  const strategies = allStrategies.filter((s) => s.source === "trader-quant");
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedStrategy, setSelectedStrategy] = useState<string>(
     params.get("strategy") ?? "ichimoku_equity",
@@ -48,7 +53,7 @@ export function UniverseScan() {
 
   useEffect(() => {
     api.paperStrategies()
-      .then((r) => setStrategies(r.strategies))
+      .then((r) => setAllStrategies(r.strategies))
       .catch((e) => setFeedback(`Strategy catalog failed: ${e}`));
     api.universes()
       .then((r) => setUniverses(r.universes))
