@@ -162,7 +162,14 @@ def _cycle(base_url: str, token: str, host: str) -> None:
             })
             return
 
-        if not _inside_window(cfg["sessionStartUtc"], cfg["sessionEndUtc"]):
+        # `bypass_window` is the on-demand override the UI's "Scan now"
+        # button sets. Scheduled intraday ticks (no params override)
+        # still respect sessionStartUtc/sessionEndUtc so the live
+        # watchlist doesn't fire off-hours; explicit user-triggered
+        # scans run whenever the trader clicks the button.
+        bypass_window = bool(params.get("bypass_window"))
+        if not bypass_window and not _inside_window(
+                cfg["sessionStartUtc"], cfg["sessionEndUtc"]):
             _complete(base_url, token, request_id, "completed", {
                 "skipped": (
                     f"outside session window "

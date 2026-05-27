@@ -170,6 +170,14 @@ export function UniverseScan() {
         // "approve top N" button is the next step in the trader
         // workflow once the scan completes.
         placement_mode: "manual",
+        // On-demand scans should run whenever the trader clicks
+        // the button — the intraday engine's market-hours window
+        // (default 13:30–20:00 UTC) is meant for the SCHEDULED
+        // tick, not the explicit "Scan now" action. Without this,
+        // off-hours scans complete instantly with a
+        // skipped="outside session window" result_summary and the
+        // grid stays empty.
+        bypass_window: true,
         params: selected?.default_params ?? {},
       });
       setLastRequestId(res.request_id);
