@@ -641,6 +641,7 @@ export type EquityPipelineEnvelope = {
     }>;
     timings_sec: Record<string, number>;
   };
+};
 
 export type OmsOrderRow = {
   id: string;
