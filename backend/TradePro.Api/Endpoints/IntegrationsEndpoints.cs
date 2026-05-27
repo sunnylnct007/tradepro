@@ -96,6 +96,7 @@ public static class IntegrationsEndpoints
             async (
                 string? account,
                 Trading212DemoClient demoClient,
+                Trading212DemoCashCache demoCashCache,
                 CancellationToken ct) =>
             {
                 var useDemo = !string.Equals(account, "live", StringComparison.OrdinalIgnoreCase);
@@ -119,12 +120,22 @@ public static class IntegrationsEndpoints
                         message = "Set Trading212Demo:ApiKey to enable.",
                     });
                 }
-                var cash = await demoClient.GetCashAsync(ct);
+                // Go through the cache so concurrent renders / poll loops
+                // don't each hit T212 — the bucket is ~1 req/2s and the
+                // second uncached call always trips 429. Cache TTL is
+                // 30s (configurable via Trading212Demo:CashCacheSeconds);
+                // on 429 it serves the last good snapshot rather than
+                // surfacing an angry red error to the user.
+                var cash = await demoCashCache.GetAsync(ct);
+                var cachedAt = demoCashCache.CachedAtUtc ?? DateTime.UtcNow;
+                var ageSeconds = (DateTime.UtcNow - cachedAt).TotalSeconds;
                 return Results.Ok(new
                 {
                     enabled = true,
                     mode = "demo",
-                    fetchedAtUtc = DateTime.UtcNow,
+                    fetchedAtUtc = cachedAt,
+                    ageSeconds,
+                    fromCache = ageSeconds > 1.0,
                     free = cash.Free,
                     invested = cash.Invested,
                     total = cash.Total,

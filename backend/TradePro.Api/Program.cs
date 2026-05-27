@@ -109,6 +109,7 @@ builder.Services.AddSingleton<Trading212InstrumentsService>();
 // the cache serves the last successful response with FromCache=true.
 builder.Services.AddSingleton<Trading212PositionsCache>();
 builder.Services.AddSingleton<Trading212DemoPositionsCache>();
+builder.Services.AddSingleton<Trading212DemoCashCache>();
 
 // Finnhub — off-by-default earnings-calendar provider. Free tier
 // signup gives 60 req/min which is plenty for occasional checks.

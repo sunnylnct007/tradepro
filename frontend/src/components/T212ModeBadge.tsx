@@ -50,14 +50,30 @@ export function T212ModeBadge() {
       ? "rgba(255, 200, 80, 0.10)"
       : "rgba(255, 255, 255, 0.04)";
   const label = isLive
-    ? "T212 · LIVE"
+    ? "T212 · LIVE · EQUITY ONLY"
     : isDemo
-      ? "T212 · DEMO"
+      ? "T212 · DEMO · EQUITY ONLY"
       : `T212 · ${status.mode}`;
+  // T212's public API only covers the Invest product (equities + ETFs).
+  // Even with CFD enabled on the account, FX/CFD has no public REST
+  // endpoint — TradePro routes FX through PAPER. Surfacing this in
+  // the always-visible header chip + tooltip so a trader who's just
+  // enabled CFD on the T212 site doesn't expect FX orders to land
+  // there.
   const title = isLive
-    ? "Trading 212 LIVE — REAL MONEY. Position values you see are real."
+    ? (
+        "Trading 212 LIVE — REAL MONEY. T212 public API covers ONLY "
+        + "the Invest product (equities + ETFs). FX / CFD have no "
+        + "public API even when enabled on your account, so FX orders "
+        + "route to PAPER, not T212. Position values you see are real."
+      )
     : isDemo
-      ? "Trading 212 demo (paper trading) — positions are simulated, not real money."
+      ? (
+          "Trading 212 demo (paper trading). T212 public API covers "
+          + "ONLY the Invest product (equities + ETFs). FX / CFD have "
+          + "no public API even when enabled on your account, so FX "
+          + "orders route to PAPER, not T212."
+        )
       : `Trading 212 mode: ${status.mode}`;
   return (
     <span

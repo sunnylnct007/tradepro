@@ -16,6 +16,7 @@ import { api } from "../api/client";
 import type { OmsOrderRow } from "../api/client";
 import { config } from "../config";
 import { CockpitCard } from "../components/CockpitCard";
+import { FxBrokerCapabilityBanner } from "../components/FxBrokerCapabilityBanner";
 import { PlotlyChart } from "../components/PlotlyChart";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
 import { useOmsEvents } from "../hooks/useOmsEvents";
@@ -306,6 +307,7 @@ export function IchimokuFx() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 1200 }}>
+      <FxBrokerCapabilityBanner />
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
         <div>
