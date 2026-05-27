@@ -156,25 +156,42 @@ export const api = {
   // enqueues; Mac claims; status flows back to /api/ops/sessions.
   opsSessions: (kind?: string, limit = 100) =>
     get<{
+      // Backend ops Envelope() emits snake_case to keep wire format
+      // consistent with the rest of the ops surface. The old type
+      // here used camelCase, which silently meant every consumer was
+      // reading `undefined` from .status / .requestId / .resultSummary
+      // — the cockpit signals panel "always empty" symptom traced
+      // back to this. Wire is what's real; types now match it.
       sessions: Array<{
-        requestId: string;
+        request_id: string;
         kind: string;
-        status: string;
-        payload: Record<string, unknown>;
-        claimedBy: string | null;
-        enqueuedAtUtc: string;
-        claimedAtUtc: string | null;
-        completedAtUtc: string | null;
-        resultSummary: Record<string, unknown> | null;
+        state: string;
+        params: Record<string, unknown>;
+        claimed_by: string | null;
+        requested_at_utc: string;
+        claimed_at_utc: string | null;
+        completed_at_utc: string | null;
+        result_summary: Record<string, unknown> | null;
+        error: string | null;
       }>;
     }>("/api/ops/sessions", { kind, limit }),
   runIntraday: (payload: Record<string, unknown>) =>
     post<{
-      requestId: string;
+      // Backend ops Envelope() emits snake_case so the response
+      // matches the rest of the ops surface (getOpsSession, etc.).
+      // Was previously typed as `requestId` etc. but the wire is
+      // `request_id` — callers reading res.requestId got undefined
+      // and crashed on .slice().
+      request_id: string;
       kind: string;
-      status: string;
-      payload: Record<string, unknown>;
-      enqueuedAtUtc: string;
+      state: string;
+      params: Record<string, unknown>;
+      requested_at_utc: string;
+      claimed_at_utc: string | null;
+      claimed_by: string | null;
+      completed_at_utc: string | null;
+      result_summary: unknown;
+      error: string | null;
     }, Record<string, unknown>>("/api/ops/run-intraday", payload),
   cancelOpsSession: (requestId: string) =>
     post<unknown, {}>(

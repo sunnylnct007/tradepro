@@ -104,12 +104,12 @@ export function TraderCockpit() {
   const loadSessions = useCallback(async () => {
     try {
       const { sessions } = await api.opsSessions(undefined, 20);
-      const completed = sessions.filter((s) => s.status === "Completed");
+      const completed = sessions.filter((s) => s.state === "Completed");
       // Group by strategy and pick the newest per strategy.
       const byStrategy = new Map<string, LatestSession>();
       for (const s of completed) {
-        const rs = (s.resultSummary ?? {}) as Record<string, unknown>;
-        const strategy = (rs.strategy as string) || (s.payload as Record<string, unknown>)?.strategy as string;
+        const rs = (s.result_summary ?? {}) as Record<string, unknown>;
+        const strategy = (rs.strategy as string) || (s.params as Record<string, unknown>)?.strategy as string;
         if (!strategy) continue;
         if (byStrategy.has(strategy)) continue;
         const strategies = (rs.strategies as Array<Record<string, unknown>>) || [];
@@ -143,8 +143,8 @@ export function TraderCockpit() {
         decisions.sort((a, b) => (b.barTs ?? "").localeCompare(a.barTs ?? ""));
         byStrategy.set(strategy, {
           strategy,
-          requestId: s.requestId,
-          completedAtUtc: s.completedAtUtc,
+          requestId: s.request_id,
+          completedAtUtc: s.completed_at_utc,
           decisions: decisions.slice(0, 30),
           barsSeen,
           charts,

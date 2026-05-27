@@ -172,10 +172,10 @@ export function UniverseScan() {
         placement_mode: "manual",
         params: selected?.default_params ?? {},
       });
-      setLastRequestId(res.requestId);
+      setLastRequestId(res.request_id);
       setLatestSession(null);
-      setParams({ strategy: selectedStrategy, universe: selectedUniverse, session: res.requestId });
-      setFeedback(`Queued ${symbols.length} symbols — request ${res.requestId.slice(0, 8)}…`);
+      setParams({ strategy: selectedStrategy, universe: selectedUniverse, session: res.request_id });
+      setFeedback(`Queued ${symbols.length} symbols — request ${res.request_id.slice(0, 8)}…`);
     } catch (e) {
       setFeedback(`Failed: ${humaniseFetchError(e)}`);
     } finally {

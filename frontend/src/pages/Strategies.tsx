@@ -73,16 +73,21 @@ function statusBadge(status: string): { bg: string; fg: string } {
   }
 }
 
+// Mirrors api.opsSessions wire shape — snake_case to match the
+// .NET Envelope() in OpsEndpoints.cs. Was previously camelCase here,
+// which silently meant every read was `undefined` and the strategies
+// activity table never rendered.
 type Session = {
-  requestId: string;
+  request_id: string;
   kind: string;
-  status: string;
-  payload: Record<string, unknown>;
-  claimedBy: string | null;
-  enqueuedAtUtc: string;
-  claimedAtUtc: string | null;
-  completedAtUtc: string | null;
-  resultSummary: Record<string, unknown> | null;
+  state: string;
+  params: Record<string, unknown>;
+  claimed_by: string | null;
+  requested_at_utc: string;
+  claimed_at_utc: string | null;
+  completed_at_utc: string | null;
+  result_summary: Record<string, unknown> | null;
+  error: string | null;
 };
 
 export function Strategies() {
@@ -191,7 +196,7 @@ export function Strategies() {
   // Auto-refresh sessions every 5s while any row is non-terminal.
   useEffect(() => {
     const hasActive = sessions.some(s =>
-      s.status === "Pending" || s.status === "Claimed");
+      s.state === "Pending" || s.state === "Claimed");
     if (!hasActive) return;
     const t = setInterval(() => { void loadSessions(); }, 5000);
     return () => clearInterval(t);
@@ -449,15 +454,15 @@ export function Strategies() {
             </thead>
             <tbody>
               {sessions.map(sess => {
-                const payload = sess.payload || {};
-                const strategy = (payload as Record<string, string>).strategy
+                const params = sess.params || {};
+                const strategy = (params as Record<string, string>).strategy
                   || "—";
-                const symbols = (payload as Record<string, string[]>).symbols
+                const symbols = (params as Record<string, string[]>).symbols
                   ?.join(",") || "—";
                 return (
-                  <tr key={sess.requestId}>
+                  <tr key={sess.request_id}>
                     <Td>
-                      <span style={statusStyle(sess.status)}>{sess.status}</span>
+                      <span style={statusStyle(sess.state)}>{sess.state}</span>
                     </Td>
                     <Td>
                       <div style={{ fontWeight: 600 }}>{strategy}</div>
@@ -465,21 +470,21 @@ export function Strategies() {
                     </Td>
                     <Td>
                       <div style={smallMuted}>
-                        {new Date(sess.enqueuedAtUtc).toLocaleTimeString()}
+                        {new Date(sess.requested_at_utc).toLocaleTimeString()}
                       </div>
                     </Td>
-                    <Td>{sess.claimedBy || "—"}</Td>
+                    <Td>{sess.claimed_by || "—"}</Td>
                     <Td>
-                      {sess.resultSummary
+                      {sess.result_summary
                         ? <code style={codeStyle}>
-                            {JSON.stringify(sess.resultSummary).slice(0, 120)}
+                            {JSON.stringify(sess.result_summary).slice(0, 120)}
                           </code>
                         : "—"}
                     </Td>
                     <Td>
-                      {sess.status === "Pending" && (
+                      {sess.state === "Pending" && (
                         <button
-                          onClick={() => cancel(sess.requestId)}
+                          onClick={() => cancel(sess.request_id)}
                           style={cancelButtonStyle}
                         >
                           Cancel

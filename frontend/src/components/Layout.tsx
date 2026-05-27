@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { WorkerStatusBadge } from "./WorkerStatusBadge";
 import { useAuth } from "../auth/AuthProvider";
@@ -40,6 +40,10 @@ type NavItem = { to: string; label: string; end?: boolean };
 // header doesn't sprawl across the page.
 const marketNav: NavItem[] = [
   { to: "/trader",       label: "Cockpit"    },
+  // Decide — long-term / multi-strategy comparison view. Lives in
+  // the primary row because traders use it daily; was previously
+  // demoted into "More" which made it hard to find.
+  { to: "/compare",      label: "Decide"     },
   { to: "/scan",         label: "Scan"       },
   { to: "/oms",          label: "OMS"        },
   { to: "/portfolio",    label: "Portfolio"  },
@@ -56,7 +60,6 @@ const moreSections: { label: string; items: NavItem[] }[] = [
     { to: "/backtests",                   label: "Backtests"          },
   ]},
   { label: "Research", items: [
-    { to: "/compare",      label: "Decide"     },
     { to: "/signals",      label: "Research"   },
     { to: "/simulations",  label: "Backtest"   },
     { to: "/scanner",      label: "Scanner"    },
@@ -103,25 +106,19 @@ function MoreMenu({
   sections: { label: string; items: NavItem[] }[];
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  // Click-outside-to-close. The previous implementation used
-  // React's stopPropagation on the wrapper which doesn't stop the
-  // native DOM event from reaching this document listener — so
-  // clicking "More" opened then immediately closed in the same tick.
-  // Use a containment check on the native event target instead.
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
+  // Close-on-outside-click is done via a transparent full-viewport
+  // backdrop that sits BELOW the menu (zIndex 50 vs 51). Any click
+  // outside the menu lands on the backdrop and closes it. Clicks on
+  // the menu items hit the higher z-index layer and work normally.
+  //
+  // Previous attempts used document.addEventListener — that ran into
+  // the React-synthetic-vs-native event ordering and felt glitchy
+  // (menu sometimes opened then immediately closed on the same
+  // click). The backdrop approach has none of those edge cases.
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div style={{ position: "relative" }}>
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
         style={{
           padding: "6px 12px", borderRadius: 8,
@@ -133,49 +130,58 @@ function MoreMenu({
         More ▾
       </button>
       {open && (
-        <div
-          style={{
-            position: "absolute", top: "calc(100% + 4px)", left: 0,
-            minWidth: 220,
-            background: "var(--surface-1, #0b1220)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-            padding: 8,
-            zIndex: 20,
-            display: "flex", flexDirection: "column", gap: 4,
-          }}
-        >
-          {sections.map((s) => (
-            <div key={s.label}>
-              <div style={{
-                fontSize: 9, color: "var(--text-muted)",
-                textTransform: "uppercase", letterSpacing: "0.08em",
-                padding: "6px 10px 2px",
-              }}>
-                {s.label}
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{
+              position: "fixed", inset: 0, zIndex: 50,
+              background: "transparent",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute", top: "calc(100% + 4px)", left: 0,
+              minWidth: 220,
+              background: "var(--surface-1, #0b1220)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+              padding: 8,
+              zIndex: 51,
+              display: "flex", flexDirection: "column", gap: 4,
+            }}
+          >
+            {sections.map((s) => (
+              <div key={s.label}>
+                <div style={{
+                  fontSize: 9, color: "var(--text-muted)",
+                  textTransform: "uppercase", letterSpacing: "0.08em",
+                  padding: "6px 10px 2px",
+                }}>
+                  {s.label}
+                </div>
+                {s.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    onClick={() => setOpen(false)}
+                    style={({ isActive }) => ({
+                      display: "block",
+                      padding: "5px 10px",
+                      fontSize: 12, borderRadius: 4,
+                      color: isActive ? "var(--text)" : "var(--text-dim)",
+                      background: isActive ? "var(--bg-hover)" : "transparent",
+                      textDecoration: "none",
+                    })}
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
               </div>
-              {s.items.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  onClick={() => setOpen(false)}
-                  style={({ isActive }) => ({
-                    display: "block",
-                    padding: "5px 10px",
-                    fontSize: 12, borderRadius: 4,
-                    color: isActive ? "var(--text)" : "var(--text-dim)",
-                    background: isActive ? "var(--bg-hover)" : "transparent",
-                    textDecoration: "none",
-                  })}
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
