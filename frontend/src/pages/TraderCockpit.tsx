@@ -274,7 +274,10 @@ export function TraderCockpit() {
     "fills",        // info; activity feed covers it
     "activity",     // verbose; covered by trade-cards + scan-grid
     "lifecycle",    // analyst-flavoured Gantt
-    "charts",       // heavy plotly per-symbol
+    // "charts" — VISIBLE by default. Trader's primary visualisation
+    //  surface (per-symbol Ichimoku cloud). Lazy-loaded plotly only
+    //  fetches when the panel is expanded; trader can collapse the
+    //  header chevron without removing it.
     "signals",      // verbose per-strategy decisions table
     "trade-cards",  // verbose
     "trigger",      // 1×/day at most
