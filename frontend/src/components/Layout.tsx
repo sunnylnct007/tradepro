@@ -189,7 +189,11 @@ export function Layout() {
           position: "sticky",
           top: 0,
           zIndex: 10,
-          overflowX: "hidden",
+          // overflow: visible so the More ▾ dropdown can spill below the
+          // header. Was overflowX: hidden which clipped the dropdown
+          // entirely. The compact 4-link nav no longer needs the clip
+          // since it doesn't horizontally overflow.
+          overflow: "visible",
           minWidth: 0,
         }}
       >
