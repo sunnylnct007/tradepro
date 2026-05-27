@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { WorkerStatusBadge } from "./WorkerStatusBadge";
 import { useAuth } from "../auth/AuthProvider";
@@ -34,39 +35,47 @@ import { T212ModeBadge } from "./T212ModeBadge";
 
 type NavItem = { to: string; label: string; end?: boolean };
 
+// Trader's daily surfaces — kept terse + at the top. Everything
+// else is one click away inside the "More" overflow menu so the
+// header doesn't sprawl across the page.
 const marketNav: NavItem[] = [
   { to: "/trader",       label: "Cockpit"    },
   { to: "/scan",         label: "Scan"       },
-  { to: "/compare",      label: "Decide"     },
+  { to: "/oms",          label: "OMS"        },
   { to: "/portfolio",    label: "Portfolio"  },
-  { to: "/strategies",   label: "Strategies" },
-  { to: "/scanner",      label: "Scanner"    },
 ];
 
-const researchNav: NavItem[] = [
-  { to: "/signals",      label: "Research"   },
-  { to: "/simulations",  label: "Backtest"   },
-  { to: "/charts",       label: "Charts"     },
-  { to: "/documents",    label: "Docs"       },
-];
-
-const paperNav: NavItem[] = [
-  { to: "/paper-live",                  label: "Paper"      },
-  { to: "/oms",                         label: "OMS"        },
-  { to: "/backtests",                   label: "Backtests"  },
-  { to: "/paper-backtest",              label: "PA Reports" },
-  { to: "/intraday/leaderboard",        label: "Intraday"   },
-  { to: "/strategies/ichimoku-equity",  label: "Ichi Eq"    },
-  { to: "/strategies/ichimoku-fx",      label: "Ichi FX"    },
-];
-
-const systemNav: NavItem[] = [
-  { to: "/health",             label: "Health"   },
-  { to: "/universes",          label: "Universes"},
-  { to: "/settings",           label: "Settings" },
-  { to: "/admin/data",         label: "IT Data"  },
-  { to: "/help/trade-support", label: "Support"  },
-  { to: "/help/ops-runbook",   label: "IT Guide" },
+// "More" overflow — grouped sub-menu surfaces secondary pages
+// without taking up nav space. Sections double as section headers
+// inside the dropdown.
+const moreSections: { label: string; items: NavItem[] }[] = [
+  { label: "Strategy", items: [
+    { to: "/strategies",                  label: "Strategies catalog" },
+    { to: "/strategies/ichimoku-equity",  label: "Ichimoku Equity"    },
+    { to: "/strategies/ichimoku-fx",      label: "Ichimoku FX"        },
+    { to: "/backtests",                   label: "Backtests"          },
+  ]},
+  { label: "Research", items: [
+    { to: "/compare",      label: "Decide"     },
+    { to: "/signals",      label: "Research"   },
+    { to: "/simulations",  label: "Backtest"   },
+    { to: "/scanner",      label: "Scanner"    },
+    { to: "/charts",       label: "Charts"     },
+    { to: "/documents",    label: "Docs"       },
+  ]},
+  { label: "Paper / History", items: [
+    { to: "/paper-live",            label: "Paper sessions"  },
+    { to: "/paper-backtest",        label: "PA Reports"      },
+    { to: "/intraday/leaderboard",  label: "Intraday board"  },
+  ]},
+  { label: "System", items: [
+    { to: "/universes",          label: "Universes" },
+    { to: "/settings",           label: "Settings"  },
+    { to: "/health",             label: "Health"    },
+    { to: "/admin/data",         label: "IT Data"   },
+    { to: "/help/trade-support", label: "Support"   },
+    { to: "/help/ops-runbook",   label: "IT Guide"  },
+  ]},
 ];
 
 
@@ -81,66 +90,87 @@ const primaryLinkStyle = ({ isActive }: { isActive: boolean }) => ({
   transition: "background 0.15s ease, color 0.15s ease",
 });
 
-const utilityLinkStyle = ({ isActive }: { isActive: boolean }) => ({
-  padding: "5px 9px",
-  borderRadius: 6,
-  textDecoration: "none",
-  color: isActive ? "var(--text)" : "var(--text-muted)",
-  background: isActive ? "var(--bg-hover)" : "transparent",
-  fontWeight: isActive ? 600 : 400,
-  fontSize: 11,
-  letterSpacing: "0.02em",
-  transition: "background 0.15s ease, color 0.15s ease",
-});
-
-function NavGroup({
-  label,
-  items,
-  linkStyle,
+/**
+ * MoreMenu — dropdown that hides secondary nav links so the header
+ * stays single-line + scannable. Click toggles open; clicks outside
+ * close it. Sections inside are grouped (Strategy / Research /
+ * Paper / System) so the trader still has visual structure even
+ * once it's collapsed.
+ */
+function MoreMenu({
+  sections,
 }: {
-  label: string;
-  items: NavItem[];
-  linkStyle: ({ isActive }: { isActive: boolean }) => React.CSSProperties;
+  sections: { label: string; items: NavItem[] }[];
 }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = () => setOpen(false);
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [open]);
   return (
-    <>
-      <span
-        aria-hidden
+    <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((v) => !v)}
         style={{
-          fontSize: 9,
-          fontWeight: 700,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          color: "var(--text-muted)",
-          opacity: 0.6,
-          marginRight: 2,
-          userSelect: "none",
+          padding: "6px 12px", borderRadius: 8,
+          background: open ? "var(--bg-hover)" : "transparent",
+          border: "none", color: "var(--text-dim)",
+          fontSize: 13, fontWeight: 500, cursor: "pointer",
         }}
       >
-        {label}
-      </span>
-      {items.map((item) => (
-        <NavLink key={item.to} to={item.to} end={item.end} style={linkStyle}>
-          {item.label}
-        </NavLink>
-      ))}
-    </>
+        More ▾
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute", top: "calc(100% + 4px)", left: 0,
+            minWidth: 220,
+            background: "var(--surface-1, #0b1220)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            padding: 8,
+            zIndex: 20,
+            display: "flex", flexDirection: "column", gap: 4,
+          }}
+        >
+          {sections.map((s) => (
+            <div key={s.label}>
+              <div style={{
+                fontSize: 9, color: "var(--text-muted)",
+                textTransform: "uppercase", letterSpacing: "0.08em",
+                padding: "6px 10px 2px",
+              }}>
+                {s.label}
+              </div>
+              {s.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onClick={() => setOpen(false)}
+                  style={({ isActive }) => ({
+                    display: "block",
+                    padding: "5px 10px",
+                    fontSize: 12, borderRadius: 4,
+                    color: isActive ? "var(--text)" : "var(--text-dim)",
+                    background: isActive ? "var(--bg-hover)" : "transparent",
+                    textDecoration: "none",
+                  })}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
-function Divider() {
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: 1,
-        height: 18,
-        background: "var(--border)",
-        margin: "0 10px",
-      }}
-    />
-  );
-}
 
 export function Layout() {
   const { user, firebaseAvailable, error, signIn, signOut } = useAuth();
@@ -191,14 +221,13 @@ export function Layout() {
           </span>
           TradePro
         </div>
-        <nav style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", minWidth: 0, overflow: "hidden" }}>
-          <NavGroup label="Market"   items={marketNav}   linkStyle={primaryLinkStyle} />
-          <Divider />
-          <NavGroup label="Research" items={researchNav} linkStyle={primaryLinkStyle} />
-          <Divider />
-          <NavGroup label="Paper"    items={paperNav}    linkStyle={primaryLinkStyle} />
-          <Divider />
-          <NavGroup label="System"   items={systemNav}   linkStyle={utilityLinkStyle} />
+        <nav style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+          {marketNav.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end} style={primaryLinkStyle}>
+              {item.label}
+            </NavLink>
+          ))}
+          <MoreMenu sections={moreSections} />
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           {/* Top-level Intraday / Long-term switch. Persisted to

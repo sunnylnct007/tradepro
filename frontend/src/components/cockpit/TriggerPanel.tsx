@@ -26,7 +26,7 @@ const triggerInput: React.CSSProperties = {
 };
 
 export function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
-  const [strategies, setStrategies] = useState<Strat[]>([]);
+  const [allStrategies, setAllStrategies] = useState<Strat[]>([]);
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selected, setSelected] = useState<Strat | null>(null);
   // Symbols as CSV so the trader can paste / hand-curate after
@@ -39,11 +39,38 @@ export function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
   const [lookback, setLookback] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  // Default: hide strategies that aren't ready for trading. The
+  // trader doesn't want to see scaffolding / evaluating-only entries
+  // when they're trying to trigger a live run. Toggle reveals them
+  // for debugging / catalog browsing. Persists per-tab in
+  // localStorage.
+  const [showAllStrategies, setShowAllStrategies] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("cockpit.trigger.show_all_strategies") === "true";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("cockpit.trigger.show_all_strategies", String(showAllStrategies));
+    } catch { /* noop */ }
+  }, [showAllStrategies]);
+
+  // "Production-ready" = trader-quant source AND status is
+  // backtest-ok / scheduled / live-eligible. Anything else
+  // (scaffolds, alpha-engine experiments, evaluating-only) is
+  // hidden by default.
+  const PROD_STATUSES = new Set(["backtest-ok", "scheduled", "live-eligible"]);
+  const strategies = showAllStrategies
+    ? allStrategies
+    : allStrategies.filter((s) =>
+        s.source === "trader-quant" &&
+        PROD_STATUSES.has((s.status ?? "evaluating").toLowerCase()),
+      );
+  const hiddenCount = allStrategies.length - strategies.length;
 
   useEffect(() => {
     let cancelled = false;
     api.paperStrategies()
-      .then((r) => { if (!cancelled) setStrategies(r.strategies); })
+      .then((r) => { if (!cancelled) setAllStrategies(r.strategies); })
       .catch((e) => { if (!cancelled) setFeedback(`Strategy catalog failed: ${e}`); });
     // Universe catalog — optional (older API images won't have the
     // endpoint). Silent on failure so the form still works.
@@ -106,12 +133,33 @@ export function TriggerPanel({ onTriggered }: { onTriggered: () => void }) {
     }
   };
 
-  if (strategies.length === 0) {
+  if (allStrategies.length === 0) {
     return <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading strategies…</div>;
   }
   return (
     <div>
       <StrategyPills strategies={strategies} selected={selected} onPick={pickStrategy} />
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAllStrategies((v) => !v)}
+          style={{
+            fontSize: 10, padding: "2px 9px", marginBottom: 8,
+            background: "transparent",
+            border: "1px solid var(--border)", borderRadius: 999,
+            color: "var(--text-muted)", cursor: "pointer",
+            fontFamily: "monospace",
+          }}
+          title={
+            showAllStrategies
+              ? "Hide scaffolding / evaluating-only entries — show production-ready only."
+              : "Show every strategy in the catalog (scaffolds, evaluating, etc.) for debugging."
+          }
+        >
+          {showAllStrategies
+            ? `↓ hide ${hiddenCount} non-prod`
+            : `+ show ${hiddenCount} non-prod`}
+        </button>
+      )}
       {selected && selected.name !== "ichimoku_fx_mr" && universes.length > 0 && (
         <UniversePills
           universes={universes}

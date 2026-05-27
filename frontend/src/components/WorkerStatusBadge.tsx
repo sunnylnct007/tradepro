@@ -49,34 +49,35 @@ export function WorkerStatusBadge() {
 
   const colour = livenessColour(health.liveness);
   const processing = health.isProcessing && health.currentTask;
+  // Compact single-line — header bar was getting cluttered with
+  // "Processing etf_uk_core (19 × 7) · starting · 197s" spanning
+  // two rows. Truncate detail to keep it on one line and stash the
+  // rest in the hover-tooltip.
+  const line = processing
+    ? [
+        health.currentTask?.detail ?? health.currentTask?.task,
+        health.currentTask?.phase,
+        health.currentTask?.elapsedSeconds != null ? `${health.currentTask.elapsedSeconds}s` : null,
+      ].filter(Boolean).join(" · ")
+    : health.summary;
+  const label = processing ? "Processing" : labelFor(health.liveness);
+
   return (
     <Pill colour={colour} title={detailedTitle(health)}>
       <Dot colour={colour} pulse={processing ? true : false} />
-      {processing ? (
-        <span style={{ display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
-          <strong style={{ color: colour }}>Processing</strong>
-          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
-            {health.currentTask?.detail ?? health.currentTask?.task}
-          </span>
-          {health.currentTask?.phase && (
-            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
-              · {health.currentTask.phase}
-            </span>
-          )}
-          {health.currentTask?.elapsedSeconds !== null && (
-            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
-              · {health.currentTask?.elapsedSeconds}s
-            </span>
-          )}
+      <span style={{
+        display: "inline-flex", gap: 6, alignItems: "baseline",
+        maxWidth: 320,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        <strong style={{ color: colour }}>{label}</strong>
+        <span style={{
+          color: "var(--text-dim)", fontSize: 11,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {line}
         </span>
-      ) : (
-        <span style={{ display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
-          <strong style={{ color: colour }}>{labelFor(health.liveness)}</strong>
-          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
-            {health.summary}
-          </span>
-        </span>
-      )}
+      </span>
     </Pill>
   );
 }
