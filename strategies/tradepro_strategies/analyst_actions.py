@@ -16,6 +16,9 @@ Surfaced on the compare row as `analyst_actions`:
         "downgrade_count":  1,
         "init_count":       1,
         "net_delta":        2,           # upgrades - downgrades
+        "plan_gated":       False,       # True when Finnhub free-tier
+                                         # gate is the reason for zero
+                                         # events (not genuine silence)
         "most_recent":      {            # the freshest event
             "date":      "2026-05-08",
             "from":      "Hold",
@@ -26,6 +29,12 @@ Surfaced on the compare row as `analyst_actions`:
         "events":           [...]        # up to 6 raw events for the
                                          # expand panel's mini-table
     }
+
+⚠ Plan note: /stock/upgrade-downgrade requires a paid Finnhub plan.
+Free-tier keys return HTTP 200 with an empty list. When plan_gated=True
+the caller should surface "upgrade data not available on free Finnhub
+plan" rather than "0 upgrades". Use fetch_analyst_recommendations() for
+monthly buy/hold/sell counts which DO work on the free tier.
 
 Pure best-effort: any HTTP failure / disabled integration / parse
 error returns None and the compare run continues with no analyst
@@ -69,6 +78,11 @@ def fetch_analyst_actions(
             "downgrade_count": 0,
             "init_count": 0,
             "net_delta": 0,
+            # planGated=True means the API returned empty because the
+            # Finnhub free-tier plan doesn't include per-event
+            # upgrade/downgrade history — not because there were
+            # genuinely zero analyst actions in the window.
+            "plan_gated": data.get("planGated", False),
             "most_recent": None,
             "events": [],
         }
@@ -107,6 +121,7 @@ def fetch_analyst_actions(
         "downgrade_count": data.get("downgradeCount", 0),
         "init_count": data.get("initCount", 0),
         "net_delta": data.get("netDelta", 0),
+        "plan_gated": False,  # events present → plan is not gated
         "most_recent": most_recent,
         "events": normalised[:6],
     }
