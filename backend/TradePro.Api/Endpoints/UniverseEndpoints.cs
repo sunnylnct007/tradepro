@@ -37,13 +37,13 @@ public static class UniverseEndpoints
                        u.symbol_count     AS SymbolCount,
                        u.fetched_at_utc   AS FetchedAtUtc,
                        u.source           AS Source,
-                       COALESCE(o.included_count, 0) AS IncludedOverrides,
-                       COALESCE(o.excluded_count, 0) AS ExcludedOverrides
+                       COALESCE(o.included_count, 0)::int AS IncludedOverrides,
+                       COALESCE(o.excluded_count, 0)::int AS ExcludedOverrides
                 FROM universes u
                 LEFT JOIN (
                     SELECT universe_name,
-                           SUM(CASE WHEN action = 'INCLUDE' THEN 1 ELSE 0 END) AS included_count,
-                           SUM(CASE WHEN action = 'EXCLUDE' THEN 1 ELSE 0 END) AS excluded_count
+                           SUM(CASE WHEN action = 'INCLUDE' THEN 1 ELSE 0 END)::int AS included_count,
+                           SUM(CASE WHEN action = 'EXCLUDE' THEN 1 ELSE 0 END)::int AS excluded_count
                     FROM universe_overrides
                     GROUP BY universe_name
                 ) o ON o.universe_name = u.name
