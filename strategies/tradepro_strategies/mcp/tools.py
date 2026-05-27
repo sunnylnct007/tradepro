@@ -1931,6 +1931,13 @@ def get_analyst_upgrades(symbol: str, days: int = 30) -> dict:
     (`upgradeCount`, `downgradeCount`, `netDelta`) so a caller
     can decide "are analysts piling in or fleeing?" in one read.
 
+    ⚠ Plan note: the underlying Finnhub endpoint (/stock/upgrade-downgrade)
+    requires a paid Finnhub plan. Free-tier API keys return an empty list.
+    When `planGated` is True in the response it means upgrade data is not
+    available on the current plan — not that there were zero analyst actions.
+    Use `get_analyst_recommendations` for monthly buy/hold/sell counts which
+    DO work on the free tier.
+
     Cite as `tradepro://finnhub/upgrades/{symbol}`.
     """
     if not symbol:
@@ -1944,11 +1951,22 @@ def get_analyst_upgrades(symbol: str, days: int = 30) -> dict:
         return _unreachable_envelope("get_analyst_upgrades", e, symbol=symbol)
     except Exception as e:  # noqa: BLE001
         return _err("get_analyst_upgrades", str(e), symbol=symbol)
+    data = payload if isinstance(payload, dict) else {"payload": payload}
+    # Attach a human-readable note when the plan gate is active so the
+    # calling LLM doesn't interpret silence as "no analyst activity".
+    if data.get("planGated"):
+        data["_note"] = (
+            "No per-event upgrade data returned. This Finnhub endpoint "
+            "requires a paid plan; free-tier keys always return an empty "
+            "list. Use get_analyst_recommendations for free-tier buy/hold/"
+            "sell counts, or upgrade the Finnhub plan to unlock per-event "
+            "upgrade/downgrade history."
+        )
     return {
         "_source": f"tradepro://finnhub/upgrades/{symbol}",
         "fetched_at": _now_iso(),
         "ok": True,
-        **(payload if isinstance(payload, dict) else {"payload": payload}),
+        **data,
     }
 
 
