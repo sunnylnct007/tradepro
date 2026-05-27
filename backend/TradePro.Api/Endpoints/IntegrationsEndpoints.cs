@@ -315,12 +315,17 @@ public static class IntegrationsEndpoints
                 });
             });
 
-        // Analyst upgrade / downgrade events. New signal family —
-        // surfaces "Goldman raised BUY → STRONG_BUY on AAPL 3 days
-        // ago" type events that can move a stock's bucket on a day
-        // we'd otherwise rate it WAIT. `days` defaults to 30; capped
-        // 1..180 because beyond that we're rehashing old history.
-        // Free tier of Finnhub supports this endpoint (~60 calls/min).
+        // Analyst upgrade / downgrade events. Surfaces "Goldman raised
+        // BUY → STRONG_BUY on AAPL 3 days ago" type events. `days`
+        // defaults to 30; capped 1..180.
+        //
+        // ⚠ PLAN NOTE: /stock/upgrade-downgrade requires a PAID Finnhub
+        // plan. Free-tier API keys always return an empty list (HTTP 200
+        // with []). See FinnhubClient.GetRecommendationTrendsAsync for
+        // the free-tier alternative (monthly buy/hold/sell counts).
+        // When events come back empty the response includes
+        // plan_gated=true so callers can surface an honest explanation
+        // rather than showing a misleading "0 upgrades" figure.
         app.MapGet("/integrations/finnhub/upgrades",
             async (
                 string? symbol,
@@ -334,6 +339,7 @@ public static class IntegrationsEndpoints
                     {
                         enabled = false,
                         message = "Finnhub integration is disabled. Set Finnhub:ApiKey in config (free tier signup at finnhub.io).",
+                        planGated = false,
                         events = Array.Empty<FinnhubUpgradeDowngrade>(),
                     });
                 }
@@ -349,6 +355,11 @@ public static class IntegrationsEndpoints
                 var upCount = events.Count(e => string.Equals(e.Action, "up", StringComparison.OrdinalIgnoreCase));
                 var downCount = events.Count(e => string.Equals(e.Action, "down", StringComparison.OrdinalIgnoreCase));
                 var initCount = events.Count(e => string.Equals(e.Action, "init", StringComparison.OrdinalIgnoreCase));
+                // Empty results on a named symbol almost always mean the
+                // free-tier plan gate — not genuine zero analyst coverage.
+                // Flag it so the UI/MCP can say "not available on free plan"
+                // rather than showing a misleading "0 upgrades" figure.
+                var planGated = events.Count == 0;
                 return Results.Ok(new
                 {
                     enabled = true,
@@ -360,6 +371,7 @@ public static class IntegrationsEndpoints
                     downgradeCount = downCount,
                     initCount,
                     netDelta = upCount - downCount,
+                    planGated,
                     events,
                 });
             });
