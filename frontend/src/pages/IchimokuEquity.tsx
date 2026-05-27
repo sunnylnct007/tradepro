@@ -22,6 +22,10 @@ import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
 import { useOmsEvents } from "../hooks/useOmsEvents";
 
 const STRATEGY_ID = "ichimoku_equity";
+// Default universe the in-page "Run Session" button scans against.
+// large_50 = trader hand-curated 50-name sleeve. Quick (~1 min cold).
+// Pickable later if needed; for now this is the demo-friendly choice.
+const RUN_UNIVERSE = "large_50";
 
 // ── colour palette ────────────────────────────────────────────────────────────
 const C = {
@@ -193,7 +197,13 @@ export function IchimokuEquity() {
   // ── fetch helpers ───────────────────────────────────────────────────────────
 
   const fetchSessions = useCallback(async () => {
-    const res = await api.paperSessions(30);
+    // Was hitting api.paperSessions() which lists kind=paper_session
+    // rows. The Run Session button + /scan both enqueue kind=intraday
+    // (the trader-quant intraday engine is what runs ichimoku_equity
+    // these days), so the page never saw its own sessions. Switch to
+    // ops sessions filtered to intraday so matchesStrategy actually
+    // matches.
+    const res = await api.opsSessions("intraday", 30);
     setAllSessions(res.sessions as SessionRow[]);
   }, []);
 
@@ -291,9 +301,26 @@ export function IchimokuEquity() {
     setRunning(true);
     setRunError(null);
     try {
+      // The intraday engine reads cfg["symbols"] (a list), not
+      // cfg["universe"] (a name). Fetch the universe's tickers first
+      // and send the explicit symbol list. Defaults to large_50
+      // (trader hand-curated 50-name sleeve) for fast demo.
+      const u = await api.universe(RUN_UNIVERSE);
+      const symbols = u.symbols
+        .filter((s) => s.effective)
+        .map((s) => s.ticker);
+      if (symbols.length === 0) {
+        throw new Error(`Universe ${RUN_UNIVERSE} is empty — re-ingest from the Mac.`);
+      }
+      const today = new Date().toISOString().slice(0, 10);
       await api.runIntraday({
         strategy: STRATEGY_ID,
-        universe: "sp500",
+        symbols,
+        session_date: today,
+        // Off-hours runs need this — otherwise the engine completes
+        // instantly with skipped="outside session window".
+        bypass_window: true,
+        lookback_days: 1,
         placement_mode: "manual",
         capital_usd: 100_000,
       });
@@ -322,7 +349,7 @@ export function IchimokuEquity() {
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Ichimoku Equity</h1>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: C.muted }}>
-            ichimoku_equity · S&P 500
+            ichimoku_equity · {RUN_UNIVERSE}
           </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
