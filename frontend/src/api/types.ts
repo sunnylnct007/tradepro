@@ -899,3 +899,20 @@ export interface InstrumentSearchResponse {
   count: number;
   items: InstrumentMatch[];
 }
+
+/** One historical earnings event. Used by PriceHistoryChart to paint
+ * vertical reference lines at each earnings date, coloured by beat/miss. */
+export interface EarningsMarker {
+  /** YYYY-MM-DD of the report announcement */
+  date: string;
+  /** Already a percentage: +5.2 = beat by 5.2%, -3.1 = missed by 3.1% */
+  surprise_pct?: number | null;
+  eps_actual?: number | null;
+  eps_estimate?: number | null;
+}
+
+export interface EarningsMarkersResponse {
+  symbol: string;
+  lookbackDays: number;
+  earnings: EarningsMarker[];
+}

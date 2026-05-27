@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import { api } from "../api/client";
 import { config } from "../config";
-import type { Candle, CandleSeries } from "../api/types";
+import type { Candle, CandleSeries, EarningsMarker } from "../api/types";
 
 /**
  * Inline price history chart for a single symbol — used on the
@@ -40,17 +40,6 @@ import type { Candle, CandleSeries } from "../api/types";
  *   long-term context (recovered from COVID-2020 / 2022 rate
  *   shock?). Smaller window via the prop when needed.
  */
-/** One historical earnings event the engine has on file for this
- * symbol. The chart paints a vertical reference line + tinted dot at
- * each `date`, coloured by `surprise_pct` (green beat / red miss /
- * grey unknown) so event-driven moves stand apart from trend moves. */
-export interface EarningsMarker {
-  date: string;                  // YYYY-MM-DD
-  surprise_pct?: number | null;  // already a percentage; +5 = beat by 5%
-  eps_actual?: number | null;
-  eps_estimate?: number | null;
-}
-
 interface Props {
   symbol: string;
   /** Days of history to plot. Default 5y so the user sees the full

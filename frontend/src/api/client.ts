@@ -6,6 +6,7 @@ import type {
   CompareUniverseSummary,
   DocumentEnvelope,
   DocumentSummary,
+  EarningsMarkersResponse,
   HitRateRequest,
   HitRateResult,
   InstrumentSearchResponse,
@@ -572,6 +573,15 @@ export const api = {
         note: string | null;
       }>;
     }>(`/api/equity-pipeline/${encodeURIComponent(strategy)}`),
+
+  // Earnings-marker overlay for PriceHistoryChart. Returns reported earnings
+  // events for `symbol` within the last `lookbackDays` (default 1825 = 5y).
+  // Empty on fetch failure so the chart degrades to "no markers" cleanly.
+  earningsMarkers: (symbol: string, lookbackDays?: number) =>
+    get<EarningsMarkersResponse>("/api/marketdata/earnings", {
+      symbol,
+      ...(lookbackDays !== undefined ? { lookbackDays } : {}),
+    }),
 };
 
 // Shape of the artifact emitted by strategies/cli/equity_pipeline.py
@@ -631,7 +641,6 @@ export type EquityPipelineEnvelope = {
     }>;
     timings_sec: Record<string, number>;
   };
-};
 
 export type OmsOrderRow = {
   id: string;
