@@ -83,7 +83,7 @@ jobs:
                 "echo",
                 "echo === recent OMS events for those orders ===",
                 ("docker compose -f docker-compose.aws.yaml exec -T postgres psql -U tradepro -d tradepro -c " +
-                  "\"SELECT e.order_id::text AS oid, e.event_type, e.prior_state, e.new_state, e.actor, e.detail_json, e.occurred_at_utc FROM oms_order_events e WHERE e.order_id IN (SELECT id FROM oms_orders WHERE " +
+                  "\"SELECT e.order_id::text AS oid, e.event_type, e.prior_state, e.new_state, e.actor, e.detail::text, e.occurred_at_utc FROM oms_order_events e WHERE e.order_id IN (SELECT id FROM oms_orders WHERE " +
                   (if $ticker_like == "" then "TRUE" else "symbol LIKE \\\"" + $ticker_like + "\\\"" end) +
                   " ORDER BY created_at_utc DESC LIMIT " + $limit + ") ORDER BY occurred_at_utc ASC;\""),
                 "echo",
