@@ -58,10 +58,20 @@ public static class UniverseEndpoints
         group.MapGet("/{name}", async (string name, NpgsqlDataSource db) =>
         {
             await using var conn = await db.OpenConnectionAsync();
+            // Select ALL columns the UniverseSummary ctor takes, even
+            // the two with defaults — Dapper matches the positional
+            // record ctor against the column set, so a 5-column SELECT
+            // against a 7-param ctor blows up at materialisation with
+            // "no parameterless / matching ctor". Constants for the
+            // override counts (0 / 0) because the detail page doesn't
+            // need them here — the symbols list below carries the
+            // per-ticker override action separately.
             var header = await conn.QueryFirstOrDefaultAsync<UniverseSummary>(@"
                 SELECT name AS Name, source_url AS SourceUrl,
                        symbol_count AS SymbolCount,
-                       fetched_at_utc AS FetchedAtUtc, source AS Source
+                       fetched_at_utc AS FetchedAtUtc, source AS Source,
+                       0::int AS IncludedOverrides,
+                       0::int AS ExcludedOverrides
                 FROM universes WHERE name = @name;",
                 new { name });
             if (header is null)
