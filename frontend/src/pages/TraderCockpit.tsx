@@ -176,8 +176,17 @@ export function TraderCockpit() {
   const submitted = orders.filter((o) =>
     ["SUBMITTED", "WORKING", "PARTIALLY_FILLED"].includes(o.state),
   );
+  // "Recent" = today (UTC) only. Yesterday's fills are by definition
+  // not actionable today; surfacing them as "recent" misleads the
+  // trader (especially for PAPER-broker simulated fills that never
+  // hit the broker but still show FILLED). Drill into /oms for full
+  // history.
+  const recentTodayUtc = new Date().toISOString().slice(0, 10);
   const recent = orders
-    .filter((o) => o.state === "FILLED" || o.state === "PARTIALLY_FILLED")
+    .filter((o) =>
+      (o.state === "FILLED" || o.state === "PARTIALLY_FILLED") &&
+      o.lastStateChangeAtUtc.slice(0, 10) === recentTodayUtc,
+    )
     .slice(0, 25);
 
   // Warnings — server-side data with frontend pattern-matching for
@@ -550,7 +559,7 @@ export function TraderCockpit() {
       {v("fills") && (
       <CockpitCard
         id="fills"
-        title="Trade executed (recent)"
+        title="Trade executed today"
         badge={recent.length || undefined}
         tone={recent.length > 0 ? "ok" : "default"}
         onHide={() => widgets.hide("fills")}

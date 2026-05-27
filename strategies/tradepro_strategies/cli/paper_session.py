@@ -392,10 +392,15 @@ def main(argv: list[str] | None = None) -> int:
     # Re-snapshot with recent fills so the Paper page Live tab renders
     # the per-strategy fill log + open positions.
     snapshot = engine.ledger.to_snapshot(include_fills=args.push_fills)
-    # Re-apply decisions and bars_seen: ledger.to_snapshot doesn't know
-    # about strategy instances, so the engine owns this side-channel.
+    # Re-apply decisions / bars_seen / charts: ledger.to_snapshot doesn't
+    # know about strategy instances, so the engine owns these side-
+    # channels. attach_charts was missing here previously which is why
+    # the cockpit's Strategy charts widget never populated after a
+    # paper-session push — the engine ran recent_charts() inside its
+    # own run() but those got dropped on this re-snapshot.
     engine.attach_decisions(snapshot)
     engine.attach_bars(snapshot)
+    engine.attach_charts(snapshot)
     snapshot["kind"] = "paper-snapshot"
     snapshot["session_label"] = (
         f"{args.strategy}-{(session_date or datetime.utcnow()).date().isoformat()}"
