@@ -48,6 +48,18 @@ export function SymbolScanGrid({
     try { localStorage.setItem("cockpit.scan-grid.scope", scope); } catch { /* noop */ }
   }, [scope]);
 
+  // View mode — text cards (default for small scans) vs heatmap
+  // (dense color grid, designed for 500-symbol universe scans where
+  // a card grid wastes a screen per row).
+  const [view, setView] = useState<"cards" | "heatmap">(() => {
+    if (typeof window === "undefined") return "cards";
+    return (localStorage.getItem("cockpit.scan-grid.view") === "heatmap")
+      ? "heatmap" : "cards";
+  });
+  useEffect(() => {
+    try { localStorage.setItem("cockpit.scan-grid.view", view); } catch { /* noop */ }
+  }, [view]);
+
   const sessionsInScope = useMemo(() => {
     if (scope === "all") return latestSessions;
     const todayUtc = new Date().toISOString().slice(0, 10);
@@ -97,12 +109,16 @@ export function SymbolScanGrid({
             visible={visible.length}
             scope={scope}
             setScope={setScope}
+            view={view}
+            setView={setView}
             hiddenSessionCount={latestSessions.length - sessionsInScope.length}
           />
           {visible.length === 0 ? (
             <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "12px 0" }}>
               No symbols match the current filter.
             </div>
+          ) : view === "heatmap" ? (
+            <HeatmapView cards={visible} />
           ) : (
             <div style={{
               display: "grid",
@@ -150,7 +166,7 @@ function collectCards(latestSessions: LatestSession[]): Card[] {
 function FilterBar({
   actionFilter, setActionFilter, query, setQuery,
   total, fires, skips, visible,
-  scope, setScope, hiddenSessionCount,
+  scope, setScope, view, setView, hiddenSessionCount,
 }: {
   actionFilter: "all" | "fire" | "skip";
   setActionFilter: (a: "all" | "fire" | "skip") => void;
@@ -162,6 +178,8 @@ function FilterBar({
   visible: number;
   scope: "today" | "all";
   setScope: (s: "today" | "all") => void;
+  view: "cards" | "heatmap";
+  setView: (v: "cards" | "heatmap") => void;
   hiddenSessionCount: number;
 }) {
   return (
@@ -176,6 +194,9 @@ function FilterBar({
           : "Today only"}
       />
       <ScopePill value="all" current={scope} setter={setScope} label="Include past" />
+      <span style={{ width: 1, height: 14, background: "var(--border)" }} />
+      <ViewPill value="cards"   current={view} setter={setView} label="Cards" />
+      <ViewPill value="heatmap" current={view} setter={setView} label="Heatmap" />
       <input
         type="text"
         placeholder="filter symbol…"
@@ -219,6 +240,99 @@ function ScopePill({
     >
       {label}
     </button>
+  );
+}
+
+function ViewPill({
+  value, current, setter, label,
+}: {
+  value: "cards" | "heatmap";
+  current: "cards" | "heatmap";
+  setter: (v: "cards" | "heatmap") => void;
+  label: string;
+}) {
+  const active = value === current;
+  return (
+    <button
+      onClick={() => setter(value)}
+      style={{
+        padding: "3px 10px", fontSize: 11, borderRadius: 999,
+        border: `1px solid ${active ? "#a855f7" : "var(--border)"}`,
+        background: active ? "rgba(168,85,247,0.10)" : "transparent",
+        color: active ? "#a855f7" : "var(--text-dim)",
+        cursor: "pointer", fontFamily: "monospace", letterSpacing: "0.02em",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * HeatmapView — universe-scale visualisation. Each symbol = one
+ * coloured cell; 500-symbol scans fit on one screen at ~50×24 px
+ * per cell. Green = fire-buy, red = fire-sell, amber = skip,
+ * gray = unclassified. Hover shows full reason; click drills into
+ * Session Detail.
+ *
+ * Why a separate view from SymbolCard: the cards have room for
+ * verbose detail (signal, cloud_position, vol). The heatmap trades
+ * detail for density — the trader sees at-a-glance which corners of
+ * the universe are firing without scrolling.
+ */
+function HeatmapView({ cards }: { cards: Card[] }) {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(56px, 1fr))",
+      gap: 2,
+      maxHeight: 520,
+      overflowY: "auto",
+      paddingRight: 4,
+    }}>
+      {cards.map((c) => (<HeatmapCell key={c.key} card={c} />))}
+    </div>
+  );
+}
+
+function HeatmapCell({ card }: { card: Card }) {
+  const isFire = card.action.startsWith("fire-");
+  const isBuy = isFire && (card.action.includes("entry") || card.action.includes("buy"));
+  const isSell = isFire && (card.action.includes("exit") || card.action.includes("sell"));
+  const isSkip = card.action.startsWith("skip-");
+  const tone =
+    isBuy  ? { bg: "rgba(31,193,107,0.65)",  fg: "#0a0f1a", border: "rgba(31,193,107,1)" }
+  : isSell ? { bg: "rgba(239,68,68,0.65)",   fg: "#fff",    border: "rgba(239,68,68,1)" }
+  : isFire ? { bg: "rgba(31,193,107,0.35)",  fg: "#fff",    border: "rgba(31,193,107,0.7)" }
+  : isSkip ? { bg: "rgba(245,158,11,0.10)",  fg: "var(--text-dim)", border: "rgba(245,158,11,0.30)" }
+           : { bg: "rgba(255,255,255,0.04)", fg: "var(--text-muted)", border: "var(--border)" };
+  const tip = [
+    card.symbol,
+    card.action,
+    card.reason || "",
+  ].filter(Boolean).join(" · ");
+  return (
+    <Link
+      to={`/paper-live/session/${encodeURIComponent(card.sessionId)}`}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "5px 4px",
+        height: 30,
+        background: tone.bg,
+        color: tone.fg,
+        border: `1px solid ${tone.border}`,
+        borderRadius: 3,
+        fontFamily: "monospace",
+        fontSize: 10,
+        fontWeight: 600,
+        textDecoration: "none",
+        textAlign: "center",
+        overflow: "hidden",
+      }}
+      title={tip}
+    >
+      {card.symbol}
+    </Link>
   );
 }
 

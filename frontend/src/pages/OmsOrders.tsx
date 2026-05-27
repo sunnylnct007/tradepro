@@ -489,7 +489,29 @@ export function OmsOrders() {
                         {o.state}
                       </span>
                     </Td>
-                    <Td>{o.broker}</Td>
+                    <Td>
+                      {o.broker}
+                      {o.broker === "PAPER" && (
+                        <span
+                          title={
+                            "PAPER fills are SIMULATED locally by the engine. "
+                            + "They do NOT touch any broker, so they don't appear in "
+                            + "Portfolio. Use broker=T212_DEMO to place at the actual "
+                            + "T212 demo account (note: T212 Invest API has no FX)."
+                          }
+                          style={{
+                            marginLeft: 6, fontSize: 9,
+                            padding: "1px 6px", borderRadius: 999,
+                            background: "rgba(168,85,247,0.14)",
+                            color: "#a855f7",
+                            fontWeight: 700, letterSpacing: "0.04em",
+                            cursor: "help",
+                          }}
+                        >
+                          SIMULATED
+                        </span>
+                      )}
+                    </Td>
                     <Td>
                       {isOpen ? (
                         <div style={{ display: "flex", gap: 4 }}>
