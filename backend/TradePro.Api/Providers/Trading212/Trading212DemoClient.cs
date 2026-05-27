@@ -239,14 +239,20 @@ public sealed class Trading212DemoClient
             using var resp = await _http.GetAsync($"equity/orders/{brokerOrderId}", ct);
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                // Order completed + aged out of T212's hot cache. Treat
-                // as terminal but unknown status so the poller doesn't
-                // keep retrying forever.
+                // /equity/orders/{id} returns 404 once T212 ages a
+                // completed order out of the hot cache. Previously
+                // we marked the OMS row CANCELLED here, but T212 may
+                // have actually filled it (operator can see it on
+                // T212's app). Fall back to the history endpoint to
+                // find the real terminal status.
+                var hist = await LookupOrderInHistoryAsync(brokerOrderId, ct);
+                if (hist is not null) return hist;
                 return new Trading212OrderStatus(
                     BrokerOrderId: brokerOrderId,
                     Status: "GONE", Ticker: null, Quantity: null,
                     FilledQuantity: null, FilledValue: null,
-                    HttpStatus: 404, Error: "not found on broker");
+                    HttpStatus: 404,
+                    Error: "not found on broker (live OR history)");
             }
             if (!resp.IsSuccessStatusCode)
             {
@@ -290,6 +296,110 @@ public sealed class Trading212DemoClient
                 FilledQuantity: null, FilledValue: null,
                 HttpStatus: 0, Error: ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Page T212's /equity/history/orders looking for a specific
+    /// broker order id. Used as a fallback by GetOrderStatusAsync
+    /// when the live /orders/{id} endpoint returns 404 — T212
+    /// drops completed orders from the live cache shortly after
+    /// they fill, but history is the canonical record.
+    ///
+    /// Returns null when:
+    ///   - the integration is disabled
+    ///   - history endpoint errors
+    ///   - the order id isn't found in the first ~5 pages (~250
+    ///     orders); enough for daily reconciliation, not enough
+    ///     for week-old orders.
+    /// </summary>
+    private async Task<Trading212OrderStatus?> LookupOrderInHistoryAsync(
+        long brokerOrderId, CancellationToken ct)
+    {
+        if (!_options.IsEnabled) return null;
+        // T212 history is cursor-paginated. We page up to ~5×50 = 250
+        // rows; recent orders should land in page 1. Each page costs
+        // one /equity/history/orders hit so we keep a budget.
+        string? cursor = null;
+        for (int page = 0; page < 5; page++)
+        {
+            if (ct.IsCancellationRequested) return null;
+            var url = "equity/history/orders?limit=50"
+                + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
+            using var resp = await _http.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogDebug(
+                    "T212 history page {Page} returned {Code} — abandoning lookup for {Id}",
+                    page, (int)resp.StatusCode, brokerOrderId);
+                return null;
+            }
+            var body = await SafeReadFullBody(resp, ct);
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            // T212 history shape: { items: [...], nextPagePath: "...&cursor=..." }
+            if (root.TryGetProperty("items", out var items)
+                && items.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var it in items.EnumerateArray())
+                {
+                    long? id = null;
+                    if (it.TryGetProperty("id", out var idEl)
+                        && idEl.ValueKind == System.Text.Json.JsonValueKind.Number
+                        && idEl.TryGetInt64(out var idv))
+                    {
+                        id = idv;
+                    }
+                    if (id != brokerOrderId) continue;
+                    decimal? Num(string k)
+                    {
+                        if (it.TryGetProperty(k, out var e)
+                            && e.ValueKind == System.Text.Json.JsonValueKind.Number
+                            && e.TryGetDecimal(out var v)) return v;
+                        return null;
+                    }
+                    string? Str(string k) =>
+                        it.TryGetProperty(k, out var e)
+                            && e.ValueKind == System.Text.Json.JsonValueKind.String
+                                ? e.GetString() : null;
+                    var status = (Str("status") ?? "").ToUpperInvariant();
+                    // T212 history uses values like "FILLED", "CANCELLED",
+                    // "REJECTED", "PARTIALLY_FILLED". Pass through as-is —
+                    // OmsFillPoller knows how to map.
+                    return new Trading212OrderStatus(
+                        BrokerOrderId: brokerOrderId,
+                        Status: status,
+                        Ticker: Str("ticker"),
+                        Quantity: Num("orderedQuantity") ?? Num("quantity"),
+                        FilledQuantity: Num("filledQuantity"),
+                        FilledValue: Num("filledValue"),
+                        HttpStatus: 200,
+                        Error: null);
+                }
+            }
+            // Cursor for next page (T212 returns nextPagePath which
+            // already contains the cursor query param).
+            if (root.TryGetProperty("nextPagePath", out var nextEl)
+                && nextEl.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var next = nextEl.GetString();
+                var idx = next?.IndexOf("cursor=", StringComparison.Ordinal) ?? -1;
+                if (idx >= 0 && next is not null)
+                {
+                    cursor = next.Substring(idx + "cursor=".Length);
+                    var amp = cursor.IndexOf('&');
+                    if (amp >= 0) cursor = cursor.Substring(0, amp);
+                }
+                else
+                {
+                    return null; // no more pages
+                }
+            }
+            else
+            {
+                return null; // history exhausted
+            }
+        }
+        return null; // budget exceeded
     }
 
     /// <summary>Fetch account cash from /equity/account/cash. This is
