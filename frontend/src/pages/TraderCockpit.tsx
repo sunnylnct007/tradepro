@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CockpitCard } from "../components/CockpitCard";
 import { PlotlyChart } from "../components/PlotlyChart";
-import { SystemHealthRow } from "../components/cockpit/SystemHealthRow";
 import { TriggerPanel } from "../components/cockpit/TriggerPanel";
 import { TradeCardsPanel } from "../components/cockpit/TradeCardsPanel";
 import { TestPlacementPanel } from "../components/cockpit/TestPlacementPanel";
@@ -255,7 +254,22 @@ export function TraderCockpit() {
     { id: "signals",     title: "Strategy signals" },
     { id: "positions",   title: "Overall position" },
   ];
-  const widgets = useHiddenWidgets("cockpit.hidden");
+  // Trader-first default. Cockpit ships with the analyst-flavoured
+  // widgets hidden so the trader sees only essentials: positions,
+  // pending action, today's signals. Restore any from the
+  // HiddenWidgetsBar above the grid. Persists per-trader (localStorage)
+  // — once they un-hide, that choice survives reloads.
+  const widgets = useHiddenWidgets("cockpit.hidden", [
+    "testorder",    // debug-only manual placement
+    "submitted",    // info; pending is the action surface
+    "fills",        // info; activity feed covers it
+    "activity",     // verbose; covered by trade-cards + scan-grid
+    "lifecycle",    // analyst-flavoured Gantt
+    "charts",       // heavy plotly per-symbol
+    "signals",      // verbose per-strategy decisions table
+    "trade-cards",  // verbose
+    "trigger",      // 1×/day at most
+  ]);
   const v = (id: string) => !widgets.isHidden(id);
 
   const approveAll = async () => {
@@ -341,8 +355,10 @@ export function TraderCockpit() {
         </div>
       </div>
 
-      {/* ── System health row — trust before breadth ─────────────── */}
-      <SystemHealthRow />
+      {/* System health pills moved to /health — too IT-flavoured for
+          the trader's daily cockpit. Surfaced via the "More ▾" nav
+          + the warnings panel still raises here when something's
+          actually wrong with a broker / daemon. */}
 
       {/* ── KPI strip — always-visible single-glance status ──────── */}
       <KpiStrip

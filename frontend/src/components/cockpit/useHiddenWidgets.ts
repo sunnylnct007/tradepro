@@ -21,14 +21,22 @@ export type WidgetMeta = {
   title: string;
 };
 
-export function useHiddenWidgets(storageKey: string) {
+export function useHiddenWidgets(
+  storageKey: string,
+  /** Default-hidden widget IDs applied only on first visit (when no
+   *  localStorage entry exists). Lets the cockpit ship trader-first:
+   *  IT-analyst surfaces (lifecycle Gantt, system health) hidden until
+   *  the trader explicitly restores via the HiddenWidgetsBar. */
+  defaultHidden: string[] = [],
+) {
   const [hidden, setHidden] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
+    if (typeof window === "undefined") return new Set(defaultHidden);
     try {
       const raw = localStorage.getItem(storageKey);
-      return raw ? new Set<string>(JSON.parse(raw)) : new Set();
+      if (raw) return new Set<string>(JSON.parse(raw));
+      return new Set(defaultHidden);
     } catch {
-      return new Set();
+      return new Set(defaultHidden);
     }
   });
 
