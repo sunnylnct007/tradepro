@@ -16,6 +16,7 @@ import { api } from "../api/client";
 import type { OmsOrderRow } from "../api/client";
 import { config } from "../config";
 import { CockpitCard } from "../components/CockpitCard";
+import { EquityPipelineCard } from "../components/EquityPipelineCard";
 import { PlotlyChart } from "../components/PlotlyChart";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
 import { useOmsEvents } from "../hooks/useOmsEvents";
@@ -342,6 +343,9 @@ export function IchimokuEquity() {
           <span style={{ fontSize: 12, color: C.red }}>Run failed: {runError}</span>
         )}
       </div>
+
+      {/* ── Strategy validation (trader-spec backtest) ─────────────────────── */}
+      <EquityPipelineCard strategy={STRATEGY_ID} />
 
       {/* ── Card 1: Signal Grid ─────────────────────────────────────────────── */}
       <CockpitCard

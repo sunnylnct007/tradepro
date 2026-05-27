@@ -551,6 +551,86 @@ export const api = {
     get<{ rows: AdminOmsEventRow[] }>("/api/admin/oms-events", p as Record<string, string | number | undefined>),
   adminStrategyVersions: () =>
     get<{ rows: AdminStrategyVersionRow[] }>("/api/admin/strategy-versions"),
+
+  // ── Equity pipeline validation artifact ──────────────────────
+  // Backed by EquityPipelineEndpoints.cs — Mac CLI
+  // tradepro-equity-pipeline --push emits the JSON; this read
+  // surfaces it on the strategy validation page.
+  equityPipelineLatest: (strategy: string, label = "latest") =>
+    get<EquityPipelineEnvelope>(
+      `/api/equity-pipeline/${encodeURIComponent(strategy)}/latest`,
+      { label },
+    ),
+  equityPipelineRuns: (strategy: string) =>
+    get<{
+      strategy: string;
+      runs: Array<{
+        label: string;
+        as_of_utc: string;
+        uploaded_at_utc: string;
+        uploaded_by: string | null;
+        note: string | null;
+      }>;
+    }>(`/api/equity-pipeline/${encodeURIComponent(strategy)}`),
+};
+
+// Shape of the artifact emitted by strategies/cli/equity_pipeline.py
+// — kept loose (most charts are arrays of {date, value}) because the
+// CLI evolves it and we don't want a schema lockstep. The strategy
+// validation page consumes specific paths; everything else is opaque.
+export type EquityPipelineEnvelope = {
+  strategy: string;
+  label: string;
+  asOfUtc: string;
+  uploadedAtUtc: string;
+  uploadedBy: string | null;
+  note: string | null;
+  artifact: {
+    as_of_utc: string;
+    config: Record<string, unknown>;
+    in_sample: Record<string, number | string>;
+    walk_forward: {
+      summary: Record<string, number | string>;
+      per_window: Array<{
+        test_year: string;
+        vol_scalar: number;
+        sharpe: number;
+        cagr_pct: number;
+        n_days: number;
+      }>;
+    };
+    spy_benchmark: Record<string, number | string>;
+    monte_carlo: {
+      n_sims: number;
+      years: number;
+      initial: number;
+      summary: Record<string, unknown>;
+      fan_chart: {
+        years_axis: number[];
+        q05: number[];
+        q25: number[];
+        q50: number[];
+        q75: number[];
+        q95: number[];
+      };
+    } | null;
+    charts: {
+      equity: Array<{ date: string; value: number }>;
+      oos_equity: Array<{ date: string; value: number }>;
+      spy_equity: Array<{ date: string; value: number }>;
+      drawdown: Array<{ date: string; value: number }>;
+      spy_drawdown: Array<{ date: string; value: number }>;
+      sleeve_cumulative: Record<string, Array<{ date: string; value: number }>>;
+      gross_exposure: Array<{ date: string; value: number }>;
+    };
+    sleeves_meta: Array<{
+      name: string;
+      n_tickers: number;
+      source: string;
+      note?: string;
+    }>;
+    timings_sec: Record<string, number>;
+  };
 };
 
 export type OmsOrderRow = {
