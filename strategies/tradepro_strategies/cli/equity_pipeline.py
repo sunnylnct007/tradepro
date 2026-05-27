@@ -52,6 +52,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+import requests
+
 from ..cache import ensure_cached
 from ..quant_engine import (
     Ensemble,
@@ -63,6 +65,7 @@ from ..quant_engine import (
     build_high_beta,
 )
 from ..quant_engine.portfolio_metrics import summarise as _summarise
+from ..secrets import get_secret
 
 log = logging.getLogger("tradepro.cli.equity_pipeline")
 
@@ -440,6 +443,27 @@ def main(argv: list[str] | None = None) -> int:
         help=f"JSON output path (default {DEFAULT_OUT_PATH}).",
     )
     p.add_argument("--print", action="store_true", help="Also print the JSON to stdout.")
+    p.add_argument(
+        "--push", action="store_true",
+        help=(
+            "Also POST the artifact to /api/ingest/equity-pipeline so "
+            "the UI's strategy validation page can render it. Uses "
+            "ingest-token from env / SM / ~/.tradepro/credentials."
+        ),
+    )
+    p.add_argument(
+        "--label", default="latest",
+        help="Artifact label (default 'latest'). Picking a different label "
+             "keeps multiple runs side-by-side for A/B comparison.",
+    )
+    p.add_argument(
+        "--strategy-id", default="ichimoku_equity",
+        help="Strategy id this artifact is for (default ichimoku_equity).",
+    )
+    p.add_argument(
+        "--note", default=None,
+        help="Free-text note stored with the artifact (e.g. 'weekly refresh').",
+    )
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
 
     try:
@@ -459,6 +483,43 @@ def main(argv: list[str] | None = None) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, indent=2, default=str))
     log.info("wrote %s (%.1f KB)", out_path, out_path.stat().st_size / 1024)
+
+    if args.push:
+        base = get_secret("api-base-url") or get_secret("api-url")
+        token = (
+            get_secret("ingest-api-token")
+            or get_secret("ingest-token")
+            or get_secret("api-token")  # last-resort: same token for both schemes
+        )
+        if not base or not token:
+            log.error(
+                "push requested but credentials missing — set "
+                "TRADEPRO_API_BASE_URL + TRADEPRO_INGEST_API_TOKEN "
+                "or populate ~/.tradepro/credentials",
+            )
+            return 2
+        url = f"{base.rstrip('/')}/api/ingest/equity-pipeline"
+        payload = {
+            "strategy": args.strategy_id,
+            "label": args.label,
+            "uploaded_by": "tradepro-equity-pipeline",
+            "note": args.note,
+            "artifact": result,
+        }
+        try:
+            resp = requests.post(
+                url, json=payload,
+                headers={"Authorization": f"Bearer {token}",
+                         "Content-Type": "application/json"},
+                timeout=60,
+            )
+        except requests.RequestException as exc:
+            log.error("push HTTP failed: %s", exc)
+            return 3
+        if not 200 <= resp.status_code < 300:
+            log.error("push HTTP %d: %s", resp.status_code, resp.text[:400])
+            return 4
+        log.info("push ok: %s", resp.text[:300])
 
     # Compact CLI-friendly summary.
     sumr = result["in_sample"]
