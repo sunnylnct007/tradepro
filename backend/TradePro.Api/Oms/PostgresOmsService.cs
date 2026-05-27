@@ -50,6 +50,31 @@ public sealed class PostgresOmsService : IOmsService
         return scope.ServiceProvider.GetService<Trading212DemoClient>();
     }
 
+    /// <summary>
+    /// Returns a refusal message if system_state blocks this order,
+    /// null when it's safe to dispatch. Step 4 kill-switch hook.
+    ///
+    ///   panic   — refuse every order
+    ///   frozen  — refuse BUYs (new exposure); allow SELLs
+    ///             (defensive exits)
+    ///   normal  — allow
+    ///
+    /// Reads the single-row system_state table. Hot path (every
+    /// approve) so kept cheap — one Dapper round-trip with no joins.
+    /// </summary>
+    private async Task<string?> CheckSystemStateBlocksAsync(OmsOrder order)
+    {
+        await using var conn = await _db.OpenConnectionAsync();
+        var mode = await conn.QueryFirstOrDefaultAsync<string>(
+            "SELECT mode FROM system_state WHERE id = 1;");
+        if (string.IsNullOrEmpty(mode) || mode == "normal") return null;
+        if (mode == "panic")
+            return "system is in PANIC mode — every order refused. Resume via /api/system/resume.";
+        if (mode == "frozen" && string.Equals(order.Side, "BUY", StringComparison.OrdinalIgnoreCase))
+            return "system is FROZEN — new BUY orders refused. Defensive SELLs still allowed. Resume via /api/system/resume.";
+        return null;
+    }
+
     public async Task<OmsOrder> EnqueueAsync(OrderIntent intent, string actor)
     {
         await using var conn = await _db.OpenConnectionAsync();
@@ -133,6 +158,22 @@ public sealed class PostgresOmsService : IOmsService
 
     public async Task<OmsOrder> ApproveAsync(Guid orderId, string actor)
     {
+        // 0. Kill-switch check (step 4). System mode = frozen → refuse
+        //    new BUY entries; mode = panic → refuse every order. Reads
+        //    the single-row system_state table. This is the operator's
+        //    manual switch; the risk module (step 5) adds the automated
+        //    gates on top of the same pattern.
+        var existing = await GetAsync(orderId)
+            ?? throw new InvalidOperationException($"no order {orderId}");
+        var blockMessage = await CheckSystemStateBlocksAsync(existing);
+        if (blockMessage is not null)
+        {
+            _log.LogWarning(
+                "ApproveAsync refused by system_state: {OrderId} ({Sym} {Side}) — {Block}",
+                orderId, existing.Symbol, existing.Side, blockMessage);
+            throw new InvalidOperationException(blockMessage);
+        }
+
         // 1. Flip state to SUBMITTED + write the APPROVED event. State-
         //    machine guard inside TransitionAsync rejects approve from
         //    any non-PENDING_APPROVAL row.
