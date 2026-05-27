@@ -492,20 +492,51 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
                 "register_errors": register_errors,
             }
 
-        asyncio.run(engine.run(started_at))
-        snap = engine.ledger.to_snapshot(include_fills=True)
-        books = snap.get("books") or {}
+        # Use the effective session_date (rolled back off-hours), NOT
+        # started_at. on_session_start receives this and the strategy
+        # uses it to fetch its daily history slice. Passing "now"
+        # off-hours would request a session that has no live bars and
+        # the strategy would see an empty signal universe.
+        #
+        # Engine.run() returns a snapshot with decisions/bars/charts
+        # already attached via attach_*. We re-snapshot with
+        # include_fills=20 to surface recent fills (run() emits with
+        # include_fills=0), then RE-APPLY the attach_* hooks because
+        # Ledger.to_snapshot only knows strategy_ids and can't reach
+        # back into the Strategy instances.
+        #
+        # The previous code looked up `snap["books"]` (a key that does
+        # not exist — Ledger.to_snapshot returns `{strategies: [...]}`)
+        # and silently zeroed every per-strategy entry: no decisions,
+        # no bars, no charts, no fills, no positions, no P&L. Same
+        # anti-pattern that bit paper_session.py until 719963c.
+        asyncio.run(engine.run(session_date))
+        snap = engine.ledger.to_snapshot(include_fills=20)
+        engine.attach_decisions(snap)
+        engine.attach_bars(snap)
+        engine.attach_charts(snap)
+        by_sid: dict[str, dict] = {
+            entry.get("strategy_id"): entry
+            for entry in (snap.get("strategies") or [])
+            if isinstance(entry, dict) and entry.get("strategy_id")
+        }
 
         per_strategy = []
         for name, sid in strategies_registered:
-            book = books.get(sid) or {}
+            entry = by_sid.get(sid) or {}
             per_strategy.append({
                 "strategy": name,
                 "strategy_id": sid,
-                "fills": len(book.get("fills") or []),
-                "open_positions": len(book.get("positions") or []),
-                "realized_pnl_usd": book.get("realized_pnl_usd"),
-                "unrealized_pnl_usd": book.get("unrealized_pnl_usd"),
+                "fills": entry.get("fills_count", 0),
+                "recent_fills": entry.get("recent_fills") or [],
+                "open_positions": len(entry.get("positions") or []),
+                "positions": entry.get("positions") or [],
+                "realized_pnl_usd": entry.get("realised_pnl"),
+                "unrealized_pnl_usd": entry.get("unrealised_pnl"),
+                "equity": entry.get("equity"),
+                "decisions": entry.get("decisions") or [],
+                "bars_seen": entry.get("bars_seen") or [],
+                "charts": entry.get("charts") or {},
             })
 
         # data_window_start = earliest date that contributed bars (from the

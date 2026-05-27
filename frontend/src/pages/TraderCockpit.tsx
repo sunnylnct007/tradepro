@@ -112,7 +112,6 @@ export function TraderCockpit() {
         const strategy = (rs.strategy as string) || (s.params as Record<string, unknown>)?.strategy as string;
         if (!strategy) continue;
         if (byStrategy.has(strategy)) continue;
-        const strategies = (rs.strategies as Array<Record<string, unknown>>) || [];
         const decisions: DecisionEntry[] = [];
         let barsSeen = 0;
         const charts: Record<string, unknown> = {};
@@ -122,21 +121,52 @@ export function TraderCockpit() {
         if (topCharts && typeof topCharts === "object") {
           Object.assign(charts, topCharts);
         }
-        for (const st of strategies) {
+        // Two shapes coexist in result_summary depending on which
+        // engine produced it:
+        //
+        //   • quant-backtest CLI: top-level `strategies: [...]`,
+        //     one entry per strategy_id, with .decisions / .bars_seen
+        //     / .charts attached. Walk it directly.
+        //
+        //   • intraday engine (/scan): per-symbol `results: [{symbol,
+        //     strategies: [...], ...}]` — same strategies-list shape
+        //     nested inside each symbol's result so the heatmap can
+        //     show per-symbol decisions. Walk results[].strategies[].
+        //
+        // Either way each strategy entry has the same .decisions /
+        // .bars_seen / .charts fields, so we can fold both into one
+        // reducer.
+        const visitStrategy = (st: Record<string, unknown>, fallbackSymbol?: string) => {
           const bs = st.bars_seen as Array<unknown> | undefined;
           if (Array.isArray(bs)) barsSeen += bs.length;
           const sc = st.charts as Record<string, unknown> | undefined;
           if (sc && typeof sc === "object") Object.assign(charts, sc);
           const ds = st.decisions as Array<Record<string, unknown>>;
-          if (!Array.isArray(ds)) continue;
+          if (!Array.isArray(ds)) return;
           for (const d of ds) {
             decisions.push({
               barTs: (d.bar_ts as string) || null,
-              symbol: (d.symbol as string) || "",
+              // Decisions from the intraday engine don't always carry
+              // .symbol (the strategy_id encodes it). Fall back to the
+              // parent results[i].symbol so the cockpit grid groups
+              // properly.
+              symbol: (d.symbol as string) || fallbackSymbol || "",
               action: (d.action as string) || "",
               reason: (d.reason as string) || "",
               detail: (d.detail as Record<string, unknown>) || {},
             });
+          }
+        };
+        const topStrategies = (rs.strategies as Array<Record<string, unknown>>) || [];
+        for (const st of topStrategies) {
+          visitStrategy(st);
+        }
+        const perSymbol = (rs.results as Array<Record<string, unknown>>) || [];
+        for (const r of perSymbol) {
+          const sym = (r.symbol as string) || "";
+          const nested = (r.strategies as Array<Record<string, unknown>>) || [];
+          for (const st of nested) {
+            visitStrategy(st, sym);
           }
         }
         // Sort newest-first; cap to 30 per strategy to keep render light.
