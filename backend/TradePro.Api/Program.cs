@@ -110,6 +110,7 @@ builder.Services.AddSingleton<Trading212InstrumentsService>();
 builder.Services.AddSingleton<Trading212PositionsCache>();
 builder.Services.AddSingleton<Trading212DemoPositionsCache>();
 builder.Services.AddSingleton<Trading212DemoCashCache>();
+builder.Services.AddScoped<TradePro.Api.Positions.PositionReconciler>();
 
 // Finnhub — off-by-default earnings-calendar provider. Free tier
 // signup gives 60 req/min which is plenty for occasional checks.
@@ -243,6 +244,7 @@ api.MapSettingsKvEndpoints();
 api.MapUniverseUserEndpoints();
 api.MapEquityPipelineUserEndpoints();
 api.MapLivePortfolioUserEndpoints();
+api.MapPositionsEndpoints();
 // /api/quant/backtest/* — UI-triggered quant backtests. Same
 // session_requests queue, kind="backtest". Worker poll/complete
 // routes mount on the ingest group below.
