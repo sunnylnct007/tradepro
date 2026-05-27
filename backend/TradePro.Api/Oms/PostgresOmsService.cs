@@ -50,6 +50,16 @@ public sealed class PostgresOmsService : IOmsService
         return scope.ServiceProvider.GetService<Trading212DemoClient>();
     }
 
+    private TradePro.Api.Risk.RiskGate? ResolveRiskGate()
+    {
+        // Same per-call scope pattern as ResolveT212Demo. Null in unit
+        // tests with no service provider, so the gate is bypassed and
+        // existing test orchestration keeps working.
+        if (_services is null) return null;
+        using var scope = _services.CreateScope();
+        return scope.ServiceProvider.GetService<TradePro.Api.Risk.RiskGate>();
+    }
+
     /// <summary>
     /// Returns a refusal message if system_state blocks this order,
     /// null when it's safe to dispatch. Step 4 kill-switch hook.
@@ -158,11 +168,13 @@ public sealed class PostgresOmsService : IOmsService
 
     public async Task<OmsOrder> ApproveAsync(Guid orderId, string actor)
     {
-        // 0. Kill-switch check (step 4). System mode = frozen → refuse
-        //    new BUY entries; mode = panic → refuse every order. Reads
-        //    the single-row system_state table. This is the operator's
-        //    manual switch; the risk module (step 5) adds the automated
-        //    gates on top of the same pattern.
+        // 0. Pre-dispatch gates (steps 4 + 5).
+        //    a) system_state — operator's manual kill switch.
+        //    b) RiskGate     — automated pre-trade checks (blacklist,
+        //                      size caps, velocity, cash). Every
+        //                      decision audited to risk_events.
+        //    Both fail-closed by design — better to refuse than
+        //    dispatch blind.
         var existing = await GetAsync(orderId)
             ?? throw new InvalidOperationException($"no order {orderId}");
         var blockMessage = await CheckSystemStateBlocksAsync(existing);
@@ -172,6 +184,20 @@ public sealed class PostgresOmsService : IOmsService
                 "ApproveAsync refused by system_state: {OrderId} ({Sym} {Side}) — {Block}",
                 orderId, existing.Symbol, existing.Side, blockMessage);
             throw new InvalidOperationException(blockMessage);
+        }
+        var riskGate = ResolveRiskGate();
+        if (riskGate is not null)
+        {
+            var check = await riskGate.EvaluateAsync(existing, CancellationToken.None);
+            if (!check.Passed)
+            {
+                var msg = "risk gate blocked: "
+                    + string.Join("; ", check.Failures.Select(f => $"{f.Gate}: {f.Reason}"));
+                _log.LogWarning(
+                    "ApproveAsync refused by RiskGate: {OrderId} ({Sym} {Side}) — {Msg}",
+                    orderId, existing.Symbol, existing.Side, msg);
+                throw new InvalidOperationException(msg);
+            }
         }
 
         // 1. Flip state to SUBMITTED + write the APPROVED event. State-
