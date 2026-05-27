@@ -57,7 +57,7 @@ import signal
 import socket
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -290,6 +290,43 @@ def _inside_window(start_hhmm: str, end_hhmm: str) -> bool:
     return minutes_now >= minutes_start or minutes_now <= minutes_end
 
 
+def _effective_session_date(now: datetime, bypass_window: bool) -> datetime:
+    """Pick the session_date the engine should fetch bars for.
+
+    - In-window scheduled ticks (bypass_window=False, default) → ``now``
+      verbatim. The engine is supposed to be running live during US
+      market hours; yfinance has data and we want fresh bars.
+
+    - On-demand /scan triggered off-hours (bypass_window=True) →
+      roll back to the most recent completed trading day. We treat
+      "trading day" as Mon–Fri after 13:30 UTC (≈ US market open);
+      anything earlier in the day rolls back further. Holidays are
+      tolerated by the existing holiday-aware-lookback path in
+      sources/base.py — if the chosen day was a US holiday, the
+      source falls back further.
+
+    Without this, off-hours /scan returned 0 bars (yfinance 1m
+    intraday is empty before US open) → strategy never fired →
+    session completed instantly with 0 decisions.
+    """
+    if not bypass_window:
+        return now
+    # Roll back to the most recent weekday whose US session has ended.
+    # 13:30 UTC = 09:30 ET (US open); if it's before that, the prior
+    # day's 1m data is what's available. After 20:00 UTC (US close)
+    # today's data is in the cache.
+    candidate = now
+    minutes_now = candidate.hour * 60 + candidate.minute
+    if candidate.weekday() < 5 and minutes_now >= 20 * 60:
+        # After US close — today is a complete session.
+        return candidate
+    # Walk back one day at a time until we land on Mon–Fri.
+    while True:
+        candidate = candidate - timedelta(days=1)
+        if candidate.weekday() < 5:
+            return candidate
+
+
 # Fallback list — every strategy registered in
 # tradepro_strategies.paper.strategies. Used when settings has no
 # per-strategy block yet (fresh install) so the engine still runs
@@ -386,6 +423,16 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
     from ..paper.strategies import build as build_strategy
 
     started_at = datetime.now(timezone.utc)
+    # Off-hours /scan path: yfinance returns 0 bars for "today" 1m
+    # before US market open, so the bus delivers nothing and the
+    # strategy never fires. When bypass_window is set AND we're
+    # outside the US session window (13:30..20:00 UTC), roll
+    # session_date back to the last completed trading day so the
+    # cache + yfinance can serve real bars. Scheduled intraday ticks
+    # (bypass_window=false, by definition inside the window) keep
+    # using "now" as their session_date.
+    session_date = _effective_session_date(started_at, bool(cfg.get("bypass_window")))
+    lookback_days = int(cfg.get("lookback_days") or 1)
     risk_per_trade = float(cfg.get("riskPerTradeUsd", 100.0))
     enabled = _resolve_enabled_strategies(cfg)
     log.info("running session for %s across %d strategies (%s)",
@@ -408,9 +455,10 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
         bus, router = build_session(
             broker="t212",
             symbols=[symbol],
-            session_date=started_at,
+            session_date=session_date,
             interval="1m",
             pace_seconds=None,
+            lookback_days=lookback_days,
             t212_mode="demo",
             t212_allow_real_orders=False,
             t212_placement_mode="manual",
