@@ -44,6 +44,7 @@ from .portfolio_metrics import (
 )
 from .regime_filter import RegimeFilter
 from .sleeve import Sleeve, SleeveResult
+from .universe_builder import BetaResult, build_high_beta, compute_beta
 from .vol_targeting import apply_vol_target, vol_target_scalar
 from .walk_forward import WalkForwardValidator, WalkForwardWindow
 
@@ -65,6 +66,10 @@ __all__ = [
     # sleeve
     "Sleeve",
     "SleeveResult",
+    # universe_builder
+    "BetaResult",
+    "build_high_beta",
+    "compute_beta",
     # ensemble
     "Ensemble",
     "EnsembleResult",
