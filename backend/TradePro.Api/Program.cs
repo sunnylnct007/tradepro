@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Diagnostics;
 using TradePro.Api.Auth;
 using TradePro.Api.Data;
 using TradePro.Api.Data.Stores;
@@ -174,6 +175,28 @@ builder.Services.AddSingleton<OrdersRepository>();
 builder.Services.AddSingleton<EventStream>();
 
 var app = builder.Build();
+
+// Global exception handler — turn unhandled exceptions into JSON the
+// frontend can render. Without this, ASP.NET returns 500 with an empty
+// body, so the user just sees "Error: 500 :" with no signal. With it,
+// they see the actual exception type + message in the UI, and the
+// container log carries the full stack via the ILogger call below.
+app.UseExceptionHandler(eb => eb.Run(async ctx =>
+{
+    var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
+    var logger = ctx.RequestServices.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "Unhandled exception on {Method} {Path}",
+        ctx.Request.Method, ctx.Request.Path);
+    ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    ctx.Response.ContentType = "application/json";
+    await ctx.Response.WriteAsJsonAsync(new
+    {
+        error = ex?.Message ?? "unhandled exception",
+        type = ex?.GetType().Name,
+        path = ctx.Request.Path.Value,
+        traceId = ctx.TraceIdentifier,
+    });
+}));
 
 if (app.Environment.IsDevelopment())
 {

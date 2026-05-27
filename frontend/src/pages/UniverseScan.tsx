@@ -29,6 +29,33 @@ import type { DecisionEntry, LatestSession } from "../types/cockpit";
 type Strat = Awaited<ReturnType<typeof api.paperStrategies>>["strategies"][number];
 type Universe = Awaited<ReturnType<typeof api.universes>>["universes"][number];
 
+/**
+ * Pull a readable string out of an API fetch failure. Errors from the
+ * `get` / `post` helpers in api/client.ts look like
+ *   "500 Internal Server Error: {\"error\":\"...\",\"type\":\"...\",...}"
+ * — we surface the JSON `error` + `type` if present, falling back to
+ * the raw message. Saves the trader from reading a JSON dump on the
+ * Scan screen.
+ */
+function humaniseFetchError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const m = raw.match(/^(\d{3})\s+([^:]+):\s*(.*)$/s);
+  if (!m) return raw;
+  const [, code, statusText, body] = m;
+  try {
+    const j = JSON.parse(body);
+    if (j && typeof j === "object") {
+      const parts: string[] = [`HTTP ${code}`];
+      if (j.type) parts.push(String(j.type));
+      if (j.error) parts.push(String(j.error));
+      return parts.join(" — ");
+    }
+  } catch {
+    /* not JSON; fall through */
+  }
+  return `HTTP ${code} ${statusText}${body ? `: ${body.slice(0, 240)}` : ""}`;
+}
+
 export function UniverseScan() {
   const [params, setParams] = useSearchParams();
   const [allStrategies, setAllStrategies] = useState<Strat[]>([]);
@@ -150,7 +177,7 @@ export function UniverseScan() {
       setParams({ strategy: selectedStrategy, universe: selectedUniverse, session: res.requestId });
       setFeedback(`Queued ${symbols.length} symbols — request ${res.requestId.slice(0, 8)}…`);
     } catch (e) {
-      setFeedback(`Failed: ${e}`);
+      setFeedback(`Failed: ${humaniseFetchError(e)}`);
     } finally {
       setSubmitting(false);
     }
