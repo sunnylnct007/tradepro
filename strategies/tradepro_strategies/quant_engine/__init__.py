@@ -42,6 +42,12 @@ from .portfolio_metrics import (
     sortino,
     summarise,
 )
+from .live_portfolio import (
+    LiveTargetPortfolio,
+    SleeveSnapshot,
+    TargetPosition,
+    compute_live_portfolio,
+)
 from .regime_filter import RegimeFilter
 from .sleeve import Sleeve, SleeveResult
 from .universe_builder import BetaResult, build_high_beta, compute_beta
@@ -70,6 +76,11 @@ __all__ = [
     "BetaResult",
     "build_high_beta",
     "compute_beta",
+    # live_portfolio
+    "LiveTargetPortfolio",
+    "SleeveSnapshot",
+    "TargetPosition",
+    "compute_live_portfolio",
     # ensemble
     "Ensemble",
     "EnsembleResult",
