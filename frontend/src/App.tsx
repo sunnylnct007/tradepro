@@ -28,6 +28,7 @@ import { SymbolDeepDive } from "./pages/SymbolDeepDive";
 import { IchimokuEquity } from "./pages/IchimokuEquity";
 import { IchimokuFx } from "./pages/IchimokuFx";
 import { AdminDataBrowser } from "./pages/AdminDataBrowser";
+import { RiskPage } from "./pages/RiskPage";
 
 const router = createBrowserRouter([
   {
@@ -76,6 +77,7 @@ const router = createBrowserRouter([
       { path: "universes", element: <Universes /> },
       { path: "scan", element: <UniverseScan /> },
       { path: "admin/data", element: <AdminDataBrowser /> },
+      { path: "risk", element: <RiskPage /> },
       { path: "help", element: <Help /> },
       { path: "help/:topic", element: <HelpTopic /> },
     ],

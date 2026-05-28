@@ -73,6 +73,7 @@ const moreSections: { label: string; items: NavItem[] }[] = [
     { to: "/intraday/leaderboard",  label: "Intraday board"  },
   ]},
   { label: "System", items: [
+    { to: "/risk",               label: "Risk"      },
     { to: "/universes",          label: "Universes" },
     { to: "/settings",           label: "Settings"  },
     { to: "/health",             label: "Health"    },

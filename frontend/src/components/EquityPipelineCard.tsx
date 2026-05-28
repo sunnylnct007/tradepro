@@ -138,6 +138,11 @@ export function EquityPipelineCard({ strategy, label = "latest" }: Props) {
           spy={a.spy_benchmark}
         />
 
+        {/* Cost feedback — is live execution still close to the
+            backtest's 5bps assumption? */}
+        <CostFeedbackChip strategy={strategy} />
+
+
         {/* 4-panel backtest chart */}
         <PlotlyChart figure={buildBacktestFigure(a)} />
 
@@ -318,6 +323,97 @@ function MonteCarloSummary({ mc }: { mc: NonNullable<EquityPipelineEnvelope["art
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── cost feedback chip ─────────────────────────────────────────────────────
+
+interface CostFeedback {
+  hasData: boolean;
+  backtestAssumption: { costBps: number };
+  actual?: {
+    nFills: number;
+    estimatedCostBps: number;
+    avgSlippageBps: number | null;
+  };
+  divergence?: {
+    bps: number;
+    materiallyDiverged: boolean;
+    note: string;
+  };
+  message?: string;
+}
+
+function CostFeedbackChip({ strategy }: { strategy: string }) {
+  const [data, setData] = useState<CostFeedback | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Default since = today; widen if you want longer-window
+        // honesty checks.
+        const resp = await fetch(
+          // eslint-disable-next-line no-restricted-globals
+          `${window.location.origin}/api/cost-feedback/${encodeURIComponent(strategy)}`,
+        );
+        if (!resp.ok) return;
+        const j = (await resp.json()) as CostFeedback;
+        if (!cancelled) setData(j);
+      } catch {
+        /* silent */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [strategy]);
+
+  if (!data) return null;
+  if (!data.hasData) {
+    return (
+      <div style={{
+        fontSize: 11, padding: "6px 10px",
+        background: "rgba(96,165,250,0.06)",
+        border: "1px solid rgba(96,165,250,0.18)",
+        borderRadius: 6, color: "var(--text-dim)",
+      }}>
+        <strong>Cost honesty:</strong> no fills yet for {strategy} — once live
+        trades flow we'll compare execution cost to the backtest's
+        <strong> {data.backtestAssumption.costBps}bps</strong> assumption.
+      </div>
+    );
+  }
+  const div = data.divergence!;
+  const diverged = div.materiallyDiverged;
+  const color = diverged ? "#ef4444" : "#1fc16b";
+  const bg = diverged ? "rgba(239,68,68,0.08)" : "rgba(31,193,107,0.06)";
+  const border = diverged ? "rgba(239,68,68,0.22)" : "rgba(31,193,107,0.18)";
+  const sign = div.bps >= 0 ? "+" : "";
+  return (
+    <div style={{
+      fontSize: 12, padding: "8px 12px",
+      background: bg, border: `1px solid ${border}`,
+      borderRadius: 6, display: "flex", gap: 12, alignItems: "center",
+      flexWrap: "wrap",
+    }}>
+      <div style={{
+        fontSize: 10, color: "var(--text-muted)",
+        textTransform: "uppercase", letterSpacing: "0.06em",
+      }}>
+        Cost honesty
+      </div>
+      <span style={{ color: "var(--text-dim)" }}>
+        backtest assumes <strong>{data.backtestAssumption.costBps}bps</strong>;
+        live realised <strong style={{ color }}>{data.actual!.estimatedCostBps.toFixed(1)}bps</strong>
+        {" "}across {data.actual!.nFills} fills
+      </span>
+      <span style={{
+        marginLeft: "auto",
+        fontSize: 11, padding: "2px 8px", borderRadius: 999,
+        background: `${color}22`, color, fontWeight: 700,
+        letterSpacing: "0.04em",
+      }}>
+        {sign}{div.bps.toFixed(1)}bps {diverged ? "DIVERGED" : "in line"}
+      </span>
     </div>
   );
 }
