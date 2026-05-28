@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Dapper;
 using Npgsql;
@@ -134,6 +135,96 @@ public sealed class RiskMonitorService : BackgroundService
                 reason: $"T212 free cash {free:C0} dropped below threshold "
                       + $"{settings.MinFreeCashUsd:C0} — investigate unaccounted activity");
         }
+
+        // Rule 4 + 5: per-position stop-loss + take-profit (defensive
+        // overlay per project_overnight_risk_options).
+        //
+        // For each currently-held T212 position, compute its return
+        // since entry (broker's average_price_paid vs current_price).
+        // If the position is down past stop_loss_pct, flag it (and
+        // eventually trigger an exit order). If it's up past
+        // take_profit_pct, flag for partial trim. NEVER OPEN —
+        // monitor only defends.
+        //
+        // Day 1: log a risk_event per flagged position. Auto-exit
+        // wiring (push CLOSE order to OMS) comes in the next
+        // iteration — for now the operator sees the alert in the
+        // banner / digest and acts manually.
+        await CheckPositionLevelDefenseAsync(sp, settings, ct);
+    }
+
+    private async Task CheckPositionLevelDefenseAsync(
+        IServiceProvider sp, MonitorSettings settings, CancellationToken ct)
+    {
+        if (settings.StopLossPct <= 0 && settings.TakeProfitPct <= 0) return;
+        var posCache = sp.GetService<Trading212DemoPositionsCache>();
+        if (posCache is null) return;
+        var posResult = await posCache.GetAsync(ct);
+        if (posResult.HttpStatus == (int)HttpStatusCode.TooManyRequests
+            && (posResult.Positions is null || posResult.Positions.Count == 0)) return;
+        var positions = posResult.Positions ?? new List<Trading212Position>();
+        var db = sp.GetRequiredService<NpgsqlDataSource>();
+        foreach (var p in positions)
+        {
+            if (p.Quantity <= 0m) continue;
+            if (p.AveragePricePaid is null or <= 0m) continue;
+            if (p.CurrentPrice is null or <= 0m) continue;
+            var avg = p.AveragePricePaid.Value;
+            var cur = p.CurrentPrice.Value;
+            var retPct = (double)((cur - avg) / avg);
+            string? gate = null;
+            string? reason = null;
+            if (settings.StopLossPct > 0 && retPct <= -settings.StopLossPct)
+            {
+                gate = "position_stop_loss";
+                reason = $"position {p.Ticker} down {retPct:P2} since entry "
+                       + $"({avg:F2} → {cur:F2}); stop-loss threshold {-settings.StopLossPct:P2}";
+            }
+            else if (settings.TakeProfitPct > 0 && retPct >= settings.TakeProfitPct)
+            {
+                gate = "position_take_profit";
+                reason = $"position {p.Ticker} up {retPct:P2} since entry "
+                       + $"({avg:F2} → {cur:F2}); take-profit threshold {settings.TakeProfitPct:P2}";
+            }
+            if (gate is null) continue;
+
+            // Per-symbol idempotency — only log once per gate per
+            // 4 hours. The operator should see the alert; spamming
+            // every minute helps no one. Auto-exit (when wired) will
+            // be the actual mitigation; this log is the audit trail.
+            await using var conn = await db.OpenConnectionAsync();
+            var recent = await conn.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(*) FROM risk_events
+                WHERE symbol = @sym AND gate = @gate
+                  AND occurred_at_utc >= NOW() - INTERVAL '4 hours';",
+                new { sym = p.Ticker, gate });
+            if (recent > 0) continue;
+
+            await conn.ExecuteAsync(@"
+                INSERT INTO risk_events
+                    (strategy_id, symbol, side, qty, broker,
+                     decision, gate, reason, detail_json)
+                VALUES ('_monitor', @symbol, 'N/A', @qty, 'T212_DEMO',
+                        'KILL_SWITCH', @gate, @reason, @detail::jsonb);",
+                new
+                {
+                    symbol = p.Ticker,
+                    qty = p.Quantity,
+                    gate,
+                    reason,
+                    detail = JsonSerializer.Serialize(new
+                    {
+                        avg_entry_price = avg,
+                        current_price = cur,
+                        return_pct = retPct,
+                        threshold_pct = gate == "position_stop_loss"
+                            ? -settings.StopLossPct : settings.TakeProfitPct,
+                    }),
+                });
+            _log.LogWarning(
+                "RISK MONITOR position-level alert: {Gate} on {Symbol} — {Reason}",
+                gate, p.Ticker, reason);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -253,7 +344,9 @@ public sealed class RiskMonitorService : BackgroundService
             FROM app_settings_kv
             WHERE key IN (
                 'risk_monitor_max_drawdown',
-                'risk_monitor_min_free_cash_usd'
+                'risk_monitor_min_free_cash_usd',
+                'risk_monitor_stop_loss_pct',
+                'risk_monitor_take_profit_pct'
             );")).ToDictionary(r => r.key, r => r.value_text);
 
         T Parse<T>(string key, T fallback)
@@ -264,10 +357,16 @@ public sealed class RiskMonitorService : BackgroundService
         }
         return new MonitorSettings(
             MaxPortfolioDrawdown: Parse("risk_monitor_max_drawdown", 0.10),  // 10% default
-            MinFreeCashUsd: Parse("risk_monitor_min_free_cash_usd", -100m)); // -100 default
+            MinFreeCashUsd: Parse("risk_monitor_min_free_cash_usd", -100m),  // -100 default
+            // Per-position thresholds — 0 disables. Defaults conservative:
+            // -3% stop, +8% take-profit. Operator tunes via /settings.
+            StopLossPct: Parse("risk_monitor_stop_loss_pct", 0.03),
+            TakeProfitPct: Parse("risk_monitor_take_profit_pct", 0.08));
     }
 
     private sealed record MonitorSettings(
         double MaxPortfolioDrawdown,
-        decimal MinFreeCashUsd);
+        decimal MinFreeCashUsd,
+        double StopLossPct,
+        double TakeProfitPct);
 }
