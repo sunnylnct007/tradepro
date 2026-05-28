@@ -123,6 +123,79 @@ public static class LivePortfolioEndpoints
             });
         });
 
+        // GET /api/live-portfolio/by-symbol/{symbol}?strategy=
+        // Returns the algo's latest decision for one symbol — used by
+        // the per-symbol AlgoVerdictPill on /compare so the existing
+        // Decide cards can show the trader-algo's verdict alongside
+        // the multi-indicator consensus. 404 if the symbol isn't in
+        // the algo's universe (large_50 + high_beta + gold today).
+        group.MapGet("/by-symbol/{symbol}", async (
+            string symbol, string? strategy, NpgsqlDataSource db) =>
+        {
+            var strat = string.IsNullOrWhiteSpace(strategy) ? "ichimoku_equity" : strategy;
+            // Match both bare AAPL and broker-form AAPL_US_EQ.
+            var bare = symbol.Trim().ToUpperInvariant();
+            var underscore = bare.IndexOf('_');
+            if (underscore > 0) bare = bare[..underscore];
+            await using var conn = await db.OpenConnectionAsync();
+            var row = await conn.QueryFirstOrDefaultAsync<BySymbolRow>(@"
+                SELECT d.sleeve, d.symbol,
+                       d.target_weight AS TargetWeight,
+                       d.signal,
+                       d.regime_pass AS RegimePass,
+                       d.vol,
+                       d.risk_class AS RiskClass,
+                       d.detail::text AS DetailText,
+                       d.as_of_utc AS AsOfUtc,
+                       r.regime_state AS RegimeState
+                FROM strategy_decisions d
+                JOIN strategy_runs r ON r.run_id = d.run_id
+                WHERE d.strategy = @strat
+                  AND (UPPER(d.symbol) = @sym OR UPPER(d.symbol) LIKE @symLike)
+                  AND r.run_id = (
+                      SELECT run_id FROM strategy_runs
+                      WHERE strategy = @strat
+                      ORDER BY as_of_utc DESC LIMIT 1
+                  )
+                LIMIT 1;",
+                new { strat, sym = bare, symLike = bare + "_%" });
+            if (row is null)
+            {
+                return Results.Ok(new
+                {
+                    symbol = bare, inAlgoUniverse = false,
+                    verdict = "OUT_OF_UNIVERSE",
+                });
+            }
+            // Verdict mapping:
+            //   target_weight > 0     → BUY (with weight as conviction)
+            //   signal == 1 && weight 0 → HOLD (regime-gated)
+            //   signal == 0           → FLAT (signal said no)
+            var verdict = (row.TargetWeight, row.Signal, row.RegimePass) switch
+            {
+                ( > 0.0, _, _) => "BUY",
+                (_, > 0.0, false) => "HOLD_REGIME_BLOCKED",
+                (_, > 0.0, true) => "HOLD",
+                _ => "FLAT",
+            };
+            return Results.Ok(new
+            {
+                symbol = bare,
+                inAlgoUniverse = true,
+                verdict,
+                sleeve = row.Sleeve,
+                targetWeight = row.TargetWeight,
+                signal = row.Signal,
+                regimePass = row.RegimePass,
+                regimeState = row.RegimeState,
+                vol = row.Vol,
+                riskClass = row.RiskClass,
+                asOfUtc = row.AsOfUtc,
+                detail = string.IsNullOrEmpty(row.DetailText)
+                    ? null : (object)JsonbHelpers.FromJsonb(row.DetailText),
+            });
+        });
+
         // GET /api/live-portfolio/{strategy}/runs/{runId}
         // Specific historical run — header + decisions. Used when the
         // operator clicks a row in the history list to inspect.
@@ -383,4 +456,9 @@ public static class LivePortfolioEndpoints
         double TargetWeight, double Signal, bool RegimePass, double? Vol,
         string? RiskClass, string DetailJson,
         DateTime AsOfUtc, string? UploadedBy);
+
+    private sealed record BySymbolRow(
+        string Sleeve, string Symbol, double TargetWeight, double Signal,
+        bool RegimePass, double? Vol, string? RiskClass, string? DetailText,
+        DateTime AsOfUtc, string? RegimeState);
 }

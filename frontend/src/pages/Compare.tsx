@@ -15,6 +15,7 @@ import type {
   DecisionCheck,
   EntrySignal,
 } from "../api/types";
+import { AlgoVerdictPill } from "../components/AlgoVerdictPill";
 import { GemsCard } from "../components/GemsCard";
 import { HoldingsHealthCard } from "../components/HoldingsHealthCard";
 import { HorizonPills } from "../components/HorizonPills";
@@ -963,6 +964,12 @@ function MatrixRow({
           >
             {view.symbol}
           </Link>
+          {/* Trader-algo verdict — drops in when the symbol is in the
+              algo's universe (large_50 / hibeta / gold). Renders
+              nothing when out-of-scope, so non-algo names stay clean. */}
+          <span style={{ marginLeft: 6 }}>
+            <AlgoVerdictPill symbol={view.symbol} compact />
+          </span>
           {isStale && (
             <span
               title={`Latest price is ${dataAge} days behind — verdict uses possibly stale data`}
