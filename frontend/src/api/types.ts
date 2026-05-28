@@ -933,3 +933,20 @@ export interface CorporateActionsResponse {
   lookback_days: number;
   actions: CorporateActionMarker[];
 }
+
+/** One insider purchase transaction — sales are excluded (too noisy: 10b5-1
+ * auto-sell plans, tax planning, diversification carry no directional signal).
+ * Rendered as a green "I" chip on PriceHistoryChart. */
+export interface InsiderTrade {
+  date: string;        // YYYY-MM-DD
+  name?: string | null;
+  title?: string | null;   // "Director", "CEO", etc.
+  shares?: number | null;
+  value?: number | null;   // approximate dollar value
+}
+
+export interface InsiderTradesResponse {
+  symbol: string;
+  lookback_days: number;
+  trades: InsiderTrade[];
+}

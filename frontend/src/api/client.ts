@@ -10,6 +10,7 @@ import type {
   EarningsMarkersResponse,
   HitRateRequest,
   HitRateResult,
+  InsiderTradesResponse,
   InstrumentSearchResponse,
   ScanRequest,
   StrategyCatalogResponse,
@@ -588,6 +589,14 @@ export const api = {
   // Defaults to 5y lookback. Silent failure — chart renders with no chips.
   corporateActions: (symbol: string, lookbackDays?: number) =>
     get<CorporateActionsResponse>("/api/marketdata/corporate-actions", {
+      symbol,
+      ...(lookbackDays !== undefined ? { lookbackDays } : {}),
+    }),
+
+  // Insider buy overlay — discretionary purchase transactions only.
+  // Default 365d lookback. Silent failure → no "I" chips on chart.
+  insiderBuys: (symbol: string, lookbackDays?: number) =>
+    get<InsiderTradesResponse>("/api/marketdata/insiders", {
       symbol,
       ...(lookbackDays !== undefined ? { lookbackDays } : {}),
     }),

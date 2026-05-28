@@ -777,17 +777,18 @@ buy on their own. That framing changes the priority of each item.
     `aws-redeploy.yml` still git-fetches on the box and will fail
     until the PAT is fresh. Either rotate the PAT or refactor
     redeploy to use the same checkout-and-ship pattern.
-- 🟡 **Events-on-chart bundle** (earnings ✅ shipped | corp actions + insider ⏳)
-  - ✅ **Earnings markers** — `GET /api/marketdata/earnings?symbol=&lookbackDays=`
-    ships in `feature/events-on-chart` (commit `13a2cb7`). YahooFinanceProvider
-    parses the v8/finance/chart `events=earnings` overlay; `EarningsMarker`
-    type promoted to `types.ts`; Signals.tsx fetches and passes to chart;
-    Compare.tsx already had this via the Python compare row.
-  - ⏳ `GET /api/marketdata/corporate-actions?symbol=` → split + dividend
-    events from `yfinance.Ticker.actions`. Small "S" / "D" markers.
-  - ⏳ `GET /api/marketdata/insiders?symbol=` → insider buys/sells from
-    `yfinance.Ticker.insider_purchases`. Tiny up/down chips on the chart;
-    filtered to discretionary trades (drop 10b5-1 plan executions).
+- ✅ **Events-on-chart bundle** — all three layers shipped:
+  - ✅ **Earnings markers** (PR #21) — `GET /api/marketdata/earnings`;
+    green/red/grey "E" dots. `EarningsMarker` promoted to `types.ts`.
+  - ✅ **Corporate actions** (PR #22) — `GET /api/marketdata/corporate-actions`;
+    amber "D" = dividend ex-date, teal "S" = stock split.
+  - ✅ **Insider buys** (PR #23) — `GET /api/marketdata/insiders`; green "I"
+    chips for discretionary purchase transactions only (sales excluded —
+    10b5-1 auto-sell noise makes them too ambiguous for a directional signal).
+  All three parsed from Yahoo Finance's v8/finance/chart overlay + quoteSummary
+  API via existing `YahooFinanceProvider` HttpClient (no new DI). Wired into
+  `Signals.tsx` with parallel symbol-change fetches; silent failure on each
+  so the chart degrades cleanly if any one feed is unavailable.
 - ✅ **Symbol autocomplete** — shipped (SymbolPicker.tsx →
   /api/instruments/search → Yahoo). Includes debounce, keyboard nav,
   T212 "tradeable" badge. Cures the "NV → 500" footgun.
