@@ -25,7 +25,23 @@
 --     in a column so the trade-plan UI can render it without
 --     unpacking JSONB.
 
-CREATE TABLE IF NOT EXISTS strategy_decisions (
+-- DROP IF EXISTS first to recover from earlier half-formed schemas.
+-- An earlier deploy created the table without the `strategy` column
+-- (or some other partial state). Each restart since has crash-looped
+-- on the CREATE INDEX referencing a column that doesn't exist. The
+-- ALTER TABLE defensive pattern didn't help because PostgreSQL plans
+-- the multi-statement migration body and sees the missing column on
+-- the CREATE INDEX before ALTER TABLE executes.
+--
+-- Demo data only; safe to drop. CASCADE on the (then-uncreated)
+-- index dependencies.
+DROP INDEX IF EXISTS idx_strategy_decisions_latest;
+DROP INDEX IF EXISTS idx_strategy_decisions_run;
+DROP INDEX IF EXISTS idx_strategy_runs_latest;
+DROP TABLE IF EXISTS strategy_decisions CASCADE;
+DROP TABLE IF EXISTS strategy_runs CASCADE;
+
+CREATE TABLE strategy_decisions (
     run_id            UUID NOT NULL,
     strategy          TEXT NOT NULL,
     sleeve            TEXT NOT NULL,
@@ -42,19 +58,6 @@ CREATE TABLE IF NOT EXISTS strategy_decisions (
     PRIMARY KEY (run_id, sleeve, symbol)
 );
 
--- Defensive: if an earlier deploy left the table half-formed (CREATE
--- TABLE committed but later DDL rolled back, or a different schema
--- version sneaked in), add the strategy column before the index
--- creation references it. Idempotent — ALTER TABLE ADD COLUMN IF NOT
--- EXISTS is a no-op when the column already exists.
-ALTER TABLE strategy_decisions
-    ADD COLUMN IF NOT EXISTS strategy TEXT;
-
--- If we just added it as nullable, backfill + enforce NOT NULL so the
--- column matches the canonical schema. Safe to run repeatedly.
-UPDATE strategy_decisions SET strategy = 'ichimoku_equity' WHERE strategy IS NULL;
-ALTER TABLE strategy_decisions ALTER COLUMN strategy SET NOT NULL;
-
 CREATE INDEX IF NOT EXISTS idx_strategy_decisions_latest
     ON strategy_decisions(strategy, as_of_utc DESC);
 
@@ -66,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_strategy_decisions_run
 -- equity_pipeline_results row when the run was paired with a fresh
 -- validation). Lets the UI render "last run: 16:05 UTC, 73 decisions,
 -- regime=bull" without scanning the decisions table.
-CREATE TABLE IF NOT EXISTS strategy_runs (
+CREATE TABLE strategy_runs (
     run_id            UUID PRIMARY KEY,
     strategy          TEXT NOT NULL,
     mode              TEXT NOT NULL,         -- 'live' / 'backtest' / 'dry'
@@ -79,11 +82,5 @@ CREATE TABLE IF NOT EXISTS strategy_runs (
     uploaded_by       TEXT
 );
 
--- Same defensive pattern as strategy_decisions above — adds the
--- strategy column if a half-formed earlier table is missing it.
-ALTER TABLE strategy_runs ADD COLUMN IF NOT EXISTS strategy TEXT;
-UPDATE strategy_runs SET strategy = 'ichimoku_equity' WHERE strategy IS NULL;
-ALTER TABLE strategy_runs ALTER COLUMN strategy SET NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_strategy_runs_latest
+CREATE INDEX idx_strategy_runs_latest
     ON strategy_runs(strategy, as_of_utc DESC);
