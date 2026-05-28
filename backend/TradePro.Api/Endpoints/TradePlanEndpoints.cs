@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using TradePro.Api.Oms;
 using TradePro.Api.Positions;
 
 namespace TradePro.Api.Endpoints;
@@ -77,6 +80,169 @@ public static class TradePlanEndpoints
             });
         });
 
+        // POST /api/trade-plan/{strategy}/execute
+        // Take the same plan that /api/trade-plan/{strategy} returns,
+        // convert every intent into an OMS order, optionally
+        // auto-approve so the order routes straight to the broker.
+        //
+        // Safety floor: every order still passes through RiskGate +
+        // SystemState (so blacklist, size cap, velocity, cash check,
+        // and the frozen/panic switch all still apply). Per-order
+        // refusal logs to risk_events as usual.
+        //
+        // body.autoApprove:
+        //   false (default) — orders sit in PENDING_APPROVAL; trader
+        //                      clicks approve on /oms per order
+        //   true            — algo-driven full autonomy: orders auto-
+        //                      approve immediately after enqueue,
+        //                      RiskGate is the safety net
+        group.MapPost("/{strategy}/execute", async (
+            string strategy, ExecuteBody? body,
+            HttpContext ctx, TradePlanService planSvc, IOmsService oms,
+            CancellationToken ct) =>
+        {
+            var autoApprove = body?.AutoApprove ?? false;
+            var actor = ctx.User?.Identity?.Name ?? body?.Actor ?? "algo-auto";
+
+            var plan = await planSvc.BuildAsync(strategy, ct);
+            if (!plan.HasPlan)
+            {
+                return Results.Ok(new
+                {
+                    strategy, executed = false,
+                    reason = plan.NoPlanReason,
+                });
+            }
+
+            var results = new List<object>();
+            int enqueued = 0, approved = 0, rejected = 0, skipped = 0;
+
+            foreach (var intent in plan.Intents)
+            {
+                if (intent.PriceUnavailable || intent.Qty <= 0)
+                {
+                    skipped++;
+                    results.Add(new
+                    {
+                        symbol = intent.Symbol, side = intent.Side,
+                        status = "skipped",
+                        reason = intent.PriceUnavailable
+                            ? "broker price unavailable" : "qty <= 0",
+                    });
+                    continue;
+                }
+
+                // Deterministic ClientOrderId so re-runs of the same
+                // plan are idempotent — same (strategy, symbol, side,
+                // qty, run_id) → same UUID → OMS returns the existing
+                // row instead of duplicating.
+                var seed = $"{strategy}:{intent.Symbol}:{intent.Side}:" +
+                           $"{intent.Qty:0.0000}:{plan.RunId}";
+                var clientId = DeterministicGuid(seed);
+                var omsIntent = new OrderIntent(
+                    ClientOrderId: clientId,
+                    Broker: "T212_DEMO",
+                    Symbol: ToBrokerTicker(intent.Symbol),
+                    Side: intent.Side,
+                    Qty: intent.Qty,
+                    OrderType: "MKT",
+                    StrategyId: strategy);
+
+                OmsOrder enqueuedOrder;
+                try
+                {
+                    enqueuedOrder = await oms.EnqueueAsync(omsIntent, actor);
+                    enqueued++;
+                }
+                catch (Exception ex)
+                {
+                    rejected++;
+                    results.Add(new
+                    {
+                        symbol = intent.Symbol, side = intent.Side,
+                        status = "enqueue_failed", reason = ex.Message,
+                    });
+                    continue;
+                }
+
+                if (!autoApprove)
+                {
+                    results.Add(new
+                    {
+                        symbol = intent.Symbol, side = intent.Side,
+                        qty = intent.Qty,
+                        orderId = enqueuedOrder.Id,
+                        status = "pending_approval",
+                    });
+                    continue;
+                }
+
+                // Auto-approve — RiskGate + SystemState run inside
+                // ApproveAsync; failures bubble up as
+                // InvalidOperationException with the reason text.
+                try
+                {
+                    var done = await oms.ApproveAsync(enqueuedOrder.Id, actor);
+                    approved++;
+                    results.Add(new
+                    {
+                        symbol = intent.Symbol, side = intent.Side,
+                        qty = intent.Qty,
+                        orderId = done.Id,
+                        status = done.State,
+                    });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    rejected++;
+                    results.Add(new
+                    {
+                        symbol = intent.Symbol, side = intent.Side,
+                        qty = intent.Qty,
+                        orderId = enqueuedOrder.Id,
+                        status = "rejected_by_gate",
+                        reason = ex.Message,
+                    });
+                }
+            }
+
+            return Results.Ok(new
+            {
+                strategy,
+                executed = true,
+                autoApprove,
+                runId = plan.RunId,
+                portfolioValueUsd = plan.PortfolioValueUsd,
+                counts = new
+                {
+                    nIntents = plan.Intents.Count,
+                    enqueued, approved, rejected, skipped,
+                },
+                results,
+            });
+        });
+
         return app;
     }
+
+    // T212 expects "AAPL_US_EQ" style for US equities. Our trade plan
+    // emits bare "AAPL" (strategy_decisions.symbol). Translate at the
+    // OMS boundary.
+    private static string ToBrokerTicker(string symbol)
+    {
+        var s = symbol.Trim().ToUpperInvariant();
+        if (s.Contains('_')) return s; // already in broker form
+        // Default to US equity suffix; later we'll consult
+        // broker_ticker_map for non-US listings + FX.
+        return s + "_US_EQ";
+    }
+
+    private static Guid DeterministicGuid(string input)
+    {
+        using var md5 = MD5.Create();
+        var bytes = md5.ComputeHash(Encoding.UTF8.GetBytes(input));
+        return new Guid(bytes);
+    }
+
+    public sealed record ExecuteBody(bool? AutoApprove, string? Actor);
 }

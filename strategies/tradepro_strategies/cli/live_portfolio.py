@@ -178,6 +178,66 @@ def build_payload(
     }
 
 
+def _resolve_creds() -> tuple[str | None, str | None]:
+    """Returns (api_base, token). token preference order: api-token >
+    ingest-api-token. Auto-execute hits the user-auth endpoint, ingest
+    hits the worker-auth endpoint — different schemes, both share the
+    bearer envelope so we try them in order until one works."""
+    base = get_secret("api-base-url") or get_secret("api-url")
+    token = (
+        get_secret("api-token")
+        or get_secret("ingest-api-token")
+        or get_secret("ingest-token")
+    )
+    return base, token
+
+
+def _auto_execute(strategy: str) -> int:
+    """POST /api/trade-plan/{strategy}/execute with autoApprove=true.
+    Logs the result so the launchd-driven slow-loop run leaves an
+    audit trail in the container log. Risk gates inside ApproveAsync
+    are the actual safety net; this CLI is just the trigger."""
+    base, token = _resolve_creds()
+    if not base or not token:
+        log.error("auto-execute needs api-base-url + token")
+        return 5
+    url = f"{base.rstrip('/')}/api/trade-plan/{strategy}/execute"
+    try:
+        resp = requests.post(
+            url, json={"autoApprove": True, "actor": "tradepro-live-portfolio"},
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            timeout=120,
+        )
+    except requests.RequestException as exc:
+        log.error("auto-execute HTTP failed: %s", exc)
+        return 6
+    if not 200 <= resp.status_code < 300:
+        log.error("auto-execute HTTP %d: %s", resp.status_code, resp.text[:400])
+        return 7
+    body = resp.json()
+    counts = body.get("counts") or {}
+    log.info(
+        "auto-execute ok: enqueued=%s approved=%s rejected=%s skipped=%s",
+        counts.get("enqueued"), counts.get("approved"),
+        counts.get("rejected"), counts.get("skipped"),
+    )
+    print("\n=== AUTO-EXECUTE ===")
+    print(f"  enqueued : {counts.get('enqueued')}")
+    print(f"  approved : {counts.get('approved')}")
+    print(f"  rejected : {counts.get('rejected')}  (see /risk for gate reasons)")
+    print(f"  skipped  : {counts.get('skipped')}")
+    # Show the first few results so the operator sees what shipped vs
+    # what got blocked at a glance.
+    for r in (body.get("results") or [])[:10]:
+        status = r.get("status", "?")
+        sym = r.get("symbol", "?")
+        side = r.get("side", "?")
+        reason = r.get("reason", "")
+        print(f"    {side:4} {sym:8} → {status:18} {reason}")
+    return 0
+
+
 def _push(payload: dict[str, Any]) -> int:
     base = get_secret("api-base-url") or get_secret("api-url")
     token = (
@@ -227,6 +287,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="POST to /api/ingest/live-portfolio after writing the JSON.")
     p.add_argument("--out", default=str(DEFAULT_OUT_PATH),
                    help=f"Local JSON output (default {DEFAULT_OUT_PATH}).")
+    p.add_argument("--auto-execute", action="store_true",
+                   help=("After --push, also POST /api/trade-plan/{strategy}/execute "
+                         "with autoApprove=true so orders flow straight to T212. "
+                         "Risk gates + system_state still apply per order; "
+                         "anything blocked appears in risk_events. "
+                         "Requires --push."))
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
 
     try:
@@ -271,6 +337,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.push:
         rc = _push(payload)
+        if rc != 0:
+            return rc
+
+    if args.auto_execute:
+        if not args.push:
+            log.error("--auto-execute requires --push (the API needs the run "
+                      "persisted before deriving the trade plan)")
+            return 8
+        rc = _auto_execute(args.strategy)
         if rc != 0:
             return rc
 

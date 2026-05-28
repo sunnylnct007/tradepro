@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily slow-loop runner for the systematic-trading platform.
+
+  Fires 21:00 UTC daily (~16:00 ET, just after US market close so the
+  most-recent daily bar is settled). The CLI:
+
+    1. Fetches SPY + 3 sleeves (large_50 + high_beta + gold) via cache
+    2. Runs the trader's Ichimoku algo at the latest bar
+    3. Pushes today's target portfolio to /api/ingest/live-portfolio
+    4. POSTs /api/trade-plan/ichimoku_equity/execute with
+       autoApprove=true so orders flow straight to T212 demo (the
+       RiskGate + system_state are the safety net; anything that
+       fails a gate appears as a row in risk_events).
+
+  Sundays / holidays: yfinance returns no new bars and the slow loop
+  will just re-affirm yesterday's target. The trade plan diff will be
+  near-zero so nothing dispatches. Safe to schedule daily.
+
+  Disable temporarily without uninstalling:
+    launchctl unload ~/Library/LaunchAgents/com.tradepro.live-portfolio.plist
+  Or set system_state to frozen via the /risk UI — every order will
+  be refused without unloading the agent.
+
+  Installed by `bash strategies/scripts/install-launchd.sh`.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.live-portfolio</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{PROJECT_DIR}}/.venv/bin/tradepro-live-portfolio</string>
+    <string>--push</string>
+    <string>--auto-execute</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>21</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/live-portfolio-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/live-portfolio-stderr.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

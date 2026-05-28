@@ -27,12 +27,17 @@ set -euo pipefail
 MODE="worker"
 WITH_INTRADAY=0
 WITH_EPS_SNAPSHOT=0
+WITH_ALGO=0
 for arg in "$@"; do
   case "$arg" in
     --refresh|--cron) MODE="refresh" ;;
     --worker|--persistent) MODE="worker" ;;
     --intraday|--with-intraday) WITH_INTRADAY=1 ;;
     --eps-snapshot|--with-eps-snapshot) WITH_EPS_SNAPSHOT=1 ;;
+    # --algo installs the systematic-trading slow-loop + digest plists.
+    # Off by default — opt-in so a fresh worker install doesn't start
+    # auto-trading without explicit operator intent.
+    --algo|--with-algo|--systematic) WITH_ALGO=1 ;;
     -h|--help)
       sed -n '1,/^set -eu/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -106,6 +111,13 @@ if [[ "$MODE" == "worker" ]]; then
   else
     uninstall_one "com.tradepro.eps-snapshot"
   fi
+  if [[ "$WITH_ALGO" == "1" ]]; then
+    install_one "com.tradepro.live-portfolio"
+    install_one "com.tradepro.algo-digest"
+  else
+    uninstall_one "com.tradepro.live-portfolio"
+    uninstall_one "com.tradepro.algo-digest"
+  fi
   cat <<EOF
 
 Mode: WORKER (persistent, KeepAlive=true)
@@ -132,6 +144,12 @@ Switch to cron mode:
 
 Add intraday automation + weekly EPS snapshots alongside the worker:
   bash strategies/scripts/install-launchd.sh --intraday --eps-snapshot
+
+Add systematic-trading autonomy (slow loop + algo digest daily):
+  bash strategies/scripts/install-launchd.sh --algo
+  Slow loop  21:00 UTC daily: tradepro-live-portfolio --push --auto-execute
+  Algo digest 21:30 UTC daily: emails day's algo state to configured recipient
+  $([ "$WITH_ALGO" == "1" ] && echo "(INSTALLED)" || echo "(not installed)")
 
 Manual EPS snapshot (test it now):
   launchctl start com.tradepro.eps-snapshot

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily systematic-trading digest emailer.
+
+  Fires 21:30 UTC daily — 30 min after the slow loop (live-portfolio
+  plist) completes so the digest reflects today's freshly-pushed
+  target + auto-executed orders.
+
+  Pulls live algo state from the API (system_state, live-portfolio,
+  trade-plan, risk events, position drift, cost feedback, validation)
+  and assembles a single email with the day's view.
+
+  Email backend: configured via ~/.tradepro/email-creds.json (same
+  config file the long-term email-digest plist uses).
+
+  Installed by `bash strategies/scripts/install-launchd.sh`.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.algo-digest</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{PROJECT_DIR}}/.venv/bin/tradepro-algo-digest</string>
+    <string>--strategy</string>
+    <string>ichimoku_equity</string>
+    <string>--send</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>21</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/algo-digest-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/algo-digest-stderr.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
