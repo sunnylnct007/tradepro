@@ -2723,3 +2723,212 @@ def serialize(obj: Any) -> str:
     """Strict JSON serialisation that the FastMCP layer can hand back
     to the LLM. Handles dataclasses + datetime defensively."""
     return json.dumps(obj, default=str, ensure_ascii=False)
+
+
+# ════════════════════════════════════════════════════════════════════
+# Systematic-trading MCP tools — read surfaces for the slow loop +
+# trade plan + risk module + cost honesty. Every step of the
+# systematic-trading roadmap ships its tool here so the LLM can
+# answer "what does the algo want to hold tomorrow?", "what trades
+# would ship?", "what got blocked today?", etc.
+# ════════════════════════════════════════════════════════════════════
+
+
+def _systematic_envelope(tool: str, data: dict | None, **fields: Any) -> dict:
+    """Standard wrapper so each tool returns predictable shape +
+    citation source path the LLM can quote."""
+    if data is None:
+        return _err(tool, "endpoint returned 404 / no data", **fields)
+    return {
+        "_source": f"tradepro://{tool}",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        **fields,
+        **data,
+    }
+
+
+def get_target_portfolio(strategy: str = "ichimoku_equity") -> dict:
+    """Return the algo's latest target portfolio (slow-loop output).
+
+    Use this to answer 'what does the algo want me to hold tomorrow?'.
+    Returns the most-recent strategy_runs row + per-symbol decisions
+    with target weights, signal values, regime pass state, and the
+    Ichimoku indicator context that drove each decision.
+    """
+    try:
+        return _systematic_envelope(
+            "get_target_portfolio",
+            _get(f"/api/live-portfolio/{strategy}/latest"),
+            strategy=strategy,
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_target_portfolio", e, strategy=strategy)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_target_portfolio", str(e), strategy=strategy)
+
+
+def get_trade_plan(strategy: str = "ichimoku_equity") -> dict:
+    """Return the trades needed to move current broker positions to
+    the algo's target portfolio.
+
+    Use this to answer 'what would ship if I approved today's plan?'.
+    Returns per-intent { symbol, side, qty, target $, current $, diff,
+    reason }. Includes risk_class once the RiskGate multi-indicator
+    vetoes are wired (currently null).
+    """
+    try:
+        return _systematic_envelope(
+            "get_trade_plan",
+            _get(f"/api/trade-plan/{strategy}"),
+            strategy=strategy,
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_trade_plan", e, strategy=strategy)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_trade_plan", str(e), strategy=strategy)
+
+
+def get_current_positions(account: str = "demo") -> dict:
+    """Return the positions the broker currently shows.
+
+    Broker-as-golden per the systematic-trading design — this is the
+    authoritative answer to 'what do I hold right now?'. T212 demo
+    today; IBKR later.
+    """
+    try:
+        return _systematic_envelope(
+            "get_current_positions",
+            _get("/api/integrations/trading212/positions", params={"account": account}),
+            broker=f"t212_{account}",
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_current_positions", e, account=account)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_current_positions", str(e), account=account)
+
+
+def get_position_drift(unresolved_only: bool = True) -> dict:
+    """Return open broker-vs-internal position drift events.
+
+    Use this to answer 'is the broker disagreeing with my records?'.
+    Critical drift means broker holds something we don't know about
+    OR vice versa — review before placing trades.
+    """
+    try:
+        return _systematic_envelope(
+            "get_position_drift",
+            _get("/api/positions/drift",
+                 params={"unresolved": str(unresolved_only).lower(), "limit": 50}),
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_position_drift", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_position_drift", str(e))
+
+
+def list_risk_events(decision: str | None = None, since: str | None = None) -> dict:
+    """List today's pre-trade risk-gate decisions.
+
+    Use this to answer 'what got blocked today?' or 'which gate is
+    firing?'. decision filter: ALLOWED / BLOCKED / KILL_SWITCH /
+    SIZE_ADJUSTED. since= ISO timestamp for explicit historical lookup.
+    """
+    params: dict[str, Any] = {"limit": 100}
+    if decision:
+        params["decision"] = decision
+    if since:
+        params["since"] = since
+    try:
+        return _systematic_envelope(
+            "list_risk_events",
+            _get("/api/risk/events", params=params),
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("list_risk_events", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("list_risk_events", str(e))
+
+
+def get_risk_summary() -> dict:
+    """Aggregate of today's risk-gate decisions — allowed vs blocked,
+    which gates fired most. Useful for 'is the gate doing anything?'."""
+    try:
+        return _systematic_envelope("get_risk_summary", _get("/api/risk/summary"))
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_risk_summary", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_risk_summary", str(e))
+
+
+def get_system_state() -> dict:
+    """Current system trading state — normal / frozen / panic.
+
+    Use this to answer 'are we trading right now?' or to explain why
+    approvals are failing. Includes reason + who set it + when.
+    """
+    try:
+        return _systematic_envelope("get_system_state", _get("/api/system/state"))
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_system_state", e)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_system_state", str(e))
+
+
+def get_cost_feedback(strategy: str = "ichimoku_equity") -> dict:
+    """Live execution cost vs the backtest's 5bps assumption.
+
+    Use this to answer 'is my live system still consistent with the
+    backtest?'. When materiallyDiverged=true, the backtest validation
+    numbers should not be trusted at face value.
+    """
+    try:
+        return _systematic_envelope(
+            "get_cost_feedback",
+            _get(f"/api/cost-feedback/{strategy}"),
+            strategy=strategy,
+        )
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_cost_feedback", e, strategy=strategy)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_cost_feedback", str(e), strategy=strategy)
+
+
+def get_validation_summary(strategy: str = "ichimoku_equity") -> dict:
+    """Latest equity-pipeline backtest summary — Sharpe / CAGR /
+    MaxDD for in-sample, walk-forward OOS, and SPY benchmark.
+
+    Use this when answering 'is this strategy validated?'. Returns
+    only the summary stats (not the full charts/MC data) so the
+    response stays compact.
+    """
+    try:
+        full = _get(f"/api/equity-pipeline/{strategy}/latest")
+        if not full:
+            return _err("get_validation_summary",
+                        "no validation artifact yet — run tradepro-equity-pipeline --push",
+                        strategy=strategy)
+        artifact = full.get("artifact") or {}
+        return {
+            "_source": f"tradepro://get_validation_summary/{strategy}",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "strategy": strategy,
+            "as_of_utc": full.get("asOfUtc"),
+            "window": {
+                "start": artifact.get("config", {}).get("start_date"),
+                "end":   artifact.get("config", {}).get("end_date"),
+            },
+            "sleeves": artifact.get("sleeves_meta") or [],
+            "in_sample": artifact.get("in_sample") or {},
+            "walk_forward_summary": (artifact.get("walk_forward") or {}).get("summary") or {},
+            "spy_benchmark": artifact.get("spy_benchmark") or {},
+            "monte_carlo_summary": (
+                (artifact.get("monte_carlo") or {}).get("summary") or {}
+                if artifact.get("monte_carlo") else None
+            ),
+        }
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_validation_summary", e, strategy=strategy)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_validation_summary", str(e), strategy=strategy)
