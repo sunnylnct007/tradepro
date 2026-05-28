@@ -79,5 +79,11 @@ CREATE TABLE IF NOT EXISTS strategy_runs (
     uploaded_by       TEXT
 );
 
+-- Same defensive pattern as strategy_decisions above — adds the
+-- strategy column if a half-formed earlier table is missing it.
+ALTER TABLE strategy_runs ADD COLUMN IF NOT EXISTS strategy TEXT;
+UPDATE strategy_runs SET strategy = 'ichimoku_equity' WHERE strategy IS NULL;
+ALTER TABLE strategy_runs ALTER COLUMN strategy SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_strategy_runs_latest
     ON strategy_runs(strategy, as_of_utc DESC);
