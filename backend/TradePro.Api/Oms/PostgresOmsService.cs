@@ -102,6 +102,37 @@ public sealed class PostgresOmsService : IOmsService
             return (await GetAsync(existingId.Value))!;
         }
 
+        // Supersede: if a previous PENDING_APPROVAL order exists for
+        // the same (broker, strategy_id, symbol, side) — i.e. the same
+        // desired trade from an earlier algo run that never made it
+        // out — cancel it before enqueueing the new one. Avoids
+        // accumulating duplicate intents when the algo re-runs daily
+        // and prior PENDING orders haven't been acted on.
+        var supersedeIds = (await conn.QueryAsync<Guid>(@"
+            SELECT id FROM oms_orders
+            WHERE state = 'PENDING_APPROVAL'
+              AND broker = @Broker
+              AND strategy_id = @StrategyId
+              AND symbol = @Symbol
+              AND side = @Side;",
+            intent, transaction: tx)).ToList();
+        foreach (var supersededId in supersedeIds)
+        {
+            await conn.ExecuteAsync(@"
+                UPDATE oms_orders
+                SET state = 'CANCELLED',
+                    cancelled_reason = 'superseded by newer order',
+                    last_state_change_at_utc = NOW()
+                WHERE id = @id;",
+                new { id = supersededId }, transaction: tx);
+            await InsertEventAsync(conn, tx, supersededId,
+                eventType: "CANCELLED",
+                priorState: OmsState.PendingApproval,
+                newState: OmsState.Cancelled,
+                actor: actor,
+                detail: "superseded by newer order with same (broker, strategy, symbol, side)");
+        }
+
         var orderId = await conn.QuerySingleAsync<Guid>(@"
             INSERT INTO oms_orders (
                 client_order_id, broker, strategy_id, symbol, side, qty,
