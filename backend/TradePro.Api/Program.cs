@@ -113,6 +113,7 @@ builder.Services.AddSingleton<Trading212DemoCashCache>();
 builder.Services.AddScoped<TradePro.Api.Positions.PositionReconciler>();
 builder.Services.AddScoped<TradePro.Api.Positions.TradePlanService>();
 builder.Services.AddScoped<TradePro.Api.Risk.RiskGate>();
+builder.Services.AddHostedService<TradePro.Api.Risk.RiskMonitorService>();
 
 // Finnhub — off-by-default earnings-calendar provider. Free tier
 // signup gives 60 req/min which is plenty for occasional checks.
