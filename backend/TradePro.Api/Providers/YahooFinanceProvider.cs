@@ -198,6 +198,108 @@ public sealed class YahooFinanceProvider : IMarketDataProvider
         }
     }
 
+    /// <summary>
+    /// Fetches historical corporate actions (dividends + splits) for
+    /// <paramref name="symbol"/> via the Yahoo Finance chart API's
+    /// <c>events=div,split</c> overlay. Sorted oldest-first.
+    ///
+    /// Returns an empty list on any failure — the chart degrades to "no chips"
+    /// cleanly instead of erroring out.
+    /// </summary>
+    public async Task<IReadOnlyList<CorporateActionDto>> GetCorporateActionsAsync(
+        string symbol, int lookbackDays, CancellationToken ct)
+    {
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var period2 = now.ToUnixTimeSeconds();
+            var period1 = now.AddDays(-lookbackDays).ToUnixTimeSeconds();
+
+            var url =
+                $"https://query1.finance.yahoo.com/v8/finance/chart/{Uri.EscapeDataString(symbol)}" +
+                $"?period1={period1}&period2={period2}&interval=1d&events=div%2Csplit";
+
+            using var resp = await _http.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode)
+                return Array.Empty<CorporateActionDto>();
+
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+            var chart = doc.RootElement.GetProperty("chart");
+            if (!chart.TryGetProperty("result", out var result)
+                || result.ValueKind != JsonValueKind.Array
+                || result.GetArrayLength() == 0)
+                return Array.Empty<CorporateActionDto>();
+
+            var first = result[0];
+            if (!first.TryGetProperty("events", out var events))
+                return Array.Empty<CorporateActionDto>();
+
+            var actions = new List<CorporateActionDto>();
+
+            // ── Dividends ──────────────────────────────────────────────────
+            if (events.TryGetProperty("dividends", out var divs)
+                && divs.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var kv in divs.EnumerateObject())
+                {
+                    var ev = kv.Value;
+                    var date = EpochToDate(kv.Name);
+                    if (date is null) continue;
+
+                    double? amount = null;
+                    if (ev.TryGetProperty("amount", out var amtEl) && amtEl.ValueKind != JsonValueKind.Null)
+                        amount = amtEl.GetDouble();
+
+                    actions.Add(new CorporateActionDto(date, "dividend", amount, null));
+                }
+            }
+
+            // ── Splits ─────────────────────────────────────────────────────
+            if (events.TryGetProperty("splits", out var splits)
+                && splits.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var kv in splits.EnumerateObject())
+                {
+                    var ev = kv.Value;
+                    var date = EpochToDate(kv.Name);
+                    if (date is null) continue;
+
+                    // Yahoo returns numerator/denominator separately and also
+                    // a pre-formatted splitRatio string, e.g. "4:1".
+                    string? ratio = null;
+                    if (ev.TryGetProperty("splitRatio", out var srEl))
+                        ratio = srEl.GetString();
+                    if (ratio is null)
+                    {
+                        int? num = ev.TryGetProperty("numerator", out var numEl) ? numEl.GetInt32() : null;
+                        int? den = ev.TryGetProperty("denominator", out var denEl) ? denEl.GetInt32() : null;
+                        if (num.HasValue && den.HasValue)
+                            ratio = $"{num}:{den}";
+                    }
+
+                    actions.Add(new CorporateActionDto(date, "split", null, ratio));
+                }
+            }
+
+            return actions
+                .OrderBy(a => a.Date, StringComparer.Ordinal)
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<CorporateActionDto>();
+        }
+    }
+
+    private static string? EpochToDate(string epochStr)
+    {
+        if (!long.TryParse(epochStr, out var epoch)) return null;
+        return DateTimeOffset.FromUnixTimeSeconds(epoch)
+            .UtcDateTime.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    }
+
     private static string MapInterval(string interval) => interval.ToLowerInvariant() switch
     {
         "1m" or "2m" or "5m" or "15m" or "30m" or "60m" or "90m" or "1h" => interval,

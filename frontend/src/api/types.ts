@@ -916,3 +916,20 @@ export interface EarningsMarkersResponse {
   lookbackDays: number;
   earnings: EarningsMarker[];
 }
+
+/** One corporate action (dividend payment or stock split).
+ * Used by PriceHistoryChart to paint "D" / "S" chips at the event date. */
+export interface CorporateActionMarker {
+  date: string;                 // YYYY-MM-DD
+  type: "dividend" | "split";
+  /** Cash dividend per share (dividend events only). */
+  amount?: number | null;
+  /** Human-readable split ratio, e.g. "4:1" (split events only). */
+  ratio?: string | null;
+}
+
+export interface CorporateActionsResponse {
+  symbol: string;
+  lookback_days: number;
+  actions: CorporateActionMarker[];
+}

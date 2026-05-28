@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { EarningsMarker, HitRateResult, SignalDecision, Watchlist } from "../api/types";
+import type { CorporateActionMarker, EarningsMarker, HitRateResult, SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
@@ -47,10 +47,10 @@ export function Signals() {
   const [multi, setMulti] = useState<MultiResult | null>(null);
   const [multiLoading, setMultiLoading] = useState(false);
 
-  // Earnings markers for the chart overlay. Fetched whenever the symbol
-  // changes so the chart shows beat/miss flags at each earnings date.
-  // Silent failure: empty list → chart has no markers but still renders.
+  // Earnings markers and corporate action chips for the chart overlay.
+  // Both fetched when symbol changes; silent failure → chart still renders.
   const [earningsMarkers, setEarningsMarkers] = useState<EarningsMarker[]>([]);
+  const [corpActions, setCorpActions] = useState<CorporateActionMarker[]>([]);
 
   useEffect(() => {
     api.ukWatchlist().then(setWatchlist).catch(() => {});
@@ -58,8 +58,12 @@ export function Signals() {
 
   useEffect(() => {
     setEarningsMarkers([]);
+    setCorpActions([]);
     api.earningsMarkers(symbol)
       .then((r) => setEarningsMarkers(r.earnings ?? []))
+      .catch(() => {});
+    api.corporateActions(symbol)
+      .then((r) => setCorpActions(r.actions ?? []))
       .catch(() => {});
   }, [symbol]);
 
@@ -337,6 +341,7 @@ export function Signals() {
         <PriceHistoryChart
           symbol={symbol}
           earnings={earningsMarkers.length > 0 ? earningsMarkers : undefined}
+          corporateActions={corpActions.length > 0 ? corpActions : undefined}
         />
       )}
 

@@ -64,6 +64,37 @@ public static class MarketDataEndpoints
             });
         });
 
+        // Corporate actions overlay (dividends + splits) for PriceHistoryChart.
+        // Returns events oldest-first within lookbackDays (default 1825 d = 5y).
+        // Dividends show as "D" chips, splits as "S" chips on the price chart.
+        group.MapGet("/corporate-actions", async (
+            string symbol,
+            int? lookbackDays,
+            YahooFinanceProvider yahoo,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(symbol))
+                return Results.BadRequest(new { error = "symbol is required" });
+
+            var days = lookbackDays is > 0 ? lookbackDays.Value : 1825;
+            var actions = await yahoo.GetCorporateActionsAsync(symbol, days, ct);
+
+            var payload = actions.Select(a => new
+            {
+                date = a.Date,
+                type = a.Type,
+                amount = a.Amount,
+                ratio = a.Ratio,
+            });
+
+            return Results.Ok(new
+            {
+                symbol,
+                lookback_days = days,
+                actions = payload,
+            });
+        });
+
         return app;
     }
 }
