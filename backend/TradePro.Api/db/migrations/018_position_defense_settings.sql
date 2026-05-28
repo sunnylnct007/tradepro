@@ -43,5 +43,21 @@ VALUES
      || 'entry price, RiskMonitorService logs a position_take_profit '
      || 'risk_event (operator trims manually). 0 disables. Default '
      || '0.08 = +8% per position.',
-     'Risk', 0, 0.50)
+     'Risk', 0, 0.50),
+    ('risk_monitor_auto_exit_stop_loss',
+     'true'::jsonb, 'bool',
+     'Auto-exit on stop-loss',
+     'When TRUE (default), RiskMonitorService auto-places a SELL '
+     || 'order for the full position when stop_loss_pct trips. '
+     || 'Defensive exits work even when system_state is frozen — '
+     || 'the kill switch only refuses BUYs.',
+     'Risk', NULL, NULL),
+    ('risk_monitor_auto_exit_take_profit',
+     'false'::jsonb, 'bool',
+     'Auto-trim half on take-profit',
+     'When TRUE, RiskMonitorService auto-places a SELL for half the '
+     || 'position when take_profit_pct trips. Default FALSE — '
+     || 'operator decides whether to mechanically trim winners or '
+     || 'let them run.',
+     'Risk', NULL, NULL)
 ON CONFLICT (key) DO NOTHING;

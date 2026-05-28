@@ -105,6 +105,29 @@ public sealed class RiskGate
                 }
             }
 
+            // Gate 4a: sentiment veto on BUYs. Reads the latest score
+            // from sentiment_scores; vetoes new entries when the LLM
+            // says the recent news is materially negative. Never blocks
+            // SELLs (those are defensive exits — we WANT out when
+            // sentiment turns). No-op when no score exists or the
+            // score is too old (max_age setting).
+            if (settings.SentimentBuyVetoScore < 0
+                && string.Equals(order.Side, "BUY", StringComparison.OrdinalIgnoreCase))
+            {
+                var sent = await ReadLatestSentimentAsync(order.Symbol);
+                if (sent is not null
+                    && sent.Value.ageMinutes <= settings.SentimentMaxAgeMinutes
+                    && sent.Value.score < settings.SentimentBuyVetoScore)
+                {
+                    failures.Add(new RiskFailure(
+                        "sentiment_negative",
+                        $"sentiment {sent.Value.score:F2} ({sent.Value.classification}) "
+                        + $"on {order.Symbol} below veto threshold "
+                        + $"{settings.SentimentBuyVetoScore:F2}; "
+                        + $"scored {sent.Value.ageMinutes:F0}min ago"));
+                }
+            }
+
             // Gate 4: cash check (T212 demo only — we only know its cash)
             if (settings.CashSafetyMargin > 0
                 && string.Equals(order.Broker, "T212_DEMO", StringComparison.OrdinalIgnoreCase)
@@ -212,7 +235,9 @@ public sealed class RiskGate
                 'risk_max_order_notional_usd',
                 'risk_max_orders_per_minute',
                 'risk_cash_safety_margin',
-                'risk_fail_closed'
+                'risk_fail_closed',
+                'risk_sentiment_buy_veto_score',
+                'risk_sentiment_max_age_minutes'
             );")).ToDictionary(r => r.key, r => r.value_text);
 
         T Parse<T>(string key, T fallback)
@@ -227,7 +252,32 @@ public sealed class RiskGate
             MaxOrderNotionalUsd: Parse("risk_max_order_notional_usd", 0m),
             MaxOrdersPerMinute: Parse("risk_max_orders_per_minute", 0),
             CashSafetyMargin: Parse("risk_cash_safety_margin", 0.0),
-            FailClosed: Parse("risk_fail_closed", true));
+            FailClosed: Parse("risk_fail_closed", true),
+            // 0 disables the sentiment veto entirely (useful while the
+            // local LLM is calibrating + we haven't seen real signal
+            // quality yet — per the paper-eval methodology in
+            // project_overnight_risk_options).
+            SentimentBuyVetoScore: Parse("risk_sentiment_buy_veto_score", -0.5),
+            SentimentMaxAgeMinutes: Parse("risk_sentiment_max_age_minutes", 60));
+    }
+
+    private async Task<(double score, string classification, double ageMinutes)?>
+        ReadLatestSentimentAsync(string symbol)
+    {
+        var bare = symbol.Trim().ToUpperInvariant();
+        var underscore = bare.IndexOf('_');
+        if (underscore > 0) bare = bare[..underscore];
+        await using var conn = await _db.OpenConnectionAsync();
+        var row = await conn.QueryFirstOrDefaultAsync<(double score, string classification, DateTime scored_at_utc)?>(@"
+            SELECT score, classification, scored_at_utc
+            FROM sentiment_scores
+            WHERE symbol = @bare OR symbol = @symbol
+            ORDER BY scored_at_utc DESC
+            LIMIT 1;",
+            new { bare, symbol });
+        if (row is null) return null;
+        var age = (DateTime.UtcNow - row.Value.scored_at_utc).TotalMinutes;
+        return (row.Value.score, row.Value.classification, age);
     }
 
     private async Task PersistEventsAsync(
@@ -296,7 +346,9 @@ public sealed class RiskGate
         decimal MaxOrderNotionalUsd,
         int MaxOrdersPerMinute,
         double CashSafetyMargin,
-        bool FailClosed);
+        bool FailClosed,
+        double SentimentBuyVetoScore,
+        int SentimentMaxAgeMinutes);
 }
 
 public sealed record RiskFailure(string Gate, string Reason);

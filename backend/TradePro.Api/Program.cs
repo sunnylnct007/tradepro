@@ -252,6 +252,7 @@ api.MapTradePlanEndpoints();
 api.MapSystemStateEndpoints();
 api.MapRiskEndpoints();
 api.MapCostFeedbackEndpoints();
+api.MapSentimentUserEndpoints();
 // /api/quant/backtest/* — UI-triggered quant backtests. Same
 // session_requests queue, kind="backtest". Worker poll/complete
 // routes mount on the ingest group below.
@@ -269,5 +270,6 @@ ingest.MapQuantWorkerEndpoints();
 ingest.MapUniverseWorkerEndpoints();
 ingest.MapEquityPipelineIngestEndpoints();
 ingest.MapLivePortfolioIngestEndpoints();
+ingest.MapSentimentIngestEndpoints();
 
 app.Run();

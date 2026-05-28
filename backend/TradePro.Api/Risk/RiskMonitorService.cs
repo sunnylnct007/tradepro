@@ -1,7 +1,10 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Dapper;
 using Npgsql;
+using TradePro.Api.Oms;
 using TradePro.Api.Providers.Trading212;
 
 namespace TradePro.Api.Risk;
@@ -224,7 +227,82 @@ public sealed class RiskMonitorService : BackgroundService
             _log.LogWarning(
                 "RISK MONITOR position-level alert: {Gate} on {Symbol} — {Reason}",
                 gate, p.Ticker, reason);
+
+            // Auto-exit if enabled. For stop_loss: close the full
+            // position. For take_profit: trim half (lock in gains,
+            // let the rest run with trend). System_state=frozen
+            // still allows SELLs by design — defensive exits are
+            // the whole point of staying alive while frozen.
+            if (settings.AutoExitOnStopLoss && gate == "position_stop_loss")
+            {
+                await PushExitOrderAsync(sp, p, qty: p.Quantity,
+                    reason: $"auto-exit stop_loss: {reason}");
+            }
+            else if (settings.AutoExitOnTakeProfit && gate == "position_take_profit")
+            {
+                // Round HALF down to 4 dp — T212 accepts fractional
+                // shares but only to 4 dp on US equities.
+                var half = Math.Round(p.Quantity / 2m, 4, MidpointRounding.ToZero);
+                if (half > 0m)
+                {
+                    await PushExitOrderAsync(sp, p, qty: half,
+                        reason: $"auto-trim take_profit (half): {reason}");
+                }
+            }
         }
+    }
+
+    private async Task PushExitOrderAsync(
+        IServiceProvider sp, Trading212Position pos, decimal qty, string reason)
+    {
+        try
+        {
+            var oms = sp.GetService<IOmsService>();
+            if (oms is null)
+            {
+                _log.LogWarning("auto-exit skipped: IOmsService unavailable");
+                return;
+            }
+            // Deterministic ClientOrderId so a flapping signal doesn't
+            // queue 20 duplicate exits — same (symbol, qty, day) =
+            // same UUID = OMS returns the existing row.
+            var seed = $"auto-exit:{pos.Ticker}:{qty:0.0000}:"
+                     + $"{DateTime.UtcNow:yyyyMMdd}";
+            var clientId = DeterministicGuid(seed);
+            var intent = new OrderIntent(
+                ClientOrderId: clientId,
+                Broker: "T212_DEMO",
+                Symbol: pos.Ticker,           // already in T212 form (AAPL_US_EQ)
+                Side: "SELL",
+                Qty: qty,
+                OrderType: "MKT",
+                StrategyId: "ichimoku_equity");
+            var order = await oms.EnqueueAsync(intent, "risk_monitor");
+            try
+            {
+                var done = await oms.ApproveAsync(order.Id, "risk_monitor");
+                _log.LogInformation(
+                    "AUTO-EXIT placed: SELL {Qty} {Sym} order={Id} state={State} — {Reason}",
+                    qty, pos.Ticker, done.Id, done.State, reason);
+            }
+            catch (InvalidOperationException gateRefusal)
+            {
+                _log.LogWarning(
+                    "AUTO-EXIT enqueued but refused by gate: {Sym} — {Msg}",
+                    pos.Ticker, gateRefusal.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "auto-exit failed for {Sym}", pos.Ticker);
+        }
+    }
+
+    private static Guid DeterministicGuid(string input)
+    {
+        using var md5 = MD5.Create();
+        var bytes = md5.ComputeHash(Encoding.UTF8.GetBytes(input));
+        return new Guid(bytes);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -346,7 +424,9 @@ public sealed class RiskMonitorService : BackgroundService
                 'risk_monitor_max_drawdown',
                 'risk_monitor_min_free_cash_usd',
                 'risk_monitor_stop_loss_pct',
-                'risk_monitor_take_profit_pct'
+                'risk_monitor_take_profit_pct',
+                'risk_monitor_auto_exit_stop_loss',
+                'risk_monitor_auto_exit_take_profit'
             );")).ToDictionary(r => r.key, r => r.value_text);
 
         T Parse<T>(string key, T fallback)
@@ -361,12 +441,19 @@ public sealed class RiskMonitorService : BackgroundService
             // Per-position thresholds — 0 disables. Defaults conservative:
             // -3% stop, +8% take-profit. Operator tunes via /settings.
             StopLossPct: Parse("risk_monitor_stop_loss_pct", 0.03),
-            TakeProfitPct: Parse("risk_monitor_take_profit_pct", 0.08));
+            TakeProfitPct: Parse("risk_monitor_take_profit_pct", 0.08),
+            // Auto-exit defaults TRUE for stop-loss (defensive), FALSE
+            // for take-profit (operator chooses whether to mechanically
+            // trim or let winners run). Tunable in /settings.
+            AutoExitOnStopLoss: Parse("risk_monitor_auto_exit_stop_loss", true),
+            AutoExitOnTakeProfit: Parse("risk_monitor_auto_exit_take_profit", false));
     }
 
     private sealed record MonitorSettings(
         double MaxPortfolioDrawdown,
         decimal MinFreeCashUsd,
         double StopLossPct,
-        double TakeProfitPct);
+        double TakeProfitPct,
+        bool AutoExitOnStopLoss,
+        bool AutoExitOnTakeProfit);
 }
