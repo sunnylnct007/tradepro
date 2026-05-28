@@ -622,6 +622,62 @@ def enforce_coherence(
     }
 
 
+def apply_swing_strict_demotion(
+    *,
+    bucket: str,
+    reason: str,
+    mean: float | None,
+    material_negative_count: int | None,
+    strict_mean_threshold: float = -0.05,
+    neutral_band: float = 0.10,
+) -> tuple[str, str, bool]:
+    """Tighter overlay for medium-long-term holds. Standard demotion
+    (apply_sentiment_demotion) is calibrated for intraday — mean ≤ -0.30
+    + 2 material negatives. For a 1-8w swing or longer hold the trader
+    carries news exposure through every cycle, so the threshold must be
+    stricter: any single material-negative headline AND sentiment in
+    the neutral-to-slightly-negative band warrants WAIT.
+
+    Fires AFTER apply_sentiment_demotion so the AVOID and standard WAIT
+    cases are already handled. This is the "TSLA squeaks through at
+    +0.02 mean with 1 material negative on SpaceX merger uncertainty"
+    case — fine for intraday, wrong for medium-long-term swing.
+
+    Two rules (BUY → WAIT only — never escalates to AVOID):
+      A: mean ≤ -0.05 (mildly negative or below) → demote even with no
+         material negatives. The market mood is tilting bearish; don't
+         add at this level for a multi-week hold.
+      B: mean in (-0.10, +0.10) (neutral band) AND mat_neg ≥ 1 → demote.
+         The news isn't outright bearish but it's mixed enough that
+         one material negative tips the calculus.
+    """
+    if bucket != "BUY":
+        return bucket, reason, False
+    if mean is None:
+        return bucket, reason, False
+    mat_neg = material_negative_count or 0
+    # Rule A — mildly-or-more negative mean.
+    if mean <= strict_mean_threshold:
+        return (
+            "WAIT",
+            (f"Swing-strict demotion: 7d mean {mean:.2f} ≤ "
+             f"{strict_mean_threshold} — mildly negative news backdrop, "
+             f"tighter threshold for medium-long-term hold."),
+            True,
+        )
+    # Rule B — neutral band AND material negatives present.
+    if abs(mean) <= neutral_band and mat_neg >= 1:
+        return (
+            "WAIT",
+            (f"Swing-strict demotion: 7d mean {mean:.2f} within neutral "
+             f"band ±{neutral_band} AND {mat_neg} material-negative "
+             f"headline(s) — news flow noisy for a medium-long-term "
+             f"entry; wait for clearer backdrop."),
+            True,
+        )
+    return bucket, reason, False
+
+
 def apply_sentiment_demotion(
     *,
     bucket: str,
@@ -893,6 +949,19 @@ def _attach_bucket_and_rationale(
             mean_threshold=mean_threshold,
             min_material=min_material,
         )
+
+        # Swing-strict overlay — tighter rule for medium-long-term
+        # carry. Catches the TSLA case where global thresholds let a
+        # BUY through at +0.02 mean + 1 material negative; for a
+        # multi-week hold the news backdrop matters more than for a
+        # 30-minute intraday trade.
+        bucket, reason, swing_strict_demoted = apply_swing_strict_demotion(
+            bucket=bucket,
+            reason=reason,
+            mean=ss.get("mean_sentiment"),
+            material_negative_count=ss.get("material_negative_count", 0),
+        )
+        sentiment_demoted = sentiment_demoted or swing_strict_demoted
 
         # Horizon-veto + extreme-range demotion. Fixes the QUAL/USMV-
         # at-100th-percentile BUY bug where the strategy consensus was

@@ -391,6 +391,43 @@ export const api = {
     get<{ events: OmsOrderEventRow[] }>(
       `/api/oms/orders/${encodeURIComponent(orderId)}/events`,
     ),
+  // Full decision-chain audit: OMS state transitions + RiskGate
+  // events + LLM evaluations. Answers "on what basis was this
+  // approved/rejected" in one round trip.
+  omsOrderAudit: (orderId: string) =>
+    get<{
+      order: OmsOrderRow;
+      events: OmsOrderEventRow[];
+      riskEvents: Array<{
+        id: string;
+        occurred_at_utc: string;
+        gate: string;
+        decision: string;
+        reason: string | null;
+        detail_json: string | null;
+      }>;
+      llmEvals: Array<{
+        id: string;
+        occurred_at_utc: string;
+        purpose: string;
+        llm_url: string;
+        llm_model: string;
+        source_tag: string | null;
+        latency_ms: number | null;
+        decision: string;
+        confidence: number | null;
+        reasoning: string | null;
+        detail_json: string | null;
+      }>;
+      summary: {
+        nStateTransitions: number;
+        nRiskEvents: number;
+        nLlmEvals: number;
+        riskBlocks: number;
+        llmApprovals: number;
+        llmRejections: number;
+      };
+    }>(`/api/oms/orders/${encodeURIComponent(orderId)}/audit`),
   omsApprove: (orderId: string) =>
     post<OmsOrderRow, {}>(
       `/api/oms/orders/${encodeURIComponent(orderId)}/approve`,
@@ -520,6 +557,34 @@ export const api = {
       error?: string | null;
       fetchedAtUtc?: string;
     }>("/api/integrations/trading212/cash", { account }),
+
+  // Multi-broker cash summary — every connected broker's cash in one
+  // hit so the cockpit can show a strip rather than fetching each
+  // broker separately. Each row has `status` so the UI can render
+  // disabled / down without throwing.
+  cashSummary: () =>
+    get<{
+      utc: string;
+      brokers: Array<{
+        broker: string;
+        label: string;
+        status: "ok" | "degraded" | "down" | "disabled";
+        currency?: string | null;
+        free?: number | null;
+        invested?: number | null;
+        total?: number | null;
+        openPnl?: number | null;
+        available?: number | null;
+        balance?: number | null;
+        error?: string | null;
+        note?: string | null;
+        mode?: string | null;
+      }>;
+    }>("/api/integrations/cash-summary"),
+
+  bulkCancelPending: (body: { strategyPrefix?: string; broker?: string; reason?: string }) =>
+    post<{ cancelled: number; ids: string[]; strategyPrefix: string | null; broker: string | null; actor: string; reason: string }, typeof body>(
+      "/api/admin/oms/bulk-cancel-pending", body),
 
   omsPositions: (strategyId?: string) =>
     get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string }> }>(

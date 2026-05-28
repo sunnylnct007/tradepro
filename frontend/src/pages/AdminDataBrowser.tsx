@@ -27,6 +27,7 @@ import type {
   AdminStrategyVersionRow,
 } from "../api/client";
 import { CockpitCard } from "../components/CockpitCard";
+import { TestPlacementPanel } from "../components/cockpit/TestPlacementPanel";
 
 // ── helpers ───────────────────────────────────────────────────────
 
@@ -563,6 +564,14 @@ export function AdminDataBrowser() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+        <CockpitCard
+          id="admin-test-placement"
+          title="Test placement (manual OMS → T212 demo) — IT smoke test"
+          fullWidth
+          defaultOpen={false}
+        >
+          <TestPlacementPanel onPlaced={() => { /* admin context — no parent refetch needed */ }} />
+        </CockpitCard>
         <EventsCard />
         <OrdersCard />
         <FillsCard />

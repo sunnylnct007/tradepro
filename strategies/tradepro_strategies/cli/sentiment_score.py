@@ -268,6 +268,48 @@ def _mock_score(symbol: str, news: list[dict[str, Any]]) -> dict[str, Any]:
 # ---------------------------------------------------------------------- #
 
 
+def _push_llm_eval(
+    base: str, token: str,
+    *, symbol: str, prompt: str, response_raw: str,
+    decision: str, confidence: float | None, reasoning: str | None,
+    llm_url: str, llm_model: str, source_tag: str | None,
+    latency_ms: int | None, detail: dict[str, Any] | None,
+) -> None:
+    """Push a single LLM evaluation to the platform audit log so the
+    user can later answer "what did the LLM say about TSLA on
+    2026-05-28 and why". Best-effort — failure is logged but does
+    not break the strategy run. Mirrors the structure of the
+    /api/oms/orders/{id}/llm-evaluation order-tied variant; this is
+    the pre-trade signal-time path (no order yet)."""
+    url = f"{base.rstrip('/')}/api/llm-evaluations"
+    body = {
+        "Purpose": "sentiment_score",
+        "LlmUrl": llm_url,
+        "LlmModel": llm_model,
+        "SourceTag": source_tag,
+        "LatencyMs": latency_ms,
+        "Prompt": prompt,
+        "ResponseRaw": response_raw,
+        "Decision": decision,        # APPROVE / REJECT / ADVISE / ERROR
+        "Confidence": confidence,
+        "Reasoning": reasoning,
+        "DetailJson": json.dumps(detail) if detail else None,
+        "Symbol": symbol,
+    }
+    try:
+        resp = requests.post(
+            url, json=body,
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            timeout=15,
+        )
+        if not 200 <= resp.status_code < 300:
+            log.debug("llm-eval push HTTP %d for %s: %s",
+                      resp.status_code, symbol, resp.text[:200])
+    except requests.RequestException as exc:
+        log.debug("llm-eval push failed for %s: %s", symbol, exc)
+
+
 def _push(base: str, token: str, scores: list[dict[str, Any]]) -> bool:
     if not scores:
         return True

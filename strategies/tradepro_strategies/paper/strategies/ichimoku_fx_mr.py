@@ -157,14 +157,14 @@ class IchimokuFXMeanReversionStrategy(Strategy):
 
     source = "trader-quant"
     caveats = [
-        "T212 BROKER ROUTING — FX is NOT placeable on T212's Invest "
-        "API (no public CFD/FX endpoint). Any T212_DEMO order for an "
-        "FX pair will 404 with 'entity-not-found' and OMS records it "
-        "as REJECTED. Use broker=PAPER for simulated fills; FX live "
-        "trading needs IBKR (planned).",
+        "BROKER ROUTING — strategy is mapped to IG_DEMO via "
+        "strategy_broker_map (IG has full FX/CFD support). T212's "
+        "Invest API does NOT support FX, so any manual override to "
+        "T212_DEMO will reject. PAPER broker still available for "
+        "purely-simulated fills.",
         "PAPER fills are SIMULATED locally by the engine — they do "
         "NOT appear in the Portfolio page (Portfolio reads T212's "
-        "real positions). Expected behaviour, not a bug.",
+        "real positions). IG orders DO appear under the IG account.",
         "DESIGN-LIMITED. Ichimoku is a TREND-confirmation tool "
         "originally tuned for daily Japanese equities. Using it for "
         "intraday FX mean-reversion is contrarian to its design and "

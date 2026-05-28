@@ -29,7 +29,10 @@ namespace TradePro.Api.Auth;
 public static class SecretsBundleLoader
 {
     private const string DefaultSecretName = "tradepro/all";
-    private const string DefaultRegion = "eu-north-1";
+    // eu-west-2 is where every TradePro secret + the EC2 host now live.
+    // (Project originated in eu-north-1; the migration moved both
+    // bundle and standalone secrets. Keep this in sync with the bundle.)
+    private const string DefaultRegion = "eu-west-2";
 
     private static readonly Dictionary<string, string> KeyMap = new()
     {
@@ -77,48 +80,52 @@ public static class SecretsBundleLoader
             return;
         }
 
-        Dictionary<string, string?>? bundle;
+        Dictionary<string, string?>? bundle = null;
         try
         {
             bundle = FetchBundle(secretName, region);
         }
         catch (Exception ex)
         {
-            log?.LogWarning(ex, "SM bundle fetch failed (name={name}, region={region}); continuing with env/appsettings values only", secretName, region);
-            return;
+            // Don't return — secondary secrets (tradepro/ig etc.) may
+            // still load even when the primary bundle is unavailable.
+            // Common case: operator dropped the legacy tradepro/all
+            // secret but still wants per-broker secondaries to work.
+            log?.LogWarning(ex, "SM bundle fetch failed (name={name}, region={region}); continuing with env/appsettings values only — will still attempt secondary secrets", secretName, region);
         }
         if (bundle is null || bundle.Count == 0)
         {
-            log?.LogInformation("SM bundle empty or absent (name={name}, region={region})", secretName, region);
-            return;
+            log?.LogInformation("SM bundle empty or absent (name={name}, region={region}) — proceeding to secondary secrets", secretName, region);
         }
-
-        // Only inject keys that don't already have a value in
-        // IConfiguration — env vars and appsettings.json win, so local
-        // overrides keep working.
-        var injected = new Dictionary<string, string?>();
-        foreach (var (kebab, configKey) in KeyMap)
+        else
         {
-            if (!bundle.TryGetValue(kebab, out var value) || string.IsNullOrEmpty(value)) continue;
-            var current = existing[configKey];
-            if (!string.IsNullOrEmpty(current))
+            // Only inject keys that don't already have a value in
+            // IConfiguration — env vars and appsettings.json win, so
+            // local overrides keep working.
+            var injected = new Dictionary<string, string?>();
+            foreach (var (kebab, configKey) in KeyMap)
             {
-                log?.LogDebug("SM bundle key {kebab} skipped: {configKey} already set", kebab, configKey);
-                continue;
+                if (!bundle.TryGetValue(kebab, out var value) || string.IsNullOrEmpty(value)) continue;
+                var current = existing[configKey];
+                if (!string.IsNullOrEmpty(current))
+                {
+                    log?.LogDebug("SM bundle key {kebab} skipped: {configKey} already set", kebab, configKey);
+                    continue;
+                }
+                injected[configKey] = value;
             }
-            injected[configKey] = value;
-        }
-
-        if (injected.Count > 0)
-        {
-            builder.AddInMemoryCollection(injected);
-            log?.LogInformation("SM bundle loaded {count} key(s) from {name}: {keys}",
-                injected.Count, secretName, string.Join(", ", injected.Keys));
+            if (injected.Count > 0)
+            {
+                builder.AddInMemoryCollection(injected);
+                log?.LogInformation("SM bundle loaded {count} key(s) from {name}: {keys}",
+                    injected.Count, secretName, string.Join(", ", injected.Keys));
+            }
         }
 
         // Also fold in the standalone IG secret (tradepro/ig) when
         // present. Separate secret so IG creds rotate independently of
-        // the all-in-one bundle. Silent skip if missing — IG is opt-in.
+        // the all-in-one bundle. Loads unconditionally — primary bundle
+        // failure must not gate the secondaries.
         LoadSecondary(builder, existing, region, "tradepro/ig", IgKeyMap, log);
     }
 
@@ -137,15 +144,36 @@ public static class SecretsBundleLoader
         }
         catch (Exception ex)
         {
-            log?.LogDebug(ex, "secondary secret {name} fetch skipped", secretName);
+            // Elevated from Debug to Information — when the secret IS
+            // expected (e.g. operator has populated tradepro/ig) and the
+            // fetch fails silently, the operator stares at "enabled:false"
+            // with no clue why. Log loud here so the failure mode is
+            // visible in container output without rebuilding.
+            log?.LogInformation(
+                "Secondary secret {name} fetch failed: {msg} (region {region}). " +
+                "If you expected this secret to load, check IAM permissions for the task role.",
+                secretName, ex.Message, region);
             return;
         }
-        if (bundle is null || bundle.Count == 0) return;
+        if (bundle is null || bundle.Count == 0)
+        {
+            log?.LogInformation("Secondary secret {name} returned empty bundle", secretName);
+            return;
+        }
         var injected = new Dictionary<string, string?>();
+        var skipped = new List<string>();
         foreach (var (key, configKey) in keyMap)
         {
-            if (!bundle.TryGetValue(key, out var value) || string.IsNullOrEmpty(value)) continue;
-            if (!string.IsNullOrEmpty(existing[configKey])) continue;
+            if (!bundle.TryGetValue(key, out var value) || string.IsNullOrEmpty(value))
+            {
+                skipped.Add($"{key}(missing)");
+                continue;
+            }
+            if (!string.IsNullOrEmpty(existing[configKey]))
+            {
+                skipped.Add($"{key}(already-set)");
+                continue;
+            }
             injected[configKey] = value;
         }
         if (injected.Count > 0)
@@ -153,6 +181,12 @@ public static class SecretsBundleLoader
             builder.AddInMemoryCollection(injected);
             log?.LogInformation("Secondary secret {name} loaded {count} key(s): {keys}",
                 secretName, injected.Count, string.Join(", ", injected.Keys));
+        }
+        else
+        {
+            log?.LogInformation(
+                "Secondary secret {name} found but injected 0 keys. skipped={skipped}",
+                secretName, string.Join(", ", skipped));
         }
     }
 

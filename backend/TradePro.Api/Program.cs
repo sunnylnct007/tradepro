@@ -16,7 +16,13 @@ var builder = WebApplication.CreateBuilder(args);
 // IConfiguration before anything binds. Env vars + appsettings.json
 // still win, so local dev with no AWS creds keeps working — see
 // SecretsBundleLoader for the kebab-case → Config:Key mapping.
-SecretsBundleLoader.LoadInto(builder.Configuration, builder.Configuration);
+// Bootstrap console logger so SM-bundle outcomes are visible in
+// container logs (otherwise the loader runs silent and the operator
+// can't tell whether IG / T212 secrets actually landed).
+using var bootstrapLoggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
+SecretsBundleLoader.LoadInto(
+    builder.Configuration, builder.Configuration,
+    bootstrapLoggerFactory.CreateLogger("SecretsBundleLoader"));
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -176,7 +182,9 @@ builder.Services.AddSingleton<TradePro.Api.Oms.IOmsService>(sp =>
         sp.GetRequiredService<Npgsql.NpgsqlDataSource>(),
         sp,
         sp.GetRequiredService<ILogger<TradePro.Api.Oms.PostgresOmsService>>()));
-builder.Services.AddSingleton<TradePro.Api.Oms.IOmsModeService, TradePro.Api.Oms.InMemoryOmsModeService>();
+// Persistent OMS mode — survives restarts. Replaces the in-memory
+// impl that reset to Manual on every redeploy.
+builder.Services.AddSingleton<TradePro.Api.Oms.IOmsModeService, TradePro.Api.Oms.PostgresOmsModeService>();
 // Background poller that polls T212 demo for fills/cancellations on
 // SUBMITTED orders and transitions OMS accordingly. Closes the
 // SUBMITTED → FILLED loop without operator intervention.

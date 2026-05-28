@@ -38,6 +38,202 @@ public static class OmsEndpoints
             return Results.Ok(new { events });
         });
 
+        // GET /api/oms/orders/{id}/audit — full decision audit chain.
+        // Surfaces every gate + LLM call + state transition for one
+        // order so the operator can answer "on what basis was this
+        // approved/rejected" without joining tables manually. This is
+        // the trust-before-breadth surface — the trader can't trade
+        // on what they can't audit.
+        orders.MapGet("/{orderId:guid}/audit", async (
+            Guid orderId, IOmsService oms, Npgsql.NpgsqlDataSource db) =>
+        {
+            var order = await oms.GetAsync(orderId);
+            if (order is null) return Results.NotFound();
+            await using var conn = await db.OpenConnectionAsync();
+
+            // OMS state-machine timeline (PENDING → APPROVED → SUBMITTED → …)
+            var events = await oms.ListEventsAsync(orderId);
+
+            // RiskGate decisions — anything from the C# gate stack
+            // (blacklist / size_cap / velocity / cash_check / sentiment_negative).
+            var riskEvents = (await Dapper.SqlMapper.QueryAsync(conn, @"
+                SELECT id, occurred_at_utc, gate, decision, reason, detail_json::text AS detail_json
+                FROM risk_events
+                WHERE order_id = @orderId OR
+                      (strategy_id = @strategy AND symbol = @symbol AND
+                       occurred_at_utc BETWEEN @startUtc AND @endUtc)
+                ORDER BY occurred_at_utc DESC
+                LIMIT 50;",
+                new
+                {
+                    orderId,
+                    strategy = order.StrategyId,
+                    symbol = order.Symbol,
+                    startUtc = order.CreatedAtUtc.AddSeconds(-30),
+                    endUtc = order.LastStateChangeAtUtc.AddSeconds(30),
+                })).ToList();
+
+            // LLM evaluations — any model call that touched this order
+            // OR ran for the same (strategy, symbol) within the order's
+            // lifetime. The widened window means a pre-order sentiment
+            // score gets stitched in even if the LLM was called before
+            // the enqueue.
+            var llmEvals = (await Dapper.SqlMapper.QueryAsync(conn, @"
+                SELECT id, occurred_at_utc, purpose, llm_url, llm_model,
+                       source_tag, latency_ms, decision, confidence,
+                       reasoning, detail_json::text AS detail_json
+                FROM llm_evaluations
+                WHERE order_id = @orderId OR
+                      (strategy_id = @strategy AND symbol = @symbol AND
+                       occurred_at_utc BETWEEN @startUtc AND @endUtc)
+                ORDER BY occurred_at_utc DESC
+                LIMIT 50;",
+                new
+                {
+                    orderId,
+                    strategy = order.StrategyId,
+                    symbol = order.Symbol,
+                    startUtc = order.CreatedAtUtc.AddSeconds(-60),
+                    endUtc = order.LastStateChangeAtUtc.AddSeconds(60),
+                })).ToList();
+
+            return Results.Ok(new
+            {
+                order,
+                events,
+                riskEvents,
+                llmEvals,
+                summary = new
+                {
+                    nStateTransitions = events.Count(),
+                    nRiskEvents = riskEvents.Count,
+                    nLlmEvals = llmEvals.Count,
+                    riskBlocks = riskEvents.Count(e => (string)((dynamic)e).decision != "ALLOWED"),
+                    llmApprovals = llmEvals.Count(e => (string)((dynamic)e).decision == "APPROVE"),
+                    llmRejections = llmEvals.Count(e => (string)((dynamic)e).decision == "REJECT"),
+                },
+            });
+        });
+
+        // POST /api/oms/orders/{id}/llm-evaluation — record an LLM
+        // evaluation against this order. Called by the LLM approver
+        // worker (Python or in-process) when it scores an order.
+        // Recording is idempotent on (order_id, llm_model, occurred_at_utc±1s).
+        orders.MapPost("/{orderId:guid}/llm-evaluation", async (
+            Guid orderId, LlmEvalBody body, Npgsql.NpgsqlDataSource db) =>
+        {
+            await using var conn = await db.OpenConnectionAsync();
+            // Resolve order context — strategy/symbol/side/qty/broker —
+            // so the row is queryable standalone without joining
+            // oms_orders later (orders may be archived).
+            var order = await Dapper.SqlMapper.QueryFirstOrDefaultAsync(conn, @"
+                SELECT strategy_id, symbol, side, qty, broker FROM oms_orders WHERE id = @orderId;",
+                new { orderId });
+            if (order is null) return Results.NotFound(new { error = "order not found" });
+            var id = await Dapper.SqlMapper.QuerySingleAsync<Guid>(conn, @"
+                INSERT INTO llm_evaluations
+                    (order_id, strategy_id, symbol, side, qty, broker,
+                     purpose, llm_url, llm_model, source_tag, latency_ms,
+                     prompt, response_raw, decision, confidence, reasoning,
+                     detail_json)
+                VALUES
+                    (@orderId, @strategy, @symbol, @side, @qty, @broker,
+                     @purpose, @llmUrl, @llmModel, @sourceTag, @latencyMs,
+                     @prompt, @responseRaw, @decision, @confidence, @reasoning,
+                     @detail::jsonb)
+                RETURNING id;",
+                new
+                {
+                    orderId,
+                    strategy = (string?)order.strategy_id,
+                    symbol = (string?)order.symbol,
+                    side = (string?)order.side,
+                    qty = (decimal?)order.qty,
+                    broker = (string?)order.broker,
+                    purpose = body.Purpose ?? "approve_order",
+                    llmUrl = body.LlmUrl ?? "",
+                    llmModel = body.LlmModel ?? "",
+                    sourceTag = body.SourceTag,
+                    latencyMs = body.LatencyMs,
+                    prompt = body.Prompt ?? "",
+                    responseRaw = body.ResponseRaw ?? "",
+                    decision = body.Decision ?? "ADVISE",
+                    confidence = body.Confidence,
+                    reasoning = body.Reasoning,
+                    detail = body.DetailJson ?? "{}",
+                });
+            return Results.Ok(new { id });
+        });
+
+        // POST /api/llm-evaluations — record a free-standing LLM
+        // evaluation (no order context yet). Used by sentiment_score
+        // and any future pre-trade signal-time LLM call so every model
+        // touch lands in the audit table, not just the ones tied to a
+        // live order. The /api/oms/orders/{id}/llm-evaluation variant
+        // above is for the LLM-as-approver path.
+        app.MapPost("/llm-evaluations", async (
+            LlmEvalBody body, Npgsql.NpgsqlDataSource db) =>
+        {
+            await using var conn = await db.OpenConnectionAsync();
+            var id = await Dapper.SqlMapper.QuerySingleAsync<Guid>(conn, @"
+                INSERT INTO llm_evaluations
+                    (order_id, strategy_id, symbol, side, qty, broker,
+                     purpose, llm_url, llm_model, source_tag, latency_ms,
+                     prompt, response_raw, decision, confidence, reasoning,
+                     detail_json)
+                VALUES
+                    (NULL, @strategy, @symbol, @side, @qty, @broker,
+                     @purpose, @llmUrl, @llmModel, @sourceTag, @latencyMs,
+                     @prompt, @responseRaw, @decision, @confidence, @reasoning,
+                     @detail::jsonb)
+                RETURNING id;",
+                new
+                {
+                    strategy = body.StrategyId,
+                    symbol = body.Symbol,
+                    side = body.Side,
+                    qty = body.Qty,
+                    broker = body.Broker,
+                    purpose = body.Purpose ?? "sentiment_score",
+                    llmUrl = body.LlmUrl ?? "",
+                    llmModel = body.LlmModel ?? "",
+                    sourceTag = body.SourceTag,
+                    latencyMs = body.LatencyMs,
+                    prompt = body.Prompt ?? "",
+                    responseRaw = body.ResponseRaw ?? "",
+                    decision = body.Decision ?? "ADVISE",
+                    confidence = body.Confidence,
+                    reasoning = body.Reasoning,
+                    detail = body.DetailJson ?? "{}",
+                });
+            return Results.Ok(new { id });
+        });
+
+        // GET /api/llm-evaluations/recent — histogram + recent rows for
+        // the connectivity / observability dashboard. Use limit to bound
+        // payload; default 50. Optional filter by decision (APPROVE /
+        // REJECT / ADVISE / ERROR) for the audit list view.
+        app.MapGet("/llm-evaluations/recent", async (
+            int? limit, string? decision, Npgsql.NpgsqlDataSource db) =>
+        {
+            await using var conn = await db.OpenConnectionAsync();
+            var lim = Math.Clamp(limit ?? 50, 1, 500);
+            var rows = await Dapper.SqlMapper.QueryAsync(conn, @"
+                SELECT id, occurred_at_utc, order_id, strategy_id, symbol,
+                       side, qty, broker, purpose, llm_model, decision,
+                       confidence, reasoning, latency_ms
+                FROM llm_evaluations
+                WHERE (@decision IS NULL OR decision = @decision)
+                ORDER BY occurred_at_utc DESC LIMIT @lim;",
+                new { decision, lim });
+            var counts = await Dapper.SqlMapper.QueryAsync<(string decision, int n)>(conn, @"
+                SELECT decision, COUNT(*)::int AS n
+                FROM llm_evaluations
+                WHERE occurred_at_utc >= NOW() - INTERVAL '24 hours'
+                GROUP BY decision;");
+            return Results.Ok(new { rows, last24h = counts });
+        });
+
         // Enqueue an intent. The daemon calls this after the strategy
         // emits orders. ClientOrderId from the caller doubles as the
         // idempotency key — retries with the same id return the same row.
@@ -232,5 +428,27 @@ public static class OmsEndpoints
         decimal Fee = 0,
         string? Currency = null,
         string? BrokerFillId = null
+    );
+
+    public sealed record LlmEvalBody(
+        string? Purpose,
+        string? LlmUrl,
+        string? LlmModel,
+        string? SourceTag,
+        int? LatencyMs,
+        string? Prompt,
+        string? ResponseRaw,
+        string? Decision,
+        decimal? Confidence,
+        string? Reasoning,
+        string? DetailJson,
+        // Optional context — populated when the eval is a pre-trade
+        // signal-time call (no order yet). Order-tied evals get
+        // these from oms_orders inside the handler.
+        string? StrategyId = null,
+        string? Symbol = null,
+        string? Side = null,
+        decimal? Qty = null,
+        string? Broker = null
     );
 }

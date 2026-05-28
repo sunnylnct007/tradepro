@@ -448,13 +448,40 @@ function buildSymbolViews(
     } else if (priceVerdict === "WAIT") {
       bucket = "WAIT";
       reason = ms?.entry_reason || "Better entries likely soon.";
-    } else if (majorityLong && (priceVerdict === "BUY" || priceVerdict === "HOLD")) {
+    } else if (priceVerdict === "BUY" && majorityLong) {
+      // Only BUY when entry_signal is explicitly BUY AND majority of
+      // strategies are long. The old fallback promoted HOLD → BUY on
+      // majority-long; that's the signal-coherence bug (AAPL at 52w
+      // high RSI 79 showing BUY because Donchian strategies were
+      // mechanically long while entry_signal said WAIT).
       bucket = "BUY";
       reason = ms?.entry_reason ||
         `${longCount} of ${total} strategies currently long; price action supports entry.`;
-    } else {
+    } else if (priceVerdict === "BUY" && !majorityLong) {
       bucket = "WAIT";
-      reason = `Only ${longCount} of ${total} strategies are currently long — wait for more confirmation.`;
+      reason = `Price gate passes but only ${longCount} of ${total} strategies are long — wait for broader confirmation.`;
+    } else {
+      // HOLD or anything else — never BUY. HOLD means market_state has
+      // no fresh entry edge; majority-long just means strategies are
+      // already in position, not that it's a good time to add.
+      bucket = "WAIT";
+      reason = majorityLong
+        ? `${longCount} of ${total} strategies are currently long but no fresh entry edge per market_state.`
+        : `Only ${longCount} of ${total} strategies are currently long — wait for more confirmation.`;
+    }
+
+    // Defence-in-depth: even when `best.bucket` came back from the
+    // server, refuse to display BUY if the underlying market_state
+    // says WAIT or AVOID. This is the AAPL bug — cached payloads
+    // from an older code path can carry bucket=BUY while a fresh
+    // market_state evaluation says WAIT. Downgrade for safety; the
+    // trader sees a coherent surface and the conflict is logged via
+    // the reason text.
+    if (bucket === "BUY" && (priceVerdict === "WAIT" || priceVerdict === "AVOID")) {
+      bucket = priceVerdict === "AVOID" ? "AVOID" : "WAIT";
+      reason = `Downgraded from BUY: market_state says ${priceVerdict}` +
+        (ms?.entry_reason ? ` — ${ms.entry_reason}` : "") +
+        ` (was: ${reason || "majority long"})`;
     }
 
     // Sentiment demotion display flag. With the server bucket as the

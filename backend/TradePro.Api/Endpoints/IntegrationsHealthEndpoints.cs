@@ -40,15 +40,27 @@ public static class IntegrationsHealthEndpoints
         app.MapGet("/health/integrations",
             async (
                 Trading212Client t212,
+                Trading212DemoClient t212Demo,
                 FinnhubClient finnhub,
+                TradePro.Api.Providers.IG.IGClient ig,
                 ICompareStore compareStore,
+                Npgsql.NpgsqlDataSource db,
+                IConfiguration cfg,
+                IHttpClientFactory httpFactory,
                 CancellationToken ct) =>
             {
                 var t212Probe = await ProbeT212(t212, ct);
+                var t212DemoProbe = await ProbeT212Demo(t212Demo, ct);
                 var finnhubProbe = await ProbeFinnhub(finnhub, ct);
+                var igProbe = await ProbeIG(ig, ct);
+                var llmProbe = await ProbeLLM(cfg, httpFactory, ct);
+                var dbProbe = await ProbeDb(db, ct);
                 var (yahooProbe, ollamaProbe) = ProbeFromCache(compareStore);
 
-                var providers = new[] { t212Probe, finnhubProbe, yahooProbe, ollamaProbe };
+                var providers = new[] {
+                    t212Probe, t212DemoProbe, igProbe,
+                    llmProbe, finnhubProbe, yahooProbe, ollamaProbe, dbProbe,
+                };
                 var verdict =
                     providers.Any(p => p.Status == "down") ? "needs_attention"
                     : providers.Any(p => p.Status == "degraded") ? "warn"
@@ -63,6 +75,208 @@ public static class IntegrationsHealthEndpoints
             });
 
         return app;
+    }
+
+    private static async Task<ProviderHealth> ProbeT212Demo(
+        Trading212DemoClient client, CancellationToken ct)
+    {
+        if (!client.IsEnabled)
+        {
+            return new ProviderHealth(
+                Provider: "trading212_demo",
+                Label: "Trading 212 (DEMO — algo writes here)",
+                Status: "disabled",
+                Detail: "Set TRADEPRO_T212_DEMO_API_KEY in .env to enable order placement.",
+                LatencyMs: null,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: "demo");
+        }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var cash = await client.GetCashAsync(ct);
+            sw.Stop();
+            var ms = (int)sw.ElapsedMilliseconds;
+            if (cash.Error is not null)
+            {
+                return new ProviderHealth(
+                    Provider: "trading212_demo",
+                    Label: "Trading 212 (DEMO — algo writes here)",
+                    Status: "degraded",
+                    Detail: $"reachable but error: {cash.Error}",
+                    LatencyMs: ms,
+                    LastCheckedUtc: DateTime.UtcNow,
+                    Mode: "demo");
+            }
+            return new ProviderHealth(
+                Provider: "trading212_demo",
+                Label: "Trading 212 (DEMO — algo writes here)",
+                Status: "ok",
+                Detail: $"cash probe ok — free {cash.Free?.ToString("F2") ?? "?"} {cash.Currency ?? "USD"}",
+                LatencyMs: ms,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: "demo");
+        }
+        catch (Exception ex)
+        {
+            return new ProviderHealth(
+                Provider: "trading212_demo",
+                Label: "Trading 212 (DEMO — algo writes here)",
+                Status: "down",
+                Detail: $"probe failed: {ex.Message}",
+                LatencyMs: null,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: "demo");
+        }
+    }
+
+    private static async Task<ProviderHealth> ProbeIG(
+        TradePro.Api.Providers.IG.IGClient ig, CancellationToken ct)
+    {
+        if (!ig.IsEnabled)
+        {
+            return new ProviderHealth(
+                Provider: "ig",
+                Label: "IG (FX + equities, secondary broker)",
+                Status: "disabled",
+                Detail: "Populate AWS Secrets Manager tradepro/ig + restart.",
+                LatencyMs: null,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: "disabled");
+        }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var cash = await ig.GetCashAsync(ct);
+            sw.Stop();
+            var ms = (int)sw.ElapsedMilliseconds;
+            if (cash.Error is not null)
+            {
+                return new ProviderHealth(
+                    Provider: "ig",
+                    Label: "IG (FX + equities, secondary broker)",
+                    Status: "degraded",
+                    Detail: $"reachable but: {cash.Error}",
+                    LatencyMs: ms,
+                    LastCheckedUtc: DateTime.UtcNow,
+                    Mode: ig.BrokerLabel);
+            }
+            return new ProviderHealth(
+                Provider: "ig",
+                Label: "IG (FX + equities, secondary broker)",
+                Status: "ok",
+                Detail: $"available {cash.Available?.ToString("F0") ?? "?"} {cash.Currency ?? "?"}",
+                LatencyMs: ms,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: ig.BrokerLabel);
+        }
+        catch (Exception ex)
+        {
+            return new ProviderHealth(
+                Provider: "ig",
+                Label: "IG (FX + equities, secondary broker)",
+                Status: "down",
+                Detail: $"probe failed: {ex.Message}",
+                LatencyMs: null,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: ig.BrokerLabel);
+        }
+    }
+
+    /// <summary>Probe the configured LLM endpoint with a minimal POST so
+    /// the user can see whether the model that approves orders is
+    /// actually reachable.</summary>
+    private static async Task<ProviderHealth> ProbeLLM(
+        IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+    {
+        // Settings live in app_settings_kv — but the IConfiguration view
+        // doesn't see them. Read directly via Npgsql is overkill for a
+        // health probe; fall back to defaults if not in config.
+        var llmUrl = cfg["LLM:Url"] ?? "http://host.docker.internal:11434/api/generate";
+        var llmModel = cfg["LLM:Model"] ?? "llama3.1:8b-instruct";
+        var http = httpFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(5);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var probeReq = new HttpRequestMessage(HttpMethod.Post, llmUrl)
+            {
+                Content = JsonContent.Create(new
+                {
+                    model = llmModel,
+                    prompt = "ping",
+                    stream = false,
+                    options = new { num_predict = 1 },
+                }),
+            };
+            using var resp = await http.SendAsync(probeReq, ct);
+            sw.Stop();
+            var ms = (int)sw.ElapsedMilliseconds;
+            if (resp.IsSuccessStatusCode)
+            {
+                return new ProviderHealth(
+                    Provider: "llm",
+                    Label: $"LLM ({llmModel})",
+                    Status: "ok",
+                    Detail: $"ping ok in {ms}ms",
+                    LatencyMs: ms,
+                    LastCheckedUtc: DateTime.UtcNow,
+                    Mode: llmUrl);
+            }
+            return new ProviderHealth(
+                Provider: "llm",
+                Label: $"LLM ({llmModel})",
+                Status: "degraded",
+                Detail: $"endpoint reachable but HTTP {(int)resp.StatusCode}",
+                LatencyMs: ms,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: llmUrl);
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            return new ProviderHealth(
+                Provider: "llm",
+                Label: $"LLM ({llmModel})",
+                Status: "down",
+                Detail: $"unreachable: {ex.Message}",
+                LatencyMs: null,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: llmUrl);
+        }
+    }
+
+    private static async Task<ProviderHealth> ProbeDb(
+        Npgsql.NpgsqlDataSource db, CancellationToken ct)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1;";
+            await cmd.ExecuteScalarAsync(ct);
+            sw.Stop();
+            return new ProviderHealth(
+                Provider: "postgres",
+                Label: "Postgres (orders + decisions DB)",
+                Status: "ok",
+                Detail: $"SELECT 1 in {sw.ElapsedMilliseconds}ms",
+                LatencyMs: (int)sw.ElapsedMilliseconds,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: null);
+        }
+        catch (Exception ex)
+        {
+            return new ProviderHealth(
+                Provider: "postgres",
+                Label: "Postgres (orders + decisions DB)",
+                Status: "down",
+                Detail: $"connection failed: {ex.Message}",
+                LatencyMs: null,
+                LastCheckedUtc: DateTime.UtcNow,
+                Mode: null);
+        }
     }
 
     private static async Task<ProviderHealth> ProbeT212(

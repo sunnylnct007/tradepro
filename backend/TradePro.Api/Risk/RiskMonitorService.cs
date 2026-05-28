@@ -169,6 +169,11 @@ public sealed class RiskMonitorService : BackgroundService
         var db = sp.GetRequiredService<NpgsqlDataSource>();
         foreach (var p in positions)
         {
+            // T212 has been seen returning positions with a null/empty
+            // ticker (race between symbol metadata and snapshot). Skip
+            // them — risk_events.symbol is NOT NULL and inserting one
+            // crashes the whole monitor cycle.
+            if (string.IsNullOrWhiteSpace(p.Ticker)) continue;
             if (p.Quantity <= 0m) continue;
             if (p.AveragePricePaid is null or <= 0m) continue;
             if (p.CurrentPrice is null or <= 0m) continue;

@@ -92,18 +92,144 @@ public static class IntegrationsEndpoints
         // invested £500" before deciding to place an order. T212
         // Invest only — CFD (FX + leveraged) uses different endpoints
         // and is a follow-up task (#39 + cfd cash).
+        // GET /api/integrations/cash-summary — cash across every
+        // connected broker so the cockpit can render a single strip
+        // (T212 demo · T212 live · IG demo · future IBKR …). Each
+        // tile is independent; one broker down doesn't black out the
+        // others. Always 200 with a status field per row so the UI
+        // can render disabled/unreachable as info, not error.
+        app.MapGet("/integrations/cash-summary", async (
+            Trading212Client t212Live,
+            Trading212DemoClient t212Demo,
+            Trading212DemoCashCache t212DemoCache,
+            TradePro.Api.Providers.IG.IGClient ig,
+            CancellationToken ct) =>
+        {
+            var rows = new List<object>();
+
+            // T212 LIVE — cash isn't exposed via Trading212Client yet;
+            // surface as "read-only mode" with status known + a note.
+            // The actual /equity/account/cash endpoint is wired on the
+            // demo client; live is the same shape and follows soon.
+            if (t212Live.IsEnabled)
+            {
+                rows.Add(new { broker = "T212_LIVE", label = "Trading 212 LIVE",
+                    status = "degraded",
+                    note = "Live read-only mode — cash fetch wires up next iteration. Connection is up.",
+                    mode = t212Live.Mode });
+            }
+            else
+            {
+                rows.Add(new { broker = "T212_LIVE", label = "Trading 212 LIVE",
+                    status = "disabled",
+                    note = "Set TRADEPRO_T212_MODE=live + TRADEPRO_T212_API_KEY to enable." });
+            }
+
+            // T212 DEMO — algo's primary equity broker.
+            try
+            {
+                if (t212Demo.IsEnabled)
+                {
+                    var cash = await t212DemoCache.GetAsync(ct);
+                    rows.Add(new
+                    {
+                        broker = "T212_DEMO", label = "Trading 212 DEMO (algo equity)",
+                        status = cash.Error is null ? "ok" : "down",
+                        currency = cash.Currency ?? "USD",
+                        free = cash.Free, invested = cash.Invested,
+                        total = cash.Total, openPnl = cash.Ppl,
+                        error = cash.Error,
+                    });
+                }
+                else
+                {
+                    rows.Add(new { broker = "T212_DEMO", label = "Trading 212 DEMO (algo equity)",
+                        status = "disabled",
+                        note = "Set TRADEPRO_T212_DEMO_API_KEY to enable." });
+                }
+            }
+            catch (Exception ex)
+            {
+                rows.Add(new { broker = "T212_DEMO", label = "Trading 212 DEMO (algo equity)",
+                    status = "down", error = ex.Message });
+            }
+
+            // IG DEMO/LIVE — FX + equities + CFD. Sleeve for FX strategy.
+            try
+            {
+                if (ig.IsEnabled)
+                {
+                    var cash = await ig.GetCashAsync(ct);
+                    rows.Add(new
+                    {
+                        broker = ig.BrokerLabel,
+                        label = $"IG {(ig.BrokerLabel.EndsWith("LIVE") ? "LIVE" : "DEMO")} (FX + equities)",
+                        status = cash.Error is null ? "ok" : "down",
+                        currency = cash.Currency,
+                        available = cash.Available,
+                        balance = cash.Balance,
+                        error = cash.Error,
+                    });
+                }
+                else
+                {
+                    rows.Add(new { broker = "IG", label = "IG (FX + equities)",
+                        status = "disabled",
+                        note = "Populate AWS Secrets Manager tradepro/ig + restart." });
+                }
+            }
+            catch (Exception ex)
+            {
+                rows.Add(new { broker = "IG", label = "IG (FX + equities)",
+                    status = "down", error = ex.Message });
+            }
+
+            // IBKR placeholder so the UI shows the slot even before it's
+            // wired — sets user expectation that it's coming.
+            rows.Add(new
+            {
+                broker = "IBKR_PAPER",
+                label = "IBKR Paper (planned)",
+                status = "disabled",
+                note = "Not yet integrated — roadmap.",
+            });
+
+            return Results.Ok(new
+            {
+                utc = DateTime.UtcNow,
+                brokers = rows,
+            });
+        });
+
         // GET /api/integrations/ig/status — IG broker connectivity check.
         app.MapGet("/integrations/ig/status", async (
-            TradePro.Api.Providers.IG.IGClient ig, CancellationToken ct) =>
+            TradePro.Api.Providers.IG.IGClient ig,
+            Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IG.IGOptions> opts,
+            CancellationToken ct) =>
         {
             if (!ig.IsEnabled)
             {
+                // Disambiguate the failure so the operator doesn't have
+                // to dig logs: report which specific IGOptions fields are
+                // missing when IsEnabled is false. Mode/ApiKey/Username/
+                // Password are required; any missing → disabled.
+                var o = opts.Value;
+                var missing = new List<string>();
+                if (string.Equals(o.Mode, "disabled", StringComparison.OrdinalIgnoreCase)
+                    || string.IsNullOrWhiteSpace(o.Mode)) missing.Add("Mode");
+                if (string.IsNullOrWhiteSpace(o.ApiKey))   missing.Add("ApiKey");
+                if (string.IsNullOrWhiteSpace(o.Username)) missing.Add("Username");
+                if (string.IsNullOrWhiteSpace(o.Password)) missing.Add("Password");
                 return Results.Ok(new
                 {
                     enabled = false,
-                    mode = "disabled",
+                    mode = string.IsNullOrWhiteSpace(o.Mode) ? "disabled" : o.Mode,
                     reachable = false,
-                    note = "Populate AWS Secrets Manager tradepro/ig and restart.",
+                    missingConfig = missing,
+                    note = missing.Count > 0
+                        ? $"IG disabled — missing config: {string.Join(", ", missing)}. "
+                        + $"Populate AWS Secrets Manager `tradepro/ig` and restart the api container."
+                        : "IG disabled — populate AWS Secrets Manager `tradepro/ig` and restart.",
                 });
             }
             try

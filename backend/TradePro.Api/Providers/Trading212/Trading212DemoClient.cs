@@ -342,12 +342,25 @@ public sealed class Trading212DemoClient
             {
                 foreach (var it in items.EnumerateArray())
                 {
+                    // T212 history returns the order id sometimes as a
+                    // number (live orders endpoint shape) and sometimes
+                    // as a string (history endpoint shape). Accept both
+                    // — otherwise the lookup silently misses and the
+                    // poller falsely cancels every order that ages out
+                    // of the hot cache.
                     long? id = null;
-                    if (it.TryGetProperty("id", out var idEl)
-                        && idEl.ValueKind == System.Text.Json.JsonValueKind.Number
-                        && idEl.TryGetInt64(out var idv))
+                    if (it.TryGetProperty("id", out var idEl))
                     {
-                        id = idv;
+                        if (idEl.ValueKind == System.Text.Json.JsonValueKind.Number
+                            && idEl.TryGetInt64(out var idv))
+                        {
+                            id = idv;
+                        }
+                        else if (idEl.ValueKind == System.Text.Json.JsonValueKind.String
+                            && long.TryParse(idEl.GetString(), out var ids))
+                        {
+                            id = ids;
+                        }
                     }
                     if (id != brokerOrderId) continue;
                     decimal? Num(string k)
@@ -396,6 +409,9 @@ public sealed class Trading212DemoClient
             }
             else
             {
+                _log.LogInformation(
+                    "T212 history lookup for {Id}: scanned {Pages} page(s), id not found — falling back to GONE",
+                    brokerOrderId, page + 1);
                 return null; // history exhausted
             }
         }

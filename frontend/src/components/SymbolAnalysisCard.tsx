@@ -36,6 +36,7 @@ import type React from "react";
 import { config } from "../config";
 import { getIdToken } from "../firebase";
 import type { CompareRow } from "../api/types";
+import { coherentBucket } from "../util/coherentBucket";
 
 type Horizon =
   | "LONG_TERM_HOLD"
@@ -236,10 +237,25 @@ function TechnicalColumn(props: { row: CompareRow }) {
     <div style={columnStyle}>
       <div style={lensHeaderStyle}>TECHNICAL</div>
 
-      <Kv label="Bucket" value={
-        <span style={bucketStyle(row.bucket || "")}>{row.bucket || "—"}</span>
-      } />
-      <Kv label="Reason" value={row.bucket_reason || "—"} multiline />
+      {(() => {
+        // Coherence guard — refuse to display BUY when market_state
+        // says WAIT/AVOID, regardless of what the cached row says.
+        // See util/coherentBucket.ts for the rationale.
+        const ms = (row as unknown as { market_state?: { entry_signal?: string; entry_reason?: string } }).market_state;
+        const guard = coherentBucket(row.bucket, ms?.entry_signal);
+        const displayBucket = guard.bucket || "—";
+        const reason = guard.downgraded
+          ? `${guard.downgradeReason}${ms?.entry_reason ? ` (${ms.entry_reason})` : ""}`
+          : (row.bucket_reason || "—");
+        return (
+          <>
+            <Kv label="Bucket" value={
+              <span style={bucketStyle(displayBucket as string)}>{displayBucket}</span>
+            } />
+            <Kv label="Reason" value={reason} multiline />
+          </>
+        );
+      })()}
 
       {conviction && (
         <Kv label="Conviction" value={

@@ -4,7 +4,6 @@ import { CockpitCard } from "../components/CockpitCard";
 import { PlotlyChart } from "../components/PlotlyChart";
 import { TriggerPanel } from "../components/cockpit/TriggerPanel";
 import { TradeCardsPanel } from "../components/cockpit/TradeCardsPanel";
-import { TestPlacementPanel } from "../components/cockpit/TestPlacementPanel";
 import { KpiStrip } from "../components/cockpit/KpiStrip";
 import { ActivityList } from "../components/cockpit/ActivityList";
 import { TodayOutcome } from "../components/cockpit/TodayOutcome";
@@ -13,6 +12,8 @@ import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
+import { BrokerCashStrip } from "../components/cockpit/BrokerCashStrip";
+import { ConnectivityPanel } from "../components/cockpit/ConnectivityPanel";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
@@ -278,10 +279,11 @@ export function TraderCockpit() {
   // click × on the card → moves to HiddenWidgetsBar; click the pill
   // → restored.
   const WIDGETS: WidgetMeta[] = [
-    { id: "warnings",    title: "Warnings" },
-    { id: "trigger",     title: "Trigger session" },
-    { id: "testorder",   title: "Test placement" },
-    { id: "cash",        title: "Cash" },
+    { id: "warnings",     title: "Warnings" },
+    { id: "broker-cash",  title: "Broker cash (multi)" },
+    { id: "connectivity", title: "Connectivity" },
+    { id: "trigger",      title: "Trigger session" },
+    { id: "cash",         title: "Cash (T212 only)" },
     { id: "intents",     title: "Order generated" },
     { id: "submitted",   title: "Order placed" },
     { id: "fills",       title: "Trade executed" },
@@ -299,7 +301,6 @@ export function TraderCockpit() {
   // HiddenWidgetsBar above the grid. Persists per-trader (localStorage)
   // — once they un-hide, that choice survives reloads.
   const widgets = useHiddenWidgets("cockpit.hidden", [
-    "testorder",    // debug-only manual placement
     "submitted",    // info; pending is the action surface
     "fills",        // info; activity feed covers it
     "activity",     // verbose; covered by trade-cards + scan-grid
@@ -366,7 +367,7 @@ export function TraderCockpit() {
   return (
     <div style={{ padding: 20, maxWidth: 1280, margin: "0 auto" }}>
       {/* ── Account selector strip ──────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22 }}>Trader cockpit</h1>
         <div style={{ display: "flex", gap: 4 }}>
           {(["demo", "live"] as const).map((a) => (
@@ -395,6 +396,18 @@ export function TraderCockpit() {
             </button>
           ))}
         </div>
+        {account === "live" && (
+          <div style={{
+            padding: "4px 10px", fontSize: 11, fontWeight: 600,
+            color: "#ef4444",
+            background: "rgba(239,68,68,0.10)",
+            border: "1px solid rgba(239,68,68,0.45)",
+            borderRadius: 999,
+            letterSpacing: "0.03em",
+          }}>
+            ⚠ Viewing T212 LIVE — the algo trades DEMO. Switch to DEMO to see algo P&amp;L.
+          </div>
+        )}
       </div>
 
       {/* System health pills moved to /health — too IT-flavoured for
@@ -461,6 +474,26 @@ export function TraderCockpit() {
         </CockpitCard>
       )}
 
+      {/* ── Broker cash strip — every connected broker in one row */}
+      {v("broker-cash") && (
+      <CockpitCard id="broker-cash" title="Broker cash (T212 demo · IG · IBKR)"
+        defaultOpen={true}
+        onHide={() => widgets.hide("broker-cash")}
+      >
+        <BrokerCashStrip />
+      </CockpitCard>
+      )}
+
+      {/* ── Connectivity panel — at-a-glance service health */}
+      {v("connectivity") && (
+      <CockpitCard id="connectivity" title="Connectivity (brokers · LLM · data · DB)"
+        defaultOpen={true}
+        onHide={() => widgets.hide("connectivity")}
+      >
+        <ConnectivityPanel />
+      </CockpitCard>
+      )}
+
       {/* ── Trigger (compact run form) ──────────────────────────── */}
       {v("trigger") && (
       <CockpitCard id="trigger" title="Trigger session" defaultOpen={false}
@@ -470,14 +503,9 @@ export function TraderCockpit() {
       </CockpitCard>
       )}
 
-      {/* ── Manual test placement (skip the strategy, smoke the chain) */}
-      {v("testorder") && (
-      <CockpitCard id="testorder" title="Test placement (manual OMS → T212 demo)" defaultOpen={false}
-        onHide={() => widgets.hide("testorder")}
-      >
-        <TestPlacementPanel onPlaced={() => void loadOrders()} />
-      </CockpitCard>
-      )}
+      {/* Manual test placement lives on /admin/data — it's an IT
+          smoke-test, not a trader workflow. Kept out of the cockpit
+          so the trader screen stays decision-focused. */}
 
       {/* ── Cash ─────────────────────────────────────────────────── */}
       {v("cash") && (

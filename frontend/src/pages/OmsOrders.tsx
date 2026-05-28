@@ -116,10 +116,12 @@ export function OmsOrders() {
   const [mode, setMode] = useState<"auto" | "manual" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
-  // Per-order event timeline state: {orderId → events[]|"loading"|"error"}.
+  // Per-order audit-trail state: {orderId → audit|"loading"|"error"}.
   // Lazy-loaded on first expand so the orders list stays fast.
+  // Carries the full decision chain (state events + RiskGate
+  // refusals + LLM evaluations) — the "on what basis" answer.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [events, setEvents] = useState<Record<string, OmsOrderEventRow[] | "loading" | "error">>({});
+  const [audits, setAudits] = useState<Record<string, Awaited<ReturnType<typeof api.omsOrderAudit>> | "loading" | "error">>({});
 
   const toggleEvents = async (orderId: string) => {
     setExpanded((prev) => {
@@ -127,13 +129,13 @@ export function OmsOrders() {
       next.has(orderId) ? next.delete(orderId) : next.add(orderId);
       return next;
     });
-    if (events[orderId] !== undefined) return;
-    setEvents((e) => ({ ...e, [orderId]: "loading" }));
+    if (audits[orderId] !== undefined) return;
+    setAudits((a) => ({ ...a, [orderId]: "loading" }));
     try {
-      const { events: rows } = await api.omsOrderEvents(orderId);
-      setEvents((e) => ({ ...e, [orderId]: rows }));
+      const audit = await api.omsOrderAudit(orderId);
+      setAudits((a) => ({ ...a, [orderId]: audit }));
     } catch {
-      setEvents((e) => ({ ...e, [orderId]: "error" }));
+      setAudits((a) => ({ ...a, [orderId]: "error" }));
     }
   };
 
@@ -407,7 +409,7 @@ export function OmsOrders() {
                 const isOpen = OPEN_STATES.includes(o.state);
                 const busy = acting?.startsWith(o.id);
                 const isExpanded = expanded.has(o.id);
-                const evs = events[o.id];
+                const audit = audits[o.id];
                 return (
                   <React.Fragment key={o.id}>
                   <tr style={{ borderTop: "1px solid var(--border)" }}>
@@ -552,7 +554,7 @@ export function OmsOrders() {
                   {isExpanded && (
                     <tr style={{ background: "rgba(255,255,255,0.02)" }}>
                       <td colSpan={10} style={{ padding: "10px 14px" }}>
-                        <EventTimeline evs={evs} />
+                        <AuditChain audit={audit} />
                       </td>
                     </tr>
                   )}
@@ -604,19 +606,147 @@ function Td({
   );
 }
 
+/**
+ * AuditChain — full decision audit for one order. Three sections:
+ *   1. State transitions (OMS event timeline)
+ *   2. Risk gate decisions (C# RiskGate refusals + allowances)
+ *   3. LLM evaluations (model verdicts with reasoning)
+ * Answers the operator's "on what basis was this approved/rejected"
+ * question without joining tables manually.
+ */
+function AuditChain({
+  audit,
+}: {
+  audit: Awaited<ReturnType<typeof api.omsOrderAudit>> | "loading" | "error" | undefined;
+}) {
+  if (audit === "loading" || audit === undefined) {
+    return <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Loading audit chain…</span>;
+  }
+  if (audit === "error") {
+    return <span style={{ fontSize: 11, color: "#ef4444" }}>Failed to load audit.</span>;
+  }
+  const s = audit.summary;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 11, color: "var(--text-dim)", display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <span>State events: <strong>{s.nStateTransitions}</strong></span>
+        <span>Risk events: <strong>{s.nRiskEvents}</strong>
+          {s.riskBlocks > 0 && <> · <span style={{ color: "#ef4444" }}>{s.riskBlocks} blocks</span></>}
+        </span>
+        <span>LLM evaluations: <strong>{s.nLlmEvals}</strong>
+          {s.llmApprovals > 0 && <> · <span style={{ color: "#1fc16b" }}>{s.llmApprovals} approve</span></>}
+          {s.llmRejections > 0 && <> · <span style={{ color: "#ef4444" }}>{s.llmRejections} reject</span></>}
+        </span>
+      </div>
+
+      <AuditSection title="State transitions">
+        {audit.events.length === 0
+          ? <Empty>No state changes recorded.</Empty>
+          : <EventTimeline evs={audit.events} />}
+      </AuditSection>
+
+      <AuditSection title="Risk gate decisions">
+        {audit.riskEvents.length === 0
+          ? <Empty>No gate events for this order.</Empty>
+          : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead>
+                <tr style={{ color: "var(--text-dim)" }}>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Time UTC</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Gate</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Decision</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Reason</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.riskEvents.map((r) => (
+                  <tr key={r.id} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ padding: "3px 8px", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                      {r.occurred_at_utc.slice(0, 19).replace("T", " ")}
+                    </td>
+                    <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{r.gate}</td>
+                    <td style={{ padding: "3px 8px", fontWeight: 600, color: r.decision === "ALLOWED" ? "#1fc16b" : "#ef4444" }}>
+                      {r.decision}
+                    </td>
+                    <td style={{ padding: "3px 8px", color: "var(--text)" }}>{r.reason ?? "—"}</td>
+                    <td style={{ padding: "3px 8px", fontFamily: "monospace", color: "var(--text-muted)", fontSize: 10 }}>
+                      {r.detail_json ? truncate(r.detail_json, 160) : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </AuditSection>
+
+      <AuditSection title="LLM evaluations">
+        {audit.llmEvals.length === 0
+          ? <Empty>No LLM evaluation recorded. (LLM gate not wired or skipped this order.)</Empty>
+          : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead>
+                <tr style={{ color: "var(--text-dim)" }}>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Time UTC</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Model</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Purpose</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Decision</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Conf.</th>
+                  <th style={{ textAlign: "left", padding: "3px 8px" }}>Reasoning</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.llmEvals.map((l) => (
+                  <tr key={l.id} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ padding: "3px 8px", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                      {l.occurred_at_utc.slice(0, 19).replace("T", " ")}
+                    </td>
+                    <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{l.llm_model}</td>
+                    <td style={{ padding: "3px 8px", fontFamily: "monospace", color: "var(--text-muted)" }}>{l.purpose}</td>
+                    <td style={{ padding: "3px 8px", fontWeight: 600, color: llmDecisionColour(l.decision) }}>{l.decision}</td>
+                    <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{l.confidence != null ? l.confidence.toFixed(2) : "—"}</td>
+                    <td style={{ padding: "3px 8px" }}>{l.reasoning ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </AuditSection>
+    </div>
+  );
+}
+
+function AuditSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 9, color: "var(--text-muted)",
+        letterSpacing: "0.06em", textTransform: "uppercase",
+        marginBottom: 4,
+      }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{children}</span>;
+}
+
+function llmDecisionColour(d: string): string {
+  if (d === "APPROVE") return "#1fc16b";
+  if (d === "REJECT") return "#ef4444";
+  if (d === "ERROR") return "#f59e0b";
+  return "var(--text)";
+}
+
 function EventTimeline({
   evs,
 }: {
-  evs: OmsOrderEventRow[] | "loading" | "error" | undefined;
+  evs: OmsOrderEventRow[];
 }) {
-  if (evs === "loading" || evs === undefined) {
-    return <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Loading events…</span>;
-  }
-  if (evs === "error") {
-    return <span style={{ fontSize: 11, color: "#ef4444" }}>Failed to load events.</span>;
-  }
   if (evs.length === 0) {
-    return <span style={{ fontSize: 11, color: "var(--text-dim)" }}>No events recorded.</span>;
+    return <Empty>No events recorded.</Empty>;
   }
   return (
     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>

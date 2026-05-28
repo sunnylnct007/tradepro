@@ -461,7 +461,13 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
             lookback_days=lookback_days,
             t212_mode="demo",
             t212_allow_real_orders=False,
-            t212_placement_mode="manual",
+            # Auto-approve so signals → orders → broker in one hop.
+            # Previously "manual" — orders queued PENDING_APPROVAL and
+            # never reached the broker without trader intervention,
+            # which made the intraday daemon look idle while 60+
+            # orders sat in OMS waiting for clicks. The LLM gate will
+            # slot in between enqueue + approve when wired.
+            t212_placement_mode="auto",
         )
         engine = Engine(bus=bus, router=router)
 

@@ -43,6 +43,7 @@ export function TodayOutcome({
         firesToday={summary.firesToday}
         fillsToday={summary.fillsToday}
         rejectsToday={summary.rejectsToday}
+        pendingToday={summary.pendingToday}
         firingStrategies={summary.firingStrategies}
       />
       {summary.sortedPos.length > 0 && (
@@ -64,6 +65,7 @@ type Summary = {
   firingStrategies: string[];
   fillsToday: number;
   rejectsToday: number;
+  pendingToday: number;
   sortedPos: Pos[];
   carrier: Pos | undefined;
   dragger: Pos | undefined;
@@ -94,8 +96,23 @@ function buildSummary(
     (o) => o.lastStateChangeAtUtc.slice(0, 10) === today,
   );
   const fillsToday = todayOrders.filter((o) => o.state === "FILLED").length;
+  // Genuine rejections only — gate refusals + broker rejects. Exclude
+  // CANCELLED because the T212 poller falsely cancels orders that aged
+  // out of broker hot-cache ("broker_not_found_assume_terminal"); those
+  // are not signal-quality rejections.
   const rejectsToday = todayOrders.filter(
-    (o) => o.state === "REJECTED" || o.state === "CANCELLED",
+    (o) => o.state === "REJECTED",
+  ).length;
+  // Pending orders ARE the day's signals — fires + intents that
+  // haven't yet routed to the broker. The previous banner
+  // ("No new signals fired today") ignored these and made the cockpit
+  // look idle while orders were queued. "Pending" here = anything past
+  // approval but not yet a terminal state.
+  const pendingToday = todayOrders.filter(
+    (o) => o.state === "PENDING_APPROVAL"
+        || o.state === "SUBMITTED"
+        || o.state === "WORKING"
+        || o.state === "PARTIALLY_FILLED",
   ).length;
 
   const sortedPos = positions?.positions
@@ -106,11 +123,12 @@ function buildSummary(
   const totalPnl = sortedPos.reduce((n, p) => n + (p.unrealisedAbs ?? 0), 0);
 
   return {
-    empty: firesToday === 0 && fillsToday === 0 && rejectsToday === 0 && sortedPos.length === 0,
+    empty: firesToday === 0 && fillsToday === 0 && rejectsToday === 0 && pendingToday === 0 && sortedPos.length === 0,
     firesToday,
     firingStrategies: Array.from(firingSet),
     fillsToday,
     rejectsToday,
+    pendingToday,
     sortedPos,
     carrier: sortedPos[0],
     dragger: sortedPos[sortedPos.length - 1],
@@ -120,17 +138,29 @@ function buildSummary(
 }
 
 function SignalLine({
-  firesToday, fillsToday, rejectsToday, firingStrategies,
+  firesToday, fillsToday, rejectsToday, pendingToday, firingStrategies,
 }: {
-  firesToday: number; fillsToday: number; rejectsToday: number; firingStrategies: string[];
+  firesToday: number; fillsToday: number; rejectsToday: number;
+  pendingToday: number; firingStrategies: string[];
 }) {
-  if (firesToday > 0) {
+  // Signals = decision-trace fires OR pending orders. Pending orders
+  // ARE today's signals — they came from strategy runs, are queued at
+  // the broker boundary, and the trader/algo will act on them. The
+  // banner now reflects that instead of saying "no signals" while
+  // PENDING_APPROVAL rows sit in OMS.
+  const signalCount = Math.max(firesToday, pendingToday);
+  if (signalCount > 0) {
     return (
       <div>
         <strong style={{ color: "#a855f7" }}>
-          {firesToday} signal{firesToday === 1 ? "" : "s"}
+          {signalCount} signal{signalCount === 1 ? "" : "s"}
         </strong>{" "}
-        fired from <strong>{firingStrategies.join(", ")}</strong>
+        {firingStrategies.length > 0 && (
+          <>fired from <strong>{firingStrategies.join(", ")}</strong></>
+        )}
+        {pendingToday > 0 && (
+          <> {" · "}<strong style={{ color: "#f59e0b" }}>{pendingToday} pending approval</strong></>
+        )}
         {fillsToday > 0 && (
           <> {" · "}<strong style={{ color: "#1fc16b" }}>{fillsToday} filled</strong></>
         )}
