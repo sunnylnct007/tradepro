@@ -293,6 +293,101 @@ public sealed class YahooFinanceProvider : IMarketDataProvider
         }
     }
 
+    /// <summary>
+    /// Fetches recent insider purchase transactions for <paramref name="symbol"/>
+    /// via the Yahoo Finance quoteSummary API (<c>modules=insiderTransactions</c>).
+    ///
+    /// Only BUY / Purchase transactions are returned. Sales are ambiguous
+    /// (10b5-1 automatic plans, tax optimisation, diversification) and carry
+    /// far less predictive signal than a director opening a new position.
+    ///
+    /// Filtered to the last <paramref name="lookbackDays"/> days (default 365).
+    /// Returns an empty list on any failure — the chart degrades gracefully.
+    /// </summary>
+    public async Task<IReadOnlyList<InsiderTradeDto>> GetInsiderBuysAsync(
+        string symbol, int lookbackDays, CancellationToken ct)
+    {
+        try
+        {
+            var url =
+                $"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{Uri.EscapeDataString(symbol)}" +
+                "?modules=insiderTransactions&crumb=";
+
+            using var resp = await _http.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode)
+                return Array.Empty<InsiderTradeDto>();
+
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+            // Navigate: quoteSummary → result[0] → insiderTransactions → transactions
+            if (!doc.RootElement.TryGetProperty("quoteSummary", out var qs)) return Array.Empty<InsiderTradeDto>();
+            if (!qs.TryGetProperty("result", out var resultArr)
+                || resultArr.ValueKind != JsonValueKind.Array
+                || resultArr.GetArrayLength() == 0) return Array.Empty<InsiderTradeDto>();
+
+            var first = resultArr[0];
+            if (!first.TryGetProperty("insiderTransactions", out var insider)) return Array.Empty<InsiderTradeDto>();
+            if (!insider.TryGetProperty("transactions", out var txns)
+                || txns.ValueKind != JsonValueKind.Array) return Array.Empty<InsiderTradeDto>();
+
+            var cutoff = DateTimeOffset.UtcNow.AddDays(-lookbackDays).ToUnixTimeSeconds();
+            var trades = new List<InsiderTradeDto>();
+
+            foreach (var tx in txns.EnumerateArray())
+            {
+                // Only include purchases — sales are too noisy (10b5-1 plans etc.)
+                var text = "";
+                if (tx.TryGetProperty("transactionText", out var ttEl))
+                    text = ttEl.GetString() ?? "";
+
+                // "Purchase" in transactionText is a buy; anything with "Sale" or
+                // empty text (exercise grant, etc.) is excluded.
+                if (!text.Contains("Purchase", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Date filter
+                long? epoch = null;
+                if (tx.TryGetProperty("startDate", out var sdEl))
+                {
+                    if (sdEl.TryGetProperty("raw", out var rawEl)) epoch = rawEl.GetInt64();
+                    else if (sdEl.ValueKind == JsonValueKind.Number) epoch = sdEl.GetInt64();
+                }
+                if (epoch is null || epoch < cutoff) continue;
+
+                var date = DateTimeOffset.FromUnixTimeSeconds(epoch.Value)
+                    .UtcDateTime.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+                string? name = null;
+                if (tx.TryGetProperty("filerName", out var nameEl)) name = nameEl.GetString();
+
+                string? title = null;
+                if (tx.TryGetProperty("filerRelation", out var relEl)) title = relEl.GetString();
+
+                long? shares = null;
+                if (tx.TryGetProperty("shares", out var shEl))
+                {
+                    if (shEl.TryGetProperty("raw", out var srEl)) shares = srEl.GetInt64();
+                    else if (shEl.ValueKind == JsonValueKind.Number) shares = shEl.GetInt64();
+                }
+
+                double? value = null;
+                if (tx.TryGetProperty("value", out var vEl))
+                {
+                    if (vEl.TryGetProperty("raw", out var vrEl)) value = vrEl.GetDouble();
+                    else if (vEl.ValueKind == JsonValueKind.Number) value = vEl.GetDouble();
+                }
+
+                trades.Add(new InsiderTradeDto(date, name, title, shares, value));
+            }
+
+            return trades.OrderBy(t => t.Date, StringComparer.Ordinal).ToList();
+        }
+        catch
+        {
+            return Array.Empty<InsiderTradeDto>();
+        }
+    }
+
     private static string? EpochToDate(string epochStr)
     {
         if (!long.TryParse(epochStr, out var epoch)) return null;

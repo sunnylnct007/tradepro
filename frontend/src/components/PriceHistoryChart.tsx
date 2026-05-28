@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import { api } from "../api/client";
 import { config } from "../config";
-import type { Candle, CandleSeries, CorporateActionMarker, EarningsMarker } from "../api/types";
+import type { Candle, CandleSeries, CorporateActionMarker, EarningsMarker, InsiderTrade } from "../api/types";
 
 /**
  * Inline price history chart for a single symbol — used on the
@@ -55,6 +55,10 @@ interface Props {
    * event date so the user can tell dividend drops from real price
    * moves and verify the adjusted-close continuity across splits. */
   corporateActions?: CorporateActionMarker[];
+  /** Discretionary insider purchase transactions — renders as green "I"
+   * chips. Only buys are shown (sales are excluded — too noisy to be
+   * directionally meaningful without additional context filters). */
+  insiderBuys?: InsiderTrade[];
 }
 
 const DEFAULT_LOOKBACK_DAYS = 365 * 5;
@@ -77,6 +81,7 @@ export function PriceHistoryChart({
   height = 280,
   earnings,
   corporateActions,
+  insiderBuys,
 }: Props) {
   const [series, setSeries] = useState<CandleSeries | null>(null);
   const [loading, setLoading] = useState(false);
@@ -332,6 +337,34 @@ export function PriceHistoryChart({
               </ReferenceDot>
             );
           })}
+          {/* Insider buy chips. Green "I" dots positioned slightly above
+              the bar price. "I" chips only appear for discretionary buys —
+              sales are excluded as they carry no directional conviction. */}
+          {insiderBuys && insiderBuys.length > 0 && insiderBuys.map((ins, idx) => {
+            const bar = data.find((d) => d.t === ins.date);
+            if (!bar) return null;
+            const tooltip = [
+              ins.name ?? "Insider",
+              ins.title ? `(${ins.title})` : "",
+              ins.shares != null ? `${ins.shares.toLocaleString()} shares` : "",
+              ins.value != null ? `$${(ins.value / 1e6).toFixed(1)}M` : "",
+            ].filter(Boolean).join(" ");
+            return (
+              <ReferenceDot
+                key={`ins-${ins.date}-${idx}`}
+                x={ins.date}
+                y={bar.price}
+                r={3}
+                fill="#22c55e"
+                stroke="white"
+                strokeWidth={0.5}
+                ifOverflow="hidden"
+                label={{ value: "I", position: "insideTopRight", fill: "#22c55e", fontSize: 9 }}
+              >
+                <title>{tooltip}</title>
+              </ReferenceDot>
+            );
+          })}
           {/* "Today" marker: vertical line + dot at the right edge so
               the user can locate the current bar without squinting. */}
           <ReferenceLine x={lastDate} stroke="rgba(255,255,255,0.45)" strokeDasharray="2 4" ifOverflow="hidden" label={{ value: "today", position: "top", fill: "rgba(255,255,255,0.6)", fontSize: 10 }} />
@@ -387,7 +420,8 @@ export function PriceHistoryChart({
         bars below share the brush window — a rally on thick bars shows broad
         participation; thin bars suggest a thin rally. "E" dots = reported
         earnings (green=beat, red=miss, grey=unknown); amber "D" = dividend
-        ex-date; teal "S" = stock split. Drag the brush or click a preset to zoom.
+        ex-date; teal "S" = stock split; green "I" = insider purchase (buys
+        only — sells excluded). Drag the brush or click a preset to zoom.
       </div>
     </div>
   );

@@ -64,6 +64,39 @@ public static class MarketDataEndpoints
             });
         });
 
+        // Insider purchase overlay for PriceHistoryChart. Only BUY transactions
+        // are surfaced — insider sales are too noisy (10b5-1 auto-sell plans,
+        // tax, diversification). "I" green chips on the chart at each buy date.
+        // Default 365d lookback (insider data is recent by nature).
+        group.MapGet("/insiders", async (
+            string symbol,
+            int? lookbackDays,
+            YahooFinanceProvider yahoo,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(symbol))
+                return Results.BadRequest(new { error = "symbol is required" });
+
+            var days = lookbackDays is > 0 ? lookbackDays.Value : 365;
+            var trades = await yahoo.GetInsiderBuysAsync(symbol, days, ct);
+
+            var payload = trades.Select(t => new
+            {
+                date = t.Date,
+                name = t.Name,
+                title = t.Title,
+                shares = t.Shares,
+                value = t.Value,
+            });
+
+            return Results.Ok(new
+            {
+                symbol,
+                lookback_days = days,
+                trades = payload,
+            });
+        });
+
         // Corporate actions overlay (dividends + splits) for PriceHistoryChart.
         // Returns events oldest-first within lookbackDays (default 1825 d = 5y).
         // Dividends show as "D" chips, splits as "S" chips on the price chart.

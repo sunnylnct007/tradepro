@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { CorporateActionMarker, EarningsMarker, HitRateResult, SignalDecision, Watchlist } from "../api/types";
+import type { CorporateActionMarker, EarningsMarker, HitRateResult, InsiderTrade, SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
@@ -47,10 +47,12 @@ export function Signals() {
   const [multi, setMulti] = useState<MultiResult | null>(null);
   const [multiLoading, setMultiLoading] = useState(false);
 
-  // Earnings markers and corporate action chips for the chart overlay.
-  // Both fetched when symbol changes; silent failure → chart still renders.
+  // Chart overlay data: earnings, corporate actions, insider buys.
+  // All three fetched in parallel on symbol change; silent failure on each
+  // → chart still renders, just without those particular marker types.
   const [earningsMarkers, setEarningsMarkers] = useState<EarningsMarker[]>([]);
   const [corpActions, setCorpActions] = useState<CorporateActionMarker[]>([]);
+  const [insiderBuys, setInsiderBuys] = useState<InsiderTrade[]>([]);
 
   useEffect(() => {
     api.ukWatchlist().then(setWatchlist).catch(() => {});
@@ -59,11 +61,15 @@ export function Signals() {
   useEffect(() => {
     setEarningsMarkers([]);
     setCorpActions([]);
+    setInsiderBuys([]);
     api.earningsMarkers(symbol)
       .then((r) => setEarningsMarkers(r.earnings ?? []))
       .catch(() => {});
     api.corporateActions(symbol)
       .then((r) => setCorpActions(r.actions ?? []))
+      .catch(() => {});
+    api.insiderBuys(symbol)
+      .then((r) => setInsiderBuys(r.trades ?? []))
       .catch(() => {});
   }, [symbol]);
 
@@ -342,6 +348,7 @@ export function Signals() {
           symbol={symbol}
           earnings={earningsMarkers.length > 0 ? earningsMarkers : undefined}
           corporateActions={corpActions.length > 0 ? corpActions : undefined}
+          insiderBuys={insiderBuys.length > 0 ? insiderBuys : undefined}
         />
       )}
 
