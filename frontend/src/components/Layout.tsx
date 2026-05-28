@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { SystemBanners } from "./SystemBanners";
 import { WorkerStatusBadge } from "./WorkerStatusBadge";
 import { useAuth } from "../auth/AuthProvider";
 import { ModePill } from "./ModePill";
@@ -301,6 +302,7 @@ export function Layout() {
           )}
         </div>
       </header>
+      <SystemBanners />
       <main
         style={{
           padding: "28px",

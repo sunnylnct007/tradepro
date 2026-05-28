@@ -18,6 +18,7 @@ import { config } from "../config";
 import { CockpitCard } from "../components/CockpitCard";
 import { EquityPipelineCard } from "../components/EquityPipelineCard";
 import { PlotlyChart } from "../components/PlotlyChart";
+import { TradePlanCard } from "../components/TradePlanCard";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
 import { useOmsEvents } from "../hooks/useOmsEvents";
 
@@ -373,6 +374,9 @@ export function IchimokuEquity() {
 
       {/* ── Strategy validation (trader-spec backtest) ─────────────────────── */}
       <EquityPipelineCard strategy={STRATEGY_ID} />
+
+      {/* ── Today's trade plan (target − current = trades) ─────────────────── */}
+      <TradePlanCard strategy={STRATEGY_ID} />
 
       {/* ── Card 1: Signal Grid ─────────────────────────────────────────────── */}
       <CockpitCard
