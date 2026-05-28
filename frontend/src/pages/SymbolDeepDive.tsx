@@ -47,6 +47,9 @@ export function SymbolDeepDive() {
   // so Section 2 (verdict) can count `in_position` across strategies
   // and Section 4 can render per-strategy detail.
   const [allRows, setAllRows] = useState<CompareRow[]>([]);
+  // One best-Sharpe row per *other* symbol in the same universe, used
+  // for Section 9 peer comparison. Populated alongside allRows.
+  const [peerRows, setPeerRows] = useState<CompareRow[]>([]);
   const [universe, setUniverse] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,9 +80,19 @@ export function SymbolDeepDive() {
             const sharpeOf = (r: CompareRow) =>
               (r.stats?.sharpe as number | null | undefined) ?? -Infinity;
             match.sort((a, b) => sharpeOf(b) - sharpeOf(a));
+            // Build one best-Sharpe row per OTHER symbol for peers.
+            const bySymbol = new Map<string, CompareRow>();
+            for (const r of rows) {
+              if (r.symbol === symbol) continue;
+              const existing = bySymbol.get(r.symbol);
+              if (!existing || sharpeOf(r) > sharpeOf(existing)) {
+                bySymbol.set(r.symbol, r);
+              }
+            }
             if (!cancelled) {
               setRow(match[0]);
               setAllRows(match);
+              setPeerRows([...bySymbol.values()]);
               setUniverse(u.universe);
               setLoading(false);
             }
@@ -126,7 +139,7 @@ export function SymbolDeepDive() {
   }
   return (
     <PageShell symbol={symbol} state="ready" row={row}
-               allRows={allRows} universe={universe} />
+               allRows={allRows} peerRows={peerRows} universe={universe} />
   );
 }
 
@@ -141,10 +154,11 @@ function PageShell(props: {
   state: ShellState;
   row?: CompareRow | null;
   allRows?: CompareRow[];
+  peerRows?: CompareRow[];
   universe?: string | null;
   detail?: string;
 }) {
-  const { symbol, state, row, allRows = [], universe, detail } = props;
+  const { symbol, state, row, allRows = [], peerRows = [], universe, detail } = props;
   return (
     <div style={{
       maxWidth: 960,
@@ -206,7 +220,12 @@ function PageShell(props: {
         <Section title="8. Regime survival" trustId="deepdive.regime_survival"
           todo="Regime-survival data comes from the strategy replay on historical prices. Shown once the symbol loads." />
       )}
-      <Section title="9. Peer comparison" trustId="deepdive.peer_comparison" todo="derive peer set from symbol.tags — needs task #66 backend prep" />
+      {state === "ready" && row ? (
+        <SectionPeerComparison symbol={symbol} row={row} peerRows={peerRows} />
+      ) : (
+        <Section title="9. Peer comparison" trustId="deepdive.peer_comparison"
+          todo="Peers are other symbols from the same trading universe. Shown once the symbol loads." />
+      )}
       {state === "ready" && allRows.length > 0 && (
         <SectionHitRate symbol={props.symbol} rows={allRows} />
       )}
@@ -1345,6 +1364,148 @@ function regimeColourDD(kind: string): string {
     case "recovery": return "var(--up)";
     default:         return "var(--text-dim)";
   }
+}
+
+// ----------------------------------------------------------------------
+// Section 9 — Peer comparison. Other symbols from the same trading
+// universe, ranked so those agreeing with this symbol's bucket appear
+// first (then by Sharpe desc). This surfaces: "BABA is BUY → which
+// other symbols in this universe are also BUY, and which are AVOID?"
+//
+// Design notes:
+//   • "Peer" = universe co-membership, NOT analyst-defined sector peer.
+//     The two can diverge heavily (GLD shares a universe with AAPL in
+//     some multi-asset runs). The explainer note calls this out.
+//   • No extra API call: peerRows is computed in SymbolDeepDive from
+//     the same compareLatest response used for Sections 1–8.
+//   • Shows max 8 cards (grid auto-fit 140px). Large universes (S&P500)
+//     surface the most strategy-aligned candidates, not all 500.
+//   • Bucket colour chips reuse bucketChipStyle from Section 2.
+// ----------------------------------------------------------------------
+
+function SectionPeerComparison(props: {
+  symbol: string;
+  row: CompareRow;
+  peerRows: CompareRow[];
+}) {
+  const { symbol, row, peerRows } = props;
+  const bucket = row.bucket ?? "WAIT";
+
+  if (peerRows.length === 0) {
+    return (
+      <section style={cardStyle}>
+        <strong style={{ fontSize: 14 }}>
+          9. Peer comparison<TrustDot id="deepdive.peer_comparison" />
+        </strong>
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {symbol} is the only symbol in this universe, or the universe
+          has not yet been computed. Peer comparison requires ≥ 2 symbols
+          in the same cached run.
+        </div>
+      </section>
+    );
+  }
+
+  // Rank: same-bucket rows first, then by Sharpe desc, cap at 8.
+  const sharpeOf = (r: CompareRow) =>
+    (r.stats?.sharpe as number | null | undefined) ?? -Infinity;
+  const ranked = [...peerRows]
+    .sort((a, b) => {
+      const aBucket = (a.bucket ?? "WAIT") === bucket ? 1 : 0;
+      const bBucket = (b.bucket ?? "WAIT") === bucket ? 1 : 0;
+      if (bBucket !== aBucket) return bBucket - aBucket;
+      return sharpeOf(b) - sharpeOf(a);
+    })
+    .slice(0, 8);
+
+  const sameBucketCount = ranked.filter((r) => (r.bucket ?? "WAIT") === bucket).length;
+
+  return (
+    <section style={cardStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <strong style={{ fontSize: 14 }}>
+          9. Peer comparison<TrustDot id="deepdive.peer_comparison" />
+        </strong>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          {peerRows.length} in universe · showing top {ranked.length}
+        </span>
+      </div>
+
+      <div style={{ fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
+        Other symbols in the same trading universe, ranked by bucket agreement
+        then Sharpe. Co-membership is not sector similarity — multi-asset
+        universes will mix equities, ETFs, and commodities.
+      </div>
+
+      {sameBucketCount > 0 && (
+        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          {sameBucketCount} also {bucket} (agreeing with this symbol's consensus)
+        </div>
+      )}
+
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(138px, 1fr))",
+        gap: 8,
+        marginTop: 4,
+      }}>
+        {ranked.map((peer) => {
+          const peerBucket = peer.bucket ?? "WAIT";
+          const chipStyle = bucketChipStyle(peerBucket);
+          const pSharpe = sharpeOf(peer);
+          const pInPosition = peer.in_position;
+          const bucketAgrees = peerBucket === bucket;
+          return (
+            <Link
+              key={peer.symbol}
+              to={`/symbol/${peer.symbol}`}
+              style={{
+                textDecoration: "none",
+                color: "inherit",
+                padding: 10,
+                border: `1px solid ${bucketAgrees ? "rgba(255,255,255,0.15)" : "var(--border)"}`,
+                borderRadius: 8,
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                background: bucketAgrees
+                  ? "var(--bg-elevated, rgba(255,255,255,0.03))"
+                  : "transparent",
+                transition: "border-color 0.15s",
+              }}
+              title={`Open ${peer.symbol} deep dive`}
+            >
+              <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: "0.5px" }}>
+                {peer.symbol}
+              </div>
+              <div style={{
+                ...chipStyle,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: 4,
+                alignSelf: "flex-start",
+              }}>
+                {peerBucket}
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                Sharpe {pSharpe === -Infinity ? "—" : pSharpe.toFixed(2)}
+              </div>
+              <div style={{ fontSize: 10, color: pInPosition ? "var(--up)" : "var(--text-muted)" }}>
+                {pInPosition ? "● LONG" : "○ flat"}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+
+      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+        Click any card to open that symbol's Deep Dive. Peers ranked
+        by bucket agreement with {symbol} first, then by Sharpe (best
+        historical risk-adjusted return in this universe's backtest).
+      </div>
+    </section>
+  );
 }
 
 // ----------------------------------------------------------------------
