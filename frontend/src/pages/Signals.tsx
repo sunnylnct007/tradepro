@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { HitRateResult, SignalDecision, Watchlist } from "../api/types";
+import type { EarningsMarker, HitRateResult, SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
@@ -47,9 +47,21 @@ export function Signals() {
   const [multi, setMulti] = useState<MultiResult | null>(null);
   const [multiLoading, setMultiLoading] = useState(false);
 
+  // Earnings markers for the chart overlay. Fetched whenever the symbol
+  // changes so the chart shows beat/miss flags at each earnings date.
+  // Silent failure: empty list → chart has no markers but still renders.
+  const [earningsMarkers, setEarningsMarkers] = useState<EarningsMarker[]>([]);
+
   useEffect(() => {
     api.ukWatchlist().then(setWatchlist).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setEarningsMarkers([]);
+    api.earningsMarkers(symbol)
+      .then((r) => setEarningsMarkers(r.earnings ?? []))
+      .catch(() => {});
+  }, [symbol]);
 
   function paramsFor(): Record<string, number> | null {
     switch (strategy) {
@@ -322,7 +334,10 @@ export function Signals() {
           context for the verdict they just produced. Split-adjusted
           adj_close so 4:1 / 2:1 splits don't read as fake crashes. */}
       {(multi || decision) && symbol && (
-        <PriceHistoryChart symbol={symbol} />
+        <PriceHistoryChart
+          symbol={symbol}
+          earnings={earningsMarkers.length > 0 ? earningsMarkers : undefined}
+        />
       )}
 
       {decision && (

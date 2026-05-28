@@ -584,36 +584,19 @@ out of date. Each entry is one line: what changed and why it mattered.
   approximation we use today. Folder refactor: promote
   `paper/strategies/` → top-level `intraday/`, keep `paper/`
   for paper-trading INFRA only (engine, ledger, brokers).
-- 🔴 **Phase 6.5.5 — Trend-gate-failure bug (BABA case study).**
-  External reviewer 2026-05-20 pulled a full BABA evaluation: the
-  bucket fired BUY (genuine alpha — RSI mean-reversion has an 83%
-  historical hit rate on BABA with +11.4% expectancy / trade, and
-  the BUY aligns with Wall Street consensus Strong Buy / $190.69
-  PT / 40.6% upside / Jefferies $230 target) but the decision
-  trace shows trend filter FAILED (price 135.64 below SMA200
-  149.29). When the trend filter explicitly fails, the bucket
-  should not surface BUY — it's a coherence bug. Per spec,
-  `compute_bucket` in `compare.py:365` only fires BUY when
-  `price_verdict == "BUY"`, and the trend gate feeds price_verdict.
-  Need to audit: under what conditions does price_verdict come
-  back BUY despite trend = fail? The MTUM/VLUE class of bugs
-  prompted a similar check earlier — this looks like a regression
-  or an edge case not covered. Workflow: reproduce on BABA today
-  with `evaluate_symbols(["BABA"])`, trace the rule chain, harden
-  `compute_bucket` so trend-fail blocks BUY. Will eventually fire
-  BUY on a stock in genuine collapse if not fixed.
-- 🔴 **Phase 6.11 — Analyst-upgrades feed audit.** Same reviewer:
-  TradePro showed 0 events in 60 days on BABA via
-  `get_analyst_upgrades(BABA, days=60)`, but TipRanks + CNN show
-  ≥4 PT changes in the last 7 days alone (Mizuho, JPM, SPDB,
-  Guotai Haitong, CGS, CICC). Possible causes: (a) Finnhub free
-  tier filters out non-US-coverage analysts, (b) our integration
-  is dropping events between Finnhub API → store, (c) netDelta
-  math is wrong somewhere. Debug session: hit Finnhub directly
-  with the same key, compare raw response to what surfaces in
-  `analyst_actions` on the compare row. If Finnhub is genuinely
-  thin on BABA-like ADRs, evaluate TipRanks / S&P Capital IQ as
-  supplementary feeds (paid). Sub-issue of "data feed coverage".
+- ✅ **Phase 6.5.5 — Trend-gate-failure bug (BABA case study).** Fixed
+  in commit `832d82a`. Bounce-zone BUY block in `_classify()` now has
+  an `if above is False: return ("WAIT", ...)` guard. Belt-and-braces
+  via `BUG-001` veto in `compute_conviction()` + `cap_bucket_at_low_conviction()`.
+  Behave scenario `baba_bounce_zone.feature` covers the exact geometry.
+- ✅ **Phase 6.11 — Analyst-upgrades feed audit.** Root cause: Finnhub
+  free tier returns HTTP 200 with `[]` for `/stock/upgrade-downgrade`
+  (paid plan required — not a code bug). Fixed by: exposing `planGated`
+  flag in the .NET API response, propagating through Python `analyst_actions.py`
+  and MCP `tools.py` so the UI shows "upgrade data not available on free
+  Finnhub plan" rather than a misleading "0 upgrades". The monthly
+  `analyst_recommendations` endpoint (free tier) is unaffected.
+  Commit: `9719e35`.
 - 🟡 **Phase 6.12 — Fundamentals + valuation layer.** Currently
   TradePro is a "sophisticated technicals + sentiment engine" —
   it should either be positioned that way or close the gap to
@@ -794,15 +777,15 @@ buy on their own. That framing changes the priority of each item.
     `aws-redeploy.yml` still git-fetches on the box and will fail
     until the PAT is fresh. Either rotate the PAT or refactor
     redeploy to use the same checkout-and-ship pattern.
-- ⏳ **Events-on-chart bundle** (earnings + corp actions + insider) — three
-  related backend endpoints + matching chart markers. Land as one PR so
-  the chart's "event overlay" layer ships coherently.
-  - `GET /api/marketdata/earnings?symbol=&from=&to=` → vertical lines for
-    earnings dates from `yfinance.Ticker.earnings_dates`. Surfaced by
-    `tradepro_strategies/earnings.py:fetch_recent_earnings` already.
-  - `GET /api/marketdata/corporate-actions?symbol=` → split + dividend
+- 🟡 **Events-on-chart bundle** (earnings ✅ shipped | corp actions + insider ⏳)
+  - ✅ **Earnings markers** — `GET /api/marketdata/earnings?symbol=&lookbackDays=`
+    ships in `feature/events-on-chart` (commit `13a2cb7`). YahooFinanceProvider
+    parses the v8/finance/chart `events=earnings` overlay; `EarningsMarker`
+    type promoted to `types.ts`; Signals.tsx fetches and passes to chart;
+    Compare.tsx already had this via the Python compare row.
+  - ⏳ `GET /api/marketdata/corporate-actions?symbol=` → split + dividend
     events from `yfinance.Ticker.actions`. Small "S" / "D" markers.
-  - `GET /api/marketdata/insiders?symbol=` → insider buys/sells from
+  - ⏳ `GET /api/marketdata/insiders?symbol=` → insider buys/sells from
     `yfinance.Ticker.insider_purchases`. Tiny up/down chips on the chart;
     filtered to discretionary trades (drop 10b5-1 plan executions).
 - ✅ **Symbol autocomplete** — shipped (SymbolPicker.tsx →
@@ -813,15 +796,12 @@ buy on their own. That framing changes the priority of each item.
   push CLI doesn't upload there yet. Add `archive_to_s3()` after a
   successful `/api/ingest/compare` so we have replay history before
   Phase D2 lands. Opt-in via `TRADEPRO_S3_ARCHIVE=1` env. ~2 hrs.
-- ⏳ **Backtest stop-loss option** — new `BacktestConfig.stop_loss`
-  block (trailing pct + max-loss pct). Default OFF so existing 187
-  scenarios remain reproducible. Wire into `run_backtest.py` exit
-  logic + add a UI toggle on the Backtest page. ~1 day.
-- ⏳ **Crash-protection rule in `_classify`** — `10d return < -8% AND
-  below SMA200 → AVOID ("active crash")`. Placed BEFORE the bounce-zone
-  BUY check so a confirmed crash always wins. New behave scenario:
-  `Given a series in active 10d crash, expect entry_signal AVOID`.
-  ~3 hrs.
+- ✅ **Backtest stop-loss option** — shipped. `BacktestConfig.stop_loss`
+  block (trailing pct + max-loss pct variants) in .NET `Simulator.cs`;
+  UI toggle on Simulations.tsx. Default OFF preserves reproducibility.
+- ✅ **Crash-protection rule in `_classify`** — shipped. `ACTIVE_CRASH_10D_PCT = -8.0`
+  in `market_state.py`; fires AVOID before bounce-zone BUY. Behave scenario
+  covers the exact geometry.
 - ⏳ **Re-audit rationale cache after v4 prompt rolls out** — target
   rejection rate <10% (currently 35%). If v4 doesn't move the needle,
   the next move is a *model* audit: which model is producing the

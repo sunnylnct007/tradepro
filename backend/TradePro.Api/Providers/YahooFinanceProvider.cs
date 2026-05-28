@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TradePro.Api.Models;
+using System.Globalization;
 
 namespace TradePro.Api.Providers;
 
@@ -92,6 +93,109 @@ public sealed class YahooFinanceProvider : IMarketDataProvider
         }
 
         return new CandleSeries(symbol, interval, Name, candles);
+    }
+
+    /// <summary>
+    /// Fetches historical earnings announcements for <paramref name="symbol"/> via
+    /// the Yahoo Finance chart API's <c>events=earnings</c> overlay. Returns a
+    /// list of reported earnings only (future / unconfirmed events are skipped).
+    /// Sorted oldest-first so the chart can append them in display order.
+    ///
+    /// Uses the same <see cref="_http"/> HttpClient as <see cref="GetCandlesAsync"/>
+    /// so rate-limit headers and user-agent are already set.
+    ///
+    /// Returns an empty list on any failure — the chart degrades to "no markers"
+    /// cleanly instead of erroring out.
+    /// </summary>
+    public async Task<IReadOnlyList<EarningsMarkerDto>> GetEarningsMarkersAsync(
+        string symbol, int lookbackDays, CancellationToken ct)
+    {
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var period2 = now.ToUnixTimeSeconds();
+            var period1 = now.AddDays(-lookbackDays).ToUnixTimeSeconds();
+
+            var url =
+                $"https://query1.finance.yahoo.com/v8/finance/chart/{Uri.EscapeDataString(symbol)}" +
+                $"?period1={period1}&period2={period2}&interval=1d&events=earnings&includeTimestamps=true";
+
+            using var resp = await _http.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode)
+                return Array.Empty<EarningsMarkerDto>();
+
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+            var chart = doc.RootElement.GetProperty("chart");
+            if (!chart.TryGetProperty("result", out var result)
+                || result.ValueKind != JsonValueKind.Array
+                || result.GetArrayLength() == 0)
+                return Array.Empty<EarningsMarkerDto>();
+
+            var first = result[0];
+            if (!first.TryGetProperty("events", out var events))
+                return Array.Empty<EarningsMarkerDto>();
+
+            if (!events.TryGetProperty("earnings", out var earningsDict)
+                || earningsDict.ValueKind != JsonValueKind.Object)
+                return Array.Empty<EarningsMarkerDto>();
+
+            var markers = new List<EarningsMarkerDto>();
+            foreach (var kv in earningsDict.EnumerateObject())
+            {
+                var ev = kv.Value;
+
+                // Derive the announcement date. Prefer startdatetime (ISO string)
+                // which Yahoo provides per-event; fall back to the unix epoch key.
+                string? date = null;
+                if (ev.TryGetProperty("startdatetime", out var sdtEl))
+                {
+                    var sdt = sdtEl.GetString() ?? "";
+                    // "2024-10-26T10:30:00-04:00" → take the first 10 chars
+                    if (sdt.Length >= 10) date = sdt[..10];
+                }
+                if (date is null && ev.TryGetProperty("date", out var epochEl))
+                {
+                    var epoch = epochEl.GetInt64();
+                    date = DateTimeOffset.FromUnixTimeSeconds(epoch)
+                        .UtcDateTime.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                }
+                if (date is null) continue;
+
+                // Only include events with a confirmed epsActual — future
+                // earnings have epsActual null and belong to the upcoming-
+                // earnings calendar, not the historical chart layer.
+                double? epsActual = null;
+                if (ev.TryGetProperty("epsActual", out var eaEl) && eaEl.ValueKind != JsonValueKind.Null)
+                    epsActual = eaEl.GetDouble();
+                if (epsActual is null) continue;
+
+                double? epsEstimate = null;
+                if (ev.TryGetProperty("epsEstimate", out var eeEl) && eeEl.ValueKind != JsonValueKind.Null)
+                    epsEstimate = eeEl.GetDouble();
+
+                // Yahoo v8 chart returns surprisePercent already as a percentage
+                // (e.g. 8.2 means beat by 8.2%). Same unit as the Python layer's
+                // Surprise(%) column from yfinance.earnings_dates — no conversion needed.
+                double? surprisePct = null;
+                if (ev.TryGetProperty("surprisePercent", out var spEl) && spEl.ValueKind != JsonValueKind.Null)
+                    surprisePct = spEl.GetDouble();
+
+                markers.Add(new EarningsMarkerDto(date, epsActual, epsEstimate, surprisePct));
+            }
+
+            // Sort oldest-first so the chart overlay renders in chronological
+            // order and range-based lookups are straightforward.
+            return markers
+                .OrderBy(m => m.Date, StringComparer.Ordinal)
+                .ToList();
+        }
+        catch
+        {
+            // Any parse error / network failure → empty list; chart degrades gracefully.
+            return Array.Empty<EarningsMarkerDto>();
+        }
     }
 
     private static string MapInterval(string interval) => interval.ToLowerInvariant() switch
