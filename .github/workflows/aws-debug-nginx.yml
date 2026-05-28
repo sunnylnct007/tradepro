@@ -50,39 +50,36 @@ jobs:
       - name: Inspect nginx
         run: |
           FIX="${{ github.event.inputs.fix }}"
-          jq -n --arg fix "$FIX" '{
-            commands: [
-              "set -eu",
-              "cd /opt/tradepro",
-              "echo === deployed default.conf (head 110) ===",
-              "docker compose -f docker-compose.aws.yaml exec -T frontend cat /etc/nginx/conf.d/default.conf | head -110",
-              "echo",
-              "echo === image SHA running ===",
-              "docker compose -f docker-compose.aws.yaml images frontend",
-              "echo",
-              "echo === .htpasswd state ===",
-              "ls -la /opt/tradepro/.htpasswd 2>&1 || echo NO_HTPASSWD_FILE",
-              "wc -l /opt/tradepro/.htpasswd 2>&1 || true",
-              "echo",
-              "echo === probe /api/ from inside ===",
-              "docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- http://localhost/api/system/state 2>&1 | head -3",
-              "echo === probe /health from inside ===",
-              "docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- http://localhost/health 2>&1 | head -3",
-              "if [ \"$fix\" = \"true\" ]; then",
-              "  echo",
-              "  echo === FORCE: pull fresh image + recreate frontend ===",
-              "  docker compose -f docker-compose.aws.yaml pull frontend",
-              "  docker compose -f docker-compose.aws.yaml up -d --force-recreate frontend",
-              "  sleep 3",
-              "  echo === post-recreate probe ===",
-              "  curl -sS http://localhost/api/system/state | head -3",
-              "fi"
-            ]
-          }' > /tmp/params.json
+          # Write the whole script as ONE shell command so if/then works.
+          SCRIPT='cd /opt/tradepro
+echo === deployed default.conf grep auth ===
+docker compose -f docker-compose.aws.yaml exec -T frontend grep -nC1 "auth_basic" /etc/nginx/conf.d/default.conf || true
+echo
+echo === image SHA running ===
+docker compose -f docker-compose.aws.yaml images frontend
+echo
+echo === .htpasswd state ===
+ls -la /opt/tradepro/.htpasswd 2>&1 || echo NO_HTPASSWD_FILE
+echo
+echo === probe /api/ from inside frontend container ===
+docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- --server-response http://localhost/api/system/state 2>&1 | head -10
+echo
+echo === probe /health from inside frontend container ===
+docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- --server-response http://localhost/health 2>&1 | head -10
+if [ "'"$FIX"'" = "true" ]; then
+  echo === FORCE: pull fresh frontend + recreate ===
+  docker compose -f docker-compose.aws.yaml pull frontend
+  docker compose -f docker-compose.aws.yaml up -d --force-recreate frontend
+  sleep 4
+  echo === post-recreate probe ===
+  docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- --server-response http://localhost/api/system/state 2>&1 | head -6
+fi
+'
+          jq -n --arg s "$SCRIPT" '{commands: [$s]}' > /tmp/params.json
           CMD_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.find.outputs.instance_id }}" \
             --document-name AWS-RunShellScript \
-            --comment "nginx debug + maybe fix" \
+            --comment "nginx debug" \
             --parameters file:///tmp/params.json \
             --output text --query 'Command.CommandId')
           echo "cmd=$CMD_ID"
