@@ -620,9 +620,12 @@ out of date. Each entry is one line: what changed and why it mattered.
        Red ≤14d (earnings danger zone), amber 15-30d, grey beyond.
        `earnings_signal.upcoming` typed in CompareRow; badge is
        absent for ETFs / when Finnhub disabled. `feature/upcoming-earnings-badge`.
-    2. **Per-strategy regime data on compare row** (task #66) —
-       unblocks Section 8 of the Deep Dive. Already computed
-       on the Mac, just not folded into the row. ~0.5d.
+    2. ✅ **Section 8 Regime survival in Deep Dive** — implemented
+       using `row.regimes: CompareRowRegime[]` already on the compare
+       payload (no extra backend call). Cards show return %, max
+       drawdown, bars per stress window (crash/drawdown/recovery).
+       In-tool explainer + empty state for ETF / low-vol instruments.
+       PR #25 `feature/regime-survival-s8`.
     3. **Symbol → tags map** (task #66) — unblocks Section 9
        peer-comparison. Hardcoded list per universe today;
        needs a tags table. ~0.5d.
