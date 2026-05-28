@@ -153,7 +153,12 @@ public sealed class TradePlanService
                 continue;
             }
 
-            var qty = Math.Round(Math.Abs(diff) / price, 4);
+            // T212 Invest API enforces 2-decimal precision for US
+            // fractional shares (the broker rejects qty with more
+            // decimals as "quantity-precision-mismatch"). Round here
+            // rather than at the OMS boundary so the trade plan UI
+            // shows what will actually ship.
+            var qty = Math.Round(Math.Abs(diff) / price, 2);
             if (qty <= 0m) continue;
             var side = diff > 0 ? "BUY" : "SELL";
             var reason = BuildReason(d, current, diff);
