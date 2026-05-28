@@ -42,6 +42,19 @@ CREATE TABLE IF NOT EXISTS strategy_decisions (
     PRIMARY KEY (run_id, sleeve, symbol)
 );
 
+-- Defensive: if an earlier deploy left the table half-formed (CREATE
+-- TABLE committed but later DDL rolled back, or a different schema
+-- version sneaked in), add the strategy column before the index
+-- creation references it. Idempotent — ALTER TABLE ADD COLUMN IF NOT
+-- EXISTS is a no-op when the column already exists.
+ALTER TABLE strategy_decisions
+    ADD COLUMN IF NOT EXISTS strategy TEXT;
+
+-- If we just added it as nullable, backfill + enforce NOT NULL so the
+-- column matches the canonical schema. Safe to run repeatedly.
+UPDATE strategy_decisions SET strategy = 'ichimoku_equity' WHERE strategy IS NULL;
+ALTER TABLE strategy_decisions ALTER COLUMN strategy SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_strategy_decisions_latest
     ON strategy_decisions(strategy, as_of_utc DESC);
 
