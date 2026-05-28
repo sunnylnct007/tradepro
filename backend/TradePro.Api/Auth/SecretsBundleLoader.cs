@@ -51,6 +51,20 @@ public static class SecretsBundleLoader
         ["ingest-token"]    = "Ingest:Token",
     };
 
+    /// <summary>
+    /// Map for the standalone <c>tradepro/ig</c> secret (snake_case
+    /// inside the secret → IG:* config). Kept separate from KeyMap so
+    /// the IG creds rotate independently of the all-in-one bundle.
+    /// </summary>
+    private static readonly Dictionary<string, string> IgKeyMap = new()
+    {
+        ["api_key"]    = "IG:ApiKey",
+        ["username"]   = "IG:Username",
+        ["password"]   = "IG:Password",
+        ["mode"]       = "IG:Mode",
+        ["account_id"] = "IG:AccountId",
+    };
+
     public static void LoadInto(IConfigurationBuilder builder, IConfiguration existing, ILogger? log = null)
     {
         var secretName = existing["Secrets:BundleName"] ?? DefaultSecretName;
@@ -100,6 +114,45 @@ public static class SecretsBundleLoader
             builder.AddInMemoryCollection(injected);
             log?.LogInformation("SM bundle loaded {count} key(s) from {name}: {keys}",
                 injected.Count, secretName, string.Join(", ", injected.Keys));
+        }
+
+        // Also fold in the standalone IG secret (tradepro/ig) when
+        // present. Separate secret so IG creds rotate independently of
+        // the all-in-one bundle. Silent skip if missing — IG is opt-in.
+        LoadSecondary(builder, existing, region, "tradepro/ig", IgKeyMap, log);
+    }
+
+    private static void LoadSecondary(
+        IConfigurationBuilder builder,
+        IConfiguration existing,
+        string region,
+        string secretName,
+        Dictionary<string, string> keyMap,
+        ILogger? log)
+    {
+        Dictionary<string, string?>? bundle;
+        try
+        {
+            bundle = FetchBundle(secretName, region);
+        }
+        catch (Exception ex)
+        {
+            log?.LogDebug(ex, "secondary secret {name} fetch skipped", secretName);
+            return;
+        }
+        if (bundle is null || bundle.Count == 0) return;
+        var injected = new Dictionary<string, string?>();
+        foreach (var (key, configKey) in keyMap)
+        {
+            if (!bundle.TryGetValue(key, out var value) || string.IsNullOrEmpty(value)) continue;
+            if (!string.IsNullOrEmpty(existing[configKey])) continue;
+            injected[configKey] = value;
+        }
+        if (injected.Count > 0)
+        {
+            builder.AddInMemoryCollection(injected);
+            log?.LogInformation("Secondary secret {name} loaded {count} key(s): {keys}",
+                secretName, injected.Count, string.Join(", ", injected.Keys));
         }
     }
 

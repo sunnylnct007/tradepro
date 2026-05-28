@@ -51,9 +51,44 @@ log = logging.getLogger("tradepro.cli.sentiment_score")
 DEFAULT_LLM_URL = os.environ.get(
     "TRADEPRO_LLM_URL", "http://localhost:11434/api/generate")
 DEFAULT_LLM_MODEL = os.environ.get(
-    "TRADEPRO_LLM_MODEL", "llama3.1:8b-instruct")
+    "TRADEPRO_LLM_MODEL", "finbert")
 DEFAULT_LLM_SOURCE = os.environ.get(
     "TRADEPRO_LLM_SOURCE", "local-llm")
+
+
+def _resolve_llm_config(base: str | None, token: str | None) -> dict:
+    """Pull llm_url / llm_model / llm_source_tag from /api/settings-kv/.
+    Falls back to env-var defaults when the API is unreachable so the
+    CLI still works in standalone mode. AWS Secrets Manager isn't
+    consulted here — LLM config is runtime-tunable, not credential
+    material; credentials would go through get_secret()."""
+    if not base or not token:
+        return {"url": DEFAULT_LLM_URL, "model": DEFAULT_LLM_MODEL,
+                "source": DEFAULT_LLM_SOURCE}
+    out: dict[str, str] = {}
+    for key, env_default in [
+        ("llm_url",         DEFAULT_LLM_URL),
+        ("llm_model",       DEFAULT_LLM_MODEL),
+        ("llm_source_tag",  DEFAULT_LLM_SOURCE),
+    ]:
+        try:
+            r = requests.get(
+                f"{base.rstrip('/')}/api/settings-kv/{key}",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            if r.ok:
+                v = r.json().get("value")
+                out[key] = v if isinstance(v, str) else env_default
+            else:
+                out[key] = env_default
+        except requests.RequestException:
+            out[key] = env_default
+    return {
+        "url":    out["llm_url"],
+        "model":  out["llm_model"],
+        "source": out["llm_source_tag"],
+    }
 
 CLASSIFICATIONS = (
     "strongly_negative", "negative", "neutral", "positive", "strongly_positive",
@@ -292,6 +327,14 @@ def main(argv: list[str] | None = None) -> int:
         log.error("missing api-base-url + token credentials")
         return 2
 
+    # Centralised LLM config from app_settings_kv. CLI flags still win
+    # for ad-hoc runs (e.g. testing a different model).
+    cfg = _resolve_llm_config(base, token)
+    llm_url    = args.llm_url   if args.llm_url   != DEFAULT_LLM_URL   else cfg["url"]
+    llm_model  = args.llm_model if args.llm_model != DEFAULT_LLM_MODEL else cfg["model"]
+    llm_source = args.source    if args.source    != DEFAULT_LLM_SOURCE else cfg["source"]
+    log.info("llm endpoint=%s model=%s source=%s", llm_url, llm_model, llm_source)
+
     symbols = [s.upper() for s in args.symbols] if args.symbols \
         else _resolve_symbols_from_api(base, token)
     if not symbols:
@@ -306,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
     for sym in symbols:
         news = _fetch_news_for_symbol(sym, hours=args.hours)
         if news:
-            res = _call_llm(sym, news, args.llm_url, args.llm_model)
+            res = _call_llm(sym, news, llm_url, llm_model)
             if res is None:
                 res = _mock_score(sym, news)
                 fell_back += 1
@@ -315,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
                    "rationale": "no recent news"}
         scored.append({
             "symbol": sym,
-            "source": args.source,
+            "source": llm_source,
             "score": res["score"],
             "classification": res["classification"],
             "n_articles": len(news),

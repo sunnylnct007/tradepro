@@ -305,7 +305,75 @@ public sealed class PostgresOmsService : IOmsService
                 return approved;
             }
         }
+
+        // IG routing — IG_DEMO and IG_LIVE both go through the IGClient.
+        // Mode is encoded in IGOptions.Mode (driven by AWS Secrets).
+        // Same place-and-confirm pattern as T212: deal reference back,
+        // then poll /confirms for FILLED / REJECTED.
+        if (approved.Broker is "IG_DEMO" or "IG_LIVE")
+        {
+            var ig = ResolveIG();
+            if (ig is not null && ig.IsEnabled)
+            {
+                try
+                {
+                    var direction = approved.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase)
+                        ? "BUY" : "SELL";
+                    // approved.Symbol carries the IG epic when the trade
+                    // plan was built with IG broker. Map naturally via
+                    // broker_ticker_map for the equity case + IG's
+                    // standard FX epic conventions for currency pairs.
+                    var place = await ig.PlaceMarketOrderAsync(
+                        epic: approved.Symbol,
+                        direction: direction,
+                        size: Math.Abs(approved.Qty),
+                        expiry: "-",   // cash / instant; FX overrides to "DFB" later
+                        ct: CancellationToken.None);
+                    if (place.Status == "REJECTED" || place.DealReference is null)
+                    {
+                        _log.LogWarning(
+                            "IG order rejected at placement for OMS order {OrderId} ({Sym} {Side} {Qty}): {Reason}",
+                            approved.Id, approved.Symbol, approved.Side, approved.Qty, place.StatusReason);
+                        return await TransitionAsync(
+                            approved.Id, actor: $"broker:{approved.Broker}",
+                            allowedPriorStates: new[] { OmsState.Submitted },
+                            newState: OmsState.Rejected,
+                            eventType: "BROKER_REJECTED",
+                            extraSetSql: "cancelled_reason = @rejReason,",
+                            extraParams: new { rejReason = place.StatusReason ?? "ig-rejected" },
+                            cancelledReason: place.StatusReason ?? "ig-rejected",
+                            detail: new { httpStatus = place.HttpStatus });
+                    }
+                    // Persist deal reference + flip to WORKING; the
+                    // fill poller picks up /confirms later.
+                    await using (var conn = await _db.OpenConnectionAsync())
+                    {
+                        await conn.ExecuteAsync(@"
+                            UPDATE oms_orders
+                            SET broker_order_id = @ref
+                            WHERE id = @oid;",
+                            new { @ref = place.DealReference, oid = approved.Id });
+                    }
+                    return (await GetAsync(approved.Id))!;
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex,
+                        "IG placement threw for OMS order {OrderId} — leaving SUBMITTED",
+                        approved.Id);
+                    return approved;
+                }
+            }
+        }
+
         return approved;
+    }
+
+    private TradePro.Api.Providers.IG.IGClient? ResolveIG()
+    {
+        if (_services is null) return null;
+        using var scope = _services.CreateScope();
+        return scope.ServiceProvider.GetService<TradePro.Api.Providers.IG.IGClient>();
     }
 
     public async Task<OmsOrder> RejectAsync(Guid orderId, string actor, string reason) =>

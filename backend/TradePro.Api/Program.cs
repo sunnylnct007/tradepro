@@ -110,6 +110,16 @@ builder.Services.AddSingleton<Trading212InstrumentsService>();
 builder.Services.AddSingleton<Trading212PositionsCache>();
 builder.Services.AddSingleton<Trading212DemoPositionsCache>();
 builder.Services.AddSingleton<Trading212DemoCashCache>();
+
+// IG broker client — equities + FX/CFD. Off by default; turns on
+// once tradepro/ig secret is populated with mode != "disabled".
+builder.Services
+    .AddOptions<TradePro.Api.Providers.IG.IGOptions>()
+    .Bind(builder.Configuration.GetSection("IG"));
+builder.Services.AddHttpClient<TradePro.Api.Providers.IG.IGClient>(c =>
+{
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
+});
 builder.Services.AddScoped<TradePro.Api.Positions.PositionReconciler>();
 builder.Services.AddScoped<TradePro.Api.Positions.TradePlanService>();
 builder.Services.AddScoped<TradePro.Api.Risk.RiskGate>();

@@ -92,6 +92,49 @@ public static class IntegrationsEndpoints
         // invested £500" before deciding to place an order. T212
         // Invest only — CFD (FX + leveraged) uses different endpoints
         // and is a follow-up task (#39 + cfd cash).
+        // GET /api/integrations/ig/status — IG broker connectivity check.
+        app.MapGet("/integrations/ig/status", async (
+            TradePro.Api.Providers.IG.IGClient ig, CancellationToken ct) =>
+        {
+            if (!ig.IsEnabled)
+            {
+                return Results.Ok(new
+                {
+                    enabled = false,
+                    mode = "disabled",
+                    reachable = false,
+                    note = "Populate AWS Secrets Manager tradepro/ig and restart.",
+                });
+            }
+            try
+            {
+                var cash = await ig.GetCashAsync(ct);
+                var ok = cash.Error is null;
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    mode = ig.BrokerLabel,
+                    reachable = ok,
+                    authenticated = ok,
+                    available = cash.Available,
+                    balance = cash.Balance,
+                    currency = cash.Currency,
+                    error = cash.Error,
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    mode = ig.BrokerLabel,
+                    reachable = false,
+                    authenticated = false,
+                    error = ex.Message,
+                });
+            }
+        });
+
         app.MapGet("/integrations/trading212/cash",
             async (
                 string? account,

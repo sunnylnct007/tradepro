@@ -99,10 +99,33 @@ public static class TradePlanEndpoints
         group.MapPost("/{strategy}/execute", async (
             string strategy, ExecuteBody? body,
             HttpContext ctx, TradePlanService planSvc, IOmsService oms,
+            Npgsql.NpgsqlDataSource db,
             CancellationToken ct) =>
         {
             var autoApprove = body?.AutoApprove ?? false;
             var actor = ctx.User?.Identity?.Name ?? body?.Actor ?? "algo-auto";
+
+            // Broker selection — priority order so multi-strategy
+            // multi-broker setups Just Work:
+            //   1. Explicit body.Broker (operator override for testing)
+            //   2. strategy_broker_map.broker for this strategy
+            //      (per-strategy routing — ichimoku_equity → IG_DEMO,
+            //       indian_etf_sleeve → IBKR_PAPER, fx_strategy → IG_DEMO,
+            //       us_swing → T212_DEMO, all running in parallel)
+            //   3. settings_kv.default_broker (global fallback)
+            //   4. Hard-coded T212_DEMO if nothing else found
+            await using var conn = await db.OpenConnectionAsync();
+            var perStrategyBroker = await Dapper.SqlMapper.ExecuteScalarAsync<string?>(
+                conn,
+                "SELECT broker FROM strategy_broker_map WHERE strategy_id = @strategy;",
+                new { strategy });
+            var defaultBroker = await Dapper.SqlMapper.ExecuteScalarAsync<string?>(
+                conn,
+                "SELECT trim(both '\"' from value::text) FROM app_settings_kv WHERE key = 'default_broker';");
+            var brokerLabel = body?.Broker
+                ?? (string.IsNullOrWhiteSpace(perStrategyBroker)
+                    ? (string.IsNullOrWhiteSpace(defaultBroker) ? "T212_DEMO" : defaultBroker)
+                    : perStrategyBroker);
 
             var plan = await planSvc.BuildAsync(strategy, ct);
             if (!plan.HasPlan)
@@ -141,8 +164,8 @@ public static class TradePlanEndpoints
                 var clientId = DeterministicGuid(seed);
                 var omsIntent = new OrderIntent(
                     ClientOrderId: clientId,
-                    Broker: "T212_DEMO",
-                    Symbol: ToBrokerTicker(intent.Symbol),
+                    Broker: brokerLabel,
+                    Symbol: ToBrokerTicker(intent.Symbol, brokerLabel),
                     Side: intent.Side,
                     Qty: intent.Qty,
                     OrderType: "MKT",
@@ -228,13 +251,26 @@ public static class TradePlanEndpoints
     // T212 expects "AAPL_US_EQ" style for US equities. Our trade plan
     // emits bare "AAPL" (strategy_decisions.symbol). Translate at the
     // OMS boundary.
-    private static string ToBrokerTicker(string symbol)
+    private static string ToBrokerTicker(string symbol, string brokerLabel)
     {
         var s = symbol.Trim().ToUpperInvariant();
-        if (s.Contains('_')) return s; // already in broker form
-        // Default to US equity suffix; later we'll consult
-        // broker_ticker_map for non-US listings + FX.
-        return s + "_US_EQ";
+        // T212 — already in T212 suffix form (AAPL_US_EQ) or convert.
+        if (brokerLabel.StartsWith("T212", StringComparison.OrdinalIgnoreCase))
+        {
+            if (s.Contains('_')) return s;
+            return s + "_US_EQ";
+        }
+        // IG — uses EPICs like "US.D.AAPL.CASH.IP". For Day-1 the
+        // operator-maintained broker_ticker_map handles the lookup;
+        // here we strip any T212 suffix back to the bare ticker so
+        // the lookup matches. Real mapping comes in the next IG
+        // iteration once we wire broker_ticker_map joins.
+        if (brokerLabel.StartsWith("IG", StringComparison.OrdinalIgnoreCase))
+        {
+            var underscore = s.IndexOf('_');
+            return underscore > 0 ? s[..underscore] : s;
+        }
+        return s;
     }
 
     private static Guid DeterministicGuid(string input)
@@ -244,5 +280,5 @@ public static class TradePlanEndpoints
         return new Guid(bytes);
     }
 
-    public sealed record ExecuteBody(bool? AutoApprove, string? Actor);
+    public sealed record ExecuteBody(bool? AutoApprove, string? Actor, string? Broker);
 }
