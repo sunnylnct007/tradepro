@@ -1,0 +1,195 @@
+# Local dev stack. `docker compose up -d` brings up the api,
+# frontend, and worker — one command, the whole rig.
+#
+# Quick reference:
+#   docker compose up -d             # api + frontend + worker (default)
+#   docker compose up -d api frontend  # without the worker
+#   docker compose --profile upload up -d extractor   # add doc upload sidecar
+#   docker compose logs -f worker    # tail the compare loop
+#   docker compose down              # stop everything
+#
+# Hot reload:
+#   - API uses `dotnet watch run` — edit a .cs file and it rebuilds in ~2s.
+#   - Frontend uses Vite HMR — edit .tsx and the browser updates instantly.
+#   - Worker requires a rebuild for code changes:
+#       docker compose up -d --build worker
+#
+# Env config:
+#   Copy .env.compose.example to .env at the repo root, set the values you
+#   care about. The .env file is gitignored.
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+      # NOTE: if `docker compose build` hangs at "resolving provenance
+      # for metadata file", export `BUILDX_NO_DEFAULT_ATTESTATIONS=1`
+      # in the shell before running. Older Compose CLIs reject the
+      # build-level `provenance: false` key, so we use the env path.
+    container_name: tradepro-api
+    ports:
+      - "${API_PORT:-5080}:5080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5080
+      # In dev the FirebaseAuth helper defaults RequireAuth to false, so
+      # /api/* is open without a token — matches `dotnet run` natively.
+      Firebase__RequireAuth: "false"
+      # Static-token auth for /api/ingest/*. Falls back to a dev value if
+      # the host hasn't set one.
+      Ingest__Token: "${INGEST_TOKEN:-dev-ingest-token}"
+      # Persisted compare cache — pushes survive `docker compose down`.
+      Compare__StorePath: "/data/compare"
+      # Open up CORS to the local frontend. The default config already
+      # allows http://localhost:5173 — this just makes it explicit if the
+      # operator overrides API_PORT.
+      Cors__AllowedOrigins__0: "http://localhost:5173"
+      # Browser uploads land here, the API forwards multipart payloads
+      # to the Python sidecar at this URL. Inside compose the service
+      # name 'extractor' resolves over the default network.
+      Extractor__Url: "http://extractor:8000"
+      # Trading 212 integration — off by default; flip TRADEPRO_T212_MODE
+      # to `demo` (paper) or `live` (real money) in your .env file and
+      # set TRADEPRO_T212_API_KEY. T212's public API uses a single key
+      # (no secret); ApiSecret is left for backwards compat and unused.
+      # The integration only enables read-only endpoints (status,
+      # instruments, positions); order placement is intentionally not
+      # exposed.
+      Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
+      Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
+      Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
+      # Finnhub earnings-calendar feed. Off until you set the key —
+      # free tier signup at finnhub.io (60 req/min, no card needed).
+      Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
+    volumes:
+      # Bind-mount source so dotnet watch picks up edits.
+      - ./backend:/src
+      # Anonymous volumes shadow the host's bin/obj — otherwise macOS
+      # restore + container build clash and you get FileNotFoundException
+      # on TradePro.Api.dll.
+      - /src/TradePro.Api/bin
+      - /src/TradePro.Api/obj
+      # Persisted compare cache. Survives `docker compose down` because
+      # it's a named volume; survives image rebuilds for the same reason.
+      # Switch to a bind-mount of ~/.tradepro/server-cache if you want
+      # to inspect the JSON files from the host.
+      - api_compare_cache:/data/compare
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    # Note: extractor is *not* in depends_on — it lives behind the
+    # `upload` profile and is only needed when the user uploads a doc
+    # via the browser. Letting the API start without it keeps the
+    # baseline stack at ~500MB instead of ~720MB.
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: tradepro-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      # Vite reads .env.development at build/start, but if the operator
+      # wants to override the API URL (e.g. point at a Codespace tunnel),
+      # they can set VITE_API_BASE_URL in compose .env.
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:5080}"
+    volumes:
+      - ./frontend:/app
+      # Help.tsx imports `../../../docs/ARCHITECTURE.md?raw` — from
+      # /app/src/pages/Help.tsx that resolves to /docs/...; mount the repo's
+      # docs/ at /docs so the resolution works inside the container.
+      # Read-only because the frontend doesn't (and shouldn't) write docs.
+      - ./docs:/docs:ro
+      # Keep node_modules inside the container — host's macOS arm64
+      # node_modules can't be reused by the linux container.
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_started
+
+  # Persistent TradePro worker — runs `tradepro-compare --push`
+  # every WORKER_INTERVAL_SECONDS (default 30 min) and heartbeats
+  # the api every HEARTBEAT_INTERVAL_SECONDS (default 5 min) so
+  # the Mac never goes "offline" between cycles. Replaces the
+  # macOS launchd setup with a single compose service.
+  #
+  # Talks to the api over the compose default network at
+  # http://api:5080 — internal DNS resolves the service name.
+  # Talks to Ollama on the host at host.docker.internal:11434
+  # (Ollama runs natively for M-series perf; we don't containerise
+  # it). The worker pushes via the same Ingest__Token the api
+  # accepts, propagated through TRADEPRO_API_TOKEN env.
+  worker:
+    build:
+      context: ./strategies
+      dockerfile: Dockerfile.worker
+    container_name: tradepro-worker
+    environment:
+      # Where to push compare results + heartbeat pings. The api
+      # service name resolves over the compose network.
+      TRADEPRO_API_URL: "http://api:5080"
+      TRADEPRO_API_TOKEN: "${INGEST_TOKEN:-dev-ingest-token}"
+      # Ollama runs on the macOS host (NOT in compose). The
+      # special host.docker.internal hostname routes from the
+      # container to the host. If you're on Linux without that
+      # alias, set TRADEPRO_OLLAMA_HOST in .env to your host IP.
+      TRADEPRO_OLLAMA_HOST: "${TRADEPRO_OLLAMA_HOST:-http://host.docker.internal:11434}"
+      # Cadence overrides — same vars worker.sh reads.
+      WORKER_INTERVAL_SECONDS: "${WORKER_INTERVAL_SECONDS:-1800}"
+      HEARTBEAT_INTERVAL_SECONDS: "${HEARTBEAT_INTERVAL_SECONDS:-300}"
+    volumes:
+      # Persist compare artefacts + cache across rebuilds, same
+      # spot the host script writes to. Matches the launchd
+      # path so a host-side `tradepro-compare` and the worker
+      # share state cleanly.
+      - worker_state:/root/.tradepro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Document extractor sidecar — small FastAPI service the API
+  # forwards browser-uploaded files to. PyMuPDF for PDFs (fast,
+  # robust), trafilatura for HTML (boilerplate stripping), pass-
+  # through for TXT / MD. Stateless: the service writes nothing
+  # to disk except the per-request temp file (deleted in handler).
+  #
+  # On-demand only: gated behind the `upload` profile so the
+  # baseline stack doesn't pay the ~220MB resident cost just to
+  # keep an idle Python service alive. Start it when you want to
+  # upload:
+  #     docker compose --profile upload up -d extractor
+  # Stop when you're done:
+  #     docker compose stop extractor
+  # The API returns a friendly 502 with these instructions if a
+  # browser upload arrives while the extractor is down.
+  extractor:
+    profiles: ["upload"]
+    build:
+      context: ./strategies
+      dockerfile: Dockerfile.extractor
+    container_name: tradepro-extractor
+    ports:
+      # Host-exposed mainly for ad-hoc curl testing; the API talks
+      # to it over the compose network not via host:port.
+      - "${EXTRACTOR_PORT:-8001}:8000"
+    environment:
+      TRADEPRO_EXTRACTOR_PORT: "8000"
+      TRADEPRO_EXTRACTOR_HOST: "0.0.0.0"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  frontend_node_modules:
+  api_compare_cache:
+  worker_state:

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template for com.tradepro.email-digest.
+
+  Installed by `bash strategies/scripts/install-launchd.sh` which
+  substitutes {{HOME}} and {{PROJECT_DIR}} and writes the result to
+  ~/Library/LaunchAgents/com.tradepro.email-digest.plist.
+
+  Fires 23:00 UTC daily, 30 min after the last refresh slot so the
+  compare cache the digest reads is fresh. SMTP credentials come
+  from ~/.tradepro/email-creds.json (smtp_host, smtp_port, smtp_user,
+  smtp_password, from, to).
+
+  Auto-loads on user login (default macOS behavior for user
+  LaunchAgents) so a Mac restart does NOT require re-running the
+  installer. Missed StartCalendarInterval fires from while the Mac
+  was off will replay on the next wake.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.email-digest</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{PROJECT_DIR}}/scripts/email-digest.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+    <key>TRADEPRO_API_URL</key>
+    <string>http://16.60.201.137</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>23</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/email-launchd-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/email-launchd-stderr.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

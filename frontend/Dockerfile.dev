@@ -1,0 +1,23 @@
+# Dev-only image — runs `vite` with HMR. Production goes through `vite build`
+# + the Firebase Hosting deploy, this file is just for `docker compose up`.
+FROM node:20-slim
+
+WORKDIR /app
+
+# Vite's chokidar needs polling when the source is bind-mounted from a Mac
+# host; otherwise edits don't trigger HMR.
+ENV CHOKIDAR_USEPOLLING=true \
+    WATCHPACK_POLLING=true \
+    NODE_ENV=development
+
+# Install deps in a layer that only invalidates when package*.json changes.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+EXPOSE 5173
+
+# `--host 0.0.0.0` so the host browser can reach Vite through the published
+# port; without it Vite binds to localhost inside the container only.
+CMD ["npx", "vite", "--host", "0.0.0.0", "--port", "5173"]

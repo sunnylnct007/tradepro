@@ -1,0 +1,72 @@
+using TradePro.Api.Models;
+using TradePro.Api.Simulation;
+
+namespace TradePro.Api.Endpoints;
+
+public static class SettingsEndpoints
+{
+    public static IEndpointRouteBuilder MapSettingsEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/settings").WithTags("Settings");
+
+        // GET — readable by anyone in the AllowedUsers policy (i.e. the
+        // logged-in user). Also called by the Mac comparator to read
+        // live thresholds at run start; that side uses the API publicly
+        // so settings GET is intentionally not gated by IngestToken.
+        group.MapGet("", (ISettingsStore store) => Results.Ok(store.Get()));
+
+        group.MapPut("", (AppSettings incoming, ISettingsStore store) =>
+        {
+            // Validate ranges so a typo in the UI can't poison the
+            // comparator. Numbers outside these envelopes don't make
+            // sense for the rule and would silently break verdicts.
+            if (incoming.Sentiment is null)
+            {
+                return Results.BadRequest(new { error = "sentiment block is required" });
+            }
+            var s = incoming.Sentiment;
+            if (s.MeanSentimentThreshold < -1.0 || s.MeanSentimentThreshold > 1.0)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "sentiment.meanSentimentThreshold must be in [-1, 1]",
+                    got = s.MeanSentimentThreshold,
+                });
+            }
+            if (s.MinMaterialNegativeCount < 0 || s.MinMaterialNegativeCount > 50)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "sentiment.minMaterialNegativeCount must be in [0, 50]",
+                    got = s.MinMaterialNegativeCount,
+                });
+            }
+            if (s.LookbackDays < 1 || s.LookbackDays > 60)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "sentiment.lookbackDays must be in [1, 60]",
+                    got = s.LookbackDays,
+                });
+            }
+            // Paper-trading defaults. We accept legacy payloads that
+            // pre-date this field by filling in from the current row —
+            // dropping a sentiment update because the client forgot to
+            // include the Paper block would be a surprising regression.
+            var paper = incoming.Paper
+                ?? store.Get().Paper
+                ?? AppSettingsDefaults.Build().Paper!;
+            if (paper.PlacementMode is not ("auto" or "manual"))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "paper.placementMode must be 'auto' or 'manual'",
+                    got = paper.PlacementMode,
+                });
+            }
+            return Results.Ok(store.Update(incoming with { Paper = paper }));
+        });
+
+        return app;
+    }
+}

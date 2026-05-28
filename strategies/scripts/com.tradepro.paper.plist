@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template for com.tradepro.paper. Installed by
+  `bash strategies/scripts/install-launchd.sh`.
+
+  Fires `tradepro-paper` once per symbol in TRADEPRO_PAPER_SYMBOLS
+  at 14:30 UTC (US market open winter; summer DST = 13:30 UTC, but
+  bars stream regardless). The CLI omits --placement-mode so the
+  engine reads it from /api/settings each run — flip the UI toggle
+  to change auto vs manual without editing this plist.
+
+  Auto-loads on user login. Missed runs replay on next wake.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.paper</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{PROJECT_DIR}}/scripts/paper-session.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+    <!-- Comma-separated symbols. Edit to suit your watchlist. Each
+         symbol is a separate engine session, ~30s each. -->
+    <key>TRADEPRO_PAPER_SYMBOLS</key>
+    <string>AAPL,MSFT,NVDA,AMD</string>
+    <key>TRADEPRO_PAPER_BROKER</key>
+    <string>t212</string>
+    <key>TRADEPRO_PAPER_STRATEGY_ID</key>
+    <string>orb_default</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>14</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/paper-launchd-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/paper-launchd-stderr.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

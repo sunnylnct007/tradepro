@@ -1,0 +1,185 @@
+# ============================================================
+# Production docker-compose for the AWS host.
+#
+# This file lives at the repo root (cloned to /opt/tradepro by the
+# tradepro-demo terraform module's user-data.sh). The host runs:
+#
+#   docker compose -f docker-compose.aws.yaml up -d
+#
+# Image is pulled from ECR (built in CI by aws-build-push.yml). The
+# .env file at /opt/tradepro/.env supplies ECR_REGISTRY + IMAGE_TAG +
+# all the API runtime config (Trading 212 key, Finnhub key, ingest
+# token, etc.) — see .env.aws.example for the full list.
+#
+# Single service today (just the API). Add `worker:` and `frontend:`
+# stanzas here when those services move to AWS.
+# ============================================================
+
+services:
+  # ── One-shot init: chown the compare-cache volume to the API
+  # container's app user. Without this, the volume comes up
+  # root-owned, the API can't write to /data/compare, and silently
+  # falls back to /tmp which is wiped on every container restart.
+  # Runs once, exits, doesn't re-execute on subsequent `up`s.
+  api_init:
+    image: busybox:latest
+    container_name: tradepro-api-init
+    command: chown -R 1654:1654 /data/compare
+    volumes:
+      - api_compare_cache:/data/compare
+    restart: "no"
+
+  # ── Postgres ───────────────────────────────────────────────
+  # Phase 5 of the unicorn-architecture migration (see VISION.md):
+  # all in-memory + JSON-file stores migrate here so state survives
+  # redeploys. Internal-only — no host port mapping; the API reaches
+  # it on the docker network as `postgres:5432`. Backed by a named
+  # volume which persists on the EBS root volume.
+  postgres:
+    image: postgres:16-alpine
+    container_name: tradepro-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-tradepro}"
+      POSTGRES_USER: "${POSTGRES_USER:-tradepro}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-tradepro}"
+      # Pin the locale so collations don't drift between dev (Mac)
+      # and prod (Linux) image builds.
+      LANG: C.UTF-8
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tradepro} -d ${POSTGRES_DB:-tradepro}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api:
+    image: ${ECR_REGISTRY}/ccit-dev-tradepro-api:${IMAGE_TAG:-latest}
+    container_name: tradepro-api
+    restart: unless-stopped
+    depends_on:
+      api_init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    # The frontend nginx reaches this service on the docker network as
+    # `api:5080` (no port mapping needed for that). We ALSO map host
+    # port 8081 → 5080 so curl/Postman can hit the API directly for
+    # debugging without going through the frontend proxy. Drop the
+    # `ports:` block to make the API internal-only once the frontend
+    # is the only consumer.
+    ports:
+      - "${API_HOST_PORT:-8081}:5080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5080
+      # Persisted compare cache — survives container restarts.
+      Compare__StorePath: /data/compare
+      # Auth / integrations / CORS — sourced from the .env file.
+      # NOTE: SM-only configuration was attempted (task #64) and works
+      # for some keys (ingest-token, t212-demo-*, finnhub-api-key all
+      # load cleanly from SM via SecretsBundleLoader). The LIVE
+      # Trading212 binding intermittently doesn't propagate from SM
+      # to IOptions — same code path, same keymap, demo loads fine,
+      # live doesn't. Reverting to env-mapped pass-through until that
+      # is root-caused. Track on task #64.
+      Firebase__RequireAuth: "${FIREBASE_REQUIRE_AUTH:-true}"
+      Ingest__Token: "${INGEST_TOKEN}"
+      Cors__AllowedOrigins__0: "${CORS_ORIGIN_0:-http://localhost:5173}"
+      # T212 LIVE — read path (positions, status, instruments).
+      Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
+      Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
+      Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
+      # T212 DEMO — write path (order placement) + demo orderbook.
+      # Distinct typed client (Trading212DemoClient) hard-codes the
+      # demo.trading212.com base URL; type-enforced separation.
+      Trading212Demo__ApiKey: "${TRADEPRO_T212_DEMO_API_KEY:-}"
+      Trading212Demo__ApiSecret: "${TRADEPRO_T212_DEMO_API_SECRET:-}"
+      Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
+      # Postgres connection string. Hostname is the docker-compose
+      # service name; the postgres container exposes 5432 on the
+      # default user-defined network without a host port mapping.
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-tradepro};Username=${POSTGRES_USER:-tradepro};Password=${POSTGRES_PASSWORD:-tradepro};Pooling=true;MinPoolSize=1;MaxPoolSize=20"
+    volumes:
+      # Compare cache as a named volume so it survives `compose down`.
+      # Will be retired once the FileCompareStore -> PostgresCompareStore
+      # migration is complete; kept here in the interim as a fallback.
+      - api_compare_cache:/data/compare
+    healthcheck:
+      # /health is intentionally public (uptime pings shouldn't need a
+      # token). Matches the dev compose contract.
+      # start_period bumped 30s → 90s because Postgres migrations +
+      # SecretsBundleLoader can take 60s+ on cold start, which was
+      # marking the container unhealthy permanently and blocking the
+      # frontend from ever starting (see task #17, 2026-05-25).
+      test: ["CMD", "curl", "-fsS", "http://localhost:5080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+  # ── Frontend (nginx + Vite static bundle) ─────────────────
+  # No longer host-exposed directly — Caddy below terminates TLS and
+  # proxies in over the docker network. Container still listens on
+  # port 80 internally; the SPA + /api proxy logic is unchanged.
+  frontend:
+    image: ${ECR_REGISTRY}/ccit-dev-tradepro-frontend:${IMAGE_TAG:-latest}
+    container_name: tradepro-frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    volumes:
+      # Basic Auth credentials, mounted from the host so rotation =
+      # rewrite the file + restart this container (no image rebuild).
+      # The bootstrap / set-env workflows write this file from the
+      # BASIC_AUTH_HTPASSWD GH secret. nginx blocks /api/* and / when
+      # the file is missing or empty; /health stays public.
+      - /opt/tradepro/.htpasswd:/etc/nginx/.htpasswd:ro
+    depends_on:
+      # Was `service_healthy` — switched to `service_started` because
+      # a slow API healthcheck was leaving the frontend permanently
+      # un-started (nginx never bound port 80, Caddy then couldn't
+      # proxy, site went down). nginx already proxies /api/* to api:5080
+      # so a brief window where the API isn't ready manifests as 502s
+      # on /api routes — acceptable vs site-down.
+      api:
+        condition: service_started
+    healthcheck:
+      # The healthcheck hits /health (which bypasses basic auth) so
+      # the container reports healthy without needing credentials.
+      test: ["CMD-SHELL", "wget -q -O - http://localhost/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Caddy reverse proxy (TLS termination + ACME auto-cert) ─
+  # Serves tradepro.showsoldprice.com on :443 with a Let's Encrypt
+  # certificate that Caddy fetches and renews automatically. Also
+  # serves :80 for the legacy IP-based URL and for the ACME HTTP-01
+  # challenge. Config lives at /opt/tradepro/Caddyfile (shipped by
+  # the redeploy workflow alongside docker-compose.aws.yaml).
+  caddy:
+    image: caddy:2-alpine
+    container_name: tradepro-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /opt/tradepro/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Named volumes for the cert + state — survives container
+      # restarts so we don't re-fetch the cert on every redeploy
+      # (Let's Encrypt rate-limits aggressive re-issuance).
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+volumes:
+  api_compare_cache:
+  caddy_data:
+  caddy_config:
+  postgres_data:

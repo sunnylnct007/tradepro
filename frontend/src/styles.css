@@ -1,0 +1,306 @@
+:root {
+  color-scheme: dark;
+
+  /* Core palette — dark, quiet, charting-friendly. */
+  --bg:            #0b1220;
+  --bg-elevated:   #111a2e;
+  --bg-panel:      #151f38;
+  --bg-hover:      #1c284a;
+  --border:        #253256;
+  --border-strong: #324275;
+
+  --text:          #e6ecff;
+  --text-dim:      #9aa6c8;
+  --text-muted:    #6b7799;
+
+  --accent:        #4f8cff;
+  --accent-hot:    #7ba8ff;
+
+  --up:            #1fc16b;
+  --up-soft:       rgba(31, 193, 107, 0.12);
+  --down:          #ef4a5d;
+  --down-soft:     rgba(239, 74, 93, 0.12);
+  --neutral:       #8693b5;
+
+  --radius:        10px;
+  --radius-lg:     14px;
+  --shadow:        0 4px 20px rgba(0, 0, 0, 0.35);
+
+  --font-ui:       "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:     "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background:
+    radial-gradient(900px 500px at 10% -10%, rgba(79, 140, 255, 0.10), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, rgba(31, 193, 107, 0.06), transparent 60%),
+    var(--bg);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hot); }
+
+code, pre, .mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabular numbers — crucial for prices lining up */
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+h1, h2, h3, h4 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+/* Forms */
+input, select, textarea, button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+}
+input[type="number"] { font-family: var(--font-mono); }
+
+button {
+  cursor: pointer;
+  background: var(--bg-panel);
+  border-color: var(--border-strong);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+button.primary {
+  background: linear-gradient(180deg, #3b7bff, #2c66e0);
+  border-color: #1f52c0;
+  color: white;
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #5690ff, #3d74e8);
+  border-color: var(--accent);
+}
+
+/* Card surface */
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+/* Ticker / label / stat pair */
+.stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.stat-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.up { color: var(--up); }
+.down { color: var(--down); }
+.neutral { color: var(--neutral); }
+
+/* Tables */
+table.trade-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+table.trade-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+}
+table.trade-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(37, 50, 86, 0.5);
+}
+table.trade-table tr:hover td { background: rgba(79, 140, 255, 0.05); }
+
+/* Recharts dark overrides */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--border) !important;
+}
+.recharts-text { fill: var(--text-dim) !important; font-size: 11px; }
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--bg-panel) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius) !important;
+  color: var(--text) !important;
+}
+
+/* Info tooltip — the ⓘ pill next to form controls */
+.info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: var(--font-ui);
+  cursor: help;
+  position: relative;
+  outline: none;
+  transition: border-color 0.1s ease, color 0.1s ease;
+  vertical-align: middle;
+}
+.info:hover, .info:focus {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.info .info-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 280px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0.12s ease;
+  pointer-events: none;
+  z-index: 100;
+}
+.info:hover .info-pop, .info:focus .info-pop {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+.info .info-pop::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--border-strong);
+}
+
+/* Reasoning bullets on the signal detail page */
+.reason {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(37, 50, 86, 0.4);
+  font-size: 13px;
+}
+.reason:last-child { border-bottom: none; }
+.reason .dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.reason.up    .dot { background: var(--up); }
+.reason.down  .dot { background: var(--down); }
+.reason.neutral .dot { background: var(--neutral); }
+
+/* Markdown content on /help. 960px reads comfortably (≈80ch at 14px)
+ * while filling more of the dashboard width — the previous 820px cap
+ * felt squashed inside the 1280px main container. */
+.prose { max-width: 960px; line-height: 1.7; color: var(--text); }
+.prose h1 { font-size: 28px; margin-top: 0; }
+.prose h2 { font-size: 20px; margin-top: 32px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.prose h3 { font-size: 16px; margin-top: 22px; }
+.prose p, .prose li { color: var(--text-dim); }
+.prose code {
+  background: var(--bg-elevated);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 90%;
+  color: var(--accent-hot);
+}
+.prose pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+.prose pre code { background: transparent; padding: 0; color: var(--text); }
+.prose table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+.prose th, .prose td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
+.prose th { background: var(--bg-elevated); color: var(--text); font-weight: 600; }
+.prose a { color: var(--accent); }
+.prose blockquote {
+  margin: 0;
+  padding: 6px 14px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-dim);
+  background: var(--bg-elevated);
+  border-radius: 0 8px 8px 0;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }

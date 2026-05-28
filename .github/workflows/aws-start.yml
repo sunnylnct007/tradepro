@@ -1,0 +1,86 @@
+# ============================================================
+# Start the TradePro EC2 instance.
+#
+# Looks up the instance by tag (Name prefix). No hardcoded instance
+# ID, so this keeps working if terraform recreates the instance.
+# Pairs with aws-stop.yml + aws-status.yml.
+# ============================================================
+
+name: aws-start
+
+on:
+  workflow_dispatch:
+    inputs:
+      wait_for_ready:
+        description: 'Wait for /health to respond before finishing'
+        required: false
+        default: 'true'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+  API_HOST_PORT: 8081
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find instance
+        id: find
+        run: |
+          ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+                      "Name=instance-state-name,Values=stopped,running,pending" \
+            --query 'Reservations[].Instances[?State.Name!=`terminated`][].InstanceId' \
+            --output text | tr -s '\t\n' ' ' | awk '{print $1}')
+          if [ -z "$ID" ]; then
+            echo "::error::No instance found with name prefix ${INSTANCE_NAME_PREFIX}"
+            exit 1
+          fi
+          echo "instance_id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Start instance
+        id: start
+        run: |
+          STATE=$(aws ec2 describe-instances --instance-ids "${{ steps.find.outputs.instance_id }}" \
+                  --query 'Reservations[0].Instances[0].State.Name' --output text)
+          if [ "$STATE" = "running" ]; then
+            echo "Instance already running."
+          else
+            aws ec2 start-instances --instance-ids "${{ steps.find.outputs.instance_id }}"
+            aws ec2 wait instance-running --instance-ids "${{ steps.find.outputs.instance_id }}"
+          fi
+          IP=$(aws ec2 describe-instances --instance-ids "${{ steps.find.outputs.instance_id }}" \
+               --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+          echo "public_ip=$IP" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for /health
+        if: github.event.inputs.wait_for_ready == 'true'
+        run: |
+          URL="http://${{ steps.start.outputs.public_ip }}:${API_HOST_PORT}/health"
+          echo "Polling $URL ..."
+          for i in {1..30}; do
+            if curl -sfo /dev/null --max-time 5 "$URL"; then
+              echo "Healthy after $((i*5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning::API didn't respond on /health within 150s. Check tradepro.service via SSM."
+
+      - name: Summary
+        run: |
+          echo "## TradePro started" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Instance: \`${{ steps.find.outputs.instance_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API URL: http://${{ steps.start.outputs.public_ip }}:${API_HOST_PORT}" >> "$GITHUB_STEP_SUMMARY"

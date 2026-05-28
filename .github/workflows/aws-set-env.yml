@@ -1,0 +1,169 @@
+# ============================================================
+# Write / update /opt/tradepro/.env on the AWS host via SSM.
+#
+# Use this instead of an SSM session when you want to set env vars
+# from GitHub-encrypted secrets without exposing them to the operator's
+# terminal history. Idempotent: appends keys that don't exist, replaces
+# keys that do.
+#
+# Reads from GH Actions secrets:
+#   INGEST_TOKEN          (required) — bearer for /api/ingest/*
+#   T212_API_KEY          (optional) — Trading 212 read-only key
+#   T212_API_SECRET       (optional) — only set for older key+secret-pair accounts;
+#                                      newer accounts have a single key and leave this empty
+#   T212_MODE             (optional) — disabled | demo | live (default disabled)
+#   FINNHUB_API_KEY       (optional) — Finnhub earnings calendar
+#
+# After updating .env, restarts tradepro.service so the API picks
+# up the new values.
+# ============================================================
+
+name: aws-set-env
+
+on:
+  workflow_dispatch:
+    inputs:
+      firebase_require_auth:
+        description: 'Require Firebase auth on /api/* (true for production, false for first-smoke)'
+        required: true
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      cors_origin:
+        description: 'CORS allowed origin (frontend URL). Use http://<EIP> after first deploy.'
+        required: false
+        default: 'http://localhost:5173'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+  DEPLOY_DIR: /opt/tradepro
+
+jobs:
+  set-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find running instance
+        id: find
+        run: |
+          ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+                      "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text | tr -s '\t\n' ' ' | awk '{print $1}')
+          if [ -z "$ID" ]; then
+            echo "::error::No running instance found. Run aws-start first."
+            exit 1
+          fi
+          echo "instance_id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Build SSM command
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          T212_API_KEY:    ${{ secrets.T212_API_KEY }}
+          T212_API_SECRET: ${{ secrets.T212_API_SECRET }}
+          T212_MODE:       ${{ secrets.T212_MODE }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          FIREBASE_REQUIRE_AUTH: ${{ github.event.inputs.firebase_require_auth }}
+          CORS_ORIGIN: ${{ github.event.inputs.cors_origin }}
+          BASIC_AUTH_HTPASSWD: ${{ secrets.BASIC_AUTH_HTPASSWD }}
+        run: |
+          # Build the SSM payload. The shell helper `upsert KEY VALUE`
+          # replaces an existing KEY=... line in .env, or appends one if
+          # absent. KEYs with empty values are skipped so we don't blank
+          # out an existing value when a GH secret isn't set yet.
+          # The values arrive on the box as env vars in the SSM
+          # environment block, NOT inlined into the shell — keeps them
+          # out of CloudTrail / SSM command history.
+
+          jq -n \
+            --arg deploy_dir "$DEPLOY_DIR" \
+            --arg ingest "$INGEST_TOKEN" \
+            --arg t212_key "$T212_API_KEY" \
+            --arg t212_secret "$T212_API_SECRET" \
+            --arg t212_mode "${T212_MODE:-disabled}" \
+            --arg finnhub "$FINNHUB_API_KEY" \
+            --arg firebase_auth "$FIREBASE_REQUIRE_AUTH" \
+            --arg cors "$CORS_ORIGIN" \
+            --arg htpasswd "$BASIC_AUTH_HTPASSWD" \
+            '{
+              commands: [
+                "set -euo pipefail",
+                ("cd " + $deploy_dir),
+                "ENV_FILE=$(pwd)/.env",
+                "touch \"$ENV_FILE\"",
+                ("INGEST_TOKEN_VAL=" + ($ingest | @sh)),
+                ("T212_KEY_VAL=" + ($t212_key | @sh)),
+                ("T212_SECRET_VAL=" + ($t212_secret | @sh)),
+                ("T212_MODE_VAL=" + ($t212_mode | @sh)),
+                ("FINNHUB_VAL=" + ($finnhub | @sh)),
+                ("FIREBASE_AUTH_VAL=" + ($firebase_auth | @sh)),
+                ("CORS_VAL=" + ($cors | @sh)),
+                ("HTPASSWD_VAL=" + ($htpasswd | @sh)),
+                "upsert() { local k=$1; local v=$2; [ -z \"$v\" ] && return 0; if grep -q \"^${k}=\" \"$ENV_FILE\"; then sed -i \"s|^${k}=.*|${k}=${v}|\" \"$ENV_FILE\"; else echo \"${k}=${v}\" >> \"$ENV_FILE\"; fi; }",
+                "upsert INGEST_TOKEN \"$INGEST_TOKEN_VAL\"",
+                "upsert TRADEPRO_T212_API_KEY \"$T212_KEY_VAL\"",
+                "upsert TRADEPRO_T212_API_SECRET \"$T212_SECRET_VAL\"",
+                "upsert TRADEPRO_T212_MODE \"$T212_MODE_VAL\"",
+                "upsert TRADEPRO_FINNHUB_API_KEY \"$FINNHUB_VAL\"",
+                "upsert FIREBASE_REQUIRE_AUTH \"$FIREBASE_AUTH_VAL\"",
+                "upsert CORS_ORIGIN_0 \"$CORS_VAL\"",
+                "if [ -n \"$HTPASSWD_VAL\" ]; then echo \"$HTPASSWD_VAL\" > .htpasswd; chmod 644 .htpasswd; echo wrote .htpasswd; fi",
+                "echo \"Final .env keys:\"; cut -d= -f1 \"$ENV_FILE\" | sort",
+                "if docker ps --format \"{{.Names}}\" | grep -q tradepro-frontend; then docker restart tradepro-frontend; fi",
+                "systemctl restart tradepro.service || true",
+                "echo Done."
+              ]
+            }' > /tmp/ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.find.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --comment "tradepro set-env from GH Actions" \
+            --parameters file:///tmp/ssm-params.json \
+            --output text --query 'Command.CommandId')
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command: $CMD_ID"
+        id: ssm
+
+      - name: Wait for command to finish
+        run: |
+          for i in {1..30}; do
+            STATUS=$(aws ssm list-command-invocations \
+              --command-id "${{ steps.ssm.outputs.command_id }}" \
+              --details \
+              --query 'CommandInvocations[0].Status' --output text 2>/dev/null || echo Pending)
+            echo "  attempt $i: $STATUS"
+            if [ "$STATUS" = "Success" ]; then exit 0; fi
+            if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "::error::SSM command ended in $STATUS"
+              aws ssm list-command-invocations --command-id "${{ steps.ssm.outputs.command_id }}" --details \
+                --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text || true
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Show command output (key names only — values redacted on box)
+        if: always()
+        run: |
+          aws ssm list-command-invocations --command-id "${{ steps.ssm.outputs.command_id }}" --details \
+            --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text | tail -30 || true
+
+      - name: Summary
+        run: |
+          echo "## .env updated on the box" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Instance: \`${{ steps.find.outputs.instance_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- FIREBASE_REQUIRE_AUTH: \`${{ github.event.inputs.firebase_require_auth }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- CORS_ORIGIN_0: \`${{ github.event.inputs.cors_origin }}\`" >> "$GITHUB_STEP_SUMMARY"

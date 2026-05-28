@@ -1,0 +1,100 @@
+# aws-debug-nginx — one-shot inspection + reload of the deployed
+# frontend nginx config. Run via "Actions → aws-debug-nginx → Run".
+#
+# When auth is gating paths it shouldn't (e.g. /api/ingest is 401
+# despite nginx.conf having auth_basic off for /api/), this workflow:
+#   1. Dumps the deployed nginx.conf so we can see what's actually
+#      running (vs what's in the repo).
+#   2. Checks .htpasswd exists + is non-empty.
+#   3. Optionally force-rebuilds nginx config from a known-good
+#      template if `fix=true` input is set.
+
+name: aws-debug-nginx
+
+on:
+  workflow_dispatch:
+    inputs:
+      fix:
+        description: 'Set true to force-reload nginx after a config reset'
+        required: false
+        default: 'false'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find running instance
+        id: find
+        run: |
+          ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+                      "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].InstanceId' \
+            --output text)
+          echo "instance_id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect nginx
+        run: |
+          FIX="${{ github.event.inputs.fix }}"
+          cat > /tmp/x.sh <<'SCRIPT_EOF'
+          cd /opt/tradepro
+          echo === full default.conf with line numbers ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend cat -n /etc/nginx/conf.d/default.conf
+          echo
+          echo === ALL conf files in conf.d ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend ls -la /etc/nginx/conf.d/ /etc/nginx/
+          echo
+          echo === main nginx.conf ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend cat /etc/nginx/nginx.conf
+          echo
+          echo === probe /api/ + show response headers ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- --server-response http://localhost/api/system/state 2>&1 | head -15
+          SCRIPT_EOF
+          if [ "$FIX" = "true" ]; then
+            cat >> /tmp/x.sh <<'FIX_EOF'
+          echo === FORCE: pull fresh frontend + recreate ===
+          docker compose -f docker-compose.aws.yaml pull frontend
+          docker compose -f docker-compose.aws.yaml up -d --force-recreate frontend
+          sleep 4
+          echo === post-recreate probe ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- --server-response http://localhost/api/system/state 2>&1 | head -6
+          FIX_EOF
+          fi
+          SCRIPT_BODY="$(cat /tmp/x.sh)"
+          jq -n --arg s "$SCRIPT_BODY" '{commands: [$s]}' > /tmp/params.json
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.find.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --comment "nginx debug" \
+            --parameters file:///tmp/params.json \
+            --output text --query 'Command.CommandId')
+          echo "cmd=$CMD_ID"
+          for i in $(seq 1 30); do
+            S=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "${{ steps.find.outputs.instance_id }}" \
+              --query 'Status' --output text 2>/dev/null || echo Pending)
+            if [ "$S" = "Success" ] || [ "$S" = "Failed" ]; then
+              echo "status=$S"; break
+            fi
+            sleep 3
+          done
+          echo "--- OUT ---"
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" \
+            --instance-id "${{ steps.find.outputs.instance_id }}" \
+            --query 'StandardOutputContent' --output text | head -200

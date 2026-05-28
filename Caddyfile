@@ -1,0 +1,30 @@
+# Caddy reverse proxy in front of the frontend nginx container.
+#
+# Two virtual hosts:
+#   1. tradepro.showsoldprice.com — Caddy auto-fetches a Let's Encrypt
+#      certificate via the HTTP-01 challenge on port 80 and serves
+#      HTTPS on 443. Auto-renews every ~60 days.
+#   2. The bare IP (port 80) — keeps the legacy http://16.60.201.137/
+#      access working for anything still bookmarked there. Let's
+#      Encrypt can't issue certs for raw IPs, so this stays HTTP-only.
+#
+# Both proxy to `frontend:80` on the internal Docker network where
+# nginx serves the SPA + reverse-proxies /api/* to the api container.
+
+tradepro.showsoldprice.com {
+	reverse_proxy frontend:80
+	encode gzip
+	# Standard hardening headers — minimal because the frontend nginx
+	# already sets the SPA-specific ones (CSP, X-Content-Type-Options).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Referrer-Policy "no-referrer-when-downgrade"
+	}
+}
+
+# Catch-all for any other Host header (e.g. raw IP). HTTP-only because
+# Caddy can't auto-cert for an IP. ACME challenge paths under
+# /.well-known/acme-challenge/* are handled by Caddy before this block.
+:80 {
+	reverse_proxy frontend:80
+}

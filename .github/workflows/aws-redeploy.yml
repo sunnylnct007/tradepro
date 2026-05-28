@@ -1,0 +1,152 @@
+# ============================================================
+# Redeploy the TradePro API by SSM-ing into the host, pulling the
+# latest commit on the chosen branch, ECR-pulling the image, and
+# `docker compose up -d`.
+#
+# Run from the Actions tab → "aws-redeploy" → "Run workflow".
+# Inputs:
+#   - branch (default: main)
+#   - image_tag (default: latest) — use a SHA8 to pin a specific build
+#
+# No SSH keys — SSM authenticates via the instance role. The instance
+# must be running; if it isn't, run aws-start first.
+# ============================================================
+
+name: aws-redeploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'ECR image tag to deploy. Defaults to "latest". Use a SHA (8 chars) to pin a specific build.'
+        required: false
+        default: 'latest'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+  DEPLOY_DIR: /opt/tradepro
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Encode compose file + Caddyfile for SSM payload
+        id: compose
+        run: |
+          # Ship the compose file AND Caddyfile via the runner's
+          # checkout — removes the dependency on the SSM-stored GitHub
+          # PAT (which has gone stale before — see the aws-bootstrap
+          # commit log) and keeps redeploy a pure image-roll operation.
+          ENC=$(base64 -w0 docker-compose.aws.yaml)
+          echo "b64=$ENC" >> "$GITHUB_OUTPUT"
+          CADDY_ENC=$(base64 -w0 Caddyfile)
+          echo "caddy_b64=$CADDY_ENC" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find running instance
+        id: find
+        run: |
+          ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+                      "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text | tr -s '\t\n' ' ' | awk '{print $1}')
+          if [ -z "$ID" ]; then
+            echo "::error::No running instance found. Run aws-start first."
+            exit 1
+          fi
+          echo "instance_id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Send redeploy command via SSM
+        id: ssm
+        run: |
+          IMAGE_TAG='${{ github.event.inputs.image_tag }}'
+
+          # Build the SSM RunShellScript payload as JSON to keep shell +
+          # YAML quoting sane. The compose file is shipped fresh from
+          # the runner's checkout (base64-encoded above) - no GH PAT,
+          # no git on the box. NB: every comment in this run-block must
+          # be OUTSIDE the single-quoted jq script - an apostrophe inside
+          # the quote terminates the bash string and the next token
+          # blows up. Also: the "touch .env" before the sed upsert is
+          # defensive in case bootstrap never ran.
+          jq -n \
+            --arg deploy_dir "$DEPLOY_DIR" \
+            --arg image_tag "$IMAGE_TAG" \
+            --arg compose_b64 "${{ steps.compose.outputs.b64 }}" \
+            --arg caddy_b64 "${{ steps.compose.outputs.caddy_b64 }}" \
+            '{
+              commands: [
+                "set -euo pipefail",
+                "mkdir -p " + $deploy_dir,
+                ("cd " + $deploy_dir),
+                ("COMPOSE_B64=" + ($compose_b64 | @sh)),
+                "echo \"$COMPOSE_B64\" | base64 -d > docker-compose.aws.yaml",
+                ("CADDY_B64=" + ($caddy_b64 | @sh)),
+                "echo \"$CADDY_B64\" | base64 -d > Caddyfile",
+                "aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin 108703420282.dkr.ecr.eu-west-2.amazonaws.com",
+                "touch .env",
+                ("if grep -q ^IMAGE_TAG= .env; then sed -i \"s|^IMAGE_TAG=.*|IMAGE_TAG=" + $image_tag + "|\" .env; else echo IMAGE_TAG=" + $image_tag + " >> .env; fi"),
+                "echo === docker compose pull ===",
+                "docker compose -f docker-compose.aws.yaml pull > /tmp/tradepro-pull.log 2>&1 && tail -12 /tmp/tradepro-pull.log",
+                "echo === docker compose up ===",
+                "docker compose -f docker-compose.aws.yaml up -d --remove-orphans --force-recreate > /tmp/tradepro-up.log 2>&1 && tail -20 /tmp/tradepro-up.log",
+                "echo === docker compose ps ===",
+                "docker compose -f docker-compose.aws.yaml ps",
+                "docker image prune -f > /dev/null 2>&1 || true"
+              ]
+            }' > /tmp/ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.find.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --comment "tradepro redeploy from GH Actions" \
+            --parameters file:///tmp/ssm-params.json \
+            --output text --query 'Command.CommandId')
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command: $CMD_ID"
+
+      - name: Wait for command to finish
+        run: |
+          for i in {1..30}; do
+            STATUS=$(aws ssm list-command-invocations \
+              --command-id "${{ steps.ssm.outputs.command_id }}" \
+              --details \
+              --query 'CommandInvocations[0].Status' --output text 2>/dev/null || echo Pending)
+            echo "  attempt $i: $STATUS"
+            if [ "$STATUS" = "Success" ]; then exit 0; fi
+            if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "::error::SSM command ended in $STATUS"
+              aws ssm list-command-invocations --command-id "${{ steps.ssm.outputs.command_id }}" --details \
+                --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text || true
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::warning::SSM command still in progress after 5 min"
+
+      - name: Show command output tail
+        if: always()
+        run: |
+          aws ssm list-command-invocations --command-id "${{ steps.ssm.outputs.command_id }}" --details \
+            --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text | tail -50 || true
+
+      - name: Summary
+        run: |
+          echo "## TradePro redeployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image tag: \`${{ github.event.inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Instance: \`${{ steps.find.outputs.instance_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Compose file: shipped from this commit via runner checkout" >> "$GITHUB_STEP_SUMMARY"

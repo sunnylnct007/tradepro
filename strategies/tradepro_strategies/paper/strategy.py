@@ -1,0 +1,444 @@
+"""Strategy base class + the wire-level dataclasses an intraday
+event-driven engine passes between its components.
+
+Design notes — the WHY behind shape choices:
+
+- Bars arrive one at a time via `on_bar(bar)`. Strategies return a
+  list of orders to place. The engine owns timing — strategies never
+  block waiting for a fill, never read a clock. This makes them
+  trivially replayable in a backtest: feed the same bar sequence,
+  get the same orders.
+
+- `Position` is signed (positive = long, negative = short, zero =
+  flat). Avoids a `side` enum on Position and the corresponding
+  `if pos.side == LONG and pos.qty > 0` boilerplate at every call
+  site. Engine reconciles vs. broker after each fill.
+
+- A strategy never modifies its own `position` directly. The engine
+  applies fills and pushes the updated state in via the public
+  attributes before calling `on_bar` next. Strategies that need to
+  remember between bars use `self._state` or instance variables.
+
+- `Order.tag` carries a short string like "ORB long, range_high=148.2,
+  stop=147.4" — this is the audit trail. Every order placed in
+  production must have a tag, and the tag should fit on one line of
+  a daily review report.
+
+- We deliberately do NOT model `cancel_order` / `modify_order` here.
+  The first version places NEW orders only; positions are flattened
+  by submitting opposing orders. Add cancel/modify when the first
+  strategy genuinely needs them, not before.
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, ClassVar, Deque
+
+
+class OrderSide(str, Enum):
+    BUY = "BUY"
+    SELL = "SELL"
+
+
+class OrderType(str, Enum):
+    MARKET = "MARKET"
+    LIMIT = "LIMIT"
+    STOP = "STOP"
+    STOP_LIMIT = "STOP_LIMIT"
+
+
+@dataclass(frozen=True)
+class Bar:
+    """One time-window of OHLCV for one symbol. Frozen because bars
+    are write-once-from-the-bus — letting a strategy mutate them
+    would create undebuggable replay drift.
+
+    timestamp convention: START of the bar's window. A bar at
+    09:30:00 covers 09:30:00–09:30:59 (for a 60s timeframe). This
+    matches Polygon and IBKR's defaults; if you switch to an
+    end-of-bar feed, normalise before pushing into the engine."""
+    symbol: str
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    timeframe_seconds: int   # 60 for 1m bars, 300 for 5m, etc.
+
+
+@dataclass
+class Order:
+    """An intent to trade. The engine assigns `order_id` when it
+    accepts the order. `tag` is the per-order audit string the
+    strategy writes — required so every fill traces back to a reason.
+
+    Stop / limit prices are only consulted when `type` requires
+    them; we don't enforce that here (engine does).
+
+    The trailing `risk_*` + `confidence` fields are advisory metadata
+    the strategy declares for downstream consumers (Task #69 intraday
+    gate, hit-rate logger, audit). They never affect routing on their
+    own — the pre-trade gate is the one that reads them."""
+    strategy_id: str
+    symbol: str
+    side: OrderSide
+    quantity: int            # shares — fractional not supported for v1
+    type: OrderType
+    tag: str                 # one-line audit: "ORB long, range=148.2/146.8"
+    limit_price: float | None = None
+    stop_price: float | None = None
+    # Filled in by the engine — not by strategies
+    order_id: str | None = None
+    submitted_at: datetime | None = None
+    # Optional good-til; None = day order, expires at session close
+    good_til: datetime | None = None
+    # Advisory metadata for the pre-trade gate / audit (see Task #69
+    # step E). `risk_stop_price` and `risk_target_price` are the
+    # strategy's intended stop-loss and take-profit reference levels
+    # (distinct from the stop_price field, which means "this is a
+    # stop-order TYPE"). `confidence` is the strategy's self-rated
+    # probability of the entry working out, in [0, 1].
+    risk_stop_price: float | None = None
+    risk_target_price: float | None = None
+    confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class Fill:
+    """An accepted fill from the broker. Frozen for the same reason
+    Bar is: replay determinism."""
+    order_id: str
+    strategy_id: str
+    symbol: str
+    side: OrderSide
+    quantity: int
+    fill_price: float
+    fill_time: datetime
+    commission: float        # paid in USD; engine converts FX before reconciliation
+
+
+@dataclass
+class Position:
+    """Per-strategy, per-symbol holding. quantity is SIGNED — positive
+    long, negative short, zero flat. avg_entry_price is volume-
+    weighted across all fills that built the current position; resets
+    when the position flips through zero.
+
+    `unrealised_pnl(mark)` lets a strategy decide "are we still in
+    profit?" without the engine needing to push live mark prices on
+    every bar."""
+    strategy_id: str
+    symbol: str
+    quantity: int = 0
+    avg_entry_price: float = 0.0
+    opened_at: datetime | None = None
+
+    @property
+    def is_flat(self) -> bool:
+        return self.quantity == 0
+
+    @property
+    def is_long(self) -> bool:
+        return self.quantity > 0
+
+    @property
+    def is_short(self) -> bool:
+        return self.quantity < 0
+
+    def unrealised_pnl(self, mark_price: float) -> float:
+        if self.quantity == 0:
+            return 0.0
+        return (mark_price - self.avg_entry_price) * self.quantity
+
+
+@dataclass
+class Strategy(ABC):
+    """Event-driven intraday strategy base class.
+
+    Subclass and implement `on_bar`. The engine drives the lifecycle:
+
+        engine                    strategy
+        ------                    --------
+        market open               on_session_start(date)
+        bar arrives  ─────────►   on_bar(bar)         → returns [Order, ...]
+        broker fills order        on_fill(fill)
+        bar arrives  ─────────►   on_bar(bar)         → returns [Order, ...]
+        ...
+        market close              on_session_end(date)
+
+    Lifecycle methods are no-ops by default — most strategies only
+    need on_bar. Override the others only when you need their hook.
+
+    A strategy holds at most one position per symbol it trades.
+    Strategies that want multi-symbol exposure (e.g. pairs, sector
+    baskets) hold one Position per symbol in `self.positions` and
+    iterate."""
+
+    strategy_id: str             # unique per instance, used for sub-account routing
+    params: dict[str, Any] = field(default_factory=dict)
+    risk: "RiskLimits | None" = None
+    positions: dict[str, Position] = field(default_factory=dict)
+    _state: dict[str, Any] = field(default_factory=dict)
+    # ── Provenance + promotion lifecycle (ClassVar, not @dataclass fields) ──
+    # ClassVar so subclasses can override with a plain class attribute
+    # (`source = "trader-quant"`) without having to redeclare as a
+    # dataclass field — and so the values stay class-level rather than
+    # per-instance. Operators override `status` at runtime via the
+    # paper_strategy_status DB store; `source` and `default_lookback_days`
+    # are immutable per strategy class.
+    #
+    # `source`: "trader-quant" | "alpha-engine" | "scaffold". Surfaces in
+    # the UI to distinguish trader-provided work from textbook examples.
+    # `status`: code-default position in the promotion lifecycle —
+    # "evaluating" | "backtest-ok" | "scheduled" | "live-eligible".
+    # `default_lookback_days`: historical bars the strategy needs before
+    # its signal goes non-zero. Daemon defaults the lookback knob from
+    # this when the trigger payload doesn't supply one. 0 = none needed.
+    source: ClassVar[str] = "scaffold"
+    status: ClassVar[str] = "evaluating"
+    default_lookback_days: ClassVar[int] = 0
+    # Operator-facing caveats that the cockpit surfaces as warning
+    # banners when this strategy is selected. Keep entries short +
+    # actionable — the trader is mid-flow when they read them. Empty
+    # list (default) means "no known limitations to flag".
+    caveats: ClassVar[list[str]] = []
+    # Symbols with an order emitted but no fill seen yet. Engine maintains
+    # this around `emit → on_fill`; strategies query via has_order_in_flight().
+    _in_flight_symbols: set[str] = field(default_factory=set)
+    # Per-(symbol) ring buffer of recent decision records. Bounded so a
+    # multi-symbol, multi-bar session can't blow memory; the snapshot
+    # publishes the most-recent slice across all symbols.
+    _decisions: dict[str, Deque[dict[str, Any]]] = field(default_factory=dict)
+    decision_buffer_size: int = 50
+    # Per-symbol ring buffer of bars the strategy actually received.
+    # 300 = roughly one 1m equity session per symbol; FX hourly fits weeks.
+    # Snapshot publishes via Engine.attach_bars so the UI can show
+    # "what data fed into the strategy" alongside decisions + fills.
+    _bars_seen: dict[str, Deque[dict[str, Any]]] = field(default_factory=dict)
+    bar_buffer_size: int = 300
+    # Per-symbol ring buffer of fills the strategy has actually seen.
+    # Engine calls record_fill before on_fill so any strategy that
+    # wants to overlay markers on a chart (recent_charts) or show a
+    # "what executed" table can read self.recent_fills() without
+    # depending on the engine ledger. 200 fills per symbol is large
+    # enough for a multi-day live session and small enough to embed
+    # in a snapshot.
+    _fills_seen: dict[str, Deque[dict[str, Any]]] = field(default_factory=dict)
+    fill_buffer_size: int = 200
+
+    # --- Lifecycle hooks the engine calls --------------------------
+
+    def on_session_start(self, session_date: datetime) -> None:
+        """Called once before the first bar of the day. Reset any
+        per-session state (opening range, daily P&L, etc.) here."""
+        return None
+
+    @abstractmethod
+    def on_bar(self, bar: Bar) -> list[Order]:
+        """Core hook. Receive one bar, return zero-or-more orders.
+
+        MUST be deterministic given the same bar sequence + same
+        starting state — otherwise backtest-vs-live reconciliation
+        fails. No clock reads, no random numbers (seed if you need
+        randomness), no network calls."""
+        ...
+
+    def on_fill(self, fill: Fill) -> None:
+        """Called by the engine after a fill is applied to the
+        strategy's position. Default impl is no-op; override when
+        you want to log entries / update internal state on fills."""
+        return None
+
+    def on_session_end(self, session_date: datetime) -> None:
+        """Called once after the last bar of the day. Most intraday
+        strategies use this to assert positions are flat (i.e. the
+        flatten-at-close order already filled)."""
+        return None
+
+    # --- Helpers strategies call inside on_bar ----------------------
+
+    def has_order_in_flight(self, symbol: str) -> bool:
+        """True if an order this strategy emitted has NOT yet seen its
+        fill applied via on_fill. Use this to guard against the classic
+        "emit on bar N, see bar N+1 before bar N's fill lands, emit
+        again" race that fills the same intended position N times.
+
+        The engine queues bar fanout independently of fill dispatch,
+        so a strategy can observe stale `position_for(symbol).is_flat`
+        right after emitting an entry — by checking
+        `has_order_in_flight(symbol)` first, you avoid stacking
+        duplicate entries while you wait for the fill to round-trip.
+        """
+        return symbol in self._in_flight_symbols
+
+    def mark_order_in_flight(self, symbol: str) -> None:
+        """Call right after emitting an order. The engine calls
+        `clear_order_in_flight(symbol)` when on_fill fires for the
+        same symbol. Wrapping `emit` in a helper makes this less
+        error-prone; today it's manual at the call site."""
+        self._in_flight_symbols.add(symbol)
+
+    def clear_order_in_flight(self, symbol: str) -> None:
+        self._in_flight_symbols.discard(symbol)
+
+    def seed_positions(self, positions: dict[str, int]) -> None:
+        """Initialise the strategy's internal position state from an
+        external snapshot (typically OMS-derived). Default is a no-op;
+        strategies that hold cross-bar position state (e.g. signed
+        unit counts for FX mean-reversion) override this so reruns
+        compute delta = target - current instead of re-emitting full
+        entries. See task #28."""
+        return None
+
+    def position_for(self, symbol: str) -> Position:
+        """Get or lazy-create the Position for a symbol. Strategies
+        always read through this — never `self.positions[symbol]`
+        directly — so the dict autopopulates on first use."""
+        pos = self.positions.get(symbol)
+        if pos is None:
+            pos = Position(strategy_id=self.strategy_id, symbol=symbol)
+            self.positions[symbol] = pos
+        return pos
+
+    def remember(self, key: str, value: Any) -> None:
+        """Store cross-bar state. Lives in `_state` so the engine
+        can snapshot it for crash recovery without instrumenting
+        every concrete strategy."""
+        self._state[key] = value
+
+    def recall(self, key: str, default: Any = None) -> Any:
+        return self._state.get(key, default)
+
+    # --- Decision trace ---------------------------------------------
+
+    def log_decision(
+        self,
+        *,
+        symbol: str,
+        action: str,
+        reason: str,
+        bar_ts: datetime | None = None,
+        **detail: Any,
+    ) -> None:
+        """Record a per-bar decision so the UI can answer "why didn't
+        strategy X trade Y today?".
+
+        `action` is a short token ("fire-buy", "skip-warmup",
+        "skip-flat-signal", ...). `reason` is a free-text one-liner.
+        `detail` collects optional structured fields (signal value,
+        warmup-progress, gate verdict, etc.). The buffer is per-symbol
+        and bounded by `decision_buffer_size`; old entries roll off.
+        """
+        buf = self._decisions.get(symbol)
+        if buf is None:
+            buf = deque(maxlen=self.decision_buffer_size)
+            self._decisions[symbol] = buf
+        buf.append({
+            "bar_ts": bar_ts.isoformat() if bar_ts is not None else None,
+            "symbol": symbol,
+            "action": action,
+            "reason": reason,
+            "detail": detail,
+        })
+
+    def recent_decisions(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Flatten the per-symbol ring buffers into a single list sorted
+        by `bar_ts` (newest first). `limit` caps the result; None returns
+        everything in the buffers."""
+        merged: list[dict[str, Any]] = []
+        for buf in self._decisions.values():
+            merged.extend(buf)
+        # bar_ts may be None for decisions logged outside on_bar; sort
+        # those to the end so the live trace stays time-ordered.
+        merged.sort(key=lambda d: d.get("bar_ts") or "", reverse=True)
+        if limit is not None:
+            return merged[:limit]
+        return merged
+
+    # --- Bar capture -------------------------------------------------
+
+    def record_bar(self, bar: "Bar") -> None:
+        """Append `bar` to the per-symbol ring buffer. Called by the
+        engine just before `on_bar(bar)` so the snapshot can answer
+        "what data did the strategy see?" without having to replay the
+        session. Strategies don't call this themselves."""
+        buf = self._bars_seen.get(bar.symbol)
+        if buf is None:
+            buf = deque(maxlen=self.bar_buffer_size)
+            self._bars_seen[bar.symbol] = buf
+        buf.append({
+            "ts": bar.timestamp.isoformat(),
+            "symbol": bar.symbol,
+            "open": float(bar.open),
+            "high": float(bar.high),
+            "low": float(bar.low),
+            "close": float(bar.close),
+            "volume": int(bar.volume),
+        })
+
+    def recent_bars(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """All bars in the per-symbol buffers, time-ordered ascending
+        (oldest first). `limit` keeps the most recent `limit` after
+        merging across symbols."""
+        merged: list[dict[str, Any]] = []
+        for buf in self._bars_seen.values():
+            merged.extend(buf)
+        merged.sort(key=lambda b: b.get("ts") or "")
+        if limit is not None and len(merged) > limit:
+            return merged[-limit:]
+        return merged
+
+    # --- Fill capture -------------------------------------------------
+
+    def record_fill(self, fill: "Fill") -> None:
+        """Append `fill` to the per-symbol ring buffer. Engine calls
+        this just before `on_fill(fill)` so any strategy that wants to
+        overlay markers on a chart (recent_charts) can read its own
+        fills without depending on the engine ledger."""
+        buf = self._fills_seen.get(fill.symbol)
+        if buf is None:
+            buf = deque(maxlen=self.fill_buffer_size)
+            self._fills_seen[fill.symbol] = buf
+        buf.append({
+            "time": fill.fill_time.isoformat(),
+            "symbol": fill.symbol,
+            "side": fill.side.value,
+            "quantity": float(fill.quantity),
+            "price": float(fill.fill_price),
+            "commission": float(getattr(fill, "commission", 0.0) or 0.0),
+            "order_id": getattr(fill, "order_id", ""),
+        })
+
+    def recent_fills(self, *, symbol: str | None = None) -> list[dict[str, Any]]:
+        """Fills for a single symbol if `symbol` is set, else all of
+        them merged + time-ordered ascending. Returns dicts (not Fill
+        objects) so snapshot serialisation is symmetric with
+        recent_bars / recent_decisions."""
+        if symbol is not None:
+            return list(self._fills_seen.get(symbol, ()))
+        merged: list[dict[str, Any]] = []
+        for buf in self._fills_seen.values():
+            merged.extend(buf)
+        merged.sort(key=lambda f: f.get("time") or "")
+        return merged
+
+    def recent_charts(self) -> dict[str, dict[str, Any]]:
+        """Return a ``{name → plotly_figure_json}`` map of charts the
+        strategy wants attached to the session snapshot.
+
+        Default: empty — strategies that want charts override this. The
+        engine calls it at session-end via ``attach_charts`` and the
+        result lands in ``result_summary.strategies[].charts``, which
+        the frontend's Session Detail "Charts" tab renders without any
+        further wiring.
+
+        Best practice: catch exceptions inside the override so a buggy
+        chart never sinks the session snapshot. The engine logs but
+        does not re-raise.
+        """
+        return {}

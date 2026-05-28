@@ -1,0 +1,746 @@
+"""Per-symbol "is now a good time to buy?" snapshot.
+
+Strategies tell you which ETF has the best long-run risk-adjusted return.
+That answers "what to own". It does NOT answer "should I buy *today* or
+wait" — and a green BUY signal at the top of a parabolic move is not the
+same thing as a green BUY signal after a 20% correction.
+
+This module computes a transparent, rule-based verdict for any symbol's
+recent price action:
+
+    BUY   — trend up, not overbought, not extended
+    HOLD  — already in a healthy uptrend, no fresh entry edge
+    WAIT  — overbought / extended / mid-drawdown — better entries likely
+    AVOID — clear downtrend, fighting the tape
+
+Each verdict carries a one-line reason so the website can show *why*.
+"""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from typing import Any
+
+import pandas as pd
+
+from .indicators import atr, bollinger, ichimoku, rsi, sma
+
+
+# Thresholds are deliberately conservative and easy to reason about.
+# The whole point is that a human can look at the numbers and agree.
+RSI_OVERBOUGHT = 70.0
+RSI_OVERSOLD = 30.0
+EXTENDED_PCT_FROM_HIGH = 1.0       # within 1% of 52w high → "extended"
+MID_DRAWDOWN_PCT = -10.0           # in active drawdown ≥ 10% → "wait for stabilisation"
+DEEP_DRAWDOWN_PCT = -20.0          # ≥ 20% drawdown → long-term-valuation signal only
+WEAK_MOMENTUM_PCT = -10.0          # 12m return < -10% → downtrend confirmation
+# Recent-dip threshold: how far off the 52w high we want before the
+# bounce-zone BUY rule fires. Distinct from DEEP_DRAWDOWN_PCT, which
+# is a 5y/full-series number — that's a long-term valuation signal,
+# not a short-term entry trigger. Conflating the two led to BUY
+# verdicts on INRG.L (−0% off 52w high but −22% off 2021 peak).
+MEANINGFUL_52W_DROP_PCT = 8.0      # ≥ 8% off the 52w high counts as a real recent dip
+# Range position thresholds — where the current price sits as a
+# percentile of the 52w (low → high) range. Used to demote BUY
+# signals when the symbol is sitting near the top of its annual
+# range despite passing the other gates (RSI, SMA, drawdown). The
+# VUKE-class case: 5% off 52w high after a +24% YoY run is NOT a
+# dip — risk/reward is asymmetric (3p of upside, 8p of downside).
+RANGE_HIGH_PCTILE = 70.0           # ≥ 70th pctile of 52w range → downgrade BUY → HOLD
+RANGE_LOW_PCTILE = 40.0            # ≤ 40th pctile → confirms "dip" status
+# Crash-protection: a fast 10-day drop below the SMA200 is "falling
+# knife" territory — mean-reversion strategies (RSI-bouncing-in-bounce-
+# zone, etc.) will eagerly buy into it. Bias to AVOID until the trend
+# stabilises. Threshold: −8% over 10 trading days is well outside
+# normal vol for major ETFs and only fires in genuine cascade events.
+ACTIVE_CRASH_10D_PCT = -8.0
+# Volume-conviction bands. Today's bar volume vs the trailing 20-day
+# mean (excluding today). Above HEAVY = institutions active; below
+# THIN = move happening on light participation, weaker signal. The
+# range in between is "normal" — a routine bar. These thresholds
+# mirror the IBD / O'Neil rule-of-thumb (50% above average for a
+# breakout, 50% below for a noise trade).
+VOLUME_HEAVY_RATIO = 1.5
+VOLUME_THIN_RATIO = 0.8
+
+
+@dataclass
+class MarketState:
+    symbol: str
+    as_of: str | None
+    last_price: float | None
+    sma_200: float | None
+    above_sma_200: bool | None
+    pct_off_52w_high_pct: float | None
+    drawdown_from_peak_pct: float | None
+    rsi_14: float | None
+    momentum_10d_pct: float | None
+    momentum_3m_pct: float | None
+    momentum_12m_pct: float | None
+    vol_30d_annual_pct: float | None
+    entry_signal: str           # BUY / HOLD / WAIT / AVOID
+    entry_reason: str
+    # Each item: {"name", "status" ∈ pass|warn|fail, "detail"}.
+    # The trace is the audit trail behind entry_signal — every check the
+    # classifier looked at, not just the one that fired. Default-empty
+    # so the empty-prices early-return path can construct a MarketState
+    # without passing decision_trace explicitly (Yahoo occasionally
+    # returns 0 bars for a symbol mid-refresh; we want a clean
+    # no-data envelope, not a TypeError).
+    decision_trace: list[dict[str, Any]] = field(default_factory=list)
+    # When + at what price the 52w high and running peak were set.
+    # These give a percentage like "−20.7% off 52w high" the context
+    # it needs ("set 11 months ago, before the April crash") so the
+    # user (or the LLM) doesn't conflate a recovery rally with an
+    # all-time-high entry. Optional so callers that don't need them
+    # can still construct a MarketState positionally.
+    pct_off_52w_high_date: str | None = None
+    pct_off_52w_high_price: float | None = None
+    peak_price: float | None = None
+    peak_date: str | None = None
+    # True when the 5y running-peak bar is INSIDE the trailing 252-bar
+    # window. When true the 52w high IS the 5y peak — both metrics
+    # legitimately read 0% off, NOT a data conflation bug. Surfaced
+    # so the UI / rationale can render "at multi-year highs" instead
+    # of looking like the two metrics are stuck together.
+    peak_within_52w_window: bool = False
+    # 52w low (mirror of pct_off_52w_high_price) and the percentile
+    # the current price sits at within the (low → high) range. 100 =
+    # at the 52w high, 0 = at the 52w low. Surfaces "you're near the
+    # top of the year" cleanly so the BUY gate can downgrade when
+    # the symbol is at 70th+ pctile despite passing other criteria.
+    low_52w_price: float | None = None
+    low_52w_date: str | None = None
+    range_position_pct: float | None = None
+    # Last 30 daily closes (split-adjusted), oldest → newest. Used by
+    # the email digest's BUY-sparkline strip + the PDF per-symbol
+    # page so the user sees recent shape, not just numbers. ~30 floats
+    # per row × 200 rows = ~50KB extra per universe payload — fine.
+    closes_30d: list[float] = field(default_factory=list)
+    # Today's volume divided by the trailing 20-day average. Surfaces
+    # whether a price move is happening on conviction (>1.5x) or thin
+    # air (<0.8x). The bucket-vote layer can demote a breakout that's
+    # only firing on light volume. None when the price feed has no
+    # volume column (some indices) or < 21 bars.
+    volume_ratio_20d: float | None = None
+    # Wilder's 14-day Average True Range — absolute-price volatility,
+    # not a percentage. Used for volatility-aware position sizing
+    # ("don't risk more than X per trade") and ATR-multiplier stops
+    # ("trailing = 2x ATR"). Also surfaced as a % of price so the user
+    # can compare "this stock has a 3% daily range" vs another.
+    atr_14: float | None = None
+    atr_14_pct: float | None = None
+    # Ichimoku cloud position — one of "ABOVE" / "INSIDE" / "BELOW" /
+    # None (None when there isn't enough history to draw a full cloud).
+    # Feeds decision-trace check #6 regardless of whether the
+    # ichimoku_cloud strategy is in position — it's a universal
+    # context signal, not a strategy-specific one.
+    ichimoku_cloud_position: str | None = None
+    # Bollinger Bands(20, 2σ) position — "AT_UPPER" (≥ 1.0 %B —
+    # extended, possible mean-reversion short), "AT_LOWER" (≤ 0.0 —
+    # oversold candidate), "UPPER_HALF" (0.5–1.0), "LOWER_HALF"
+    # (0.0–0.5), or None when there aren't enough bars (< 20).
+    # Surfaces as decision-trace check #7.
+    bollinger_position: str | None = None
+    bollinger_percent_b: float | None = None
+    bollinger_bandwidth: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "as_of": self.as_of,
+            "last_price": self.last_price,
+            "sma_200": self.sma_200,
+            "above_sma_200": self.above_sma_200,
+            "pct_off_52w_high_pct": self.pct_off_52w_high_pct,
+            "pct_off_52w_high_date": self.pct_off_52w_high_date,
+            "pct_off_52w_high_price": self.pct_off_52w_high_price,
+            "drawdown_from_peak_pct": self.drawdown_from_peak_pct,
+            "peak_price": self.peak_price,
+            "peak_date": self.peak_date,
+            "peak_within_52w_window": self.peak_within_52w_window,
+            "low_52w_price": self.low_52w_price,
+            "low_52w_date": self.low_52w_date,
+            "range_position_pct": self.range_position_pct,
+            # Spec-canonical aliases (TRADEPRO-SPEC-001 §6.1).
+            # classify_horizons() reads these names verbatim from the
+            # market_state payload. Kept alongside the existing
+            # `*_price` fields so older consumers don't break.
+            "high_52w": self.pct_off_52w_high_price,
+            "low_52w": self.low_52w_price,
+            "range_pct": self.range_position_pct,
+            "rsi_14": self.rsi_14,
+            "momentum_10d_pct": self.momentum_10d_pct,
+            "momentum_3m_pct": self.momentum_3m_pct,
+            "momentum_12m_pct": self.momentum_12m_pct,
+            "vol_30d_annual_pct": self.vol_30d_annual_pct,
+            "entry_signal": self.entry_signal,
+            "entry_reason": self.entry_reason,
+            "decision_trace": list(self.decision_trace),
+            "closes_30d": list(self.closes_30d),
+            "volume_ratio_20d": self.volume_ratio_20d,
+            "atr_14": self.atr_14,
+            "atr_14_pct": self.atr_14_pct,
+            "ichimoku_cloud_position": self.ichimoku_cloud_position,
+            "bollinger_position": self.bollinger_position,
+            "bollinger_percent_b": self.bollinger_percent_b,
+            "bollinger_bandwidth": self.bollinger_bandwidth,
+        }
+
+
+def _safe_float(x) -> float | None:
+    if x is None:
+        return None
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(f) or math.isinf(f) else f
+
+
+def _annual_vol_pct(closes: pd.Series, lookback: int = 30) -> float | None:
+    if len(closes) < lookback + 1:
+        return None
+    rets = closes.pct_change().tail(lookback)
+    if rets.std() == 0 or rets.empty:
+        return None
+    return float(rets.std() * (252 ** 0.5) * 100.0)
+
+
+def _volume_ratio_20d(volume: pd.Series | None) -> float | None:
+    """Today's bar volume divided by the trailing 20-day mean (excluding
+    today). Returns None when the series is missing, < 21 bars long, or
+    the mean is non-positive — caller treats None as "no signal" so the
+    bucket vote can skip the gate cleanly.
+
+    Why "excluding today": including today in the denominator
+    compresses the ratio toward 1 and dampens exactly the spikes we
+    want to detect.
+    """
+    if volume is None or volume.empty or len(volume) < 21:
+        return None
+    today = volume.iloc[-1]
+    prior_20 = volume.iloc[-21:-1]
+    avg = prior_20.mean()
+    if avg is None or avg <= 0 or pd.isna(today) or pd.isna(avg):
+        return None
+    return float(today / avg)
+
+
+def _momentum_pct(closes: pd.Series, days: int) -> float | None:
+    if len(closes) < days + 1:
+        return None
+    past = closes.iloc[-days - 1]
+    last = closes.iloc[-1]
+    if past <= 0:
+        return None
+    return float((last / past - 1.0) * 100.0)
+
+
+def _build_trace(state: MarketState) -> list[dict[str, Any]]:
+    """Build the audit trail of every check that goes into the verdict.
+    Returned independently of the verdict so the UI can render it as a
+    transparent checklist regardless of which rule fires."""
+    trace: list[dict[str, Any]] = []
+
+    # Trend
+    if state.above_sma_200 is True:
+        trace.append({"name": "Trend (200-day SMA)", "status": "pass",
+                      "detail": f"price {state.last_price:,.2f} above SMA {state.sma_200:,.2f}"})
+    elif state.above_sma_200 is False:
+        trace.append({"name": "Trend (200-day SMA)", "status": "fail",
+                      "detail": f"price {state.last_price:,.2f} below SMA {state.sma_200:,.2f}"})
+    else:
+        trace.append({"name": "Trend (200-day SMA)", "status": "warn",
+                      "detail": "not enough history (<200 bars)"})
+
+    # RSI
+    rsi_v = state.rsi_14
+    if rsi_v is None:
+        trace.append({"name": "RSI (14-day)", "status": "warn", "detail": "—"})
+    elif rsi_v >= RSI_OVERBOUGHT:
+        trace.append({"name": "RSI (14-day)", "status": "fail",
+                      "detail": f"{rsi_v:.0f} — overbought, pullback often follows"})
+    elif rsi_v <= RSI_OVERSOLD:
+        trace.append({"name": "RSI (14-day)", "status": "warn",
+                      "detail": f"{rsi_v:.0f} — oversold (bounce candidate)"})
+    else:
+        trace.append({"name": "RSI (14-day)", "status": "pass",
+                      "detail": f"{rsi_v:.0f} — healthy zone"})
+
+    # Distance from 52w high — include the date so a "20% drawdown"
+    # against an 11-month-old high doesn't read like the symbol fell
+    # 20% yesterday.
+    pct = state.pct_off_52w_high_pct
+    high_when = (state.pct_off_52w_high_date or "")[:10]
+    high_suffix = f" (high set {high_when})" if high_when else ""
+    if pct is None:
+        trace.append({"name": "Distance from 52w high", "status": "warn", "detail": "—"})
+    elif pct < EXTENDED_PCT_FROM_HIGH:
+        trace.append({"name": "Distance from 52w high", "status": "warn",
+                      "detail": f"{pct:.1f}% off{high_suffix} — at the highs, potentially extended"})
+    else:
+        trace.append({"name": "Distance from 52w high", "status": "pass",
+                      "detail": f"{pct:.1f}% off{high_suffix} — room to run"})
+
+    # Long-term valuation: drawdown from full-series running peak.
+    # Reported separately from the 52w-high distance so the user can
+    # see both timeframes — "−0% off 52w high (near-term peak) but
+    # −22% off 2021 peak (long-term cheap)" is a meaningful pair of
+    # facts; collapsing them into a single 'drawdown' line is what
+    # made INRG.L misread as a short-term BUY.
+    #
+    # When the 5y peak is INSIDE the trailing 52w window, the two
+    # metrics legitimately read the same number — symbol is at
+    # multi-year highs. The trace says so explicitly so it doesn't
+    # look like a conflation bug.
+    dd = state.drawdown_from_peak_pct
+    peak_when = (state.peak_date or "")[:10]
+    peak_suffix = f" (peak {peak_when})" if peak_when else ""
+    coincides = state.peak_within_52w_window
+    if dd is None:
+        trace.append({"name": "Long-term valuation (5y peak)",
+                      "status": "warn", "detail": "—"})
+    elif coincides and (dd is None or dd >= -1.0):
+        # Peak is within 52w AND price is essentially at peak →
+        # at all-time highs in the 5y window
+        trace.append({
+            "name": "Long-term valuation (5y peak)",
+            "status": "warn",
+            "detail": (
+                f"{dd:.1f}% from peak{peak_suffix} — peak is within 52w window, "
+                f"symbol is at multi-year highs (52w high = 5y peak)"
+            ),
+        })
+    elif dd <= DEEP_DRAWDOWN_PCT:
+        coincide_note = (
+            "" if not coincides else " (peak still within 52w — recent setback)"
+        )
+        trace.append({
+            "name": "Long-term valuation (5y peak)",
+            "status": "pass",
+            "detail": (
+                f"{dd:.1f}% from peak{peak_suffix}{coincide_note} — "
+                f"structurally cheap vs own history "
+                f"(long-term signal, not a timing trigger)"
+            ),
+        })
+    elif dd <= MID_DRAWDOWN_PCT:
+        trace.append({"name": "Long-term valuation (5y peak)", "status": "warn",
+                      "detail": f"{dd:.1f}% from peak{peak_suffix} — mid-cycle"})
+    else:
+        trace.append({"name": "Long-term valuation (5y peak)", "status": "warn",
+                      "detail": f"{dd:.1f}% from peak{peak_suffix} — near long-term highs"})
+
+    # Range position within 52w high/low — where the current price
+    # sits as a percentile of the annual range. The 52w-high distance
+    # (above) tells you "how much room to recover"; this tells you
+    # "where in the year are you actually sitting". A symbol 5% off
+    # its 52w high but at the 72nd percentile of its range is NOT a
+    # dip (VUKE case): downside-to-low far exceeds upside-to-high.
+    rp = state.range_position_pct
+    if rp is None:
+        trace.append({"name": "Range position (52w)", "status": "warn",
+                      "detail": "—"})
+    elif rp >= RANGE_HIGH_PCTILE:
+        trace.append({"name": "Range position (52w)", "status": "fail",
+                      "detail": (
+                          f"{rp:.0f}th percentile — near 52w highs, "
+                          f"asymmetric risk/reward for a swing entry"
+                      )})
+    elif rp <= RANGE_LOW_PCTILE:
+        trace.append({"name": "Range position (52w)", "status": "pass",
+                      "detail": (
+                          f"{rp:.0f}th percentile — closer to 52w lows, "
+                          f"genuine dip territory"
+                      )})
+    else:
+        trace.append({"name": "Range position (52w)", "status": "warn",
+                      "detail": f"{rp:.0f}th percentile — mid-range"})
+
+    # 12-month momentum
+    mom12 = state.momentum_12m_pct
+    if mom12 is None:
+        trace.append({"name": "12-month momentum", "status": "warn", "detail": "—"})
+    elif mom12 < WEAK_MOMENTUM_PCT:
+        trace.append({"name": "12-month momentum", "status": "fail",
+                      "detail": f"{mom12:.1f}% — weak, downtrend signal"})
+    else:
+        trace.append({"name": "12-month momentum", "status": "pass",
+                      "detail": f"{mom12:+.1f}% — positive"})
+
+    # Ichimoku cloud position (TRADEPRO sprint §7, check #6 in the
+    # decision trace). ABOVE = trend support overhead, room to run.
+    # INSIDE = consolidation / chop zone — neither bull nor bear.
+    # BELOW = trend resistance overhead, downtrend confirmation. Runs
+    # independently of whether the ichimoku_cloud strategy fired.
+    cp = state.ichimoku_cloud_position
+    if cp == "ABOVE":
+        trace.append({"name": "Ichimoku cloud position", "status": "pass",
+                      "detail": "price above the cloud — uptrend, forward cloud is support"})
+    elif cp == "INSIDE":
+        trace.append({"name": "Ichimoku cloud position", "status": "warn",
+                      "detail": "price inside the cloud — consolidation, wait for break"})
+    elif cp == "BELOW":
+        trace.append({"name": "Ichimoku cloud position", "status": "fail",
+                      "detail": "price below the cloud — downtrend, forward cloud is resistance"})
+    else:
+        trace.append({"name": "Ichimoku cloud position", "status": "warn",
+                      "detail": "— (need ≥78 bars to draw the forward cloud)"})
+
+    # Bollinger Bands(20, 2σ) position — decision-trace check #7.
+    # AT_LOWER (≤ 0% B) flags an oversold extreme; classic mean-
+    # reversion entry-zone when paired with low RSI. AT_UPPER (≥ 100%
+    # B) is the symmetric extension warning. UPPER_HALF / LOWER_HALF
+    # are neutral status — just shows the user where in the range we
+    # sit. Bandwidth contractions hint at vol regime change but
+    # we don't gate on them here (informational only via the tooltip).
+    bp = state.bollinger_position
+    pb = state.bollinger_percent_b
+    bw = state.bollinger_bandwidth
+    pb_str = f"%B {pb:.2f}" if pb is not None else "%B —"
+    bw_str = f"width {bw:.3f}" if bw is not None else "width —"
+    if bp == "AT_LOWER":
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "warn",
+                      "detail": f"at lower band ({pb_str}, {bw_str}) — oversold extreme, mean-reversion BUY candidate"})
+    elif bp == "AT_UPPER":
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "fail",
+                      "detail": f"at upper band ({pb_str}, {bw_str}) — overextended, mean-reversion against the move"})
+    elif bp == "LOWER_HALF":
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "pass",
+                      "detail": f"lower half of the range ({pb_str}, {bw_str}) — entry-friendly zone"})
+    elif bp == "UPPER_HALF":
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "warn",
+                      "detail": f"upper half of the range ({pb_str}, {bw_str}) — extended"})
+    else:
+        trace.append({"name": "Bollinger Bands (20, 2σ)", "status": "warn",
+                      "detail": "— (need ≥ 20 bars)"})
+
+    # Volume conviction. >1.5x = institutions buying; <0.8x = thin air;
+    # 0.8–1.5x = normal. Surfaces the "is this rally on conviction or
+    # noise" check from the indicator triage. ETFs / indices without a
+    # volume column return None → "—" (no signal, not a fail).
+    vr = state.volume_ratio_20d
+    if vr is None:
+        trace.append({"name": "Volume vs 20-day average",
+                      "status": "warn", "detail": "—"})
+    elif vr >= VOLUME_HEAVY_RATIO:
+        trace.append({"name": "Volume vs 20-day average", "status": "pass",
+                      "detail": f"{vr:.1f}x — heavy, conviction move"})
+    elif vr < VOLUME_THIN_RATIO:
+        trace.append({"name": "Volume vs 20-day average", "status": "fail",
+                      "detail": f"{vr:.1f}x — thin, low conviction"})
+    else:
+        trace.append({"name": "Volume vs 20-day average", "status": "warn",
+                      "detail": f"{vr:.1f}x — normal range"})
+
+    return trace
+
+
+def _classify(state: MarketState) -> tuple[str, str]:
+    """Map the snapshot to a (signal, reason) pair. Rules are intentionally
+    short and explicit — easier to argue with than a black-box score.
+    The decision_trace built separately surfaces the full audit trail."""
+    above = state.above_sma_200
+    pct_off_high = state.pct_off_52w_high_pct
+    rsi_v = state.rsi_14
+    mom10 = state.momentum_10d_pct
+    mom12 = state.momentum_12m_pct
+    dd = state.drawdown_from_peak_pct
+
+    # AVOID: active 10-day crash below trend. Catches the falling-knife
+    # case the bounce-zone BUY rule (further down) would otherwise eagerly
+    # bid into during a cascade. Has to fire BEFORE everything else: a
+    # confirmed crash is information-rich enough that "RSI bouncing" or
+    # "in mid-drawdown" verdicts would mislead. Once the 10d shock cools
+    # off (i.e., mom10 climbs back above the threshold) the symbol can
+    # re-enter the normal rule chain — typically as WAIT-mid-drawdown.
+    if (
+        mom10 is not None
+        and mom10 < ACTIVE_CRASH_10D_PCT
+        and above is False
+    ):
+        return ("AVOID",
+                f"10d return {mom10:.1f}% with price below 200-day SMA — "
+                f"active cascade, do not catch the falling knife.")
+
+    # AVOID: confirmed downtrend (below SMA200 + 12-month return clearly negative).
+    if above is False and mom12 is not None and mom12 < WEAK_MOMENTUM_PCT:
+        return ("AVOID",
+                f"below 200-day SMA and 12m return {mom12:.1f}% — confirmed downtrend, fighting the tape.")
+
+    # WAIT: stretched right at the highs, fading entries usually do better.
+    if pct_off_high is not None and pct_off_high < EXTENDED_PCT_FROM_HIGH and rsi_v is not None and rsi_v >= RSI_OVERBOUGHT:
+        return ("WAIT",
+                f"at 52w high with RSI {rsi_v:.0f} (overbought) — let it cool before adding.")
+
+    # BUY: meaningful 52w drawdown but RSI bouncing — short-term
+    # mean-reversion entry. Uses pct_off_52w_high (recent context),
+    # NOT drawdown_from_peak (5y / full-series). The full-series
+    # drawdown remains in the trace as a long-term valuation signal,
+    # but cannot trigger a BUY on its own — a 5y-old peak does not
+    # give you a near-term entry edge. (Fix: INRG.L was BUY-flagged
+    # because its 2021 peak yielded −22% even though the 52w high is
+    # today; the 5y signal was masquerading as a timing signal.)
+    #
+    # Fires BEFORE the WAIT-mid-drawdown rule so a real recent dip
+    # with momentum doesn't get incorrectly demoted by a coincidental
+    # 5y dd in the mid-zone.
+    if (
+        pct_off_high is not None
+        and pct_off_high >= MEANINGFUL_52W_DROP_PCT
+        and rsi_v is not None
+        and rsi_v > RSI_OVERSOLD
+    ):
+        # Trend-coherence guard (BABA case, 2026-05-20). The above
+        # AVOID rules catch active crashes (mom10 < threshold AND
+        # below SMA) and confirmed downtrends (mom12 negative AND
+        # below SMA). Neither catches the in-between case: price
+        # below SMA200 + positive 12m momentum + recent dip + RSI
+        # bouncing. Without this guard the bounce-zone BUY fires
+        # despite the trend trace explicitly failing — a coherence
+        # bug the external reviewer flagged on BABA (verdict BUY
+        # with "× Trend (200-day SMA) price 135.64 below SMA 149.29"
+        # visible in the same trace). Downgrade to WAIT with an
+        # explicit "trend not yet confirmed" reason so the bucket
+        # never says BUY while the trend filter says no.
+        if above is False:
+            return ("WAIT",
+                    f"{pct_off_high:.1f}% off 52w high with RSI "
+                    f"{rsi_v:.0f} recovering, BUT price still below "
+                    f"200-day SMA — bounce zone is real but trend "
+                    f"not yet confirmed. Wait for the SMA to flatten "
+                    f"or reclaim before adding.")
+        high_when = (state.pct_off_52w_high_date or "")[:10]
+        high_suffix = f" (52w high {high_when})" if high_when else ""
+        return ("BUY",
+                f"{pct_off_high:.1f}% off 52w high{high_suffix} with RSI "
+                f"{rsi_v:.0f} recovering — short-term bounce zone.")
+
+    # WAIT: mid-drawdown, trend not yet stabilised. Still uses the
+    # full-series dd because we want to flag deep-but-not-recovering
+    # situations even when the 52w-window is too narrow to see them.
+    if dd is not None and DEEP_DRAWDOWN_PCT < dd <= MID_DRAWDOWN_PCT:
+        return ("WAIT",
+                f"in {dd:.1f}% drawdown — wait for trend stabilisation before averaging in.")
+
+    # BUY: clean uptrend (above SMA200, not overbought, not extended).
+    # Plus a range-position guard: if the price is in the upper 30%
+    # of its 52w range, the technical BUY is a misleading "buy near
+    # highs" — return WAIT (not HOLD) so compute_bucket doesn't
+    # promote it back to BUY on strategy consensus. Returning HOLD
+    # here was the bug behind XLY / XLI / XLC / VUKE landing in
+    # BUY candidates with "wait for a pullback" supporting text.
+    if above is True:
+        if rsi_v is None or rsi_v < RSI_OVERBOUGHT:
+            if pct_off_high is None or pct_off_high >= EXTENDED_PCT_FROM_HIGH:
+                rp = state.range_position_pct
+                if rp is not None and rp >= RANGE_HIGH_PCTILE:
+                    return ("WAIT",
+                            f"above 200-day SMA but at {rp:.0f}th percentile "
+                            f"of 52w range — near the highs, asymmetric risk/"
+                            f"reward for a fresh entry. Wait for a pullback.")
+                return ("BUY",
+                        f"above 200-day SMA, RSI {rsi_v:.0f} healthy" if rsi_v is not None else
+                        "above 200-day SMA, healthy entry zone.")
+
+    # HOLD: anything else — neither clearly attractive nor clearly avoid.
+    return ("HOLD",
+            "no fresh entry edge — keep position if held, no rush to add.")
+
+
+def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
+    """Compute the now-or-wait snapshot for one symbol.
+
+    Expects an OHLCV DataFrame with `adj_close` (or `close`) and a
+    DatetimeIndex. Returns a MarketState with all numeric metrics + a
+    rule-based verdict.
+    """
+    if prices.empty:
+        return MarketState(symbol=symbol, as_of=None, last_price=None,
+                           sma_200=None, above_sma_200=None,
+                           pct_off_52w_high_pct=None, drawdown_from_peak_pct=None,
+                           rsi_14=None, momentum_10d_pct=None,
+                           momentum_3m_pct=None, momentum_12m_pct=None,
+                           vol_30d_annual_pct=None,
+                           entry_signal="HOLD", entry_reason="no data")
+
+    series = prices["adj_close"] if "adj_close" in prices.columns else prices["close"]
+
+    last_price = _safe_float(series.iloc[-1])
+    as_of = prices.index[-1].isoformat()
+
+    sma_series = sma(series, 200)
+    sma_200 = _safe_float(sma_series.iloc[-1])
+    above = None if sma_200 is None or last_price is None else bool(last_price > sma_200)
+
+    # 52-week high / drawdown — use trailing 252 trading days. We
+    # capture both the date and the price of the high so a user
+    # reading "−20% off 52w high" can immediately see *when* that
+    # high was set and reconcile against what their broker shows
+    # (recent rally peak vs. pre-crash high are different things).
+    window_252 = series.tail(252)
+    high_52w = _safe_float(window_252.max())
+    high_52w_date: str | None = None
+    if not window_252.empty and high_52w is not None:
+        idx = window_252.idxmax()
+        try:
+            high_52w_date = idx.isoformat() if hasattr(idx, "isoformat") else str(idx)
+        except Exception:  # noqa: BLE001
+            high_52w_date = str(idx)
+    pct_off_high = (
+        (1.0 - last_price / high_52w) * 100.0
+        if last_price is not None and high_52w not in (None, 0)
+        else None
+    )
+
+    # 52w low + range position. The position is a percentile within
+    # the (low → high) range. 100 = at high, 0 = at low. The classify
+    # rules use this to demote a near-the-highs BUY to HOLD even when
+    # the technical gates pass.
+    low_52w = _safe_float(window_252.min())
+    low_52w_date: str | None = None
+    if not window_252.empty and low_52w is not None:
+        idx = window_252.idxmin()
+        try:
+            low_52w_date = idx.isoformat() if hasattr(idx, "isoformat") else str(idx)
+        except Exception:  # noqa: BLE001
+            low_52w_date = str(idx)
+    range_position_pct: float | None = None
+    if (last_price is not None and high_52w is not None
+            and low_52w is not None and high_52w > low_52w):
+        range_position_pct = (last_price - low_52w) / (high_52w - low_52w) * 100.0
+        # Clamp to [0, 100] in case last_price drifts outside the
+        # window (corporate action, stale bar, etc.).
+        range_position_pct = max(0.0, min(100.0, range_position_pct))
+
+    # Drawdown from running peak, full-series. This is the more honest
+    # measure of "are we mid-correction?" than just the 52-week notion.
+    # Capture peak date too — same rationale as the 52w-high date.
+    peak = series.cummax()
+    dd_series = (series - peak) / peak
+    dd = _safe_float(dd_series.iloc[-1] * 100.0)
+    peak_price = _safe_float(peak.iloc[-1]) if not peak.empty else None
+    peak_date: str | None = None
+    peak_within_52w = False
+    if not series.empty:
+        # The most recent index where price equalled the running peak
+        # is the date the peak was last touched. For a clean uptrend
+        # this is "today"; for a correction it's the pre-correction high.
+        peak_idx = series[series == peak].index
+        if len(peak_idx) > 0:
+            last_peak = peak_idx[-1]
+            try:
+                peak_date = last_peak.isoformat() if hasattr(last_peak, "isoformat") else str(last_peak)
+            except Exception:  # noqa: BLE001
+                peak_date = str(last_peak)
+            # Is the running peak inside the trailing 252-bar window?
+            # If yes, the 52w high IS the 5y peak — both metrics
+            # legitimately read the same number, NOT a conflation bug.
+            if not window_252.empty:
+                peak_within_52w = bool(last_peak >= window_252.index[0])
+
+    rsi_14 = _safe_float(rsi(series, 14).iloc[-1])
+    # 10 trading days ≈ 2 weeks. Drives the active-crash guard in
+    # _classify (see ACTIVE_CRASH_10D_PCT). The longer 3m / 12m
+    # momentum windows below confirm trend direction; 10d catches
+    # the recent shock.
+    mom_10d = _momentum_pct(series, 10)
+    mom_3m = _momentum_pct(series, 63)
+    mom_12m = _momentum_pct(series, 252)
+    vol_30d = _annual_vol_pct(series, 30)
+    # Last 30 daily closes (split-adjusted, since we read adj_close /
+    # close at the top of this function). Used by the email digest's
+    # BUY-sparkline strip + PDF per-symbol charts so the user sees
+    # recent shape, not just numbers.
+    closes_tail = series.tail(30)
+    closes_30d = [
+        float(v) for v in closes_tail.tolist()
+        if isinstance(v, (int, float)) and v == v  # NaN check
+    ]
+    # Today's volume vs the trailing 20-day mean. Some Yahoo indices
+    # (^FTSE etc.) don't ship a volume column — we just leave the
+    # ratio at None and the trace skips the gate cleanly.
+    volume_series = prices["volume"] if "volume" in prices.columns else None
+    volume_ratio_20d = _volume_ratio_20d(volume_series)
+    # Wilder's 14-day ATR — absolute-price volatility. Needs high/low/
+    # close; if any column is missing (some indices ship close-only)
+    # we leave it None. atr_14_pct surfaces it as a % of last_price
+    # so the UI can compare across symbols at different price levels.
+    atr_14: float | None = None
+    atr_14_pct: float | None = None
+    if all(c in prices.columns for c in ("high", "low", "close")) and len(prices) >= 15:
+        atr_series = atr(prices["high"], prices["low"], prices["close"], 14)
+        if not atr_series.empty:
+            atr_14 = _safe_float(atr_series.iloc[-1])
+            if atr_14 is not None and last_price not in (None, 0):
+                atr_14_pct = (atr_14 / last_price) * 100.0
+
+    # Ichimoku cloud position — universal context signal (TRADEPRO sprint
+    # §7). Computed regardless of whether the ichimoku_cloud strategy
+    # is in position, so the decision-trace check #6 fires for every
+    # symbol. Needs OHLC + at least 78 bars to draw a full forward
+    # cloud (52 + 26 displacement); under that we leave it None.
+    ichimoku_cloud_position: str | None = None
+    if all(c in prices.columns for c in ("high", "low", "close")) and len(prices) >= 78:
+        ich = ichimoku(prices["high"], prices["low"], prices["close"])
+        cloud_high = ich["cloud_high"].iloc[-1]
+        cloud_low = ich["cloud_low"].iloc[-1]
+        if last_price is not None and not pd.isna(cloud_high) and not pd.isna(cloud_low):
+            if last_price > cloud_high:
+                ichimoku_cloud_position = "ABOVE"
+            elif last_price < cloud_low:
+                ichimoku_cloud_position = "BELOW"
+            else:
+                ichimoku_cloud_position = "INSIDE"
+
+    # Bollinger Bands(20, 2σ) — band position + %B + bandwidth.
+    # Decision-trace check #7. Bandwidth doubles as a "vol regime"
+    # signal — contractions often precede big moves.
+    bollinger_position: str | None = None
+    bollinger_percent_b: float | None = None
+    bollinger_bandwidth: float | None = None
+    if len(series) >= 20:
+        bb = bollinger(series, window=20, num_std=2.0)
+        last_pb = bb["percent_b"].iloc[-1]
+        last_bw = bb["bandwidth"].iloc[-1]
+        bollinger_percent_b = _safe_float(last_pb)
+        bollinger_bandwidth = _safe_float(last_bw)
+        if bollinger_percent_b is not None:
+            if bollinger_percent_b >= 1.0:
+                bollinger_position = "AT_UPPER"
+            elif bollinger_percent_b <= 0.0:
+                bollinger_position = "AT_LOWER"
+            elif bollinger_percent_b >= 0.5:
+                bollinger_position = "UPPER_HALF"
+            else:
+                bollinger_position = "LOWER_HALF"
+
+    state = MarketState(
+        symbol=symbol, as_of=as_of, last_price=last_price,
+        sma_200=sma_200, above_sma_200=above,
+        pct_off_52w_high_pct=pct_off_high, drawdown_from_peak_pct=dd,
+        rsi_14=rsi_14, momentum_10d_pct=mom_10d,
+        momentum_3m_pct=mom_3m, momentum_12m_pct=mom_12m,
+        vol_30d_annual_pct=vol_30d,
+        entry_signal="HOLD", entry_reason="", decision_trace=[],
+        pct_off_52w_high_date=high_52w_date,
+        pct_off_52w_high_price=high_52w,
+        peak_within_52w_window=peak_within_52w,
+        peak_price=peak_price,
+        peak_date=peak_date,
+        low_52w_price=low_52w,
+        low_52w_date=low_52w_date,
+        range_position_pct=range_position_pct,
+        closes_30d=closes_30d,
+        volume_ratio_20d=volume_ratio_20d,
+        atr_14=atr_14,
+        atr_14_pct=atr_14_pct,
+        ichimoku_cloud_position=ichimoku_cloud_position,
+        bollinger_position=bollinger_position,
+        bollinger_percent_b=bollinger_percent_b,
+        bollinger_bandwidth=bollinger_bandwidth,
+    )
+    state.entry_signal, state.entry_reason = _classify(state)
+    state.decision_trace = _build_trace(state)
+    return state

@@ -1,0 +1,118 @@
+Feature: Plain-English rationale (no hallucination)
+  As a careful investor, when I open an ETF's verdict I want the
+  prose summary to be either (a) LLM-generated and verified against
+  the structured facts, or (b) a deterministic template built
+  mechanically from those same facts. Never an unverified number.
+
+  Background:
+    Given the LLM provider is the no-op (so tests don't call out)
+
+  Scenario: Template is used when LLM is unavailable
+    Given a fact bundle for QQQ in BUY bucket
+    When I build a rationale for it
+    Then the rationale source is a template variant
+    And the rationale is marked verified
+    And every number in the rationale appears in the input facts
+
+  Scenario: Verifier rejects fabricated numbers
+    Given a rationale that mentions an unsupported "999%" figure
+    And a fact bundle containing no such number
+    When I run the local verifier
+    Then the rationale is rejected as unverified
+
+  Scenario: Template summary cites the bucket reason
+    Given a fact bundle for AVOID with reason "below 200-day SMA"
+    When I build a rationale for it
+    Then the rationale summary mentions the bucket name AVOID
+
+  Scenario: Cross-basket momentum rank surfaces in the template factors
+    Given a fact bundle for VUKE.L in BUY bucket
+    And the symbol's basket-relative momentum rank is 3 of 13 with top quartile
+    When I build a rationale for it
+    Then a key factor mentions "Momentum rank 3 of 13"
+    And a key factor mentions "Top-quartile basket momentum"
+    And every number in the rationale appears in the input facts
+
+  Scenario: Cross-basket valuation flag surfaces in the template factors
+    Given a fact bundle for VUKE.L in BUY bucket
+    And the symbol's basket-relative valuation flag is "cheap"
+    When I build a rationale for it
+    Then a key factor mentions "Valuation flag: cheap"
+
+  Scenario: Fair valuation does NOT add a factor (only cheap or expensive do)
+    Given a fact bundle for VUKE.L in BUY bucket
+    And the symbol's basket-relative valuation flag is "fair"
+    When I build a rationale for it
+    Then no key factor mentions "Valuation flag"
+
+  Scenario: Missing cross-basket data leaves the rationale clean
+    Given a fact bundle for QQQ in BUY bucket
+    When I build a rationale for it
+    Then no key factor mentions "Momentum rank"
+    And no key factor mentions "Valuation flag"
+
+  Scenario: Swing composite total surfaces in template factors
+    Given a fact bundle for VUKE.L in BUY bucket
+    And the symbol's swing composite score is 6 with verdict STRONG_BUY
+    When I build a rationale for it
+    Then a key factor mentions "Swing composite 6/8"
+    And a key factor mentions "STRONG_BUY"
+    And every number in the rationale appears in the input facts
+
+  # ---- Prompt v3: ETF passive guard against the "N/A as single-stock" hallucination ----
+
+  Scenario: PROMPT_VERSION pinned to v6-verdict-coherent (cache-key invalidation)
+    When I read the rationale module's PROMPT_VERSION
+    Then PROMPT_VERSION equals "v6-verdict-coherent"
+
+  Scenario: cache key changes when PROMPT_VERSION changes (so v2 cache entries auto-invalidate)
+    Given two cache keys for the same facts but different prompt versions
+    Then the two cache keys differ
+
+  Scenario: prompt forbids "N/A as single-stock analysis" for ETFs
+    When I render the rationale prompt for an ETF
+    Then the prompt text contains "Never claim"
+    And the prompt text contains "ETFs are quintessential"
+
+  # ---- Prompt v4: precise-numbers guard (35% LLM rejection rate before this) ----
+
+  Scenario: prompt forbids round-number RSI/SMA filler
+    When I render the rationale prompt for an ETF
+    Then the prompt text contains "No round-number filler"
+    And the prompt text contains "RSI 50"
+
+  Scenario: prompt forbids the engine-unused SMA(50)
+    When I render the rationale prompt for an ETF
+    Then the prompt text contains "No SMA(50)"
+
+  Scenario: prompt forbids computing percentages from facts
+    When I render the rationale prompt for an ETF
+    Then the prompt text contains "Quote, never compute"
+
+  # ---- Verifier enrichment: notes carry the offending sentence ----
+
+  Scenario: verifier note carries the sentence containing the offending number
+    Given a rationale that mentions an unsupported "999%" figure
+    And a fact bundle containing no such number
+    When I run the local verifier
+    Then the verification note mentions "unsupported number: 999%"
+    And the verification note mentions "in sentence:"
+    And the verification note quotes the offending sentence
+
+  # ---- Verdict coherence (Bug #2): positive-entry language on a
+  # WAIT/AVOID verdict gets rewritten so the UI never shows two
+  # contradicting narratives side-by-side. ----
+
+  Scenario: WAIT verdict with positive-entry language gets rewritten
+    Given a fact bundle for SPY in WAIT bucket
+    And the LLM emitted a summary "buy now with low risk while consensus is long"
+    When I enforce verdict coherence on the rationale
+    Then the rationale summary no longer contains "buy now"
+    And the rationale summary no longer contains "low risk"
+    And the verification note mentions "summary rewritten"
+
+  Scenario: BUY verdict leaves the positive summary intact
+    Given a fact bundle for SPY in BUY bucket
+    And the LLM emitted a summary "buy now with low risk above 200d SMA"
+    When I enforce verdict coherence on the rationale
+    Then the rationale summary contains "buy now"

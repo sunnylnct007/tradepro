@@ -1,0 +1,355 @@
+# TradePro Eval Regression Suite
+# Track 1 of the TradePro Test Case Framework
+# Version: 1.0 — 22 May 2026
+#
+# PURPOSE
+# Frozen panel of tickers with expected bucket/trace assertions.
+# Run after any signal engine change to detect regressions.
+# These are NOT live trading recommendations — they are system behaviour anchors.
+#
+# HOW TO USE
+# 1. Run `uv run tradepro-regression-panel` (loads this YAML + hits the API)
+# 2. Compare actual bucket + key trace flags against `expected` block
+# 3. A PASS means the system behaves consistently with the documented baseline
+# 4. A FAIL means either (a) a regression, or (b) market conditions have shifted
+#    enough that the frozen expectation needs a deliberate manual update
+#
+# UPDATING EXPECTATIONS
+# Never update expected values automatically. Only update after:
+# - Deliberate signal engine change (document in changelog below)
+# - Confirmed market regime shift (document date and reason)
+#
+# KNOWN BUGS (do not fix expectations to hide these — they are the point)
+# BUG-001: today_bucket fires BUY even when Ichimoku + 200d SMA trend filters fail
+#           Root cause: family-weighting imbalance (5/9 filters are trend family)
+#           Affected cases: signal-coherence-bug category
+# BUG-002: today_bucket and entry_signal can contradict within same API response
+#           Affected cases: any ticker where trend and momentum diverge
+# BUG-003: Finnhub analyst upgrades feed returns 0 events despite real PT changes
+#           Affected cases: earnings-adjacent category
+#
+# CHANGELOG
+# v1.0 — 22 May 2026 — Initial frozen panel
+
+meta:
+  version: "1.0"
+  created: "2026-05-22"
+  engine_version: null        # fill in current TradePro backend version when running
+  notes: >
+    Expectations set from live evaluation sessions in May 2026.
+    Market context at freeze: US equities in mild bull trend post-tariff relief,
+    ABBV recovering from Q1 earnings beat, BABA elevated volatility from
+    US-China trade uncertainty, APLD speculative AI infrastructure play.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY 1: CONFLUENCE-POSITIVE
+# Expected: bucket = BUY, trend filters passing, momentum aligned
+# Purpose: If these flip to HOLD or SELL, something is broken upstream
+# ─────────────────────────────────────────────────────────────────────────────
+cases:
+
+  - id: CP-001
+    category: confluence-positive
+    ticker: ABBV
+    name: "AbbVie Inc"
+    exchange: NYSE
+    description: >
+      Cleanest BUY signal observed in live evaluation. RSI mean-reversion setup
+      with 100% backtested hit-rate on that strategy. Q1 2026 earnings beat,
+      guidance raised. Wall Street consensus Buy, PT ~$252-256. Already in
+      position since Mar 2026. Lower volatility (24.8%) than peers.
+    expected:
+      swing_bucket: BUY
+      trend_filters_passing: true   # 200d SMA + Ichimoku should be recovering
+      momentum_aligned: true
+      key_strategies_firing: [rsi_mean_reversion, trend_following]
+      analyst_feed_populated: false  # BUG-003: known broken, expect 0 events
+    known_bugs_present: [BUG-003]
+    freeze_date: "2026-05-21"
+    notes: "Position held at ~$213.76. Swing engine watching Jul 29 earnings."
+
+  - id: CP-002
+    category: confluence-positive
+    ticker: QQQ
+    name: "Invesco QQQ Trust (Nasdaq 100 ETF)"
+    exchange: NASDAQ
+    description: >
+      Core universe ETF. Broad market bull confirmation case. Should be
+      stable BUY or HOLD in normal bull conditions. Good baseline for
+      checking that ETF evaluation path hasn't regressed.
+    expected:
+      swing_bucket: BUY           # as of May 2026 bull trend
+      trend_filters_passing: true
+      momentum_aligned: true
+      key_strategies_firing: [trend_following]
+      analyst_feed_populated: false  # ETF — no analyst PTs expected
+    known_bugs_present: []
+    freeze_date: "2026-05-22"
+    notes: "Baseline ETF case. If this fails, check universe config first."
+
+  - id: CP-003
+    category: confluence-positive
+    ticker: VOO
+    name: "Vanguard S&P 500 ETF"
+    exchange: NYSE
+    description: >
+      Core universe ETF. S&P 500 broad market. Previously showed the
+      score contradiction bug (4/8 + 0/8 + 4/8-BUY simultaneously on
+      drill-down page). Keeping as a confluence-positive case to catch
+      if UI contradiction resurfaces.
+    expected:
+      swing_bucket: BUY
+      trend_filters_passing: true
+      momentum_aligned: true
+      ui_score_consistent: true     # must not show contradictory scores simultaneously
+    known_bugs_present: []
+    freeze_date: "2026-05-22"
+    notes: >
+      CRITICAL UI CHECK: Drill-down page must not show multiple contradictory
+      swing scores. This was the demo-breaking bug. Add explicit assertion
+      that score is displayed exactly once with one value.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY 2: CONFLUENCE-NEGATIVE
+# Expected: bucket = SELL or AVOID, filters failing, momentum negative
+# Purpose: Confirm the system correctly identifies weak setups
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - id: CN-001
+    category: confluence-negative
+    ticker: VUKE.L
+    name: "iShares Core FTSE 100 UCITS ETF"
+    exchange: LSE
+    description: >
+      UK market ETF. Tests .L suffix handling in data feed pipeline.
+      Also tests that UK tickers don't silently fail and produce phantom signals.
+      Expected to be neutral-to-weak given UK macro headwinds in 2026.
+    expected:
+      swing_bucket: HOLD            # neutral expected; exact bucket less important than feed health
+      data_feed_healthy: true       # .L suffix must resolve correctly, no null data
+      no_phantom_signals: true      # if feed fails, must surface error not a fake signal
+    known_bugs_present: []
+    freeze_date: "2026-05-22"
+    notes: >
+      Primary purpose is feed integrity check, not signal direction.
+      If bucket flips to BUY or SELL unexpectedly, first verify data feed
+      returned real prices, not stale/null data producing a false signal.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY 3: SIGNAL-COHERENCE-BUG
+# Expected: documents the KNOWN broken behaviour
+# Purpose: These cases exist to DETECT when BUG-001/002 is fixed,
+#          and to prevent the bug spreading to new tickers silently
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - id: SCB-001
+    category: signal-coherence-bug
+    ticker: BABA
+    name: "Alibaba Group Holding Ltd (ADR)"
+    exchange: NYSE
+    description: >
+      Primary signal-coherence bug demonstration case. Bucket fires BUY
+      despite Ichimoku + 200d SMA trend filters both failing. Root cause:
+      5 of 9 filters are momentum family, so momentum overrides trend veto.
+      High volatility (48.1%) amplifies the false positive risk.
+    expected:
+      # What the system ACTUALLY does (broken behaviour — document it):
+      swing_bucket: BUY             # system says BUY — this is the bug
+      trend_filters_passing: false  # Ichimoku below cloud, price below 200d SMA
+      momentum_filters_passing: true
+      # What the system SHOULD do when BUG-001 is fixed:
+      correct_bucket_post_fix: HOLD_OR_AVOID
+      coherence_check: FAIL         # entry_signal and today_bucket should not contradict
+    known_bugs_present: [BUG-001, BUG-002]
+    freeze_date: "2026-05-21"
+    notes: >
+      When BUG-001 is fixed, this case's expected.swing_bucket should be
+      updated to HOLD_OR_AVOID and known_bugs_present cleared.
+      Do not update until the fix is deliberately shipped and reviewed.
+
+  - id: SCB-002
+    category: signal-coherence-bug
+    ticker: ABBV
+    name: "AbbVie Inc — coherence check variant"
+    exchange: NYSE
+    description: >
+      Same ticker as CP-001 but specifically tests the entry_signal vs
+      today_bucket contradiction (BUG-002). Even on a genuine BUY, the
+      two fields must agree. This case is green when both fields say BUY
+      and red when they contradict.
+    expected:
+      today_bucket: BUY
+      entry_signal: BUY             # must match today_bucket
+      coherence_check: PASS         # FAIL if the two fields contradict
+    known_bugs_present: [BUG-002]
+    freeze_date: "2026-05-21"
+    notes: >
+      BUG-002 is actively dangerous — contradictory signals displayed
+      simultaneously in UI could cause bad trades. This is the highest
+      priority fix in the signal engine.
+
+  - id: SCB-003
+    category: signal-coherence-bug
+    ticker: APLD
+    name: "Applied Digital Corporation"
+    exchange: NASDAQ
+    description: >
+      High-vol AI infrastructure play. At peak evaluation (May 2026),
+      speculative momentum drove BUY bucket despite thin fundamental support.
+      Tests whether trend veto appropriately suppresses high-vol chase signals.
+    expected:
+      swing_bucket: BUY             # system says BUY — coherence bug present
+      volatility_flag: HIGH         # vol filter should flag this
+      trend_filters_passing: false  # trend recovery not confirmed
+      coherence_check: FAIL
+      correct_bucket_post_fix: WATCH_OR_AVOID
+    known_bugs_present: [BUG-001]
+    freeze_date: "2026-05-21"
+    notes: >
+      Represents the "high-vol chase" failure mode where momentum overwhelms
+      the trend veto. Pair with HVC-001 below.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY 4: HIGH-VOL CHASE
+# Expected: system should flag high volatility and suppress or warn on BUY
+# Purpose: Confirm vol filter is working and surfacing to UI
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - id: HVC-001
+    category: high-vol-chase
+    ticker: APLD
+    name: "Applied Digital Corporation"
+    exchange: NASDAQ
+    description: >
+      Speculative AI infra play with elevated volatility. Even if bucket
+      says BUY (due to BUG-001), the vol filter must surface a warning.
+      This case tests the warning path, not the bucket.
+    expected:
+      volatility_percentile: ">75"  # must be flagged as high vol
+      vol_warning_surfaced: true    # UI must show vol warning badge
+      position_sizing_note: present # system should note reduced sizing appropriate
+    known_bugs_present: [BUG-001]
+    freeze_date: "2026-05-22"
+    notes: "Vol filter surfacing is independent of bucket fix — can be shipped separately."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY 5: DEFENSIVE VALUE
+# Expected: HOLD or long-term BUY, low vol, dividend context
+# Purpose: Confirm system doesn't over-signal on stable low-momentum names
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - id: DV-001
+    category: defensive-value
+    ticker: JNJ
+    name: "Johnson & Johnson"
+    exchange: NYSE
+    description: >
+      Dividend aristocrat, low beta, defensive healthcare. Should produce
+      conservative output — HOLD or long-term BUY. If system produces
+      aggressive intraday BUY, the horizon tagging is broken.
+    expected:
+      swing_bucket: HOLD            # not a momentum play
+      horizon_tag: long-term        # should not fire as intraday signal
+      volatility_flag: LOW
+      dividend_context: present     # system should surface yield if fundamentals enabled
+    known_bugs_present: [BUG-003]   # analyst feed likely broken here too
+    freeze_date: "2026-05-22"
+    notes: "Add PG (Procter & Gamble) as DV-002 once JNJ baseline is confirmed."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY 6: EARNINGS-ADJACENT
+# Expected: signals near earnings should carry reduced confidence / catalyst flag
+# Purpose: Confirm BUG-003 (analyst feed) is tracked; earnings awareness gap is visible
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - id: EA-001
+    category: earnings-adjacent
+    ticker: NVDA
+    name: "NVIDIA Corporation"
+    exchange: NASDAQ
+    description: >
+      High analyst activity, frequent PT changes, earnings catalyst-driven.
+      Primary purpose: verify BUG-003 (Finnhub feed returning 0 analyst
+      events despite real PT changes). If the feed is fixed, this case
+      should start returning populated analyst data.
+    expected:
+      swing_bucket: BUY             # strong momentum play in AI cycle
+      analyst_events_count: 0       # BUG-003: expect broken — zero despite real activity
+      analyst_feed_populated: false # document the known broken state
+      earnings_flag: present        # if earnings awareness is added, must flag next date
+    known_bugs_present: [BUG-003]
+    freeze_date: "2026-05-22"
+    notes: >
+      When BUG-003 is fixed, analyst_events_count should update to >0
+      and analyst_feed_populated to true. This is the canary for that fix.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY 7: STALE-FEED CANARY
+# Expected: data feed must return fresh data; stale or null must surface as error
+# Purpose: Catch data pipeline failures before they produce phantom signals
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - id: SFC-001
+    category: stale-feed-canary
+    ticker: VUKE.L
+    name: "iShares Core FTSE 100 UCITS ETF"
+    exchange: LSE
+    description: >
+      UK feed reliability test. .L suffix tickers are a known fragile path.
+      If price data is null or >24h stale, the system must surface an error
+      rather than computing signals on bad data.
+    expected:
+      data_age_hours: "<24"
+      price_non_null: true
+      feed_error_surfaced_on_failure: true   # must not silently produce signals on stale data
+    known_bugs_present: []
+    freeze_date: "2026-05-22"
+    notes: "Run this case first in any CI pipeline — feed failure invalidates all other results."
+
+  - id: SFC-002
+    category: stale-feed-canary
+    ticker: SI=F
+    name: "Silver Futures (front month continuous)"
+    exchange: CME
+    description: >
+      Futures feed canary. Tests that Yahoo Finance =F suffix resolves
+      to front-month contract and returns valid OHLCV data. Also checks
+      roll proximity warning (within 5 days of expiry → confidence degraded).
+    expected:
+      data_age_hours: "<24"
+      price_non_null: true
+      contract_identified: true     # must resolve to a specific expiry, not null
+      roll_warning_present: false   # true only if within 5 days of expiry
+      feed_error_surfaced_on_failure: true
+    known_bugs_present: []
+    freeze_date: "2026-05-22"
+    notes: >
+      SI=F was evaluated ad-hoc in live session. This formalises it as a
+      feed health check for the futures pipeline (Phase 4C).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY 8: CROSS-SYSTEM CONTRADICTION
+# Expected: decide page and research page must not contradict for same ticker
+# Purpose: BUG-002 surface area — UI coherence across pages
+# ─────────────────────────────────────────────────────────────────────────────
+
+  - id: CSC-001
+    category: cross-system-contradiction
+    ticker: "9984.T"
+    name: "SoftBank Group Corp"
+    exchange: TSE
+    description: >
+      Live contradiction observed: Decide page showed BUY, Research page
+      showed SELL for the same ticker in the same session. This is
+      actively dangerous. Tests that both pages return the same top-level
+      verdict for any given ticker.
+    expected:
+      decide_bucket: null           # do not freeze direction — market-dependent
+      research_verdict: null        # do not freeze direction — market-dependent
+      decide_vs_research_consistent: true   # THIS is the assertion — they must match
+    known_bugs_present: [BUG-002]
+    freeze_date: "2026-05-21"
+    notes: >
+      The direction (BUY/SELL) is not frozen here because it is market-dependent.
+      The ONLY assertion is that decide and research agree with each other.
+      Add MU, ORCL as CSC-002/003 once baseline contradictions are documented.

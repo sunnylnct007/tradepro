@@ -1,0 +1,106 @@
+[project]
+name = "tradepro-strategies"
+version = "0.1.0"
+description = "TradePro research: data loaders, indicators, backtests, and signal engines for local M-series runs."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "TradePro" }]
+
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "yfinance>=0.2.40",
+    "requests>=2.32",
+    "matplotlib>=3.8",
+    "python-dateutil>=2.9",
+    "pyarrow>=17.0",          # parquet cache
+    "duckdb>=1.1",            # ad-hoc queries over the cache
+    "firebase-admin>=6.5",    # push results to Firestore from the Mac
+    "mcp>=1.27.0",
+    "anthropic>=0.97.0",
+    "pdfplumber>=0.11.9",
+    "trafilatura>=2.0.0",
+    "pymupdf>=1.27.2.3",
+    "fastapi>=0.136.1",
+    "uvicorn[standard]>=0.46.0",
+    "python-multipart>=0.0.27",
+    # PDF attachment for the daily email digest. Lightweight (single
+    # wheel, no system deps) and produces structured layouts with
+    # text + tables + embedded chart PNGs in one pass. Loaded lazily
+    # in email_pdf.py so it doesn't slow up other imports.
+    "reportlab>=4.2",
+    # Interactive chart builder for the viz framework
+    # (tradepro_strategies.viz). Soft-imported only inside chart builders
+    # so non-viz code paths don't pay the import cost.
+    "plotly>=6.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "scikit-learn>=1.5",
+    "lightgbm>=4.3",
+    "torch>=2.3",             # MPS accelerated on Apple Silicon
+]
+# boto3 is only needed when reading credentials from AWS Secrets
+# Manager (TRADEPRO_USE_AWS_SECRETS=1). Local dev with env vars or
+# ~/.tradepro/credentials doesn't need it. Pinned generously since
+# we only use the secretsmanager + sts clients.
+aws = [
+    "boto3>=1.34",
+]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[project.scripts]
+tradepro-analysis-server = "tradepro_strategies.cli.analysis_server:main"
+tradepro-backtest = "tradepro_strategies.cli.run_backtest:main"
+tradepro-build-high-beta-universe = "tradepro_strategies.cli.build_high_beta_universe:main"
+tradepro-compare = "tradepro_strategies.cli.run_comparison:main"
+tradepro-algo-digest = "tradepro_strategies.cli.algo_digest:main"
+tradepro-doc-upload = "tradepro_strategies.cli.doc_upload:main"
+tradepro-equity-pipeline = "tradepro_strategies.cli.equity_pipeline:main"
+tradepro-email = "tradepro_strategies.cli.email_digest:main"
+tradepro-embed = "tradepro_strategies.cli.embed:main"
+tradepro-extract-server = "tradepro_strategies.cli.extract_server:main"
+tradepro-heartbeat = "tradepro_strategies.cli.heartbeat:main"
+tradepro-intraday-engine = "tradepro_strategies.cli.intraday_engine:main"
+tradepro-live-portfolio = "tradepro_strategies.cli.live_portfolio:main"
+tradepro-mcp = "tradepro_strategies.cli.mcp_server:main"
+tradepro-paper = "tradepro_strategies.cli.paper_session:main"
+tradepro-paper-watch = "tradepro_strategies.cli.paper_daemon:main"
+tradepro-paper-backtest = "tradepro_strategies.cli.paper_backtest:main"
+tradepro-paper-compare = "tradepro_strategies.cli.paper_compare:main"
+tradepro-paper-strategies-push = "tradepro_strategies.cli.paper_strategies_push:main"
+tradepro-push = "tradepro_strategies.cli.push_to_api:main"
+tradepro-quant-backtest = "tradepro_strategies.cli.quant_backtest:main"
+tradepro-regression-panel = "tradepro_strategies.cli.regression_panel:main"
+tradepro-refresh = "tradepro_strategies.cli.refresh:main"
+tradepro-sentiment-score = "tradepro_strategies.cli.sentiment_score:main"
+tradepro-refresh-universes = "tradepro_strategies.cli.refresh_universes:main"
+tradepro-trigger-ichimoku = "tradepro_strategies.cli.trigger_ichimoku:main"
+tradepro-worker = "tradepro_strategies.cli.worker:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tradepro_strategies"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "behave>=1.3.3",
+]
