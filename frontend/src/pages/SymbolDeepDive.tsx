@@ -1186,35 +1186,151 @@ function BarSegment(props: { count: number; total: number; color: string; label:
 
 function SectionEarnings(props: { row: CompareRow }) {
   const events = props.row.historical_earnings ?? [];
-  // We don't currently surface UPCOMING earnings on the compare row —
-  // historical_earnings is the past 5y of reported prints. Calling
-  // out the limitation honestly here; the proper data source is the
-  // get_earnings_calendar MCP tool / Finnhub forward calendar.
-  // TODO(task #66): wire forward-looking earnings into the compare row
-  // alongside historical so this section can show "T+23 days to next
-  // print" without an extra API call.
-  const lastReported = events[events.length - 1];
+  const upcoming = props.row.earnings_signal?.upcoming;
+
+  // Forward countdown — colour / urgency tier.
+  const d = upcoming?.days_until ?? null;
+  const countdownColour =
+    d == null ? "var(--text-muted)"
+    : d <= 7  ? "var(--down)"
+    : d <= 14 ? "#ef4444"       // red-ish but not full var(--down)
+    : d <= 30 ? "var(--warn, #c79a2a)"
+    : "var(--text-muted)";
+  const countdownBg =
+    d == null ? undefined
+    : d <= 14 ? "rgba(239,68,68,0.10)"
+    : d <= 30 ? "rgba(245,158,11,0.09)"
+    : undefined;
+  const hourLabel = upcoming?.hour === "bmo" ? " before open"
+                  : upcoming?.hour === "amc" ? " after close"
+                  : "";
+
+  // Clean-window: upcoming present but further than 30 days.
+  const isCleanWindow = upcoming != null && d != null && d > 30;
+  const noUpcomingKnown = upcoming == null;
+
   return (
     <section style={cardStyle}>
-      <strong style={{ fontSize: 14 }}>7. Event risk (earnings)<TrustDot id="deepdive.earnings" /></strong>
-      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-        Forward earnings calendar lives on the get_earnings_calendar MCP tool
-        but isn't yet folded into the compare-row payload. Showing latest
-        reported below; full forward-looking countdown lands with task #66.
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <strong style={{ fontSize: 14 }}>7. Event risk (earnings)<TrustDot id="deepdive.earnings" /></strong>
+        {upcoming && d != null && d >= 0 && (
+          <span style={{
+            fontSize: 11, fontWeight: d <= 14 ? 700 : 500,
+            padding: "2px 7px", borderRadius: 4,
+            color: countdownColour,
+            background: countdownBg,
+          }}>
+            EPS in {d}d{hourLabel}
+          </span>
+        )}
       </div>
-      {lastReported && (
-        <div style={{ fontSize: 12, marginTop: 4 }}>
-          Last reported: <strong>{lastReported.date}</strong>
-          {lastReported.surprise_pct != null && (
-            <span style={{ marginLeft: 8, color: lastReported.surprise_pct >= 0 ? "var(--up)" : "var(--down)" }}>
-              {lastReported.surprise_pct >= 0 ? "+" : ""}{lastReported.surprise_pct.toFixed(1)}% surprise
-            </span>
+
+      {/* ---- Forward countdown banner ---- */}
+      {upcoming && d != null && d >= 0 && !isCleanWindow && (
+        <div style={{
+          padding: "10px 14px",
+          borderRadius: 8,
+          background: countdownBg ?? "var(--bg-elevated, rgba(255,255,255,0.03))",
+          border: `1px solid ${countdownColour}`,
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: countdownColour }}>
+            {d <= 7 ? "⚠ " : ""}Earnings in {d} calendar day{d === 1 ? "" : "s"}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+            Scheduled {upcoming.date}{hourLabel}.
+            {upcoming.eps_estimate != null
+              ? ` Consensus EPS estimate: ${upcoming.eps_estimate >= 0 ? "+" : ""}${upcoming.eps_estimate.toFixed(2)}.`
+              : ""}
+            {upcoming.revenue_estimate != null
+              ? ` Revenue est: $${(upcoming.revenue_estimate / 1e9).toFixed(2)}B.`
+              : ""}
+          </div>
+          {d <= 14 && (
+            <div style={{ fontSize: 11, color: countdownColour }}>
+              Earnings danger zone — vol spikes are common in the 2 weeks
+              before a print. Position sizing should reflect this.
+            </div>
           )}
         </div>
       )}
+
+      {isCleanWindow && (
+        <div style={{
+          padding: "10px 14px",
+          borderRadius: 8,
+          background: "rgba(58,165,109,0.07)",
+          border: "1px solid rgba(58,165,109,0.25)",
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--up)" }}>
+            ✓ Clean window — next earnings {upcoming!.date} ({d}d away)
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+            No earnings event in the next 30 days. Reduces event-vol risk on
+            any new entry. Source: Finnhub forward calendar.
+          </div>
+        </div>
+      )}
+
+      {noUpcomingKnown && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          No upcoming earnings date found. Either Finnhub is disabled,
+          this is an ETF/index (no EPS), or no event is scheduled within
+          the default calendar window.
+        </div>
+      )}
+
+      {/* ---- Historical prints ---- */}
+      {events.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.07em",
+            textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>
+            Recent prints (last {events.length})
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {[...events].reverse().slice(0, 5).map((e, i) => {
+              const surprise = e.surprise_pct ?? null;
+              const surpriseColour = surprise == null ? "var(--text-muted)"
+                                   : surprise >= 5 ? "var(--up)"
+                                   : surprise >= 0 ? "rgba(58,165,109,0.8)"
+                                   : surprise >= -5 ? "var(--warn, #c79a2a)"
+                                   : "var(--down)";
+              return (
+                <div key={i} style={{
+                  display: "grid",
+                  gridTemplateColumns: "90px 1fr 1fr",
+                  alignItems: "baseline",
+                  gap: 10,
+                  fontSize: 12,
+                  borderTop: i === 0 ? "1px solid var(--border)" : "none",
+                  paddingTop: 4,
+                }}>
+                  <span style={{ color: "var(--text-muted)" }}>{e.date}</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                    EPS: {e.eps_actual != null ? e.eps_actual.toFixed(2) : "—"}
+                    {e.eps_estimate != null && (
+                      <span style={{ color: "var(--text-muted)", marginLeft: 4 }}>
+                        est {e.eps_estimate.toFixed(2)}
+                      </span>
+                    )}
+                  </span>
+                  {surprise != null && (
+                    <span style={{ color: surpriseColour, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                      {surprise >= 0 ? "+" : ""}{surprise.toFixed(1)}% surprise
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {events.length === 0 && (
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          No reported earnings on file. ETFs and indices don't have them.
+          No historical earnings on file. ETFs and indices don't report EPS.
         </div>
       )}
     </section>
