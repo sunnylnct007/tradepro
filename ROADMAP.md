@@ -626,9 +626,14 @@ out of date. Each entry is one line: what changed and why it mattered.
        drawdown, bars per stress window (crash/drawdown/recovery).
        In-tool explainer + empty state for ETF / low-vol instruments.
        PR #25 `feature/regime-survival-s8`.
-    3. **Symbol → tags map** (task #66) — unblocks Section 9
-       peer-comparison. Hardcoded list per universe today;
-       needs a tags table. ~0.5d.
+    3. ✅ **Section 9 Peer comparison in Deep Dive** — implemented
+       using same-universe rows already fetched by compareLatest.
+       peerRows deduped to one best-Sharpe row per peer symbol;
+       ranked same-bucket-first then by Sharpe, capped at 8 cards.
+       Each card links to the peer's Deep Dive. PR #26
+       `feature/peer-comparison-s9`. (Sector-tag filter deferred
+       to a future enrich pass — universe co-membership is
+       sufficient for MVP peer context.)
     4. **EODHD EOD All World + Yahoo + Stooq consensus** (Phase
        6.8) — per-bar quality flags. €19.99/mo. The data-layer
        moat: nobody else shows backtest confidence badges.
