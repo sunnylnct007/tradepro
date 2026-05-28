@@ -1032,6 +1032,44 @@ function MatrixRow({
                 as of {view.bestRow.market_state.as_of.slice(0, 10)}
               </span>
             )}
+            {/* Upcoming earnings badge — "EPS in Xd" warns the user
+                when an earnings event is imminent so they don't enter
+                into earnings volatility without knowing. Orange ≤14d
+                (danger zone), yellow 15-30d (caution), grey beyond.
+                Absent for ETFs / when Finnhub is disabled. */}
+            {(() => {
+              const upcoming = view.bestRow.earnings_signal?.upcoming;
+              if (!upcoming || upcoming.days_until < 0) return null;
+              const d = upcoming.days_until;
+              const colour = d <= 14 ? "#ef4444" : d <= 30 ? "#f59e0b" : "var(--text-muted)";
+              const hour = upcoming.hour === "bmo" ? " bmo" : upcoming.hour === "amc" ? " amc" : "";
+              const epsNote = upcoming.eps_estimate != null
+                ? ` · est $${upcoming.eps_estimate.toFixed(2)}`
+                : "";
+              return (
+                <span
+                  style={{
+                    fontSize: 9,
+                    color: colour,
+                    fontWeight: d <= 14 ? 700 : 500,
+                    background: d <= 14
+                      ? "rgba(239,68,68,0.12)"
+                      : d <= 30
+                      ? "rgba(245,158,11,0.10)"
+                      : undefined,
+                    padding: "1px 4px",
+                    borderRadius: 3,
+                  }}
+                  title={
+                    `Earnings scheduled ${upcoming.date}${hour} — ${d} days away.` +
+                    (upcoming.eps_estimate != null ? ` Consensus EPS estimate: $${upcoming.eps_estimate.toFixed(2)}.` : "") +
+                    " Entering a position this close to earnings carries event-volatility risk."
+                  }
+                >
+                  EPS in {d}d{hour}{epsNote}
+                </span>
+              );
+            })()}
             {/* Ichimoku price target sub-row — only visible when the
                 ichimoku_cloud strategy is currently long and computed
                 a target. Matches TRADEPRO sprint §8: traders want to

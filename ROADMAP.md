@@ -615,9 +615,11 @@ out of date. Each entry is one line: what changed and why it mattered.
   major product launches) — same domain — extends this phase.
 - 📝 **Data-feed coverage map — concrete priorities.** What
   improves correct-decision quality, ranked by leverage:
-    1. **Forward earnings calendar on compare row** (task #66) —
-       transforms Section 7 from "last reported" to "T+N days
-       to next print". Free via Finnhub. ~1d.
+    1. ✅ **Forward earnings calendar on compare row** (task #66) —
+       "EPS in Xd" badge added to compare matrix Verdict cell.
+       Red ≤14d (earnings danger zone), amber 15-30d, grey beyond.
+       `earnings_signal.upcoming` typed in CompareRow; badge is
+       absent for ETFs / when Finnhub disabled. `feature/upcoming-earnings-badge`.
     2. **Per-strategy regime data on compare row** (task #66) —
        unblocks Section 8 of the Deep Dive. Already computed
        on the Mac, just not folded into the row. ~0.5d.

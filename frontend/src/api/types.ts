@@ -602,6 +602,22 @@ export interface CompareRow {
     eps_actual?: number | null;
     eps_estimate?: number | null;
   }[];
+  /** Family-4 earnings signal — contains both the most-recent beat/retreat
+   * analysis AND the upcoming earnings calendar (Finnhub-backed, free tier
+   * for calendar; paid for per-event upgrade history).
+   * `upcoming` is absent when Finnhub is disabled or no event is scheduled
+   * within the default 30-day window. When present, the compare row shows
+   * an "EPS in Xd" warning so the user avoids entering into earnings vol. */
+  earnings_signal?: {
+    verdict?: string | null;
+    upcoming?: {
+      date: string;            // "YYYY-MM-DD" of the next earnings
+      days_until: number;      // calendar days from today
+      hour?: string | null;    // "bmo" = before market open, "amc" = after market close
+      eps_estimate?: number | null;
+      revenue_estimate?: number | null;
+    } | null;
+  } | null;
   /** Top-level price target promoted from an active ichimoku_cloud
    * signal (or null when no strategy on this symbol emits a target).
    * Renders as a "→ X · stop Y · R/R Z×" sub-row under the verdict. */
