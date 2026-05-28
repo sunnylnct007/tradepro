@@ -52,20 +52,17 @@ jobs:
           FIX="${{ github.event.inputs.fix }}"
           cat > /tmp/x.sh <<'SCRIPT_EOF'
           cd /opt/tradepro
-          echo === deployed default.conf grep auth ===
-          docker compose -f docker-compose.aws.yaml exec -T frontend grep -nC1 auth_basic /etc/nginx/conf.d/default.conf || true
+          echo === full default.conf with line numbers ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend cat -n /etc/nginx/conf.d/default.conf
           echo
-          echo === image SHA running ===
-          docker compose -f docker-compose.aws.yaml images frontend
+          echo === ALL conf files in conf.d ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend ls -la /etc/nginx/conf.d/ /etc/nginx/
           echo
-          echo === htpasswd state ===
-          ls -la /opt/tradepro/.htpasswd 2>&1 || echo NO_HTPASSWD_FILE
+          echo === main nginx.conf ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend cat /etc/nginx/nginx.conf
           echo
-          echo === probe /api/ from inside frontend container ===
-          docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- --server-response http://localhost/api/system/state 2>&1 | head -10
-          echo
-          echo === probe /health from inside frontend container ===
-          docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- --server-response http://localhost/health 2>&1 | head -10
+          echo === probe /api/ + show response headers ===
+          docker compose -f docker-compose.aws.yaml exec -T frontend wget -qO- --server-response http://localhost/api/system/state 2>&1 | head -15
           SCRIPT_EOF
           if [ "$FIX" = "true" ]; then
             cat >> /tmp/x.sh <<'FIX_EOF'
