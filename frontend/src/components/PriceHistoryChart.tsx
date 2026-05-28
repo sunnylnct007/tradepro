@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import { api } from "../api/client";
 import { config } from "../config";
-import type { Candle, CandleSeries, EarningsMarker } from "../api/types";
+import type { Candle, CandleSeries, CorporateActionMarker, EarningsMarker } from "../api/types";
 
 /**
  * Inline price history chart for a single symbol — used on the
@@ -50,6 +50,11 @@ interface Props {
    * present, vertical markers are drawn on the price line so the
    * user can spot event-driven moves vs trend moves at a glance. */
   earnings?: EarningsMarker[];
+  /** Corporate actions (dividends "D" + splits "S") — when present,
+   * amber "D" or teal "S" chips are drawn on the price line at the
+   * event date so the user can tell dividend drops from real price
+   * moves and verify the adjusted-close continuity across splits. */
+  corporateActions?: CorporateActionMarker[];
 }
 
 const DEFAULT_LOOKBACK_DAYS = 365 * 5;
@@ -71,6 +76,7 @@ export function PriceHistoryChart({
   lookbackDays = DEFAULT_LOOKBACK_DAYS,
   height = 280,
   earnings,
+  corporateActions,
 }: Props) {
   const [series, setSeries] = useState<CandleSeries | null>(null);
   const [loading, setLoading] = useState(false);
@@ -297,6 +303,35 @@ export function PriceHistoryChart({
               />
             );
           })}
+          {/* Corporate action chips. Dividends = amber "D" below the bar,
+              splits = teal "S" above. ifOverflow="hidden" keeps them
+              invisible outside the brush window. */}
+          {corporateActions && corporateActions.length > 0 && corporateActions.map((ca) => {
+            const bar = data.find((d) => d.t === ca.date);
+            if (!bar) return null;
+            const isDividend = ca.type === "dividend";
+            const colour = isDividend ? "#f59e0b" : "#06b6d4"; // amber | cyan
+            const label = isDividend ? "D" : "S";
+            const position = isDividend ? "bottom" : "insideTop";
+            const tooltip = isDividend
+              ? ca.amount != null ? `Div $${ca.amount.toFixed(2)}` : "Dividend"
+              : ca.ratio ? `Split ${ca.ratio}` : "Split";
+            return (
+              <ReferenceDot
+                key={`ca-${ca.date}-${ca.type}`}
+                x={ca.date}
+                y={bar.price}
+                r={3}
+                fill={colour}
+                stroke="white"
+                strokeWidth={0.5}
+                ifOverflow="hidden"
+                label={{ value: label, position, fill: colour, fontSize: 9 }}
+              >
+                <title>{tooltip}</title>
+              </ReferenceDot>
+            );
+          })}
           {/* "Today" marker: vertical line + dot at the right edge so
               the user can locate the current bar without squinting. */}
           <ReferenceLine x={lastDate} stroke="rgba(255,255,255,0.45)" strokeDasharray="2 4" ifOverflow="hidden" label={{ value: "today", position: "top", fill: "rgba(255,255,255,0.6)", fontSize: 10 }} />
@@ -350,10 +385,9 @@ export function PriceHistoryChart({
         check; 52w reference lines hide when zoomed outside their level. Coloured
         dots mark when each 52w extreme was hit (live vs stale floor). Volume
         bars below share the brush window — a rally on thick bars shows broad
-        participation; thin bars suggest a thin rally. "E" dots mark reported
-        earnings dates (green=beat, red=miss, grey=unknown) so event-driven
-        moves stand apart from trend moves. Drag the brush handles or click a
-        preset to zoom.
+        participation; thin bars suggest a thin rally. "E" dots = reported
+        earnings (green=beat, red=miss, grey=unknown); amber "D" = dividend
+        ex-date; teal "S" = stock split. Drag the brush or click a preset to zoom.
       </div>
     </div>
   );

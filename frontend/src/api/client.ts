@@ -4,6 +4,7 @@ import type {
   CandleSeries,
   CompareLatestResponse,
   CompareUniverseSummary,
+  CorporateActionsResponse,
   DocumentEnvelope,
   DocumentSummary,
   EarningsMarkersResponse,
@@ -579,6 +580,14 @@ export const api = {
   // Empty on fetch failure so the chart degrades to "no markers" cleanly.
   earningsMarkers: (symbol: string, lookbackDays?: number) =>
     get<EarningsMarkersResponse>("/api/marketdata/earnings", {
+      symbol,
+      ...(lookbackDays !== undefined ? { lookbackDays } : {}),
+    }),
+
+  // Corporate-action overlay (dividends "D" + splits "S") for PriceHistoryChart.
+  // Defaults to 5y lookback. Silent failure — chart renders with no chips.
+  corporateActions: (symbol: string, lookbackDays?: number) =>
+    get<CorporateActionsResponse>("/api/marketdata/corporate-actions", {
       symbol,
       ...(lookbackDays !== undefined ? { lookbackDays } : {}),
     }),
