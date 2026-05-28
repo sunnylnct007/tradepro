@@ -125,22 +125,30 @@ public sealed class TradePlanService
 
             if (Math.Abs(diff) < MinTradeNotionalUsd) continue;
 
-            // Use current price for sizing — if we don't have one
-            // (no existing position to crib from), skip and let the
-            // operator approve manually with their own price.
+            // Price for sizing — first try the broker's current_price
+            // (best — it's what we'd actually fill at). If we don't
+            // hold the symbol yet, fall back to the close price from
+            // the strategy's decision detail (yfinance daily bar).
+            // That close is at most ~24h old which is well within MOO
+            // tolerance for sizing — the actual fill happens at next
+            // open and any slippage is absorbed by the vol-target
+            // overhead in the sleeve sizing.
             var price = current?.CurrentPrice ?? 0m;
             if (price <= 0m)
             {
-                // Don't emit a trade we can't size. The decision is
-                // still surfaced in the plan with a `priceUnavailable`
-                // flag so the operator sees it.
+                price = ExtractCloseFromDetail(d.DetailText);
+            }
+            if (price <= 0m)
+            {
+                // Genuinely no price anywhere — surface as priceUnavailable
+                // and skip in auto-execute. Operator can review.
                 intents.Add(new TradeIntent(
                     Sleeve: d.Sleeve, Symbol: d.Symbol,
                     Side: diff > 0 ? "BUY" : "SELL",
                     Qty: 0m, TargetNotional: targetNotional,
                     CurrentNotional: currentNotional, DiffNotional: diff,
                     Price: 0m, RiskClass: d.RiskClass,
-                    Reason: "price unavailable from broker — operator must approve manually",
+                    Reason: "no price available (broker + decision detail both empty)",
                     PriceUnavailable: true));
                 continue;
             }
@@ -213,6 +221,28 @@ public sealed class TradePlanService
         var regime = d.RegimePass ? "regime-ok" : "regime-blocked";
         var cloud = cloudPos is null ? "" : $" · cloud={cloudPos}";
         return $"{actionLabel} ({direction} {Math.Abs(diff):C0}); {sig} · {regime}{cloud}";
+    }
+
+    /// <summary>Pull the close price out of strategy_decisions.detail
+    /// JSONB (the live_portfolio CLI puts the bar's close there as
+    /// `detail.close`). Returns 0 when absent.</summary>
+    private static decimal ExtractCloseFromDetail(string? detailText)
+    {
+        if (string.IsNullOrEmpty(detailText)) return 0m;
+        try
+        {
+            using var doc = JsonDocument.Parse(detailText);
+            if (doc.RootElement.TryGetProperty("close", out var closeEl)
+                && closeEl.ValueKind == JsonValueKind.Number)
+            {
+                return (decimal)closeEl.GetDouble();
+            }
+        }
+        catch
+        {
+            // Malformed detail — fall through to 0.
+        }
+        return 0m;
     }
 
     private static string NormaliseTicker(string ticker)
