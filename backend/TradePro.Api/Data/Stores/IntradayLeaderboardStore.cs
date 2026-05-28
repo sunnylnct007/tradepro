@@ -73,6 +73,11 @@ public sealed class PostgresIntradayLeaderboardStore : IIntradayLeaderboardStore
         //      `(legacy)` so the data still rolls up; a fresh worker
         //      run will overwrite the row with the proper per-strategy
         //      breakdown.
+        // kind IN ('intraday', 'paper_session') — paper-* daemons emit
+        // sessions tagged paper_session and were silently excluded from
+        // the leaderboard prior to the result_summary unification (#75).
+        // Both kinds now push the same `results: [{symbol, strategies:
+        // [...]}]` shape so they roll up cleanly.
         const string sql = @"
 WITH per_strategy AS (
     SELECT
@@ -86,7 +91,7 @@ WITH per_strategy AS (
             COALESCE(sr.result_summary->'results', '[]'::jsonb)) AS r
         CROSS JOIN LATERAL jsonb_array_elements(
             COALESCE(r->'strategies', '[]'::jsonb)) AS s
-    WHERE sr.kind = 'intraday'
+    WHERE sr.kind IN ('intraday', 'paper_session')
       AND sr.state = 'Completed'
       AND r->>'symbol' IS NOT NULL
       AND s->>'strategy' IS NOT NULL
@@ -102,7 +107,7 @@ WITH per_strategy AS (
     FROM session_requests sr
         CROSS JOIN LATERAL jsonb_array_elements(
             COALESCE(sr.result_summary->'results', '[]'::jsonb)) AS r
-    WHERE sr.kind = 'intraday'
+    WHERE sr.kind IN ('intraday', 'paper_session')
       AND sr.state = 'Completed'
       AND r->>'symbol' IS NOT NULL
       AND (r->'strategies' IS NULL
@@ -124,7 +129,7 @@ ORDER BY strategy, symbol;";
 SELECT COUNT(*)::int AS session_count,
        MAX(completed_at_utc) AS last_session_at_utc
 FROM session_requests
-WHERE kind = 'intraday' AND state = 'Completed';";
+WHERE kind IN ('intraday', 'paper_session') AND state = 'Completed';";
         var meta = conn.QueryFirstOrDefault<MetaRow>(countSql) ?? new MetaRow(0, null);
 
         var symbols = rows.Select(r => r.symbol).Distinct().OrderBy(s => s).ToArray();

@@ -95,7 +95,20 @@ function buildSummary(
   const todayOrders = orders.filter(
     (o) => o.lastStateChangeAtUtc.slice(0, 10) === today,
   );
-  const fillsToday = todayOrders.filter((o) => o.state === "FILLED").length;
+  // Exclude administrative reconciliation rows from "fills today" —
+  // those are synthetic OMS rows created by /api/admin/oms/reconcile-
+  // from-t212-demo to sync OMS with existing broker positions. They
+  // aren't strategy-driven fills and counting them inflates the
+  // banner's signal-of-the-day picture (was saying "21 fills cleared"
+  // when zero strategies fired today).
+  const isStrategyDriven = (o: OmsOrderRow) =>
+    o.strategyId !== "reconcile_from_broker"
+    && o.strategyId !== "_monitor"
+    && !o.strategyId?.startsWith("manual_")
+    && o.placedBy !== "HUMAN";
+  const fillsToday = todayOrders.filter(
+    (o) => o.state === "FILLED" && isStrategyDriven(o),
+  ).length;
   // Genuine rejections only — gate refusals + broker rejects. Exclude
   // CANCELLED because the T212 poller falsely cancels orders that aged
   // out of broker hot-cache ("broker_not_found_assume_terminal"); those

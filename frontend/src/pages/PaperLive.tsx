@@ -275,8 +275,13 @@ export function PaperLive() {
   // land already filtered. All filters are URL-driven → shareable.
   const [searchParams, setSearchParams] = useSearchParams();
   const strategyFilter = searchParams.get("strategy") ?? "";
-  const dateFrom = searchParams.get("from") ?? "";
-  const dateTo = searchParams.get("to") ?? "";
+  // Today-only default per feedback_today_only_default — historical
+  // data must be an explicit opt-in. Without this, the queue shows
+  // 2-day-old sessions on first load and the trader can't tell
+  // what's happening today vs yesterday at a glance.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const dateFrom = searchParams.get("from") ?? todayIso;
+  const dateTo = searchParams.get("to") ?? todayIso;
   const verdictFilter = new Set(
     (searchParams.get("verdict") ?? "")
       .split(",")

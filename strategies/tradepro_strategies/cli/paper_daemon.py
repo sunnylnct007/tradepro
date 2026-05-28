@@ -473,6 +473,51 @@ def run_session(args: list[str], dry_run: bool) -> tuple[int, dict]:
     return result.returncode, snapshot
 
 
+def _results_by_symbol(strategies: list[dict]) -> list[dict]:
+    """Build the `results: [{symbol, strategies: [{strategy, fills,
+    realized_pnl_usd}]}]` shape that PostgresIntradayLeaderboardStore
+    expects from /api/ops/sessions.result_summary.
+
+    This is the SAME shape intraday_engine emits at the top level —
+    consolidating the daemons so the leaderboard sees data from every
+    paper session, not just intraday ones. Without this, the
+    leaderboard renders the 9-paper-session matrix as all zeros (#75).
+
+    Per-symbol fill count comes from recent_fills filtered by symbol.
+    Per-symbol realised P&L isn't tracked at the ledger level, so we
+    emit 0 — the strategy-level realised_pnl is still surfaced via
+    the flat `realised_pnl` field for the cockpit P&L line.
+    """
+    by_sym: dict[str, dict] = {}
+    for s in strategies:
+        sname = (s.get("strategy") or s.get("strategy_id") or "")
+        if not sname:
+            continue
+        # Symbols this strategy touched (bars OR positions OR fills).
+        symbols: set[str] = set()
+        for b in s.get("bars_seen") or []:
+            if isinstance(b, dict) and b.get("symbol"):
+                symbols.add(b["symbol"])
+        for p in s.get("positions") or []:
+            if isinstance(p, dict) and p.get("symbol"):
+                symbols.add(p["symbol"])
+        # Count fills per symbol from recent_fills.
+        sym_fills: dict[str, int] = {}
+        for f in s.get("recent_fills") or []:
+            sym = f.get("symbol") if isinstance(f, dict) else None
+            if sym:
+                sym_fills[sym] = sym_fills.get(sym, 0) + 1
+                symbols.add(sym)
+        for sym in symbols:
+            entry = by_sym.setdefault(sym, {"symbol": sym, "strategies": []})
+            entry["strategies"].append({
+                "strategy": sname,
+                "fills": sym_fills.get(sym, 0),
+                "realized_pnl_usd": 0.0,
+            })
+    return list(by_sym.values())
+
+
 def _per_symbol_breakdown(strategies: list[dict]) -> list[dict]:
     """Collapse per-strategy open positions into a per-symbol view.
 
@@ -576,6 +621,11 @@ def run_session_for_params(
         "symbols_requested": requested_symbols,
         "symbols_run": len(symbols),
         "strategies": snapshot.get("strategies") or [],
+        # `results[]` matches the leaderboard's expected shape so paper
+        # sessions show up alongside intraday-engine ones (#75 unified
+        # result_summary schema). Without this the leaderboard renders
+        # every paper session as 0 fills regardless of activity.
+        "results": _results_by_symbol(snapshot.get("strategies") or []),
         **_summarize_snapshot(snapshot),
     }
     # OMS audit push (Phase 1d). Phase 2 will intercept BEFORE the

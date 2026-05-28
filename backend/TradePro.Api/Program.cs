@@ -189,6 +189,9 @@ builder.Services.AddSingleton<TradePro.Api.Oms.IOmsModeService, TradePro.Api.Oms
 // SUBMITTED orders and transitions OMS accordingly. Closes the
 // SUBMITTED → FILLED loop without operator intervention.
 builder.Services.AddHostedService<TradePro.Api.Oms.OmsFillPoller>();
+// IG fill poller — separate impl because IG uses dealReference (GUID)
+// not a numeric order id and /confirms is a different endpoint shape.
+builder.Services.AddHostedService<TradePro.Api.Oms.IGOmsFillPoller>();
 builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderboardStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills
