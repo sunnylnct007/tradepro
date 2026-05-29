@@ -225,6 +225,16 @@ class IchimokuFXMeanReversionStrategy(Strategy):
     def on_session_start(self, session_date) -> None:  # type: ignore[override]
         # Rolling state survives sessions on purpose: FX runs 24/5 and
         # the warmup window spans many "sessions" in the engine's view.
+        # However, when params.initial_positions is supplied (intraday
+        # daemon path), seed in case seed_positions wasn't called.
+        p = self._p()
+        initial = p.get("initial_positions") or {}
+        if isinstance(initial, dict) and initial:
+            for pair, qty in initial.items():
+                try:
+                    self._fx_positions[pair] = int(qty)
+                except (TypeError, ValueError):
+                    continue
         return None
 
     def seed_positions(self, positions: dict[str, int]) -> None:  # type: ignore[override]
