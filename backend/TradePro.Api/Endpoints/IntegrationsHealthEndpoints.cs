@@ -53,7 +53,7 @@ public static class IntegrationsHealthEndpoints
                 var t212DemoProbe = await ProbeT212Demo(t212Demo, ct);
                 var finnhubProbe = await ProbeFinnhub(finnhub, ct);
                 var igProbe = await ProbeIG(ig, ct);
-                var llmProbe = await ProbeLLM(cfg, httpFactory, ct);
+                var llmProbe = await ProbeLLM(cfg, httpFactory, db, ct);
                 var dbProbe = await ProbeDb(db, ct);
                 var (yahooProbe, ollamaProbe) = ProbeFromCache(compareStore);
 
@@ -185,15 +185,47 @@ public static class IntegrationsHealthEndpoints
 
     /// <summary>Probe the configured LLM endpoint with a minimal POST so
     /// the user can see whether the model that approves orders is
-    /// actually reachable.</summary>
+    /// actually reachable. Settings come from app_settings_kv (the
+    /// live operator-tunable source); IConfiguration is the fallback
+    /// when the DB row is missing.</summary>
     private static async Task<ProviderHealth> ProbeLLM(
-        IConfiguration cfg, IHttpClientFactory httpFactory, CancellationToken ct)
+        IConfiguration cfg, IHttpClientFactory httpFactory,
+        Npgsql.NpgsqlDataSource db, CancellationToken ct)
     {
-        // Settings live in app_settings_kv — but the IConfiguration view
-        // doesn't see them. Read directly via Npgsql is overkill for a
-        // health probe; fall back to defaults if not in config.
-        var llmUrl = cfg["LLM:Url"] ?? "http://host.docker.internal:11434/api/generate";
-        var llmModel = cfg["LLM:Model"] ?? "llama3.1:8b-instruct";
+        // Pull live settings from settings_kv — that's where the operator
+        // tunes llm_url / llm_model via the /settings page. Falls back
+        // to IConfiguration values (which themselves fall back to
+        // sensible defaults) when the DB row is missing or unparseable.
+        string llmUrl, llmModel;
+        try
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var url = await Dapper.SqlMapper.ExecuteScalarAsync<string?>(conn,
+                "SELECT trim(both '\"' from value::text) FROM app_settings_kv WHERE key = 'llm_url';");
+            var model = await Dapper.SqlMapper.ExecuteScalarAsync<string?>(conn,
+                "SELECT trim(both '\"' from value::text) FROM app_settings_kv WHERE key = 'llm_model';");
+            llmUrl = !string.IsNullOrWhiteSpace(url) ? url!
+                : cfg["LLM:Url"] ?? "http://host.docker.internal:11434/api/generate";
+            llmModel = !string.IsNullOrWhiteSpace(model) ? model!
+                : cfg["LLM:Model"] ?? "llama3.1:8b-instruct";
+        }
+        catch
+        {
+            llmUrl = cfg["LLM:Url"] ?? "http://host.docker.internal:11434/api/generate";
+            llmModel = cfg["LLM:Model"] ?? "llama3.1:8b-instruct";
+        }
+
+        // The LLM is expected to run on the Mac worker — EC2 containers
+        // can never reach `localhost:11434` or `host.docker.internal`
+        // by design (they don't share network namespaces with the Mac).
+        // If the configured URL is a localhost/private endpoint, mark
+        // the tile as "expected-remote" instead of "down" so the
+        // operator doesn't think a real outage is in progress.
+        var isLocalhostExpected =
+            llmUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase)
+            || llmUrl.Contains("127.0.0.1")
+            || llmUrl.Contains("host.docker.internal", StringComparison.OrdinalIgnoreCase);
+
         var http = httpFactory.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(5);
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -235,6 +267,17 @@ public static class IntegrationsHealthEndpoints
         catch (Exception ex)
         {
             sw.Stop();
+            if (isLocalhostExpected)
+            {
+                return new ProviderHealth(
+                    Provider: "llm",
+                    Label: $"LLM ({llmModel})",
+                    Status: "disabled",
+                    Detail: $"runs on Mac worker — unreachable from EC2 by design ({ex.Message})",
+                    LatencyMs: null,
+                    LastCheckedUtc: DateTime.UtcNow,
+                    Mode: llmUrl);
+            }
             return new ProviderHealth(
                 Provider: "llm",
                 Label: $"LLM ({llmModel})",

@@ -347,6 +347,51 @@ public sealed class IGClient
             return new IGCashResult(null, null, null, ex.Message, (int)resp.StatusCode);
         }
     }
+
+    // ─── Market search ─────────────────────────────────────────
+
+    /// <summary>GET /markets?searchTerm=&lt;term&gt; — discover EPICs for a
+    /// symbol like "EURUSD". Returns the top matches with epic +
+    /// instrument name + type so the operator can pick the right one
+    /// to wire into broker_ticker_map / ig_epic_map.json.</summary>
+    public async Task<IGMarketSearchResult> SearchMarketsAsync(
+        string searchTerm, CancellationToken ct)
+    {
+        using var resp = await SendWithAuthAsync(
+            HttpMethod.Get,
+            $"markets?searchTerm={Uri.EscapeDataString(searchTerm)}",
+            null, version: "1", ct);
+        var text = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            return new IGMarketSearchResult(
+                Array.Empty<IGMarketMatch>(), text, (int)resp.StatusCode);
+        }
+        try
+        {
+            var matches = new List<IGMarketMatch>();
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.TryGetProperty("markets", out var arr)
+                && arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var m in arr.EnumerateArray())
+                {
+                    matches.Add(new IGMarketMatch(
+                        Epic: m.TryGetProperty("epic", out var e) ? e.GetString() ?? "" : "",
+                        InstrumentName: m.TryGetProperty("instrumentName", out var n) ? n.GetString() : null,
+                        InstrumentType: m.TryGetProperty("instrumentType", out var t) ? t.GetString() : null,
+                        ExpiryString: m.TryGetProperty("expiry", out var x) ? x.GetString() : null,
+                        MarketStatus: m.TryGetProperty("marketStatus", out var s) ? s.GetString() : null));
+                }
+            }
+            return new IGMarketSearchResult(matches, null, (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IGMarketSearchResult(
+                Array.Empty<IGMarketMatch>(), ex.Message, (int)resp.StatusCode);
+        }
+    }
 }
 
 // ─── DTOs ──────────────────────────────────────────────────────
@@ -374,5 +419,17 @@ public sealed record IGCashResult(
     decimal? Available,
     decimal? Balance,
     string? Currency,
+    string? Error,
+    int HttpStatus);
+
+public sealed record IGMarketMatch(
+    string Epic,
+    string? InstrumentName,
+    string? InstrumentType,    // CURRENCIES / SHARES / INDICES / COMMODITIES …
+    string? ExpiryString,
+    string? MarketStatus);     // TRADEABLE / EDITS_ONLY / OFFLINE …
+
+public sealed record IGMarketSearchResult(
+    IReadOnlyList<IGMarketMatch> Matches,
     string? Error,
     int HttpStatus);

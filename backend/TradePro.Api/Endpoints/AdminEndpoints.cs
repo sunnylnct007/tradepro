@@ -1,5 +1,6 @@
 using Dapper;
 using Npgsql;
+using TradePro.Api.Oms;
 using TradePro.Api.Providers.Trading212;
 
 namespace TradePro.Api.Endpoints;
@@ -388,8 +389,82 @@ public static class AdminEndpoints
             });
         });
 
+        // GET /api/admin/ig/search?term=EURUSD — IG /markets searchTerm
+        // proxy so the operator can discover the correct epic from
+        // anywhere (UI, curl, follow-up automation). Returns the matches
+        // IG returns, untouched.
+        g.MapGet("/ig/search", async (
+            string? term,
+            TradePro.Api.Providers.IG.IGClient ig,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(term))
+                return Results.BadRequest(new { error = "term required" });
+            if (!ig.IsEnabled)
+                return Results.BadRequest(new { error = "IG disabled" });
+            var result = await ig.SearchMarketsAsync(term, ct);
+            return Results.Ok(new { term, matches = result.Matches, error = result.Error });
+        });
+
+        // POST /api/admin/ig/smoke-order — verify the IG enqueue →
+        // approve → place → confirm chain end-to-end without waiting
+        // for a strategy session. Body: { epic, side, size }. The
+        // order goes through the SAME OMS path that strategy orders
+        // use (PostgresOmsService.EnqueueAsync + ApproveAsync), so a
+        // successful smoke test proves the real chain works.
+        g.MapPost("/ig/smoke-order", async (
+            IGSmokeOrderBody body,
+            HttpContext ctx,
+            IOmsService oms,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Epic))
+                return Results.BadRequest(new { error = "epic required" });
+            if (string.IsNullOrWhiteSpace(body.Side))
+                return Results.BadRequest(new { error = "side required (BUY/SELL)" });
+            if (body.Size <= 0m)
+                return Results.BadRequest(new { error = "size must be > 0" });
+
+            var actor = ctx.User?.Identity?.Name ?? "admin-smoke";
+            var clientId = Guid.NewGuid();
+            var intent = new OrderIntent(
+                ClientOrderId: clientId,
+                Broker: "IG_DEMO",
+                Symbol: body.Epic,
+                Side: body.Side.ToUpperInvariant(),
+                Qty: body.Size,
+                OrderType: "MKT",
+                StrategyId: "smoke_test_ig");
+            try
+            {
+                var enq = await oms.EnqueueAsync(intent, actor);
+                var done = await oms.ApproveAsync(enq.Id, actor);
+                return Results.Ok(new
+                {
+                    orderId = done.Id,
+                    state = done.State,
+                    brokerOrderId = done.BrokerOrderId,
+                    cancelledReason = done.CancelledReason,
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "smoke order failed",
+                    detail = ex.Message,
+                });
+            }
+        });
+
         return app;
     }
+
+    public sealed record IGSmokeOrderBody(
+        string Epic,
+        string Side,
+        decimal Size
+    );
 
     public sealed record BulkCancelBody(
         string? StrategyPrefix,

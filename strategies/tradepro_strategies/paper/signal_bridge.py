@@ -251,9 +251,56 @@ def fx_reversion_signal_latest(
     return latest
 
 
+def ichimoku_strength_score(
+    last_close: float,
+    metadata: dict,
+    atr: float | None,
+) -> float | None:
+    """Continuous strength score for ranking Ichimoku candidates.
+
+    `ichimoku_daily_signal` returns a binary 0/1 long signal — fine for
+    "do I trade this name today?" but not for ranking a candidate
+    universe. The intraday scanner picks the top-N by conviction, so it
+    needs a continuous score with a comparable scale across symbols.
+
+    Score formula:
+        distance_score  = (last_close - kijun_val) / atr
+        cloud_thickness = (cloud_top - cloud_bottom) / atr      (ATR-units)
+        score           = distance_score * clamp(cloud_thickness, 0.3, 2.0)
+
+    Reading the score:
+      higher = more conviction (price far above kijun on a thick cloud)
+      <= 0   = below kijun; long-only callers should drop these
+      None   = scoring impossible (missing meta or ATR); caller drops.
+
+    ATR-normalisation matters: a $5 distance is small for SPY (~$0.50
+    ATR scale relative to price) and huge for an EUR/USD pair. Without
+    it the score isn't comparable across symbols.
+
+    `metadata` is the dict returned by `ichimoku_daily_signal` —
+    requires `kijun_val`, `cloud_top`, `cloud_bottom`. Returns None on
+    any missing component so the scanner can skip cleanly.
+    """
+    if atr is None or atr <= 0:
+        return None
+    kijun_val = metadata.get("kijun_val")
+    cloud_top = metadata.get("cloud_top")
+    cloud_bottom = metadata.get("cloud_bottom")
+    if kijun_val is None or cloud_top is None or cloud_bottom is None:
+        return None
+
+    distance_score = (last_close - kijun_val) / atr
+    cloud_thickness_raw = (cloud_top - cloud_bottom) / atr
+    # Clamp thickness so a degenerate cloud (near-zero) doesn't kill
+    # the score, and a freak-wide cloud doesn't dominate the ranking.
+    cloud_thickness = max(0.3, min(2.0, cloud_thickness_raw))
+    return distance_score * cloud_thickness
+
+
 __all__ = [
     "size_from_vol_target",
     "realised_vol_from_closes",
     "ichimoku_daily_signal",
+    "ichimoku_strength_score",
     "fx_reversion_signal_latest",
 ]

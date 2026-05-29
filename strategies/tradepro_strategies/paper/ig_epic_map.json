@@ -1,0 +1,39 @@
+{
+  "_comment": "Symbol -> IG epic mapping for paper-traded equities / ETFs. Populate the `epic` field by hitting IG /gateway/deal/markets?searchTerm=<symbol> against demo creds; pick the epic whose instrumentName matches the listing you intend to trade. Entries with `epic: null` are intentionally unusable; the strategy will refuse to route them (IGEpicMissingError). The seed below is the phase-0 candidate basket (5 liquid US ETFs). See ig_epic_map.py for the loader contract.",
+
+  "SPY": {
+    "epic": null,
+    "instrument_name": "SPDR S&P 500 ETF",
+    "currency": "USD",
+    "size_unit": "shares",
+    "notes": "Seed entry; epic TBD. Try searchTerm=SPY; pick the US-listed cash ETF row."
+  },
+  "QQQ": {
+    "epic": null,
+    "instrument_name": "Invesco QQQ Trust (Nasdaq-100 ETF)",
+    "currency": "USD",
+    "size_unit": "shares",
+    "notes": "Seed entry; epic TBD. Try searchTerm=QQQ."
+  },
+  "IWM": {
+    "epic": null,
+    "instrument_name": "iShares Russell 2000 ETF",
+    "currency": "USD",
+    "size_unit": "shares",
+    "notes": "Seed entry; epic TBD. Try searchTerm=IWM."
+  },
+  "DIA": {
+    "epic": null,
+    "instrument_name": "SPDR Dow Jones Industrial Average ETF",
+    "currency": "USD",
+    "size_unit": "shares",
+    "notes": "Seed entry; epic TBD. Try searchTerm=DIA."
+  },
+  "XLF": {
+    "epic": null,
+    "instrument_name": "Financial Select Sector SPDR Fund",
+    "currency": "USD",
+    "size_unit": "shares",
+    "notes": "Seed entry; epic TBD. Try searchTerm=XLF."
+  }
+}

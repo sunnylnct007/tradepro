@@ -106,6 +106,21 @@ class Order:
     risk_stop_price: float | None = None
     risk_target_price: float | None = None
     confidence: float | None = None
+    # ── Routing hints (optional; consumed by the live router / OMS) ──
+    # broker_label: stamps which broker the order is targeted at. The
+    # backend OMS pivots on this string ("IG_DEMO" / "IG_LIVE" /
+    # "T212" / "IBKR") to pick the right downstream client. Strategies
+    # set this when they care which venue the order goes to (e.g. the
+    # FX sleeve targets IG); strategies that don't set it inherit the
+    # router's default broker.
+    #
+    # instrument_id: the broker-native instrument identifier — IG epic
+    # ("UA.D.AAPL.CASH.IP"), T212 ticker, IBKR conId, etc. `symbol` is
+    # the human ticker the strategy thinks in; `instrument_id` is what
+    # the broker's REST API needs. Kept separate so the audit trail
+    # still shows the symbol while the OMS submits the broker-native id.
+    broker_label: str | None = None
+    instrument_id: str | None = None
 
 
 @dataclass(frozen=True)

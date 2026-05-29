@@ -3,21 +3,37 @@
 Two Claude Code sessions may work on this repo concurrently on the same Mac.
 Read this before starting any work. Update when you start something new.
 
-**Last updated: 2026-05-25**
+**Last updated: 2026-05-29**
 
 ---
 
-## Current branch: main (both lanes merged)
+## Current branch: feature/intraday-flat-phase0
 
-There are no active feature branches. All work lands directly on `main`.
-**No active edits in progress.** All files are currently safe to touch.
+Phase 0 enablement for the new `intraday_flat` strategy (scanner-derived
+basket, long-only, EOD-flat, IG demo routing). Lands as a PR off `main`.
 
 ---
 
 ## Active work
 
-**None right now.** If you are starting something, add a section here first,
-list the files you will touch, and commit this file before editing anything else.
+**Lane: phase-0 plumbing for `intraday_flat`** — adds the schema fields +
+helpers a future intraday EOD-flat strategy needs to route equity orders
+to IG demo. No strategy file yet; this is purely the enablement layer.
+
+Files touched on `feature/intraday-flat-phase0`:
+
+- `strategies/tradepro_strategies/paper/strategy.py` — add
+  `Order.broker_label` + `Order.instrument_id` (both optional, default None;
+  backward-compatible).
+- `strategies/tradepro_strategies/paper/signal_bridge.py` — add
+  `ichimoku_strength_score()` continuous-strength helper for ranking.
+- `strategies/tradepro_strategies/paper/ig_epic_map.py` — new typed loader
+  for symbol → IG epic mapping; raises on missing epic so strategies can't
+  silently trade an unmapped symbol.
+- `strategies/tradepro_strategies/paper/ig_epic_map.json` — seed file with
+  5 candidate symbols, `epic: null`; populated manually via IG
+  `markets?searchTerm` against demo creds (next-step, not in this PR).
+- `COORDINATION.md` — this entry.
 
 ---
 
@@ -71,3 +87,6 @@ list the files you will touch, and commit this file before editing anything else
 - 2026-05-25 — Shipped: paper scheduling + UI trigger (`8b68505`).
 - 2026-05-25 — Shipped: SQS trigger queue (`590570a`, parked — REST polling is live fallback).
 - 2026-05-25 — **Session ended. No active edits. All files safe.**
+- 2026-05-29 — Started: phase-0 plumbing for `intraday_flat` on
+  `feature/intraday-flat-phase0` (Order schema fields + signal-bridge
+  ranking helper + IG epic-map loader/seed).
