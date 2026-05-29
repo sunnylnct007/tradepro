@@ -113,6 +113,10 @@ export function OmsOrders() {
   const [filterStates, setFilterStates] = useState<Set<OmsState>>(
     () => new Set(OPEN_STATES),
   );
+  // Hide noise-cancellations by default: supersede + broker-not-found
+  // chain produce many "real but uninteresting" cancellations that
+  // bury the actual decisions. Trader can toggle them back on.
+  const [hideNoiseCancellations, setHideNoiseCancellations] = useState(true);
   const [mode, setMode] = useState<"auto" | "manual" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
@@ -237,13 +241,23 @@ export function OmsOrders() {
   // toggles pills off — deselecting FILLED hides filled rows from
   // the table but the pill still shows "FILLED 7" so the trader can
   // re-enable it without losing sight of the data behind it.
+  const NOISE_REASONS = [
+    "superseded by newer order",
+    "unapprovable_pending_gates_block",
+    "broker_not_found_assume_terminal",
+  ];
   const visibleOrders = useMemo(() => {
     return orders.filter((o) => {
       if (strategyFilter && o.strategyId !== strategyFilter) return false;
       if (filterStates.size > 0 && !filterStates.has(o.state as OmsState)) return false;
+      if (hideNoiseCancellations && o.state === "CANCELLED"
+          && o.cancelledReason
+          && NOISE_REASONS.some((n) => o.cancelledReason!.includes(n))) {
+        return false;
+      }
       return true;
     });
-  }, [orders, strategyFilter, filterStates]);
+  }, [orders, strategyFilter, filterStates, hideNoiseCancellations]);
 
   // Totals are computed from the full (strategy-scoped) order set,
   // NOT from visibleOrders, so each pill's count survives a state-
@@ -323,7 +337,7 @@ export function OmsOrders() {
 
       <RejectReasonsWidget orders={orders} />
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12, alignItems: "center" }}>
         {ALL_STATES.map((s) => {
           const b = stateBadge(s);
           const active = filterStates.has(s);
@@ -343,6 +357,22 @@ export function OmsOrders() {
             </button>
           );
         })}
+        <span style={{ marginLeft: 12 }} />
+        <button
+          onClick={() => setHideNoiseCancellations((v) => !v)}
+          style={{
+            ...pillButton(!hideNoiseCancellations),
+            color: hideNoiseCancellations ? "var(--text-dim)" : "var(--text)",
+          }}
+          title={
+            "Toggle visibility of low-signal cancellations: "
+            + "'superseded by newer order' (OMS supersede), "
+            + "'unapprovable_pending_gates_block' (gate refused), "
+            + "'broker_not_found_assume_terminal' (poller 404)."
+          }
+        >
+          {hideNoiseCancellations ? "Show noise" : "Hide noise"}
+        </button>
       </div>
 
       {strategyFilter && (
