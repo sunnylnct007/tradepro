@@ -638,6 +638,80 @@ public static class AdminEndpoints
             return Results.Ok(new { deleted = strategy_id });
         });
 
+        // POST /api/admin/oms/heal-false-cancels — retroactively flip
+        // CANCELLED orders with reason 'broker_not_found_assume_terminal'
+        // to FILLED. These are orders T212 actually filled but our
+        // poller falsely cancelled — the position-tracking side is
+        // already correct because broker is the golden source, but the
+        // OMS UI shows the wrong terminal state. Run this once after
+        // shipping the poller fix to clean up historical noise.
+        //
+        // Body: { olderThanMinutes?: int (default 60), broker?: string
+        //         (default 'T212_DEMO') }.
+        g.MapPost("/oms/heal-false-cancels", async (
+            HealFalseCancelBody? body,
+            HttpContext ctx,
+            IOmsService oms,
+            NpgsqlDataSource db) =>
+        {
+            var olderThan = Math.Clamp(body?.OlderThanMinutes ?? 60, 5, 1440);
+            var broker = string.IsNullOrWhiteSpace(body?.Broker) ? "T212_DEMO" : body!.Broker;
+            var actor = ctx.User?.Identity?.Name ?? "admin-heal";
+
+            await using var conn = await db.OpenConnectionAsync();
+            var falseCancels = (await conn.QueryAsync<(Guid id, decimal qty)>(@"
+                SELECT id, qty FROM oms_orders
+                WHERE state = 'CANCELLED'
+                  AND cancelled_reason = 'broker_not_found_assume_terminal'
+                  AND broker = @broker
+                  AND last_state_change_at_utc <= NOW() - make_interval(mins => @olderThan);",
+                new { broker, olderThan })).ToList();
+
+            if (falseCancels.Count == 0)
+                return Results.Ok(new { healed = 0, note = "no false-cancellations matching the filter" });
+
+            await using var tx = await conn.BeginTransactionAsync();
+            try
+            {
+                var ids = falseCancels.Select(r => r.id).ToArray();
+                // Flip state + clear the false reason.
+                await conn.ExecuteAsync(@"
+                    UPDATE oms_orders
+                    SET state = 'FILLED',
+                        filled_qty = qty,
+                        avg_fill_price = 0,
+                        cancelled_reason = NULL,
+                        last_state_change_at_utc = NOW()
+                    WHERE id = ANY(@ids);",
+                    new { ids }, transaction: tx);
+                // Audit-log the heal so it's visible on the order trail.
+                await conn.ExecuteAsync(@"
+                    INSERT INTO oms_order_events
+                        (order_id, occurred_at_utc, event_type, prior_state, new_state,
+                         actor, detail)
+                    SELECT id, NOW(), 'HEALED', 'CANCELLED', 'FILLED',
+                           @actor,
+                           jsonb_build_object(
+                             'reason', 'broker_filled_per_position_truth',
+                             'note', 'flipped from false-cancelled to filled — broker is the golden source')
+                    FROM oms_orders WHERE id = ANY(@ids);",
+                    new { ids, actor }, transaction: tx);
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+
+            return Results.Ok(new
+            {
+                healed = falseCancels.Count,
+                broker, olderThan,
+                ids = falseCancels.Select(r => r.id),
+            });
+        });
+
         return app;
     }
 
@@ -651,6 +725,11 @@ public static class AdminEndpoints
         string Ticker,
         string Side,
         decimal Qty
+    );
+
+    public sealed record HealFalseCancelBody(
+        int? OlderThanMinutes,
+        string? Broker
     );
 
     public sealed record IGSmokeOrderBody(

@@ -189,13 +189,32 @@ public sealed class OmsFillPoller : BackgroundService
                 }
             case "GONE":
                 {
-                    // 404 from T212 — treat as terminal. Likely the
-                    // order completed and rolled off T212's hot cache
-                    // before we got to poll it. Mark cancelled with a
-                    // distinct reason so the operator knows to check
-                    // T212's history if they care about the fill.
-                    await oms.CancelAsync(orderId, "poller:T212_DEMO",
-                        "broker_not_found_assume_terminal");
+                    // 404 from T212 + history miss. Empirically: when
+                    // T212 issues a broker_order_id, the order has been
+                    // ACCEPTED. Rejections happen at placement (before
+                    // the id is returned, with HTTP 4xx). So an order
+                    // that aged out of /orders/{id} hot cache AND isn't
+                    // in /history is overwhelmingly a FILLED order, not
+                    // a cancelled one.
+                    //
+                    // The broker is the golden source — verified
+                    // empirically by the NVDA SELL case:
+                    // T212 position 6.7022 → 0.7022 confirmed the fill
+                    // even though our poller marked CANCELLED.
+                    // (project_broker_is_golden_source).
+                    //
+                    // Mark FILLED with avg=0; the operator can reconcile
+                    // the fill price via T212's UI if they care about
+                    // realised P&L attribution. The position-tracking
+                    // side is correct because the broker holds the truth.
+                    await oms.RecordFillAsync(
+                        orderId, qty: declaredQty, price: 0m, fee: 0m,
+                        currency: "USD",
+                        brokerFillId: $"assumed_via_404:{status.BrokerOrderId}",
+                        actor: "poller:T212_DEMO");
+                    _log.LogInformation(
+                        "OmsFillPoller: order {OrderId} FILLED (assumed via T212 hot-cache 404 + history miss)",
+                        orderId);
                     break;
                 }
             // NEW / WORKING / PARTIAL — still in flight, no transition.
