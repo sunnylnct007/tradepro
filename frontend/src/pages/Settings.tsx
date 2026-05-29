@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { config } from "../config";
 import { getIdToken } from "../firebase";
 import { SettingsKvSection } from "../components/settings/SettingsKvSection";
+import { StrategyBrokerMapSection } from "../components/settings/StrategyBrokerMapSection";
 
 /** UI-editable runtime config.
  *
@@ -227,6 +228,11 @@ export function Settings() {
           without a code change. Lives above the typed AppSettings
           sections so the trader's most-frequent edits are top-of-page. */}
       <SettingsKvSection />
+
+      {/* Strategy → broker routing (migrations 021 / 024 / 025).
+          Edits land in strategy_broker_map and the .NET ApproveAsync
+          path consults this table when routing the next order. */}
+      <StrategyBrokerMapSection />
 
       {savedAt && !dirty && (
         <div className="card" style={{ borderLeft: "3px solid var(--up)", color: "var(--text-dim)", padding: "8px 12px", fontSize: 12 }}>
