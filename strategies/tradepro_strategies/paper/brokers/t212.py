@@ -191,6 +191,20 @@ class T212OrderRouter(OrderRouter):
             )
             return
 
+        # IG-via-override mode: when broker_label_override is set
+        # (e.g. "IG_DEMO"), route through OMS so .NET ApproveAsync
+        # can dispatch to IGClient.PlaceMarketOrderAsync. The router's
+        # T212 HTTP path is unsuitable here — IG epics aren't valid
+        # T212 tickers, and we never want a T212 call for an IG order.
+        if self.broker_label_override:
+            await self._push_pending(order, approval)
+            log.info(
+                "%s AUTO-OMS · sid=%s · %s %s qty=%s tag=%s",
+                self.broker_label_override, order.strategy_id,
+                order.side.value, order.symbol, order.quantity, order.tag,
+            )
+            return
+
         if not self._live_orders_enabled() or not self.api_key:
             log.info(
                 "T212 WOULD-PLACE · sid=%s · %s %s qty=%s tag=%s",
