@@ -154,6 +154,65 @@ public sealed class RiskMonitorService : BackgroundService
         // iteration — for now the operator sees the alert in the
         // banner / digest and acts manually.
         await CheckPositionLevelDefenseAsync(sp, settings, ct);
+
+        // Sweep stale PENDING_APPROVAL orders — anything older than
+        // 2 hours with no human/auto approval is dead intent that
+        // shouldn't suddenly execute when an operator stumbles back
+        // to the page. Auto-cancel with a distinct reason so the
+        // audit trail explains it. (#85)
+        await SweepStalePendingAsync(db, ct);
+    }
+
+    private async Task SweepStalePendingAsync(NpgsqlDataSource db, CancellationToken ct)
+    {
+        try
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            // 2-hour staleness threshold — long enough that a human
+            // can leave OMS open and come back during the day, short
+            // enough that a forgotten signal from the morning doesn't
+            // re-execute in the afternoon when conditions changed.
+            var staleIds = (await conn.QueryAsync<Guid>(@"
+                SELECT id FROM oms_orders
+                WHERE state = 'PENDING_APPROVAL'
+                  AND created_at_utc <= NOW() - INTERVAL '2 hours';")).ToList();
+            if (staleIds.Count == 0) return;
+
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            try
+            {
+                await conn.ExecuteAsync(@"
+                    UPDATE oms_orders
+                    SET state = 'CANCELLED',
+                        cancelled_reason = 'stale_pending_auto_clean',
+                        last_state_change_at_utc = NOW()
+                    WHERE id = ANY(@ids);",
+                    new { ids = staleIds.ToArray() }, transaction: tx);
+                await conn.ExecuteAsync(@"
+                    INSERT INTO oms_order_events
+                        (order_id, occurred_at_utc, event_type, prior_state, new_state,
+                         actor, detail)
+                    SELECT id, NOW(), 'CANCELLED', 'PENDING_APPROVAL', 'CANCELLED',
+                           'risk_monitor',
+                           jsonb_build_object('reason', 'stale_pending_auto_clean',
+                                              'age_threshold_hours', 2)
+                    FROM oms_orders WHERE id = ANY(@ids);",
+                    new { ids = staleIds.ToArray() }, transaction: tx);
+                await tx.CommitAsync(ct);
+            }
+            catch
+            {
+                await tx.RollbackAsync(ct);
+                throw;
+            }
+            _log.LogInformation(
+                "RiskMonitor stale-pending sweep: cancelled {Count} order(s) older than 2h",
+                staleIds.Count);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "stale-pending sweep failed — continuing");
+        }
     }
 
     private async Task CheckPositionLevelDefenseAsync(
