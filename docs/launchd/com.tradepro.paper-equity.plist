@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.tradepro.paper-fx</string>
+    <string>com.tradepro.paper-equity</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-paper --broker ig --strategy ichimoku_fx_mr --capital-usd 50000 --warmup-bars 200 --max-position-value-usd 100000 --lookback-days 14 --placement-mode auto --push 2&gt;&amp;1</string>
+        <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-paper --broker t212 --strategy ichimoku_equity --symbols AAPL,MSFT,NVDA,TSLA,AMZN,GOOGL,META,BRK-B,JPM,V,SHEL.L,BP.L,AZN.L,HSBA.L,ULVR.L,GSK.L,LLOY.L,BARC.L,GLEN.L,VOD.L --capital-usd 100000 --sleeve-size 10 --placement-mode auto --push 2&gt;&amp;1</string>
     </array>
     <key>StandardOutPath</key>
-    <string>/tmp/tradepro-paper-fx.log</string>
+    <string>/tmp/tradepro-paper-equity.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/tradepro-paper-fx.log</string>
+    <string>/tmp/tradepro-paper-equity.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
