@@ -380,12 +380,23 @@ class T212OrderRouter(OrderRouter):
             if broker_label and broker_label.startswith("IG")
             else _to_t212_ticker(order.symbol)
         )
+        # IG MINI FX contracts trade in lots, not units. The strategy
+        # works in unit terms internally (e.g. 17244 EURUSD units).
+        # Convert to mini-lot units (1 mini = 10,000 base units) and
+        # truncate to a sensible min size to avoid IG rejecting with
+        # "MAX_ORDER_SIZE" / "MIN_ORDER_SIZE" type errors. IG demo
+        # typically allows 0.1 mini lot minimum on majors.
+        broker_qty = float(order.quantity)
+        if broker_label and broker_label.startswith("IG") and broker_symbol.endswith(".MINI.IP"):
+            mini_lots = broker_qty / 10000.0
+            # Round to 1 decimal (0.1 mini = 1000 units), min 0.1
+            broker_qty = max(0.1, round(mini_lots, 1))
         intent = {
             "ClientOrderId": client_id,
             "Broker": broker_label,
             "Symbol": broker_symbol,
             "Side": order.side.value,
-            "Qty": float(order.quantity),
+            "Qty": broker_qty,
             "OrderType": order.type.value if order.type.value in ("MKT", "LMT", "STP", "STP_LMT") else "MKT",
             "StrategyId": order.strategy_id,
             "PlacedBy": "STRATEGY_AUTO",

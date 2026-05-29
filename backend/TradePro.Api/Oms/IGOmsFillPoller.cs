@@ -119,11 +119,17 @@ public sealed class IGOmsFillPoller : BackgroundService
                 }
                 else if (s == "REJECTED")
                 {
-                    await oms.CancelAsync(orderId, "poller:IG",
-                        confirm.StatusReason ?? "ig_rejected");
+                    // Tag the rejection with the actual IG reason code
+                    // so the audit panel shows WHICH IG limit was hit
+                    // (UNKNOWN / INSUFFICIENT_FUNDS / MARKET_CLOSED /
+                    // MAX_ORDER_SIZE etc.). The strategy can then adjust.
+                    var reasonText = string.IsNullOrWhiteSpace(confirm.StatusReason)
+                        ? "ig_rejected"
+                        : $"ig_rejected: {confirm.StatusReason}";
+                    await oms.CancelAsync(orderId, "poller:IG", reasonText);
                     _log.LogInformation(
-                        "IGOmsFillPoller: order {OrderId} REJECTED reason={Reason}",
-                        orderId, confirm.StatusReason);
+                        "IGOmsFillPoller: order {OrderId} REJECTED by IG with reason={Reason} (dealRef={Deal})",
+                        orderId, confirm.StatusReason, dealRef);
                 }
                 // PENDING / WORKING / UNKNOWN — no transition; check next tick.
             }
