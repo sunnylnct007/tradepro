@@ -102,16 +102,22 @@ public sealed class PostgresOmsService : IOmsService
             return (await GetAsync(existingId.Value))!;
         }
 
-        // In-flight dedupe — if a recent SUBMITTED or WORKING order
-        // exists for the same (broker, strategy, symbol, side) that
-        // could still fill, return THAT row instead of enqueueing a
-        // duplicate. Prevents double-execution when the strategy fires
-        // the same signal multiple times in close succession (kickstart
-        // -k spam in dev, scheduler races in prod). Window is bounded
-        // so a 12h-old SUBMITTED order doesn't block a fresh intent.
+        // In-flight dedupe — if any recent non-terminal order exists
+        // for the same (broker, strategy, symbol, side), return THAT
+        // row instead of enqueueing a duplicate. Includes
+        // PENDING_APPROVAL because the auto-approve happens AFTER
+        // enqueue, so without this check a second daemon firing the
+        // same signal in the same second creates a row that then
+        // supersedes the first one — net result is duplicates that
+        // alternate cancel/approve. With PENDING_APPROVAL in scope,
+        // the same-signal-twice pattern returns the existing row and
+        // OMS stays clean.
+        //
+        // Window is bounded (15min) so an old in-flight order doesn't
+        // permanently block a fresh intent.
         var inflightId = await conn.QueryFirstOrDefaultAsync<Guid?>(@"
             SELECT id FROM oms_orders
-            WHERE state IN ('SUBMITTED', 'WORKING', 'PARTIALLY_FILLED')
+            WHERE state IN ('PENDING_APPROVAL', 'SUBMITTED', 'WORKING', 'PARTIALLY_FILLED')
               AND broker = @Broker
               AND strategy_id = @StrategyId
               AND symbol = @Symbol
