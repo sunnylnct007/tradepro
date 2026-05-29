@@ -457,8 +457,64 @@ public static class AdminEndpoints
             }
         });
 
+        // POST /api/admin/t212/smoke-order — verify the T212 demo
+        // enqueue → approve → place → fill chain end-to-end without
+        // waiting for a strategy session. Mirror of the IG version.
+        // Body: { ticker, side, qty }. Routes through PostgresOmsService
+        // same as a strategy order would.
+        g.MapPost("/t212/smoke-order", async (
+            T212SmokeOrderBody body,
+            HttpContext ctx,
+            IOmsService oms,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Ticker))
+                return Results.BadRequest(new { error = "ticker required (e.g. AAPL_US_EQ)" });
+            if (string.IsNullOrWhiteSpace(body.Side))
+                return Results.BadRequest(new { error = "side required (BUY/SELL)" });
+            if (body.Qty <= 0m)
+                return Results.BadRequest(new { error = "qty must be > 0" });
+
+            var actor = ctx.User?.Identity?.Name ?? "admin-smoke";
+            var clientId = Guid.NewGuid();
+            var intent = new OrderIntent(
+                ClientOrderId: clientId,
+                Broker: "T212_DEMO",
+                Symbol: body.Ticker,
+                Side: body.Side.ToUpperInvariant(),
+                Qty: body.Qty,
+                OrderType: "MKT",
+                StrategyId: "smoke_test_t212");
+            try
+            {
+                var enq = await oms.EnqueueAsync(intent, actor);
+                var done = await oms.ApproveAsync(enq.Id, actor);
+                return Results.Ok(new
+                {
+                    orderId = done.Id,
+                    state = done.State,
+                    brokerOrderId = done.BrokerOrderId,
+                    cancelledReason = done.CancelledReason,
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "smoke order failed",
+                    detail = ex.Message,
+                });
+            }
+        });
+
         return app;
     }
+
+    public sealed record T212SmokeOrderBody(
+        string Ticker,
+        string Side,
+        decimal Qty
+    );
 
     public sealed record IGSmokeOrderBody(
         string Epic,
