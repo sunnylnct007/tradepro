@@ -9,6 +9,7 @@ import { ActivityList } from "../components/cockpit/ActivityList";
 import { TodayOutcome } from "../components/cockpit/TodayOutcome";
 import { OrdersTable } from "../components/cockpit/OrdersTable";
 import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
+import { PositionChartsCard } from "../components/cockpit/PositionChartsCard";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
@@ -326,7 +327,8 @@ export function TraderCockpit() {
     { id: "submitted",   title: "Order placed" },
     { id: "fills",       title: "Trade executed" },
     { id: "activity",    title: "Activity feed" },
-    { id: "trade-cards", title: "Trade cards" },
+    { id: "trade-cards",      title: "Trade cards" },
+    { id: "position-charts",  title: "Position charts" },
     { id: "scan-grid",   title: "Symbol scan grid" },
     { id: "charts",      title: "Strategy charts" },
     { id: "lifecycle",   title: "Order lifecycle (Gantt)" },
@@ -707,6 +709,17 @@ export function TraderCockpit() {
         <SymbolScanGrid
           latestSessions={latestSessions}
           onHide={() => widgets.hide("scan-grid")}
+        />
+      )}
+
+      {/* ── Position charts — held symbols overlaid with strategy
+              charts so the trader sees price + indicators per
+              position in one glance. Top 5 by notional default. */}
+      {v("position-charts") && (
+        <PositionChartsCard
+          positions={positions}
+          latestSessions={latestSessions}
+          onHide={() => widgets.hide("position-charts")}
         />
       )}
 
