@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/skumar</string>
+        <key>PATH</key>
+        <string>/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+    <key>Label</key>
+    <string>com.tradepro.sentiment</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-sentiment-score --hours 12 2&gt;&amp;1</string>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardErrorPath</key>
+    <string>/tmp/tradepro-sentiment.log</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/tradepro-sentiment.log</string>
+    <key>StartInterval</key>
+    <integer>14400</integer>
+</dict>
+</plist>
