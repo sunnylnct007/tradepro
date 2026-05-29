@@ -15,6 +15,8 @@ Built-in registry keys today:
     vwap_mean_reversion       VWAP fade — short above VWAP, long below
     bollinger_bounce          Touch + reject of Bollinger bands
     ma_crossover              Fast/slow EMA crossover (trend follower)
+    intraday_flat             Scanner-derived basket, long-only, EOD-flat,
+                              IG-routed (PR #28)
 
 Long-form aliases kept for back-compat with the older intraday
 factory:
@@ -35,6 +37,7 @@ from .ma_crossover import MovingAverageCrossoverIntraday
 from .compass_momentum import CompassMomentumIntraday  # noqa: F401 — registers
 from .ichimoku_equity import IchimokuEquityStrategy  # noqa: F401 — registers
 from .ichimoku_fx_mr import IchimokuFXMeanReversionStrategy  # noqa: F401 — registers
+from .intraday_flat import IntradayFlatStrategy  # noqa: F401 — registers
 from .opening_range_breakout import OpeningRangeBreakout
 from .vwap_mean_reversion import VWAPMeanReversion
 

@@ -332,11 +332,18 @@ def _effective_session_date(now: datetime, bypass_window: bool) -> datetime:
 # per-strategy block yet (fresh install) so the engine still runs
 # the full menu. The "orb" alias is filtered out at runtime to
 # avoid registering the same class twice under different ids.
+#
+# When a strategy is added here, it must also be imported from
+# `paper/strategies/__init__.py` so the `@register_strategy(...)`
+# decorator actually fires before `available()` is queried. The
+# BDD scenario `Default intraday strategies are all registered` in
+# `paper_quant_strategies.feature` guards against that drift.
 _INTRADAY_DEFAULT_STRATEGY_NAMES: tuple[str, ...] = (
     "orb",
     "vwap_mean_reversion",
     "bollinger_bounce",
     "ma_crossover",
+    "intraday_flat",
 )
 
 

@@ -211,3 +211,23 @@ Feature: IntradayFlatStrategy — explainable, risk-averse, EOD-flat
     When I feed one in-window bar for "IWM"
     Then a BUY MARKET order is emitted for "IWM"
     And an "llm-gate-error-fail-open" decision is logged for "IWM"
+
+  # ────────────────────────────────────────────────────────────────── #
+  # Section 9: Daemon wiring — registry + intraday-engine defaults     #
+  # ────────────────────────────────────────────────────────────────── #
+  # The 28→32 PR chain landed intraday_flat as a strategy class + DB
+  # mapping + UI editor but the operator saw zero trades because the
+  # strategy was never imported into paper/strategies/__init__.py —
+  # the @register_strategy decorator never fired, so the intraday
+  # daemon's available() set didn't include it and the fallback list
+  # didn't either. These scenarios guard against that drift returning.
+
+  Scenario: intraday_flat is discoverable via the strategy registry
+    When I import tradepro_strategies.paper.strategies
+    Then the strategy "intraday_flat" is registered in the global registry
+    And the strategy "intraday_flat" can be built by name
+
+  Scenario: every default intraday strategy is registered
+    When I import tradepro_strategies.paper.strategies
+    And I import the intraday engine's default strategy list
+    Then every name in the default list is in the registry
