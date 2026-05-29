@@ -604,6 +604,73 @@ Parameters: `candidates` (5 ETFs by default), `top_n` (5),
 
 ---
 
+## Strategy → broker mapping
+
+Each strategy has a default broker it targets. The mapping lives in
+the Postgres table `strategy_broker_map`, populated by SQL migrations
+under `backend/TradePro.Api/db/migrations/`. The `.NET ApproveAsync`
+path consults this table to pick which downstream broker client
+(T212, IG, IBKR, paper) handles each approved order.
+
+**Resolution priority** (highest wins) — see
+`backend/.../Endpoints/TradePlanEndpoints.cs`:
+
+1. **Per-call override** — an explicit `broker` field in the trade-plan
+   request body (e.g. operator UI sends `broker: "T212_DEMO"` for a
+   one-off).
+2. **`strategy_broker_map.broker`** — the per-strategy default below.
+3. **`app_settings_kv.default_broker`** — global fallback when a
+   strategy isn't mapped (lets new strategies land without a migration).
+4. **Hardcoded** — `T212_DEMO` if even the global fallback isn't set.
+
+### Current mapping (seeded by migrations 021 and 024)
+
+| Strategy | Broker | Note | Seeded by |
+|---|---|---|---|
+| `ichimoku_equity` | `IG_DEMO` | US equity sleeve via IG demo | 021 |
+| `ichimoku_fx_mr` | `IG_DEMO` | G10 FX intraday via IG demo | 021 |
+| `intraday_flat` | `IG_DEMO` | US ETF intraday EOD-flat via IG demo | 024 |
+| any other registered strategy | `app_settings_kv.default_broker` | falls back to global default | — |
+
+### How to read it
+
+```sql
+SELECT strategy_id, broker, account_id, note, updated_at_utc, updated_by
+FROM strategy_broker_map
+ORDER BY strategy_id;
+```
+
+### How to override per-strategy
+
+Don't back-edit migration 021 — add a new migration `0NN_<change>.sql`
+with the targeted `UPDATE`. Per-call overrides via the trade-plan
+request body work for one-off operator actions and don't need a
+migration.
+
+Inside a Python strategy, `params["broker_label"]` is consulted at
+order-emission time when the strategy itself stamps a target broker
+(e.g. `intraday_flat` defaults to `"IG_DEMO"`). The DB-level mapping
+still wins at OMS dispatch — the in-strategy field is just an explicit
+declaration of intent in the order tag for audit purposes.
+
+### Adding a new strategy
+
+When you register a new `@register_strategy(...)`, also add a small
+migration to `strategy_broker_map`:
+
+```sql
+-- 025_strategy_broker_map_my_new_strategy.sql
+INSERT INTO strategy_broker_map (strategy_id, broker, note, updated_by)
+VALUES ('my_new_strategy', 'T212_DEMO', 'description', 'migration')
+ON CONFLICT (strategy_id) DO NOTHING;
+```
+
+If you skip this step, the strategy will still run but will route via
+the global `default_broker` — fine for development, not what you want
+in production.
+
+---
+
 ## Layer 3: Horizon Scorers
 
 These are 0-8 composites that drive the **horizon pills** on the

@@ -7,7 +7,7 @@ Read this before starting any work. Update when you start something new.
 
 ---
 
-## Current branch: feature/intraday-flat-followup  (laneB checkout)
+## Current branch: feature/intraday-flat-broker-mapping  (laneB checkout)
 
 Follow-up on the `intraday_flat` strategy (phase-1 shipped in PR #28 /
 commit `6f58920`). Adds overnight-leftover handling + 8 BDD scenarios
@@ -126,3 +126,11 @@ explicit integration point laneA opened.
   `feature/intraday-flat-followup` — overnight-leftover handling
   (seed_positions + initial_positions) + 8 new BDD scenarios filling
   test coverage gaps. 24/24 intraday_flat green; 677/677 repo green.
+- 2026-05-29 — Shipped: `intraday_flat` follow-up merged as PR #29 /
+  commit `7d853c1`.
+- 2026-05-29 — Started: broker-mapping seed for `intraday_flat` on
+  `feature/intraday-flat-broker-mapping` — adds migration 024 with
+  `intraday_flat → IG_DEMO` row into the `strategy_broker_map` table
+  (introduced by laneA migration 021). Also documents the mapping
+  table + resolution priority in STRATEGIES.md so traders / future
+  strategies know how to pick a broker.
