@@ -313,10 +313,20 @@ def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> None:
             t = (r.get("ticker") or r.get("epic") or "").upper()
             if not t:
                 continue
-            # Strip broker suffixes: AAPL_US_EQ → AAPL. IG epics
-            # (CS.D.EURUSD.MINI.IP) stay intact — the strategy's
-            # symbol universe matches those directly.
-            bare = (t.split("_", 1)[0] if not t.startswith("CS.D.") and not t.startswith("IX.D.") else t)
+            # Strip broker suffixes so the strategy's internal book
+            # (which keys on bare ticker / pair) finds a match:
+            #   AAPL_US_EQ              → AAPL
+            #   CS.D.EURUSD.MINI.IP     → EURUSD
+            #   CS.D.GBPUSD.CFD.IP      → GBPUSD
+            # IG epic format is fixed: <market_class>.D.<pair>.<size>.IP
+            bare = t
+            if t.startswith("CS.D.") or t.startswith("IX.D."):
+                # Pull the pair name from position [2]
+                parts = t.split(".")
+                if len(parts) >= 4:
+                    bare = parts[2]
+            elif "_" in t:
+                bare = t.split("_", 1)[0]
             try:
                 qty = int(round(float(r.get("quantity") or 0)))
             except (TypeError, ValueError):
