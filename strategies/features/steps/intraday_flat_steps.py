@@ -595,3 +595,195 @@ def step_feed_eod_window(context, sym: str) -> None:
 @when('I call on_session_end without flattening first')
 def step_session_end_with_open(context) -> None:
     context.strat.on_session_end(_SESSION_DATE)
+
+
+# ====================================================================== #
+# Section 6: Overnight leftovers                                          #
+# ====================================================================== #
+
+
+def _parse_qty_dict(text: str) -> dict[str, int]:
+    """Parse "{AAPL: 22, MSFT: 0, GOOG: -5}" into {AAPL: 22, ...}."""
+    inner = text.strip().lstrip("{").rstrip("}")
+    out: dict[str, int] = {}
+    for part in inner.split(","):
+        if ":" not in part:
+            continue
+        k, v = part.split(":", 1)
+        out[k.strip()] = int(v.strip())
+    return out
+
+
+@when('I call seed_positions with "{payload}"')
+def step_seed_positions(context, payload: str) -> None:
+    context.strat.seed_positions(_parse_qty_dict(payload))
+
+
+@given('initial_positions "{payload}" passed via params')
+def step_initial_positions_param(context, payload: str) -> None:
+    context.strat.params["initial_positions"] = _parse_qty_dict(payload)
+
+
+@then('the strategy\'s position for "{sym}" is {qty:d} shares')
+def step_position_qty(context, sym: str, qty: int) -> None:
+    actual = context.strat.position_for(sym).quantity
+    assert actual == qty, f"position[{sym}] = {actual} != {qty}"
+
+
+@given(
+    'an IntradayFlatStrategy with a {qty:d}-share overnight leftover '
+    'in "{sym}"'
+)
+def step_with_leftover(context, qty: int, sym: str) -> None:
+    _build_strategy(context, ["IWM"], top_n=1)
+    context.strat.on_session_start(_SESSION_DATE)
+    context.strat.seed_positions({sym: qty})
+
+
+@given(
+    'an IntradayFlatStrategy basket "{csv}" plus a {qty:d}-share '
+    'overnight leftover in "{leftover_sym}"'
+)
+def step_basket_with_leftover(
+    context, csv: str, qty: int, leftover_sym: str,
+) -> None:
+    basket = [s.strip() for s in csv.split(",")]
+    _build_strategy(context, basket, top_n=len(basket))
+    context.strat.on_session_start(_SESSION_DATE)
+    if set(context.strat._basket) != set(basket):
+        context.strat._basket = basket
+        for sym in basket:
+            context.strat._basket_atr.setdefault(sym, 1.0)
+            context.strat._basket_strength.setdefault(sym, 1.0)
+    context.strat.seed_positions({leftover_sym: qty})
+
+
+# ====================================================================== #
+# Section 7: Concurrency + halt                                           #
+# ====================================================================== #
+
+
+@given('the strategy has an entry order in-flight for "{sym}"')
+def step_in_flight(context, sym: str) -> None:
+    context.strat.mark_order_in_flight(sym)
+
+
+@given(
+    'an IntradayFlatStrategy with locked basket "{csv}" and top_n {n:d}'
+)
+def step_basket_topn(context, csv: str, n: int) -> None:
+    basket = [s.strip() for s in csv.split(",")]
+    _build_strategy(context, basket, top_n=n)
+    context.strat.on_session_start(_SESSION_DATE)
+    # Force the basket to exactly match the spec for deterministic tests
+    context.strat._basket = basket
+    for sym in basket:
+        context.strat._basket_atr.setdefault(sym, 1.0)
+        context.strat._basket_strength.setdefault(sym, 1.0)
+
+
+@given('the strategy already holds {n:d} open position in "{sym}"')
+@given('the strategy already holds {n:d} open positions in "{sym}"')
+def step_already_holds(context, n: int, sym: str) -> None:
+    pos = context.strat.position_for(sym)
+    pos.quantity = n if n > 0 else -abs(n)
+    pos.avg_entry_price = 200.0
+    context.strat._position_stop[sym] = 195.0
+    context.strat._position_target[sym] = 210.0
+    context.strat._position_entry_price[sym] = 200.0
+    context.strat._position_open_at[sym] = _IN_WINDOW_TS
+
+
+# ====================================================================== #
+# Section 8: on_fill + LLM fail-open                                      #
+# ====================================================================== #
+
+
+@given('an IntradayFlatStrategy with locked basket "{csv}" and ATR {atr:f}')
+def step_basket_with_atr(context, csv: str, atr: float) -> None:
+    basket = [s.strip() for s in csv.split(",")]
+    _build_strategy(context, basket, top_n=len(basket))
+    context.strat.on_session_start(_SESSION_DATE)
+    context.strat._basket = basket
+    for sym in basket:
+        context.strat._basket_atr[sym] = atr
+        context.strat._basket_strength.setdefault(sym, 1.0)
+
+
+@when(
+    'I emit an entry for "{sym}" and the fill price differs from the bar close'
+)
+def step_emit_and_fill(context, sym: str) -> None:
+    # Emit an entry by feeding an in-window bar; capture the order; then
+    # synthesize a fill at a price OFFSET from the bar close.
+    bar_close = 200.0
+    bar = _make_bar(sym, ts=_IN_WINDOW_TS, close=bar_close)
+    orders = context.strat.on_bar(bar)
+    assert orders, "expected at least one order"
+    order = orders[0]
+    context.entry_order = order
+    fill_price = bar_close + 1.25  # divergent from bar.close
+    context.fill_price = fill_price
+    # Simulate the engine: apply the fill to the position first, then call on_fill.
+    pos = context.strat.position_for(sym)
+    pos.quantity = order.quantity
+    pos.avg_entry_price = fill_price
+    fill = Fill(
+        order_id="o1",
+        strategy_id=context.strat.strategy_id,
+        symbol=sym,
+        side=OrderSide.BUY,
+        quantity=order.quantity,
+        fill_price=fill_price,
+        fill_time=_IN_WINDOW_TS,
+        commission=0.0,
+    )
+    context.strat.on_fill(fill)
+    context.fill_symbol = sym
+
+
+@then('the position\'s stop is anchored to fill_price minus stop_atr_mult times ATR')
+def step_stop_anchored(context) -> None:
+    sym = context.fill_symbol
+    expected = context.fill_price - (
+        float(context.strat._p()["stop_atr_mult"])
+        * context.strat._basket_atr[sym]
+    )
+    actual = context.strat._position_stop[sym]
+    assert abs(actual - expected) < 1e-6, (
+        f"stop {actual} != expected {expected}"
+    )
+
+
+@then('the position\'s target is anchored to fill_price plus target_atr_mult times ATR')
+def step_target_anchored(context) -> None:
+    sym = context.fill_symbol
+    expected = context.fill_price + (
+        float(context.strat._p()["target_atr_mult"])
+        * context.strat._basket_atr[sym]
+    )
+    actual = context.strat._position_target[sym]
+    assert abs(actual - expected) < 1e-6, (
+        f"target {actual} != expected {expected}"
+    )
+
+
+@given(
+    'an IntradayFlatStrategy with locked basket "{csv}" '
+    'and an ERRORING LLM gate'
+)
+def step_basket_erroring_llm(context, csv: str) -> None:
+    basket = [s.strip() for s in csv.split(",")]
+    gate = LLMSignalGate(LLMGateConfig(enabled=True))
+
+    def _raises(symbol: str, signal_strength: float) -> GateDecision:
+        raise RuntimeError("synthetic LLM provider crash")
+
+    gate.evaluate = _raises  # type: ignore[assignment]
+    _build_strategy(context, basket, top_n=len(basket), llm_gate=gate)
+    context.strat.on_session_start(_SESSION_DATE)
+    if set(context.strat._basket) != set(basket):
+        context.strat._basket = basket
+        for sym in basket:
+            context.strat._basket_atr.setdefault(sym, 1.0)
+            context.strat._basket_strength.setdefault(sym, 1.0)
