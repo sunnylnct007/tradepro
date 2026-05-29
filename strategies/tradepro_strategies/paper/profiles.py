@@ -129,9 +129,28 @@ def build_session(
         router = StubLiveRouter()
         return bus, router
 
+    if broker == "ig":
+        # Minimal IG profile — Yahoo for bars (IG's bar feed is L1
+        # tick-driven and we don't yet have a Python streaming
+        # subscriber), T212OrderRouter reused but with broker_label
+        # = "IG_DEMO" so the order posts to /api/oms/orders with the
+        # IG broker. The .NET ApproveAsync routes IG_DEMO orders to
+        # IGClient.PlaceMarketOrderAsync. The router's local T212
+        # HTTP calls are skipped because allow_real_orders=False and
+        # the placement_mode="auto" → push-then-approve at the OMS
+        # path, not a T212 direct call.
+        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds, lookback_days)
+        router = T212OrderRouter(
+            mode="demo",                  # ignored — we override the broker label
+            allow_real_orders=False,      # no T212 HTTP calls
+            placement_mode=t212_placement_mode,
+            broker_label_override="IG_DEMO",
+        )
+        return bus, router
+
     raise ValueError(
         f"Unknown broker profile {broker!r}. "
-        f"Choose from: replay | yfinance | t212 | ibkr | stub_live"
+        f"Choose from: replay | yfinance | t212 | ig | ibkr | stub_live"
     )
 
 

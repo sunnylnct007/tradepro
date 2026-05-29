@@ -92,6 +92,11 @@ class T212OrderRouter(OrderRouter):
     #           doesn't wait for these — the fill chain is decoupled.
     placement_mode: str = "auto"
     name: str = "t212_router"
+    # When set, overrides the broker_label baked into OMS push
+    # payloads. Used by the `ig` paper profile to reuse this router
+    # while marking orders as IG_DEMO so the .NET ApproveAsync routes
+    # to IGClient instead of Trading212DemoClient.
+    broker_label_override: Optional[str] = None
     # Tracks orders we've POSTed but not yet seen filled. Keyed by the
     # T212 order id so a restart on the same session can resume polling.
     _pending: dict[int, OrderApproved] = field(default_factory=dict)
@@ -339,11 +344,23 @@ class T212OrderRouter(OrderRouter):
         bar_ts_iso = approval.bar_at_approval.timestamp.isoformat()
         seed = f"{order.strategy_id}:{order.symbol}:{order.side.value}:{int(order.quantity)}:{bar_ts_iso}"
         client_id = str(_uuid.UUID(hashlib.md5(seed.encode()).hexdigest()))
-        broker_label = "T212_DEMO" if self.mode == "demo" else "T212_LIVE"
+        broker_label = (
+            self.broker_label_override
+            if self.broker_label_override
+            else ("T212_DEMO" if self.mode == "demo" else "T212_LIVE")
+        )
+        # Symbol translation depends on the resolved broker_label.
+        # IG expects EPICs like "CS.D.EURUSD.MINI.IP" for FX. T212
+        # expects suffixed tickers like "EURUSD" (raw) / "AAPL_US_EQ".
+        broker_symbol = (
+            _to_ig_epic(order.symbol)
+            if broker_label and broker_label.startswith("IG")
+            else _to_t212_ticker(order.symbol)
+        )
         intent = {
             "ClientOrderId": client_id,
             "Broker": broker_label,
-            "Symbol": _to_t212_ticker(order.symbol),
+            "Symbol": broker_symbol,
             "Side": order.side.value,
             "Qty": float(order.quantity),
             "OrderType": order.type.value if order.type.value in ("MKT", "LMT", "STP", "STP_LMT") else "MKT",
@@ -445,6 +462,43 @@ def _to_t212_ticker(symbol: str) -> str:
     raise ValueError(
         f"T212 ticker mapping not configured for {symbol!r}. "
         f"Wire the /equity/metadata/instruments lookup before trading non-US symbols."
+    )
+
+
+_IG_FX_EPIC: dict[str, str] = {
+    # IG demo MINI epics for G10 FX. Discovered via /api/admin/ig/search.
+    # MINI variants because demo accounts typically have smaller min sizes
+    # than full CFD contracts; covers the FX MR strategy's universe.
+    "EURUSD": "CS.D.EURUSD.MINI.IP",
+    "GBPUSD": "CS.D.GBPUSD.MINI.IP",
+    "USDJPY": "CS.D.USDJPY.MINI.IP",
+    "USDCHF": "CS.D.USDCHF.MINI.IP",
+    "AUDUSD": "CS.D.AUDUSD.MINI.IP",
+    "USDCAD": "CS.D.USDCAD.MINI.IP",
+    "NZDUSD": "CS.D.NZDUSD.MINI.IP",
+    "EURGBP": "CS.D.EURGBP.MINI.IP",
+    "EURJPY": "CS.D.EURJPY.MINI.IP",
+    "GBPJPY": "CS.D.GBPJPY.MINI.IP",
+}
+
+
+def _to_ig_epic(symbol: str) -> str:
+    """Convert a strategy symbol (EURUSD, AAPL) to an IG epic.
+
+    For FX pairs the conversion is a small static table. For equity,
+    epics are per-listing and unknown without a broker_ticker_map
+    lookup — raise loudly rather than guess. The /api/admin/ig/search
+    endpoint discovers epics interactively when this table needs to
+    grow.
+    """
+    upper = symbol.upper()
+    if upper in _IG_FX_EPIC:
+        return _IG_FX_EPIC[upper]
+    if upper.startswith("CS.D.") or upper.startswith("IX.D."):
+        return upper  # already an epic
+    raise ValueError(
+        f"IG epic mapping not configured for {symbol!r}. "
+        f"Discover via /api/admin/ig/search?term={upper} and add to _IG_FX_EPIC."
     )
 
 

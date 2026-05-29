@@ -304,6 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     log = logging.getLogger("tradepro.cli")
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     session_date = _resolve_session_date(args.date)
+    # Yahoo / T212 / IG profiles require a session_date — when omitted
+    # default to today's UTC date so the schedule-fired daemons
+    # (paper-equity, paper-fx) Just Work without a --date flag.
+    if session_date is None:
+        session_date = datetime.utcnow().replace(microsecond=0)
+        log.info("session_date defaulted to today UTC: %s", session_date.date())
     symbols = _resolve_symbols(args)
 
     # Interval: CLI flag → strategy default.
