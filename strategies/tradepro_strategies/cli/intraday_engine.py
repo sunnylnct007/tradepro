@@ -340,6 +340,57 @@ _INTRADAY_DEFAULT_STRATEGY_NAMES: tuple[str, ...] = (
 )
 
 
+def _fetch_initial_positions_for_symbol(symbol: str) -> dict[str, int]:
+    """Best-effort fetch of the current broker position for `symbol`
+    so the strategy starts position-aware. Returns {symbol: signed_qty}
+    or {} on any failure (no network, T212 disabled, symbol not held).
+
+    Currently queries the .NET API's /api/integrations/trading212/positions
+    endpoint with account=demo — the equity strategy's primary venue.
+    Future: extend to merge IG positions for FX strategies."""
+    from .. import secrets as _secrets
+    try:
+        import requests
+    except ImportError:
+        return {}
+    api_base = _secrets.get_secret("api-base-url") or _secrets.get_secret("api-url")
+    if not api_base:
+        return {}
+    try:
+        resp = requests.get(
+            f"{api_base.rstrip('/')}/api/integrations/trading212/positions",
+            params={"account": "demo"}, timeout=5,
+        )
+        if resp.status_code != 200:
+            return {}
+        body = resp.json() or {}
+    except Exception:  # noqa: BLE001
+        return {}
+    positions = body.get("positions") or []
+    # T212 reports tickers in suffix form (AAPL_US_EQ). Strategies
+    # expect bare tickers (AAPL). Map both for safety.
+    sym_upper = symbol.upper()
+    sym_t212 = sym_upper if "_" in sym_upper else f"{sym_upper}_US_EQ"
+    out: dict[str, int] = {}
+    for p in positions:
+        t = (p.get("ticker") or "").upper()
+        if not t:
+            continue
+        # Match either bare or suffix form, return the strategy's
+        # symbol key (bare) so the strategy's lookup hits.
+        bare = t.split("_", 1)[0]
+        if bare == sym_upper or t == sym_t212:
+            qty = p.get("quantity") or 0
+            try:
+                qty_int = int(round(float(qty)))
+            except (TypeError, ValueError):
+                continue
+            if qty_int != 0:
+                out[sym_upper] = qty_int
+            break
+    return out
+
+
 def _resolve_enabled_strategies(cfg: dict) -> dict[str, dict]:
     """Return ``{name: params_override}`` for every strategy the
     engine should run on this scan.
@@ -471,12 +522,21 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
         )
         engine = Engine(bus=bus, router=router)
 
+        # Fetch this symbol's current position from T212 demo so the
+        # strategy starts position-aware. Without this, every session
+        # starts thinking it owns 0 → fires BUY on a held position
+        # instead of HOLD/SELL. Best-effort: failure to fetch doesn't
+        # abort the session; strategy just starts at 0.
+        initial_positions = _fetch_initial_positions_for_symbol(symbol)
+
         strategies_registered: list[tuple[str, str]] = []  # (name, strategy_id)
         register_errors: list[dict] = []
         for name, overrides in sorted(enabled.items()):
             sid = f"intraday-{name}-{symbol}"
             params: dict = {"risk_per_trade_usd": risk_per_trade}
             params.update(overrides)
+            if initial_positions:
+                params["initial_positions"] = initial_positions
             try:
                 strat = build_strategy(name, strategy_id=sid, params=params)
                 strat.risk = RiskLimits(

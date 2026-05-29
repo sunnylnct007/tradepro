@@ -138,6 +138,21 @@ class IchimokuEquityStrategy(Strategy):
         self._daily_signals.clear()
         self._realised_vols.clear()
         self._moo_fired.clear()
+        # Pre-load positions from params.initial_positions so the
+        # strategy knows what we ALREADY hold at the broker. Without
+        # this, every session starts thinking it owns nothing → fires
+        # BUY signals instead of HOLD/SELL on positions the broker
+        # actually has. The intraday daemon populates initial_positions
+        # by querying T212/IG before the strategy registers. Quantities
+        # are signed (positive long, negative short).
+        p = self._p()
+        initial = p.get("initial_positions") or {}
+        if isinstance(initial, dict):
+            for sym, qty in initial.items():
+                try:
+                    self._positions[sym] = int(qty)
+                except (TypeError, ValueError):
+                    continue
 
     def on_bar(self, bar: Bar) -> list[Order]:
         p = self._p()
