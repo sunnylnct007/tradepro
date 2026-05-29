@@ -328,7 +328,11 @@ def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> dict[st
             elif "_" in t:
                 bare = t.split("_", 1)[0]
             try:
-                qty = int(round(float(r.get("quantity") or 0)))
+                # Truncate toward zero so we never overstate the
+                # held quantity — T212 fractional positions (6.7022
+                # NVDA shares) round-up would trigger "selling more
+                # than owned" rejections. Truncation = safest floor.
+                qty = int(float(r.get("quantity") or 0))
             except (TypeError, ValueError):
                 continue
             if qty != 0:
