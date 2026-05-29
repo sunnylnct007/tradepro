@@ -303,12 +303,27 @@ class Strategy(ABC):
 
     def seed_positions(self, positions: dict[str, int]) -> None:
         """Initialise the strategy's internal position state from an
-        external snapshot (typically OMS-derived). Default is a no-op;
-        strategies that hold cross-bar position state (e.g. signed
-        unit counts for FX mean-reversion) override this so reruns
-        compute delta = target - current instead of re-emitting full
-        entries. See task #28."""
-        return None
+        external snapshot (broker = golden source). Populates
+        `self.positions[symbol].quantity` so the risk gate's projection
+        (engine.py builds RiskContext.current_positions from this dict)
+        sees the held quantity. Without this, the gate computes
+        SELL N shares against position=0 → projected_qty = -N → rejected
+        as "short_disallowed" even though we genuinely hold shares.
+
+        Strategies that hold additional cross-bar state (e.g. signed
+        unit counts for FX mean-reversion via `_fx_positions`) MUST
+        super().seed_positions(positions) so the base class wires
+        risk-gate-side as well.
+        """
+        for sym, qty in positions.items():
+            if qty == 0:
+                continue
+            try:
+                qty_int = int(qty)
+            except (TypeError, ValueError):
+                continue
+            pos = self.position_for(sym)
+            pos.quantity = qty_int
 
     def position_for(self, symbol: str) -> Position:
         """Get or lazy-create the Position for a symbol. Strategies

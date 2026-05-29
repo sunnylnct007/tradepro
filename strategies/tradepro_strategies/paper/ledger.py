@@ -118,6 +118,35 @@ class Ledger:
             self.books[strategy_id] = book
         return book
 
+    def seed_positions(
+        self,
+        strategy_id: str,
+        positions: dict[str, int],
+        avg_price: dict[str, float] | None = None,
+    ) -> None:
+        """Pre-populate the strategy's book with broker-held positions
+        so the risk gate sees the same world the strategy does.
+
+        Critical for position-aware strategies that emit SELL signals
+        on long positions: without this, the engine's risk gate sees
+        `current_position=0` and rejects the SELL as "would open short"
+        (see project_broker_is_golden_source — the strategy's seed
+        from broker MUST be mirrored to the ledger).
+
+        avg_price is optional — when supplied, gives the ledger a
+        cost basis so unrealised P&L makes sense; otherwise the
+        position starts at last_mark which is fine for risk-gate
+        purposes.
+        """
+        book = self.register(strategy_id)
+        for sym, qty in positions.items():
+            if qty == 0:
+                continue
+            pos = book.position_for(sym)
+            pos.quantity = int(qty)
+            if avg_price and sym in avg_price:
+                pos.avg_entry_price = float(avg_price[sym])
+
     async def run(
         self,
         fill_queue: asyncio.Queue,

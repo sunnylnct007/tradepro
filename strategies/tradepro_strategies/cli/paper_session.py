@@ -266,7 +266,7 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
     raise ValueError(f"Unknown strategy {strategy_name!r}")
 
 
-def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> None:
+def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> dict[str, int]:
     """Fetch current positions FROM THE BROKER and seed the strategy.
     Phase 2 of task #28 — without this, every rerun computes from flat
     and re-emits the same intents, doubling our exposure.
@@ -286,7 +286,7 @@ def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> None:
     hook, or any other failure → log and continue, strategy starts flat.
     """
     if not hasattr(strategy, "seed_positions"):
-        return
+        return {}
     log = logging.getLogger("tradepro.cli")
     try:
         import requests
@@ -303,7 +303,7 @@ def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> None:
             source = "ig-broker"
         else:
             log.info("POSITION SEED: no broker positions endpoint for %r", broker)
-            return
+            return {}
 
         resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
@@ -340,13 +340,15 @@ def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> None:
                 source, strategy.strategy_id, positions,
             )
             strategy.seed_positions(positions)
-        else:
-            log.info(
-                "POSITION SEED: %s — no held positions found; starting flat",
-                strategy.strategy_id,
-            )
+            return positions
+        log.info(
+            "POSITION SEED: %s — no held positions found; starting flat",
+            strategy.strategy_id,
+        )
+        return {}
     except Exception as exc:  # noqa: BLE001
         log.warning("POSITION SEED failed (%s) — strategy starts flat", exc)
+        return {}
 
 
 def _fetch_oms_positions(url: str, params: dict, headers: dict) -> dict[str, int]:
@@ -459,15 +461,31 @@ def main(argv: list[str] | None = None) -> int:
     # time. Best-effort — OMS unreachable doesn't fail the session;
     # strategy just falls back to flat-start behaviour (its existing
     # default). See task #28.
+    seeded_positions: dict[str, int] = {}
     if args.push:
         # Pass broker so the seed function knows which broker's
         # /positions endpoint to fall back to when OMS comes back empty.
-        _seed_strategy_positions_from_oms(strategy, broker=broker_list[0])
+        seeded_positions = _seed_strategy_positions_from_oms(
+            strategy, broker=broker_list[0],
+        )
 
     engine = Engine(bus=bus, router=router)
     engine.register_strategy(
         strategy, symbols=symbols, capital_usd=args.capital_usd,
     )
+
+    # Also seed the engine ledger so its risk gate sees the same
+    # world the strategy does. Without this, the strategy emits
+    # SELL on a held long, the engine ledger thinks position=0, the
+    # gate rejects "would extend short" → SELL never reaches the
+    # router. project_broker_is_golden_source: broker is truth, both
+    # strategy and engine must reflect that.
+    if seeded_positions and hasattr(engine, "ledger"):
+        engine.ledger.seed_positions(strategy.strategy_id, seeded_positions)
+        log.info(
+            "LEDGER SEED: %s engine.ledger.book mirrored %d position(s)",
+            strategy.strategy_id, len(seeded_positions),
+        )
 
     log.info(
         "Starting %s session: strategy=%s symbols=%s broker=%s interval=%s",

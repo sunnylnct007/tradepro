@@ -159,10 +159,12 @@ class IchimokuEquityStrategy(Strategy):
         holds. Symbols are bare tickers (AAPL); the daemon translates
         broker suffixes (AAPL_US_EQ) before calling.
 
-        Mirrors ichimoku_fx_mr.seed_positions for consistency. Both
-        ways of seeding (this method + params.initial_positions) are
-        supported so callers can pick whichever is cleaner for them.
+        Calls super() so the base class also populates self.positions
+        which is what the engine's risk gate reads — otherwise the
+        gate sees position=0 and rejects SELL orders on held longs
+        as 'short_disallowed' (#86).
         """
+        super().seed_positions(positions)
         for sym, qty in positions.items():
             try:
                 self._positions[sym] = int(qty)
