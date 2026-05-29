@@ -83,7 +83,33 @@ AUDIT_EVENTS="$(curl -sS -m 5 "${CURL_AUTH[@]}" "${API_BASE}/api/oms/orders/${IG
 [[ "$AUDIT_EVENTS" -ge 3 ]] && ok "audit chain has ${AUDIT_EVENTS} events (ENQUEUE/APPROVE/FILL)" \
   || fail "audit chain has ${AUDIT_EVENTS} events (expected ≥3)"
 
-# -------- 3. Summary --------
+# -------- 3. T212 smoke (BUY 1 AAPL equity demo) --------
+step "T212: BUY 1 AAPL via /api/admin/t212/smoke-order"
+T212_RESP="$(curl -sS -m 15 -X POST "${CURL_AUTH[@]}" -H 'Content-Type: application/json' \
+  -d '{"ticker":"AAPL_US_EQ","side":"BUY","qty":1}' \
+  "${API_BASE}/api/admin/t212/smoke-order")"
+T212_ORDER_ID="$(echo "$T212_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('orderId',''))" 2>/dev/null)"
+T212_BROKER_ID="$(echo "$T212_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('brokerOrderId') or '')" 2>/dev/null)"
+[[ -n "$T212_ORDER_ID" ]] && ok "OMS order id: $T212_ORDER_ID" || { fail "no order id"; echo "  resp: $T212_RESP"; }
+[[ -n "$T212_BROKER_ID" ]] && ok "T212 broker order id: $T212_BROKER_ID" || fail "no broker order id (T212 placement failed)"
+
+step "T212: wait up to 60s for fill poller"
+T212_STATE=""
+for i in {1..20}; do
+  sleep 3
+  if [[ -n "$T212_ORDER_ID" ]]; then
+    OMS_STATE="$(curl -sS -m 5 "${CURL_AUTH[@]}" "${API_BASE}/api/oms/orders/${T212_ORDER_ID}" \
+      | python3 -c "import sys,json; print(json.load(sys.stdin).get('state','?'))" 2>/dev/null)"
+    if [[ "$OMS_STATE" == "FILLED" || "$OMS_STATE" == "REJECTED" || "$OMS_STATE" == "CANCELLED" ]]; then
+      T212_STATE="$OMS_STATE"
+      break
+    fi
+  fi
+done
+[[ "$T212_STATE" == "FILLED" ]] && ok "T212 order terminal state: FILLED" \
+  || fail "T212 order terminal state: ${T212_STATE:-still-pending} (expected FILLED)"
+
+# -------- 4. Summary --------
 step "SUMMARY"
 echo "  passed: $PASS"
 echo "  failed: $FAIL"
