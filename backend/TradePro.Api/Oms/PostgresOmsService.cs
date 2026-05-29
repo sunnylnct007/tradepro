@@ -102,6 +102,30 @@ public sealed class PostgresOmsService : IOmsService
             return (await GetAsync(existingId.Value))!;
         }
 
+        // In-flight dedupe — if a recent SUBMITTED or WORKING order
+        // exists for the same (broker, strategy, symbol, side) that
+        // could still fill, return THAT row instead of enqueueing a
+        // duplicate. Prevents double-execution when the strategy fires
+        // the same signal multiple times in close succession (kickstart
+        // -k spam in dev, scheduler races in prod). Window is bounded
+        // so a 12h-old SUBMITTED order doesn't block a fresh intent.
+        var inflightId = await conn.QueryFirstOrDefaultAsync<Guid?>(@"
+            SELECT id FROM oms_orders
+            WHERE state IN ('SUBMITTED', 'WORKING', 'PARTIALLY_FILLED')
+              AND broker = @Broker
+              AND strategy_id = @StrategyId
+              AND symbol = @Symbol
+              AND side = @Side
+              AND created_at_utc >= NOW() - INTERVAL '15 minutes'
+            ORDER BY created_at_utc DESC
+            LIMIT 1;",
+            intent, transaction: tx);
+        if (inflightId is not null)
+        {
+            await tx.CommitAsync();
+            return (await GetAsync(inflightId.Value))!;
+        }
+
         // Supersede: if a previous PENDING_APPROVAL order exists for
         // the same (broker, strategy_id, symbol, side) — i.e. the same
         // desired trade from an earlier algo run that never made it
