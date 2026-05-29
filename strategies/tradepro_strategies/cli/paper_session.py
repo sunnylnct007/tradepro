@@ -266,42 +266,102 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
     raise ValueError(f"Unknown strategy {strategy_name!r}")
 
 
-def _seed_strategy_positions_from_oms(strategy) -> None:
-    """Fetch current OMS-derived positions for this strategy and let
-    the strategy initialise its internal position state. Phase 2 of
-    task #28 — without this, every rerun computes from flat and
-    re-emits the same intents, doubling our exposure.
+def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> None:
+    """Fetch current positions FROM THE BROKER and seed the strategy.
+    Phase 2 of task #28 — without this, every rerun computes from flat
+    and re-emits the same intents, doubling our exposure.
+
+    Broker is the AUTHORITATIVE source — OMS-derived positions can drift
+    when fills are recorded without matching oms_fills rows (the
+    reconcile_from_broker case), or when broker-side activity happened
+    outside the system. The user explicitly asked: "ensure the position
+    is always sourced from source and not OMS as they might be out of
+    sync" (2026-05-29 ~11:25 UTC).
+
+    Routes by broker name:
+      - t212 → /api/integrations/trading212/positions?account=demo
+      - ig   → /api/integrations/ig/positions
 
     Best-effort: API unreachable, strategy without a `seed_positions`
-    hook, or any other failure → log and continue. The strategy keeps
-    its existing flat-start default.
+    hook, or any other failure → log and continue, strategy starts flat.
     """
     if not hasattr(strategy, "seed_positions"):
         return
+    log = logging.getLogger("tradepro.cli")
     try:
         import requests
         from . import push_to_api
         base, token = push_to_api.load_credentials()
-        url = f"{base.rstrip('/')}/api/oms/positions"
-        params = {"strategyId": strategy.strategy_id}
         headers = {"Authorization": f"Bearer {token}"} if token else {}
+        base = base.rstrip('/')
+
+        if broker == "t212":
+            url = f"{base}/api/integrations/trading212/positions?account=demo"
+            source = "t212-broker"
+        elif broker == "ig":
+            url = f"{base}/api/integrations/ig/positions"
+            source = "ig-broker"
+        else:
+            log.info("POSITION SEED: no broker positions endpoint for %r", broker)
+            return
+
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        rows = resp.json().get("positions") or []
+        positions: dict[str, int] = {}
+        for r in rows:
+            t = (r.get("ticker") or r.get("epic") or "").upper()
+            if not t:
+                continue
+            # Strip broker suffixes: AAPL_US_EQ → AAPL. IG epics
+            # (CS.D.EURUSD.MINI.IP) stay intact — the strategy's
+            # symbol universe matches those directly.
+            bare = (t.split("_", 1)[0] if not t.startswith("CS.D.") and not t.startswith("IX.D.") else t)
+            try:
+                qty = int(round(float(r.get("quantity") or 0)))
+            except (TypeError, ValueError):
+                continue
+            if qty != 0:
+                positions[bare] = positions.get(bare, 0) + qty
+
+        if positions:
+            log.info(
+                "POSITION SEED (%s): %s starting with %s",
+                source, strategy.strategy_id, positions,
+            )
+            strategy.seed_positions(positions)
+        else:
+            log.info(
+                "POSITION SEED: %s — no held positions found; starting flat",
+                strategy.strategy_id,
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("POSITION SEED failed (%s) — strategy starts flat", exc)
+
+
+def _fetch_oms_positions(url: str, params: dict, headers: dict) -> dict[str, int]:
+    """Helper: GET /api/oms/positions → {symbol: signed_int_qty}.
+    Returns {} on any failure or empty result."""
+    try:
+        import requests
         resp = requests.get(url, params=params, headers=headers, timeout=10)
         resp.raise_for_status()
         rows = resp.json().get("positions") or []
-        # Project to {symbol: signed_int_qty}. Strategy decides how to
-        # interpret (e.g. ichimoku_fx_mr stores signed unit counts).
-        positions = {r["symbol"]: int(round(float(r["quantity"]))) for r in rows}
-        if positions:
-            log = logging.getLogger("tradepro.cli")
-            log.info(
-                "OMS seed: %s starting with positions %s",
-                strategy.strategy_id, positions,
-            )
-            strategy.seed_positions(positions)
-    except Exception as exc:  # noqa: BLE001
-        logging.getLogger("tradepro.cli").warning(
-            "OMS position seed failed (%s) — strategy starts flat", exc,
-        )
+        out: dict[str, int] = {}
+        for r in rows:
+            sym = (r.get("symbol") or "").upper()
+            if not sym:
+                continue
+            bare = sym.split("_", 1)[0]
+            try:
+                qty = int(round(float(r.get("quantity") or 0)))
+            except (TypeError, ValueError):
+                continue
+            if qty != 0:
+                out[bare] = out.get(bare, 0) + qty
+        return out
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -390,7 +450,9 @@ def main(argv: list[str] | None = None) -> int:
     # strategy just falls back to flat-start behaviour (its existing
     # default). See task #28.
     if args.push:
-        _seed_strategy_positions_from_oms(strategy)
+        # Pass broker so the seed function knows which broker's
+        # /positions endpoint to fall back to when OMS comes back empty.
+        _seed_strategy_positions_from_oms(strategy, broker=broker_list[0])
 
     engine = Engine(bus=bus, router=router)
     engine.register_strategy(

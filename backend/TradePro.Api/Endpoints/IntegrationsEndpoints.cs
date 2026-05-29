@@ -92,6 +92,43 @@ public static class IntegrationsEndpoints
         // invested £500" before deciding to place an order. T212
         // Invest only — CFD (FX + leveraged) uses different endpoints
         // and is a follow-up task (#39 + cfd cash).
+
+        // GET /api/integrations/ig/positions — IG demo/live open
+        // positions. Authoritative source for the Mac strategy-seed
+        // path so paper-fx starts with the broker's real position
+        // counts, not the OMS-derived projection (which can drift).
+        app.MapGet("/integrations/ig/positions", async (
+            TradePro.Api.Providers.IG.IGClient ig,
+            CancellationToken ct) =>
+        {
+            if (!ig.IsEnabled)
+            {
+                return Results.Ok(new
+                {
+                    enabled = false,
+                    mode = "disabled",
+                    positions = Array.Empty<object>(),
+                });
+            }
+            var result = await ig.GetPositionsAsync(ct);
+            var rows = result.Positions.Select(p => new
+            {
+                ticker = p.Epic,                                  // IG epic
+                quantity = p.Direction == "SELL" ? -p.Size : p.Size,
+                averagePricePaid = (decimal?)p.EntryLevel,
+                instrumentName = p.InstrumentName,
+                dealId = p.DealId,
+            }).ToArray();
+            return Results.Ok(new
+            {
+                enabled = true,
+                mode = ig.BrokerLabel,
+                count = rows.Length,
+                positions = rows,
+                error = result.Error,
+            });
+        });
+
         // GET /api/integrations/cash-summary — cash across every
         // connected broker so the cockpit can render a single strip
         // (T212 demo · T212 live · IG demo · future IBKR …). Each

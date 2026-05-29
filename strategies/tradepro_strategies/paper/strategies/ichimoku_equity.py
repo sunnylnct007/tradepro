@@ -142,9 +142,7 @@ class IchimokuEquityStrategy(Strategy):
         # strategy knows what we ALREADY hold at the broker. Without
         # this, every session starts thinking it owns nothing → fires
         # BUY signals instead of HOLD/SELL on positions the broker
-        # actually has. The intraday daemon populates initial_positions
-        # by querying T212/IG before the strategy registers. Quantities
-        # are signed (positive long, negative short).
+        # actually has.
         p = self._p()
         initial = p.get("initial_positions") or {}
         if isinstance(initial, dict):
@@ -153,6 +151,23 @@ class IchimokuEquityStrategy(Strategy):
                     self._positions[sym] = int(qty)
                 except (TypeError, ValueError):
                     continue
+
+    def seed_positions(self, positions: dict[str, int]) -> None:
+        """Called by paper_session._seed_strategy_positions_from_oms
+        (Phase 2 of task #28). Pre-populates internal position state
+        so the strategy doesn't re-emit entries for symbols it already
+        holds. Symbols are bare tickers (AAPL); the daemon translates
+        broker suffixes (AAPL_US_EQ) before calling.
+
+        Mirrors ichimoku_fx_mr.seed_positions for consistency. Both
+        ways of seeding (this method + params.initial_positions) are
+        supported so callers can pick whichever is cleaner for them.
+        """
+        for sym, qty in positions.items():
+            try:
+                self._positions[sym] = int(qty)
+            except (TypeError, ValueError):
+                continue
 
     def on_bar(self, bar: Bar) -> list[Order]:
         p = self._p()
