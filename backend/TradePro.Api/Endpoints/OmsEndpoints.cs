@@ -78,22 +78,33 @@ public static class OmsEndpoints
             // lifetime. The widened window means a pre-order sentiment
             // score gets stitched in even if the LLM was called before
             // the enqueue.
+            // Symbol normalization for the LLM lookup — sentiment_score
+            // writes bare tickers (AAPL, EURUSD) but orders carry
+            // broker-formatted symbols (AAPL_US_EQ, CS.D.EURUSD.MINI.IP).
+            // Extract the bare token so signal-time evaluations are
+            // visible on the per-order audit panel even when the broker
+            // symbol differs from the LLM's symbol key.
+            var bareSymbol = NormaliseSymbolForLookup(order.Symbol);
             var llmEvals = (await Dapper.SqlMapper.QueryAsync(conn, @"
                 SELECT id, occurred_at_utc, purpose, llm_url, llm_model,
                        source_tag, latency_ms, decision, confidence,
                        reasoning, detail_json::text AS detail_json
                 FROM llm_evaluations
                 WHERE order_id = @orderId OR
-                      (strategy_id = @strategy AND symbol = @symbol AND
+                      (symbol IN (@symbol, @bareSymbol) AND
                        occurred_at_utc BETWEEN @startUtc AND @endUtc)
                 ORDER BY occurred_at_utc DESC
                 LIMIT 50;",
                 new
                 {
                     orderId,
-                    strategy = order.StrategyId,
                     symbol = order.Symbol,
-                    startUtc = order.CreatedAtUtc.AddSeconds(-60),
+                    bareSymbol,
+                    // Widen the time window so a sentiment score from
+                    // earlier in the day still shows for an order that
+                    // fires hours later — the signal-time eval IS the
+                    // context the order acts on.
+                    startUtc = order.CreatedAtUtc.AddHours(-24),
                     endUtc = order.LastStateChangeAtUtc.AddSeconds(60),
                 })).ToList();
 
@@ -419,6 +430,28 @@ public static class OmsEndpoints
         ctx.User?.Identity?.Name
         ?? ctx.Request.Headers["X-User"].FirstOrDefault()
         ?? "anonymous";
+
+    /// <summary>Strip broker-specific suffixes so cross-source symbol
+    /// joins work. AAPL_US_EQ → AAPL, CS.D.EURUSD.MINI.IP → EURUSD,
+    /// CS.D.GBPUSD.CFD.IP → GBPUSD. Bare tickers pass through unchanged.
+    /// Used by the per-order audit endpoint to match sentiment_score
+    /// LLM evaluations (bare-pair keys) to orders (broker-formatted
+    /// symbols).</summary>
+    private static string NormaliseSymbolForLookup(string sym)
+    {
+        if (string.IsNullOrWhiteSpace(sym)) return sym ?? "";
+        var s = sym.ToUpperInvariant();
+        // IG epic format: <market_class>.D.<pair>.<size>.IP
+        if (s.StartsWith("CS.D.") || s.StartsWith("IX.D."))
+        {
+            var parts = s.Split('.');
+            if (parts.Length >= 4) return parts[2];
+        }
+        // T212 suffixed: AAPL_US_EQ → AAPL
+        var underscoreAt = s.IndexOf('_');
+        if (underscoreAt > 0) return s[..underscoreAt];
+        return s;
+    }
 
     public sealed record ReasonBody(string Reason);
     public sealed record ModeBody(string Mode);
