@@ -467,6 +467,68 @@ export const api = {
     return resp.json();
   },
 
+  // Strategy → broker mapping (migration 021 / 024 / 025).
+  // GET returns the current table + valid brokers + the global default
+  // so the UI doesn't have to know the list of brokers from elsewhere.
+  // PUT upserts; DELETE removes the row (strategy falls back to the
+  // global default).
+  strategyBrokerMap: () =>
+    get<{
+      validBrokers: string[];
+      defaultBroker: string | null;
+      mappings: Array<{
+        strategy_id: string;
+        broker: string;
+        account_id: string | null;
+        note: string | null;
+        updated_at_utc: string;
+        updated_by: string;
+      }>;
+    }>("/api/admin/strategy-broker-map"),
+  updateStrategyBrokerMap: async (
+    strategyId: string,
+    body: { broker: string; accountId?: string | null; note?: string | null },
+  ) => {
+    const url = new URL(
+      `/api/admin/strategy-broker-map/${encodeURIComponent(strategyId)}`,
+      config.apiBaseUrl,
+    );
+    const resp = await fetch(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    return resp.json();
+  },
+  deleteStrategyBrokerMap: async (strategyId: string) => {
+    const url = new URL(
+      `/api/admin/strategy-broker-map/${encodeURIComponent(strategyId)}`,
+      config.apiBaseUrl,
+    );
+    const resp = await fetch(url, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    return resp.json();
+  },
+
+  // Paper-strategy catalog pushed by the Mac worker. Lets the UI
+  // enumerate every registered strategy (so the broker-mapping
+  // editor can show unmapped strategies alongside mapped ones).
+  paperStrategyCatalog: () =>
+    get<{
+      count: number;
+      strategies: Array<{
+        name: string;
+        class?: string;
+        default_params?: Record<string, unknown>;
+        caveats?: string[];
+        source?: string;
+      }>;
+    }>("/api/paper/strategies/"),
+
   // Symbol universes (Wikipedia-scraped, curated via overrides).
   // Worker pushes via tradepro-refresh-universes; trader picks from
   // these on the Trigger forms.

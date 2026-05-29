@@ -507,8 +507,145 @@ public static class AdminEndpoints
             }
         });
 
+        // ─── strategy_broker_map editor ────────────────────────────
+        // The strategy → broker mapping lives in `strategy_broker_map`
+        // (migration 021 + seeds in 024). TradePlanEndpoints.cs reads
+        // it at order-approval time so an UPDATE here changes routing
+        // for every subsequent order — handle with care.
+        //
+        // GET  /api/admin/strategy-broker-map  → full snapshot for UI
+        // PUT  /api/admin/strategy-broker-map/{strategy_id}  → upsert
+        // DELETE  /api/admin/strategy-broker-map/{strategy_id}
+        //   → drop the row so the strategy falls back to
+        //     app_settings_kv.default_broker (the "use global" action).
+        //
+        // The CHECK constraint in migration 025 guards the broker value
+        // at the DB layer too; the API just gives a friendlier error
+        // before the round-trip.
+
+        // The set the API will accept. Must match the CHECK constraint
+        // in migration 025 and the oms_orders.broker CHECK in 023 —
+        // if you add a broker, update all three in the same PR.
+        var validBrokers = new[]
+        {
+            "T212_DEMO", "T212_LIVE",
+            "IBKR_PAPER", "IBKR_LIVE",
+            "IG_DEMO", "IG_LIVE",
+            "PAPER",
+        };
+
+        g.MapGet("/strategy-broker-map", async (NpgsqlDataSource db) =>
+        {
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = await conn.QueryAsync(@"
+                SELECT strategy_id, broker, account_id, note,
+                       updated_at_utc, updated_by
+                FROM strategy_broker_map
+                ORDER BY strategy_id;");
+
+            // Best-effort default_broker lookup — it's a free-form
+            // setting in app_settings_kv; if absent we report null and
+            // the UI shows ""(unset)"".
+            var defaultBroker = await conn.ExecuteScalarAsync<string?>(@"
+                SELECT value #>> '{}'
+                FROM app_settings_kv
+                WHERE key = 'default_broker';");
+
+            return Results.Ok(new
+            {
+                validBrokers,
+                defaultBroker,
+                mappings = rows.AsList(),
+            });
+        });
+
+        g.MapPut("/strategy-broker-map/{strategy_id}", async (
+            string strategy_id,
+            StrategyBrokerMapPutBody body,
+            HttpContext ctx,
+            NpgsqlDataSource db) =>
+        {
+            if (string.IsNullOrWhiteSpace(strategy_id))
+                return Results.BadRequest(new { error = "strategy_id required in path" });
+            if (string.IsNullOrWhiteSpace(body.Broker))
+                return Results.BadRequest(new { error = "broker required in body" });
+            if (!validBrokers.Contains(body.Broker, StringComparer.OrdinalIgnoreCase))
+                return Results.BadRequest(new
+                {
+                    error = "invalid broker",
+                    detail = $"broker must be one of: {string.Join(", ", validBrokers)}",
+                });
+
+            var actor = ctx.User?.Identity?.Name ?? "ui";
+            var broker = body.Broker.ToUpperInvariant();
+            await using var conn = await db.OpenConnectionAsync();
+
+            // UPSERT — the migration seeds rows so most strategies
+            // exist already; an admin call may also be adding a brand
+            // new strategy. Both paths produce the same final state.
+            await conn.ExecuteAsync(@"
+                INSERT INTO strategy_broker_map
+                    (strategy_id, broker, account_id, note,
+                     updated_at_utc, updated_by)
+                VALUES
+                    (@strategy_id, @broker, @account_id, @note,
+                     NOW(), @actor)
+                ON CONFLICT (strategy_id) DO UPDATE
+                SET broker         = EXCLUDED.broker,
+                    account_id     = EXCLUDED.account_id,
+                    note           = EXCLUDED.note,
+                    updated_at_utc = NOW(),
+                    updated_by     = EXCLUDED.updated_by;",
+                new
+                {
+                    strategy_id,
+                    broker,
+                    account_id = string.IsNullOrWhiteSpace(body.AccountId)
+                        ? null : body.AccountId,
+                    note = string.IsNullOrWhiteSpace(body.Note)
+                        ? null : body.Note,
+                    actor,
+                });
+
+            // Round-trip the updated row so the UI can refresh without
+            // a follow-up GET.
+            var row = await conn.QuerySingleAsync(@"
+                SELECT strategy_id, broker, account_id, note,
+                       updated_at_utc, updated_by
+                FROM strategy_broker_map
+                WHERE strategy_id = @strategy_id;",
+                new { strategy_id });
+            return Results.Ok(new { row });
+        });
+
+        g.MapDelete("/strategy-broker-map/{strategy_id}", async (
+            string strategy_id,
+            HttpContext ctx,
+            NpgsqlDataSource db) =>
+        {
+            if (string.IsNullOrWhiteSpace(strategy_id))
+                return Results.BadRequest(new { error = "strategy_id required in path" });
+
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = await conn.ExecuteAsync(@"
+                DELETE FROM strategy_broker_map WHERE strategy_id = @strategy_id;",
+                new { strategy_id });
+            if (rows == 0)
+                return Results.NotFound(new
+                {
+                    error = $"no mapping for '{strategy_id}' — already on global default",
+                });
+            return Results.Ok(new { deleted = strategy_id });
+        });
+
         return app;
     }
+
+    public sealed record StrategyBrokerMapPutBody(
+        string Broker,
+        string? AccountId,
+        string? Note
+    );
 
     public sealed record T212SmokeOrderBody(
         string Ticker,

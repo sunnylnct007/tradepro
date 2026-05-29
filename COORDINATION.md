@@ -7,7 +7,7 @@ Read this before starting any work. Update when you start something new.
 
 ---
 
-## Current branch: feature/intraday-flat-broker-mapping  (laneB checkout)
+## Current branch: feature/broker-mapping-ui  (laneB checkout)
 
 Follow-up on the `intraday_flat` strategy (phase-1 shipped in PR #28 /
 commit `6f58920`). Adds overnight-leftover handling + 8 BDD scenarios
@@ -134,3 +134,13 @@ explicit integration point laneA opened.
   (introduced by laneA migration 021). Also documents the mapping
   table + resolution priority in STRATEGIES.md so traders / future
   strategies know how to pick a broker.
+- 2026-05-29 — Shipped: broker-mapping seed for `intraday_flat`
+  merged as PR #30 / commit `3b587d8`.
+- 2026-05-29 — Started: broker-mapping UI editor on
+  `feature/broker-mapping-ui` — full read/edit surface for
+  `strategy_broker_map`. Migration 025 adds CHECK constraint on
+  broker values; AdminEndpoints.cs gains GET/PUT/DELETE; new
+  StrategyBrokerMapSection.tsx component renders on Settings page
+  with effective-broker badge per row, resolution-priority callout,
+  per-row save, confirm prompts on broker flips. 22/22 .NET tests +
+  677/677 Python BDD green; frontend builds clean.
