@@ -4,6 +4,8 @@
 
 ✅ **IG end-to-end verified**: smoke order placed → IG deal ref `XANS77N3V7LTYSM` → IGOmsFillPoller flipped to FILLED in 20s. The full chain works: OMS → IGClient → IG → /confirms → fill recorded.
 
+✅ **paper-fx daemon now runs IG profile**: was crashing on every wake-up ("Unknown broker profile 'ig'"). Now builds a session, fetches FX bars, generates signals, and routes orders with broker=IG_DEMO. Last successful run completed for 10 G10 pairs. FX EPIC mapping baked in (EURUSD → CS.D.EURUSD.MINI.IP, etc.).
+
 ✅ **Strategies now position-aware**: intraday daemon fetches T212 demo positions before strategy registration. ichimoku_equity now starts knowing it owns 22 AAPL, 9 TSLA, etc. Next session run will evaluate "we already hold this" and can emit SELL instead of mechanically BUY-ing more.
 
 ✅ **Leaderboard reads paper sessions too**: SQL query widened from `kind='intraday'` to `kind IN ('intraday', 'paper_session')`. Combined with the result_summary shape fix, the leaderboard will populate from this morning's sessions.
@@ -31,7 +33,7 @@
 - **#66 Strategy charts panel** — investigation pending; result_summary unification may have fixed it as a side effect.
 - **#72 In-app news context panel** — the "had to ask Claude for TSLA news" gap. Roadmap.
 - **#73 Basic-auth password rotation** — `letmein123` was briefly public; you asked to handle this yourself. Heads-up.
-- **Python paper-engine IG broker** — `--broker ig` to `tradepro-paper` will still fail with "Unknown broker profile 'ig'". To run paper-fx through IG paper-mode you'd need a Python IGOrderRouter. Real strategy IG orders work via the `intraday_engine → OMS → ApproveAsync → IGClient` chain that the smoke test proved.
+- **Python paper-engine IG broker** — **DONE**. `--broker ig` profile added, T212OrderRouter reused with broker_label_override=IG_DEMO + FX epic mapping table. paper-fx daemon verified working.
 
 ## The architectural thing worth a conversation
 
@@ -43,6 +45,8 @@ You have **three daemon paths** on the Mac (paper-equity, paper-fx via tradepro-
 - `a6ab830` (now in `076415c`) — IG /markets search + smoke-order admin endpoint + LLM probe from settings_kv
 - `d933f7a` — extend oms_orders.broker CHECK constraint with IG_DEMO/IG_LIVE (was blocking IG enqueue)
 - `8e2fd47` — strategies position-aware (intraday_engine fetches T212 positions and pre-loads strategy state)
+- `9aee0a5` — FX strategy position-aware too (initial_positions wired to ichimoku_fx_mr) + this summary
+- `b9e6c0d` — IG paper broker profile + FX epic mapping + session_date default
 
 All shipped via GH Actions (build-push then redeploy). EC2 is running the latest images.
 
