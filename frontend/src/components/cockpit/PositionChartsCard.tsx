@@ -157,12 +157,12 @@ function PositionTile({
       </div>
       {expanded && tile.figure ? (
         <div style={{ marginTop: 6, height: 280 }} onClick={(e) => e.stopPropagation()}>
-          <PlotlyChart figure={tile.figure as Parameters<typeof PlotlyChart>[0]["figure"]} />
+          <PlotlyChart figure={withEntryMarker(tile.figure, tile.avgPrice, tile.qty) as Parameters<typeof PlotlyChart>[0]["figure"]} />
         </div>
       ) : null}
       {!expanded && tile.figure ? (
         <div style={{ marginTop: 6, height: 110, overflow: "hidden" }}>
-          <PlotlyChart figure={tile.figure as Parameters<typeof PlotlyChart>[0]["figure"]} />
+          <PlotlyChart figure={withEntryMarker(tile.figure, tile.avgPrice, tile.qty) as Parameters<typeof PlotlyChart>[0]["figure"]} />
         </div>
       ) : null}
       {!tile.figure && (
@@ -230,4 +230,51 @@ function fmt(n: number | null | undefined, digits = 2): string {
   return n.toLocaleString(undefined, {
     minimumFractionDigits: digits, maximumFractionDigits: digits,
   });
+}
+
+/**
+ * Mutate the figure (clone first) to overlay an "entry @ avg_price"
+ * horizontal line + annotation. Closes the "I can't tell where we
+ * bought relative to current price" gap (#83). Drawn on the primary
+ * yaxis since Ichimoku charts use the price axis.
+ */
+function withEntryMarker(
+  figure: unknown,
+  avgPrice: number | null,
+  qty: number,
+): unknown {
+  if (!figure || avgPrice == null || !isFinite(avgPrice) || avgPrice <= 0) return figure;
+  // Some snapshots wrap as { figure: {...} }; normalise.
+  const f = figure as Record<string, unknown>;
+  const inner = (Array.isArray(f.data) ? f : f.figure as Record<string, unknown>) ?? f;
+  if (!inner || !inner.layout) return figure;
+  const layout = { ...(inner.layout as Record<string, unknown>) };
+  const shapes = Array.isArray(layout.shapes) ? [...(layout.shapes as unknown[])] : [];
+  const annotations = Array.isArray(layout.annotations) ? [...(layout.annotations as unknown[])] : [];
+  const colour = qty > 0 ? "#1fc16b" : qty < 0 ? "#ef4444" : "var(--neutral)";
+  shapes.push({
+    type: "line",
+    xref: "paper",
+    yref: "y",
+    x0: 0, x1: 1,
+    y0: avgPrice, y1: avgPrice,
+    line: { color: colour, width: 1.5, dash: "dot" },
+    layer: "above",
+  });
+  annotations.push({
+    xref: "paper", yref: "y",
+    x: 0.02, y: avgPrice,
+    xanchor: "left", yanchor: "bottom",
+    text: `${qty > 0 ? "long" : "short"} ${Math.abs(qty)} @ ${avgPrice.toFixed(4)}`,
+    font: { size: 10, color: colour },
+    bgcolor: "rgba(0,0,0,0.35)",
+    showarrow: false,
+    bordercolor: colour,
+    borderwidth: 1,
+    borderpad: 2,
+  });
+  return {
+    ...inner,
+    layout: { ...layout, shapes, annotations },
+  };
 }

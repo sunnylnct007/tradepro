@@ -10,6 +10,7 @@ import { TodayOutcome } from "../components/cockpit/TodayOutcome";
 import { OrdersTable } from "../components/cockpit/OrdersTable";
 import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
 import { PositionChartsCard } from "../components/cockpit/PositionChartsCard";
+import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
@@ -329,6 +330,7 @@ export function TraderCockpit() {
     { id: "activity",    title: "Activity feed" },
     { id: "trade-cards",      title: "Trade cards" },
     { id: "position-charts",  title: "Position charts" },
+    { id: "live-signal",      title: "Live signal feed" },
     { id: "scan-grid",   title: "Symbol scan grid" },
     { id: "charts",      title: "Strategy charts" },
     { id: "lifecycle",   title: "Order lifecycle (Gantt)" },
@@ -710,6 +712,21 @@ export function TraderCockpit() {
           latestSessions={latestSessions}
           onHide={() => widgets.hide("scan-grid")}
         />
+      )}
+
+      {/* ── Live signal feed — chronological feed showing the
+              chain happening NOW: SIGNAL → ORDER → FILL. Closes the
+              "haven't seen a proper signal flowing yet" gap. */}
+      {v("live-signal") && (
+        <CockpitCard
+          id="live-signal"
+          title="Live signal feed — signal → order → fill"
+          defaultOpen={true}
+          fullWidth
+          onHide={() => widgets.hide("live-signal")}
+        >
+          <LiveSignalFeed />
+        </CockpitCard>
       )}
 
       {/* ── Position charts — held symbols overlaid with strategy
