@@ -253,6 +253,14 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "vol_target": args.target_vol,
                 "warmup_bars": args.warmup_bars,
             },
+            # FX trades both directions by design — pairs are symmetric
+            # (long EURUSD = short USDEUR). allow_short=True so the
+            # risk gate doesn't reject sell-to-flat-or-short orders the
+            # strategy emits when the cloud flips bearish.
+            risk=RiskLimits(
+                max_position_value_usd=args.max_position_value_usd,
+                allow_short=True,
+            ),
         )
 
     raise ValueError(f"Unknown strategy {strategy_name!r}")

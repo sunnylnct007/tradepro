@@ -191,16 +191,25 @@ class T212OrderRouter(OrderRouter):
             )
             return
 
-        # IG-via-override mode: when broker_label_override is set
-        # (e.g. "IG_DEMO"), route through OMS so .NET ApproveAsync
-        # can dispatch to IGClient.PlaceMarketOrderAsync. The router's
-        # T212 HTTP path is unsuitable here — IG epics aren't valid
-        # T212 tickers, and we never want a T212 call for an IG order.
-        if self.broker_label_override:
+        # Auto-mode: route EVERY order through /api/oms/orders so the
+        # OMS UI sees the trade, the audit trail captures it, and the
+        # .NET backend dispatches to the right broker (T212 demo client
+        # or IG client based on broker_label). Auto-approve happens
+        # inside _push_pending when placement_mode="auto" — instant
+        # OMS-to-broker dispatch with no human in the loop, AND a
+        # visible record. The old "auto → POST direct to T212" path
+        # was making real trades but leaving OMS blind.
+        #
+        # Special case: IG_DEMO via broker_label_override. Same OMS
+        # push, but the .NET side routes to IGClient instead of
+        # Trading212DemoClient based on the label.
+        if self.placement_mode == "auto":
             await self._push_pending(order, approval)
             log.info(
                 "%s AUTO-OMS · sid=%s · %s %s qty=%s tag=%s",
-                self.broker_label_override, order.strategy_id,
+                self.broker_label_override or
+                ("T212_DEMO" if self.mode == "demo" else "T212_LIVE"),
+                order.strategy_id,
                 order.side.value, order.symbol, order.quantity, order.tag,
             )
             return
