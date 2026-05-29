@@ -768,6 +768,57 @@ def step_target_anchored(context) -> None:
     )
 
 
+# ====================================================================== #
+# Section 9: Daemon wiring                                                #
+# ====================================================================== #
+
+
+@when('I import tradepro_strategies.paper.strategies')
+def step_import_strategies(context) -> None:
+    # The import-side-effect IS the test: importing the package runs
+    # `from .intraday_flat import IntradayFlatStrategy` which fires the
+    # @register_strategy decorator. If the import is missing, the
+    # registry lookup below fails.
+    import tradepro_strategies.paper.strategies as _strategies_pkg
+    context.strategies_pkg = _strategies_pkg
+
+
+@when("I import the intraday engine's default strategy list")
+def step_import_intraday_defaults(context) -> None:
+    from tradepro_strategies.cli.intraday_engine import (
+        _INTRADAY_DEFAULT_STRATEGY_NAMES,
+    )
+    context.intraday_default_names = list(_INTRADAY_DEFAULT_STRATEGY_NAMES)
+
+
+@then('the strategy "{name}" is registered in the global registry')
+def step_strategy_registered(context, name: str) -> None:
+    from tradepro_strategies.paper.registry import list_names
+    available = list_names()
+    assert name in available, (
+        f"{name!r} not in registry; available={sorted(available)}"
+    )
+
+
+@then('the strategy "{name}" can be built by name')
+def step_strategy_buildable(context, name: str) -> None:
+    from tradepro_strategies.paper.strategies import build
+    inst = build(name, strategy_id=f"{name}_test")
+    assert inst is not None
+    assert inst.strategy_id == f"{name}_test"
+
+
+@then('every name in the default list is in the registry')
+def step_defaults_all_registered(context) -> None:
+    from tradepro_strategies.paper.registry import list_names
+    available = set(list_names())
+    missing = [n for n in context.intraday_default_names if n not in available]
+    assert not missing, (
+        f"these default-list strategies aren't in the registry "
+        f"(import gap in paper/strategies/__init__.py?): {missing}"
+    )
+
+
 @given(
     'an IntradayFlatStrategy with locked basket "{csv}" '
     'and an ERRORING LLM gate'

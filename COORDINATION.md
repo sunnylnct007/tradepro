@@ -7,7 +7,7 @@ Read this before starting any work. Update when you start something new.
 
 ---
 
-## Current branch: feature/broker-mapping-ichimoku-t212  (laneB checkout)
+## Current branch: feature/intraday-flat-daemon  (laneB checkout)
 
 Follow-up on the `intraday_flat` strategy (phase-1 shipped in PR #28 /
 commit `6f58920`). Adds overnight-leftover handling + 8 BDD scenarios
@@ -152,3 +152,21 @@ explicit integration point laneA opened.
   always traded on T212 in reality; the 021 seed was aspirational).
   Operator-override-aware: WHERE broker = 'IG_DEMO' so a deliberate
   operator choice that moved it elsewhere is preserved.
+- 2026-05-29 — Shipped: ichimoku_equity correction merged as PR #32 /
+  commit `aad4831`.
+- 2026-05-29 — Started: intraday_flat daemon-wiring fix on
+  `feature/intraday-flat-daemon`. Root cause of "no trades from
+  intraday_flat": the strategy class was never imported in
+  `paper/strategies/__init__.py`, so `@register_strategy` never
+  fired and the intraday daemon's `available()` set didn't include
+  it. Also missing from the engine's `_INTRADAY_DEFAULT_STRATEGY_NAMES`
+  fallback list. Adds:
+  * import in `paper/strategies/__init__.py`
+  * intraday_flat in `_INTRADAY_DEFAULT_STRATEGY_NAMES`
+  * 2 new BDD scenarios guarding the registry coherence
+  * `tradepro-ig-populate-epics` CLI to pre-populate IG epics from
+    `/api/admin/ig/search` (without populated epics the scanner
+    still drops every candidate at `scanner-drop-no-epic`)
+  * Operator runbook in STRATEGIES.md covering: install daemon,
+    populate epics, smoke-test, kick daemon, watch logs.
+  679/679 BDD scenarios green (was 677; +2 new guards).

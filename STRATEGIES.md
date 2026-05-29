@@ -578,6 +578,73 @@ The scanner refuses any symbol whose epic is null or missing. There
 is no "best-effort route by ticker" fallback — the cost of a wrong
 listing dwarfs the cost of an obvious refusal.
 
+### Operator runbook — getting `intraday_flat` to actually trade
+
+Class-registered + DB-mapped is not enough — the daemon must be
+loaded and the IG epic map must be populated. Without those two
+operator steps, the strategy silently sits there logging
+`scanner-drop-no-epic` for every candidate every day.
+
+**1. Install the intraday daemon (one-time):**
+
+```bash
+bash strategies/scripts/install-launchd.sh --intraday
+```
+
+This loads `com.tradepro.intraday-engine.plist` into
+`~/Library/LaunchAgents/`. The plist runs `intraday-engine.sh` under
+launchd KeepAlive so the engine survives crashes / restarts. To
+confirm it's running:
+
+```bash
+launchctl list | grep tradepro.intraday
+```
+
+**2. Pre-populate the IG epic map (one-time per symbol):**
+
+```bash
+uv run tradepro-ig-populate-epics \
+    --api-base http://localhost:5252 \
+    --interactive    # default; --auto picks first equity match
+```
+
+This hits `/api/admin/ig/search?term=<symbol>` for every entry in
+`ig_epic_map.json` whose `epic` is still null, prints the IG matches,
+and lets the operator pick one. Use `--auto` if you trust the first
+equity-shaped match (fine for liquid US ETFs; verify manually for
+anything else).
+
+**3. Smoke-test one order end-to-end:**
+
+```bash
+curl -X POST http://localhost:5252/api/admin/ig/smoke-order \
+    -H 'content-type: application/json' \
+    -d '{"epic":"<the epic you just populated>","side":"BUY","size":1}'
+```
+
+A successful response with `state: FILLED` proves the OMS → IG
+chain works. If it fails, fix that before relying on the strategy.
+
+**4. Kick the daemon and watch:**
+
+```bash
+launchctl kickstart -k gui/$UID/com.tradepro.intraday-engine
+tail -F ~/.tradepro/logs/intraday-engine-$(date -u +%Y-%m-%d).log
+```
+
+The daemon polls `/api/ops/poll-intraday` for session claims. When a
+session opens, you'll see `basket-selected` in the decision trace, then
+`fire-buy` lines as the entry pipeline starts firing. If you see
+`scanner-drop-no-epic` repeatedly, the epic map isn't populated for that
+symbol — go back to step 2.
+
+**5. Daily review:**
+
+Settings page → "Strategy → broker routing" panel confirms
+`intraday_flat → IG_DEMO`. The orders + fills tables under
+`/api/admin/orders?strategy=intraday_flat` show every emission.
+`/api/admin/oms-events?strategy=intraday_flat` shows state transitions.
+
 **Caveats** (also surfaced in the UI banner):
 
 - Basket is **locked at session_start** — no intraday re-ranking, so
