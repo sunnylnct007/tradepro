@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import math
+
 import requests
 
 from ..cache import ensure_cached
@@ -176,6 +178,20 @@ def build_payload(
             for d in ltp.decisions
         ],
     }
+
+
+def _sanitise(obj: Any) -> Any:
+    """Walk a nested structure replacing NaN / Inf floats with None
+    so json.dumps doesn't refuse to serialise. np.std() etc. can
+    emit NaN when a window contains no variance; we'd rather ship
+    null than fail the whole push."""
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitise(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitise(v) for v in obj]
+    return obj
 
 
 def _resolve_creds() -> tuple[str | None, str | None]:
@@ -336,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  ... + {len(long_decisions) - 25} more")
 
     if args.push:
-        rc = _push(payload)
+        rc = _push(_sanitise(payload))
         if rc != 0:
             return rc
 

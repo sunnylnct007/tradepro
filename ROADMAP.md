@@ -340,6 +340,151 @@ switch hook, no fill-by-fill reconciliation, no broker_request_id idempotency.
 Tracks meaningful work that's already in `main` so this doc stops drifting
 out of date. Each entry is one line: what changed and why it mattered.
 
+**2026-05-28 → 2026-05-29 — Trader-trust + OMS hygiene marathon:**
+
+The visible "I can't trust this thing to trade for me" problems all
+landed in one stretch — strategy → broker → fill chain is now proven
+working end-to-end for both equity (T212 demo) and FX (IG demo).
+
+**The architectural unlock — broker is the golden source.** Locked in
+memory ([project_broker_is_golden_source]). OMS is for audit /
+reporting only; never trusted as truth for position decisions. Every
+position-aware call now queries the broker's `/positions` endpoint
+first (T212 `/equity/positions`, new IG `/api/integrations/ig/positions`).
+
+**Position-awareness — the NVDA SELL story.** Strategy was firing
+mechanical BUY signals on held longs and rejecting legitimate SELL
+exits as "short_disallowed". Two-level fix:
+- `paper_session._seed_strategy_positions_from_oms` queries broker,
+  passes to `strategy.seed_positions()` AND `engine.ledger.seed_positions()`.
+- Base `Strategy.seed_positions` now populates `self.positions` (the
+  canonical dict the risk gate reads) — subclasses call `super()`.
+- Fractional broker qty truncated toward zero (T212 holds 6.7022 NVDA →
+  strategy sees 6, never tries to sell more than owned).
+- Verified live: NVDA SELL 6 → T212 position dropped 6.7022 → 0.7022.
+
+**IG end-to-end proven.** `IGClient.SearchMarketsAsync` + admin
+`/ig/smoke-order` + `IGOmsFillPoller` (clones T212 pattern but talks
+`/confirms/{dealRef}`) + mini-lot conversion (1 mini = 10K base units,
+qty rounded to 1 decimal). FX cap raised $10K → $100K (mini lots are
+larger than equity shares). Verified: `ichimoku_fx_mr SELL 0.9 EURUSD
+MINI → FILLED at IG_DEMO` on a real strategy firing.
+
+**E2E smoke test.** `strategies/scripts/smoke-e2e-paper-trading.sh`
+exercises both broker chains in <90s — preflight, IG enqueue, IG
+fill, IG audit, T212 enqueue, T212 broker-order-id, T212 hours-aware
+terminal state. 8/8 GREEN. Run before claiming any chain "fixed".
+
+**OMS hygiene.** Multiple fixes that turn OMS from "noisy and lies"
+into "audit-trustworthy":
+- T212 fill poller: 404-on-hot-cache now assumes FILLED (empirically:
+  broker_order_id only issues post-acceptance). Heal endpoint flipped
+  58 historical false-cancellations to FILLED → state histogram
+  93 FILLED · 265 CANCELLED · 4 REJECTED (was 35 FILLED with many
+  orphans before the heal).
+- In-flight dedupe in `PostgresOmsService.EnqueueAsync` — same
+  (broker, strategy, symbol, side) with non-terminal status in 15 min
+  returns existing row instead of new (kickstart-spam 15 → 1 row).
+- `oms_orders.broker` CHECK constraint extended with IG_DEMO/IG_LIVE
+  (was rejecting IG enqueues at migration boundary).
+- Universal OMS path: T212OrderRouter auto-mode now routes through
+  `/api/oms/orders` instead of T212 direct call, so OMS sees every
+  trade (`broker_label_override` for the IG paper profile).
+- Order-tied + standalone LLM evaluations endpoint (#63 wired —
+  sentiment_score CLI posts to `/api/llm-evaluations` every call).
+- `RiskMonitorService` auto-sweeps stale PENDING_APPROVAL >2h with
+  reason `stale_pending_auto_clean` so OMS never holds forgotten
+  intents that re-execute when conditions changed.
+
+**Connectivity / settings infrastructure:**
+- AWS Secrets Manager bundle fetch fixed (was eu-north-1 default,
+  needed eu-west-2). `tradepro/ig` secret loaded independently of the
+  primary `tradepro/all` bundle. Linux EC2 IMDS hop limit bumped to 2.
+- `PostgresOmsModeService` replaces the in-memory impl so OMS mode
+  (Auto / Manual) survives container restarts — was silently reverting
+  to Manual on every redeploy.
+- LLM probe reads `llm_url` + `llm_model` from `app_settings_kv`
+  directly (operator-tunable) and renders as `disabled` with note
+  "runs on Mac worker, unreachable from EC2 by design" when the URL
+  is a localhost/internal address. Stops false-down alarms.
+- `/health/integrations` extended with IG status + DB latency + T212
+  demo cash probe.
+
+**Cockpit surfaces** (the "visual legitimacy check" set):
+- `BrokerCashStrip` — every broker's free / total in one row.
+- `ConnectivityPanel` — at-a-glance broker / LLM / DB status.
+- `PositionChartsCard` — top 5 held positions overlaid with strategy's
+  Ichimoku cloud charts. Entry markers (avg_price horizontal line +
+  "long N @ X" annotation) so the trader sees where we bought
+  relative to trend / cloud / indicators.
+- `LiveSignalFeed` — chronological feed showing SIGNAL → ORDER →
+  FILL events in real time (10s poll). Closes "I haven't seen a
+  proper signal flowing yet" gap.
+- `NewsContextPanel` on Symbol Deep Dive — rolling LLM sentiment
+  scores per symbol with rationale; closes the "had to ask Claude
+  separately for the TSLA news picture" gap.
+
+**OMS / audit surfaces:**
+- Per-order **audit chain** on `/oms` — state transitions + RiskGate
+  decisions + LLM evaluations + **symbol chart inline** (Ichimoku
+  cloud fetched from today's snapshot, bare-ticker normalised across
+  T212 `_US_EQ` and IG `CS.D.X.MINI.IP` formats).
+- Cockpit banner truthful — counts PENDING_APPROVAL as today's
+  signals; excludes administrative `reconcile_from_broker` /
+  `_monitor` rows from "fills today".
+- OMS default-hide noise cancellations (`superseded by newer order`,
+  `unapprovable_pending_gates_block`, `broker_not_found_assume_terminal`)
+  with toggle pill.
+- Signal-coherence guard — frontend refuses to display BUY when
+  market_state says WAIT/AVOID. New `apply_swing_strict_demotion` rule
+  for medium-long-term holds catches "TSLA squeaks through" cases.
+- Per-horizon BUY/WAIT/AVOID pills on Symbol Deep Dive (existing
+  HorizonPills wired into the drill-down).
+
+**Daemon schedules** (continuous operation, not once-per-day):
+- `com.tradepro.paper-fx` — every 15 min, `--broker ig --strategy
+  ichimoku_fx_mr --max-position-value-usd 100000 --lookback-days 14
+  --placement-mode auto`.
+- `com.tradepro.paper-equity` — every 15 min, US universe + UK
+  FTSE100 majors, `--placement-mode auto`. Fills only during
+  13:30-20:00 UTC (T212 queues outside hours, smoke test is
+  hours-aware).
+- `com.tradepro.sentiment` — every 4h, `tradepro-sentiment-score`
+  on held positions ∪ algo universe so the news context panel + LLM
+  gate are continuously fresh.
+- `com.tradepro.paper-watch` — intraday engine (existing schedule).
+- All plists checked-in under `docs/launchd/` for cross-Mac sync.
+
+**Memory locks** (rules the next session inherits):
+- [project_broker_is_golden_source] — never trust OMS for
+  position-aware decisions; query broker `/positions` directly.
+- [feedback_no_approval_prompts_ever] — never ask "should I proceed"
+  for in-flight TradePro work; just execute.
+- [feedback_repo_public_secrets_aws_only] — repo flipped public
+  2026-05-28 (GH Actions billing); secrets stay in AWS Secrets
+  Manager only.
+
+**Carrying over (next priorities):**
+- 🔄 **Strategy P&L attribution dashboard** — per-strategy realised
+  + unrealised so the trader can see which strategy is actually
+  making money. Existing per-strategy book in `Ledger.StrategyBook`
+  has the data; needs a cockpit surface that aggregates across
+  brokers + days.
+- 🔄 **Drift detection panel** — periodic OMS-vs-broker position
+  comparison, surface discrepancies prominently (broker wins always,
+  but the operator should SEE the gap before reconciling).
+- 🔄 **Basic-auth password rotation** (Task #73, operator's task) —
+  `letmein123` was briefly public; rotate via htpasswd on EC2.
+- 🔄 **News + earnings calendar productisation** — Finnhub key
+  already wired; surface upcoming earnings + recent headlines as a
+  cockpit card per held symbol.
+- 🔄 **Phase 2 portfolio-aware engine** — buy more / hold / trim per
+  holding, horizon-weighted strategy mix. Foundations now in place
+  (position-aware seed + engine ledger sync); the rest is the
+  decision logic.
+
+---
+
 **Week of 2026-05-25 — Track 2 Core Portfolio complete + Symbol Analysis Card:**
 
 - ✅ **Track 2 — Core Portfolio (Compounder) mode**. All 7 fundamentals
