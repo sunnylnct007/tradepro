@@ -390,14 +390,26 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc).isoformat()
     for sym in symbols:
         news = _fetch_news_for_symbol(sym, hours=args.hours)
+        t0 = datetime.now(timezone.utc)
         if news:
             res = _call_llm(sym, news, llm_url, llm_model)
             if res is None:
                 res = _mock_score(sym, news)
                 fell_back += 1
+                decision = "ERROR"  # LLM unreachable, fell to keyword mock
+            else:
+                # Map sentiment classification → audit decision.
+                # The standalone /api/llm-evaluations endpoint accepts
+                # APPROVE / REJECT / ADVISE / ERROR. Sentiment is
+                # advisory (it scores news; it doesn't approve orders
+                # by itself), so ADVISE — the LLM-as-approver hook
+                # will use APPROVE/REJECT when wired separately.
+                decision = "ADVISE"
         else:
             res = {"classification": "neutral", "score": 0.0,
                    "rationale": "no recent news"}
+            decision = "ADVISE"
+        latency_ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
         scored.append({
             "symbol": sym,
             "source": llm_source,
@@ -407,6 +419,29 @@ def main(argv: list[str] | None = None) -> int:
             "rationale": res.get("rationale"),
             "scored_at_utc": now,
         })
+        # Mirror every LLM call into the audit log so the per-order
+        # /audit panel can answer "what did the LLM say about this
+        # symbol around this time?" — task #63. Best-effort, never
+        # blocks the strategy or sentiment push.
+        _push_llm_eval(
+            base, token,
+            symbol=sym,
+            prompt=f"sentiment_score({sym}, hours={args.hours}, n_articles={len(news)})",
+            response_raw=json.dumps(res),
+            decision=decision,
+            confidence=abs(float(res.get("score") or 0.0)),
+            reasoning=res.get("rationale") or f"classification={res.get('classification')}",
+            llm_url=llm_url,
+            llm_model=llm_model,
+            source_tag=llm_source,
+            latency_ms=latency_ms,
+            detail={
+                "classification": res.get("classification"),
+                "score": res.get("score"),
+                "n_articles": len(news),
+                "hours_window": args.hours,
+            },
+        )
 
     print("\n=== SENTIMENT SCORES ===")
     print(f"  symbols    : {len(scored)}")
