@@ -7,7 +7,7 @@ Read this before starting any work. Update when you start something new.
 
 ---
 
-## Current branch: feature/broker-mapping-ui  (laneB checkout)
+## Current branch: feature/broker-mapping-ichimoku-t212  (laneB checkout)
 
 Follow-up on the `intraday_flat` strategy (phase-1 shipped in PR #28 /
 commit `6f58920`). Adds overnight-leftover handling + 8 BDD scenarios
@@ -144,3 +144,11 @@ explicit integration point laneA opened.
   with effective-broker badge per row, resolution-priority callout,
   per-row save, confirm prompts on broker flips. 22/22 .NET tests +
   677/677 Python BDD green; frontend builds clean.
+- 2026-05-29 — Shipped: broker-mapping UI editor merged as PR #31 /
+  commit `fb3336c`.
+- 2026-05-29 — Started: ichimoku_equity correction on
+  `feature/broker-mapping-ichimoku-t212` — migration 026 flips the
+  021 seed value from IG_DEMO to T212_DEMO (the equity sleeve has
+  always traded on T212 in reality; the 021 seed was aspirational).
+  Operator-override-aware: WHERE broker = 'IG_DEMO' so a deliberate
+  operator choice that moved it elsewhere is preserved.
