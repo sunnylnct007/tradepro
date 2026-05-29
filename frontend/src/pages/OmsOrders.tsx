@@ -669,6 +669,10 @@ function AuditChain({
         </span>
       </div>
 
+      <AuditSection title="Symbol chart (visual legitimacy check)">
+        <SymbolChartSection orderSymbol={audit.order.symbol} />
+      </AuditSection>
+
       <AuditSection title="State transitions">
         {audit.events.length === 0
           ? <Empty>No state changes recorded.</Empty>
@@ -761,6 +765,81 @@ function AuditSection({ title, children }: { title: string; children: React.Reac
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{children}</span>;
+}
+
+/**
+ * SymbolChartSection — for each audit panel, fetch today's paper
+ * snapshots and find the chart for the order's symbol. Renders the
+ * Plotly figure so the trader can visually verify the legitimacy
+ * of the order (price + Ichimoku cloud + indicators + where we are
+ * on the trend). Closes the "we should see the chart not just the
+ * numbers" gap raised on the OMS page.
+ */
+function SymbolChartSection({ orderSymbol }: { orderSymbol: string }) {
+  const [figure, setFigure] = React.useState<unknown | null>(null);
+  const [state, setState] = React.useState<"loading" | "ok" | "none" | "error">("loading");
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const bare = bareSymbolForChart(orderSymbol);
+        const snapshots = await api.paperSnapshots();
+        const today = new Date().toISOString().slice(0, 10);
+        // Search today's snapshots for a chart matching this symbol.
+        // Charts are keyed "ichimoku_cloud:AAPL" or similar.
+        for (const snap of snapshots) {
+          if (!snap.sessionLabel.endsWith(today)) continue;
+          const detail = await api.paperSnapshot(snap.sessionLabel) as
+            { strategies?: Array<{ charts?: Record<string, unknown> }> };
+          for (const st of detail.strategies ?? []) {
+            for (const [name, fig] of Object.entries(st.charts ?? {})) {
+              const idx = name.indexOf(":");
+              const sym = idx > 0 ? name.slice(idx + 1).toUpperCase() : name.toUpperCase();
+              if (sym === bare) {
+                if (!cancelled) {
+                  setFigure(fig);
+                  setState("ok");
+                }
+                return;
+              }
+            }
+          }
+        }
+        if (!cancelled) setState("none");
+      } catch {
+        if (!cancelled) setState("error");
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [orderSymbol]);
+
+  if (state === "loading") return <Empty>Loading chart for {orderSymbol}…</Empty>;
+  if (state === "error") return <Empty>Failed to fetch chart.</Empty>;
+  if (state === "none") return (
+    <Empty>
+      No strategy chart available for {orderSymbol} today. Either the
+      strategy hasn't run yet or this symbol isn't in its universe.
+    </Empty>
+  );
+  return (
+    <div style={{ height: 280, width: "100%" }}>
+      <PlotlyChart figure={figure as Parameters<typeof PlotlyChart>[0]["figure"]} />
+    </div>
+  );
+}
+
+function bareSymbolForChart(symbol: string): string {
+  // Strip broker suffixes so we join on the bare ticker:
+  //   AAPL_US_EQ → AAPL
+  //   CS.D.EURUSD.MINI.IP → EURUSD
+  if (symbol.startsWith("CS.D.") || symbol.startsWith("IX.D.")) {
+    const parts = symbol.split(".");
+    if (parts.length >= 4) return parts[2].toUpperCase();
+  }
+  const u = symbol.indexOf("_");
+  return u > 0 ? symbol.slice(0, u).toUpperCase() : symbol.toUpperCase();
 }
 
 function llmDecisionColour(d: string): string {
