@@ -7,11 +7,12 @@ Read this before starting any work. Update when you start something new.
 
 ---
 
-## Current branch: feature/intraday-flat  (laneB checkout)
+## Current branch: feature/intraday-flat-followup  (laneB checkout)
 
-Phase 1 of the `intraday_flat` strategy: the strategy file itself, BDD
-scenarios, trader operating notes in STRATEGIES.md. Built on top of
-the phase-0 plumbing already on `main` (commit `076415c`).
+Follow-up on the `intraday_flat` strategy (phase-1 shipped in PR #28 /
+commit `6f58920`). Adds overnight-leftover handling + 8 BDD scenarios
+that fill gaps surfaced by the laneA position-aware-session-start work
+(commits `8e2fd47` + `87a1258`).
 
 This lane runs in the dedicated `tradepro-laneB/` checkout so it cannot
 collide with whatever the `tradepro/` checkout is doing.
@@ -20,27 +21,43 @@ collide with whatever the `tradepro/` checkout is doing.
 
 ## Active work
 
-**Lane B: phase-1 strategy file for `intraday_flat`** — the actual
-intraday EOD-flat strategy that uses the phase-0 plumbing already on
-main. Long-only, scanner-derived basket, LLM-gated entries, ATR-anchored
-stops, three-layer EOD flatten defense, full decision-log audit at
-every gate.
+**Lane B: intraday_flat follow-up** — bring intraday_flat in line with
+the `seed_positions()` + `params.initial_positions` contract that
+laneA introduced for ichimoku_equity. For an EOD-flat strategy, a
+seeded position means the prior session's flatten failed — log a clear
+alert and force-flatten on the first in-window bar. Also fills 7 other
+test-coverage gaps surfaced from the full BDD audit:
 
-Files touched on `feature/intraday-flat` in `tradepro-laneB/`:
+- `seed_positions()` direct call + `alert-overnight-leftover` logging
+- `params.initial_positions` handled in `on_session_start`
+- Overnight leftover flattened on first in-window bar (`OVERNIGHT-LEFTOVER` tag)
+- Off-basket leftover still flattens (off-basket guard updated for
+  held positions)
+- In-flight guard blocks duplicate emits before the fill lands
+- Max-positions cap blocks new entries
+- `on_fill` re-anchors stop/target to the actual fill price (not bar.close)
+- LLM gate that raises is fail-open APPROVED (and the order tag handles
+  the gate_decision=None case explicitly — a real bug found by the test)
+
+Files touched on `feature/intraday-flat-followup` in `tradepro-laneB/`:
 
 - `strategies/tradepro_strategies/paper/strategies/intraday_flat.py` —
-  the `IntradayFlatStrategy` class. Registered as `intraday_flat`.
-- `strategies/features/intraday_flat.feature` — 16 BDD scenarios
-  covering scanner, entry pipeline, LLM gate, position management,
-  EOD flatten. All green; no regressions in `paper_quant_strategies`.
+  `seed_positions()` method, `initial_positions` handling, overnight
+  leftover force-flatten path, gate_decision=None tag fix, caveat
+  entry for leftover behaviour.
+- `strategies/features/intraday_flat.feature` — 8 new scenarios in
+  Sections 6, 7, 8.
 - `strategies/features/steps/intraday_flat_steps.py` — step impls.
-- `STRATEGIES.md` — new "Intraday EOD-Flat with daily-Ichimoku basket"
-  subsection under Layer 2.
 - `COORDINATION.md` — this entry.
 
-Lane A (separate checkout `tradepro/`) at the same time was extending
-the IG backend (`/api/admin/ig/search`, `/api/admin/ig/smoke-order`)
-and bundled the phase-0 Python plumbing into commit `076415c`.
+Test status: **24 / 24 intraday_flat** scenarios green;
+**677 / 677 repo scenarios green**.
+
+Lane A (separate checkout `tradepro/`) shipped a busy stretch between
+`076415c` and `ddbbda8` — IG broker profile, FX epic mapping, position
+seeding from broker, OMS-vs-broker truthfulness, T212 smoke order.
+Nothing in this follow-up PR conflicts; the seed_positions hook is the
+explicit integration point laneA opened.
 
 ---
 
@@ -103,3 +120,9 @@ and bundled the phase-0 Python plumbing into commit `076415c`.
   `tradepro-laneB/` on `feature/intraday-flat`. Full strategy class +
   16 BDD scenarios green + STRATEGIES.md operating notes. Built on
   top of phase-0 plumbing from main.
+- 2026-05-29 — Shipped: `intraday_flat` phase-1 merged as PR #28 /
+  commit `6f58920`.
+- 2026-05-29 — Started: `intraday_flat` follow-up on
+  `feature/intraday-flat-followup` — overnight-leftover handling
+  (seed_positions + initial_positions) + 8 new BDD scenarios filling
+  test coverage gaps. 24/24 intraday_flat green; 677/677 repo green.

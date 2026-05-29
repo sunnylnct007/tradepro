@@ -133,6 +133,11 @@ class IntradayFlatStrategy(Strategy):
         "set LLMGateConfig.fail_open = False.",
         "Daily signal + ATR come from the on-disk cache (yfinance by "
         "default). Stale cache = stale basket.",
+        "Overnight leftovers (positions seeded from the broker that "
+        "the prior session's flatten missed) are flagged with "
+        "`alert-overnight-leftover` and flattened on the first "
+        "in-window bar. The strategy doesn't fabricate a stop/target "
+        "for them since the original entry thesis is lost.",
     ]
 
     # ── Internal session state (NOT in default_params) ───────────────
@@ -257,9 +262,25 @@ class IntradayFlatStrategy(Strategy):
         self._basket_meta.clear()
         self._entries_today.clear()
         self._flatten_emitted.clear()
-        # Existing position state is preserved across session_start
-        # because the engine seeds positions on warm start; only the
-        # PER-DAY guards reset.
+
+        # Pre-load positions from params.initial_positions if the daemon
+        # provided them. For an EOD-flat strategy any seeded position is
+        # an OVERNIGHT LEFTOVER — the prior session's flatten did not
+        # close it. The strategy didn't choose this position, so it has
+        # no recorded stop/target/open_time; safest behaviour is to log
+        # a clear alert + flatten on the first bar that reaches us in
+        # the entry window (and certainly on every EOD bar after that).
+        # See `seed_positions()` for the equivalent direct-call entry
+        # point used by paper_session._seed_strategy_positions_from_oms.
+        initial = p.get("initial_positions") or {}
+        if isinstance(initial, dict):
+            for sym, qty in initial.items():
+                try:
+                    qty_int = int(qty)
+                except (TypeError, ValueError):
+                    continue
+                if qty_int != 0:
+                    self._seed_overnight_leftover(sym, qty_int, session_date)
 
         candidates = list(p.get("candidates", []))
         if not candidates:
@@ -435,6 +456,10 @@ class IntradayFlatStrategy(Strategy):
         # Don't pollute the decision trace with one entry per
         # off-basket bar — that's pure noise. Matches the
         # ichimoku_equity off-universe pattern.
+        #
+        # Off-basket bars for a held position DO fall through so we
+        # can flatten an overnight leftover even if that name didn't
+        # make today's basket.
         if bar.symbol not in self._basket and self.position_for(bar.symbol).is_flat:
             return []
 
@@ -619,11 +644,17 @@ class IntradayFlatStrategy(Strategy):
         stop_estimate = entry_estimate - stop_distance
         target_estimate = entry_estimate + target_atr_mult * atr_val
 
-        gate_tag = (
-            f"llm={gate_decision.action}@{gate_decision.sentiment_score:+.2f}"
-            if gate_decision is not None and gate_decision.sentiment_score is not None
-            else "llm=NONE" if self._gate is None else f"llm={gate_decision.action}"
-        )
+        # Order tag's LLM segment — covers all four cases explicitly so
+        # a gate-raised-and-was-caught path (gate_decision=None but
+        # self._gate set) doesn't crash on a None.action access.
+        if self._gate is None:
+            gate_tag = "llm=NONE"
+        elif gate_decision is None:
+            gate_tag = "llm=ERROR-FAIL-OPEN"
+        elif gate_decision.sentiment_score is not None:
+            gate_tag = f"llm={gate_decision.action}@{gate_decision.sentiment_score:+.2f}"
+        else:
+            gate_tag = f"llm={gate_decision.action}"
         tag = (
             f"intraday_flat ENTRY {bar.symbol} "
             f"strength={strength:+.2f} "
@@ -668,6 +699,59 @@ class IntradayFlatStrategy(Strategy):
         self.mark_order_in_flight(bar.symbol)
         self._entries_today.add(bar.symbol)
         return [order]
+
+    def seed_positions(self, positions: dict[str, int]) -> None:  # type: ignore[override]
+        """Called by paper_session._seed_strategy_positions_from_oms
+        with the broker's authoritative position state right after
+        on_session_start.
+
+        For an EOD-flat strategy any seeded position is an OVERNIGHT
+        LEFTOVER — the prior session's flatten failed to close it.
+        Mirrors `params.initial_positions` handling in on_session_start
+        (both entry points are supported because paper_session uses
+        seed_positions while the intraday daemon uses initial_positions).
+
+        Symbols are bare tickers ("AAPL"); the daemon translates broker
+        suffixes (AAPL_US_EQ → AAPL) before calling. Quantities are
+        signed (positive long, negative short)."""
+        now = datetime.now(timezone.utc)
+        for sym, qty in positions.items():
+            try:
+                qty_int = int(qty)
+            except (TypeError, ValueError):
+                continue
+            if qty_int == 0:
+                continue
+            # If the position is already known (e.g. a re-seed mid-session
+            # from a reconciliation step), update without re-logging the
+            # alert — we'd already have flagged it on the first seed.
+            existing = self.positions.get(sym)
+            if existing is not None and existing.quantity == qty_int:
+                continue
+            self._seed_overnight_leftover(sym, qty_int, now)
+
+    def _seed_overnight_leftover(
+        self, sym: str, qty: int, ts: datetime,
+    ) -> None:
+        """Record a position the strategy did not open this session.
+        Sets the engine-visible Position so on_bar's manage path
+        catches it, deliberately leaves stop/target/open_at unset so
+        `_manage_open_position` treats it as a leftover (flatten on
+        first in-window bar, no fabricated stop levels)."""
+        pos = self.position_for(sym)
+        pos.quantity = qty
+        # avg_entry_price unknown; leave at 0 so any unrealised_pnl
+        # math reads as a sentinel rather than pretending we know.
+        self.log_decision(
+            symbol=sym, bar_ts=ts,
+            action="alert-overnight-leftover",
+            reason=(
+                f"seeded {qty} shares from broker — prior session's "
+                f"flatten did not close this. Will flatten on the next "
+                f"in-window bar (and on every EOD bar)."
+            ),
+            quantity=qty,
+        )
 
     def on_fill(self, fill: Fill) -> None:  # type: ignore[override]
         """Engine has already updated `positions[symbol]`. We use the
@@ -799,6 +883,28 @@ class IntradayFlatStrategy(Strategy):
         target_px = self._position_target.get(sym)
         open_at = self._position_open_at.get(sym)
         entry_px = self._position_entry_price.get(sym)
+
+        # Overnight-leftover guard. A position with NO stop, NO target,
+        # AND NO open_at recorded was not entered by this strategy
+        # this session — it was seeded from the broker (a prior session's
+        # flatten failed). We didn't choose this position so we have
+        # no thesis to ride out: flatten it on the first bar that
+        # reaches us in the entry window (or any time in the EOD
+        # window, handled in _build_eod_flatten_orders).
+        is_overnight_leftover = (
+            stop_px is None and target_px is None and open_at is None
+        )
+        if is_overnight_leftover and self._is_in_entry_window(bar, p):
+            return self._market_close(
+                bar, pos,
+                reason_tag="OVERNIGHT-LEFTOVER",
+                detail=(
+                    f"flattening {pos.quantity} shares seeded from broker "
+                    f"(prior session's flatten did not close); "
+                    f"bar.close={bar.close:.4f}"
+                ),
+                action_log="fire-overnight-leftover-flatten",
+            )
 
         # If on_fill never ran (warm reload?) we still flatten on EOD
         # but skip the price-level checks rather than fabricate them.

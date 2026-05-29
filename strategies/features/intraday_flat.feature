@@ -140,3 +140,74 @@ Feature: IntradayFlatStrategy — explainable, risk-averse, EOD-flat
     When I call on_session_end without flattening first
     Then an "alert-eod-leftovers" decision is logged for "_session"
     And a "session-summary" decision is logged for "_session"
+
+  # ────────────────────────────────────────────────────────────────── #
+  # Section 6: Overnight leftovers (broker-seeded positions)            #
+  # ────────────────────────────────────────────────────────────────── #
+  # A position the strategy did not open this session is treated as a
+  # leftover from a prior session whose EOD flatten failed. We log a
+  # clear alert and flatten on the first in-window bar — no fabricated
+  # stop / target / open_at; the original entry thesis is lost.
+
+  Scenario: seed_positions logs an alert-overnight-leftover for each non-zero qty
+    Given an IntradayFlatStrategy with candidates "SPY,QQQ,IWM" mapped to IG epics
+    When I call seed_positions with "{AAPL: 22, MSFT: 0, GOOG: -5}"
+    Then an "alert-overnight-leftover" decision is logged for "AAPL"
+    And an "alert-overnight-leftover" decision is logged for "GOOG"
+    And no decision is logged for "MSFT"
+    And the strategy's position for "AAPL" is 22 shares
+    And the strategy's position for "GOOG" is -5 shares
+
+  Scenario: initial_positions param logs an alert at session_start
+    Given an IntradayFlatStrategy with candidates "SPY" mapped to IG epics
+    And initial_positions "{AAPL: 22}" passed via params
+    When I call on_session_start
+    Then an "alert-overnight-leftover" decision is logged for "AAPL"
+    And the strategy's position for "AAPL" is 22 shares
+
+  Scenario: Overnight leftover is flattened on the first in-window bar
+    Given an IntradayFlatStrategy with a 22-share overnight leftover in "AAPL"
+    When I feed one in-window bar for "AAPL"
+    Then a SELL MARKET order is emitted for "AAPL"
+    And the order tag contains "OVERNIGHT-LEFTOVER"
+    And a "fire-overnight-leftover-flatten" decision is logged for "AAPL"
+
+  Scenario: Overnight leftover for an off-basket symbol still flattens
+    Given an IntradayFlatStrategy basket "IWM" plus a 5-share overnight leftover in "QQQ"
+    When I feed one in-window bar for "QQQ"
+    Then a SELL MARKET order is emitted for "QQQ"
+    And the order tag contains "OVERNIGHT-LEFTOVER"
+
+  # ────────────────────────────────────────────────────────────────── #
+  # Section 7: Concurrency + halt guards                                #
+  # ────────────────────────────────────────────────────────────────── #
+
+  Scenario: In-flight guard blocks a duplicate entry before the fill lands
+    Given an IntradayFlatStrategy with locked basket "IWM"
+    And the strategy has an entry order in-flight for "IWM"
+    When I feed one in-window bar for "IWM"
+    Then no orders are emitted
+    And a "skip-in-flight" decision is logged for "IWM"
+
+  Scenario: Max-positions cap blocks new entries once the book is full
+    Given an IntradayFlatStrategy with locked basket "IWM,SPY" and top_n 1
+    And the strategy already holds 1 open position in "SPY"
+    When I feed one in-window bar for "IWM"
+    Then no orders are emitted
+    And a "skip-max-positions" decision is logged for "IWM"
+
+  # ────────────────────────────────────────────────────────────────── #
+  # Section 8: on_fill re-anchoring + LLM fail-open                     #
+  # ────────────────────────────────────────────────────────────────── #
+
+  Scenario: on_fill re-anchors stop and target to the actual fill price
+    Given an IntradayFlatStrategy with locked basket "IWM" and ATR 2.0
+    When I emit an entry for "IWM" and the fill price differs from the bar close
+    Then the position's stop is anchored to fill_price minus stop_atr_mult times ATR
+    And the position's target is anchored to fill_price plus target_atr_mult times ATR
+
+  Scenario: LLM gate that raises is treated as APPROVED (fail-open)
+    Given an IntradayFlatStrategy with locked basket "IWM" and an ERRORING LLM gate
+    When I feed one in-window bar for "IWM"
+    Then a BUY MARKET order is emitted for "IWM"
+    And an "llm-gate-error-fail-open" decision is logged for "IWM"
