@@ -152,13 +152,63 @@ public sealed class StrategyBrokerMapTest
     {
         await using var conn = await _fx.Db.OpenConnectionAsync();
         // Three strategies seeded across 021 + 024 (and re-seeded by
-        // this test class's per-test setup). All three should map to
-        // IG_DEMO by default.
+        // this test class's per-test setup) — but the per-test setup
+        // here intentionally inserts all three as IG_DEMO so the
+        // baseline matches the 021 + 024 seed *before* the 026
+        // correction. The migration-state test below covers the
+        // post-026 state separately.
         var brokers = (await conn.QueryAsync<(string strategy_id, string broker)>(@"
             SELECT strategy_id, broker FROM strategy_broker_map
             WHERE strategy_id IN ('ichimoku_equity', 'ichimoku_fx_mr', 'intraday_flat')
             ORDER BY strategy_id;")).AsList();
         Assert.Equal(3, brokers.Count);
         Assert.All(brokers, r => Assert.Equal("IG_DEMO", r.broker));
+    }
+
+    [Fact]
+    public async Task Migration_026_flips_ichimoku_equity_seed_value_to_t212()
+    {
+        // Replays migration 026 against the per-test baseline (which
+        // has ichimoku_equity = IG_DEMO from setUp) and confirms the
+        // SET / WHERE behaves: ichimoku_equity flips, the others
+        // don't move.
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        var migration = await File.ReadAllTextAsync(Path.Combine(
+            AppContext.BaseDirectory, "db", "migrations",
+            "026_strategy_broker_map_ichimoku_to_t212.sql"));
+        await conn.ExecuteAsync(migration);
+
+        var after = (await conn.QueryAsync<(string strategy_id, string broker)>(@"
+            SELECT strategy_id, broker FROM strategy_broker_map
+            WHERE strategy_id IN ('ichimoku_equity', 'ichimoku_fx_mr', 'intraday_flat')
+            ORDER BY strategy_id;")).AsList();
+        Assert.Equal("T212_DEMO", after.Single(r => r.strategy_id == "ichimoku_equity").broker);
+        Assert.Equal("IG_DEMO",   after.Single(r => r.strategy_id == "ichimoku_fx_mr").broker);
+        Assert.Equal("IG_DEMO",   after.Single(r => r.strategy_id == "intraday_flat").broker);
+    }
+
+    [Fact]
+    public async Task Migration_026_respects_operator_override_to_other_broker()
+    {
+        // If an operator already flipped ichimoku_equity to a
+        // non-IG_DEMO broker (e.g. T212_LIVE) via the UI, the
+        // migration's WHERE broker = 'IG_DEMO' clause leaves that
+        // operator decision alone — we don't clobber a deliberate
+        // choice.
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        await conn.ExecuteAsync(@"
+            UPDATE strategy_broker_map
+            SET broker = 'T212_LIVE', updated_by = 'operator'
+            WHERE strategy_id = 'ichimoku_equity';");
+
+        var migration = await File.ReadAllTextAsync(Path.Combine(
+            AppContext.BaseDirectory, "db", "migrations",
+            "026_strategy_broker_map_ichimoku_to_t212.sql"));
+        await conn.ExecuteAsync(migration);
+
+        var broker = await conn.ExecuteScalarAsync<string>(@"
+            SELECT broker FROM strategy_broker_map
+            WHERE strategy_id = 'ichimoku_equity';");
+        Assert.Equal("T212_LIVE", broker);  // operator override preserved
     }
 }

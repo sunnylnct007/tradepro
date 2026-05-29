@@ -623,14 +623,24 @@ path consults this table to pick which downstream broker client
    strategy isn't mapped (lets new strategies land without a migration).
 4. **Hardcoded** — `T212_DEMO` if even the global fallback isn't set.
 
-### Current mapping (seeded by migrations 021 and 024)
+### Current mapping (seeded by migrations 021, 024, 026)
 
-| Strategy | Broker | Note | Seeded by |
+| Strategy | Broker | Note | Seeded / corrected by |
 |---|---|---|---|
-| `ichimoku_equity` | `IG_DEMO` | US equity sleeve via IG demo | 021 |
+| `ichimoku_equity` | `T212_DEMO` | US equity sleeve via T212 demo | 021 (as IG_DEMO) → 026 (corrected to T212_DEMO) |
 | `ichimoku_fx_mr` | `IG_DEMO` | G10 FX intraday via IG demo | 021 |
 | `intraday_flat` | `IG_DEMO` | US ETF intraday EOD-flat via IG demo | 024 |
 | any other registered strategy | `app_settings_kv.default_broker` | falls back to global default | — |
+
+### How to switch from the UI
+
+The Settings page has a **"Strategy → broker routing"** panel
+(introduced by [PR #31](https://github.com/sunnylnct007/tradepro/pull/31)).
+Each row shows the strategy, the effective broker (colour-coded badge),
+an override dropdown of the 7 valid brokers (plus "use global default"
+to revert), and per-row save. Edits land in `strategy_broker_map` and
+take effect on the next order the strategy emits. Confirm prompts fire
+before flipping or unmapping so a stray click doesn't redirect routing.
 
 ### How to read it
 
