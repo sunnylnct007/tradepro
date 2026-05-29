@@ -467,6 +467,141 @@ slower but cleaner profile.
 Parameters: `fast_window` (5), `slow_window` (20),
 `session_close_local` ("19:50" UTC), `direction` ("long" default).
 
+### Intraday EOD-Flat with daily-Ichimoku basket (`intraday_flat`)
+
+> **Rule**: At session start, score the candidate universe on the prior
+> day's Ichimoku setup, lock the top-N (default 5) as today's basket.
+> Through the day, each basket name gets at most one long entry, sized
+> so the ATR-based stop costs a fixed dollar amount. Exit on stop,
+> target, time-stop, or EOD — whichever fires first. **Must be flat by
+> close.** No overnight risk.
+>
+> **Suits**: trader who wants a transparent, risk-bounded intraday
+> book where every trade has an explainable thesis at the basket level
+> ("today's top Ichimoku longs") and at the per-name level (sized from
+> ATR, stop-anchored, news-vetoed by the LLM gate).
+>
+> **Anti-fit**: choppy single-day reversals (basket was set on a
+> bullish daily view; if the day reverses, every position stops out
+> together). Earnings-heavy weeks (LLM gate dampens but doesn't avoid).
+
+`intraday_flat` is the **risk-aversion-first** intraday strategy in
+TradePro. ORB and VWAP-MR are textbook intraday entries with a fixed
+symbol; `intraday_flat` adds three things ORB does not have:
+
+1. **A scanner.** ORB needs you to pick the symbol. `intraday_flat`
+   picks 5 per day from a candidate list using `ichimoku_strength_score`
+   (price-vs-kijun distance × cloud-thickness, both ATR-normalised).
+2. **A regime gate.** If SPY closes below its 200-SMA the scanner
+   refuses to build a basket at all. No "force a trade because today
+   is a trading day."
+3. **An audit trail every gate writes to.** Every skip — outside the
+   entry window, halted, vetoed by the LLM, sized to zero, missing IG
+   epic — produces a structured `_decisions` entry the cockpit can
+   render so a trader knows exactly why nothing happened.
+
+**Flow through one bar:**
+
+```
+on_bar(bar):
+  1. paused?            → skip-paused
+  2. off-basket?        → silent skip (no noise in trace)
+  3. EOD window?        → flatten ALL positions (never LLM-gated)
+  4. holding position?  → check stop / target / time-stop
+  5. entry window?      → skip-outside-entry-window
+  6. one-per-day?       → skip-one-per-day
+  7. in-flight?         → skip-in-flight  (no emit-twice race)
+  8. halted?            → skip-halted
+  9. max positions?     → skip-max-positions
+  10. epic lookup?      → skip-no-epic    (refuses to route unmapped)
+  11. LLM gate          → skip-llm-vetoed  (with sentiment + reason)
+  12. sizing            → skip-zero-qty if math rounds to 0
+  13. fire-buy          → tagged with strength, regime, ATR, stop,
+                          target, R:R, LLM verdict
+```
+
+**Three EOD safeguards:**
+
+1. **Flatten window** — from `flatten_start_utc` onwards every bar
+   tries to flatten every open position.
+2. **`on_session_end` backstop** — logs an `alert-eod-leftovers`
+   entry naming any positions still open. This is an audit alert,
+   not a flatten that can fire (the bar bus is closing).
+3. **Out-of-band reconciliation** — separate operator step: query
+   `IGClient.GetPositionsAsync` after the session and flatten any
+   leftovers manually. The strategy reports the alert; the operator
+   acts on it.
+
+**Risk envelope (defaults, all conservative):**
+
+| Cap | Default | Why |
+|---|---|---|
+| risk_per_trade_usd | $100 | One trade losing the stop costs ~$100; with 5 names that's $500 max if everything stops at once |
+| stop_atr_mult | 1.5× ATR | Stops outside typical intraday noise but tight enough to size meaningful share count |
+| target_atr_mult | 2.5× ATR | ~1.67 R:R; achievable on liquid ETFs in trending sessions |
+| max_hold_minutes | 240 | 4 hours; if the thesis hasn't worked by then it likely won't today |
+| top_n | 5 | Diversifies single-name idiosyncrasy without exceeding RiskService default `max_open_positions` |
+| LLM gate | enabled, fail-open | Veto on materially negative news only; fail-open so an LLM outage doesn't block trading. For LIVE, set `fail_open=False` |
+
+**Reading the order tag (entry):**
+
+```
+intraday_flat ENTRY IWM strength=3.05 regime=BULL atr=1.234
+              qty=53 stop~198.50 target~203.10 R:R~1.67 llm=APPROVED@+0.34
+```
+
+Every field is the gate's input: `strength` is the scanner score,
+`regime` is the SPY/200-SMA verdict, `atr` is the sizing denominator,
+`stop`/`target` are the exit anchors, `llm` is the gate verdict and
+sentiment. A trader can read this line and know *exactly* why the
+order was emitted at this size with this stop.
+
+**Reading the order tag (exit):**
+
+```
+intraday_flat STOP IWM held=125min entry=200.05 stop=198.50 bar.low=198.30
+intraday_flat TARGET IWM held=92min entry=200.05 target=203.10 bar.high=203.55
+intraday_flat TIME IWM held=240.1min >= max_hold 240min entry=200.05 close=200.80
+intraday_flat EOD IWM flatten window opened at 19:50 (triggered by SPY bar)
+```
+
+**Phase-0 dependency** — this strategy routes orders to IG demo by
+stamping `Order.broker_label="IG_DEMO"` and `Order.instrument_id=<epic>`.
+The epic comes from `ig_epic_map.json` next to `ig_epic_map.py`. To
+enable the strategy for a new symbol:
+1. Discover the epic via `GET /api/admin/ig/search?term=<symbol>`.
+2. Edit `ig_epic_map.json`, populate `epic`.
+3. Smoke-test via `POST /api/admin/ig/smoke-order { epic, side, size: 1 }`.
+4. Add the symbol to the strategy's `candidates` param.
+
+The scanner refuses any symbol whose epic is null or missing. There
+is no "best-effort route by ticker" fallback — the cost of a wrong
+listing dwarfs the cost of an obvious refusal.
+
+**Caveats** (also surfaced in the UI banner):
+
+- Basket is **locked at session_start** — no intraday re-ranking, so
+  a name that becomes bullish at 11am is NOT added to today's book.
+- One entry per name per day. No averaging in.
+- No partial exits. Stop, target, time, or EOD — whole position out.
+- No cross-strategy gross exposure cap (framework gap).
+- EOD flatten depends on bars arriving in the flatten window; the
+  on_session_end backstop is best-effort. Reconciliation is the real
+  guarantee of "flat by close".
+- LLM gate is fail-open by framework default. For live, switch the
+  per-strategy LLMGateConfig `fail_open` to False.
+- Daily signal + ATR come from the on-disk cache (yfinance default).
+  Stale cache = stale basket.
+
+Parameters: `candidates` (5 ETFs by default), `top_n` (5),
+`use_regime_filter` (True), `regime_symbol` ("SPY"),
+`regime_sma_period` (200), `risk_per_trade_usd` (100),
+`stop_atr_mult` (1.5), `target_atr_mult` (2.5),
+`max_hold_minutes` (240), `entry_window_start_utc` ("13:35"),
+`entry_window_end_utc` ("18:00"), `flatten_start_utc` ("19:50"),
+`session_close_utc` ("20:00"), `broker_label` ("IG_DEMO"),
+`ig_epic_map_path` (None → default beside `ig_epic_map.py`).
+
 ---
 
 ## Layer 3: Horizon Scorers

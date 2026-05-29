@@ -7,33 +7,40 @@ Read this before starting any work. Update when you start something new.
 
 ---
 
-## Current branch: feature/intraday-flat-phase0
+## Current branch: feature/intraday-flat  (laneB checkout)
 
-Phase 0 enablement for the new `intraday_flat` strategy (scanner-derived
-basket, long-only, EOD-flat, IG demo routing). Lands as a PR off `main`.
+Phase 1 of the `intraday_flat` strategy: the strategy file itself, BDD
+scenarios, trader operating notes in STRATEGIES.md. Built on top of
+the phase-0 plumbing already on `main` (commit `076415c`).
+
+This lane runs in the dedicated `tradepro-laneB/` checkout so it cannot
+collide with whatever the `tradepro/` checkout is doing.
 
 ---
 
 ## Active work
 
-**Lane: phase-0 plumbing for `intraday_flat`** — adds the schema fields +
-helpers a future intraday EOD-flat strategy needs to route equity orders
-to IG demo. No strategy file yet; this is purely the enablement layer.
+**Lane B: phase-1 strategy file for `intraday_flat`** — the actual
+intraday EOD-flat strategy that uses the phase-0 plumbing already on
+main. Long-only, scanner-derived basket, LLM-gated entries, ATR-anchored
+stops, three-layer EOD flatten defense, full decision-log audit at
+every gate.
 
-Files touched on `feature/intraday-flat-phase0`:
+Files touched on `feature/intraday-flat` in `tradepro-laneB/`:
 
-- `strategies/tradepro_strategies/paper/strategy.py` — add
-  `Order.broker_label` + `Order.instrument_id` (both optional, default None;
-  backward-compatible).
-- `strategies/tradepro_strategies/paper/signal_bridge.py` — add
-  `ichimoku_strength_score()` continuous-strength helper for ranking.
-- `strategies/tradepro_strategies/paper/ig_epic_map.py` — new typed loader
-  for symbol → IG epic mapping; raises on missing epic so strategies can't
-  silently trade an unmapped symbol.
-- `strategies/tradepro_strategies/paper/ig_epic_map.json` — seed file with
-  5 candidate symbols, `epic: null`; populated manually via IG
-  `markets?searchTerm` against demo creds (next-step, not in this PR).
+- `strategies/tradepro_strategies/paper/strategies/intraday_flat.py` —
+  the `IntradayFlatStrategy` class. Registered as `intraday_flat`.
+- `strategies/features/intraday_flat.feature` — 16 BDD scenarios
+  covering scanner, entry pipeline, LLM gate, position management,
+  EOD flatten. All green; no regressions in `paper_quant_strategies`.
+- `strategies/features/steps/intraday_flat_steps.py` — step impls.
+- `STRATEGIES.md` — new "Intraday EOD-Flat with daily-Ichimoku basket"
+  subsection under Layer 2.
 - `COORDINATION.md` — this entry.
+
+Lane A (separate checkout `tradepro/`) at the same time was extending
+the IG backend (`/api/admin/ig/search`, `/api/admin/ig/smoke-order`)
+and bundled the phase-0 Python plumbing into commit `076415c`.
 
 ---
 
@@ -89,4 +96,10 @@ Files touched on `feature/intraday-flat-phase0`:
 - 2026-05-25 — **Session ended. No active edits. All files safe.**
 - 2026-05-29 — Started: phase-0 plumbing for `intraday_flat` on
   `feature/intraday-flat-phase0` (Order schema fields + signal-bridge
-  ranking helper + IG epic-map loader/seed).
+  ranking helper + IG epic-map loader/seed). Cherry-picked into main
+  by the other session as commit `076415c` bundled with their IG
+  admin endpoints (`/api/admin/ig/search`, `/api/admin/ig/smoke-order`).
+- 2026-05-29 — Started: phase-1 strategy file for `intraday_flat` in
+  `tradepro-laneB/` on `feature/intraday-flat`. Full strategy class +
+  16 BDD scenarios green + STRATEGIES.md operating notes. Built on
+  top of phase-0 plumbing from main.
