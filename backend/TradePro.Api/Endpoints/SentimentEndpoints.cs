@@ -100,6 +100,49 @@ public static class SentimentEndpoints
             });
         });
 
+        // GET /api/sentiment/symbol/{symbol}/news — recent sentiment
+        // scores + rationales for one symbol so the cockpit can show
+        // a per-symbol news context panel. Closes the "had to ask Claude
+        // separately for TSLA news" gap (#72): every cycle of LLM
+        // scoring lands here, and the trader sees the rolling story
+        // from in-app instead of context-switching.
+        //
+        // Returns last 20 by default (~10 days for daily-scored symbols,
+        // or last 2-3 days for hourly). Newest first.
+        group.MapGet("/symbol/{symbol}/news", async (
+            string symbol, int? limit, NpgsqlDataSource db) =>
+        {
+            var bare = NormaliseTicker(symbol);
+            var n = Math.Clamp(limit ?? 20, 1, 100);
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = (await conn.QueryAsync<SentimentRow>(@"
+                SELECT symbol, source, score, classification,
+                       n_articles AS NArticles,
+                       rationale,
+                       detail::text AS DetailText,
+                       scored_at_utc AS ScoredAtUtc,
+                       uploaded_at_utc AS UploadedAtUtc
+                FROM sentiment_scores
+                WHERE symbol = @bare OR symbol = @symbol
+                ORDER BY scored_at_utc DESC
+                LIMIT @n;",
+                new { bare, symbol, n })).ToList();
+            return Results.Ok(new
+            {
+                symbol = bare,
+                count = rows.Count,
+                rows = rows.Select(r => new
+                {
+                    score = r.Score,
+                    classification = r.Classification,
+                    nArticles = r.NArticles,
+                    rationale = r.Rationale,
+                    source = r.Source,
+                    scoredAtUtc = r.ScoredAtUtc,
+                }),
+            });
+        });
+
         return app;
     }
 

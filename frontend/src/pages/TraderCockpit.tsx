@@ -181,6 +181,44 @@ export function TraderCockpit() {
           charts,
         });
       }
+      // Merge charts from /api/paper/snapshots — those land via
+      // `tradepro-paper --push` (different ingestion path) but the
+      // cockpit only fetches /api/ops/sessions natively. Without
+      // this, the Strategy Charts card stays empty even when the
+      // strategy emitted recent_charts data. Best-effort: snapshot
+      // fetch failure leaves charts blank, doesn't break the card.
+      try {
+        const snapshots = await api.paperSnapshots();
+        const today = new Date().toISOString().slice(0, 10);
+        for (const snap of snapshots) {
+          if (!snap.sessionLabel.endsWith(today)) continue;
+          const strategyName = snap.sessionLabel.replace(`-${today}`, "");
+          const detail = await api.paperSnapshot(snap.sessionLabel) as
+            { strategies?: Array<{ charts?: Record<string, unknown> }> };
+          const charts: Record<string, unknown> = {};
+          for (const st of detail.strategies ?? []) {
+            if (st.charts && typeof st.charts === "object") {
+              Object.assign(charts, st.charts);
+            }
+          }
+          if (Object.keys(charts).length === 0) continue;
+          const existing = byStrategy.get(strategyName);
+          if (existing) {
+            existing.charts = { ...existing.charts, ...charts };
+          } else {
+            byStrategy.set(strategyName, {
+              strategy: strategyName,
+              requestId: snap.sessionLabel,
+              completedAtUtc: snap.asOfUtc,
+              decisions: [],
+              barsSeen: 0,
+              charts,
+            });
+          }
+        }
+      } catch {
+        // ignore — charts panel just stays empty.
+      }
       setLatestSessions(Array.from(byStrategy.values()));
     } catch {
       // Non-fatal; signals panel just won't update.

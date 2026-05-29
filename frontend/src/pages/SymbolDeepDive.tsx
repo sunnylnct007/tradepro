@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { SymbolAnalysisCard } from "../components/SymbolAnalysisCard";
+import { NewsContextPanel } from "../components/cockpit/NewsContextPanel";
 import { TrustDot, TrustLegend } from "../components/TrustDot";
 import type {
   CompareCatalyst,
@@ -184,6 +185,15 @@ function PageShell(props: {
       )}
       {state === "ready" && row && (
         <SectionStrategyVote row={row} allRows={allRows} />
+      )}
+      {state === "ready" && row && (
+        <section style={cardStyle}>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8,
+            textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            News context (LLM-scored)
+          </div>
+          <NewsContextPanel symbol={symbol} />
+        </section>
       )}
       {state === "ready" && row && (
         <SectionNews
