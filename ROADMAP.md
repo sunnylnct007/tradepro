@@ -13,6 +13,65 @@ those assumptions change.
 
 ---
 
+## Design decisions — 2026-05-30 (trading-app UX + signal engine)
+
+Approved with the operator; building in this order: **A desks-first home →
+B Decide revamp → C symbol registry** (B and the desks both lean on C).
+
+### A. Desks-first trading home (`/trader` rebuild) — IN PROGRESS
+Treat **each strategy as a "desk" / trader** with its own book, so per-strategy
+P&L attribution + reporting is first-class. Constraint: **one strategy → one
+broker → one asset class**; attribution key is **(broker × asset-class) →
+strategy**, which is 1:1:
+- ichimoku_equity → T212 → US Equity
+- ichimoku_fx_mr → IG → FX
+- intraday_flat → IG → US Equity
+Home = portfolio strip (today P&L · equity · cash · action chips) + a row of
+**desk cards** (P&L, positions, status, reconcile), click a desk → its
+positions/orders/trend. Minimal chrome: connectivity = top-bar traffic light
+(done); one money summary (done); warnings/approvals = clickable chips (done).
+Analyst cards (charts, scan, trigger, raw order tables, broker-cash detail) →
+hideable / drill-in. Caveat: positions + unrealised attribute cleanly (broker
+× asset-class); **cash is account-level** (IG shared FX+intraday) → per-desk
+"cash" = configured `capital_usd`, not segregated.
+SHIPPED so far: connectivity→bar, dup-cash removed, clickable warnings.
+NEXT: StrategyDesks cards + default-hide analyst clutter.
+
+### B. Decide page + signal quality — "all WAIT" is by design, and wrong
+Today Decide only emits BUY on a **fresh technical crossover today**
+(`price_verdict==BUY`); "already trending / no fresh edge" → **WAIT**
+(compare.py:384–430). All 5 strategies are the same family (price-vs-MA) +
+sentiment/conviction demotion → a wall of WAIT, hardly any BUY/SELL. It answers
+"is today a fresh entry?" not "should I own this, short/long term?". Revamp:
+1. **Horizon-aware** verdicts — separate short-term (trade) vs long-term
+   (invest) columns; a name can be WAIT short-term but ACCUMULATE long-term.
+2. **Multi-family signals** via the existing COMPASS composite (momentum +
+   quality + valuation + earnings-revision + analyst + sentiment), not just
+   price-vs-MA. (Phase-3 / catalyst-overlay gap.)
+3. **Richer actions** — BUY / ACCUMULATE / HOLD / TRIM / AVOID, not binary
+   fresh-BUY-or-WAIT.
+
+### C. Canonical cross-broker symbol registry (`symbol_map`, verified-only)
+Postgres table: canonical, asset_class, currency, yahoo, t212, ig_epic,
+verified_at/by. One resolver `resolve(canonical, broker)→broker_id` used by
+routing / reconcile / desks; reverse map `broker_id→canonical` for attribution.
+IG epics human-VERIFIED only (the `--auto` pick chose a −5X Short SPY ETP /
+a PUT / DiaSorin — banned for writes). UI editor + propose-from-search→confirm.
+Shared **`us_equity_core`** named watchlist (US subset of ichimoku-equity:
+AAPL MSFT NVDA TSLA AMZN GOOGL META BRK-B JPM V) feeds BOTH equity desks;
+intraday_flat trades that (not the hardcoded ETFs); UK `.L` excluded (US
+session). Needs IG epics for those names (interactive, operator).
+
+### Parallel workstreams (other devs — don't clobber)
+- **Backtesting + simulation: storing order-book history.** A separate dev is
+  improving backtest/sim by persisting order-book history (richer fills /
+  replay fidelity). Coordinate before touching the simulation / paper-engine
+  fill path or the OMS fills schema.
+- **intraday_flat (IG equity intraday):** merged to main (PRs #28–#33); daemon
+  uv-path fixed here. Remaining: interactive IG epic population (operator).
+
+---
+
 ## Session log — 2026-05-30: FX duplicate-order bug + multi-broker cockpit
 
 Live work, kept here so nothing is lost (per the "keep updating the
