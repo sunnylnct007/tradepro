@@ -329,21 +329,35 @@ public static class OmsEndpoints
         positions.MapPost("/sync-from-broker", async (
             SyncFromBrokerRequest body,
             IOmsService oms,
-            TradePro.Api.Providers.Trading212.Trading212PositionsCache liveCache,
-            TradePro.Api.Providers.Trading212.Trading212DemoPositionsCache demoCache,
+            TradePro.Api.Providers.Trading212.Trading212Client liveClient,
+            TradePro.Api.Providers.Trading212.Trading212DemoClient demoClient,
             TradePro.Api.Providers.IG.IGClient ig,
             CancellationToken ct) =>
         {
             var broker = (body?.Broker ?? "").Trim().ToUpperInvariant();
 
             // 1. Read the broker's ACTUAL positions → (omsSymbol, signedQty, avgPrice).
+            // Sync is an explicit, infrequent operator action, so read FRESH
+            // from the broker client (not the 30s UI cache, which can be
+            // stale or rate-limited-empty). Retry once to ride T212's
+            // ~1 req/s limit — a transient empty must not look like "flat".
             var actuals = new List<(string Symbol, decimal Qty, decimal? Avg)>();
+            bool fetchEmpty = false;
             if (broker is "T212_DEMO" or "T212_LIVE")
             {
-                var res = broker == "T212_DEMO" ? await demoCache.GetAsync(ct) : await liveCache.GetAsync(ct);
+                async Task<TradePro.Api.Providers.Trading212.Trading212PositionsResult> Fetch() =>
+                    broker == "T212_DEMO" ? await demoClient.GetPositionsAsync(ct) : await liveClient.GetPositionsAsync(ct);
+                var res = await Fetch();
+                if (res.Error is null && res.Positions.Count == 0)
+                {
+                    await Task.Delay(1300, ct);   // ride the 1 req/s limit
+                    res = await Fetch();
+                }
                 if (res.Error is not null)
                     return Results.Json(new { error = $"could not read T212 positions: {res.Error}" }, statusCode: 502);
-                foreach (var p in res.Positions) actuals.Add((p.Ticker, p.Quantity, p.AveragePricePaid));
+                foreach (var p in res.Positions)
+                    if (!string.IsNullOrWhiteSpace(p.Ticker)) actuals.Add((p.Ticker, p.Quantity, p.AveragePricePaid));
+                fetchEmpty = res.Positions.Count == 0;
             }
             else if (broker is "IG_DEMO" or "IG_LIVE")
             {
@@ -351,13 +365,13 @@ public static class OmsEndpoints
                 var res = await ig.GetPositionsAsync(ct);
                 if (res.Error is not null)
                     return Results.Json(new { error = $"could not read IG positions: {res.Error}" }, statusCode: 502);
-                // Net the (possibly stacked) deals per epic.
                 foreach (var g in res.Positions.GroupBy(p => p.Epic))
                 {
                     var qty = g.Sum(p => p.Direction == "SELL" ? -p.Size : p.Size);
                     var avg = g.Select(p => (decimal?)p.EntryLevel).FirstOrDefault();
                     actuals.Add((g.Key, qty, avg));
                 }
+                fetchEmpty = res.Positions.Count == 0;
             }
             else
             {
@@ -366,6 +380,17 @@ public static class OmsEndpoints
 
             // 2. OMS current net for this broker, keyed by bare symbol.
             var omsRows = (await oms.ListPositionsAsync(null)).Where(p => p.Broker == broker).ToList();
+
+            // Fail-SAFE: if the broker came back empty but the OMS has open
+            // positions, this is almost certainly a failed/rate-limited read,
+            // NOT a genuinely flat account. Refuse to sync — syncing would
+            // close every OMS position. Tell the operator to retry.
+            if (fetchEmpty && omsRows.Count > 0)
+                return Results.Json(new
+                {
+                    error = "broker returned 0 positions but OMS has open positions — "
+                          + "likely a rate-limited/failed read, not a flat account. Not syncing; retry in a few seconds.",
+                }, statusCode: 409);
             static string Bare(string s)
             {
                 var u = (s ?? "").ToUpperInvariant();
