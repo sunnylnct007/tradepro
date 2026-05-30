@@ -329,28 +329,28 @@ public static class OmsEndpoints
         positions.MapPost("/sync-from-broker", async (
             SyncFromBrokerRequest body,
             IOmsService oms,
-            TradePro.Api.Providers.Trading212.Trading212Client liveClient,
-            TradePro.Api.Providers.Trading212.Trading212DemoClient demoClient,
+            TradePro.Api.Providers.Trading212.Trading212PositionsCache liveCache,
+            TradePro.Api.Providers.Trading212.Trading212DemoPositionsCache demoCache,
             TradePro.Api.Providers.IG.IGClient ig,
             CancellationToken ct) =>
         {
             var broker = (body?.Broker ?? "").Trim().ToUpperInvariant();
 
             // 1. Read the broker's ACTUAL positions → (omsSymbol, signedQty, avgPrice).
-            // Sync is an explicit, infrequent operator action, so read FRESH
-            // from the broker client (not the 30s UI cache, which can be
-            // stale or rate-limited-empty). Retry once to ride T212's
-            // ~1 req/s limit — a transient empty must not look like "flat".
+            // Use the positions CACHE (not the client directly): on T212's
+            // ~1 req/s 429 the cache serves the last good response, so we
+            // don't mistake a rate-limited fetch for a flat account. Retry
+            // once if it's genuinely empty.
             var actuals = new List<(string Symbol, decimal Qty, decimal? Avg)>();
             bool fetchEmpty = false;
             if (broker is "T212_DEMO" or "T212_LIVE")
             {
                 async Task<TradePro.Api.Providers.Trading212.Trading212PositionsResult> Fetch() =>
-                    broker == "T212_DEMO" ? await demoClient.GetPositionsAsync(ct) : await liveClient.GetPositionsAsync(ct);
+                    broker == "T212_DEMO" ? await demoCache.GetAsync(ct) : await liveCache.GetAsync(ct);
                 var res = await Fetch();
                 if (res.Error is null && res.Positions.Count == 0)
                 {
-                    await Task.Delay(1300, ct);   // ride the 1 req/s limit
+                    await Task.Delay(1300, ct);
                     res = await Fetch();
                 }
                 if (res.Error is not null)
