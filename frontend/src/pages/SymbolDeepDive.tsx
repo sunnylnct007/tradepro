@@ -10,6 +10,7 @@ import type {
   CompareLatestResponse,
   CompareNewsItem,
   CompareRow,
+  CompareRowRegime,
   CompareSentimentSummary,
   DecisionCheck,
   HitRateResult,
@@ -209,7 +210,12 @@ function PageShell(props: {
       {state === "ready" && row && (
         <SectionEarnings row={row} />
       )}
-      <Section title="8. Regime survival" trustId="deepdive.regime_survival" todo="get_regime_history(symbol, strategy=best_long) — needs task #66 backend prep" />
+      {state === "ready" && row ? (
+        <SectionRegimeSurvival row={row} />
+      ) : (
+        <Section title="8. Regime survival" trustId="deepdive.regime_survival"
+          todo="Regime-survival data comes from the strategy replay on historical prices. Shown once the symbol loads." />
+      )}
       <Section title="9. Peer comparison" trustId="deepdive.peer_comparison" todo="derive peer set from symbol.tags — needs task #66 backend prep" />
       {state === "ready" && allRows.length > 0 && (
         <SectionHitRate symbol={props.symbol} rows={allRows} />
@@ -1204,6 +1210,151 @@ function SectionEarnings(props: { row: CompareRow }) {
       )}
     </section>
   );
+}
+
+// ----------------------------------------------------------------------
+// Section 8 — Regime survival. How the best-fit strategy performed
+// during historical stress windows (GFC, COVID, rate-shock, etc.).
+// Data is already present on `row.regimes: CompareRowRegime[]` — no
+// extra fetch needed. Each card shows: window name + kind (crash /
+// drawdown / recovery), total return during that period, max peak-to-
+// trough, and duration in trading bars.
+//
+// Per memory rule: every metric needs an in-tool explainer — the
+// footer note and ⓘ tooltip cover "what does return_pct mean here?"
+// for newcomers. Empty state also explains *why* it's empty (ETFs /
+// low-vol instruments rarely trigger the stress-window filter).
+// ----------------------------------------------------------------------
+
+function SectionRegimeSurvival(props: { row: CompareRow }) {
+  const regimes: CompareRowRegime[] = props.row.regimes ?? [];
+
+  const helpText =
+    "Return % = total return for this symbol during the stress window " +
+    "while the strategy was active.\n" +
+    "Max drop = worst peak-to-trough drawdown within the same window.\n" +
+    "Bar count = duration in trading days.\n" +
+    "Source: replay of best-fit strategy on historical price data. " +
+    "Historical evidence only — not a prediction.";
+
+  if (regimes.length === 0) {
+    return (
+      <section style={cardStyle}>
+        <strong style={{ fontSize: 14 }}>
+          8. Regime survival<TrustDot id="deepdive.regime_survival" />
+        </strong>
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          No historical stress windows on file for this symbol's strategy.
+          ETFs tracking low-volatility or cash-like indices rarely trigger
+          the crash / drawdown / recovery filter. This is a data state,
+          not an error.
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section style={cardStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <strong style={{ fontSize: 14 }}>
+          8. Regime survival<TrustDot id="deepdive.regime_survival" />
+        </strong>
+        <span
+          title={helpText}
+          style={{ fontSize: 11, color: "var(--text-muted)", cursor: "help" }}
+        >
+          {regimes.length} window{regimes.length === 1 ? "" : "s"} ⓘ
+        </span>
+      </div>
+
+      <div style={{ fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
+        How this symbol's best strategy performed during past stress windows.
+        Historical evidence — not a prediction of future performance.
+      </div>
+
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))",
+        gap: 10,
+        marginTop: 4,
+      }}>
+        {regimes.map((r) => {
+          const colour = regimeColourDD(r.kind);
+          const kindBg = r.kind === "crash" ? "rgba(214,76,76,0.07)"
+                       : r.kind === "recovery" ? "rgba(58,165,109,0.07)"
+                       : "rgba(199,154,42,0.07)";
+          const retColour = r.return_pct == null ? "var(--text-muted)"
+                          : r.return_pct >= 0 ? "var(--up)" : "var(--down)";
+          const ret = r.return_pct == null ? "—"
+                    : `${r.return_pct >= 0 ? "+" : ""}${r.return_pct.toFixed(1)}%`;
+          const dd = r.max_drawdown_pct == null ? "—"
+                   : `${r.max_drawdown_pct.toFixed(1)}%`;
+          return (
+            <div
+              key={r.key}
+              title={helpText}
+              style={{
+                borderLeft: `3px solid ${colour}`,
+                padding: "8px 8px 8px 10px",
+                background: kindBg,
+                borderRadius: "0 6px 6px 0",
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", marginBottom: 4, lineHeight: 1.2 }}>
+                {r.name}
+              </div>
+              <div style={{
+                display: "inline-block",
+                fontSize: 9,
+                padding: "1px 5px",
+                borderRadius: 3,
+                border: `1px solid ${colour}`,
+                color: colour,
+                marginBottom: 6,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                fontWeight: 600,
+              }}>
+                {r.kind}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Return </span>
+                  <strong style={{ color: retColour }}>{ret}</strong>
+                </div>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Max drop </span>
+                  <strong style={{ color: "var(--down)" }}>{dd}</strong>
+                </div>
+                <div style={{ color: "var(--text-muted)" }}>
+                  {r.bars} bar{r.bars === 1 ? "" : "s"}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+        Return = total return during the window while strategy was active ·
+        Max drop = worst peak-to-trough ·
+        Bars = trading-day duration ·
+        Source: best-fit strategy replay on historical prices.
+      </div>
+    </section>
+  );
+}
+
+/** Kind → border/label colour for regime survival cards. Mirrors the
+ *  same logic in Compare.tsx (kept private here to avoid a shared-
+ *  colour-utility dependency at this MVP stage). */
+function regimeColourDD(kind: string): string {
+  switch (kind) {
+    case "crash":    return "var(--down)";
+    case "drawdown": return "var(--warn, #c79a2a)";
+    case "recovery": return "var(--up)";
+    default:         return "var(--text-dim)";
+  }
 }
 
 // ----------------------------------------------------------------------
