@@ -804,6 +804,89 @@ export const api = {
       symbol,
       ...(lookbackDays !== undefined ? { lookbackDays } : {}),
     }),
+
+  // Trustworthy data layer — Phase A (migrations 029 + 030 +
+  // DataTrustEndpoints.cs). Three concerns:
+  //   * /assumptions   — auditable list of data assumptions
+  //   * /preferences   — provider chain per (asset_class, resolution)
+  //   * /backfill      — Phase-A placeholder; functional in Phase C
+  // See CURRENT_BACKTEST_LIMITATIONS.md + ROADMAP for the framing.
+  dataAssumptions: () =>
+    get<{
+      assumptions: Array<{
+        id: string;
+        description: string;
+        severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL";
+        status: "HONEST" | "PARTIAL" | "OPTIMISTIC" | "FICTIONAL";
+        affects: string[];
+        consequence: string;
+        remedy: string;
+        mitigation: string | null;
+        last_reviewed_at_utc: string;
+        last_reviewed_by: string;
+      }>;
+    }>("/api/admin/data-trust/assumptions"),
+  dataSourcePreferences: () =>
+    get<{
+      validProviders: string[];
+      preferences: Array<{
+        asset_class: string;
+        resolution: string;
+        provider_chain: string[];
+        notes: string | null;
+        updated_at_utc: string;
+        updated_by: string;
+      }>;
+    }>("/api/admin/data-trust/preferences"),
+  updateDataSourcePreference: async (
+    assetClass: string,
+    resolution: string,
+    body: { providerChain: string[]; notes?: string | null },
+  ) => {
+    const url = new URL(
+      `/api/admin/data-trust/preferences/${encodeURIComponent(assetClass)}/${encodeURIComponent(resolution)}`,
+      config.apiBaseUrl,
+    );
+    const resp = await fetch(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    return resp.json();
+  },
+  deleteDataSourcePreference: async (assetClass: string, resolution: string) => {
+    const url = new URL(
+      `/api/admin/data-trust/preferences/${encodeURIComponent(assetClass)}/${encodeURIComponent(resolution)}`,
+      config.apiBaseUrl,
+    );
+    const resp = await fetch(url, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    return resp.json();
+  },
+  // Phase A: backfill endpoint returns 501 with a structured roadmap
+  // pointer. The UI calls this only to surface the not-yet-implemented
+  // message in a tooltip — never as part of a normal operator flow.
+  triggerDataBackfill: async (body: {
+    assetClass: string;
+    symbol: string;
+    resolution: string;
+    fromDate: string;
+    toDate: string;
+  }): Promise<{ error: string; detail: string } | { jobId: string }> => {
+    const url = new URL("/api/admin/data-trust/backfill", config.apiBaseUrl);
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    });
+    // 501 carries a structured body explaining the roadmap status —
+    // don't throw, return it so the UI can render the message.
+    return resp.json();
+  },
 };
 
 // Shape of the artifact emitted by strategies/cli/equity_pipeline.py

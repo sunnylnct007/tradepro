@@ -119,6 +119,15 @@ What's missing today is anything from the **valuation**,
 **factor-based**, or **event-driven** families — see Phase 3 in
 [ROADMAP.md](ROADMAP.md) for that gap.
 
+> ℹ️ **All Layer 1 daily strategies share two limitations**: (a)
+> slippage modelled as fills-at-close — see
+> [`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
+> §L2 (~1bp ETF, ~5bp single names, more on illiquid); (b) the LLM
+> gate is excluded from historical backtests because no historical
+> sentiment is stored — see §L3. Numbers are roughly trustworthy
+> (within ~1–2%) but the gate's contribution to live returns is
+> currently unmeasured.
+
 ### Buy-and-Hold (`buy_and_hold`)
 
 > **Rule**: Buy on the first bar of the historical window; never sell.
@@ -347,6 +356,13 @@ strategy fill log on the Paper page Live tab.
 
 ### Opening Range Breakout (`orb`)
 
+> ⚠️ **Backtest depth ceiling: 7 trading days.** Uses 1-minute bars
+> from yfinance; the provider's 1m history is capped at 7 days.
+> Anything labelled "backtest" past that window is a forward test
+> mislabelled. See
+> [`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
+> §L1 for the remedy roadmap (Phases B + C + E).
+
 > **Rule**: Watch the first 15 minutes of the regular session, record
 > the high/low. After the window: BUY when close breaks above the
 > range high, SHORT when it breaks below (if `allow_short`). Stop at
@@ -381,6 +397,11 @@ default; "both" enables the short side), `session_close_local`
 
 ### VWAP Mean Reversion (`vwap_mean_reversion`)
 
+> ⚠️ **Backtest depth ceiling: 7 trading days.** Same as ORB —
+> 1-minute bars from yfinance are capped at 7 days. See
+> [`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
+> §L1.
+
 > **Rule**: Track session VWAP (cumulative volume-weighted average
 > price). LONG when close < VWAP × (1 − 0.5%). SHORT when close >
 > VWAP × (1 + 0.5%). Exit at VWAP touch (target = revert to mean) or
@@ -411,6 +432,11 @@ Parameters: `vwap_dev_pct` (0.005), `stop_pct` (0.01),
 
 ### Bollinger Bounce intraday (`bollinger_bounce`)
 
+> ⚠️ **Backtest depth ceiling: 7 trading days.** 1-minute bar
+> dependency. See
+> [`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
+> §L1.
+
 > **Rule**: Maintain a rolling window of `window` closes. LONG when
 > close < (mean − 2σ) AND RSI < oversold. Exit at the mean.
 >
@@ -440,6 +466,11 @@ Parameters: `window` (20), `num_std` (2.0), `rsi_period` (14),
 
 ### EMA Crossover intraday (`ma_crossover`)
 
+> ⚠️ **Backtest depth ceiling: 7 trading days.** 1-minute bar
+> dependency. See
+> [`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
+> §L1.
+
 > **Rule**: Maintain a fast EMA (default 5 bars) and slow EMA
 > (default 20). LONG when fast crosses above slow. Exit on the
 > opposite crossover. Both EMAs reset at session start.
@@ -468,6 +499,13 @@ Parameters: `fast_window` (5), `slow_window` (20),
 `session_close_local` ("19:50" UTC), `direction` ("long" default).
 
 ### Intraday EOD-Flat with daily-Ichimoku basket (`intraday_flat`)
+
+> ⚠️ **Backtest depth ceiling: 7 trading days for the intraday
+> entry path.** The daily-Ichimoku basket selection works at any
+> historical depth (uses daily bars); the intraday entry/exit path
+> is 1-minute and capped at 7 days. See
+> [`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
+> §L1 + §L3 (LLM gate anachronistic).
 
 > **Rule**: At session start, score the candidate universe on the prior
 > day's Ichimoku setup, lock the top-N (default 5) as today's basket.
