@@ -52,6 +52,31 @@ from ...quant_engine.fx_strategy import (
 _log = logging.getLogger("tradepro.paper.ichimoku_fx_mr")
 
 
+def _fx_market_open(ts) -> bool:
+    """Is the spot-FX market open at `ts` (treated as UTC)?
+
+    Spot FX runs 24/5: it opens Sunday ~21:00 UTC (Sydney) and closes
+    Friday ~21:00 UTC (NY). It is CLOSED all day Saturday and Sunday
+    until the evening. We use 21:00 UTC as the boundary (ignoring the
+    1h DST wobble — the strategy trades hourly bars, so an hour either
+    side of the weekend boundary is immaterial and erring closed is
+    safe). Note: IG offers SEPARATE weekend FX/index CFDs, but this
+    strategy trades the weekday MINI epics.
+    """
+    try:
+        wd = ts.weekday()  # Mon=0 … Sat=5, Sun=6
+        h = ts.hour
+    except AttributeError:
+        return True  # unknown timestamp shape — don't block
+    if wd == 5:            # Saturday — closed
+        return False
+    if wd == 6:            # Sunday — opens ~21:00 UTC
+        return h >= 21
+    if wd == 4:            # Friday — closes ~21:00 UTC
+        return h < 21
+    return True            # Mon–Thu
+
+
 def _ichimoku_lines(
     high: np.ndarray,
     low: np.ndarray,
@@ -313,6 +338,19 @@ class IchimokuFXMeanReversionStrategy(Strategy):
                 reason=f"warmup {self._bar_counts[pair]}/{warmup} bars",
                 bars_seen=self._bar_counts[pair],
                 bars_required=warmup,
+            )
+            return []
+
+        # Market-hours guard — spot FX is 24/5, CLOSED on weekends. Never
+        # emit an order into a closed venue (it just gets rejected
+        # MARKET_CLOSED and, pre-fix, spammed duplicates). Force-close
+        # above is exempt (operator intent); signal-driven entries/exits
+        # are not. "Don't send orders when the market is closed."
+        if not _fx_market_open(bar.timestamp):
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-market-closed",
+                reason="FX market closed (weekend) — not sending orders",
             )
             return []
 

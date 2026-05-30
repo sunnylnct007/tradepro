@@ -66,8 +66,8 @@ function OrderRow({
     .includes(order.state);
   return (
     <tr style={{ borderTop: "1px solid var(--border)" }}>
-      <td style={{ ...TD, fontFamily: "monospace", color: "var(--text-muted)" }}>
-        {order.createdAtUtc.slice(11, 19)}
+      <td style={{ ...TD, fontFamily: "monospace", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+        {fmtWhen(order.createdAtUtc)}
       </td>
       <td style={{ ...TD, fontSize: 11, color: "var(--text-dim)" }}>{brokerLabel(order.broker)}</td>
       <td style={TD}>{order.strategyId ?? "—"}</td>
@@ -145,6 +145,20 @@ const TONE: Record<string, { fg: string; bg: string }> = {
   REJECTED:         { fg: "#ef4444",        bg: "rgba(239,68,68,0.15)" },
   default:          { fg: "var(--text-dim)", bg: "rgba(255,255,255,0.06)" },
 };
+
+/** Time-of-day for today's orders; "DD Mon HH:MM" + age for older ones,
+ * so a stale order from last night can't masquerade as fresh. */
+function fmtWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(11, 19);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const hhmmss = iso.slice(11, 19);
+  if (sameDay) return hhmmss;
+  const ageH = Math.round((now.getTime() - d.getTime()) / 3_600_000);
+  const dm = d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+  return `${dm} ${iso.slice(11, 16)} · ${ageH}h ago`;
+}
 
 const TH: React.CSSProperties = {
   textAlign: "left", padding: "4px 8px", fontSize: 10, fontWeight: 700,

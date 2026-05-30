@@ -147,17 +147,19 @@ public static class IntegrationsEndpoints
                 return Results.BadRequest(new { error = "IG client is disabled" });
             }
             var symbol = body?.Symbol?.Trim().ToUpperInvariant();
+            var dealId = body?.DealId?.Trim();
             var snapshot = await ig.GetPositionsAsync(ct);
             if (snapshot.Error is not null)
             {
                 return Results.Json(new { error = $"could not read IG positions: {snapshot.Error}" }, statusCode: 502);
             }
 
-            // Match by bare pair extracted from the epic (CS.D.<pair>.*),
-            // so "EURUSD" flattens every CS.D.EURUSD.* deal regardless of
-            // contract size. No symbol → flatten everything.
+            // Precedence: a specific dealId closes just that deal; else a
+            // symbol closes every deal for that bare pair (CS.D.<pair>.*
+            // regardless of contract size); else flatten everything.
             bool Matches(TradePro.Api.Providers.IG.IGPosition p)
             {
+                if (!string.IsNullOrEmpty(dealId)) return p.DealId == dealId;
                 if (string.IsNullOrEmpty(symbol)) return true;
                 var epic = p.Epic.ToUpperInvariant();
                 var parts = epic.Split('.');
@@ -178,7 +180,18 @@ public static class IntegrationsEndpoints
                     continue;
                 }
                 var r = await ig.CloseDealAsync(p.DealId, p.Direction, p.Size, ct);
-                var ok = r.Status == "ACCEPTED";
+                // CloseDealAsync only means IG ACCEPTED the close REQUEST and
+                // returned a deal reference — it does NOT mean the position
+                // actually closed. Confirm the deal so we report the truth
+                // (e.g. weekend FX → "MARKET_CLOSED", position stays open).
+                var ok = false;
+                string? reason = r.StatusReason ?? r.Status;
+                if (r.Status == "ACCEPTED" && r.DealReference is not null)
+                {
+                    var conf = await ig.ConfirmDealAsync(r.DealReference, ct);
+                    ok = conf.Status == "ACCEPTED";
+                    reason = ok ? null : (conf.StatusReason ?? conf.Status);
+                }
                 if (ok) closed++; else failed++;
                 details.Add(new
                 {
@@ -188,7 +201,7 @@ public static class IntegrationsEndpoints
                     size = p.Size,
                     ok,
                     dealReference = r.DealReference,
-                    error = ok ? null : r.StatusReason,
+                    error = ok ? null : reason,
                 });
             }
             return Results.Ok(new
@@ -730,6 +743,8 @@ public static class IntegrationsEndpoints
     }
 }
 
-/// Body for POST /integrations/ig/positions/flatten. Symbol is the bare
-/// pair (e.g. "EURUSD"); null/empty flattens every open IG deal.
-public sealed record FlattenRequest(string? Symbol);
+/// Body for POST /integrations/ig/positions/flatten.
+///   DealId set  → close just that one deal (per-row close).
+///   Symbol set  → close every deal for that bare pair (e.g. "EURUSD").
+///   neither     → flatten every open IG deal.
+public sealed record FlattenRequest(string? Symbol, string? DealId);

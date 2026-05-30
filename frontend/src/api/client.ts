@@ -681,18 +681,20 @@ export const api = {
     get<import("../types/cockpit").T212PosResp>(
       "/api/integrations/trading212/positions", { account }),
 
-  // Flatten (net to flat) open IG deals. symbol = bare pair (e.g.
-  // "EURUSD") flattens that instrument; omit to flatten all. Closes
-  // each stacked deal at market — used to undo the duplicate-order
-  // accumulation. Mutating: the UI gates it behind a confirm.
-  flattenIg: (symbol?: string) =>
+  // Flatten (net to flat) open IG deals. Pass { dealId } to close one
+  // deal, { symbol } (bare pair e.g. "EURUSD") to close all deals for a
+  // pair, or {} to flatten everything. Each close is confirmed at IG, so
+  // `closed`/`failed` reflect actual execution (a weekend-closed market
+  // returns failed with reason MARKET_CLOSED). Mutating → UI confirms.
+  flattenIg: (opts?: { symbol?: string; dealId?: string }) =>
     post<{
       symbol: string;
       requested: number;
       closed: number;
       failed: number;
       details: Array<{ epic: string; dealId?: string; direction?: string; size?: number; ok: boolean; error?: string | null }>;
-    }, { symbol?: string }>("/api/integrations/ig/positions/flatten", symbol ? { symbol } : {}),
+    }, { symbol?: string; dealId?: string }>(
+      "/api/integrations/ig/positions/flatten", opts ?? {}),
 
   // IG open positions (FX / CFD). The cockpit position panel is
   // otherwise T212-equity-only; this surfaces the FX book that the

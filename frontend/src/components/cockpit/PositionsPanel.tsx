@@ -70,6 +70,7 @@ export function PositionsPanel({
   const [oms, setOms] = useState<OmsPositions | null>(null);
   const [flattening, setFlattening] = useState(false);
   const [flattenMsg, setFlattenMsg] = useState<string | null>(null);
+  const [showDeals, setShowDeals] = useState(false);
 
   const loadBroker = useCallback(async () => {
     try {
@@ -103,14 +104,18 @@ export function PositionsPanel({
     return rows.reduce((n, p) => n + p.quantity, 0);
   };
 
-  const flatten = useCallback(async (symbol?: string) => {
-    const label = symbol ?? "ALL open FX deals";
-    if (!window.confirm(`Flatten ${label} on IG? This closes the deals at market.`)) return;
+  const flatten = useCallback(async (opts: { symbol?: string; dealId?: string; label: string }) => {
+    if (!window.confirm(`Flatten ${opts.label} on IG? This closes at market (rejected if the market is closed).`)) return;
     setFlattening(true);
     setFlattenMsg(null);
     try {
-      const r = await api.flattenIg(symbol);
-      setFlattenMsg(`Closed ${r.closed}/${r.requested} deal(s)${r.failed ? `, ${r.failed} failed` : ""}.`);
+      const r = await api.flattenIg({ symbol: opts.symbol, dealId: opts.dealId });
+      const firstErr = r.details.find((d) => !d.ok)?.error;
+      setFlattenMsg(
+        r.closed === r.requested
+          ? `Closed ${r.closed}/${r.requested} deal(s).`
+          : `Closed ${r.closed}/${r.requested}; ${r.failed} could not close${firstErr ? ` — ${firstErr}` : ""}.`,
+      );
       await loadBroker();
     } catch (e) {
       setFlattenMsg(`Flatten failed: ${e}`);
@@ -134,6 +139,7 @@ export function PositionsPanel({
         id="positions-equity"
         title="Equity positions"
         badge={(equityCount + igEq.length) || undefined}
+        fullWidth
         onHide={() => onHide("positions-equity")}
       >
         <Account
@@ -221,6 +227,7 @@ export function PositionsPanel({
         id="positions-fx"
         title="FX positions"
         badge={igFx.length || undefined}
+        fullWidth
         onHide={() => onHide("positions-fx")}
       >
         <Account
@@ -238,39 +245,53 @@ export function PositionsPanel({
             notConnected="IG not connected."
             emptyText="No open FX positions in IG."
             action={igFx.length > 0 ? (
-              <button type="button" onClick={() => flatten()} disabled={flattening} style={flattenBtn}>
+              <button type="button" onClick={() => flatten({ label: "all open FX deals" })} disabled={flattening} style={flattenBtn}>
                 {flattening ? "Flattening…" : "Flatten all FX"}
               </button>
             ) : undefined}
           >
             {flattenMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>{flattenMsg}</div>}
-            <table style={tableStyle}>
-              <thead>
-                <tr style={{ color: "var(--text-dim)" }}>
-                  <th style={th}>Instrument</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th>
-                  <th style={rTh}>Side</th><th style={rTh}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {igFx.map((p, i) => (
-                  <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={td} title={p.ticker}>{p.instrumentName || prettySymbol(p.ticker)}</td>
-                    <td style={numTd}>{Math.abs(p.quantity)}</td>
-                    <td style={numTd}>{p.averagePricePaid?.toFixed(4) ?? "—"}</td>
-                    <td style={{ ...numTd, color: p.quantity >= 0 ? UP : DOWN }}>{p.quantity >= 0 ? "LONG" : "SHORT"}</td>
-                    <td style={{ ...numTd }}>
-                      <button type="button" onClick={() => flatten(bareSymbol(p.ticker))} disabled={flattening}
-                        style={{ ...flattenBtn, padding: "1px 7px", fontSize: 10 }} title={`Flatten ${bareSymbol(p.ticker)}`}>
-                        close
-                      </button>
-                    </td>
+            {/* Lead with the NET exposure per pair — the real position
+                under the (often many) stacked deals. */}
+            <NetByPair positions={igFx} prominent />
+            {igFx.length > 0 && (
+              <button type="button" onClick={() => setShowDeals((s) => !s)}
+                style={{ marginTop: 8, fontSize: 11, background: "transparent", border: "none",
+                  color: "var(--text-dim)", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+                {showDeals ? "Hide" : "Show"} {igFx.length} individual deal{igFx.length === 1 ? "" : "s"}
+              </button>
+            )}
+            {showDeals && (
+              <table style={{ ...tableStyle, marginTop: 6 }}>
+                <thead>
+                  <tr style={{ color: "var(--text-dim)" }}>
+                    <th style={th}>Instrument</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th>
+                    <th style={rTh}>Side</th><th style={rTh}></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {/* Net-by-pair so the trader sees the real exposure under the
-                stacked deals (e.g. 12 deals → net −3.3). */}
-            <NetByPair positions={igFx} />
+                </thead>
+                <tbody>
+                  {igFx.map((p, i) => (
+                    <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                      <td style={td} title={p.ticker}>{p.instrumentName || prettySymbol(p.ticker)}</td>
+                      <td style={numTd}>{Math.abs(p.quantity)}</td>
+                      <td style={numTd}>{p.averagePricePaid?.toFixed(4) ?? "—"}</td>
+                      <td style={{ ...numTd, color: p.quantity >= 0 ? UP : DOWN }}>{p.quantity >= 0 ? "LONG" : "SHORT"}</td>
+                      <td style={{ ...numTd }}>
+                        <button type="button"
+                          onClick={() => flatten(p.dealId
+                            ? { dealId: p.dealId, label: `this ${prettySymbol(p.ticker)} deal` }
+                            : { symbol: bareSymbol(p.ticker), label: prettySymbol(p.ticker) })}
+                          disabled={flattening}
+                          style={{ ...flattenBtn, padding: "1px 7px", fontSize: 10 }}
+                          title={p.dealId ? "Close this deal" : `Flatten ${bareSymbol(p.ticker)}`}>
+                          close
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </ProductSection>
         </Account>
         <ReconNote />
@@ -381,7 +402,7 @@ function DriftCell({ broker, oms }: { broker: number; oms: number | null }) {
   );
 }
 
-function NetByPair({ positions }: { positions: IGPosResp["positions"] }) {
+function NetByPair({ positions, prominent }: { positions: IGPosResp["positions"]; prominent?: boolean }) {
   const net = new Map<string, number>();
   for (const p of positions) {
     const bare = bareSymbol(p.ticker);
@@ -389,11 +410,27 @@ function NetByPair({ positions }: { positions: IGPosResp["positions"] }) {
   }
   const rows = [...net.entries()].filter(([, q]) => Math.abs(q) > 1e-9);
   if (rows.length === 0) return null;
+  if (prominent) {
+    return (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "baseline" }}>
+        {rows.map(([s, q]) => (
+          <span key={s} style={{ fontSize: 13 }}>
+            <strong style={{ color: "var(--text)" }}>{prettySymbol(s)}</strong>{" "}
+            <strong style={{ color: q >= 0 ? UP : DOWN, fontSize: 15, fontFamily: "monospace" }}>
+              {q >= 0 ? "+" : ""}{q.toFixed(1)}
+            </strong>
+            <span style={{ fontSize: 10, color: "var(--text-muted)" }}> net</span>
+          </span>
+        ))}
+        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>across {positions.length} deal{positions.length === 1 ? "" : "s"}</span>
+      </div>
+    );
+  }
   return (
     <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)" }}>
       Net: {rows.map(([s, q]) => (
         <span key={s} style={{ marginRight: 10 }}>
-          {s} <strong style={{ color: q >= 0 ? UP : DOWN }}>{q >= 0 ? "+" : ""}{q.toFixed(1)}</strong>
+          {prettySymbol(s)} <strong style={{ color: q >= 0 ? UP : DOWN }}>{q >= 0 ? "+" : ""}{q.toFixed(1)}</strong>
         </span>
       ))}
       <span style={{ color: "var(--text-muted)" }}>({positions.length} deals)</span>
