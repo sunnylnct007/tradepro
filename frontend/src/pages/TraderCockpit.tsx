@@ -4,13 +4,13 @@ import { CockpitCard } from "../components/CockpitCard";
 import { PlotlyChart } from "../components/PlotlyChart";
 import { TriggerPanel } from "../components/cockpit/TriggerPanel";
 import { TradeCardsPanel } from "../components/cockpit/TradeCardsPanel";
-import { KpiStrip } from "../components/cockpit/KpiStrip";
 import { ActivityList } from "../components/cockpit/ActivityList";
 import { TodayOutcome } from "../components/cockpit/TodayOutcome";
 import { OrdersTable } from "../components/cockpit/OrdersTable";
 import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
 import { PositionChartsCard } from "../components/cockpit/PositionChartsCard";
 import { PositionsPanel } from "../components/cockpit/PositionsPanel";
+import { StrategyDesks } from "../components/cockpit/StrategyDesks";
 import { OrdersByBrokerPanel } from "../components/cockpit/OrdersByBrokerPanel";
 import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
@@ -321,6 +321,7 @@ export function TraderCockpit() {
   // click × on the card → moves to HiddenWidgetsBar; click the pill
   // → restored.
   const WIDGETS: WidgetMeta[] = [
+    { id: "desks",        title: "Strategy desks" },
     { id: "warnings",     title: "Warnings" },
     { id: "broker-cash",  title: "Broker cash (multi)" },
     { id: "trigger",      title: "Trigger session" },
@@ -344,18 +345,26 @@ export function TraderCockpit() {
   // pending action, today's signals. Restore any from the
   // HiddenWidgetsBar above the grid. Persists per-trader (localStorage)
   // — once they un-hide, that choice survives reloads.
+  // Desks-first home: the trader sees STRATEGY DESKS + action (approvals,
+  // warnings) by default; everything analyst-flavoured starts hidden and
+  // is one click away on the HiddenWidgetsBar. "Strategy desks" already
+  // summarises positions per strategy, so the broker→product positions
+  // cards + the per-symbol charts default hidden (drill-in, not front page).
   const widgets = useHiddenWidgets("cockpit.hidden", [
-    "submitted",    // info; pending is the action surface
-    "fills",        // info; activity feed covers it
-    "activity",     // verbose; covered by trade-cards + scan-grid
-    "lifecycle",    // analyst-flavoured Gantt
-    // "charts" — VISIBLE by default. Trader's primary visualisation
-    //  surface (per-symbol Ichimoku cloud). Lazy-loaded plotly only
-    //  fetches when the panel is expanded; trader can collapse the
-    //  header chevron without removing it.
-    "signals",      // verbose per-strategy decisions table
-    "trade-cards",  // verbose
-    "trigger",      // 1×/day at most
+    "submitted",            // covered by orders-by-broker
+    "fills",                // covered by orders-by-broker
+    "activity",             // verbose
+    "lifecycle",            // analyst Gantt
+    "signals",              // verbose decisions table
+    "trade-cards",          // verbose
+    "trigger",              // 1×/day at most
+    "broker-cash",          // detail; desks show per-desk alloc, KPI shows cash
+    "position-charts",      // per-symbol Ichimoku charts — drill-in
+    "charts",               // strategy charts — drill-in
+    "scan-grid",            // analyst
+    "live-signal",          // analyst feed
+    "positions-equity",     // superseded by Strategy desks (drill-in)
+    "positions-fx",         // superseded by Strategy desks (drill-in)
   ]);
   const v = (id: string) => !widgets.isHidden(id);
 
@@ -462,13 +471,10 @@ export function TraderCockpit() {
           + the warnings panel still raises here when something's
           actually wrong with a broker / daemon. */}
 
-      {/* ── KPI strip — always-visible single-glance status ──────── */}
-      <KpiStrip
-        cash={cash}
-        orders={orders}
-        positions={positions}
-        warningCount={warnings.length}
-      />
+      {/* KPI strip removed — it was T212-only + mislabeled ("Today's P&L"
+          was actually total T212 unrealised; "Open orders" counted stale
+          mis-routed orders). The Strategy-desks portfolio strip is the
+          accurate, multi-broker summary now. */}
 
       {/* ── Today's outcome — English summary of the day ─────────── */}
       <TodayOutcome
@@ -496,10 +502,21 @@ export function TraderCockpit() {
           alignItems: "start",
         }}
       >
-      {/* ══ MAIN SECTION — overall positions + current trend ═══════
-           The trader's first read: what do I hold, and which way is it
-           going. Everything below (connectivity, cash, working panels)
-           is secondary. */}
+      {/* ══ MAIN SECTION — STRATEGY DESKS ═════════════════════════
+           The trader's first read: each strategy as a desk (broker ×
+           asset class) with its P&L, positions, status, reconcile.
+           Click a desk to drill into its positions. Everything else is
+           secondary / hidden by default. */}
+      {v("desks") && (
+        <StrategyDesks
+          positions={positions}
+          onHide={() => widgets.hide("desks")}
+        />
+      )}
+
+      {/* Detailed broker→product positions (with flatten / sync) —
+           hidden by default; restore from the hidden-widgets bar to
+           drill in. Superseded on the home by Strategy desks. */}
       {(v("positions-equity") || v("positions-fx")) && (
         <PositionsPanel
           positions={positions}
