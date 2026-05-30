@@ -676,6 +676,16 @@ export const api = {
       `/api/alerts/${id}/resolve`, {},
     ),
 
+  // Sync OMS ← broker: adopt the broker's actual net positions into the
+  // OMS (synthetic, audited RECONCILE adjustments). broker = OMS label
+  // e.g. "T212_DEMO" | "IG_DEMO". Returns the adjustments made.
+  syncOmsFromBroker: (broker: string) =>
+    post<{
+      broker: string;
+      adjusted: number;
+      adjustments: Array<{ symbol: string; side: string; delta: number; targetQty: number; fromOmsQty: number }>;
+    }, { broker: string }>("/api/oms/positions/sync-from-broker", { broker }),
+
   // T212 open positions (equity). account = demo | live.
   t212Positions: (account: "demo" | "live" = "demo") =>
     get<import("../types/cockpit").T212PosResp>(

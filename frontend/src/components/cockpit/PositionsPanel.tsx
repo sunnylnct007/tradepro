@@ -61,9 +61,10 @@ export function PositionsPanel({
   onHide: (id: string) => void;
   showEquity?: boolean;
   showFx?: boolean;
-  /** Sync OMS from broker for the given OMS broker label. When omitted
-   * the per-account "Sync OMS ← broker" button is hidden. */
-  onSyncOms?: (broker: string) => void;
+  /** Sync OMS from broker for the given OMS broker label (writes audited
+   * reconcile adjustments so OMS matches the broker). When omitted the
+   * per-account "Sync OMS ← broker" button is hidden. */
+  onSyncOms?: (broker: string) => Promise<{ adjusted: number }>;
 }) {
   const [ig, setIg] = useState<IGPosResp | null>(null);
   const [igErr, setIgErr] = useState<string | null>(null);
@@ -71,6 +72,7 @@ export function PositionsPanel({
   const [flattening, setFlattening] = useState(false);
   const [flattenMsg, setFlattenMsg] = useState<string | null>(null);
   const [showDeals, setShowDeals] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   const loadBroker = useCallback(async () => {
     try {
@@ -92,6 +94,23 @@ export function PositionsPanel({
     const t = setInterval(loadBroker, 30_000);
     return () => clearInterval(t);
   }, [loadBroker]);
+
+  const doSync = useCallback(async (broker: string) => {
+    if (!onSyncOms) return;
+    if (!window.confirm(
+      `Overwrite OMS for ${broker} with the broker's actual positions?\n\n`
+      + `The broker is the source of truth; this writes audited "RECONCILE" `
+      + `adjustments so the OMS net matches. It does NOT place real orders.`,
+    )) return;
+    setSyncMsg(`Syncing ${broker}…`);
+    try {
+      const r = await onSyncOms(broker);
+      setSyncMsg(`Synced ${broker}: ${r.adjusted} adjustment(s).`);
+      await loadBroker();
+    } catch (e) {
+      setSyncMsg(`Sync failed: ${e}`);
+    }
+  }, [onSyncOms, loadBroker]);
 
   // OMS net per (broker, bareSymbol) — the system's view, for reconcile.
   const omsNet = (brokerLabel: string, sym: string): number | null => {
@@ -145,7 +164,7 @@ export function PositionsPanel({
           label={`T212 · ${account}`}
           reconciled={positions?.enabled ? reconcileT212(positions, t212OmsBroker, omsNet) : null}
           first
-          onSync={onSyncOms ? () => onSyncOms(t212OmsBroker) : undefined}
+          onSync={onSyncOms ? () => doSync(t212OmsBroker) : undefined}
         >
           <ProductSection
             title="Equity"
@@ -210,6 +229,7 @@ export function PositionsPanel({
             </ProductSection>
           </Account>
         )}
+        {syncMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 8 }}>{syncMsg}</div>}
         <ReconNote />
       </CockpitCard>
       )}
@@ -226,7 +246,7 @@ export function PositionsPanel({
           label={`IG · ${ig?.mode ?? "?"}`}
           reconciled={ig?.enabled ? reconcileIg(ig, omsNet) : null}
           first
-          onSync={ig?.enabled && onSyncOms ? () => onSyncOms(ig.mode) : undefined}
+          onSync={ig?.enabled && onSyncOms ? () => doSync(ig.mode) : undefined}
         >
           <ProductSection
             title="FX"
@@ -286,6 +306,7 @@ export function PositionsPanel({
             )}
           </ProductSection>
         </Account>
+        {syncMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 8 }}>{syncMsg}</div>}
         <ReconNote />
       </CockpitCard>
       )}

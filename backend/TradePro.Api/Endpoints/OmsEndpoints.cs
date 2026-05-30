@@ -318,6 +318,96 @@ public static class OmsEndpoints
             return Results.Ok(new { positions = rows });
         });
 
+        // Sync OMS ← broker. The broker is the golden source; the OMS is
+        // audit-only and can drift (fills never recorded, manual trades,
+        // etc.). This adopts the broker's ACTUAL net position per symbol
+        // by writing a synthetic, fully-audited "RECONCILE" adjustment
+        // order + fill for the delta — so the OMS-derived net matches the
+        // broker. Operator-triggered (the cockpit "Sync OMS ← broker"
+        // button, behind a confirm). Idempotent: a second run sees delta
+        // 0 and does nothing.
+        positions.MapPost("/sync-from-broker", async (
+            SyncFromBrokerRequest body,
+            IOmsService oms,
+            TradePro.Api.Providers.Trading212.Trading212PositionsCache liveCache,
+            TradePro.Api.Providers.Trading212.Trading212DemoPositionsCache demoCache,
+            TradePro.Api.Providers.IG.IGClient ig,
+            CancellationToken ct) =>
+        {
+            var broker = (body?.Broker ?? "").Trim().ToUpperInvariant();
+
+            // 1. Read the broker's ACTUAL positions → (omsSymbol, signedQty, avgPrice).
+            var actuals = new List<(string Symbol, decimal Qty, decimal? Avg)>();
+            if (broker is "T212_DEMO" or "T212_LIVE")
+            {
+                var res = broker == "T212_DEMO" ? await demoCache.GetAsync(ct) : await liveCache.GetAsync(ct);
+                if (res.Error is not null)
+                    return Results.Json(new { error = $"could not read T212 positions: {res.Error}" }, statusCode: 502);
+                foreach (var p in res.Positions) actuals.Add((p.Ticker, p.Quantity, p.AveragePricePaid));
+            }
+            else if (broker is "IG_DEMO" or "IG_LIVE")
+            {
+                if (!ig.IsEnabled) return Results.BadRequest(new { error = "IG client is disabled" });
+                var res = await ig.GetPositionsAsync(ct);
+                if (res.Error is not null)
+                    return Results.Json(new { error = $"could not read IG positions: {res.Error}" }, statusCode: 502);
+                // Net the (possibly stacked) deals per epic.
+                foreach (var g in res.Positions.GroupBy(p => p.Epic))
+                {
+                    var qty = g.Sum(p => p.Direction == "SELL" ? -p.Size : p.Size);
+                    var avg = g.Select(p => (decimal?)p.EntryLevel).FirstOrDefault();
+                    actuals.Add((g.Key, qty, avg));
+                }
+            }
+            else
+            {
+                return Results.BadRequest(new { error = $"unsupported broker '{broker}'" });
+            }
+
+            // 2. OMS current net for this broker, keyed by bare symbol.
+            var omsRows = (await oms.ListPositionsAsync(null)).Where(p => p.Broker == broker).ToList();
+            static string Bare(string s)
+            {
+                var u = (s ?? "").ToUpperInvariant();
+                if (u.StartsWith("CS.D.") || u.StartsWith("IX.D."))
+                {
+                    var parts = u.Split('.');
+                    if (parts.Length >= 4) return parts[2];
+                }
+                return u.Contains('_') ? u.Split('_')[0] : u;
+            }
+            var omsByBare = omsRows.GroupBy(p => Bare(p.Symbol)).ToDictionary(g => g.Key, g => g.First());
+            var actualByBare = actuals.GroupBy(a => Bare(a.Symbol)).ToDictionary(g => g.Key, g => g.First());
+
+            // 3. For every symbol in either set, write the adjustment to
+            //    bring OMS to the broker's number (broker flat → close).
+            var adjustments = new List<object>();
+            foreach (var bare in omsByBare.Keys.Union(actualByBare.Keys))
+            {
+                var hasActual = actualByBare.TryGetValue(bare, out var act);
+                var omsQty = omsByBare.TryGetValue(bare, out var omsP) ? omsP.Quantity : 0m;
+                var targetQty = hasActual ? act.Qty : 0m;
+                var delta = targetQty - omsQty;
+                if (Math.Abs(delta) < 0.0001m) continue;
+                var symbol = hasActual ? act.Symbol : omsP!.Symbol;
+                var price = (hasActual ? act.Avg : omsP?.AvgPrice) ?? 0m;
+                var intent = new OrderIntent(
+                    ClientOrderId: Guid.NewGuid(),
+                    Broker: broker,
+                    Symbol: symbol,
+                    Side: delta > 0 ? "BUY" : "SELL",
+                    Qty: Math.Abs(delta),
+                    OrderType: "MKT",
+                    StrategyId: null,
+                    PlacedBy: "RECONCILE");
+                var order = await oms.EnqueueAsync(intent, "oms-sync");
+                await oms.RecordFillAsync(order.Id, Math.Abs(delta), price, 0m, "USD", $"reconcile-{order.Id:N}", "oms-sync");
+                adjustments.Add(new { symbol, side = intent.Side, delta, targetQty, fromOmsQty = omsQty });
+            }
+
+            return Results.Ok(new { broker, adjusted = adjustments.Count, adjustments });
+        });
+
         // Reconciliation: OMS-derived position vs T212 broker reality.
         // Drift = bug (T212 rejected something we recorded, or the
         // operator placed a manual trade outside the OMS). Surfaces
@@ -485,3 +575,7 @@ public static class OmsEndpoints
         string? Broker = null
     );
 }
+
+/// Body for POST /oms/positions/sync-from-broker — which broker's OMS
+/// label to reconcile (e.g. "T212_DEMO", "IG_DEMO").
+public sealed record SyncFromBrokerRequest(string? Broker);

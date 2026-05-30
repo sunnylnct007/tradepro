@@ -105,6 +105,35 @@ public sealed class RiskGate
                 }
             }
 
+            // Gate 3b: market hours — never send an order into a CLOSED
+            // venue. Spot FX is 24/5; reject FX orders on the weekend
+            // regardless of which strategy/path emitted them or what the
+            // (possibly stale, replayed) bar timestamp said. This is the
+            // universal backstop for the "weekend duplicate flood": the
+            // strategy-level guard can be bypassed (manual trigger,
+            // replayed Friday bars); the risk engine cannot. Wall-clock
+            // (UTC now), NOT the bar/order timestamp.
+            if (IsFxSymbol(order.Symbol) && !FxMarketOpenUtc(DateTime.UtcNow))
+            {
+                failures.Add(new RiskFailure(
+                    "market_closed",
+                    $"FX market is closed (weekend) — refusing {order.Symbol}"));
+            }
+
+            // Gate 3c: broker capability — Trading 212's public API is
+            // Invest-only (equities + ETFs); it CANNOT trade FX/CFD. An FX
+            // order routed to T212 (mis-config, or a manual trigger that
+            // picked the default broker) can never fill — reject it here so
+            // it doesn't sit PENDING or get rejected noisily downstream.
+            // FX belongs on IG. (This is the "T212 ✗ FX" the UI flags.)
+            if (IsFxSymbol(order.Symbol)
+                && order.Broker.StartsWith("T212", StringComparison.OrdinalIgnoreCase))
+            {
+                failures.Add(new RiskFailure(
+                    "broker_capability",
+                    $"T212 cannot trade FX ({order.Symbol}) — its API is equity-only; route FX to IG"));
+            }
+
             // Gate 4a: sentiment veto on BUYs. Reads the latest score
             // from sentiment_scores; vetoes new entries when the LLM
             // says the recent news is materially negative. Never blocks
@@ -194,6 +223,31 @@ public sealed class RiskGate
     }
 
     // ─────────────────────────────────────────────────────────────────
+
+    // FX symbol = IG epic "CS.D.<PAIR>.<size>.IP" or a bare 6-letter
+    // currency pair. Used by the market-hours gate.
+    private static bool IsFxSymbol(string symbol)
+    {
+        var s = (symbol ?? "").ToUpperInvariant();
+        if (s.StartsWith("CS.D."))
+        {
+            var parts = s.Split('.');
+            if (parts.Length >= 4
+                && System.Text.RegularExpressions.Regex.IsMatch(parts[2], "^[A-Z]{6}$"))
+                return true;
+        }
+        return System.Text.RegularExpressions.Regex.IsMatch(s, "^[A-Z]{6}$");
+    }
+
+    // Spot FX is 24/5: opens Sun ~21:00 UTC, closes Fri ~21:00 UTC,
+    // closed all Saturday. Wall-clock (UTC now), not the order timestamp.
+    private static bool FxMarketOpenUtc(DateTime nowUtc) => nowUtc.DayOfWeek switch
+    {
+        DayOfWeek.Saturday => false,
+        DayOfWeek.Sunday => nowUtc.Hour >= 21,
+        DayOfWeek.Friday => nowUtc.Hour < 21,
+        _ => true,
+    };
 
     private async Task<string?> IsBlacklistedAsync(string symbol)
     {

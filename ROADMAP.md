@@ -48,8 +48,31 @@ roadmap as we go" rule).
   Broker column + readable symbols (`util/brokerSymbols.ts`) in
   `OrdersTable`. Confirmed live OMS holds 154 IG + 46 T212 orders.
 - **Clickable equity tickers** → `/symbol/<ticker>` deep-dive for trend.
+- **FX market-hours guard** — `ichimoku_fx_mr` no longer fires when spot
+  FX is closed (weekend); `_fx_market_open()` (24/5: closed Sat, Sun
+  pre-21:00 UTC, Fri post-21:00). Stops the `MARKET_CLOSED` spam at
+  source. "Don't send orders into a closed market."
+- **Truthful flatten** — IG flatten now CONFIRMS each close, so it
+  reports real closed-vs-rejected (weekend → "rejected: MARKET_CLOSED")
+  instead of a false "Closed 12/12".
+- **Per-deal close** — flatten accepts a `dealId`; per-row close closes
+  THAT deal (was flattening the whole pair).
+- **Positions UX** — Equity + FX are full-width stacked cards; FX leads
+  with net-per-pair and collapses individual deals behind an expander.
+- **Order time clarity** — non-today orders show date + age (a stale
+  SUBMITTED-from-last-night can't look fresh).
 
 ### Open queue (next)
+- **Nav bar polish** — the "More ▾" overflow overlaps the long-term/
+  Intraday toggle (squashed); the "T212 · LIVE · EQUITY ONLY" badge is
+  bulky / low-value — shrink or drop. (Layout.tsx)
+- **Stale SUBMITTED orders** — last night's `ichimoku_equity` orders
+  (20:47 UTC, after US close) sit in SUBMITTED forever; fills aren't
+  being recorded back (T212 demo fill poller?) — investigate.
+- **Equity market-hours guard** — same as FX: don't fire equity orders
+  after the US/LSE session close (the 20:47 after-hours batch).
+- **"0 bars" diagnostic copy** — say "market closed / no data" instead
+  of "source feed misconfigured" when the venue is shut.
 - **OMS sync-from-broker** (UI button wired but `onSyncOms` not passed
   yet): when OMS=0 and broker has a position, a button to **overwrite
   OMS from the broker** (golden source). Needs a backend reconcile-WRITE

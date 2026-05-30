@@ -472,6 +472,16 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             quantity=qty, order_type="LIMIT" if price_ov is not None else "MARKET",
         )
 
+        # Optimistically advance our tracked position to the target the
+        # MOMENT we emit, so the next bar computes delta=0 and we do NOT
+        # re-fire the same order while the fill is outstanding. Live
+        # brokers (IG/T212) don't fill synchronously — without this the
+        # strategy re-emits every bar (current stays stale), producing the
+        # duplicate-order flood. The broker stays the golden source:
+        # seed_positions re-syncs from it at the next session start, so an
+        # optimistic position that didn't actually fill self-corrects.
+        self._fx_positions[pair] = target
+
         if price_ov is not None:
             return [Order(
                 strategy_id=self.strategy_id,
@@ -492,9 +502,14 @@ class IchimokuFXMeanReversionStrategy(Strategy):
         )]
 
     def on_fill(self, fill: Fill) -> None:
-        prev = self._fx_positions.get(fill.symbol, 0)
-        signed = fill.quantity if fill.side == OrderSide.BUY else -fill.quantity
-        self._fx_positions[fill.symbol] = prev + signed
+        # Position is tracked in SIGNED TARGET UNITS (±1..pos_cap) and is
+        # advanced optimistically when we emit (see on_bar) + reconciled
+        # from the broker at session start (seed_positions). We deliberately
+        # do NOT add the raw fill quantity here: fill.quantity is in order
+        # units (thousands), a different scale, so adding it would corrupt
+        # the ±unit book (and, combined with the old re-fire, was part of
+        # the runaway). Fills are confirmations; the Ledger tracks P&L.
+        return None
 
     def on_session_end(self, session_date) -> None:  # type: ignore[override]
         return None

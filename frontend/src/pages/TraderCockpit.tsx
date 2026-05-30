@@ -511,6 +511,7 @@ export function TraderCockpit() {
           showEquity={v("positions-equity")}
           showFx={v("positions-fx")}
           onHide={(id) => widgets.hide(id)}
+          onSyncOms={(broker) => api.syncOmsFromBroker(broker)}
         />
       )}
       {v("position-charts") && (
