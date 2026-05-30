@@ -62,6 +62,36 @@ AAPL MSFT NVDA TSLA AMZN GOOGL META BRK-B JPM V) feeds BOTH equity desks;
 intraday_flat trades that (not the hardcoded ETFs); UK `.L` excluded (US
 session). Needs IG epics for those names (interactive, operator).
 
+### UX + behaviour notes (2026-05-30, second pass)
+- **Pre-market staging (CONFIRMED to build):** emit signals as PENDING
+  orders always (stage to verify); never *place* into a closed market
+  (RiskGate gates placement); **on rerun, cancel this strategy's prior
+  PENDING set and restage fresh** (uses /api/admin/oms/bulk-cancel-pending).
+  Later: a **config flag to optionally place the pre-signal to the broker**
+  pre-market if wished (`place_when_market_closed`, default off).
+- **Position-aware signals (principle):** always compute the signal/target
+  against the CURRENT position (broker-seeded + optimistic-on-emit) — never
+  from assumed-flat — else we emit wrong/duplicate orders. Keep invariant.
+- **Top summary must be cross-broker:** cash + P&L at the top should
+  aggregate across strategy/broker (T212 + IG …), not T212-only. Mixed
+  currencies (T212 USD, IG GBP) → show per-broker, don't false-sum
+  (desks strip to pull /api/integrations/cash-summary).
+- **OMS sync ← broker:** make OMS match the broker via audited RECONCILE
+  adjustments. (Bug fixed: skip null-ticker T212 rows that violated
+  oms_orders.symbol NOT NULL.)
+- **Errors should be flagged:** surface backend/operational errors (failed
+  sync, strategy abort) in the cockpit alert banner via system_alerts —
+  don't fail silently. (Alert infra exists; wire more producers + a
+  global-exception → alert hook.)
+- **Long-term / Intraday mode flip** adds little value today — keep as
+  good-to-have, but only once it genuinely re-parameterises the surfaces
+  (default tabs, strategy params, backtest windows) per mode.
+- **localStorage gotcha:** changing the cockpit default-hidden list does
+  NOT retroactively hide cards for existing users (their `cockpit.hidden`
+  persists). Version the key / one-time reset to roll out the calm default.
+- Header: removed misleading red "T212 · LIVE" chip (algo trades DEMO);
+  name + Sign out grouped; connectivity = top-bar traffic light.
+
 ### Parallel workstreams (other devs — don't clobber)
 - **Backtesting + simulation: storing order-book history.** A separate dev is
   improving backtest/sim by persisting order-book history (richer fills /

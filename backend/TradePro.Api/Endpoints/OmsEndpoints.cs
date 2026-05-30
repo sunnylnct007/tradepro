@@ -390,6 +390,10 @@ public static class OmsEndpoints
                 var delta = targetQty - omsQty;
                 if (Math.Abs(delta) < 0.0001m) continue;
                 var symbol = hasActual ? act.Symbol : omsP!.Symbol;
+                // Skip rows with no usable symbol (e.g. a T212 cash/pie
+                // entry with a null ticker) — they can't be a real
+                // position and a null Symbol violates oms_orders NOT NULL.
+                if (string.IsNullOrWhiteSpace(symbol)) continue;
                 var price = (hasActual ? act.Avg : omsP?.AvgPrice) ?? 0m;
                 var intent = new OrderIntent(
                     ClientOrderId: Guid.NewGuid(),

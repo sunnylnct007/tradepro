@@ -5,7 +5,6 @@ import { WorkerStatusBadge } from "./WorkerStatusBadge";
 import { useAuth } from "../auth/AuthProvider";
 import { ModePill } from "./ModePill";
 import { OmsModeBadge } from "./OmsModeBadge";
-import { T212ModeBadge } from "./T212ModeBadge";
 import { ConnectivityBadge } from "./ConnectivityBadge";
 
 // Two personas drive the nav layout:
@@ -272,11 +271,12 @@ export function Layout() {
            * / Backtest never has to wonder "is the worker alive?"
            * after a long gap. */}
           <WorkerStatusBadge />
-          {/* T212 broker mode chip — visible on every page so a user
-           * can never confuse demo with real money. Hidden when
-           * T212 isn't configured. */}
+          {/* OMS placement mode (auto/manual). The misleading T212·LIVE
+           * chip was removed — it reflected the read-only live VIEW
+           * connection, but the algo trades DEMO, so a red "LIVE" alarmed
+           * for no reason. The cockpit's own DEMO/LIVE account toggle is
+           * the source of truth for which book you're viewing. */}
           <OmsModeBadge />
-          <T212ModeBadge />
           <span
             className="num"
             style={{
@@ -293,11 +293,16 @@ export function Layout() {
           </span>
           {firebaseAvailable ? (
             user ? (
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              // Name + Sign out as one grouped pill.
+              <div style={{
+                display: "flex", gap: 8, alignItems: "center",
+                padding: "3px 4px 3px 10px", borderRadius: 999,
+                border: "1px solid var(--border)",
+              }}>
                 <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
                   {user.displayName ?? user.email}
                 </span>
-                <button onClick={signOut} style={{ fontSize: 12, padding: "6px 10px" }}>
+                <button onClick={signOut} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 999 }}>
                   Sign out
                 </button>
               </div>
