@@ -3,6 +3,7 @@ import { config } from "../config";
 import { getIdToken } from "../firebase";
 import { SettingsKvSection } from "../components/settings/SettingsKvSection";
 import { StrategyBrokerMapSection } from "../components/settings/StrategyBrokerMapSection";
+import { DataHealthSection } from "../components/settings/DataHealthSection";
 
 /** UI-editable runtime config.
  *
@@ -233,6 +234,13 @@ export function Settings() {
           Edits land in strategy_broker_map and the .NET ApproveAsync
           path consults this table when routing the next order. */}
       <StrategyBrokerMapSection />
+
+      {/* Data Health + Trustworthy-Data roadmap (migrations 029/030
+          + DataTrustEndpoints.cs). Surfaces every assumption the
+          system makes about data quality, the provider chain per
+          (asset_class × resolution), and the Phase-A placeholder
+          for backfill. See CURRENT_BACKTEST_LIMITATIONS.md. */}
+      <DataHealthSection />
 
       {savedAt && !dirty && (
         <div className="card" style={{ borderLeft: "3px solid var(--up)", color: "var(--text-dim)", padding: "8px 12px", fontSize: 12 }}>

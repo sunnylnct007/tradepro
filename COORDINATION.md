@@ -7,7 +7,7 @@ Read this before starting any work. Update when you start something new.
 
 ---
 
-## Current branch: feature/intraday-flat-daemon  (laneB checkout)
+## Current branch: feature/data-trust-foundation  (laneB checkout)
 
 Follow-up on the `intraday_flat` strategy (phase-1 shipped in PR #28 /
 commit `6f58920`). Adds overnight-leftover handling + 8 BDD scenarios
@@ -170,3 +170,29 @@ explicit integration point laneA opened.
   * Operator runbook in STRATEGIES.md covering: install daemon,
     populate epics, smoke-test, kick daemon, watch logs.
   679/679 BDD scenarios green (was 677; +2 new guards).
+- 2026-05-29 — Shipped: intraday_flat daemon-wiring fix merged as
+  PR #33 / commit `d7369b5`.
+- 2026-05-29 — Started: trustworthy-data Phase A foundation on
+  `feature/data-trust-foundation`. Honest scope: visibility +
+  framework, no actual backfill behaviour yet. Lands:
+  * `CURRENT_BACKTEST_LIMITATIONS.md` — trader-readable doc
+    cataloguing every assumption the system makes about data
+    + backtest evidence, with severity / status / remedy / mitigation.
+  * `ROADMAP.md` — new "Trustworthy data layer (north-star
+    enabler)" section with Phases A through J.
+  * Migration 029 — `data_source_preferences` table
+    (operator-editable provider chain per asset_class × resolution)
+    with CHECK constraint + seed rows reflecting current state.
+  * Migration 030 — `data_assumptions` table (auditable registry)
+    seeded from the limitations doc.
+  * `DataTrustEndpoints.cs` — GET/PUT/DELETE for preferences,
+    GET for assumptions, POST placeholder for backfill (501 with
+    clear roadmap message).
+  * `DataTrustTest.cs` — 9 schema-level tests; all pass.
+  * `DataHealthSection.tsx` — Settings panel rendering assumptions
+    (colour-coded, expandable), provider preferences (editable),
+    backfill placeholder badge.
+  * STRATEGIES.md per-strategy banners on every intraday and daily
+    strategy linking to limitations doc.
+  9/9 new .NET tests + 28/28 broader sample green;
+  679/679 Python BDD green; frontend builds clean.

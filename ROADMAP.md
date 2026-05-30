@@ -98,6 +98,137 @@ roadmap as we go" rule).
 
 ---
 
+## Trustworthy data layer — north-star enabler
+
+**Status:** Phase A landing (this PR). Subsequent phases queued.
+Single-line framing: **TradePro cannot honestly claim a track record
+for its intraday strategies until this layer ships.** See
+[`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
+for the audit of what is and isn't trustworthy today.
+
+### Why this is north-star
+
+The project goal — *BUY/SELL/HOLD recommendation across ETF universe,
+evidenced by backtest + stress-scenario impact* — has two halves. The
+recommendation half (strategies + LLM gate + risk module) is shipped.
+The **evidenced by backtest + stress-scenario** half is materially
+incomplete: daily strategies have defensible backtest evidence;
+intraday strategies have **none beyond the last 7 days** because
+free-tier 1-minute data caps at that. The roadmap below closes that
+gap progressively, with operator visibility from day 1.
+
+### Design principles (non-negotiable)
+
+1. **Asset-class-pluggable**. Adding a new asset class (options,
+   futures, crypto, Indian equity for the future sleeve) is a single
+   file (`data/asset_classes/<class>.py`), never a schema migration
+   or core refactor.
+2. **Partial data fails loud**. A backtest that asked for SPY 2024 1m
+   bars either gets complete data or a structured error. Silent
+   partial reads are a banned behaviour.
+3. **Provider preferences are operator-editable** per (asset_class ×
+   resolution). New providers enter the chain without code change.
+4. **Observability + error diagnostics are first-class**. Every fetch
+   emits structured telemetry (provider, latency, rows expected vs
+   returned, error class). Health endpoint surfaces gaps per symbol.
+5. **Assumption registry**. Every assumption the system makes about
+   data (no slippage modelled, LLM gate anachronistic in backtests,
+   etc.) lives in `data_assumptions` table, editable, surfaced in UI.
+   A future investor reading the cockpit can see what's PARTIAL /
+   OPTIMISTIC / FICTIONAL today.
+6. **Reproducibility hash**. Every backtest result stamps the data
+   state (provider, version, partition hashes). Two runs with the
+   same hash MUST produce identical numbers.
+
+### Phases
+
+**Phase A — Foundation: visibility + framework (this PR)**
+- `CURRENT_BACKTEST_LIMITATIONS.md` — trader-readable limitations doc.
+- `data_source_preferences` table — operator-editable provider chain
+  per (asset_class × resolution).
+- `data_assumptions` table — auditable list of system assumptions
+  about data quality, with status + severity + remedy.
+- Backend endpoints (GET/PUT preferences; GET assumptions + limitations).
+- Backend endpoint placeholder for backfill trigger
+  ("Phase C — not yet implemented").
+- Settings → Data Health & Provider Preferences panel that surfaces
+  all of the above + clearly badges what's stub vs functional.
+- STRATEGIES.md per-strategy limitation banners linking to the doc.
+
+**Phase B — Asset-class-pluggable bar cache**
+- `BarStore` interface + Parquet-backed implementation.
+- Provider chain wired per (asset_class × resolution) from the
+  preferences table (Phase A's editable knob now reaches code).
+- First asset-class plugins: `us_etf`, `us_equity`, `fx_spot`.
+- Atomic writes (tmp + fsync + rename) — no partial Parquet files.
+- Manifest per partition declaring "what should be here";
+  reader validates actual vs declared.
+- Per-fetch structured telemetry → `bar_cache_events` table.
+- Per-symbol health record updated on every fetch.
+
+**Phase C — Operator-facing backfill**
+- CLI: `tradepro-backfill-bars --asset us_etf --symbol SPY
+  --resolution 1m --from 2024-01-01 --to today`.
+- POST `/api/admin/data-backfill` — enqueues a backfill job + returns
+  a job ID for tracking.
+- UI "Backfill" button in the Data Health panel becomes functional.
+- Per-symbol per-resolution job status in UI.
+- Rate-limit guard (token bucket per provider) — never breaches limits.
+
+**Phase D — Reproducibility + audit**
+- Backtest results stamp `data_provider`, `provider_version`,
+  `bar_count_per_symbol`, `bar_partition_hash`.
+- Result viewer surfaces the data state ("ran on cache hash abc123;
+  matches the 2024-08-15 baseline").
+- Walk-forward + Monte Carlo become fully reproducible.
+
+**Phase E — Backtest hard-block on incomplete data**
+- The backtest CLI / endpoint refuses to run when the data layer
+  detects gaps in the requested range.
+- Refusal includes a specific remediation message (which provider to
+  configure, which CLI to run, or `--allow-partial` to override —
+  override is opt-in and stamped on the result).
+
+**Phase F — Fill-quality + slippage layer**
+- Store IG L1 bid/ask snapshot at every fill (`oms_fills` extension).
+- Build an empirical slippage model from realised vs theoretical fills.
+- Spread-haircut backtest mode (apply ½-spread or full-spread cost
+  per round-trip).
+
+**Phase G — Coverage matrix UI**
+- Grid view: rows = (asset_class, symbol), columns = months. Cells
+  colour-coded full / partial / missing / unknown. Click → drill into
+  the specific gap with explanation + fix path.
+
+**Phase H — LLM gate replay**
+- Backtest mode for the LLM gate replays stored `llm_evaluations`
+  rows by timestamp — honest from the date capture began
+  (~ 2026-05-28).
+- Empirical measurement of gate contribution: cohort analyses
+  splitting "backtest with gate disabled" vs "live with gate active".
+
+**Phase I — S3 hybrid storage**
+- Local Parquet = hot working set; S3 IA = warm archive; S3 Glacier
+  Deep Archive = cold archive.
+- Daily incremental sync local → S3.
+- Bootstrap restore CLI ("rehydrate cache from S3").
+- EC2 same-region read for full-universe backtests.
+
+**Phase J — Additional asset classes (mandate-driven, not now)**
+- Options chains EOD snapshots (when an options strategy joins the
+  roadmap).
+- Futures with contract rolling (when needed).
+- Crypto (BinanceProvider.cs exists but no consumer today).
+
+### Coordination
+
+Phase A lands as a single PR. Subsequent phases are independent and
+can be sequenced or parallelised by need. Each phase produces visible
+operator value (a panel, a button, an error message) — no "platform
+work for platform's sake".
+
+---
+
 ## Risk module — pre-trade checks, position sizing, kill switches
 
 **Status:** PLANNED (foundational — every algo platform needs this
