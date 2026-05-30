@@ -9,6 +9,7 @@
  */
 import { Link } from "react-router-dom";
 import type { OmsOrderRow } from "../../api/client";
+import { brokerLabel, prettySymbol } from "../../util/brokerSymbols";
 
 export function OrdersTable({
   rows, acting, onApprove, onReject, onCancel, allowApprove,
@@ -25,6 +26,7 @@ export function OrdersTable({
       <thead>
         <tr style={{ color: "var(--text-dim)" }}>
           <th style={TH}>Time</th>
+          <th style={TH}>Broker</th>
           <th style={TH}>Strategy</th>
           <th style={TH}>Symbol</th>
           <th style={TH}>Side</th>
@@ -67,8 +69,9 @@ function OrderRow({
       <td style={{ ...TD, fontFamily: "monospace", color: "var(--text-muted)" }}>
         {order.createdAtUtc.slice(11, 19)}
       </td>
+      <td style={{ ...TD, fontSize: 11, color: "var(--text-dim)" }}>{brokerLabel(order.broker)}</td>
       <td style={TD}>{order.strategyId ?? "—"}</td>
-      <td style={TD}>{order.symbol}</td>
+      <td style={TD} title={order.symbol}>{prettySymbol(order.symbol)}</td>
       <td style={{ ...TD, color: order.side === "BUY" ? "#1fc16b" : "#ef4444" }}>
         {order.side}
       </td>

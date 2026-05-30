@@ -11,6 +11,7 @@ import { OrdersTable } from "../components/cockpit/OrdersTable";
 import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
 import { PositionChartsCard } from "../components/cockpit/PositionChartsCard";
 import { PositionsPanel } from "../components/cockpit/PositionsPanel";
+import { OrdersByBrokerPanel } from "../components/cockpit/OrdersByBrokerPanel";
 import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
@@ -326,6 +327,7 @@ export function TraderCockpit() {
     { id: "connectivity", title: "Connectivity" },
     { id: "trigger",      title: "Trigger session" },
     { id: "cash",         title: "Cash (T212 only)" },
+    { id: "orders-by-broker", title: "Orders today (by broker)" },
     { id: "intents",     title: "Order generated" },
     { id: "submitted",   title: "Order placed" },
     { id: "fills",       title: "Trade executed" },
@@ -337,7 +339,8 @@ export function TraderCockpit() {
     { id: "charts",      title: "Strategy charts" },
     { id: "lifecycle",   title: "Order lifecycle (Gantt)" },
     { id: "signals",     title: "Strategy signals" },
-    { id: "positions",   title: "Overall position" },
+    { id: "positions-equity", title: "Equity positions" },
+    { id: "positions-fx",     title: "FX positions" },
   ];
   // Trader-first default. Cockpit ships with the analyst-flavoured
   // widgets hidden so the trader sees only essentials: positions,
@@ -500,12 +503,14 @@ export function TraderCockpit() {
            The trader's first read: what do I hold, and which way is it
            going. Everything below (connectivity, cash, working panels)
            is secondary. */}
-      {v("positions") && (
+      {(v("positions-equity") || v("positions-fx")) && (
         <PositionsPanel
           positions={positions}
           posErr={posErr}
           account={account}
-          onHide={() => widgets.hide("positions")}
+          showEquity={v("positions-equity")}
+          showFx={v("positions-fx")}
+          onHide={(id) => widgets.hide(id)}
         />
       )}
       {v("position-charts") && (
@@ -658,6 +663,22 @@ export function TraderCockpit() {
             allowApprove
           />
         )}
+      </CockpitCard>
+      )}
+
+      {/* ── Orders today, by broker — the COMPLETE picture incl.
+              cancelled/rejected (which the state panels below omit), so
+              an FX rejection storm can't hide. */}
+      {v("orders-by-broker") && (
+      <CockpitCard
+        id="orders-by-broker"
+        title="Orders today — by broker"
+        badge={orders.length || undefined}
+        defaultOpen
+        fullWidth
+        onHide={() => widgets.hide("orders-by-broker")}
+      >
+        <OrdersByBrokerPanel orders={orders} />
       </CockpitCard>
       )}
 

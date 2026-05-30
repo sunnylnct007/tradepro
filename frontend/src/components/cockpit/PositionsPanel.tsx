@@ -27,6 +27,7 @@ import { Link } from "react-router-dom";
 import { CockpitCard } from "../CockpitCard";
 import { api } from "../../api/client";
 import type { T212PosResp } from "../../types/cockpit";
+import { bareSymbol, prettySymbol, productOf } from "../../util/brokerSymbols";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
 type OmsPositions = Awaited<ReturnType<typeof api.omsPositions>>;
@@ -45,35 +46,24 @@ const numTd: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "mon
 const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 12 };
 const muted: React.CSSProperties = { fontSize: 12, color: "var(--text-muted)" };
 
-// ── Symbol normalisation so broker books + OMS reconcile on one key ──
-// T212: "AAPL_US_EQ" → "AAPL". IG epic: "CS.D.EURUSD.MINI.IP" → "EURUSD".
-function bareSymbol(raw: string): string {
-  const s = (raw || "").toUpperCase();
-  if (s.startsWith("CS.D.") || s.startsWith("IX.D.")) {
-    const parts = s.split(".");
-    if (parts.length >= 4) return parts[2];
-  }
-  if (s.includes("_")) return s.split("_")[0];
-  return s;
-}
-
-// IG epics that look like a 6-letter currency pair are FX; otherwise
-// treat the IG holding as equity. Keeps the door open for IG equities.
-function igProduct(epic: string): "FX" | "Equity" {
-  const bare = bareSymbol(epic);
-  return /^[A-Z]{6}$/.test(bare) ? "FX" : "Equity";
-}
-
 export function PositionsPanel({
   positions,
   posErr,
   account,
   onHide,
+  onSyncOms,
+  showEquity = true,
+  showFx = true,
 }: {
   positions: T212PosResp | null;
   posErr: string | null;
   account: "demo" | "live";
-  onHide: () => void;
+  onHide: (id: string) => void;
+  showEquity?: boolean;
+  showFx?: boolean;
+  /** Sync OMS from broker for the given OMS broker label. When omitted
+   * the per-account "Sync OMS ← broker" button is hidden. */
+  onSyncOms?: (broker: string) => void;
 }) {
   const [ig, setIg] = useState<IGPosResp | null>(null);
   const [igErr, setIgErr] = useState<string | null>(null);
@@ -130,138 +120,173 @@ export function PositionsPanel({
   }, [loadBroker]);
 
   // ── Build the IG product groups (FX / Equity) from the deal list ──
-  const igFx = (ig?.positions ?? []).filter((p) => igProduct(p.ticker) === "FX");
-  const igEq = (ig?.positions ?? []).filter((p) => igProduct(p.ticker) === "Equity");
+  const igFx = (ig?.positions ?? []).filter((p) => productOf(p.ticker) === "FX");
+  const igEq = (ig?.positions ?? []).filter((p) => productOf(p.ticker) !== "FX");
 
   const equityCount = positions?.enabled ? positions.positionCount : 0;
-  const total = equityCount + (ig?.enabled ? ig.positions.length : 0);
 
+  const t212OmsBroker = `T212_${account.toUpperCase()}`;
   return (
-    <CockpitCard id="positions" title="Overall position — by broker · product" badge={total || undefined} onHide={onHide}>
-      {/* ════ T212 account ════ */}
-      <Account
-        label={`T212 · ${account}`}
-        reconciled={positions?.enabled ? reconcileT212(positions, `T212_${account.toUpperCase()}`, omsNet) : null}
-        first
+    <>
+      {/* ════ Card 1 — EQUITY (across brokers) ════ */}
+      {showEquity && (
+      <CockpitCard
+        id="positions-equity"
+        title="Equity positions"
+        badge={(equityCount + igEq.length) || undefined}
+        onHide={() => onHide("positions-equity")}
       >
-        <ProductSection
-          title="Equity"
-          loading={!positions}
-          error={posErr}
-          connected={!!positions?.enabled}
-          empty={equityCount === 0}
-          notConnected={`T212 ${account} not connected.`}
-          emptyText={`No open equity positions in T212 ${account}.`}
+        <Account
+          label={`T212 · ${account}`}
+          reconciled={positions?.enabled ? reconcileT212(positions, t212OmsBroker, omsNet) : null}
+          first
+          onSync={() => onSyncOms?.(t212OmsBroker)}
         >
-          <table style={tableStyle}>
-            <thead>
-              <tr style={{ color: "var(--text-dim)" }}>
-                <th style={th}>Ticker</th><th style={rTh}>Qty</th><th style={rTh}>Avg</th>
-                <th style={rTh}>Now</th><th style={rTh}>P&L %</th><th style={rTh}>P&L</th><th style={rTh}>OMS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {positions?.positions.map((p) => {
-                const o = omsNet(`T212_${account.toUpperCase()}`, bareSymbol(p.ticker));
-                return (
-                  <tr key={p.ticker} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={td}>{p.ticker}</td>
-                    <td style={numTd}>{p.quantity}</td>
-                    <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
-                    <td style={numTd}>{p.currentPrice?.toFixed(2) ?? "—"}</td>
-                    <td style={{ ...numTd, color: (p.unrealisedPct ?? 0) >= 0 ? UP : DOWN }}>
-                      {p.unrealisedPct != null ? `${p.unrealisedPct >= 0 ? "+" : ""}${p.unrealisedPct.toFixed(2)}%` : "—"}
-                    </td>
-                    <td style={{ ...numTd, color: (p.unrealisedAbs ?? 0) >= 0 ? UP : DOWN }}>
-                      {p.unrealisedAbs != null ? `${p.unrealisedAbs >= 0 ? "+" : ""}${p.unrealisedAbs.toFixed(2)}` : "—"}
-                    </td>
-                    <DriftCell broker={p.quantity} oms={o} />
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </ProductSection>
-      </Account>
-
-      {/* ════ IG account ════ */}
-      <Account
-        label={`IG · ${ig?.mode ?? "?"}`}
-        reconciled={ig?.enabled ? reconcileIg(ig, omsNet) : null}
-      >
-        <ProductSection
-          title="FX"
-          loading={!ig}
-          error={igErr ?? ig?.error ?? null}
-          connected={!!ig?.enabled}
-          empty={igFx.length === 0}
-          notConnected="IG not connected."
-          emptyText="No open FX positions in IG."
-          action={igFx.length > 0 ? (
-            <button type="button" onClick={() => flatten()} disabled={flattening} style={flattenBtn}>
-              {flattening ? "Flattening…" : "Flatten all FX"}
-            </button>
-          ) : undefined}
-        >
-          {flattenMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>{flattenMsg}</div>}
-          <table style={tableStyle}>
-            <thead>
-              <tr style={{ color: "var(--text-dim)" }}>
-                <th style={th}>Instrument</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th>
-                <th style={rTh}>Side</th><th style={rTh}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {igFx.map((p, i) => (
-                <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
-                  <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
-                  <td style={numTd}>{Math.abs(p.quantity)}</td>
-                  <td style={numTd}>{p.averagePricePaid?.toFixed(4) ?? "—"}</td>
-                  <td style={{ ...numTd, color: p.quantity >= 0 ? UP : DOWN }}>{p.quantity >= 0 ? "LONG" : "SHORT"}</td>
-                  <td style={{ ...numTd }}>
-                    <button type="button" onClick={() => flatten(bareSymbol(p.ticker))} disabled={flattening}
-                      style={{ ...flattenBtn, padding: "1px 7px", fontSize: 10 }} title={`Flatten ${bareSymbol(p.ticker)}`}>
-                      close
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {/* Net-by-pair so the trader sees the real exposure under the
-              stacked deals (e.g. 12 deals → net −3.3). */}
-          <NetByPair positions={igFx} />
-        </ProductSection>
-
-        {igEq.length > 0 && (
-          <ProductSection title="Equity" loading={false} error={null} connected empty={false} notConnected="" emptyText="">
+          <ProductSection
+            title="Equity"
+            loading={!positions}
+            error={posErr}
+            connected={!!positions?.enabled}
+            empty={equityCount === 0}
+            notConnected={`T212 ${account} not connected.`}
+            emptyText={`No open equity positions in T212 ${account}.`}
+          >
             <table style={tableStyle}>
               <thead>
                 <tr style={{ color: "var(--text-dim)" }}>
-                  <th style={th}>Instrument</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th><th style={rTh}>Side</th>
+                  <th style={th}>Ticker</th><th style={rTh}>Qty</th><th style={rTh}>Avg</th>
+                  <th style={rTh}>Now</th><th style={rTh}>P&L %</th><th style={rTh}>P&L</th><th style={rTh}>OMS</th>
                 </tr>
               </thead>
               <tbody>
-                {igEq.map((p, i) => (
+                {positions?.positions.map((p) => {
+                  const o = omsNet(t212OmsBroker, bareSymbol(p.ticker));
+                  return (
+                    <tr key={p.ticker} style={{ borderTop: "1px solid var(--border)" }}>
+                      <td style={td}>
+                        <Link to={`/symbol/${encodeURIComponent(bareSymbol(p.ticker))}`}
+                          style={{ color: "var(--text)", textDecoration: "none" }}
+                          title={`Open ${bareSymbol(p.ticker)} chart / trend`}>
+                          {prettySymbol(p.ticker)} ↗
+                        </Link>
+                      </td>
+                      <td style={numTd}>{p.quantity}</td>
+                      <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
+                      <td style={numTd}>{p.currentPrice?.toFixed(2) ?? "—"}</td>
+                      <td style={{ ...numTd, color: (p.unrealisedPct ?? 0) >= 0 ? UP : DOWN }}>
+                        {p.unrealisedPct != null ? `${p.unrealisedPct >= 0 ? "+" : ""}${p.unrealisedPct.toFixed(2)}%` : "—"}
+                      </td>
+                      <td style={{ ...numTd, color: (p.unrealisedAbs ?? 0) >= 0 ? UP : DOWN }}>
+                        {p.unrealisedAbs != null ? `${p.unrealisedAbs >= 0 ? "+" : ""}${p.unrealisedAbs.toFixed(2)}` : "—"}
+                      </td>
+                      <DriftCell broker={p.quantity} oms={o} />
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </ProductSection>
+        </Account>
+
+        {igEq.length > 0 && (
+          <Account label={`IG · ${ig?.mode ?? "?"}`} reconciled={null}>
+            <ProductSection title="Equity" loading={false} error={null} connected empty={false} notConnected="" emptyText="">
+              <table style={tableStyle}>
+                <thead>
+                  <tr style={{ color: "var(--text-dim)" }}>
+                    <th style={th}>Instrument</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th><th style={rTh}>Side</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {igEq.map((p, i) => (
+                    <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                      <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
+                      <td style={numTd}>{Math.abs(p.quantity)}</td>
+                      <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
+                      <td style={{ ...numTd, color: p.quantity >= 0 ? UP : DOWN }}>{p.quantity >= 0 ? "LONG" : "SHORT"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ProductSection>
+          </Account>
+        )}
+        <ReconNote />
+      </CockpitCard>
+      )}
+
+      {/* ════ Card 2 — FX (IG) ════ */}
+      {showFx && (
+      <CockpitCard
+        id="positions-fx"
+        title="FX positions"
+        badge={igFx.length || undefined}
+        onHide={() => onHide("positions-fx")}
+      >
+        <Account
+          label={`IG · ${ig?.mode ?? "?"}`}
+          reconciled={ig?.enabled ? reconcileIg(ig, omsNet) : null}
+          first
+          onSync={ig?.enabled ? () => onSyncOms?.(ig.mode) : undefined}
+        >
+          <ProductSection
+            title="FX"
+            loading={!ig}
+            error={igErr ?? ig?.error ?? null}
+            connected={!!ig?.enabled}
+            empty={igFx.length === 0}
+            notConnected="IG not connected."
+            emptyText="No open FX positions in IG."
+            action={igFx.length > 0 ? (
+              <button type="button" onClick={() => flatten()} disabled={flattening} style={flattenBtn}>
+                {flattening ? "Flattening…" : "Flatten all FX"}
+              </button>
+            ) : undefined}
+          >
+            {flattenMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>{flattenMsg}</div>}
+            <table style={tableStyle}>
+              <thead>
+                <tr style={{ color: "var(--text-dim)" }}>
+                  <th style={th}>Instrument</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th>
+                  <th style={rTh}>Side</th><th style={rTh}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {igFx.map((p, i) => (
                   <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
+                    <td style={td} title={p.ticker}>{p.instrumentName || prettySymbol(p.ticker)}</td>
                     <td style={numTd}>{Math.abs(p.quantity)}</td>
-                    <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
+                    <td style={numTd}>{p.averagePricePaid?.toFixed(4) ?? "—"}</td>
                     <td style={{ ...numTd, color: p.quantity >= 0 ? UP : DOWN }}>{p.quantity >= 0 ? "LONG" : "SHORT"}</td>
+                    <td style={{ ...numTd }}>
+                      <button type="button" onClick={() => flatten(bareSymbol(p.ticker))} disabled={flattening}
+                        style={{ ...flattenBtn, padding: "1px 7px", fontSize: 10 }} title={`Flatten ${bareSymbol(p.ticker)}`}>
+                        close
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {/* Net-by-pair so the trader sees the real exposure under the
+                stacked deals (e.g. 12 deals → net −3.3). */}
+            <NetByPair positions={igFx} />
           </ProductSection>
-        )}
-      </Account>
+        </Account>
+        <ReconNote />
+      </CockpitCard>
+      )}
+    </>
+  );
+}
 
-      <div style={{ marginTop: 10, fontSize: 10, color: "var(--text-muted)" }}>
-        Broker is the source of truth; OMS column shows the system's view (⚠ = drift).
-        {" · "}Detail: <Link to="/portfolio" style={{ color: "var(--text-muted)" }}>Portfolio →</Link>
-        {" · "}<Link to="/oms" style={{ color: "var(--text-muted)" }}>OMS →</Link>
-      </div>
-    </CockpitCard>
+function ReconNote() {
+  return (
+    <div style={{ marginTop: 10, fontSize: 10, color: "var(--text-muted)" }}>
+      Broker is the source of truth; OMS column = system's view (⚠ = drift).
+      {" · "}<Link to="/portfolio" style={{ color: "var(--text-muted)" }}>Portfolio →</Link>
+      {" · "}<Link to="/oms" style={{ color: "var(--text-muted)" }}>OMS →</Link>
+    </div>
   );
 }
 
@@ -293,12 +318,16 @@ function reconcileIg(ig: IGPosResp, omsNet: (b: string, s: string) => number | n
   return { drift: symbols.length, symbols };
 }
 
-function Account({ label, reconciled, first, children }: {
-  label: string; reconciled: Recon | null; first?: boolean; children: React.ReactNode;
+function Account({ label, reconciled, first, onSync, children }: {
+  label: string; reconciled: Recon | null; first?: boolean;
+  onSync?: () => void; children: React.ReactNode;
 }) {
+  const drift = reconciled && reconciled.drift > 0;
+  const shown = reconciled?.symbols.slice(0, 6) ?? [];
+  const moreCount = (reconciled?.symbols.length ?? 0) - shown.length;
   return (
     <div style={first ? { marginBottom: 6 } : { marginTop: 16, paddingTop: 12, borderTop: "2px solid var(--border)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{label}</span>
         {reconciled && (
           reconciled.drift === 0 ? (
@@ -306,9 +335,16 @@ function Account({ label, reconciled, first, children }: {
           ) : (
             <span style={{ fontSize: 10, color: AMBER, fontWeight: 700 }}
               title={`OMS disagrees with broker on: ${reconciled.symbols.join(", ")}`}>
-              ⚠ {reconciled.drift} drift ({reconciled.symbols.join(", ")})
+              ⚠ {reconciled.drift} drift ({shown.join(", ")}{moreCount > 0 ? ` +${moreCount}` : ""})
             </span>
           )
+        )}
+        {drift && onSync && (
+          <button type="button" onClick={onSync} title="Overwrite OMS with the broker's actual positions (broker is the golden source)"
+            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, cursor: "pointer",
+              border: `1px solid ${AMBER}`, background: `${AMBER}14`, color: AMBER }}>
+            Sync OMS ← broker
+          </button>
         )}
       </div>
       {children}

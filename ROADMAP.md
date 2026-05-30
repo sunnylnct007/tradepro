@@ -13,6 +13,68 @@ those assumptions change.
 
 ---
 
+## Session log — 2026-05-30: FX duplicate-order bug + multi-broker cockpit
+
+Live work, kept here so nothing is lost (per the "keep updating the
+roadmap as we go" rule).
+
+### Shipped (committed to main, deployed AWS + Firebase)
+- **Fail-closed position seed (the root bug).** `ichimoku_fx_mr → IG`
+  stacked duplicate orders because the per-run position seed read the
+  broker (golden source) but, on ANY failure (IG `/positions` timeout),
+  silently fell back to a *flat* book and re-fired a full entry. Now:
+  a `--push` session against a *real* broker ABORTS (no orders) if it
+  can't confirm position — for **every strategy and every broker**
+  (sim brokers exempt; unknown brokers treated as real by default).
+  `paper_session.py` `PositionSeedError` / `broker_requires_position_seed`.
+- **Operational alerts.** New `system_alerts` table (migration 027) +
+  `IAlertStore` + `POST /api/ingest/alert` + `GET /api/alerts`. The
+  abort is logged AND raised as a cockpit alert (dedup'd). New
+  `AlertBanner` on `/trader`.
+- **Cockpit reorg.** Positions + trend are the main top section;
+  connectivity collapsed to a **traffic-light strip** (dot per service,
+  click amber/red for detail).
+- **Multi-broker reconciled positions.** `PositionsPanel` segregated
+  **by broker → product**, split into **two side-by-side cards
+  (Equity | FX)**. Each broker account reconciled vs OMS (broker is
+  golden, OMS audit-only); per-symbol **drift highlighted** (⚠), FX
+  **net-by-pair** under stacked deals.
+- **Flatten FX.** `IGClient.CloseDealAsync` + `POST
+  /api/integrations/ig/positions/flatten` (all or one symbol) + UI
+  "Flatten all FX" / per-deal close, behind a confirm. Undoes the
+  stacked duplicates.
+- **Orders by broker.** `OrdersByBrokerPanel` — today's flow grouped by
+  broker incl. CANCELLED/REJECTED (previously invisible), with reasons;
+  Broker column + readable symbols (`util/brokerSymbols.ts`) in
+  `OrdersTable`. Confirmed live OMS holds 154 IG + 46 T212 orders.
+- **Clickable equity tickers** → `/symbol/<ticker>` deep-dive for trend.
+
+### Open queue (next)
+- **OMS sync-from-broker** (UI button wired but `onSyncOms` not passed
+  yet): when OMS=0 and broker has a position, a button to **overwrite
+  OMS from the broker** (golden source). Needs a backend reconcile-WRITE
+  endpoint (generalise the T212-only `PositionReconciler` to all
+  brokers). The live T212 equity book shows ⚠ drift on every symbol —
+  OMS isn't recording the equity fills — so this is needed.
+- **Inline trend chart on ticker click** (current: links out to
+  `/symbol`). Want the chart inline in the cockpit.
+- **Other asset classes** — Options (planned: trader "we will have
+  them"), Futures, Crypto. `productOf()` already returns an extensible
+  union; positions view groups by product so a new class = a new card.
+- **Weekend FX data gap.** IG offers weekend FX/CFD markets but the bar
+  feed (Yahoo) has no weekend FX bars → `ichimoku_fx_mr` sees 0 bars
+  Sat/Sun and can't act. Also the "0 bars" diagnostic copy ("source
+  misconfigured") is misleading — should say "market closed / no data".
+- **Mini-lot round-trip** — IG MINI FX positions report fractional
+  mini-lots; the seed's `int(float(qty))` truncates sub-1.0 lots to 0
+  (re-fire risk even when the seed succeeds). Make units↔mini-lot
+  conversion symmetric.
+- **Stale repo plist** — `scripts/launchd/com.tradepro.paper-fx.plist`
+  says `--broker t212`; installed job is `--broker ig … auto`. Reconcile.
+- **LiveSignalFeed** — prettify IG epics (uses `CS.D.EURUSD.MINI.I…`).
+
+---
+
 ## Risk module — pre-trade checks, position sizing, kill switches
 
 **Status:** PLANNED (foundational — every algo platform needs this
