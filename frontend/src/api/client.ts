@@ -676,6 +676,24 @@ export const api = {
       `/api/alerts/${id}/resolve`, {},
     ),
 
+  // T212 open positions (equity). account = demo | live.
+  t212Positions: (account: "demo" | "live" = "demo") =>
+    get<import("../types/cockpit").T212PosResp>(
+      "/api/integrations/trading212/positions", { account }),
+
+  // Flatten (net to flat) open IG deals. symbol = bare pair (e.g.
+  // "EURUSD") flattens that instrument; omit to flatten all. Closes
+  // each stacked deal at market — used to undo the duplicate-order
+  // accumulation. Mutating: the UI gates it behind a confirm.
+  flattenIg: (symbol?: string) =>
+    post<{
+      symbol: string;
+      requested: number;
+      closed: number;
+      failed: number;
+      details: Array<{ epic: string; dealId?: string; direction?: string; size?: number; ok: boolean; error?: string | null }>;
+    }, { symbol?: string }>("/api/integrations/ig/positions/flatten", symbol ? { symbol } : {}),
+
   // IG open positions (FX / CFD). The cockpit position panel is
   // otherwise T212-equity-only; this surfaces the FX book that the
   // ichimoku_fx_mr strategy trades via IG. Not account-scoped — IG

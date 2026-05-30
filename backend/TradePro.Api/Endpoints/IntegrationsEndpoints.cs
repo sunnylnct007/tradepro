@@ -129,6 +129,78 @@ public static class IntegrationsEndpoints
             });
         });
 
+        // POST /api/integrations/ig/positions/flatten — close (net to
+        // flat) open IG deals. The duplicate-order bug left many stacked
+        // EUR/USD deals; this nets them by closing each deal at market.
+        // Body: { "symbol": "EURUSD" } to flatten one instrument, or
+        // {} / no body to flatten ALL open IG deals. Mutating + broker-
+        // facing, so it's behind the Firebase-auth /api group and the
+        // UI gates it with a confirm. Returns a per-deal result so the
+        // cockpit can show what closed and what didn't.
+        app.MapPost("/integrations/ig/positions/flatten", async (
+            TradePro.Api.Providers.IG.IGClient ig,
+            FlattenRequest? body,
+            CancellationToken ct) =>
+        {
+            if (!ig.IsEnabled)
+            {
+                return Results.BadRequest(new { error = "IG client is disabled" });
+            }
+            var symbol = body?.Symbol?.Trim().ToUpperInvariant();
+            var snapshot = await ig.GetPositionsAsync(ct);
+            if (snapshot.Error is not null)
+            {
+                return Results.Json(new { error = $"could not read IG positions: {snapshot.Error}" }, statusCode: 502);
+            }
+
+            // Match by bare pair extracted from the epic (CS.D.<pair>.*),
+            // so "EURUSD" flattens every CS.D.EURUSD.* deal regardless of
+            // contract size. No symbol → flatten everything.
+            bool Matches(TradePro.Api.Providers.IG.IGPosition p)
+            {
+                if (string.IsNullOrEmpty(symbol)) return true;
+                var epic = p.Epic.ToUpperInvariant();
+                var parts = epic.Split('.');
+                var pair = parts.Length >= 4 && (epic.StartsWith("CS.D.") || epic.StartsWith("IX.D."))
+                    ? parts[2] : epic;
+                return pair == symbol || epic.Contains(symbol);
+            }
+
+            var targets = snapshot.Positions.Where(Matches).ToArray();
+            var details = new List<object>();
+            int closed = 0, failed = 0;
+            foreach (var p in targets)
+            {
+                if (string.IsNullOrEmpty(p.DealId))
+                {
+                    failed++;
+                    details.Add(new { epic = p.Epic, ok = false, error = "no dealId" });
+                    continue;
+                }
+                var r = await ig.CloseDealAsync(p.DealId, p.Direction, p.Size, ct);
+                var ok = r.Status == "ACCEPTED";
+                if (ok) closed++; else failed++;
+                details.Add(new
+                {
+                    epic = p.Epic,
+                    dealId = p.DealId,
+                    direction = p.Direction,
+                    size = p.Size,
+                    ok,
+                    dealReference = r.DealReference,
+                    error = ok ? null : r.StatusReason,
+                });
+            }
+            return Results.Ok(new
+            {
+                symbol = symbol ?? "ALL",
+                requested = targets.Length,
+                closed,
+                failed,
+                details,
+            });
+        });
+
         // GET /api/integrations/cash-summary — cash across every
         // connected broker so the cockpit can render a single strip
         // (T212 demo · T212 live · IG demo · future IBKR …). Each
@@ -657,3 +729,7 @@ public static class IntegrationsEndpoints
         return null;
     }
 }
+
+/// Body for POST /integrations/ig/positions/flatten. Symbol is the bare
+/// pair (e.g. "EURUSD"); null/empty flattens every open IG deal.
+public sealed record FlattenRequest(string? Symbol);

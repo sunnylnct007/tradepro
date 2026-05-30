@@ -105,7 +105,8 @@ public sealed class IGClient
     }
 
     private async Task<HttpResponseMessage> SendWithAuthAsync(
-        HttpMethod method, string path, object? jsonBody, string version, CancellationToken ct)
+        HttpMethod method, string path, object? jsonBody, string version, CancellationToken ct,
+        IDictionary<string, string>? extraHeaders = null)
     {
         if (!_options.IsEnabled)
         {
@@ -120,6 +121,8 @@ public sealed class IGClient
             req.Headers.Add("Version", version);
             if (_cst is not null) req.Headers.Add("CST", _cst);
             if (_xSecurityToken is not null) req.Headers.Add("X-SECURITY-TOKEN", _xSecurityToken);
+            if (extraHeaders is not null)
+                foreach (var (k, val) in extraHeaders) req.Headers.Add(k, val);
             if (jsonBody is not null) req.Content = JsonContent.Create(jsonBody);
             return await _http.SendAsync(req, ct);
         }
@@ -163,6 +166,57 @@ public sealed class IGClient
         };
         using var resp = await SendWithAuthAsync(
             HttpMethod.Post, "positions/otc", body, version: "2", ct);
+        var text = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            return new IGOrderResult(
+                DealReference: null,
+                Status: "REJECTED",
+                StatusReason: text,
+                HttpStatus: (int)resp.StatusCode);
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var dealRef = doc.RootElement.TryGetProperty("dealReference", out var dr)
+                ? dr.GetString() : null;
+            return new IGOrderResult(
+                DealReference: dealRef,
+                Status: "ACCEPTED",
+                StatusReason: null,
+                HttpStatus: (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IGOrderResult(
+                DealReference: null,
+                Status: "PARSE_ERROR",
+                StatusReason: ex.Message,
+                HttpStatus: (int)resp.StatusCode);
+        }
+    }
+
+    /// <summary>Close an open deal at market. IG closes positions via
+    /// POST /positions/otc with a `_method: DELETE` override header,
+    /// sending the OPPOSITE direction for the same size against the
+    /// specific dealId. Used by the "Flatten FX" action to net a symbol
+    /// down to flat by closing each stacked deal individually.
+    /// `openDirection` is the deal's current direction (BUY/SELL); we
+    /// flip it to close.</summary>
+    public async Task<IGOrderResult> CloseDealAsync(
+        string dealId, string openDirection, decimal size, CancellationToken ct = default)
+    {
+        var closeDir = openDirection.ToUpperInvariant() == "BUY" ? "SELL" : "BUY";
+        var body = new
+        {
+            dealId,
+            direction = closeDir,
+            size,
+            orderType = "MARKET",
+        };
+        using var resp = await SendWithAuthAsync(
+            HttpMethod.Post, "positions/otc", body, version: "1", ct,
+            extraHeaders: new Dictionary<string, string> { ["_method"] = "DELETE" });
         var text = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
