@@ -1,13 +1,10 @@
 /**
- * ConnectivityPanel — at-a-glance broker / LLM / data-provider /
- * DB liveness so the trader doesn't have to leave the cockpit to
- * check whether anything is broken. Sources the same
- * /health/integrations payload the standalone /health page uses.
- *
- * Each tile renders status + latency + last-checked. ok/degraded/down/
- * disabled are colour-coded (green / amber / red / grey). When a
- * provider is "down" the verdict surfaces at the top so the trader
- * knows BEFORE they trigger a session.
+ * ConnectivityPanel — compact TRAFFIC-LIGHT strip of broker / LLM /
+ * data-provider / DB liveness. One coloured dot per service in a single
+ * row so it costs almost no vertical space. All-green = nothing to do;
+ * click any amber/red light to expand its detail (what's wrong, latency,
+ * last-checked). Sources the same /health/integrations payload the
+ * standalone /health page uses.
  */
 import { useEffect, useState } from "react";
 import { config } from "../../config";
@@ -31,6 +28,7 @@ type Resp = {
 export function ConnectivityPanel() {
   const [data, setData] = useState<Resp | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,65 +56,67 @@ export function ConnectivityPanel() {
   if (!data) {
     return <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Loading connectivity…</div>;
   }
-  const verdictColour =
-    data.verdict === "ok" ? "var(--up)"
-    : data.verdict === "warn" ? "var(--neutral)" : "var(--down)";
+
+  const open = data.providers.find((p) => p.provider === expanded) ?? null;
+
   return (
     <div>
-      <div style={{
-        display: "flex", alignItems: "center", gap: 10,
-        marginBottom: 8, fontSize: 11,
-      }}>
-        <span style={{
-          padding: "2px 8px", borderRadius: 999,
-          background: `${verdictColour}22`,
-          color: verdictColour,
-          fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-        }}>
-          {data.verdict.replace("_", " ")}
-        </span>
-        <span style={{ color: "var(--text-muted)" }}>
-          {data.providers.length} services · polled every 30s
-        </span>
+      {/* The traffic-light row — every service as one dot + short label. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        {data.providers.map((p) => {
+          const colour = providerColour(p.status);
+          const isOpen = expanded === p.provider;
+          return (
+            <button
+              key={p.provider}
+              type="button"
+              onClick={() => setExpanded(isOpen ? null : p.provider)}
+              title={`${p.label}: ${p.status}${p.mode ? ` (${p.mode})` : ""} — click for detail`}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "3px 9px", borderRadius: 999, cursor: "pointer",
+                fontSize: 11, lineHeight: 1.4,
+                color: "var(--text-dim)",
+                background: isOpen ? `${colour}1f` : "transparent",
+                border: `1px solid ${isOpen ? colour : "var(--border)"}`,
+              }}
+            >
+              <span style={{
+                width: 9, height: 9, borderRadius: "50%",
+                background: colour,
+                boxShadow: p.status === "down" ? `0 0 6px ${colour}` : "none",
+                flexShrink: 0,
+              }} />
+              {p.label}
+            </button>
+          );
+        })}
       </div>
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-        gap: 8,
-      }}>
-        {data.providers.map((p) => <ProviderTile key={p.provider} p={p} />)}
-      </div>
-    </div>
-  );
-}
 
-function ProviderTile({ p }: { p: Provider }) {
-  const colour = providerColour(p.status);
-  return (
-    <div style={{
-      padding: "8px 10px",
-      borderLeft: `3px solid ${colour}`,
-      border: "1px solid var(--border)",
-      borderRadius: 6,
-      background: "rgba(0,0,0,0.10)",
-    }}>
-      <div style={{
-        display: "flex", justifyContent: "space-between",
-        alignItems: "baseline", gap: 8,
-      }}>
-        <strong style={{ fontSize: 12, color: "var(--text)" }}>{p.label}</strong>
-        <span style={{
-          fontSize: 9, color: colour, fontWeight: 700,
-          letterSpacing: "0.06em", textTransform: "uppercase",
-        }}>{p.status}{p.mode ? ` · ${p.mode}` : ""}</span>
-      </div>
-      <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.4 }}>
-        {p.detail}
-      </div>
-      <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>
-        {p.latencyMs !== null && <>latency {p.latencyMs}ms · </>}
-        checked {timeAgo(p.lastCheckedUtc)}
-      </div>
+      {/* Detail for the clicked light — only the one the trader opened. */}
+      {open && (
+        <div style={{
+          marginTop: 8, padding: "8px 10px", borderRadius: 6,
+          border: `1px solid ${providerColour(open.status)}`,
+          borderLeft: `3px solid ${providerColour(open.status)}`,
+          background: "rgba(0,0,0,0.10)",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+            <strong style={{ fontSize: 12, color: "var(--text)" }}>{open.label}</strong>
+            <span style={{
+              fontSize: 9, color: providerColour(open.status), fontWeight: 700,
+              letterSpacing: "0.06em", textTransform: "uppercase",
+            }}>{open.status}{open.mode ? ` · ${open.mode}` : ""}</span>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.45 }}>
+            {open.detail || "No detail reported."}
+          </div>
+          <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>
+            {open.latencyMs !== null && <>latency {open.latencyMs}ms · </>}
+            checked {timeAgo(open.lastCheckedUtc)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

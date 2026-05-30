@@ -496,6 +496,46 @@ export function TraderCockpit() {
           alignItems: "start",
         }}
       >
+      {/* ══ MAIN SECTION — overall positions + current trend ═══════
+           The trader's first read: what do I hold, and which way is it
+           going. Everything below (connectivity, cash, working panels)
+           is secondary. */}
+      {v("positions") && (
+        <PositionsPanel
+          positions={positions}
+          posErr={posErr}
+          account={account}
+          onHide={() => widgets.hide("positions")}
+        />
+      )}
+      {v("position-charts") && (
+        <PositionChartsCard
+          positions={positions}
+          latestSessions={latestSessions}
+          onHide={() => widgets.hide("position-charts")}
+        />
+      )}
+
+      {/* ── Connectivity — compact traffic-light strip. Green = all
+              good; click an amber/red light for the detail. Thin
+              full-width row so it costs almost no vertical space. */}
+      {v("connectivity") && (
+      <CockpitCard id="connectivity" title="Connectivity" defaultOpen={true} fullWidth
+        onHide={() => widgets.hide("connectivity")}
+      >
+        <ConnectivityPanel />
+      </CockpitCard>
+      )}
+
+      {/* ── Broker cash strip — every connected broker in one row */}
+      {v("broker-cash") && (
+      <CockpitCard id="broker-cash" title="Broker cash (T212 demo · IG · IBKR)" defaultOpen={true}
+        onHide={() => widgets.hide("broker-cash")}
+      >
+        <BrokerCashStrip />
+      </CockpitCard>
+      )}
+
       {/* ── Warnings (only visible when any) ────────────────────── */}
       {v("warnings") && warnings.length > 0 && (
         <CockpitCard
@@ -519,26 +559,6 @@ export function TraderCockpit() {
             </div>
           ))}
         </CockpitCard>
-      )}
-
-      {/* ── Broker cash strip — every connected broker in one row */}
-      {v("broker-cash") && (
-      <CockpitCard id="broker-cash" title="Broker cash (T212 demo · IG · IBKR)"
-        defaultOpen={true}
-        onHide={() => widgets.hide("broker-cash")}
-      >
-        <BrokerCashStrip />
-      </CockpitCard>
-      )}
-
-      {/* ── Connectivity panel — at-a-glance service health */}
-      {v("connectivity") && (
-      <CockpitCard id="connectivity" title="Connectivity (brokers · LLM · data · DB)"
-        defaultOpen={true}
-        onHide={() => widgets.hide("connectivity")}
-      >
-        <ConnectivityPanel />
-      </CockpitCard>
       )}
 
       {/* ── Trigger (compact run form) ──────────────────────────── */}
@@ -734,17 +754,6 @@ export function TraderCockpit() {
         </CockpitCard>
       )}
 
-      {/* ── Position charts — held symbols overlaid with strategy
-              charts so the trader sees price + indicators per
-              position in one glance. Top 5 by notional default. */}
-      {v("position-charts") && (
-        <PositionChartsCard
-          positions={positions}
-          latestSessions={latestSessions}
-          onHide={() => widgets.hide("position-charts")}
-        />
-      )}
-
       {/* ── Strategy charts (Ichimoku cloud per symbol) ────────── */}
       {v("charts") && (
         <StrategyChartsCard
@@ -846,15 +855,6 @@ export function TraderCockpit() {
         </CockpitCard>
       )}
 
-      {/* ── Positions (by product type: Equity / FX / …) ──────────── */}
-      {v("positions") && (
-        <PositionsPanel
-          positions={positions}
-          posErr={posErr}
-          account={account}
-          onHide={() => widgets.hide("positions")}
-        />
-      )}
       </div>
     </div>
   );
