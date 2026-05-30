@@ -252,6 +252,89 @@ constraint on what you can claim.
 
 ---
 
+## Operational model — what trade support can trigger from the UI
+
+A trustworthy data layer is also one where **a non-engineer operator
+can fix things from the cockpit**. Every routine data operation lives
+behind a UI button, with audit and confirm-prompts proportional to
+the destructive power of the action. SSH / CLI access is for
+emergencies, not normal ops.
+
+### Substrate
+
+Reuses the existing `session_requests` queue + `/api/ops/*` endpoint
+family (same pattern as intraday + paper sessions). No new
+infrastructure. A new `tradepro-data-worker` daemon mirrors
+`tradepro-intraday-engine` and polls for `data_*` kind rows.
+
+### Registered operations (Phase B/C/D rollout)
+
+| Operation | Phase | Destructive? | UI confirm | Worker action |
+|---|---|---|---|---|
+| **Validate** (`data_validate`) | B | No | Quick confirm | Walks manifests, reports gaps + integrity violations |
+| **Backfill missing** (`data_backfill`) | C | No (additive) | Confirm with payload preview | Pull bars for (symbol, resolution) over date range, write atomically |
+| **Reload** (`data_reload`) | C | Yes (overwrites) | Confirm modal + reason text required | Force re-fetch, overwrite existing partition |
+| **Repartition** (`data_repartition`) | D | Yes (rewrites) | Confirm modal + reason | Rewrite Parquet to a new schema version |
+| **Purge** (`data_purge`) | D | Yes (destroys) | Confirm modal + reason + 2nd "I understand" check | Remove partition (provider revision known-bad) |
+
+### Audit trail per operation
+
+Every enqueued op records:
+- `request_id` (UUID)
+- `requested_at_utc`, `requested_by` (auth context)
+- `params` (full payload — symbol, range, resolution, etc.)
+- `reason` (operator-supplied text, mandatory for destructive ops)
+- `state` (Pending / Claimed / Completed / Failed / Cancelled)
+- `claimed_by` (worker hostname / instance_id)
+- `result_summary` on completion:
+  - `rows_written`, `provider_used`, `partition_hash`, `latency_ms`
+  - Honest "what changed" so cockpit shows "12 480 bars written for SPY 2024-06"
+- `error` + `retry_strategy_hint` on failure
+
+### Where this maps in the UI
+
+- **Phase B**: Validate button per row in Data Health panel.
+- **Phase C**: Backfill + Reload buttons per row, with job status
+  inline (Pending → Claimed → Completed badge that updates via poll).
+- **Phase D**: Coverage matrix becomes click-to-backfill, with a
+  bulk-select for multi-cell ops.
+- **Phase G**: Coverage matrix shows complete / partial / missing
+  per (symbol × month) — every cell has its own action menu.
+
+### Why one worker, not a separate service
+
+A separate "data-loader" service was considered and rejected:
+- Existing `session_requests` queue + ops pattern works perfectly.
+  Reusing it = zero new infra, zero new deployment, familiar audit
+  surface.
+- Mac is already the right place to run it: yfinance / IG / T212
+  credentials live there, the file system for Parquet partitions
+  lives there.
+- If we ever need to scale beyond one worker, the queue already
+  supports multiple claimants via the atomic UPDATE-RETURNING claim
+  (`tradepro-data-worker --instance-id <unique>`). N workers, one
+  queue, no schema change.
+
+### Operator safety rails
+
+- **Confirm modals** are proportional to destructive power. Validate
+  is one click. Purge is two clicks + reason text + "I understand"
+  checkbox.
+- **Dry-run preview** for destructive ops shows what would be
+  overwritten / deleted before the enqueue lands.
+- **Cancellable**: POST `/api/ops/sessions/{id}/cancel` works on
+  Pending rows; once Claimed the worker is responsible for
+  cancellation cooperation.
+- **Rate-limit guard** in the worker (token bucket per provider)
+  ensures a stampede of operator-triggered backfills doesn't blow
+  the yfinance / IG quota.
+- **Replay-safe**: a worker crashing mid-op leaves the
+  `session_requests` row in `Claimed` state with a stale
+  `claimed_at_utc`; a watchdog (Phase D) re-queues rows claimed for
+  too long, so operator-triggered ops are crash-tolerant.
+
+---
+
 ## What this means for the project north-star
 
 The north-star is:

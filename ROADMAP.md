@@ -189,11 +189,34 @@ roadmap as we go" rule).
 
 ## Trustworthy data layer — north-star enabler
 
-**Status:** Phase A landing (this PR). Subsequent phases queued.
-Single-line framing: **TradePro cannot honestly claim a track record
-for its intraday strategies until this layer ships.** See
-[`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
+**Status:** Phase A shipped (PR #34 / commit `6419237`). Subsequent
+phases queued. Single-line framing: **TradePro cannot honestly claim
+a track record for its intraday strategies until this layer ships.**
+See [`CURRENT_BACKTEST_LIMITATIONS.md`](CURRENT_BACKTEST_LIMITATIONS.md)
 for the audit of what is and isn't trustworthy today.
+
+### Coordination with parallel work (2026-05-30)
+
+The 2026-05-30 design-decisions block introduces two adjacent pieces
+that this roadmap consumes:
+
+- **Plan C — canonical `symbol_map` table** (verified-only, IG epics
+  human-curated, `us_equity_core` shared watchlist). Every data
+  operation here keys on `(canonical, asset_class)` from `symbol_map`,
+  not on broker-native ids. Backfilling SPY means "backfill canonical
+  SPY"; the cache layer fans out to whichever providers the
+  preferences table prescribes for `(us_equity, 1m)`.
+- **Parallel order-book history workstream** (other dev). Their work
+  improves fill realism by persisting order-book history. **This
+  roadmap does not touch the OMS fills schema, the simulation fill
+  path, or the paper-engine fill timing.** Phase F (fill-quality
+  bid/ask capture) coordinates with their schema before landing —
+  rather than duplicate, we extend their additions with the L1
+  snapshot field if it isn't already there.
+
+Result: this workstream stays in its lane (bar cache + provider chain
++ assumption registry + UI-triggerable ops) and dovetails with theirs
+when their fill-history additions land.
 
 ### Why this is north-star
 
@@ -228,6 +251,88 @@ gap progressively, with operator visibility from day 1.
 6. **Reproducibility hash**. Every backtest result stamps the data
    state (provider, version, partition hashes). Two runs with the
    same hash MUST produce identical numbers.
+7. **Every data operation is UI-triggerable**. Trade support / non-
+   engineer operators can initiate backfills, reloads, validations,
+   repartitions from the Settings panel. No SSH / CLI required for
+   routine ops. Audit (who / when / why) lands on every action.
+   See "Operational model" below for the architecture.
+8. **Canonical-symbol identity**. Data ops key on `(canonical,
+   asset_class)` from the `symbol_map` table (Plan C of the
+   2026-05-30 design block). Broker-native ids (T212 tickers, IG
+   epics) are looked up at fetch time, never stored in the cache
+   manifest. Symbol renames / cross-broker drift cannot orphan
+   cached partitions.
+
+### Operational model — UI-triggerable data ops
+
+**Substrate**: the existing `session_requests` table + `/api/ops/*`
+endpoint family (migrations 007 + ongoing). Pattern is identical to
+the way intraday + paper sessions work today:
+
+```
+   UI                   API (.NET)                Worker (Python)
+   ─────                ──────────                ────────────────
+   POST /api/ops/       INSERT session_           POLL /api/ops/
+   run-data-{kind} ──→  requests row              poll-data ──→ atomic
+   {payload}            kind = data_*             UPDATE-RETURNING
+                        state = Pending           one Pending row
+                                                  → Claimed
+
+                                                  do the work
+
+                                                  POST /api/ops/
+                                                  complete-data/{id} ──→
+                                                  → Completed | Failed
+                        UI shows status via
+                        GET /api/ops/sessions
+                        ?kind=data_*
+```
+
+**No new queue, no new worker process model.** Reuses what
+`tradepro-intraday-engine` and `tradepro-paper-watch` already do.
+A new `tradepro-data-worker` daemon polls for `data_*` kind sessions
+and routes to handlers (backfill / reload / validate). Launchd plist
+mirrors the existing patterns.
+
+**Registered op kinds** (planned, formalised in Phase B):
+
+| kind | What it does | Payload | Typical caller |
+|---|---|---|---|
+| `data_backfill` | Pull historical bars for a (symbol, resolution) over a date range | `{canonical, asset_class, resolution, from, to, force?}` | Trade support populating a new symbol; recovering from a failed daily incremental |
+| `data_reload` | Force re-fetch + overwrite an existing partition (e.g. after a corp action) | `{canonical, asset_class, resolution, partition}` | Trade support correcting a known drift |
+| `data_validate` | Walk manifests for a symbol, report gaps + integrity violations | `{canonical, asset_class}` | Trade support before trusting a backtest |
+| `data_repartition` | Rewrite a Parquet partition (e.g. schema migration) | `{canonical, asset_class, resolution, from_version, to_version}` | Phase D schema upgrades |
+| `data_purge` | Remove a partition (operator decision; logged loudly) | `{canonical, asset_class, resolution, partition, reason}` | Trade support cleaning up after a provider revision is known-bad |
+
+**UI surface** (per phase):
+
+- **Phase B**: Each row in the Data Health panel gains a "Validate"
+  button (kind=`data_validate`) — non-destructive, surfaces gaps.
+- **Phase C**: Per-row "Backfill missing" + "Reload" buttons
+  (kind=`data_backfill` / `data_reload`). Confirm prompts with
+  payload preview. Job status updates in-place via polling
+  `/api/ops/sessions?kind=data_*`.
+- **Phase D**: Coverage matrix cells become click-to-backfill.
+
+**Audit + safety**:
+- Every operation records `requested_by` (auth context) + `params`
+  + `reason` (operator-supplied for destructive ops).
+- Destructive ops (`data_reload`, `data_purge`) require explicit
+  reason text + UI confirm modal that shows what gets overwritten.
+- Result summary on `Completed` row includes rows-written +
+  provider-used + partition-hash so the cockpit can show "Yes,
+  data is now there" rather than just "job done".
+- Failed ops surface error + retry-strategy hint
+  (`retry_strategy = "switch_provider" | "exponential_backoff" |
+  "user_intervention" | "fatal"`).
+
+**No standalone load process**. The `tradepro-data-worker` daemon
+lives next to the existing `tradepro-paper-watch` /
+`tradepro-intraday-engine` daemons on the Mac, using the same
+launchd + poll + claim pattern. One worker process, multi-handler.
+If we ever need to fan out heavy backfills, an `instance_id` field
+on the worker poll lets us scale to N workers picking different
+rows from the same queue — no new schema, no new infra.
 
 ### Phases
 
@@ -255,14 +360,25 @@ gap progressively, with operator visibility from day 1.
 - Per-fetch structured telemetry → `bar_cache_events` table.
 - Per-symbol health record updated on every fetch.
 
-**Phase C — Operator-facing backfill**
-- CLI: `tradepro-backfill-bars --asset us_etf --symbol SPY
-  --resolution 1m --from 2024-01-01 --to today`.
-- POST `/api/admin/data-backfill` — enqueues a backfill job + returns
-  a job ID for tracking.
-- UI "Backfill" button in the Data Health panel becomes functional.
-- Per-symbol per-resolution job status in UI.
+**Phase C — Operator-facing backfill (UI-FIRST)**
+- New `tradepro-data-worker` daemon polls `session_requests` for
+  kind `data_*` (mirrors `tradepro-intraday-engine` pattern).
+- POST `/api/ops/run-data-backfill` enqueues with kind=`data_backfill`.
+  POST `/api/ops/run-data-reload`, `/run-data-validate`,
+  `/run-data-purge` for the other registered kinds.
+- POST `/api/ops/poll-data` (worker), POST
+  `/api/ops/complete-data/{id}` (worker callback). Mirrors the
+  intraday + paper poll/complete pair exactly.
+- UI in the Data Health panel: "Validate", "Backfill missing",
+  "Reload" buttons per row. Confirm prompts with payload preview.
+  Job status updates in-place via GET `/api/ops/sessions?kind=data_*`.
+- CLI parity: `tradepro-backfill-bars --canonical SPY --asset us_etf
+  --resolution 1m --from 2024-01-01 --to today` for power-users.
 - Rate-limit guard (token bucket per provider) — never breaches limits.
+- Audit: every enqueue records `requested_by` + `params` + `reason`
+  (mandatory for destructive ops).
+- Launchd plist: `com.tradepro.data-worker.plist` installed by
+  `install-launchd.sh --data-worker` (opt-in flag, like `--intraday`).
 
 **Phase D — Reproducibility + audit**
 - Backtest results stamp `data_provider`, `provider_version`,
