@@ -13,6 +13,55 @@ those assumptions change.
 
 ---
 
+## NEW WORKSTREAM — Options trading framework (2026-05-30, SRS received)
+
+Goal NOW: **signals + display potential opportunities only — NO execution**
+(no options broker account yet). Plus a robust risk module, stress testing,
+backtesting, and an LLM-verified quality gate (same gate planned for the
+other strategies). Operator supplied a full SRS; key decisions to make.
+
+**Reuse, don't rebuild.** The SRS proposes 3 new microservices (Python
+Quant, C# Risk/Execution, C# Portfolio State) + EF Core + MS SQL +
+RabbitMQ/Azure. TradePro ALREADY is that shape — Python strategies (signals)
+→ .NET API (OMS + RiskGate + positions) → Postgres, with an ops queue. So
+EXTEND the existing system; do NOT spin up parallel microservices or switch
+to EF/MSSQL (we're Dapper/Postgres on purpose).
+
+**Maps onto existing components:**
+- Universe SPY/QQQ/IWM/GLD/TLT/XLF — overlaps us_equity_core (add GLD/TLT).
+- `BlackScholesPricer` (scipy.stats.norm) — NEW, quant_engine: fair value +
+  Greeks (Δ/Θ/Vega) to verify vs broker/source quotes.
+- Strategies: Tier-1 Bull Put Spread (200SMA touch + IVR>30; sell 30Δ / buy
+  15Δ put); Tier-2 Iron Condor (IVR>50; sell 20Δ / buy 10Δ, ~45 DTE) — new
+  multi-leg paper strategies.
+- Liquidity gate: ATM bid-ask ≤ $0.05 or 2% of mid, else ban — pre-signal.
+- Stress: quant_engine/monte_carlo.py exists (10k GBM paths) + a daily
+  deterministic shock (−20% spot, +50% IV) on open portfolio.
+- Risk module → extend .NET RiskGate: max-loss > 3% equity → reject; BPR
+  (margin) > 30% equity → reject (keep 70% cash for vol expansion); beta-
+  weighted portfolio Δ vs SPY extreme → reject. (Mirrors VRP/defined-risk.)
+- LLM quality gate → reuse the existing LLM signal gate.
+- Execution (limit-only, async, multi-leg via IBKR/Tradier) — DEFERRED
+  (no broker). When it lands: limit @ mid, never market.
+
+**Data:** SRS wants ORATS (paid, pre-computed Greeks). We don't have it.
+Bootstrap signals/display with FREE option chains (yfinance) + self-computed
+Greeks (Black-Scholes); data provider is pluggable → swap to ORATS later.
+
+**Phasing (no execution):** P0 data+pricer+Greeks+IVR → P1 signal gen (the
+2 strategies) → P2 display "opportunities" (new Options surface/desk) →
+P3 risk gates (annotate, no place) → P4 stress + backtest → P5 execution
+(when a broker account exists).
+
+**Open questions for the operator:** (1) bootstrap free chains + our Greeks
+now, ORATS later? (2) confirm reuse-existing-arch (not new microservices /
+EF / MSSQL)? (3) confirm scope = signals+display+risk+stress+backtest+LLM
+gate, NO execution? (4) options backtest needs historical options data — do
+we have any, or start with live/forward paper signals + the equity-style
+backtest on the underlying?
+
+---
+
 ## Design decisions — 2026-05-30 (trading-app UX + signal engine)
 
 Approved with the operator; building in this order: **A desks-first home →
