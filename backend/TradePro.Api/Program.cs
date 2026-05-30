@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics;
+using TradePro.Api.Alerts;
 using TradePro.Api.Auth;
 using TradePro.Api.Data;
 using TradePro.Api.Data.Stores;
@@ -169,6 +170,7 @@ builder.Services.AddSingleton<IPaperSnapshotStore, PostgresPaperSnapshotStore>()
 builder.Services.AddSingleton<IPendingOrdersStore, PostgresPendingOrdersStore>();
 builder.Services.AddSingleton<ISessionRequestsStore, PostgresSessionRequestsStore>();
 builder.Services.AddSingleton<IPaperStrategyStatusStore, PostgresPaperStrategyStatusStore>();
+builder.Services.AddSingleton<IAlertStore, PostgresAlertStore>();
 // OMS Phase 1 — order persistence + lifecycle. Mode service depends on
 // the OmsService for the cancel-on-flip path, so register OmsService
 // first. Mode service is Singleton so the in-memory "current mode"
@@ -279,6 +281,7 @@ api.MapSentimentUserEndpoints();
 // routes mount on the ingest group below.
 api.MapQuantEndpoints();
 api.MapAdminEndpoints();
+api.MapAlertsEndpoints();
 
 // SSE event stream — AllowAnonymous (EventSource can't send auth headers).
 app.MapEventsEndpoints();

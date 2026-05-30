@@ -10,12 +10,14 @@ import { TodayOutcome } from "../components/cockpit/TodayOutcome";
 import { OrdersTable } from "../components/cockpit/OrdersTable";
 import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
 import { PositionChartsCard } from "../components/cockpit/PositionChartsCard";
+import { PositionsPanel } from "../components/cockpit/PositionsPanel";
 import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { BrokerCashStrip } from "../components/cockpit/BrokerCashStrip";
 import { ConnectivityPanel } from "../components/cockpit/ConnectivityPanel";
+import { AlertBanner } from "../components/cockpit/AlertBanner";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
@@ -408,6 +410,9 @@ export function TraderCockpit() {
 
   return (
     <div style={{ padding: 20, maxWidth: 1280, margin: "0 auto" }}>
+      {/* Operational alerts the trader must see first — e.g. a strategy
+          that aborted because it couldn't confirm its broker position. */}
+      <AlertBanner />
       {/* ── Account selector strip ──────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22 }}>Trader cockpit</h1>
@@ -841,59 +846,14 @@ export function TraderCockpit() {
         </CockpitCard>
       )}
 
-      {/* ── Positions ────────────────────────────────────────────── */}
+      {/* ── Positions (by product type: Equity / FX / …) ──────────── */}
       {v("positions") && (
-      <CockpitCard
-        id="positions"
-        title="Overall position"
-        badge={positions?.enabled ? positions.positionCount || undefined : undefined}
-        onHide={() => widgets.hide("positions")}
-      >
-        {!positions ? (
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading…</span>
-        ) : !positions.enabled ? (
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            T212 {account} not connected.
-          </span>
-        ) : positions.positionCount === 0 ? (
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            No open positions in T212 {account}.
-          </span>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ color: "var(--text-dim)" }}>
-                <th style={posTh}>Ticker</th>
-                <th style={{ ...posTh, textAlign: "right" }}>Qty</th>
-                <th style={{ ...posTh, textAlign: "right" }}>Avg cost</th>
-                <th style={{ ...posTh, textAlign: "right" }}>Now</th>
-                <th style={{ ...posTh, textAlign: "right" }}>P&L %</th>
-                <th style={{ ...posTh, textAlign: "right" }}>P&L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {positions.positions.map((p) => (
-                <tr key={p.ticker} style={{ borderTop: "1px solid var(--border)" }}>
-                  <td style={posTd}>{p.ticker}</td>
-                  <td style={{ ...posTd, textAlign: "right", fontFamily: "monospace" }}>{p.quantity}</td>
-                  <td style={{ ...posTd, textAlign: "right", fontFamily: "monospace" }}>{p.averagePricePaid?.toFixed(4) ?? "—"}</td>
-                  <td style={{ ...posTd, textAlign: "right", fontFamily: "monospace" }}>{p.currentPrice?.toFixed(4) ?? "—"}</td>
-                  <td style={{ ...posTd, textAlign: "right", fontFamily: "monospace", color: (p.unrealisedPct ?? 0) >= 0 ? "#1fc16b" : "#ef4444" }}>
-                    {p.unrealisedPct != null ? `${p.unrealisedPct >= 0 ? "+" : ""}${p.unrealisedPct.toFixed(2)}%` : "—"}
-                  </td>
-                  <td style={{ ...posTd, textAlign: "right", fontFamily: "monospace", color: (p.unrealisedAbs ?? 0) >= 0 ? "#1fc16b" : "#ef4444" }}>
-                    {p.unrealisedAbs != null ? `${p.unrealisedAbs >= 0 ? "+" : ""}${p.unrealisedAbs.toFixed(2)}` : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)" }}>
-          Detailed view: <Link to="/portfolio" style={{ color: "var(--text-muted)" }}>Portfolio →</Link>
-          {" · "}Per-order drill-in: <Link to="/oms" style={{ color: "var(--text-muted)" }}>OMS →</Link>
-        </div>
-      </CockpitCard>
+        <PositionsPanel
+          positions={positions}
+          posErr={posErr}
+          account={account}
+          onHide={() => widgets.hide("positions")}
+        />
       )}
       </div>
     </div>

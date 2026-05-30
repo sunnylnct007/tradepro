@@ -266,27 +266,82 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
     raise ValueError(f"Unknown strategy {strategy_name!r}")
 
 
-def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> dict[str, int]:
-    """Fetch current positions FROM THE BROKER and seed the strategy.
-    Phase 2 of task #28 — without this, every rerun computes from flat
-    and re-emits the same intents, doubling our exposure.
+class PositionSeedError(RuntimeError):
+    """The strategy's current position could NOT be confirmed from the
+    broker (the golden source).
 
-    Broker is the AUTHORITATIVE source — OMS-derived positions can drift
-    when fills are recorded without matching oms_fills rows (the
-    reconcile_from_broker case), or when broker-side activity happened
-    outside the system. The user explicitly asked: "ensure the position
-    is always sourced from source and not OMS as they might be out of
-    sync" (2026-05-29 ~11:25 UTC).
-
-    Routes by broker name:
-      - t212 → /api/integrations/trading212/positions?account=demo
-      - ig   → /api/integrations/ig/positions
-
-    Best-effort: API unreachable, strategy without a `seed_positions`
-    hook, or any other failure → log and continue, strategy starts flat.
+    A `--push` session against a real broker MUST abort on this rather
+    than fall back to an assumed-flat book: starting flat when a position
+    is actually open makes the strategy recompute a full entry every run
+    and stack duplicate orders at the broker. Fail-closed is the only
+    safe posture on an execution path. See main()'s seeding block.
     """
+
+
+# Sim/paper brokers hold no position that persists across runs, so a
+# re-run cannot double a real position — seeding is not required and a
+# seed failure is harmless. EVERYTHING ELSE is treated as a real broker:
+# the broker is the golden source of position (OMS is audit-only) and a
+# --push session MUST confirm the current position from it before
+# emitting orders. Listing only the sim brokers here makes this
+# fail-closed BY DEFAULT — a new broker added later is treated as real
+# until proven otherwise, so it can never silently trade on a guessed
+# flat book.
+_SIM_BROKERS = frozenset({"paper", "replay", "yfinance", "stub_live"})
+
+# Per-broker positions endpoint (the golden source). A real broker that
+# is MISSING here is a hard error under --push: we can't confirm the
+# position, so we must not trade. Wire a new broker's endpoint here when
+# it gains live execution.
+_REAL_BROKER_POSITION_PATHS = {
+    "t212": "/api/integrations/trading212/positions?account=demo",
+    "ig":   "/api/integrations/ig/positions",
+}
+
+
+def broker_requires_position_seed(broker: str) -> bool:
+    """True when `broker` holds positions across runs and must therefore
+    be seeded from before trading (fail-closed by default for any broker
+    not explicitly known to be a sim)."""
+    return broker.strip().lower() not in _SIM_BROKERS
+
+
+def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int]:
+    """Fetch the strategy's current position FROM THE BROKER and seed it
+    so reruns compute a delta (target - current) instead of re-emitting a
+    full entry every run.
+
+    The broker — NOT the OMS — is authoritative. OMS is audit-only and
+    can drift (fills recorded without matching rows, or broker-side
+    activity outside the system). The user has stated this repeatedly:
+    "ensure the position is always sourced from source and not OMS as
+    they might be out of sync" / "the IG broker portal should be the
+    golden source of position" / "anytime we run a strategy the position
+    should be taken from broker". See memory: broker_is_golden_source.
+
+    Raises PositionSeedError if the position cannot be CONFIRMED for this
+    broker — missing seed hook, unknown broker positions endpoint,
+    network/HTTP failure, or an unparseable response. Callers running
+    with --push MUST abort on this rather than trade blind.
+
+    Returns {symbol: signed_int_qty}. An EMPTY dict is a positive result:
+    the broker confirmed a genuinely flat book, so opening new positions
+    is safe. (A failure to reach the broker is NOT an empty dict — it
+    raises.)
+    """
+    b = broker.strip().lower()
     if not hasattr(strategy, "seed_positions"):
-        return {}
+        raise PositionSeedError(
+            f"strategy {getattr(strategy, 'strategy_id', '?')!r} has no "
+            f"seed_positions hook — cannot confirm position from {b!r}"
+        )
+    path = _REAL_BROKER_POSITION_PATHS.get(b)
+    if path is None:
+        raise PositionSeedError(
+            f"no positions endpoint wired for broker {b!r} — refusing to "
+            f"trade without confirming the current position from the "
+            f"golden source. Add it to _REAL_BROKER_POSITION_PATHS."
+        )
     log = logging.getLogger("tradepro.cli")
     try:
         import requests
@@ -294,65 +349,97 @@ def _seed_strategy_positions_from_oms(strategy, broker: str = "t212") -> dict[st
         base, token = push_to_api.load_credentials()
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         base = base.rstrip('/')
-
-        if broker == "t212":
-            url = f"{base}/api/integrations/trading212/positions?account=demo"
-            source = "t212-broker"
-        elif broker == "ig":
-            url = f"{base}/api/integrations/ig/positions"
-            source = "ig-broker"
-        else:
-            log.info("POSITION SEED: no broker positions endpoint for %r", broker)
-            return {}
-
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(f"{base}{path}", headers=headers, timeout=10)
         resp.raise_for_status()
         rows = resp.json().get("positions") or []
-        positions: dict[str, int] = {}
-        for r in rows:
-            t = (r.get("ticker") or r.get("epic") or "").upper()
-            if not t:
-                continue
-            # Strip broker suffixes so the strategy's internal book
-            # (which keys on bare ticker / pair) finds a match:
-            #   AAPL_US_EQ              → AAPL
-            #   CS.D.EURUSD.MINI.IP     → EURUSD
-            #   CS.D.GBPUSD.CFD.IP      → GBPUSD
-            # IG epic format is fixed: <market_class>.D.<pair>.<size>.IP
-            bare = t
-            if t.startswith("CS.D.") or t.startswith("IX.D."):
-                # Pull the pair name from position [2]
-                parts = t.split(".")
-                if len(parts) >= 4:
-                    bare = parts[2]
-            elif "_" in t:
-                bare = t.split("_", 1)[0]
-            try:
-                # Truncate toward zero so we never overstate the
-                # held quantity — T212 fractional positions (6.7022
-                # NVDA shares) round-up would trigger "selling more
-                # than owned" rejections. Truncation = safest floor.
-                qty = int(float(r.get("quantity") or 0))
-            except (TypeError, ValueError):
-                continue
-            if qty != 0:
-                positions[bare] = positions.get(bare, 0) + qty
-
-        if positions:
-            log.info(
-                "POSITION SEED (%s): %s starting with %s",
-                source, strategy.strategy_id, positions,
-            )
-            strategy.seed_positions(positions)
-            return positions
-        log.info(
-            "POSITION SEED: %s — no held positions found; starting flat",
-            strategy.strategy_id,
-        )
-        return {}
     except Exception as exc:  # noqa: BLE001
-        log.warning("POSITION SEED failed (%s) — strategy starts flat", exc)
-        return {}
+        # Any failure to READ the broker is fail-closed — do NOT fall
+        # back to flat, do NOT fall back to OMS. Raise so the caller
+        # aborts the session.
+        raise PositionSeedError(
+            f"could not read {b!r} positions (golden source): {exc}"
+        ) from exc
+
+    positions: dict[str, int] = {}
+    for r in rows:
+        t = (r.get("ticker") or r.get("epic") or "").upper()
+        if not t:
+            continue
+        # Strip broker suffixes so the strategy's internal book
+        # (which keys on bare ticker / pair) finds a match:
+        #   AAPL_US_EQ              → AAPL
+        #   CS.D.EURUSD.MINI.IP     → EURUSD
+        #   CS.D.GBPUSD.CFD.IP      → GBPUSD
+        # IG epic format is fixed: <market_class>.D.<pair>.<size>.IP
+        bare = t
+        if t.startswith("CS.D.") or t.startswith("IX.D."):
+            parts = t.split(".")
+            if len(parts) >= 4:
+                bare = parts[2]
+        elif "_" in t:
+            bare = t.split("_", 1)[0]
+        try:
+            # Truncate toward zero so we never overstate the held
+            # quantity — T212 fractional shares (6.7022 NVDA) rounding
+            # up would trigger "selling more than owned" rejections.
+            # NOTE: IG MINI FX positions report in mini-lots (often
+            # < 1.0), which this truncates to 0 — a known follow-up
+            # (symmetric units<->mini-lot conversion) tracked separately.
+            qty = int(float(r.get("quantity") or 0))
+        except (TypeError, ValueError):
+            continue
+        if qty != 0:
+            positions[bare] = positions.get(bare, 0) + qty
+
+    if positions:
+        log.info(
+            "POSITION SEED (%s-broker): %s starting with %s",
+            b, strategy.strategy_id, positions,
+        )
+        strategy.seed_positions(positions)
+    else:
+        log.info(
+            "POSITION SEED (%s-broker): %s — broker confirms a flat book",
+            b, strategy.strategy_id,
+        )
+    return positions
+
+
+def _abort_on_unconfirmed_position(
+    log, *, strategy_id: str, strategy_name: str, broker: str,
+    symbols: list[str], reason: str,
+) -> None:
+    """Loudly log the fail-closed abort AND surface it to the UI via
+    /api/ingest/alert so a silent broker timeout doesn't hide a strategy
+    that has stopped trading. Best-effort on the API post — the local
+    log line is the source of truth either way."""
+    msg = (
+        f"ABORTED {strategy_name} session: could not confirm the current "
+        f"position from broker {broker!r} (the golden source) — {reason}. "
+        f"NO orders were emitted (fail-closed) to avoid stacking duplicate "
+        f"orders on an assumed-flat book. The strategy resumes "
+        f"automatically once the broker positions endpoint is reachable."
+    )
+    log.error("POSITION SEED FAILED — %s", msg)
+    try:
+        from . import push_to_api
+        base, token = push_to_api.load_credentials()
+        push_to_api.raise_alert(
+            base, token,
+            source="paper-session",
+            severity="critical",
+            code="position_seed_failed",
+            title=f"{strategy_name} aborted — broker position unconfirmed",
+            detail=msg,
+            strategy_id=strategy_id,
+            broker=broker,
+            symbols=symbols,
+            # One open alert per (strategy, broker): repeated failures
+            # refresh the same row instead of flooding the UI.
+            dedup_key=f"position_seed_failed:{strategy_id}:{broker}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not post position-seed alert to API: %s", exc)
 
 
 def _fetch_oms_positions(url: str, params: dict, headers: dict) -> dict[str, int]:
@@ -460,18 +547,32 @@ def main(argv: list[str] | None = None) -> int:
 
     strategy = _build_strategy(args, symbols)
 
-    # Seed strategy with current positions from OMS so reruns compute
-    # delta (target - current) instead of re-emitting full entry every
-    # time. Best-effort — OMS unreachable doesn't fail the session;
-    # strategy just falls back to flat-start behaviour (its existing
-    # default). See task #28.
+    # Seed the strategy with its current position FROM THE BROKER (the
+    # golden source) so reruns compute a delta (target - current) instead
+    # of re-emitting a full entry every run. This is FAIL-CLOSED for any
+    # real broker: if the position cannot be confirmed, the session
+    # aborts with NO orders emitted — never a flat-start fallback — so we
+    # can't stack duplicate orders on an assumed-flat book. Applies to
+    # every strategy and every (non-sim) broker, current or future.
+    # See PositionSeedError / broker_requires_position_seed.
     seeded_positions: dict[str, int] = {}
     if args.push:
-        # Pass broker so the seed function knows which broker's
-        # /positions endpoint to fall back to when OMS comes back empty.
-        seeded_positions = _seed_strategy_positions_from_oms(
-            strategy, broker=broker_list[0],
-        )
+        for b in broker_list:
+            if not broker_requires_position_seed(b):
+                continue  # sim broker — no persistent position to confirm
+            try:
+                seeded = _seed_strategy_positions_from_broker(strategy, broker=b)
+            except PositionSeedError as exc:
+                _abort_on_unconfirmed_position(
+                    log,
+                    strategy_id=strategy.strategy_id,
+                    strategy_name=args.strategy,
+                    broker=b,
+                    symbols=symbols,
+                    reason=str(exc),
+                )
+                return 2  # fail-closed: engine never runs, no orders
+            seeded_positions.update(seeded)
 
     engine = Engine(bus=bus, router=router)
     engine.register_strategy(

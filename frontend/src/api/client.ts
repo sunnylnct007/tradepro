@@ -648,6 +648,53 @@ export const api = {
     post<{ cancelled: number; ids: string[]; strategyPrefix: string | null; broker: string | null; actor: string; reason: string }, typeof body>(
       "/api/admin/oms/bulk-cancel-pending", body),
 
+  // Operational alerts surfaced in the cockpit banner. The first
+  // producer is the paper-session fail-closed guard (a strategy that
+  // aborted because it couldn't confirm its position from the broker).
+  alerts: (limit = 50) =>
+    get<{
+      count: number;
+      critical: number;
+      alerts: Array<{
+        id: string;
+        source: string;
+        severity: "info" | "warn" | "critical";
+        code: string;
+        title: string;
+        detail: string;
+        strategyId: string | null;
+        broker: string | null;
+        symbols: string[];
+        dedupKey: string | null;
+        occurrences: number;
+        firstSeenUtc: string;
+        lastSeenUtc: string;
+      }>;
+    }>("/api/alerts", { limit }),
+  resolveAlert: (id: string) =>
+    post<{ resolved: boolean; id: string }, Record<string, never>>(
+      `/api/alerts/${id}/resolve`, {},
+    ),
+
+  // IG open positions (FX / CFD). The cockpit position panel is
+  // otherwise T212-equity-only; this surfaces the FX book that the
+  // ichimoku_fx_mr strategy trades via IG. Not account-scoped — IG
+  // demo/live is a single backend config.
+  igPositions: () =>
+    get<{
+      enabled: boolean;
+      mode: string;
+      count?: number;
+      error?: string | null;
+      positions: Array<{
+        ticker: string;
+        quantity: number;
+        averagePricePaid: number | null;
+        instrumentName: string | null;
+        dealId: string | null;
+      }>;
+    }>("/api/integrations/ig/positions"),
+
   omsPositions: (strategyId?: string) =>
     get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string }> }>(
       "/api/oms/positions", strategyId ? { strategyId } : undefined,

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TradePro.Api.Alerts;
 using TradePro.Api.Auth;
 using TradePro.Api.Data.Stores;
 using TradePro.Api.Simulation;
@@ -199,6 +200,35 @@ public static class IngestEndpoints
                 linkedSymbols = env.LinkedSymbols,
                 receivedAtUtc = env.ReceivedAtUtc,
             });
+        });
+
+        // Operational alert from a Mac daemon — surfaced in the cockpit
+        // alert banner. First producer: a paper session that ABORTED
+        // because it could not confirm its current position from the
+        // broker (fail-closed). dedupKey collapses repeats into one row.
+        group.MapPost("/alert", (JsonElement payload, IAlertStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+            {
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            }
+            var title = JsonbHelpers.ReadString(payload, "title");
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return Results.BadRequest(new { error = "alert requires a non-empty 'title'" });
+            }
+            var input = new AlertInput(
+                Source: JsonbHelpers.ReadString(payload, "source") ?? "unknown",
+                Severity: JsonbHelpers.ReadString(payload, "severity") ?? "warn",
+                Code: JsonbHelpers.ReadString(payload, "code") ?? "",
+                Title: title,
+                Detail: JsonbHelpers.ReadString(payload, "detail") ?? "",
+                StrategyId: JsonbHelpers.ReadString(payload, "strategyId"),
+                Broker: JsonbHelpers.ReadString(payload, "broker"),
+                Symbols: JsonbHelpers.ReadStringArray(payload, "symbols"),
+                DedupKey: JsonbHelpers.ReadString(payload, "dedupKey"));
+            var id = store.Raise(input);
+            return Results.Ok(new { accepted = true, id, receivedAtUtc = DateTime.UtcNow });
         });
 
         return app;

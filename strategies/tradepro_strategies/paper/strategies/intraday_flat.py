@@ -271,7 +271,7 @@ class IntradayFlatStrategy(Strategy):
         # a clear alert + flatten on the first bar that reaches us in
         # the entry window (and certainly on every EOD bar after that).
         # See `seed_positions()` for the equivalent direct-call entry
-        # point used by paper_session._seed_strategy_positions_from_oms.
+        # point used by paper_session._seed_strategy_positions_from_broker.
         initial = p.get("initial_positions") or {}
         if isinstance(initial, dict):
             for sym, qty in initial.items():
@@ -701,7 +701,7 @@ class IntradayFlatStrategy(Strategy):
         return [order]
 
     def seed_positions(self, positions: dict[str, int]) -> None:  # type: ignore[override]
-        """Called by paper_session._seed_strategy_positions_from_oms
+        """Called by paper_session._seed_strategy_positions_from_broker
         with the broker's authoritative position state right after
         on_session_start.
 

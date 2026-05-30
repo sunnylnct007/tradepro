@@ -113,6 +113,53 @@ def push(kind: str, payload: dict, base_url: str, token: str, retries: int = 6) 
     sys.exit(1)
 
 
+def raise_alert(
+    base_url: str,
+    token: str,
+    *,
+    source: str,
+    severity: str,
+    code: str,
+    title: str,
+    detail: str,
+    strategy_id: str | None = None,
+    broker: str | None = None,
+    symbols: list[str] | None = None,
+    dedup_key: str | None = None,
+    timeout: float = 10.0,
+) -> bool:
+    """POST an operational alert to /api/ingest/alert so it surfaces in
+    the UI (cockpit alert banner). Unlike `push`, this is BEST-EFFORT:
+    it never raises and never exits — the caller has already logged the
+    underlying condition locally, and an alert that can't be delivered
+    must not itself crash the caller. Returns True on a 2xx ack.
+
+    `dedup_key` lets the backend collapse repeated identical alerts into
+    one open row (refresh, don't flood). `severity` ∈ info|warn|critical.
+    """
+    url = f"{base_url.rstrip('/')}/api/ingest/alert"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    body = scrub_for_json({
+        "source": source,
+        "severity": severity,
+        "code": code,
+        "title": title,
+        "detail": detail,
+        "strategyId": strategy_id,
+        "broker": broker,
+        "symbols": symbols or [],
+        "dedupKey": dedup_key,
+    })
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=timeout)
+        if 200 <= resp.status_code < 300:
+            return True
+        print(f"raise_alert: HTTP {resp.status_code} {resp.text[:200]}", file=sys.stderr)
+    except requests.RequestException as e:
+        print(f"raise_alert: post failed — {e}", file=sys.stderr)
+    return False
+
+
 def _maybe_archive_to_s3(kind: str, payload: dict) -> None:
     """Optional: push a copy of the payload to S3 for replay history.
 

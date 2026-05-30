@@ -153,7 +153,7 @@ class IchimokuEquityStrategy(Strategy):
                     continue
 
     def seed_positions(self, positions: dict[str, int]) -> None:
-        """Called by paper_session._seed_strategy_positions_from_oms
+        """Called by paper_session._seed_strategy_positions_from_broker
         (Phase 2 of task #28). Pre-populates internal position state
         so the strategy doesn't re-emit entries for symbols it already
         holds. Symbols are bare tickers (AAPL); the daemon translates
