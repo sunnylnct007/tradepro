@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { ModePill } from "./ModePill";
 import { OmsModeBadge } from "./OmsModeBadge";
 import { T212ModeBadge } from "./T212ModeBadge";
+import { ConnectivityBadge } from "./ConnectivityBadge";
 
 // Two personas drive the nav layout:
 //
@@ -261,6 +262,9 @@ export function Layout() {
            * adjust copy, default tabs, and (later) strategy
            * defaults / backtest windows. See DATA_ROADMAP §14. */}
           <ModePill />
+          {/* System connectivity — minimal traffic light in the bar
+              (was a big in-cockpit card). Click for per-service detail. */}
+          <ConnectivityBadge />
           {/* Worker status — visible on every page so the user can
            * tell at-a-glance whether the Mac is mid-refresh, idle,
            * or hasn't pinged in a while. Was previously only on the

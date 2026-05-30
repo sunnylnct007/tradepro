@@ -17,7 +17,6 @@ import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { BrokerCashStrip } from "../components/cockpit/BrokerCashStrip";
-import { ConnectivityPanel } from "../components/cockpit/ConnectivityPanel";
 import { AlertBanner } from "../components/cockpit/AlertBanner";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
@@ -324,9 +323,7 @@ export function TraderCockpit() {
   const WIDGETS: WidgetMeta[] = [
     { id: "warnings",     title: "Warnings" },
     { id: "broker-cash",  title: "Broker cash (multi)" },
-    { id: "connectivity", title: "Connectivity" },
     { id: "trigger",      title: "Trigger session" },
-    { id: "cash",         title: "Cash (T212 only)" },
     { id: "orders-by-broker", title: "Orders today (by broker)" },
     { id: "intents",     title: "Order generated" },
     { id: "submitted",   title: "Order placed" },
@@ -522,16 +519,8 @@ export function TraderCockpit() {
         />
       )}
 
-      {/* ── Connectivity — compact traffic-light strip. Green = all
-              good; click an amber/red light for the detail. Thin
-              full-width row so it costs almost no vertical space. */}
-      {v("connectivity") && (
-      <CockpitCard id="connectivity" title="Connectivity" defaultOpen={true} fullWidth
-        onHide={() => widgets.hide("connectivity")}
-      >
-        <ConnectivityPanel />
-      </CockpitCard>
-      )}
+      {/* Connectivity moved to the top-bar traffic light (ConnectivityBadge)
+          — it's chrome, not a trading surface. */}
 
       {/* ── Broker cash strip — every connected broker in one row */}
       {v("broker-cash") && (
@@ -554,15 +543,18 @@ export function TraderCockpit() {
           fullWidth
         >
           {warnings.map((w, i) => (
-            <div
+            <Link
               key={i}
+              to="/oms"
               style={{
-                fontSize: 12, padding: "4px 0",
+                display: "block", fontSize: 12, padding: "4px 0",
                 color: w.tone === "down" ? "var(--down)" : "#d97706",
+                textDecoration: "none", cursor: "pointer",
               }}
+              title="Open OMS to investigate"
             >
-              {w.text}
-            </div>
+              {w.text} →
+            </Link>
           ))}
         </CockpitCard>
       )}
@@ -580,40 +572,9 @@ export function TraderCockpit() {
           smoke-test, not a trader workflow. Kept out of the cockpit
           so the trader screen stays decision-focused. */}
 
-      {/* ── Cash ─────────────────────────────────────────────────── */}
-      {v("cash") && (
-      <CockpitCard
-        id="cash"
-        title="Cash"
-        badge={cash?.free != null ? `${cash.currency ?? ""} ${cash.free.toLocaleString()}` : undefined}
-        tone="ok"
-        onHide={() => widgets.hide("cash")}
-      >
-        {!cash ? (
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading…</span>
-        ) : !cash.enabled || cash.error ? (
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {cash.error ?? cash.message ?? "Cash unavailable"}
-          </span>
-        ) : (
-          <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
-            <Stat label="Free" value={fmtMoney(cash.free, cash.currency)} big tone="ok" />
-            <Stat label="Invested" value={fmtMoney(cash.invested, cash.currency)} />
-            <Stat label="Total" value={fmtMoney(cash.total, cash.currency)} />
-            {cash.ppl != null && (
-              <Stat
-                label="Open P&L"
-                value={fmtMoney(cash.ppl, cash.currency)}
-                tone={(cash.ppl ?? 0) >= 0 ? "ok" : "down"}
-              />
-            )}
-            <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-muted)" }}>
-              T212 {cash.mode.toUpperCase()} · Invest (CFD cash separate)
-            </span>
-          </div>
-        )}
-      </CockpitCard>
-      )}
+      {/* Standalone Cash card removed — it duplicated the multi-broker
+          "Broker cash" strip (and the KPI strip's Cash stat). One money
+          summary, not three. */}
 
       {/* ── Pending intents (action required) ───────────────────── */}
       {v("intents") && (
@@ -903,23 +864,6 @@ export function TraderCockpit() {
  */
 
 
-function Stat({
-  label, value, big, tone,
-}: {
-  label: string;
-  value: string;
-  big?: boolean;
-  tone?: "ok" | "down";
-}) {
-  const fg = tone === "ok" ? "#1fc16b" : tone === "down" ? "#ef4444" : "var(--text)";
-  return (
-    <div>
-      <div style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</div>
-      <div style={{ fontSize: big ? 20 : 14, fontWeight: big ? 700 : 500, color: fg, fontFamily: "monospace" }}>{value}</div>
-    </div>
-  );
-}
-
 /**
  * NoFiresDiagnostic — inline explainer shown in the cockpit Strategy
  * signals widget when a session completed but emitted zero fire-*
@@ -996,12 +940,6 @@ function NoFiresDiagnostic({
  * → "Trade executed".
  */
 
-
-function fmtMoney(n: number | null | undefined, ccy?: string | null): string {
-  if (n == null) return "—";
-  const c = ccy || "";
-  return `${c} ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 const posTh: React.CSSProperties = {
   textAlign: "left", padding: "4px 8px", fontSize: 10, fontWeight: 700,
