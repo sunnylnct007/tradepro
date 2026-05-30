@@ -350,15 +350,24 @@ rows from the same queue — no new schema, no new infra.
 - STRATEGIES.md per-strategy limitation banners linking to the doc.
 
 **Phase B — Asset-class-pluggable bar cache**
-- `BarStore` interface + Parquet-backed implementation.
-- Provider chain wired per (asset_class × resolution) from the
-  preferences table (Phase A's editable knob now reaches code).
-- First asset-class plugins: `us_etf`, `us_equity`, `fx_spot`.
-- Atomic writes (tmp + fsync + rename) — no partial Parquet files.
-- Manifest per partition declaring "what should be here";
-  reader validates actual vs declared.
-- Per-fetch structured telemetry → `bar_cache_events` table.
-- Per-symbol health record updated on every fetch.
+
+*Phase B-1 SHIPPED in this PR.* Subsequent slices:
+
+- **B-1 (this PR)**:
+  - `BarStore` orchestrator with atomic writes + manifest validation
+  - First asset-class plugin: `us_etf`
+  - First provider: `yfinance` (with injectable fetch_fn for tests)
+  - Migrations 031 (`bar_cache_events`) + 032 (`bar_cache_health`)
+  - Telemetry sink (DB + JSONL fallback)
+  - Operator CLI: `tradepro-bar-cache-get`
+  - 9 BDD scenarios covering happy path + failure modes
+  - Hardcoded chain `["yfinance"]` (DB-driven chain in B-3)
+- **B-2**: strategy opt-in. intraday_flat consumes BarStore via a
+  feature flag; backward-compatible with existing cache.py.
+- **B-3**: provider chain driven from `data_source_preferences`
+  table — Phase A's editable knob now reaches code.
+- **B-4**: additional plugins (`us_equity`, `fx_spot`) + additional
+  providers (`ig` via /prices, `finnhub`).
 
 **Phase C — Operator-facing backfill (UI-FIRST)**
 - New `tradepro-data-worker` daemon polls `session_requests` for
