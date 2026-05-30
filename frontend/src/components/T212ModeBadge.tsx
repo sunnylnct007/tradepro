@@ -49,10 +49,12 @@ export function T212ModeBadge() {
     : isDemo
       ? "rgba(255, 200, 80, 0.10)"
       : "rgba(255, 255, 255, 0.04)";
+  // Keep the chip compact — "equity only" / the FX-routes-to-paper
+  // caveat lives in the tooltip, not the always-on header label.
   const label = isLive
-    ? "T212 · LIVE · EQUITY ONLY"
+    ? "T212 · LIVE"
     : isDemo
-      ? "T212 · DEMO · EQUITY ONLY"
+      ? "T212 · DEMO"
       : `T212 · ${status.mode}`;
   // T212's public API only covers the Invest product (equities + ETFs).
   // Even with CFD enabled on the account, FX/CFD has no public REST

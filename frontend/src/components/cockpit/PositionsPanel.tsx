@@ -139,14 +139,13 @@ export function PositionsPanel({
         id="positions-equity"
         title="Equity positions"
         badge={(equityCount + igEq.length) || undefined}
-        fullWidth
         onHide={() => onHide("positions-equity")}
       >
         <Account
           label={`T212 · ${account}`}
           reconciled={positions?.enabled ? reconcileT212(positions, t212OmsBroker, omsNet) : null}
           first
-          onSync={() => onSyncOms?.(t212OmsBroker)}
+          onSync={onSyncOms ? () => onSyncOms(t212OmsBroker) : undefined}
         >
           <ProductSection
             title="Equity"
@@ -169,13 +168,7 @@ export function PositionsPanel({
                   const o = omsNet(t212OmsBroker, bareSymbol(p.ticker));
                   return (
                     <tr key={p.ticker} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td style={td}>
-                        <Link to={`/symbol/${encodeURIComponent(bareSymbol(p.ticker))}`}
-                          style={{ color: "var(--text)", textDecoration: "none" }}
-                          title={`Open ${bareSymbol(p.ticker)} chart / trend`}>
-                          {prettySymbol(p.ticker)} ↗
-                        </Link>
-                      </td>
+                      <td style={td}>{prettySymbol(p.ticker)}</td>
                       <td style={numTd}>{p.quantity}</td>
                       <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
                       <td style={numTd}>{p.currentPrice?.toFixed(2) ?? "—"}</td>
@@ -227,14 +220,13 @@ export function PositionsPanel({
         id="positions-fx"
         title="FX positions"
         badge={igFx.length || undefined}
-        fullWidth
         onHide={() => onHide("positions-fx")}
       >
         <Account
           label={`IG · ${ig?.mode ?? "?"}`}
           reconciled={ig?.enabled ? reconcileIg(ig, omsNet) : null}
           first
-          onSync={ig?.enabled ? () => onSyncOms?.(ig.mode) : undefined}
+          onSync={ig?.enabled && onSyncOms ? () => onSyncOms(ig.mode) : undefined}
         >
           <ProductSection
             title="FX"

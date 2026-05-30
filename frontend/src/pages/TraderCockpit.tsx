@@ -935,13 +935,16 @@ function NoFiresDiagnostic({
   barsSeen: number;
   skipped: DecisionEntry[];
 }) {
-  // No data at all → broken feed / wrong symbol mapping.
+  // No data at all → most often the market was simply closed (no bars
+  // published), e.g. FX on a weekend or equities outside the session.
+  // A feed/mapping problem is the less-likely runner-up.
   if (barsSeen === 0 && skipped.length === 0) {
     return (
       <div style={{ fontSize: 11, color: "#f59e0b" }}>
-        ⚠ Strategy saw 0 bars + logged 0 decisions. Likely: source
-        feed misconfigured or symbols rejected. Open Session Detail
-        to inspect the run.
+        ⚠ 0 bars, 0 decisions — usually the market was closed (weekend /
+        outside session hours) so no data was published. If the market
+        was open, the feed may be misconfigured or symbols rejected —
+        open Session Detail to inspect.
       </div>
     );
   }

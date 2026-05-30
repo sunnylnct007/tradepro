@@ -199,6 +199,12 @@ export function Layout() {
         style={{
           display: "flex",
           alignItems: "center",
+          // Wrap to a second line on narrow widths instead of letting the
+          // right-side status group overlap the nav's "More ▾" button
+          // (the header is crowded: nav + mode pill + worker badge +
+          // broker chips + user). rowGap keeps the wrapped line readable.
+          flexWrap: "wrap",
+          rowGap: 8,
           gap: 14,
           padding: "6px 20px",
           borderBottom: "1px solid var(--border)",
@@ -208,9 +214,7 @@ export function Layout() {
           top: 0,
           zIndex: 10,
           // overflow: visible so the More ▾ dropdown can spill below the
-          // header. Was overflowX: hidden which clipped the dropdown
-          // entirely. The compact 4-link nav no longer needs the clip
-          // since it doesn't horizontally overflow.
+          // header.
           overflow: "visible",
           minWidth: 0,
         }}
