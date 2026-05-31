@@ -53,6 +53,22 @@ async function post<T, B>(path: string, body: B): Promise<T> {
 
 export const api = {
   health: () => get<{ status: string }>("/health"),
+  // Integration/provider readiness — broker connectivity + cash, LLM, Finnhub.
+  // Public, no auth. Feeds the Health page + the cockpit caveats banner.
+  integrationsHealth: () =>
+    get<{
+      verdict: "ok" | "warn" | "needs_attention";
+      utc: string;
+      providers: Array<{
+        provider: string;
+        label: string;
+        status: "ok" | "degraded" | "down" | "disabled";
+        detail: string;
+        latencyMs: number | null;
+        lastCheckedUtc: string;
+        mode: string | null;
+      }>;
+    }>("/health/integrations"),
   providers: () => get<{ providers: string[] }>("/api/marketdata/providers"),
   strategies: () => get<StrategyCatalogResponse>("/api/simulations/strategies"),
   candles: (params: { symbol: string; provider?: string; interval?: string; from?: string; to?: string }) =>

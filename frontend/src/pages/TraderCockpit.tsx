@@ -18,6 +18,7 @@ import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHidd
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { BrokerCashStrip } from "../components/cockpit/BrokerCashStrip";
 import { AlertBanner } from "../components/cockpit/AlertBanner";
+import { SystemCaveatsBanner } from "../components/cockpit/SystemCaveatsBanner";
 import { api, OmsOrderRow } from "../api/client";
 import { config } from "../config";
 import { buildOrderLifecycleFigure } from "../viz/orderLifecycle";
@@ -430,6 +431,11 @@ export function TraderCockpit() {
       {/* Operational alerts the trader must see first — e.g. a strategy
           that aborted because it couldn't confirm its broker position. */}
       <AlertBanner />
+      {/* Serious caveats (broker buying power, offline factors, stuck/
+          rejected orders) re-derived from real state — red even when the
+          API's connectivity verdict says "ok". So the trader never tests
+          assuming all is sorted. */}
+      <SystemCaveatsBanner />
       {/* ── Account selector strip ──────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22 }}>Trader cockpit</h1>
