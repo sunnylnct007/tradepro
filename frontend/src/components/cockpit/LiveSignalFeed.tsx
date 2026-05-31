@@ -18,6 +18,7 @@
  */
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
+import { fmtWhen } from "../../util/time";
 
 type FeedItem = {
   ts: string;              // ISO
@@ -145,8 +146,8 @@ function FeedRow({ item }: { item: FeedItem }) {
       borderRadius: 3,
       fontSize: 11,
     }}>
-      <span style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: 10 }}>
-        {item.ts.slice(11, 19)}
+      <span style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: 10, whiteSpace: "nowrap" }}>
+        {fmtWhen(item.ts)}
       </span>
       <span style={{
         color: item.colour,

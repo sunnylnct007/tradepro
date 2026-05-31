@@ -359,11 +359,20 @@ public static class OmsEndpoints
                 dbg["brokerError"] = res.Error;
                 dbg["httpStatus"] = res.HttpStatus;
                 dbg["ageSeconds"] = res.AgeSeconds;
-                dbg["sampleTickers"] = res.Positions.Take(3).Select(p => p.Ticker).ToArray();
+                // T212 nests the ticker in `instrument` on /equity/portfolio;
+                // the top-level Ticker is null in the wild (same fallback the
+                // read-only positions endpoint uses) — THIS is why the sync
+                // saw 21 positions but adopted 0 (all tickers looked null).
+                static string? Tk(TradePro.Api.Providers.Trading212.Trading212Position p)
+                    => p.Instrument?.Ticker ?? p.Ticker;
+                dbg["sampleTickers"] = res.Positions.Take(3).Select(Tk).ToArray();
                 if (res.Error is not null)
                     return Results.Json(new { error = $"could not read T212 positions: {res.Error}", debug = dbg }, statusCode: 502);
                 foreach (var p in res.Positions)
-                    if (!string.IsNullOrWhiteSpace(p.Ticker)) actuals.Add((p.Ticker, p.Quantity, p.AveragePricePaid));
+                {
+                    var tk = Tk(p);
+                    if (!string.IsNullOrWhiteSpace(tk)) actuals.Add((tk, p.Quantity, p.AveragePricePaid));
+                }
                 fetchEmpty = res.Positions.Count == 0;
             }
             else if (broker is "IG_DEMO" or "IG_LIVE")

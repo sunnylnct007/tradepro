@@ -133,6 +133,30 @@ session). Needs IG epics for those names (interactive, operator).
 - **Position-aware signals (principle):** always compute the signal/target
   against the CURRENT position (broker-seeded + optimistic-on-emit) — never
   from assumed-flat — else we emit wrong/duplicate orders. Keep invariant.
+- **Equity strategy trust track (ichimoku_equity):** plumbing is sound
+  (position-aware seed, correct Ichimoku exit, no runaway) but the EDGE is
+  unproven and there's NO risk exit (holds losers until the cloud breaks —
+  e.g. TSLA/LIN held while down). Before trusting beyond demo: (1) backtest
+  + walk-forward + hit-rate vs buy-and-hold after costs; (2) a configurable
+  RISK-EXIT overlay (per-name stop / max-drawdown / regime-flip) on top of
+  the Ichimoku exit; (3) eventually multi-family confirmation (ties to B).
+- **LLM-in-loop evaluation + transparency (ALL strategies):** every
+  strategy's signals must be evaluated by our financial model / LLM quality
+  gate, and the gate must LOG its verdict + a human-readable comment
+  (good / bad / why — e.g. "vetoed: earnings in 2 days", "boosted: momentum
+  + positive sentiment") to the system so we can SEE whether the LLM-in-loop
+  is adding value. Ties to: existing LLMSignalGate (llm_gate.py) +
+  llm_evaluations table (migration 022). Needs: (a) gate runs for every
+  strategy (not just FX/equity), (b) verdict+comment persisted per signal,
+  (c) a UI surface (decision-trace / a "LLM gate log") + a scorecard
+  (veto/boost counts, and ideally outcome attribution: did vetoed trades
+  actually do worse?) to quantify the LLM's contribution.
+  **LLM inputs:** overall current position (per strategy/broker) + recent
+  market news + sentiment → validate/annotate the signal.
+  **Advisory-first:** NO hard gate now — the LLM only LOGS its verdict
+  (observe-only) so we can judge if it's adding value; a CONFIG TOGGLE
+  promotes it to a hard gate (veto actually blocks the order) once proven.
+  Matches trust-before-breadth: prove the LLM-in-loop, then enforce it.
 - **Top summary must be cross-broker:** cash + P&L at the top should
   aggregate across strategy/broker (T212 + IG …), not T212-only. Mixed
   currencies (T212 USD, IG GBP) → show per-broker, don't false-sum
@@ -154,10 +178,12 @@ session). Needs IG epics for those names (interactive, operator).
   name + Sign out grouped; connectivity = top-bar traffic light.
 
 ### Parallel workstreams (other devs — don't clobber)
-- **Backtesting + simulation: storing order-book history.** A separate dev is
-  improving backtest/sim by persisting order-book history (richer fills /
-  replay fidelity). Coordinate before touching the simulation / paper-engine
-  fill path or the OMS fills schema.
+- **Backtesting + simulation: order-book history from IG (other dev).** A
+  separate dev is sourcing **order-book data from IG** to build a proper
+  backtesting framework (real fill/spread/depth fidelity vs the current
+  bar-close fills). This is the foundation a TRUE options + equity backtest
+  needs. Coordinate before touching the simulation / paper-engine fill path
+  or the OMS fills schema; the options backtest (P4) will consume it.
 - **intraday_flat (IG equity intraday):** merged to main (PRs #28–#33); daemon
   uv-path fixed here. Remaining: interactive IG epic population (operator).
 
