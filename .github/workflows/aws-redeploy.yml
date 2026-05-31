@@ -21,6 +21,13 @@ on:
         description: 'ECR image tag to deploy. Defaults to "latest". Use a SHA (8 chars) to pin a specific build.'
         required: false
         default: 'latest'
+  # Auto-roll after the image is built+pushed on main, so a merge ships
+  # end-to-end. The redeploy job self-heals a stopped instance (starts it
+  # + waits for SSM Online), which is the prior nightly-stop failure mode.
+  workflow_run:
+    workflows: ["aws-build-push"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   id-token: write
@@ -35,6 +42,9 @@ env:
 jobs:
   redeploy:
     runs-on: ubuntu-latest
+    # When triggered by aws-build-push, only proceed if that build
+    # succeeded. Manual dispatch always proceeds.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,24 +66,51 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Find running instance
+      - name: Find instance, start if stopped, wait for SSM Online
         id: find
         run: |
+          # Include stopped/stopping so a redeploy during the nightly
+          # auto-stop window self-heals instead of erroring out.
           ID=$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
-                      "Name=instance-state-name,Values=running" \
+                      "Name=instance-state-name,Values=pending,running,stopping,stopped" \
             --query 'Reservations[].Instances[].InstanceId' \
             --output text | tr -s '\t\n' ' ' | awk '{print $1}')
           if [ -z "$ID" ]; then
-            echo "::error::No running instance found. Run aws-start first."
+            echo "::error::No instance found with name prefix ${INSTANCE_NAME_PREFIX}"
             exit 1
           fi
           echo "instance_id=$ID" >> "$GITHUB_OUTPUT"
 
+          STATE=$(aws ec2 describe-instances --instance-ids "$ID" \
+                  --query 'Reservations[0].Instances[0].State.Name' --output text)
+          echo "Instance $ID is '$STATE'"
+          if [ "$STATE" != "running" ]; then
+            echo "Starting instance (was '$STATE') ..."
+            aws ec2 start-instances --instance-ids "$ID"
+            aws ec2 wait instance-running --instance-ids "$ID"
+          fi
+
+          # The SSM agent needs ~30-60s after boot to register Online.
+          # Sending a command before then is what returned an empty
+          # CommandId. Wait until it's Online (or fail loudly).
+          echo "Waiting for SSM agent to report Online ..."
+          for i in $(seq 1 30); do
+            PING=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$ID" \
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || echo "")
+            echo "  attempt $i: PingStatus=${PING:-none}"
+            if [ "$PING" = "Online" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::SSM agent did not come Online within 5 min — cannot send redeploy command"
+          exit 1
+
       - name: Send redeploy command via SSM
         id: ssm
         run: |
-          IMAGE_TAG='${{ github.event.inputs.image_tag }}'
+          # workflow_run triggers carry no inputs, so fall back to latest.
+          IMAGE_TAG='${{ github.event.inputs.image_tag || 'latest' }}'
 
           # Build the SSM RunShellScript payload as JSON to keep shell +
           # YAML quoting sane. The compose file is shipped fresh from
@@ -116,6 +153,10 @@ jobs:
             --comment "tradepro redeploy from GH Actions" \
             --parameters file:///tmp/ssm-params.json \
             --output text --query 'Command.CommandId')
+          if [ -z "$CMD_ID" ] || [ "$CMD_ID" = "None" ]; then
+            echo "::error::SSM send-command returned no CommandId (instance not reachable via SSM)"
+            exit 1
+          fi
           echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
           echo "SSM command: $CMD_ID"
 
