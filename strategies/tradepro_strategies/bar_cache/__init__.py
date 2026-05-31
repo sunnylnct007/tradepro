@@ -42,6 +42,7 @@ from .errors import (
     SchemaVersionMismatch,
 )
 from .manifest import Manifest
+from .preferences import PreferencesLoader
 from .store import BarStore, BarFrame
 
 __all__ = [
@@ -51,6 +52,7 @@ __all__ = [
     "Manifest",
     "ManifestViolation",
     "NoProviderAvailableError",
+    "PreferencesLoader",
     "ProviderNetworkError",
     "ProviderParseError",
     "ProviderRateLimitError",
