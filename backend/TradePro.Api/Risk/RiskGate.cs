@@ -179,6 +179,12 @@ public sealed class RiskGate
             // a whole basket that T212 rejects en masse with
             // insufficient-free-for-stocks (the zero-fill root cause). 0
             // disables it (operator-tunable via risk_min_free_to_trade_usd).
+            //
+            // BUY-ONLY BY DESIGN: capital gates never block SELLs. A SELL is
+            // a defensive exit / de-risk — it FREES capital and must always
+            // be allowed to fill even when buying power is exhausted. Only
+            // new BUYs (which CONSUME capital) are gated here and in
+            // cash_check below. Do not add Side-agnostic capital checks.
             if (settings.MinFreeToTradeUsd > 0
                 && string.Equals(order.Broker, "T212_DEMO", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(order.Side, "BUY", StringComparison.OrdinalIgnoreCase))

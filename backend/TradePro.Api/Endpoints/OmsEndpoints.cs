@@ -401,11 +401,18 @@ public static class OmsEndpoints
             // positions, this is almost certainly a failed/rate-limited read,
             // NOT a genuinely flat account. Refuse to sync — syncing would
             // close every OMS position. Tell the operator to retry.
-            if (fetchEmpty && omsRows.Count > 0)
+            //
+            // Override: Force=true means the operator has confirmed the
+            // account really is flat (e.g. just reset the T212 demo), so we
+            // DO flatten the OMS to match. We still require a clean read
+            // (no broker Error above) to avoid flattening on an actual
+            // fetch failure even with Force set.
+            if (fetchEmpty && omsRows.Count > 0 && !body!.Force)
                 return Results.Json(new
                 {
                     error = "broker returned 0 positions but OMS has open positions — "
-                          + "likely a rate-limited/failed read, not a flat account. Not syncing; retry in a few seconds.",
+                          + "likely a rate-limited/failed read, not a flat account. Not syncing; retry in a few "
+                          + "seconds, or pass force=true if you just reset the account and it is genuinely flat.",
                     debug = dbg,
                 }, statusCode: 409);
             static string Bare(string s)
@@ -628,4 +635,8 @@ public static class OmsEndpoints
 
 /// Body for POST /oms/positions/sync-from-broker — which broker's OMS
 /// label to reconcile (e.g. "T212_DEMO", "IG_DEMO").
-public sealed record SyncFromBrokerRequest(string? Broker);
+// Force=true lets the operator confirm the broker is GENUINELY flat (e.g.
+// after a demo reset) so the "broker empty + OMS has positions" fail-safe
+// can flatten the OMS instead of refusing. Off by default — the safety
+// net stays on for routine syncs.
+public sealed record SyncFromBrokerRequest(string? Broker, bool Force = false);

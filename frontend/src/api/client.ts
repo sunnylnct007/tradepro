@@ -714,12 +714,15 @@ export const api = {
   // Sync OMS ← broker: adopt the broker's actual net positions into the
   // OMS (synthetic, audited RECONCILE adjustments). broker = OMS label
   // e.g. "T212_DEMO" | "IG_DEMO". Returns the adjustments made.
-  syncOmsFromBroker: (broker: string) =>
+  // force=true confirms the broker is genuinely flat (e.g. after a demo
+  // reset) so the "broker empty + OMS has positions" fail-safe flattens
+  // the OMS instead of refusing with 409.
+  syncOmsFromBroker: (broker: string, force = false) =>
     post<{
       broker: string;
       adjusted: number;
       adjustments: Array<{ symbol: string; side: string; delta: number; targetQty: number; fromOmsQty: number }>;
-    }, { broker: string }>("/api/oms/positions/sync-from-broker", { broker }),
+    }, { broker: string; force: boolean }>("/api/oms/positions/sync-from-broker", { broker, force }),
 
   // T212 open positions (equity). account = demo | live.
   t212Positions: (account: "demo" | "live" = "demo") =>
