@@ -122,3 +122,92 @@ class NullSink(TelemetrySink):
     @property
     def events(self) -> list[FetchEvent]:
         return self._events
+
+
+class BackendTelemetrySink(TelemetrySink):
+    """Sink that POSTs each event to the backend's
+    /api/admin/data-trust/bar-cache/events endpoint, then falls
+    through to the JSONL append as a recovery path. Used by the
+    operator CLI when --api-base is provided.
+
+    Best-effort by design — a 4xx/5xx from the backend is logged
+    and ignored. The fetch never fails because telemetry failed."""
+
+    def __init__(
+        self,
+        base_dir: Path,
+        api_base: str,
+        *,
+        auth_token: Optional[str] = None,
+        timeout_seconds: float = 5.0,
+        _http_post: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        # Compose on top of the parent's JSONL behaviour so the local
+        # log is always written even when the POST succeeds.
+        super().__init__(base_dir=base_dir, db_writer=None)
+        self._api_base = api_base.rstrip("/")
+        self._auth_token = auth_token
+        self._timeout = timeout_seconds
+        self._http_post = _http_post  # for tests
+
+    def emit(self, event: FetchEvent) -> None:
+        # Try the POST first; whatever happens, append the JSONL.
+        try:
+            self._post(event)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "telemetry POST failed (continuing): %s", exc,
+            )
+        # Re-use parent's JSONL append.
+        try:
+            self._append_jsonl(event)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "telemetry JSONL write failed (giving up): %s", exc,
+            )
+
+    def _post(self, event: FetchEvent) -> None:
+        url = f"{self._api_base}/api/admin/data-trust/bar-cache/events"
+        body = self._event_to_payload(event)
+        headers = {"content-type": "application/json"}
+        if self._auth_token:
+            headers["Authorization"] = f"Bearer {self._auth_token}"
+        if self._http_post is not None:
+            self._http_post(url, json=body, headers=headers, timeout=self._timeout)
+            return
+        # Late import so tests can substitute requests-free.
+        import requests
+        resp = requests.post(
+            url, json=body, headers=headers, timeout=self._timeout,
+        )
+        # 4xx/5xx logged but not raised — best-effort.
+        if not resp.ok:
+            _log.warning(
+                "telemetry POST returned %s: %s",
+                resp.status_code, resp.text[:200],
+            )
+
+    @staticmethod
+    def _event_to_payload(event: FetchEvent) -> dict[str, Any]:
+        """Map the FetchEvent dataclass to the BarCacheEventBody DTO
+        the backend endpoint expects. JSON-friendly types only."""
+        return {
+            "canonical": event.canonical,
+            "assetClass": event.asset_class,
+            "resolution": event.resolution,
+            "rangeStartUtc": event.range_start_utc.isoformat(),
+            "rangeEndUtc": event.range_end_utc.isoformat(),
+            "result": event.result,
+            "sourceChain": list(event.source_chain),
+            "providerUsed": event.provider_used,
+            "providerVersions": event.provider_versions,
+            "rowsExpected": event.rows_expected,
+            "rowsReturned": event.rows_returned,
+            "gapsDetectedCount": event.gaps_detected_count,
+            "schemaVersion": event.schema_version,
+            "latencyMs": event.latency_ms,
+            "errorClass": event.error_class,
+            "errorProvider": event.error_provider,
+            "errorMessage": event.error_message,
+            "retryStrategy": event.retry_strategy,
+        }

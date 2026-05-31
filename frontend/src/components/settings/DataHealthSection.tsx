@@ -58,6 +58,7 @@ export function DataHealthSection() {
       <RoadmapNote />
       <AssumptionsPanel />
       <PreferencesPanel />
+      <BarCacheActivityPanel />
       <BackfillPanel />
     </Section>
   );
@@ -429,6 +430,222 @@ function PreferenceRow({
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Bar cache activity panel (Phase B-2) ────────────────────────────
+
+type BarEvent = Awaited<ReturnType<typeof api.barCacheEvents>>["events"][number];
+type BarHealth = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
+
+const RESULT_COLORS: Record<string, string> = {
+  complete: "#16a34a",
+  fetched_complete: "#16a34a",
+  fetched_partial: "#ca8a04",
+  manifest_violation: "#dc2626",
+  provider_error: "#dc2626",
+  rate_limited: "#ea580c",
+  no_provider: "#dc2626",
+};
+
+function BarCacheActivityPanel() {
+  const [events, setEvents] = useState<BarEvent[]>([]);
+  const [health, setHealth] = useState<BarHealth[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [e, h] = await Promise.allSettled([
+        api.barCacheEvents({ limit: 25 }),
+        api.barCacheHealth(),
+      ]);
+      if (e.status === "fulfilled") setEvents(e.value.events);
+      else setError(`couldn't load events: ${e.reason}`);
+      if (h.status === "fulfilled") setHealth(h.value.health);
+      // health failure is non-fatal — events alone are still useful
+      setError(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(); }, []);
+
+  if (loading && events.length === 0 && health.length === 0) {
+    return (
+      <Subsection title="Bar cache activity">
+        <Muted>Loading…</Muted>
+      </Subsection>
+    );
+  }
+
+  return (
+    <Subsection title="Bar cache activity">
+      <div
+        style={{
+          fontSize: 10, color: "var(--text-muted)",
+          marginBottom: 8, lineHeight: 1.55,
+        }}
+      >
+        Telemetry from the trustworthy bar cache (Phase B-1 + B-2). Each
+        BarStore fetch emits one event below. Per-symbol health is the
+        last-touch snapshot. If nothing's here, no fetches have hit this
+        backend yet — run the CLI with{" "}
+        <code style={{
+          background: "rgba(0,0,0,0.2)", padding: "1px 5px", borderRadius: 3,
+          fontSize: 10,
+        }}>
+          tradepro-bar-cache-get --api-base &lt;url&gt;
+        </code>{" "}
+        to populate.
+      </div>
+      {error && <ErrorText>{error}</ErrorText>}
+
+      <h5 style={{
+        margin: "10px 0 6px", fontSize: 10, fontWeight: 700,
+        color: "var(--text-dim)", letterSpacing: "0.05em",
+        textTransform: "uppercase",
+      }}>
+        Per-symbol coverage ({health.length})
+      </h5>
+      {health.length === 0 && <Muted>No health snapshots yet.</Muted>}
+      {health.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "100px 80px 100px 120px 110px 110px 70px",
+            gap: 8, alignItems: "center",
+            paddingBottom: 4, marginBottom: 4,
+            borderBottom: "1px solid var(--border)",
+            fontSize: 9, color: "var(--text-muted)",
+            textTransform: "uppercase", letterSpacing: "0.05em",
+          }}
+        >
+          <span>Canonical</span>
+          <span>Asset</span>
+          <span>Last result</span>
+          <span>Last provider</span>
+          <span>Coverage start</span>
+          <span>Coverage end</span>
+          <span>Gaps</span>
+        </div>
+      )}
+      {health.map((row) => (
+        <div
+          key={`${row.canonical}/${row.asset_class}`}
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "100px 80px 100px 120px 110px 110px 70px",
+            gap: 8, alignItems: "center",
+            padding: "6px 0",
+            borderTop: "1px solid var(--border)",
+            fontSize: 11,
+          }}
+        >
+          <span style={{ fontFamily: "monospace", fontWeight: 600 }}>
+            {row.canonical}
+          </span>
+          <span style={{ fontFamily: "monospace", color: "var(--text-dim)" }}>
+            {row.asset_class}
+          </span>
+          <span>
+            {row.last_fetched_result ? (
+              <Pill color={RESULT_COLORS[row.last_fetched_result] ?? "#6b7280"}>
+                {row.last_fetched_result}
+              </Pill>
+            ) : <Muted>—</Muted>}
+          </span>
+          <span style={{
+            fontFamily: "monospace", fontSize: 10,
+            color: "var(--text-dim)",
+          }}>
+            {row.last_fetched_provider ?? "—"}
+          </span>
+          <span style={{ fontFamily: "monospace", fontSize: 10 }}>
+            {row.coverage_start_date ?? "—"}
+          </span>
+          <span style={{ fontFamily: "monospace", fontSize: 10 }}>
+            {row.coverage_end_date ?? "—"}
+          </span>
+          <span style={{
+            color: row.missing_days_count > 0 ? "var(--down)" : "var(--text-dim)",
+            fontWeight: row.missing_days_count > 0 ? 600 : 400,
+          }}>
+            {row.missing_days_count}
+          </span>
+        </div>
+      ))}
+
+      <h5 style={{
+        margin: "16px 0 6px", fontSize: 10, fontWeight: 700,
+        color: "var(--text-dim)", letterSpacing: "0.05em",
+        textTransform: "uppercase",
+      }}>
+        Recent fetch events (showing last {events.length})
+      </h5>
+      {events.length === 0 && <Muted>No telemetry events yet.</Muted>}
+      {events.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "130px 80px 60px 70px 110px 110px 1fr",
+            gap: 8, alignItems: "center",
+            paddingBottom: 4, marginBottom: 4,
+            borderBottom: "1px solid var(--border)",
+            fontSize: 9, color: "var(--text-muted)",
+            textTransform: "uppercase", letterSpacing: "0.05em",
+          }}
+        >
+          <span>When</span>
+          <span>Symbol</span>
+          <span>Res</span>
+          <span>Latency</span>
+          <span>Result</span>
+          <span>Provider</span>
+          <span>Chain</span>
+        </div>
+      )}
+      {events.map((ev) => (
+        <div
+          key={ev.id}
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "130px 80px 60px 70px 110px 110px 1fr",
+            gap: 8, alignItems: "center",
+            padding: "5px 0",
+            borderTop: "1px solid var(--border)",
+            fontSize: 10,
+          }}
+        >
+          <span style={{ fontFamily: "monospace", color: "var(--text-dim)" }}>
+            {new Date(ev.occurred_at_utc).toLocaleString()}
+          </span>
+          <span style={{ fontFamily: "monospace", fontWeight: 600 }}>
+            {ev.canonical}
+          </span>
+          <span style={{ fontFamily: "monospace" }}>{ev.resolution}</span>
+          <span style={{ fontFamily: "monospace", textAlign: "right" }}>
+            {ev.latency_ms}ms
+          </span>
+          <span>
+            <Pill color={RESULT_COLORS[ev.result] ?? "#6b7280"}>
+              {ev.result}
+            </Pill>
+          </span>
+          <span style={{ fontFamily: "monospace", color: "var(--text-dim)" }}>
+            {ev.provider_used ?? "—"}
+          </span>
+          <span style={{ fontFamily: "monospace", color: "var(--text-muted)" }}>
+            {(ev.source_chain ?? []).join(" → ")}
+          </span>
+        </div>
+      ))}
+    </Subsection>
   );
 }
 

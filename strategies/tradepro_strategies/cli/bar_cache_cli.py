@@ -36,7 +36,10 @@ from pathlib import Path
 from tradepro_strategies.bar_cache import BarFetchError, BarStore
 from tradepro_strategies.bar_cache.asset_classes import UsEtfPlugin  # noqa: F401 — registers
 from tradepro_strategies.bar_cache.providers import YFinanceProvider  # noqa: F401 — registers
-from tradepro_strategies.bar_cache.telemetry import TelemetrySink
+from tradepro_strategies.bar_cache.telemetry import (
+    BackendTelemetrySink,
+    TelemetrySink,
+)
 
 
 _DEFAULT_BASE_DIR = Path.home() / ".tradepro" / "bar_cache"
@@ -67,6 +70,25 @@ def main() -> int:
                         help="Ignore cache; re-fetch every partition")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Per-partition decision log")
+    parser.add_argument(
+        "--api-base", default=None,
+        help=(
+            "Optional API base URL (e.g. http://localhost:5252). When "
+            "supplied, telemetry events also POST to "
+            "/api/admin/data-trust/bar-cache/events so the cockpit's "
+            "Bar cache activity panel sees them. JSONL fallback is "
+            "always written too. Without --api-base, telemetry is "
+            "JSONL-only — the cockpit will not see this run."
+        ),
+    )
+    parser.add_argument(
+        "--auth-token", default=None,
+        help=(
+            "Bearer token for the telemetry POST. Falls back to the "
+            "TRADEPRO_API_TOKEN env var. Required only when the API "
+            "demands auth (e.g. live deployments)."
+        ),
+    )
     args = parser.parse_args()
 
     if args.verbose:
@@ -82,10 +104,17 @@ def main() -> int:
     base_dir = Path(args.base_dir).expanduser()
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    store = BarStore(
-        base_dir=base_dir,
-        telemetry=TelemetrySink(base_dir=base_dir),
-    )
+    if args.api_base:
+        token = args.auth_token or os.environ.get("TRADEPRO_API_TOKEN")
+        telemetry: TelemetrySink = BackendTelemetrySink(
+            base_dir=base_dir,
+            api_base=args.api_base,
+            auth_token=token,
+        )
+    else:
+        telemetry = TelemetrySink(base_dir=base_dir)
+
+    store = BarStore(base_dir=base_dir, telemetry=telemetry)
 
     try:
         result = store.get(
