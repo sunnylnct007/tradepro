@@ -23,7 +23,10 @@ export function OrdersTable({
   allowApprove?: boolean;
 }) {
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+    // overflow-x so the (now wider, with Broker col) table scrolls within
+    // its card on narrow/half-width layouts instead of spilling past it.
+    <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 560 }}>
       <thead>
         <tr style={{ color: "var(--text-dim)" }}>
           <th style={TH}>Time</th>
@@ -50,6 +53,7 @@ export function OrdersTable({
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 

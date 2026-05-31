@@ -73,6 +73,30 @@ type Summary = {
   ccy: string;
 };
 
+/** Compact one-line activity status for the cockpit header (replaces the
+ * standalone TODAY card's signal line). E.g. "3 signals · 3 pending",
+ * "Strategies ran — no signals yet", "No activity today". */
+export function todayHeadline(
+  orders: OmsOrderRow[], positions: T212PosResp | null, latestSessions: LatestSession[],
+): string {
+  const s = buildSummary(orders, positions, latestSessions);
+  const signals = Math.max(s.firesToday, s.pendingToday);
+  if (signals > 0) {
+    const bits = [`${signals} signal${signals === 1 ? "" : "s"}`];
+    if (s.pendingToday > 0) bits.push(`${s.pendingToday} pending`);
+    if (s.fillsToday > 0) bits.push(`${s.fillsToday} filled`);
+    if (s.rejectsToday > 0) bits.push(`${s.rejectsToday} rejected`);
+    return bits.join(" · ");
+  }
+  if (s.fillsToday > 0 || s.rejectsToday > 0) {
+    const bits: string[] = [];
+    if (s.fillsToday > 0) bits.push(`${s.fillsToday} filled`);
+    if (s.rejectsToday > 0) bits.push(`${s.rejectsToday} rejected`);
+    return `No new signals · ${bits.join(" · ")}`;
+  }
+  return "Strategies ran — no signals yet today";
+}
+
 function buildSummary(
   orders: OmsOrderRow[],
   positions: T212PosResp | null,

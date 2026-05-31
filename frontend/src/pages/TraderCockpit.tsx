@@ -5,7 +5,7 @@ import { PlotlyChart } from "../components/PlotlyChart";
 import { TriggerPanel } from "../components/cockpit/TriggerPanel";
 import { TradeCardsPanel } from "../components/cockpit/TradeCardsPanel";
 import { ActivityList } from "../components/cockpit/ActivityList";
-import { TodayOutcome } from "../components/cockpit/TodayOutcome";
+import { todayHeadline } from "../components/cockpit/TodayOutcome";
 import { OrdersTable } from "../components/cockpit/OrdersTable";
 import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
 import { PositionChartsCard } from "../components/cockpit/PositionChartsCard";
@@ -254,8 +254,16 @@ export function TraderCockpit() {
   // trader (especially for PAPER-broker simulated fills that never
   // hit the broker but still show FILLED). Drill into /oms for full
   // history.
+  // Reconcile/manual bookkeeping (strategy-less + HUMAN-placed) — e.g.
+  // the synthetic fills "Sync OMS ← broker" writes. These are NOT trading
+  // activity, so they must not show as "trades executed" / "orders today".
+  const isReconcileLike = (o: OmsOrderRow) =>
+    !o.strategyId && o.placedBy === "HUMAN";
+  // Trading orders only — the feeds below are about strategy activity.
+  const tradingOrders = orders.filter((o) => !isReconcileLike(o));
+
   const recentTodayUtc = new Date().toISOString().slice(0, 10);
-  const recent = orders
+  const recent = tradingOrders
     .filter((o) =>
       (o.state === "FILLED" || o.state === "PARTIALLY_FILLED") &&
       o.lastStateChangeAtUtc.slice(0, 10) === recentTodayUtc,
@@ -425,6 +433,11 @@ export function TraderCockpit() {
       {/* ── Account selector strip ──────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22 }}>Trader cockpit</h1>
+        {/* Today's activity status inline with the title (was a separate
+            TODAY card). The P&L / carry-drag now live on the desks. */}
+        <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          {todayHeadline(orders, positions, latestSessions)}
+        </span>
         <div style={{ display: "flex", gap: 4 }}>
           {(["demo", "live"] as const).map((a) => (
             <button
@@ -476,12 +489,9 @@ export function TraderCockpit() {
           mis-routed orders). The Strategy-desks portfolio strip is the
           accurate, multi-broker summary now. */}
 
-      {/* ── Today's outcome — English summary of the day ─────────── */}
-      <TodayOutcome
-        orders={orders}
-        positions={positions}
-        latestSessions={latestSessions}
-      />
+      {/* TODAY card removed — its status line is now inline with the
+          title (todayHeadline) and its P&L / carry-drag live on the
+          Strategy desks. */}
 
       {/* ── Cockpit panels grid — 2-col on wide screens, full-width
            cards (charts, wide tables) opt in via fullWidth prop. ──── */}
@@ -659,7 +669,7 @@ export function TraderCockpit() {
         fullWidth
         onHide={() => widgets.hide("orders-by-broker")}
       >
-        <OrdersByBrokerPanel orders={orders} />
+        <OrdersByBrokerPanel orders={tradingOrders} />
       </CockpitCard>
       )}
 

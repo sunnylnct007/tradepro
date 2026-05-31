@@ -219,6 +219,31 @@ session). Needs IG epics for those names (interactive, operator).
   persists). Version the key / one-time reset to roll out the calm default.
 - Header: removed misleading red "T212 · LIVE" chip (algo trades DEMO);
   name + Sign out grouped; connectivity = top-bar traffic light.
+- **Architecture principle (standing):** build MODULAR + service-boundary-
+  aware. Production runs MULTIPLE services across DIFFERENT machines — do
+  NOT assume same-host (no hard-coded localhost; endpoints/queues config-
+  driven; clean Python-signals ↔ .NET-API ↔ Mac-worker ↔ future-services
+  boundaries; shared contracts via the API, not in-proc assumptions).
+- **TODAY card folded** into the header (status line `todayHeadline`
+  inline with the title) + the Strategy desks (P&L/carry-drag on desks).
+- **Reconcile bookkeeping orders** (strategy-less + HUMAN, from Sync OMS)
+  excluded from the trading feeds ("Orders today by broker" / "Trade
+  executed today") — they're not trades. OrdersTable wrapped in overflow-x
+  so it can't spill past its card.
+- **Symbol click → charts/simulations NOT plugged.** Initial impl was
+  reverted (the /symbol deep-dive crashed on a toFixed of a non-number).
+  Re-plug properly: either fix the deep-dive crash, or (preferred) an
+  INLINE chart/sim panel on click. Currently equity tickers are plain text.
+- **Friendly desk names.** Desks show the technical strategy id
+  (ichimoku_equity / ichimoku_fx_mr / intraday_flat). Want trader-friendly
+  display names (keep the id as the technical key). Proposed (confirm):
+  "US Equity Trend" · "G10 FX Fade" · "Intraday (EOD-flat)". Make it a
+  display-name map, id stays the key.
+- **Strategy catalog (/strategies) screen needs a redesign** — the
+  registered-strategies table (name + SCAFFOLD/TRADER/ALPHA tag + status +
+  symbol/date/lookback inputs + Run/backtest) is cramped/poorly laid out.
+  Rework into clean strategy cards grouped by status (trader/alpha vs
+  scaffold), with the run controls tidy.
 
 ### Parallel workstreams (other devs — don't clobber)
 - **Backtesting + simulation: order-book history from IG (other dev).** A
