@@ -343,6 +343,7 @@ public static class OmsEndpoints
             // once if it's genuinely empty.
             var actuals = new List<(string Symbol, decimal Qty, decimal? Avg)>();
             bool fetchEmpty = false;
+            var dbg = new Dictionary<string, object?>();
             if (broker is "T212_DEMO" or "T212_LIVE")
             {
                 async Task<TradePro.Api.Providers.Trading212.Trading212PositionsResult> Fetch() =>
@@ -353,8 +354,14 @@ public static class OmsEndpoints
                     await Task.Delay(1300, ct);
                     res = await Fetch();
                 }
+                dbg["brokerCount"] = res.Positions.Count;
+                dbg["fromCache"] = res.FromCache;
+                dbg["brokerError"] = res.Error;
+                dbg["httpStatus"] = res.HttpStatus;
+                dbg["ageSeconds"] = res.AgeSeconds;
+                dbg["sampleTickers"] = res.Positions.Take(3).Select(p => p.Ticker).ToArray();
                 if (res.Error is not null)
-                    return Results.Json(new { error = $"could not read T212 positions: {res.Error}" }, statusCode: 502);
+                    return Results.Json(new { error = $"could not read T212 positions: {res.Error}", debug = dbg }, statusCode: 502);
                 foreach (var p in res.Positions)
                     if (!string.IsNullOrWhiteSpace(p.Ticker)) actuals.Add((p.Ticker, p.Quantity, p.AveragePricePaid));
                 fetchEmpty = res.Positions.Count == 0;
@@ -390,6 +397,7 @@ public static class OmsEndpoints
                 {
                     error = "broker returned 0 positions but OMS has open positions — "
                           + "likely a rate-limited/failed read, not a flat account. Not syncing; retry in a few seconds.",
+                    debug = dbg,
                 }, statusCode: 409);
             static string Bare(string s)
             {
@@ -434,7 +442,8 @@ public static class OmsEndpoints
                 adjustments.Add(new { symbol, side = intent.Side, delta, targetQty, fromOmsQty = omsQty });
             }
 
-            return Results.Ok(new { broker, adjusted = adjustments.Count, adjustments });
+            dbg["omsCount"] = omsRows.Count;
+            return Results.Ok(new { broker, adjusted = adjustments.Count, adjustments, debug = dbg });
         });
 
         // Reconciliation: OMS-derived position vs T212 broker reality.
