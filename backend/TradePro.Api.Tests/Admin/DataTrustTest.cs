@@ -224,4 +224,133 @@ public sealed class DataTrustTest
         Assert.Equal(("L1_intraday_data_ceiling", "CRITICAL", "FICTIONAL"), rows[0]);
         Assert.Equal(("L2_slippage_fictional", "HIGH", "OPTIMISTIC"), rows[1]);
     }
+
+    // ── Phase B-2: bar_cache_events + bar_cache_health ───────────
+
+    [Fact]
+    public async Task Bar_cache_events_check_rejects_unknown_result()
+    {
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        var exc = await Assert.ThrowsAsync<Npgsql.PostgresException>(async () =>
+        {
+            await conn.ExecuteAsync(@"
+                INSERT INTO bar_cache_events (
+                    canonical, asset_class, resolution,
+                    range_start_utc, range_end_utc,
+                    result, schema_version
+                ) VALUES (
+                    'SPY', 'us_etf', '1m',
+                    '2024-12-23', '2024-12-24',
+                    'BOGUS_RESULT', 'us_equity_v1'
+                );");
+        });
+        Assert.Equal("23514", exc.SqlState); // check_violation
+    }
+
+    [Fact]
+    public async Task Bar_cache_events_check_accepts_all_known_results()
+    {
+        // Mirror migration 031 + DataTrustEndpoints validResults.
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        string[] results = {
+            "complete", "fetched_complete", "fetched_partial",
+            "manifest_violation", "provider_error",
+            "rate_limited", "no_provider",
+        };
+        foreach (var r in results)
+        {
+            await conn.ExecuteAsync(@"
+                INSERT INTO bar_cache_events (
+                    canonical, asset_class, resolution,
+                    range_start_utc, range_end_utc,
+                    result, schema_version
+                ) VALUES (
+                    @canonical, 'us_etf', '1m',
+                    '2024-12-23', '2024-12-24',
+                    @result, 'us_equity_v1'
+                );",
+                new { canonical = $"TEST_{r}", result = r });
+        }
+        var count = await conn.ExecuteScalarAsync<long>(@"
+            SELECT COUNT(*) FROM bar_cache_events
+            WHERE canonical LIKE 'TEST_%';");
+        Assert.Equal(results.Length, (int)count);
+    }
+
+    [Fact]
+    public async Task Bar_cache_events_filter_by_canonical_returns_matching_rows()
+    {
+        // Insert two rows for different symbols, query by one.
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        await conn.ExecuteAsync(@"
+            INSERT INTO bar_cache_events (
+                canonical, asset_class, resolution,
+                range_start_utc, range_end_utc,
+                result, schema_version, source_chain
+            ) VALUES
+                ('FILTERME', 'us_etf', '1m', '2024-12-23', '2024-12-24',
+                 'complete', 'us_equity_v1', ARRAY['cache_hit']),
+                ('OTHER',    'us_etf', '1m', '2024-12-23', '2024-12-24',
+                 'complete', 'us_equity_v1', ARRAY['cache_hit']);");
+
+        var rows = (await conn.QueryAsync<(string canonical, string result)>(@"
+            SELECT canonical, result FROM bar_cache_events
+            WHERE canonical = 'FILTERME'
+            ORDER BY occurred_at_utc DESC;")).AsList();
+        Assert.Single(rows);
+        Assert.Equal("FILTERME", rows[0].canonical);
+        Assert.Equal("complete", rows[0].result);
+    }
+
+    [Fact]
+    public async Task Bar_cache_health_upsert_in_place()
+    {
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        // INSERT
+        await conn.ExecuteAsync(@"
+            INSERT INTO bar_cache_health
+                (canonical, asset_class,
+                 last_fetched_at_utc, last_fetched_result, last_fetched_provider,
+                 last_fetched_resolution,
+                 coverage_start_date, coverage_end_date,
+                 coverage_partitions, missing_days_count,
+                 schema_version)
+            VALUES
+                ('SPY', 'us_etf', NOW(), 'complete', 'yfinance',
+                 '1m', '2024-01-01', '2024-12-31',
+                 12, 0, 'us_equity_v1')
+            ON CONFLICT (canonical, asset_class) DO UPDATE
+            SET last_fetched_result = EXCLUDED.last_fetched_result;");
+        var (result, missing) =
+            await conn.QuerySingleAsync<(string result, int missing)>(@"
+                SELECT last_fetched_result, missing_days_count
+                FROM bar_cache_health
+                WHERE canonical = 'SPY' AND asset_class = 'us_etf';");
+        Assert.Equal("complete", result);
+        Assert.Equal(0, missing);
+
+        // UPSERT to fetched_partial with missing days
+        await conn.ExecuteAsync(@"
+            INSERT INTO bar_cache_health
+                (canonical, asset_class,
+                 last_fetched_at_utc, last_fetched_result, last_fetched_provider,
+                 last_fetched_resolution,
+                 coverage_start_date, coverage_end_date,
+                 coverage_partitions, missing_days_count,
+                 schema_version)
+            VALUES
+                ('SPY', 'us_etf', NOW(), 'fetched_partial', 'yfinance',
+                 '1m', '2024-01-01', '2024-12-31',
+                 12, 5, 'us_equity_v1')
+            ON CONFLICT (canonical, asset_class) DO UPDATE
+            SET last_fetched_result = EXCLUDED.last_fetched_result,
+                missing_days_count  = EXCLUDED.missing_days_count;");
+        var (result2, missing2) =
+            await conn.QuerySingleAsync<(string result, int missing)>(@"
+                SELECT last_fetched_result, missing_days_count
+                FROM bar_cache_health
+                WHERE canonical = 'SPY' AND asset_class = 'us_etf';");
+        Assert.Equal("fetched_partial", result2);
+        Assert.Equal(5, missing2);
+    }
 }

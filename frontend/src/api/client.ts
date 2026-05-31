@@ -887,6 +887,71 @@ export const api = {
     // don't throw, return it so the UI can render the message.
     return resp.json();
   },
+
+  // Phase B-2: bar-cache observability. The Python BarStore POSTs
+  // a telemetry event per fetch to /events; per-symbol health is
+  // an incrementally-updated snapshot on /health. The cockpit panel
+  // calls these to surface "what is the cache doing right now".
+  barCacheEvents: (params?: {
+    canonical?: string;
+    assetClass?: string;
+    result?: string;
+    limit?: number;
+  }) => {
+    const qp: Record<string, string | number | undefined> = {};
+    if (params?.canonical) qp.canonical = params.canonical;
+    if (params?.assetClass) qp.asset_class = params.assetClass;
+    if (params?.result) qp.result = params.result;
+    if (params?.limit !== undefined) qp.limit = params.limit;
+    return get<{
+      events: Array<{
+        id: number;
+        occurred_at_utc: string;
+        canonical: string;
+        asset_class: string;
+        resolution: string;
+        range_start_utc: string;
+        range_end_utc: string;
+        result: string;
+        source_chain: string[];
+        provider_used: string | null;
+        provider_versions_text: string;
+        rows_expected: number | null;
+        rows_returned: number | null;
+        gaps_detected_count: number;
+        schema_version: string;
+        latency_ms: number;
+        error_class: string | null;
+        error_provider: string | null;
+        error_message: string | null;
+        retry_strategy: string | null;
+      }>;
+    }>("/api/admin/data-trust/bar-cache/events", qp);
+  },
+  barCacheHealth: (params?: { canonical?: string; assetClass?: string }) => {
+    const qp: Record<string, string | undefined> = {};
+    if (params?.canonical) qp.canonical = params.canonical;
+    if (params?.assetClass) qp.asset_class = params.assetClass;
+    return get<{
+      health: Array<{
+        canonical: string;
+        asset_class: string;
+        last_fetched_at_utc: string | null;
+        last_fetched_result: string | null;
+        last_fetched_provider: string | null;
+        last_fetched_resolution: string | null;
+        coverage_start_date: string | null;
+        coverage_end_date: string | null;
+        coverage_partitions: number;
+        missing_days_count: number;
+        schema_version: string | null;
+        manifest_violations_last_30d: number;
+        last_corp_action_at_utc: string | null;
+        last_corp_action_type: string | null;
+        updated_at_utc: string;
+      }>;
+    }>("/api/admin/data-trust/bar-cache/health", qp);
+  },
 };
 
 // Shape of the artifact emitted by strategies/cli/equity_pipeline.py

@@ -96,3 +96,26 @@ Feature: Trustworthy bar cache (Phase B-1)
     When I get SPY us_etf 1m bars for full December 2024
     Then no .tmp file exists under the cache directory
     And the parquet and manifest files exist for partition 2024-12
+
+  # ──────────────────────────────────────────────────────────────────
+  # Section 5: BackendTelemetrySink (Phase B-2)
+  # ──────────────────────────────────────────────────────────────────
+  # BackendTelemetrySink POSTs every event to the backend endpoint
+  # AND appends to the local JSONL. Both are best-effort — a fetch
+  # never fails because telemetry failed.
+
+  Scenario: BackendTelemetrySink POSTs an event on each fetch
+    Given a provider "yfinance" returning a full December 2024 month
+    And a BackendTelemetrySink with a recording HTTP poster
+    When I get SPY us_etf 1m bars for full December 2024 via the backend sink
+    Then the HTTP poster received at least 1 request
+    And the POST URL ends with "/api/admin/data-trust/bar-cache/events"
+    And the POST body's canonical is "SPY"
+    And the JSONL fallback file exists
+
+  Scenario: BackendTelemetrySink swallows a failed POST and keeps fetching
+    Given a provider "yfinance" returning a full December 2024 month
+    And a BackendTelemetrySink whose HTTP poster raises an exception
+    When I get SPY us_etf 1m bars for full December 2024 via the backend sink
+    Then the BarFrame coverage_complete is True
+    And the JSONL fallback file exists

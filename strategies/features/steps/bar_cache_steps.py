@@ -445,3 +445,100 @@ def step_pq_and_mf_exist(context, p):
     pq = context.cache_base / "us_etf" / "SPY" / "1m" / f"{p}.parquet"
     mf = context.cache_base / "us_etf" / "SPY" / "1m" / f"{p}.manifest.json"
     assert pq.exists() and mf.exists(), (pq, mf)
+
+
+# ─── Section 5: BackendTelemetrySink (Phase B-2) ──────────────────
+
+
+class _RecordingHttpPoster:
+    """Minimal stand-in for requests.post — records URL + json body
+    and returns a fake-ok response. Used to verify POST shape without
+    hitting the network."""
+
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+
+    def __call__(self, url, json=None, headers=None, timeout=None):
+        self.requests.append({"url": url, "json": json, "headers": headers})
+
+        class _OkResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+        return _OkResponse()
+
+
+class _FailingHttpPoster:
+    """Raises on every call — simulates a backend that's down. The
+    sink must swallow the exception and keep the fetch alive."""
+
+    def __call__(self, url, json=None, headers=None, timeout=None):
+        raise RuntimeError("synthetic backend outage")
+
+
+@given("a BackendTelemetrySink with a recording HTTP poster")
+def step_recording_backend_sink(context) -> None:
+    from tradepro_strategies.bar_cache.telemetry import BackendTelemetrySink
+    context._poster = _RecordingHttpPoster()
+    context.telemetry = BackendTelemetrySink(
+        base_dir=context.cache_base,
+        api_base="http://localhost:5252",
+        _http_post=context._poster,
+    )
+
+
+@given("a BackendTelemetrySink whose HTTP poster raises an exception")
+def step_failing_backend_sink(context) -> None:
+    from tradepro_strategies.bar_cache.telemetry import BackendTelemetrySink
+    context._poster = _FailingHttpPoster()
+    context.telemetry = BackendTelemetrySink(
+        base_dir=context.cache_base,
+        api_base="http://localhost:5252",
+        _http_post=context._poster,
+    )
+
+
+@when("I get SPY us_etf 1m bars for full December 2024 via the backend sink")
+def step_get_via_backend_sink(context) -> None:
+    # The given that set up context.telemetry has already configured
+    # the sink; just run the fetch.
+    store = _make_store(context)
+    context.result = store.get(
+        canonical="SPY", asset_class="us_etf", resolution="1m",
+        start=_START_DEC, end=_END_DEC,
+    )
+
+
+@then("the HTTP poster received at least {n:d} request")
+@then("the HTTP poster received at least {n:d} requests")
+def step_poster_count(context, n: int) -> None:
+    assert len(context._poster.requests) >= n, (
+        f"poster has {len(context._poster.requests)} requests, expected >= {n}"
+    )
+
+
+@then('the POST URL ends with "{suffix}"')
+def step_post_url_ends_with(context, suffix: str) -> None:
+    url = context._poster.requests[-1]["url"]
+    assert url.endswith(suffix), f"URL {url!r} does not end with {suffix!r}"
+
+
+@then('the POST body\'s canonical is "{name}"')
+def step_post_canonical(context, name: str) -> None:
+    body = context._poster.requests[-1]["json"]
+    assert body["canonical"] == name, body["canonical"]
+
+
+@then("the JSONL fallback file exists")
+def step_jsonl_exists(context) -> None:
+    files = list((context.cache_base / "events").glob("*.jsonl"))
+    assert files, "no JSONL files in events/"
+
+
+@then("the BarFrame coverage_complete is True")
+def step_coverage_true(context) -> None:
+    assert context.result is not None
+    assert context.result.coverage_complete is True, (
+        context.result.coverage_complete
+    )
