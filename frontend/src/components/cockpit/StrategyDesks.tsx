@@ -21,6 +21,7 @@ import { CockpitCard } from "../CockpitCard";
 import { api } from "../../api/client";
 import type { T212PosResp } from "../../types/cockpit";
 import { bareSymbol, prettySymbol, productOf } from "../../util/brokerSymbols";
+import { deskFor } from "../../util/strategyMeta";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
 type OmsPositions = Awaited<ReturnType<typeof api.omsPositions>>;
@@ -157,7 +158,9 @@ function DeskCard({ x, expanded, onToggle, omsNet }: {
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", background: "rgba(0,0,0,0.10)" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
         <strong style={{ fontSize: 13, color: "var(--text)" }}>{d.label}</strong>
-        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{d.broker} · {d.assetClass}</span>
+        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+          {deskFor(d.id).trader} · {d.broker} · {d.assetClass}
+        </span>
         <span style={{ marginLeft: "auto", fontSize: 9, color: open ? UP : "var(--text-muted)", fontWeight: 700 }}>
           {connected ? (open ? "● live" : "○ closed") : "— off"}
         </span>

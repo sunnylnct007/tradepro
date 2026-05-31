@@ -252,6 +252,56 @@ session). Needs IG epics for those names (interactive, operator).
   in the catalog redesign, surface per-strategy status toggle + a LINK to
   the Settings mapping (or inline it) so it's discoverable in one place.
 
+## Strategy = signal generator, trader-owned, with execution mode (2026-05-31) — SHIPPED (catalog) + model locked
+
+Operator reframed the whole strategy surface. Locked model:
+
+- **Strategy ≠ technical indicator.** A *strategy* generates trading
+  *signals* (visible in signal-generation traces); it may lean on
+  indicators internally, but the indicator is NOT the strategy. *Technical
+  indicators* (Ichimoku cloud, Bollinger, VWAP, MA-X, ORB, COMPASS) are
+  analytical primitives that surfaces like **Decide (Compare)** use to show
+  trend. The catalog lists signal generators only; indicators are shown as
+  "uses …" sub-labels + linked to Decide. Do NOT add raw indicators as
+  catalog entries.
+- **Trader owns one-or-more strategies.** Ownership is 1-trader→N-strategies.
+  Desk personas (editable in `frontend/src/util/strategyMeta.ts`, the single
+  source of truth): **Trend Desk** (ichimoku_equity, ma_crossover,
+  compass_momentum) · **Mean-Reversion Desk** (ichimoku_fx_mr,
+  vwap_mean_reversion, bollinger_bounce) · **Intraday Desk** (intraday_flat,
+  orb) · **Options Desk** (signal-only spreads). Both the catalog and the
+  cockpit desks read trader names from this map.
+- **Execution mode = LIVE vs SIGNAL-ONLY**, derived from the
+  strategy→broker map (no new backend — `PAPER` was already first-class):
+  - LIVE = mapped to a real broker (`T212_*`/`IG_*`/`IBKR_*`); approved
+    orders route there. Only ichimoku_equity, ichimoku_fx_mr, intraday_flat
+    are plugged (their `liveBroker` is set in strategyMeta).
+  - SIGNAL-ONLY = mapped to `PAPER` (or unmapped). The strategy still
+    generates + records signals in OMS for evaluation, but
+    `PostgresOmsService` skips real placement ("PAPER fills via the engine's
+    PaperOrderRouter") — confirmed at OmsTypes.cs / PostgresOmsService.cs:281.
+    This is how we shadow-evaluate a signal before trusting it with money,
+    and the default home for the **options** work (signal-only by design).
+  - Catalog has a one-click toggle per strategy → `updateStrategyBrokerMap`
+    (LIVE writes the desk's `liveBroker`, SIGNAL-ONLY writes `PAPER`). A
+    strategy that's "live via the global default" (unmapped but the default
+    broker is real) is flagged `via default ⚠` so it can't quietly route.
+- **Shipped:** `frontend/src/util/strategyMeta.ts` (desks + per-strategy
+  meta + execution helpers) and the redesigned `/strategies` catalog
+  (grouped by desk, execution pill + toggle, kept lifecycle promote/reset +
+  ad-hoc runner + sessions queue). Cockpit `StrategyDesks` shows the owning
+  trader on each card. The old SCAFFOLD/TRADER/ALPHA source-badge layout is
+  replaced by the desk grouping.
+- **Follow-ups (not yet done):**
+  - Cockpit desks still hardcode the 3 broker-plugged strategies; extend to
+    surface signal-only desks (options + shadow-evaluated equities) with
+    their recorded PAPER signals, grouped by trader.
+  - Pre-market staging + the "config to send presignal to broker later"
+    layer plugs into the same execution-mode switch.
+  - Trader/desk ownership is frontend-only metadata today; promote to a
+    backend table if multi-user ownership / per-desk capital ever needs to
+    be authoritative.
+
 ### Parallel workstreams (other devs — don't clobber)
 - **Backtesting + simulation: order-book history from IG (other dev).** A
   separate dev is sourcing **order-book data from IG** to build a proper
