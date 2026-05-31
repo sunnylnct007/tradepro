@@ -2719,6 +2719,380 @@ def _err(tool: str, message: str, **fields: Any) -> dict:
     }
 
 
+# ───────────────────────────────────────────────────────────────────────
+# Bar cache tools (Phase B-4 MCP surface)
+#
+# Expose the trustworthy data layer's read paths to AI agents. The
+# write path (BarStore.get) is intentionally NOT exposed via MCP — bar
+# fetches can be expensive (multi-MB HTTP roundtrips, rate-limit risk)
+# and an AI agent triggering them in a tight loop would be its own
+# class of operational hazard. Read paths (health, events, what's
+# configured) are safe by construction and the LLM can use them to
+# answer "is the data layer healthy?" without side effects.
+#
+# When Phase C ships the data-worker queue, an MCP enqueue_backfill
+# tool would be the right shape for AI-driven backfill — kicking the
+# queue, not the fetch itself. That's deferred to its own PR.
+# ───────────────────────────────────────────────────────────────────────
+
+
+def bar_cache_health(
+    canonical: str | None = None,
+    asset_class: str | None = None,
+) -> dict:
+    """Per-symbol snapshot from bar_cache_health (Phase B-1).
+    Empty rows array when nothing has been fetched yet."""
+    try:
+        params: dict[str, str] = {}
+        if canonical:
+            params["canonical"] = canonical
+        if asset_class:
+            params["asset_class"] = asset_class
+        body = _get("/api/admin/data-trust/bar-cache/health", params=params)
+        rows = body.get("health") or []
+        return {
+            "_source": (
+                f"tradepro://bar-cache/health"
+                + (f"/{canonical}" if canonical else "")
+            ),
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "filter": {"canonical": canonical, "asset_class": asset_class},
+            "count": len(rows),
+            "rows": rows,
+        }
+    except ApiUnreachable as e:
+        return _unreachable_envelope(
+            "bar_cache_health", e,
+            canonical=canonical, asset_class=asset_class,
+        )
+    except Exception as e:  # noqa: BLE001
+        return _err("bar_cache_health", str(e),
+                    canonical=canonical, asset_class=asset_class)
+
+
+def bar_cache_events(
+    canonical: str | None = None,
+    asset_class: str | None = None,
+    result: str | None = None,
+    limit: int = 50,
+) -> dict:
+    """Recent fetch telemetry from bar_cache_events. Use this to
+    answer "did SPY data refresh today?" or "are we seeing rate
+    limits from yfinance?".
+
+    ``result`` filter accepts any of: complete, fetched_complete,
+    fetched_partial, manifest_violation, provider_error, rate_limited,
+    no_provider.
+
+    ``limit`` caps at 1000 server-side; default 50 keeps the LLM
+    context bounded for the common case."""
+    try:
+        params: dict[str, str | int] = {"limit": max(1, min(int(limit), 1000))}
+        if canonical:
+            params["canonical"] = canonical
+        if asset_class:
+            params["asset_class"] = asset_class
+        if result:
+            params["result"] = result
+        body = _get("/api/admin/data-trust/bar-cache/events", params=params)
+        rows = body.get("events") or []
+        return {
+            "_source": (
+                f"tradepro://bar-cache/events"
+                + (f"/{canonical}" if canonical else "")
+            ),
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "filter": {
+                "canonical": canonical,
+                "asset_class": asset_class,
+                "result": result,
+                "limit": params["limit"],
+            },
+            "count": len(rows),
+            "events": rows,
+        }
+    except ApiUnreachable as e:
+        return _unreachable_envelope(
+            "bar_cache_events", e,
+            canonical=canonical, asset_class=asset_class, result=result,
+        )
+    except Exception as e:  # noqa: BLE001
+        return _err("bar_cache_events", str(e),
+                    canonical=canonical, asset_class=asset_class)
+
+
+def bar_cache_provider_preferences(
+    asset_class: str | None = None,
+    resolution: str | None = None,
+) -> dict:
+    """Current data_source_preferences table — the provider chain per
+    (asset_class, resolution) the Phase B-3 BarStore consults on every
+    fetch. Without filter args, returns the whole table. Filter args
+    do post-fetch narrowing (the underlying endpoint returns all rows;
+    we filter client-side to keep the MCP shape friendly).
+
+    Includes ``valid_providers`` so an LLM can validate a proposed
+    chain edit before suggesting it."""
+    try:
+        body = _get("/api/admin/data-trust/preferences")
+        all_rows = body.get("preferences") or []
+        if asset_class or resolution:
+            rows = [
+                r for r in all_rows
+                if (not asset_class or r.get("asset_class") == asset_class)
+                and (not resolution or r.get("resolution") == resolution)
+            ]
+        else:
+            rows = all_rows
+        return {
+            "_source": "tradepro://bar-cache/provider_preferences",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "filter": {"asset_class": asset_class, "resolution": resolution},
+            "valid_providers": body.get("validProviders") or [],
+            "count": len(rows),
+            "preferences": rows,
+        }
+    except ApiUnreachable as e:
+        return _unreachable_envelope(
+            "bar_cache_provider_preferences", e,
+            asset_class=asset_class, resolution=resolution,
+        )
+    except Exception as e:  # noqa: BLE001
+        return _err(
+            "bar_cache_provider_preferences", str(e),
+            asset_class=asset_class, resolution=resolution,
+        )
+
+
+def bar_cache_list_asset_classes() -> dict:
+    """Asset-class plugins the local Python process has registered.
+    Today: us_etf. Phase B-4 adds us_equity + fx_spot. Adding a new
+    asset class is a single-file plugin — see
+    ``strategies/tradepro_strategies/bar_cache/asset_classes/``."""
+    try:
+        from tradepro_strategies.bar_cache.asset_class import (
+            get_asset_class,
+            list_asset_classes,
+        )
+        # Ensure built-ins are imported (their side-effect registers).
+        from tradepro_strategies.bar_cache import asset_classes  # noqa: F401
+
+        names = list_asset_classes()
+        rows = []
+        for name in names:
+            plugin = get_asset_class(name)
+            rows.append({
+                "name": plugin.name,
+                "display_name": plugin.display_name,
+                "schema_version": plugin.schema.schema_version,
+                "supported_resolutions": list(plugin.supported_resolutions()),
+                "column_order": list(plugin.schema.column_order),
+                "required_columns": sorted(plugin.schema.required_columns),
+            })
+        return {
+            "_source": "tradepro://bar-cache/asset_classes",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "count": len(rows),
+            "asset_classes": rows,
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("bar_cache_list_asset_classes", str(e))
+
+
+def bar_cache_list_providers() -> dict:
+    """Provider plugins the local Python process has registered with
+    BarStore. Today: yfinance. Phase B-4 adds ig (via /prices) and
+    finnhub. The list is per-process — operator changes to the
+    preferences table reference providers by name."""
+    try:
+        from tradepro_strategies.bar_cache.providers import (
+            list_providers,
+            get_provider,
+            register_provider,
+        )
+        # Trigger registration side-effects of built-in providers.
+        from tradepro_strategies.bar_cache import providers  # noqa: F401
+
+        names = list_providers()
+        # Defensive: if a prior test cleared the registry (or a fresh
+        # process imported the package indirectly), re-register the
+        # built-in YFinanceProvider so list_providers reflects what
+        # the BarStore would actually use.
+        if not names:
+            from tradepro_strategies.bar_cache.providers.yfinance_provider \
+                import YFinanceProvider
+            register_provider(YFinanceProvider())
+            names = list_providers()
+        rows = []
+        for name in names:
+            try:
+                p = get_provider(name)
+                # Probe documented resolutions for max_history. This is
+                # cheap (returns timedelta or None); helps the LLM
+                # explain depth ceilings.
+                resolutions = []
+                for r in ("1m", "5m", "15m", "30m", "1h", "1d"):
+                    try:
+                        if p.supports_resolution(r):
+                            md = p.max_history(r)
+                            resolutions.append({
+                                "resolution": r,
+                                "max_history_days": (
+                                    md.days if md is not None else None
+                                ),
+                            })
+                    except Exception:  # noqa: BLE001
+                        pass
+                rows.append({
+                    "name": p.name,
+                    "resolutions": resolutions,
+                })
+            except Exception:  # noqa: BLE001
+                rows.append({"name": name, "resolutions": []})
+        return {
+            "_source": "tradepro://bar-cache/providers",
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "count": len(rows),
+            "providers": rows,
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err("bar_cache_list_providers", str(e))
+
+
+def bar_cache_get_bars(
+    canonical: str,
+    asset_class: str,
+    resolution: str,
+    from_date: str,
+    to_date: str | None = None,
+    allow_partial: bool = False,
+    summary_only: bool = True,
+) -> dict:
+    """Fetch bars through the trustworthy cache. Returns a summary by
+    default (rows count, coverage, partitions, provider used); set
+    ``summary_only=False`` to also include up to the first + last 5
+    rows as samples (most LLM contexts don't want the full frame).
+
+    ``from_date`` / ``to_date`` are YYYY-MM-DD; ``to_date`` defaults
+    to today. ``allow_partial=True`` opts into partial reads — by
+    default a coverage gap raises a structured error (the
+    trustworthy-data contract). The full BarFrame stays on disk; the
+    cockpit's Bar cache activity panel shows the fetch event.
+
+    Use this when the user asks "is SPY's data available for 2024?".
+    Repeated calls hit the cache — second invocation in the same
+    request typically completes in tens of ms."""
+    try:
+        from datetime import date, datetime as _dt, timezone as _tz
+        from pathlib import Path
+        from tradepro_strategies.bar_cache import BarFetchError, BarStore
+        from tradepro_strategies.bar_cache.asset_classes import (  # noqa: F401
+            UsEtfPlugin,
+        )
+        from tradepro_strategies.bar_cache.providers import (  # noqa: F401
+            YFinanceProvider,
+        )
+        from tradepro_strategies.bar_cache.telemetry import TelemetrySink
+
+        def _parse(s: str) -> _dt:
+            return _dt.strptime(s, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+
+        start = _parse(from_date)
+        end = (
+            _parse(to_date) if to_date
+            else _dt.now(_tz.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0,
+            )
+        )
+
+        base_dir = Path.home() / ".tradepro" / "bar_cache"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        store = BarStore(
+            base_dir=base_dir,
+            telemetry=TelemetrySink(base_dir=base_dir),
+        )
+
+        try:
+            frame = store.get(
+                canonical=canonical,
+                asset_class=asset_class,
+                resolution=resolution,
+                start=start,
+                end=end,
+                allow_partial=allow_partial,
+                fetched_by="mcp",
+            )
+        except BarFetchError as exc:
+            return {
+                "_source": (
+                    f"tradepro://bar-cache/bars/{canonical}/{asset_class}/"
+                    f"{resolution}/{from_date}_{to_date or 'today'}"
+                ),
+                "fetched_at": _now_iso(),
+                "ok": False,
+                "error_class": exc.error_class,
+                "retry_strategy": exc.retry_strategy,
+                "error": str(exc),
+                "expected": exc.expected,
+                "actual": exc.actual,
+                "remediation": (
+                    "Set allow_partial=True to accept the gap, or "
+                    "use bar_cache_events to see what the provider "
+                    "returned. CURRENT_BACKTEST_LIMITATIONS.md §L1 "
+                    "covers the 1m 7-day ceiling on yfinance."
+                ),
+            }
+
+        result: dict[str, Any] = {
+            "_source": (
+                f"tradepro://bar-cache/bars/{canonical}/{asset_class}/"
+                f"{resolution}/{from_date}_{to_date or 'today'}"
+            ),
+            "fetched_at": _now_iso(),
+            "ok": True,
+            "request": {
+                "canonical": canonical,
+                "asset_class": asset_class,
+                "resolution": resolution,
+                "from": from_date,
+                "to": to_date or end.date().isoformat(),
+            },
+            "summary": {
+                "rows_returned": frame.rows_returned,
+                "rows_expected": frame.rows_expected,
+                "coverage_complete": frame.coverage_complete,
+                "partitions_used": frame.partitions_used,
+                "provider_chain_tried": frame.provider_chain_tried,
+                "provider_used": frame.provider_used,
+                "schema_version": frame.schema_version,
+                "fetched_at_utc": frame.fetched_at_utc,
+            },
+        }
+        if not summary_only and not frame.df.empty:
+            head = frame.df.head(5).reset_index().to_dict(orient="records")
+            tail = frame.df.tail(5).reset_index().to_dict(orient="records")
+            result["sample"] = {
+                "first_5": [
+                    {k: str(v) for k, v in row.items()} for row in head
+                ],
+                "last_5": [
+                    {k: str(v) for k, v in row.items()} for row in tail
+                ],
+            }
+        return result
+    except Exception as e:  # noqa: BLE001
+        return _err(
+            "bar_cache_get_bars", str(e),
+            canonical=canonical, asset_class=asset_class,
+            resolution=resolution,
+        )
+
+
 def serialize(obj: Any) -> str:
     """Strict JSON serialisation that the FastMCP layer can hand back
     to the LLM. Handles dataclasses + datetime defensively."""

@@ -316,6 +316,140 @@ def build_server():
         runs once on the Mac."""
         return _json(t.list_paper_strategies())
 
+    # ---- Bar cache (Phase B-1/B-2/B-3 trustworthy data layer) ----------
+    # Read-side surface only; the write path (BarStore.get) is exposed
+    # via bar_cache_get_bars but rate-limited by the cache itself
+    # (second call hits cache). No backfill tool yet — that lands when
+    # Phase C ships the data-worker queue and the right shape is
+    # enqueue_backfill, not direct trigger.
+
+    @mcp.tool()
+    @instrumented("bar_cache_health")
+    def bar_cache_health(
+        canonical: str | None = None,
+        asset_class: str | None = None,
+    ) -> str:
+        """Per-symbol coverage snapshot from the trustworthy bar
+        cache: last fetch result, last provider, coverage start/end
+        dates, missing days count. Optional filters narrow to one
+        symbol or asset class.
+
+        Use this when the user asks "is SPY's data healthy?" or
+        "what symbols do we have cached?". Returns count=0 when
+        nothing has been fetched yet — that's the empty cache, not
+        an error. Cite as `tradepro://bar-cache/health[/<canonical>]`."""
+        return _json(t.bar_cache_health(canonical, asset_class))
+
+    @mcp.tool()
+    @instrumented("bar_cache_events")
+    def bar_cache_events(
+        canonical: str | None = None,
+        asset_class: str | None = None,
+        result: str | None = None,
+        limit: int = 50,
+    ) -> str:
+        """Recent fetch telemetry from the bar cache. One row per
+        BarStore.get() call: provider chain tried, result (complete /
+        fetched_partial / rate_limited / etc.), latency, error class.
+
+        Use this to answer "did SPY refresh today?", "are we seeing
+        rate limits from yfinance?", or to investigate why a fetch
+        returned partial data. Filter by result to find specific
+        failure modes (e.g. result='rate_limited' surfaces every
+        429 the cache absorbed).
+
+        Cite individual events as
+        `tradepro://bar-cache/events/<canonical>/<id>`."""
+        return _json(t.bar_cache_events(canonical, asset_class, result, limit))
+
+    @mcp.tool()
+    @instrumented("bar_cache_provider_preferences")
+    def bar_cache_provider_preferences(
+        asset_class: str | None = None,
+        resolution: str | None = None,
+    ) -> str:
+        """Provider chain configured per (asset_class, resolution).
+        This is what BarStore consults on every fetch — editing this
+        in the Settings UI changes routing on the next call within
+        ~60s. Includes the backend's `valid_providers` allow-list so
+        you can validate a chain edit before suggesting it.
+
+        Use this when the user asks "what providers are wired in?"
+        or wants to know why yfinance is being tried before IG.
+        Cite as `tradepro://bar-cache/provider_preferences`."""
+        return _json(t.bar_cache_provider_preferences(asset_class, resolution))
+
+    @mcp.tool()
+    @instrumented("bar_cache_list_asset_classes")
+    def bar_cache_list_asset_classes() -> str:
+        """Asset-class plugins registered in the local Python process.
+        Each plugin declares its schema (column set + version),
+        supported resolutions, and integrity rules. Today: us_etf
+        only (Phase B-4 adds us_equity + fx_spot).
+
+        Use this when the user asks "what can the cache hold?" or
+        you need to validate `asset_class` before calling
+        bar_cache_get_bars. Cite as
+        `tradepro://bar-cache/asset_classes`."""
+        return _json(t.bar_cache_list_asset_classes())
+
+    @mcp.tool()
+    @instrumented("bar_cache_list_providers")
+    def bar_cache_list_providers() -> str:
+        """Provider plugins registered in the local Python process —
+        the set of names that can appear in a chain in the preferences
+        table. Each row includes the documented max history per
+        resolution (e.g. yfinance 1m → 7 days, 1h → 730 days, daily →
+        unlimited). Use this to explain "why doesn't the chain editor
+        list IG?" or to verify a chain edit only references registered
+        providers.
+
+        Cite as `tradepro://bar-cache/providers`."""
+        return _json(t.bar_cache_list_providers())
+
+    @mcp.tool()
+    @instrumented("bar_cache_get_bars")
+    def bar_cache_get_bars(
+        canonical: str,
+        asset_class: str,
+        resolution: str,
+        from_date: str,
+        to_date: str | None = None,
+        allow_partial: bool = False,
+        summary_only: bool = True,
+    ) -> str:
+        """Fetch bars through the trustworthy cache.
+
+        Returns a SUMMARY by default (rows count, coverage_complete,
+        provider chain tried, partitions used). Pass
+        ``summary_only=False`` to also include first-5 + last-5 rows
+        as samples — most analysis questions don't need the full
+        frame back through the LLM.
+
+        ``from_date`` / ``to_date`` are YYYY-MM-DD; ``to_date``
+        defaults to today (UTC).
+
+        DEFAULT IS FAIL-LOUD: a coverage gap raises a structured
+        error with error_class + retry_strategy + remediation.
+        Set ``allow_partial=True`` to opt into partial reads (the
+        BarFrame.coverage_complete flag tells you what you got).
+
+        First call may hit a provider (HTTP + atomic write); second
+        call within the cache is a pure cache hit (typically tens of
+        ms). Telemetry lands in bar_cache_events on every call so
+        the cockpit can see what the LLM asked for. Cite as
+        `tradepro://bar-cache/bars/<canonical>/<asset_class>/`
+        `<resolution>/<from>_<to>`."""
+        return _json(t.bar_cache_get_bars(
+            canonical=canonical,
+            asset_class=asset_class,
+            resolution=resolution,
+            from_date=from_date,
+            to_date=to_date,
+            allow_partial=allow_partial,
+            summary_only=summary_only,
+        ))
+
     # ---- Track-record validation: hitrate, scan, evaluate one signal ----
 
     @mcp.tool()
