@@ -425,7 +425,22 @@ public static class OmsEndpoints
                 }
                 return u.Contains('_') ? u.Split('_')[0] : u;
             }
-            var omsByBare = omsRows.GroupBy(p => Bare(p.Symbol)).ToDictionary(g => g.Key, g => g.First());
+            // SUM across buckets per bare symbol — NOT .First(). OMS
+            // positions are reported per (symbol, strategy): a symbol can
+            // have a strategy bucket (e.g. ichimoku_equity +1.31) AND a
+            // null reconcile bucket simultaneously. Taking .First() saw only
+            // one, so the offsetting fill never cancelled the true net and
+            // repeated syncs DIVERGED (the null bucket accumulated junk).
+            // Summing makes the delta the real net, so the sync is
+            // idempotent — it converges to the broker's number and stops.
+            // This matters: demo reset → flatten is a FREQUENT operation
+            // (it won't happen in prod), so it must be safely repeatable.
+            var omsByBare = omsRows
+                .GroupBy(p => Bare(p.Symbol))
+                .ToDictionary(g => g.Key, g => (
+                    Qty: g.Sum(p => p.Quantity),
+                    Symbol: g.First().Symbol,
+                    AvgPrice: g.First().AvgPrice));
             var actualByBare = actuals.GroupBy(a => Bare(a.Symbol)).ToDictionary(g => g.Key, g => g.First());
 
             // 3. For every symbol in either set, write the adjustment to
@@ -434,16 +449,17 @@ public static class OmsEndpoints
             foreach (var bare in omsByBare.Keys.Union(actualByBare.Keys))
             {
                 var hasActual = actualByBare.TryGetValue(bare, out var act);
-                var omsQty = omsByBare.TryGetValue(bare, out var omsP) ? omsP.Quantity : 0m;
+                var hasOms = omsByBare.TryGetValue(bare, out var omsP);
+                var omsQty = hasOms ? omsP.Qty : 0m;
                 var targetQty = hasActual ? act.Qty : 0m;
                 var delta = targetQty - omsQty;
                 if (Math.Abs(delta) < 0.0001m) continue;
-                var symbol = hasActual ? act.Symbol : omsP!.Symbol;
+                var symbol = hasActual ? act.Symbol : omsP.Symbol;
                 // Skip rows with no usable symbol (e.g. a T212 cash/pie
                 // entry with a null ticker) — they can't be a real
                 // position and a null Symbol violates oms_orders NOT NULL.
                 if (string.IsNullOrWhiteSpace(symbol)) continue;
-                var price = (hasActual ? act.Avg : omsP?.AvgPrice) ?? 0m;
+                var price = (hasActual ? act.Avg : (hasOms ? omsP.AvgPrice : null)) ?? 0m;
                 var intent = new OrderIntent(
                     ClientOrderId: Guid.NewGuid(),
                     Broker: broker,
