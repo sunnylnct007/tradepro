@@ -319,6 +319,90 @@ public static class DataTrustEndpoints
             return Results.Ok(new { events = rows.AsList() });
         });
 
+        // ── IG /prices bridge (Phase B-4) ───────────────────────────
+        // Python IGProvider proxies through this endpoint so it reuses
+        // the .NET-side IG session + auth (the same session the
+        // OMS dispatch uses). Saves duplicating IG REST auth in
+        // Python; consistent with how the T212 admin endpoints work.
+        //
+        // Maps the BarStore's canonical resolutions to IG's strings:
+        //   1m  → MINUTE     1d → DAY
+        //   5m  → MINUTE_5   1wk → WEEK
+        //   15m → MINUTE_15
+        //   30m → MINUTE_30
+        //   1h  → HOUR
+        //
+        // ``from`` and ``to`` are ISO 8601 (the Python provider sends
+        // them in UTC). Returns the bars + allowance metadata so the
+        // Python side can log how close it is to the weekly cap and
+        // back off if necessary.
+        g.MapGet("/ig/prices", async (
+            string epic,
+            string resolution,
+            string from,
+            string to,
+            int? max,
+            TradePro.Api.Providers.IG.IGClient ig,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(epic))
+                return Results.BadRequest(new { error = "epic required" });
+            if (string.IsNullOrWhiteSpace(resolution))
+                return Results.BadRequest(new { error = "resolution required (MINUTE / HOUR / DAY / ...)" });
+            if (string.IsNullOrWhiteSpace(from))
+                return Results.BadRequest(new { error = "from required (ISO 8601)" });
+            if (string.IsNullOrWhiteSpace(to))
+                return Results.BadRequest(new { error = "to required (ISO 8601)" });
+            if (!ig.IsEnabled)
+                return Results.BadRequest(new
+                {
+                    error = "IG disabled",
+                    detail = "IG broker not configured; see IGOptions.Mode.",
+                });
+
+            var result = await ig.GetPricesAsync(
+                epic: epic,
+                resolution: resolution,
+                from: from,
+                to: to,
+                max: max ?? 5000,
+                ct: ct);
+
+            if (!string.IsNullOrEmpty(result.Error))
+            {
+                return Results.Json(
+                    new
+                    {
+                        epic, resolution, from, to,
+                        error = result.Error,
+                        httpStatus = result.HttpStatus,
+                        allowanceRemaining = result.AllowanceRemaining,
+                    },
+                    statusCode: result.HttpStatus == 0 ? 502 : result.HttpStatus);
+            }
+
+            // Normalise bar shape for the Python provider. Wire format
+            // is JSON-friendly: timestamp as ISO string, prices as
+            // floats. Keeps the wrapping layer thin so a future
+            // provider swap doesn't break the Python side.
+            return Results.Ok(new
+            {
+                epic, resolution,
+                allowanceRemaining = result.AllowanceRemaining,
+                allowanceTotal = result.AllowanceTotal,
+                count = result.Bars.Count,
+                bars = result.Bars.Select(b => new
+                {
+                    timestamp = b.SnapshotTime,
+                    open = (double)b.Open,
+                    high = (double)b.High,
+                    low = (double)b.Low,
+                    close = (double)b.Close,
+                    volume = b.Volume,
+                }),
+            });
+        });
+
         g.MapGet("/bar-cache/health", async (
             NpgsqlDataSource db,
             string? canonical,

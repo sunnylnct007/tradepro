@@ -38,31 +38,60 @@ constraint on what you can claim.
 
 ## Detailed limitations
 
-### L1 — Intraday data ceiling (CRITICAL)
+### L1 — Intraday data ceiling (CRITICAL → DOWNGRADED to HIGH after Phase B-4)
 
-**Severity**: CRITICAL — limits the evidence layer of every intraday strategy.
+**Status update (Phase B-4)**: IG `/prices` is now wired as a second
+provider in the BarStore chain. For symbols with a populated IG epic,
+the operator can backfill multi-year 1-minute history via the
+trustworthy bar cache. The CRITICAL framing applied while no provider
+covered the gap; with IG in the chain the limitation is **bounded by
+operator action** (populate epics + run backfill), not by a hard data
+unavailability.
 
-**What's true**:
-- Yahoo Finance 1-minute history is capped at the last 7 days.
+**What's true (post B-4)**:
+- Yahoo Finance 1-minute history is still capped at the last 7 days.
 - Yahoo 5m/15m/30m: capped at 60 days.
 - Yahoo 1h: many years available.
-- IG `/prices/{epic}` has multi-year history but demo accounts have a weekly bar-download allowance (~10k datapoints/week typical).
-- No provider currently configured supplies 1m bars older than 7 days.
+- **IG `/prices/{epic}` now reachable via the BarStore chain** — multi-
+  year intraday history available for any symbol whose IG epic is
+  populated in `paper/ig_epic_map.json`. Demo accounts have a weekly
+  bar-download allowance (~10k datapoints/week typical); the IGProvider
+  bubbles 403 responses up as `ProviderRateLimitError` so the chain
+  falls back to yfinance.
+- The BarStore writes IG-supplied bars to the same Parquet partitions
+  as yfinance-supplied bars (same `us_equity_v1` schema). Manifest
+  records `provider_used: "ig"` for honesty about provenance.
 
-**Consequence**:
-- `intraday_flat`, `orb`, `vwap_mean_reversion`, `bollinger_bounce`, `ma_crossover` cannot be backtested at 1m resolution over any historical window beyond a week.
-- What looks like a "backtest" of these in the cockpit is actually a 7-day forward test labelled as a backtest.
-- Walk-forward / Monte Carlo / regime-shift stress tests at 1m resolution are not currently runnable.
-- The `BUY/SELL/HOLD evidenced by backtest` half of the project north-star is **not satisfied for intraday signals**.
+**Consequence (residual)**:
+- For symbols with NO populated IG epic, the 7-day ceiling still
+  applies — yfinance is the only configured fallback.
+- The IG demo weekly allowance bounds how much history can be
+  backfilled per week. A trader populating SPY/QQQ/IWM intraday
+  history for 2024 has to spread the backfill across weeks or burn
+  the entire allowance in one sweep.
+- Live + backtest divergence on slippage / spread still applies
+  (see §L2).
 
 **Remedy (on the roadmap)**:
-- Phase B: build the asset-class-pluggable bar cache + provider chain (yfinance → IG `/prices` → finnhub → Polygon flat-files when subscribed).
-- Phase C: backfill CLI + UI button to populate the cache for any symbol × date range.
-- Phase E: refuse to run a backtest whose data is incomplete, with a clear remediation message.
+- ✅ Phase B-4 SHIPPED: IG `/prices` provider wired in. Migration 033
+  seeds `us_etf 1m` chain to `['yfinance', 'ig']` so the fallback is
+  live by default.
+- Phase C: backfill CLI + UI button (Settings panel) lets trade
+  support populate the cache without SSH/CLI.
+- Phase E: refuse to run a backtest whose data is incomplete, with a
+  clear remediation message pointing at the backfill button.
 
-**Mitigation today**:
-- Run intraday backtests only over the last 7 days, and label results "Forward test (7d)" rather than "Backtest".
-- For longer horizon analysis, use daily-resampled bars; accept the loss of intraday granularity.
+**Mitigation today (post B-4)**:
+- For symbols with IG epics populated: `tradepro-bar-cache-get
+  --api-base http://localhost:5252 --canonical SPY --asset us_etf
+  --resolution 1m --from 2023-01-01 --to today` triggers the full
+  backfill. Subsequent backtests of intraday strategies read the
+  cached bars — honest 1-year history is back on the table.
+- For symbols WITHOUT IG epics populated: same 7-day ceiling as
+  before; run `tradepro-ig-populate-epics` to fill the gap.
+- Watch the cockpit's "Bar cache activity" panel for
+  `result=rate_limited` events: that's the IG weekly allowance
+  signalling — wait for the reset or fall back to daily resampling.
 
 ---
 

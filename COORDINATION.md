@@ -7,7 +7,7 @@ Read this before starting any work. Update when you start something new.
 
 ---
 
-## Current branch: feature/bar-cache-mcp-tools  (laneB checkout)
+## Current branch: feature/bar-cache-ig-provider  (laneB checkout)
 
 Follow-up on the `intraday_flat` strategy (phase-1 shipped in PR #28 /
 commit `6f58920`). Adds overnight-leftover handling + 8 BDD scenarios

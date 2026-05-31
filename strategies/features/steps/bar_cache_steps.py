@@ -653,10 +653,15 @@ def step_get_with_loader(context):
         telemetry=context.telemetry if hasattr(context, "telemetry") else NullSink(),
         preferences_loader=context.loader,
     )
-    context.result = store.get(
-        canonical="SPY", asset_class="us_etf", resolution="1m",
-        start=_START_DEC, end=_END_DEC,
-    )
+    try:
+        context.result = store.get(
+            canonical="SPY", asset_class="us_etf", resolution="1m",
+            start=_START_DEC, end=_END_DEC,
+        )
+        context.error = None
+    except BarFetchError as exc:
+        context.result = None
+        context.error = exc
 
 
 @when("I call chain_for {asset_class} {resolution} twice in a row")
@@ -703,4 +708,142 @@ def step_getter_count(context, n):
     assert len(context._getter.requests) == n, (
         f"getter received {len(context._getter.requests)} requests, "
         f"expected exactly {n}"
+    )
+
+
+# ─── Section 7: Multi-provider chain failover (Phase B-4) ─────────
+
+
+class _RateLimitProvider:
+    """Synthetic Provider stub that raises ProviderRateLimitError on
+    every fetch. Used to verify chain fallthrough behaviour."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def supports_resolution(self, resolution: str) -> bool:
+        return True
+
+    def max_history(self, resolution: str):
+        return None
+
+    def fetch(self, canonical, asset_class, resolution, start, end):
+        from tradepro_strategies.bar_cache.errors import (
+            ProviderRateLimitError,
+        )
+        raise ProviderRateLimitError(
+            provider=self.name,
+            canonical=canonical,
+            message="synthetic rate limit",
+        )
+
+
+class _RecordingIGProvider:
+    """Records every fetch call so a test can assert IG was (or
+    wasn't) tried. Returns empty frame on every call — only used in
+    the 'yfinance wins, IG never called' scenario."""
+
+    def __init__(self) -> None:
+        self.name = "ig"
+        self.call_count = 0
+
+    def supports_resolution(self, resolution: str) -> bool:
+        return True
+
+    def max_history(self, resolution: str):
+        return None
+
+    def fetch(self, canonical, asset_class, resolution, start, end):
+        self.call_count += 1
+        return pd.DataFrame(), {"provider_version": "test", "rows": 0}
+
+
+@given('a provider "{name}" raising rate_limit')
+def step_provider_raises_rate(context, name: str):
+    from tradepro_strategies.bar_cache.providers.base import (
+        register_provider,
+    )
+    register_provider(_RateLimitProvider(name))
+
+
+@given('a provider "ig" returning a full December 2024 month for {sym}')
+def step_provider_ig_full_month(context, sym: str):
+    """Register a synthetic IG provider that returns a complete month.
+    Different shape from yfinance — IG returns OHLCV with adj_factor +
+    source set by the real IGProvider; the synthetic skips that and
+    relies on us_etf.validate_frame's tolerance for missing
+    adj_factor/source columns (they're nullable / added by the
+    real provider)."""
+    from tradepro_strategies.bar_cache.providers.base import (
+        register_provider,
+    )
+
+    class _IgFullMonth:
+        name = "ig"
+
+        def supports_resolution(self, resolution: str) -> bool:
+            return True
+
+        def max_history(self, resolution: str):
+            return None
+
+        def fetch(self, canonical, asset_class, resolution, start, end):
+            cur = date(2024, 12, 2)
+            dates = []
+            while cur <= date(2024, 12, 31):
+                if cur.weekday() < 5 and cur != date(2024, 12, 25):
+                    dates.append(cur)
+                cur += timedelta(days=1)
+            df = _build_dec_2024_frame(dates)
+            if not df.empty:
+                df = df.copy()
+                df["adj_factor"] = 1.0
+                df["source"] = "ig"
+                df = df[(df.index >= start) & (df.index < end)]
+            return df, {"provider_version": "test/ig", "rows": int(len(df))}
+
+    register_provider(_IgFullMonth())
+
+
+@given("a recording IG provider that counts calls")
+def step_recording_ig(context):
+    from tradepro_strategies.bar_cache.providers.base import (
+        register_provider,
+    )
+    context._recording_ig = _RecordingIGProvider()
+    register_provider(context._recording_ig)
+
+
+@then("the chain shows yfinance_rate_limit before ig_ok")
+def step_chain_yf_then_ig(context):
+    chain = context.result.provider_chain_tried
+    yf_idx = next(
+        (i for i, s in enumerate(chain) if "yfinance_rate_limit" in s),
+        None,
+    )
+    ig_idx = next(
+        (i for i, s in enumerate(chain) if "ig_ok" in s),
+        None,
+    )
+    assert yf_idx is not None, f"no yfinance_rate_limit in {chain}"
+    assert ig_idx is not None, f"no ig_ok in {chain}"
+    assert yf_idx < ig_idx, f"order wrong: {chain}"
+
+
+@then('the manifest\'s provider_used is "{expected}"')
+def step_manifest_provider_used(context, expected: str):
+    import json
+    mf = (
+        context.cache_base / "us_etf" / "SPY" / "1m" / "2024-12.manifest.json"
+    )
+    body = json.loads(mf.read_text())
+    assert body["provider_used"] == expected, (
+        f"manifest provider_used {body['provider_used']!r} != {expected!r}"
+    )
+
+
+@then("the recording IG provider was called {n:d} times")
+def step_ig_call_count(context, n: int):
+    assert context._recording_ig.call_count == n, (
+        f"IG called {context._recording_ig.call_count} times, expected {n}"
     )
