@@ -244,6 +244,13 @@ session). Needs IG epics for those names (interactive, operator).
   symbol/date/lookback inputs + Run/backtest) is cramped/poorly laid out.
   Rework into clean strategy cards grouped by status (trader/alpha vs
   scaffold), with the run controls tidy.
+- **Strategy enable/disable + broker activate-deactivate.** The broker
+  mapping editor LIVES ON SETTINGS (StrategyBrokerMapSection) — operator
+  found it; it was a discoverability issue (catalog didn't expose/link it).
+  Backend: setStrategyStatus/clearStrategyStatus (lifecycle) +
+  updateStrategyBrokerMap/deleteStrategyBrokerMap (routing). Improvement:
+  in the catalog redesign, surface per-strategy status toggle + a LINK to
+  the Settings mapping (or inline it) so it's discoverable in one place.
 
 ### Parallel workstreams (other devs — don't clobber)
 - **Backtesting + simulation: order-book history from IG (other dev).** A
