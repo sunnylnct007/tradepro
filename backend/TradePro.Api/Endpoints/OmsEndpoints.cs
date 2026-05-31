@@ -445,7 +445,10 @@ public static class OmsEndpoints
                     Qty: Math.Abs(delta),
                     OrderType: "MKT",
                     StrategyId: null,
-                    PlacedBy: "RECONCILE");
+                    // placed_by CHECK allows only HUMAN | STRATEGY_AUTO.
+                    // Operator-triggered → HUMAN; the reconcile nature is
+                    // marked by actor="oms-sync" + brokerFillId="reconcile-…".
+                    PlacedBy: "HUMAN");
                 var order = await oms.EnqueueAsync(intent, "oms-sync");
                 await oms.RecordFillAsync(order.Id, Math.Abs(delta), price, 0m, "USD", $"reconcile-{order.Id:N}", "oms-sync");
                 adjustments.Add(new { symbol, side = intent.Side, delta, targetQty, fromOmsQty = omsQty });
