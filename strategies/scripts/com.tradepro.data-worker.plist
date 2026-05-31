@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Trustworthy-data worker daemon — Phase C-Validate slice.
+
+  Polls /api/ops/poll-data for `data_*` kind sessions and routes them
+  to Python handlers. Today only `data_validate` is handled; Phase C
+  follow-ups add data_backfill, data_reload, data_repartition,
+  data_purge — each landing as a new handler in cli/data_worker.py.
+
+  Mirrors com.tradepro.intraday-engine.plist's pattern:
+    - KeepAlive so launchd restarts on crash
+    - ThrottleInterval 60s so a crash-loop doesn't pin the CPU
+    - Pause via touch ~/.tradepro/data-worker.pause
+    - Stop via launchctl bootout
+
+  Opt-in install via:
+    bash strategies/scripts/install-launchd.sh --data-worker
+
+  Logs:
+    ~/.tradepro/logs/data-worker-stdout.log
+    ~/.tradepro/logs/data-worker-stderr.log
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.data-worker</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{PROJECT_DIR}}/scripts/data-worker.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+    <!-- API base + poll cadence are tuned by the wrapper shell
+         script reading them as env. Defaults: localhost:5252 / 10s
+         idle. -->
+    <key>TRADEPRO_API_URL</key>
+    <string>http://localhost:5252</string>
+    <key>TRADEPRO_DATA_WORKER_POLL_SECONDS</key>
+    <string>10</string>
+  </dict>
+
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/data-worker-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/data-worker-stderr.log</string>
+</dict>
+</plist>

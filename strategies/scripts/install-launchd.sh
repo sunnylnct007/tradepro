@@ -28,6 +28,7 @@ MODE="worker"
 WITH_INTRADAY=0
 WITH_EPS_SNAPSHOT=0
 WITH_ALGO=0
+WITH_DATA_WORKER=0
 for arg in "$@"; do
   case "$arg" in
     --refresh|--cron) MODE="refresh" ;;
@@ -38,6 +39,10 @@ for arg in "$@"; do
     # Off by default — opt-in so a fresh worker install doesn't start
     # auto-trading without explicit operator intent.
     --algo|--with-algo|--systematic) WITH_ALGO=1 ;;
+    # --data-worker installs the trustworthy-data ops queue worker
+    # (Phase C). Off by default; ops operators opt in to enable
+    # UI-triggered validate / backfill / reload jobs.
+    --data-worker|--with-data-worker) WITH_DATA_WORKER=1 ;;
     -h|--help)
       sed -n '1,/^set -eu/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -56,6 +61,7 @@ chmod +x \
     "$PROJECT_DIR/scripts/paper-session.sh" \
     "$PROJECT_DIR/scripts/intraday-engine.sh" \
     "$PROJECT_DIR/scripts/eps-snapshot.sh" \
+    "$PROJECT_DIR/scripts/data-worker.sh" \
     2>/dev/null || true
 
 install_one() {
@@ -117,6 +123,11 @@ if [[ "$MODE" == "worker" ]]; then
   else
     uninstall_one "com.tradepro.live-portfolio"
     uninstall_one "com.tradepro.algo-digest"
+  fi
+  if [[ "$WITH_DATA_WORKER" == "1" ]]; then
+    install_one "com.tradepro.data-worker"
+  else
+    uninstall_one "com.tradepro.data-worker"
   fi
   cat <<EOF
 

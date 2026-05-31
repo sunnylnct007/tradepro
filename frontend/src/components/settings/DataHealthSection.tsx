@@ -515,7 +515,7 @@ function BarCacheActivityPanel() {
           style={{
             display: "grid",
             gridTemplateColumns:
-              "100px 80px 100px 120px 110px 110px 70px",
+              "100px 80px 100px 120px 110px 110px 70px 90px",
             gap: 8, alignItems: "center",
             paddingBottom: 4, marginBottom: 4,
             borderBottom: "1px solid var(--border)",
@@ -530,53 +530,11 @@ function BarCacheActivityPanel() {
           <span>Coverage start</span>
           <span>Coverage end</span>
           <span>Gaps</span>
+          <span style={{ textAlign: "right" }}>Actions</span>
         </div>
       )}
       {health.map((row) => (
-        <div
-          key={`${row.canonical}/${row.asset_class}`}
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "100px 80px 100px 120px 110px 110px 70px",
-            gap: 8, alignItems: "center",
-            padding: "6px 0",
-            borderTop: "1px solid var(--border)",
-            fontSize: 11,
-          }}
-        >
-          <span style={{ fontFamily: "monospace", fontWeight: 600 }}>
-            {row.canonical}
-          </span>
-          <span style={{ fontFamily: "monospace", color: "var(--text-dim)" }}>
-            {row.asset_class}
-          </span>
-          <span>
-            {row.last_fetched_result ? (
-              <Pill color={RESULT_COLORS[row.last_fetched_result] ?? "#6b7280"}>
-                {row.last_fetched_result}
-              </Pill>
-            ) : <Muted>—</Muted>}
-          </span>
-          <span style={{
-            fontFamily: "monospace", fontSize: 10,
-            color: "var(--text-dim)",
-          }}>
-            {row.last_fetched_provider ?? "—"}
-          </span>
-          <span style={{ fontFamily: "monospace", fontSize: 10 }}>
-            {row.coverage_start_date ?? "—"}
-          </span>
-          <span style={{ fontFamily: "monospace", fontSize: 10 }}>
-            {row.coverage_end_date ?? "—"}
-          </span>
-          <span style={{
-            color: row.missing_days_count > 0 ? "var(--down)" : "var(--text-dim)",
-            fontWeight: row.missing_days_count > 0 ? 600 : 400,
-          }}>
-            {row.missing_days_count}
-          </span>
-        </div>
+        <HealthRow key={`${row.canonical}/${row.asset_class}`} row={row} />
       ))}
 
       <h5 style={{
@@ -646,6 +604,104 @@ function BarCacheActivityPanel() {
         </div>
       ))}
     </Subsection>
+  );
+}
+
+function HealthRow({ row }: { row: BarHealth }) {
+  const [validating, setValidating] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const onValidate = async () => {
+    const ok = window.confirm(
+      `Enqueue a data_validate op for ${row.canonical} (${row.asset_class})?\n\n` +
+      `The Mac data-worker will walk every cached partition for this ` +
+      `symbol and report which ones are complete vs incomplete. ` +
+      `Non-destructive — only reads files.`,
+    );
+    if (!ok) return;
+    setValidating(true);
+    setFeedback(null);
+    try {
+      const res = await api.runDataValidate({
+        canonical: row.canonical,
+        asset_class: row.asset_class,
+      });
+      setFeedback(`✓ queued (${res.request_id.slice(0, 8)}…)`);
+    } catch (e) {
+      setFeedback(String(e));
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns:
+          "100px 80px 100px 120px 110px 110px 70px 90px",
+        gap: 8, alignItems: "center",
+        padding: "6px 0",
+        borderTop: "1px solid var(--border)",
+        fontSize: 11,
+      }}
+    >
+      <span style={{ fontFamily: "monospace", fontWeight: 600 }}>
+        {row.canonical}
+      </span>
+      <span style={{ fontFamily: "monospace", color: "var(--text-dim)" }}>
+        {row.asset_class}
+      </span>
+      <span>
+        {row.last_fetched_result ? (
+          <Pill color={RESULT_COLORS[row.last_fetched_result] ?? "#6b7280"}>
+            {row.last_fetched_result}
+          </Pill>
+        ) : <Muted>—</Muted>}
+      </span>
+      <span style={{
+        fontFamily: "monospace", fontSize: 10,
+        color: "var(--text-dim)",
+      }}>
+        {row.last_fetched_provider ?? "—"}
+      </span>
+      <span style={{ fontFamily: "monospace", fontSize: 10 }}>
+        {row.coverage_start_date ?? "—"}
+      </span>
+      <span style={{ fontFamily: "monospace", fontSize: 10 }}>
+        {row.coverage_end_date ?? "—"}
+      </span>
+      <span style={{
+        color: row.missing_days_count > 0 ? "var(--down)" : "var(--text-dim)",
+        fontWeight: row.missing_days_count > 0 ? 600 : 400,
+      }}>
+        {row.missing_days_count}
+      </span>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+        <button
+          disabled={validating}
+          onClick={onValidate}
+          style={{
+            padding: "3px 8px", fontSize: 10, fontWeight: 600,
+            border: "1px solid var(--border)", borderRadius: 3,
+            background: "transparent",
+            color: validating ? "var(--text-muted)" : "var(--text)",
+            cursor: validating ? "default" : "pointer",
+          }}
+          title="Enqueue a data_validate op for this symbol"
+        >
+          {validating ? "Queuing…" : "Validate"}
+        </button>
+        {feedback && (
+          <span style={{
+            fontSize: 9,
+            color: feedback.startsWith("✓") ? "#1fc16b" : "var(--down)",
+          }}>
+            {feedback}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -198,6 +198,107 @@ public static class OpsEndpoints
                 : Results.Ok(Envelope(done));
         });
 
+        // ─── Data ops (Phase C-Validate slice) ──────────────────────
+        // Trustworthy data layer's UI-triggerable ops surface. Reuses
+        // session_requests + the same Claim/MarkCompleted/MarkFailed
+        // primitives the intraday + paper queues use. ROADMAP
+        // "Trustworthy data layer" / "Operational model" documents the
+        // 5 op kinds (data_validate / data_backfill / data_reload /
+        // data_repartition / data_purge); this PR lands only
+        // data_validate so the queue + worker pattern is proven on a
+        // non-destructive op first.
+        //
+        // Payload schemas (per the ROADMAP table):
+        //   data_validate    { canonical, asset_class, resolution? }
+        //
+        // The Mac-side `tradepro-data-worker` daemon polls
+        // /api/ops/poll-data, walks the bar cache for the requested
+        // (canonical, asset_class), and posts the gap report back via
+        // /complete-data/{requestId}.
+
+        const string DataValidateKind = "data_validate";
+
+        group.MapPost("/run-data-validate", (JsonElement payload, ISessionRequestsStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            // Minimal validation so the worker gets something usable.
+            if (!payload.TryGetProperty("canonical", out var canonical)
+                || canonical.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(canonical.GetString()))
+                return Results.BadRequest(new { error = "canonical required" });
+            if (!payload.TryGetProperty("asset_class", out var assetClass)
+                || assetClass.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(assetClass.GetString()))
+                return Results.BadRequest(new { error = "asset_class required" });
+            var req = store.Put(DataValidateKind, payload);
+            return Results.Ok(Envelope(req));
+        });
+
+        // The worker daemon polls this; multi-kind polling (one daemon
+        // handles all data_* kinds when they exist) is the natural
+        // extension. For now it's data_validate only — adding kinds
+        // is purely additive on the Python side.
+        group.MapPost("/poll-data", (JsonElement payload, ISessionRequestsStore store) =>
+        {
+            var host = ReadStringOrDefault(payload, "host", "mac");
+            // Accept an optional `kinds` array to future-proof when
+            // the worker handles more than one data_* kind. Default
+            // to data_validate which is all we ship today.
+            var kinds = new List<string>();
+            if (payload.ValueKind == JsonValueKind.Object
+                && payload.TryGetProperty("kinds", out var k)
+                && k.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in k.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String)
+                    {
+                        var s = item.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) kinds.Add(s);
+                    }
+                }
+            }
+            if (kinds.Count == 0) kinds.Add(DataValidateKind);
+
+            // Try each kind in order; first available row is claimed.
+            // Phase D upgrades to a single-query OR claim when the
+            // store gains a multi-kind helper; for now N round-trips
+            // is fine — at small N + idle queue most don't return rows.
+            foreach (var kind in kinds)
+            {
+                var req = store.Claim(kind, host);
+                if (req is not null)
+                    return Results.Ok(new { claimed = true, session = Envelope(req) });
+            }
+            return Results.Ok(new { claimed = false });
+        });
+
+        // Worker reports completion / failure. Same shape as
+        // /complete-intraday + /complete-paper for consistency.
+        group.MapPost("/complete-data/{requestId}", (string requestId, JsonElement payload, ISessionRequestsStore store) =>
+        {
+            var status = ReadStringOrDefault(payload, "status", "completed").ToLowerInvariant();
+            if (status == "failed")
+            {
+                var error = ReadStringOrDefault(payload, "error", "unspecified failure");
+                var req = store.MarkFailed(requestId, error);
+                return req is null
+                    ? Results.NotFound(new { error = $"no session with id {requestId}" })
+                    : Results.Ok(Envelope(req));
+            }
+            JsonElement? summary = null;
+            if (payload.ValueKind == JsonValueKind.Object
+                && payload.TryGetProperty("result_summary", out var s))
+            {
+                summary = s;
+            }
+            var done = store.MarkCompleted(requestId, summary);
+            return done is null
+                ? Results.NotFound(new { error = $"no session with id {requestId}" })
+                : Results.Ok(Envelope(done));
+        });
+
         return app;
     }
 
