@@ -111,8 +111,14 @@ export function Strategies() {
 
   /** Broker the backend would actually use: explicit mapping wins,
    * else the global default. Drives the LIVE / SIGNAL-ONLY pill. */
+  // LIVE means an EXPLICIT broker mapping — NOT inheriting the global
+  // default. Only ichimoku_equity/ichimoku_fx_mr/intraday_flat are mapped,
+  // so everything else reads SIGNAL-ONLY (which is the truth). Previously
+  // unmapped strategies inherited defaultBroker and falsely showed
+  // "LIVE → T212" (e.g. ma_crossover), which is exactly the confusion to
+  // kill: the trader only plugged ichimoku_equity into 212.
   const effectiveBroker = (name: string): string | null =>
-    brokerMap.byStrategy[name] ?? brokerMap.defaultBroker;
+    brokerMap.byStrategy[name] ?? null;
   const isExplicit = (name: string): boolean => name in brokerMap.byStrategy;
 
   const loadStatusOverrides = useCallback(async () => {
@@ -388,7 +394,15 @@ export function Strategies() {
               {sessions.map(sess => {
                 const params = sess.params || {};
                 const strategy = (params as Record<string, string>).strategy || "—";
-                const symbols = (params as Record<string, string[]>).symbols?.join(",") || "—";
+                // Clamp the symbol list — some sessions carry the full S&P
+                // (400+ tickers) which otherwise blows the row width out and
+                // breaks the page. Show count + first few, full list on hover.
+                const symArr = (params as Record<string, string[]>).symbols || [];
+                const symbols = symArr.length === 0
+                  ? "—"
+                  : symArr.length > 5
+                    ? `${symArr.slice(0, 5).join(", ")} +${symArr.length - 5} more`
+                    : symArr.join(", ");
                 return (
                   <tr key={sess.request_id}>
                     <Td>
@@ -396,7 +410,12 @@ export function Strategies() {
                     </Td>
                     <Td>
                       <div style={{ fontWeight: 600 }}>{strategy}</div>
-                      <div style={smallMuted}>{symbols}</div>
+                      <div
+                        style={{ ...smallMuted, maxWidth: 360, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                        title={symArr.join(", ")}
+                      >
+                        {symbols}
+                      </div>
                     </Td>
                     <Td>
                       <div style={smallMuted}>
@@ -617,7 +636,10 @@ const page: React.CSSProperties = {
 const pageHeader: React.CSSProperties = { marginBottom: 4 };
 const subhead: React.CSSProperties = { margin: "4px 0 0", color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6 };
 const cardStyle: React.CSSProperties = {
-  background: "var(--surface-1, #fff)", border: "1px solid var(--border)", borderRadius: 8, padding: 16,
+  // --surface-* is NOT defined in this app's theme; the old #fff fallback
+  // rendered white cards on the dark theme and hid the light text. Use the
+  // real dark panel token.
+  background: "var(--bg-panel, rgba(255,255,255,0.02))", border: "1px solid var(--border)", borderRadius: 8, padding: 16,
 };
 const deskHeader: React.CSSProperties = {
   display: "flex", justifyContent: "space-between", alignItems: "flex-start",
@@ -632,15 +654,17 @@ const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collap
 const smallMuted: React.CSSProperties = { fontSize: 11, color: "var(--text-muted)" };
 const inputStyle: React.CSSProperties = {
   width: 90, padding: "4px 8px", fontSize: 12,
-  border: "1px solid var(--border)", borderRadius: 4, background: "var(--surface-2, #f8f8f8)",
+  border: "1px solid var(--border)", borderRadius: 4,
+  background: "var(--bg-elevated, rgba(255,255,255,0.04))", color: "var(--text)",
 };
 const codeStyle: React.CSSProperties = {
   fontSize: 11, fontFamily: "var(--font-mono, monospace)",
-  background: "var(--surface-3, #efefef)", padding: "2px 5px", borderRadius: 3,
+  background: "var(--bg-hover, rgba(255,255,255,0.05))", color: "var(--text-dim)",
+  padding: "2px 5px", borderRadius: 3,
 };
 const errorBox: React.CSSProperties = {
-  padding: 10, border: "1px solid #a83a3a", borderRadius: 6,
-  background: "#fdecec", color: "#7a1a1a", fontSize: 13,
+  padding: 10, border: "1px solid #ef4444", borderRadius: 6,
+  background: "rgba(239,68,68,0.1)", color: "#ef4444", fontSize: 13,
 };
 const execPillBase: React.CSSProperties = {
   fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
