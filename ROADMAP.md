@@ -53,12 +53,24 @@ Greeks (Black-Scholes); data provider is pluggable → swap to ORATS later.
 P3 risk gates (annotate, no place) → P4 stress + backtest → P5 execution
 (when a broker account exists).
 
-**Open questions for the operator:** (1) bootstrap free chains + our Greeks
-now, ORATS later? (2) confirm reuse-existing-arch (not new microservices /
-EF / MSSQL)? (3) confirm scope = signals+display+risk+stress+backtest+LLM
-gate, NO execution? (4) options backtest needs historical options data — do
-we have any, or start with live/forward paper signals + the equity-style
-backtest on the underlying?
+**DECIDED defaults (operator 2026-05-31) — PROVISIONAL, MUST REVISIT & OPTIMIZE:**
+Building P1 on: free yfinance option chains + Greeks WE compute (Black-
+Scholes) · NO execution (signals + opportunity display only) · forward
+paper-signal logging (no paid historical options backtest yet) · reuse the
+existing Python+.NET+Postgres arch. ⚠️ These are bootstrapping choices to
+get signals flowing — REVISIT before any real reliance:
+  - **Data quality:** yfinance chains are delayed/patchy + IV can be
+    missing → our Greeks are model-derived, not market-verified. Swap to
+    ORATS (or a paid chains+Greeks feed) for accuracy before execution.
+  - **Backtest fidelity:** underlying-only / forward paper signals can't
+    measure real fill/spread/assignment economics — needs historical
+    options data for a true VRP backtest.
+  - **Pricing model:** Black-Scholes (European) on American ETF options is
+    fine for Greeks/triage, NOT for early-exercise/wing edge.
+  - **Risk inputs:** BPR/margin + beta-weighted Δ need real broker margin
+    data; until execution, these are estimates.
+  - Re-evaluate the whole data→signal→risk→backtest chain once a paid
+    feed + (eventually) a broker account land.
 
 ---
 
