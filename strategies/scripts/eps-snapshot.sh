@@ -35,6 +35,7 @@ resolve_uv() {
       "$HOME/.cargo/bin/uv" \
       "$HOME/.local/bin/uv" \
       "/opt/homebrew/bin/uv" \
+      "/opt/anaconda3/bin/uv" \
       "/usr/local/bin/uv"; do
     if [[ -x "$c" ]]; then echo "$c"; return 0; fi
   done
