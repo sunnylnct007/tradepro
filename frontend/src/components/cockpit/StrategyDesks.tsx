@@ -130,7 +130,7 @@ export function StrategyDesks({
         <Metric label="Desks" value={`${desks.filter((x) => x.connected).length}/${desks.length} live`} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", gap: 12 }}>
         {desks.map((x) => (
           <DeskCard key={x.d.id} x={x} expanded={openDesk === x.d.id}
             onToggle={() => setOpenDesk(openDesk === x.d.id ? null : x.d.id)}

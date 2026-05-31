@@ -497,7 +497,9 @@ export function TraderCockpit() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
+          // min(420px,100%) so a phone (≪420px) gets a single full-width
+          // column instead of a 420px column overflowing the viewport.
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))",
           gap: 12,
           alignItems: "start",
         }}

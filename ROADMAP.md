@@ -74,6 +74,49 @@ get signals flowing — REVISIT before any real reliance:
 
 ---
 
+## 🔴 CRITICAL — zero-fill since IG/T212 migration (MCP analysis 2026-05-31)
+
+Across 32 sessions / 12 days, only **7 fills exist — all from ONE
+ichimoku_fx_mr run on 25 May on the old yfinance backend**. Since migrating
+to IG/T212, **nothing has filled.** Signal logic clearly fires (those fills
+prove it), so the break is in **broker connectivity / placement / fill-
+recording**, not signals. Diagnose Monday (markets open) — likely a stack
+of causes we've already partly touched:
+- **FX was mis-routed to T212** (can't trade FX) → all CANCELLED. Migration
+  028 now routes ichimoku_fx_mr → IG; verify it actually fills on IG Monday.
+- **Equity (T212):** orders sit SUBMITTED, never FILLED → is the T212 demo
+  **fill poller** running/recording? Are they MOO orders waiting for open?
+- **IG fill poller** records at price=0 + only on a timely poll — verify.
+- **Placement mode:** confirm auto vs manual (manual → orders sit pending).
+- Weekend caveat: markets closed now, so "no fills this weekend" is partly
+  expected — the 12-day window is the real signal.
+- **Mac worker / MCP offline** (get_health timed out) — restart Claude
+  Desktop + the TradePro MCP server before Monday open.
+This is the #1 thing blocking the platform from actually trading.
+
+### Other strategies (from the analysis)
+- **ORB** — 8 sessions, 0 fills, no caveats = untested scaffold. Verify
+  symbols, the 15-min range window vs BST open, and whether $100 risk is
+  reachable given symbol ATR.
+- **compass_momentum** — best next activation (gates on COMPASS ≥68 →
+  TradePro-native, not a generic indicator strategy).
+
+## UI — mobile responsive (2026-05-31)
+Cockpit isn't mobile-friendly: header (nav + badges) and the panel grid
+don't align/wrap on small screens. Needs responsive breakpoints (stacked
+header, single-column grid, fluid tables).
+
+## Risk module — per-order validation display + tiered rules (2026-05-31)
+Infra EXISTS (.NET RiskGate: blacklist / size-cap / velocity / sentiment /
+cash / market-hours / broker-capability gates; risk_events; /api/risk
+audit; RiskMonitorService). Needed:
+- **Show per-order risk validation** for a strategy's order — which gates
+  ran, pass/fail, the numbers (capital, max-loss, notional, BPR, beta-Δ) —
+  so we SEE the risk module working. Surface risk_events / decision-trace.
+- **Tiered rules:** a few GLOBAL rules + per-STRATEGY overrides, adjustable
+  per strategy (options max-loss/BPR vs equity size-cap differ). Settings-
+  driven (app_settings_kv + a per-strategy config like strategy_broker_map).
+
 ## Design decisions — 2026-05-30 (trading-app UX + signal engine)
 
 Approved with the operator; building in this order: **A desks-first home →
