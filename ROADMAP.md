@@ -424,6 +424,44 @@ gap progressively, with operator visibility from day 1.
    epics) are looked up at fetch time, never stored in the cache
    manifest. Symbol renames / cross-broker drift cannot orphan
    cached partitions.
+9. **Multi-service / multi-machine deployment from day 1**
+   (added 2026-05-31). Every component is designed assuming it
+   may run on a different host than its callers / data. Specifically:
+   - The `tradepro-data-worker` daemon may run on a different host
+     than the trader's strategy daemon.
+   - The bar-cache storage backend is abstracted behind
+     `BarCacheStorage` (`data_ops/storage/`); `LocalBarCacheStorage`
+     is one implementation, Phase I's `S3BarCacheStorage` is another.
+   - Handlers (`data_ops/handlers/`) take storage as a dependency,
+     never hardcode local paths.
+   - Configuration is externalised via env / args (`--api-base`,
+     `--cache-base-dir`, `TRADEPRO_BAR_CACHE_BASE_DIR`,
+     `TRADEPRO_API_TOKEN`, etc.).
+   - Multiple workers can run concurrently (`--instance-id` lets
+     N workers co-exist; atomic `UPDATE-RETURNING` in
+     `session_requests` ensures no double-claim).
+10. **Modular over monolithic**. Every concern lives in its own
+    module/package; orchestration (CLI/polling/HTTP) is thin and
+    transport-only. New handlers, providers, asset classes,
+    storage backends all land as a single new file under the
+    appropriate package — never as edits to the CLI or the
+    polling loop.
+
+### Service / deployment boundary map (current state)
+
+For production multi-machine layouts, the following table summarises
+**what runs where, talks to what**. Adjust per-deployment by changing
+config; the code seams don't need to move.
+
+| Service | Today's host | What it talks to | Future deployment options |
+|---|---|---|---|
+| .NET API (TradePro.Api) | EC2 / local Docker | Postgres + worker callbacks | Container per region |
+| Postgres | Managed (RDS / local) | — | Same |
+| Strategy daemons (paper-watch, intraday-engine, paper-fx) | Mac (per `feedback_restart_mac_daemon_after_aws_deploy`) | API only | Cloud build host |
+| Mac worker (worker.sh) | Mac | API | Same |
+| `tradepro-data-worker` (NEW Phase C) | Mac OR build host | API + bar-cache storage backend | Cloud host, K8s, Lambda — anywhere the storage backend is reachable |
+| Bar-cache storage | Local `~/.tradepro/bar_cache` | Storage backend reads | Phase I: S3 IA / Glacier hybrid |
+| Frontend (React) | Static hosting (Firebase) | API | Same |
 
 ### Operational model — UI-triggerable data ops
 
@@ -554,24 +592,48 @@ rows from the same queue — no new schema, no new infra.
   multi-provider coverage so the opt-in actually buys something.
 
 **Phase C — Operator-facing backfill (UI-FIRST)**
-- New `tradepro-data-worker` daemon polls `session_requests` for
-  kind `data_*` (mirrors `tradepro-intraday-engine` pattern).
-- POST `/api/ops/run-data-backfill` enqueues with kind=`data_backfill`.
-  POST `/api/ops/run-data-reload`, `/run-data-validate`,
-  `/run-data-purge` for the other registered kinds.
-- POST `/api/ops/poll-data` (worker), POST
-  `/api/ops/complete-data/{id}` (worker callback). Mirrors the
-  intraday + paper poll/complete pair exactly.
-- UI in the Data Health panel: "Validate", "Backfill missing",
-  "Reload" buttons per row. Confirm prompts with payload preview.
-  Job status updates in-place via GET `/api/ops/sessions?kind=data_*`.
-- CLI parity: `tradepro-backfill-bars --canonical SPY --asset us_etf
-  --resolution 1m --from 2024-01-01 --to today` for power-users.
-- Rate-limit guard (token bucket per provider) — never breaches limits.
-- Audit: every enqueue records `requested_by` + `params` + `reason`
-  (mandatory for destructive ops).
-- Launchd plist: `com.tradepro.data-worker.plist` installed by
-  `install-launchd.sh --data-worker` (opt-in flag, like `--intraday`).
+
+Phased rollout — Phase C-Validate ships first (non-destructive proof
+of the queue + worker + handler pipeline); subsequent slices add the
+remaining op kinds as new files under `data_ops/handlers/`.
+
+- **C-Validate SHIPPED (this PR)**:
+  - Modular `tradepro_strategies.data_ops` package (registry +
+    dispatch + storage abstraction + typed `DataOpRequest` /
+    `DataOpResult`).
+  - First handler: `ValidateHandler` (registered as `data_validate`)
+    under `data_ops/handlers/validate.py`.
+  - `BarCacheStorage` interface + `LocalBarCacheStorage`
+    implementation (multi-service / multi-machine seam — Phase I
+    swaps in `S3BarCacheStorage`).
+  - Backend endpoints `POST /api/ops/run-data-validate`,
+    `POST /api/ops/poll-data`, `POST /api/ops/complete-data/{id}`
+    in `OpsEndpoints.cs`.
+  - `tradepro-data-worker` CLI: thin polling loop that calls
+    `data_ops.dispatch(request, storage)`. Multi-instance friendly
+    via `--instance-id`. Storage backend injected at startup.
+  - UI: per-row Validate button on the Data Health panel; confirm
+    prompt + feedback inline.
+  - Launchd plist `com.tradepro.data-worker.plist`; opt-in install
+    via `install-launchd.sh --data-worker`.
+  - 7 BDD scenarios in `data_worker.feature` covering dispatch,
+    handler shape, unregistered kinds, registry, storage describe.
+- **C-Backfill** (next slice):
+  - New handler under `data_ops/handlers/backfill.py` registered as
+    `data_backfill`. Calls `BarStore.get(...)` for the requested
+    (canonical, asset_class, resolution, range), honours the
+    provider chain.
+  - Backend `POST /api/ops/run-data-backfill` mirroring the
+    validate endpoint. Polling reuses `/poll-data`.
+  - UI: per-row "Backfill missing" button with payload-preview confirm.
+  - Rate-limit guard (token bucket per provider).
+- **C-Reload** (subsequent):
+  - Destructive: force re-fetch + overwrite. Modal + reason text.
+  - Handler under `data_ops/handlers/reload.py`.
+- **C-Repartition**, **C-Purge**: future slices.
+
+Each handler is a single file. Worker / queue / UI plumbing doesn't
+change between slices.
 
 **Phase D — Reproducibility + audit**
 - Backtest results stamp `data_provider`, `provider_version`,

@@ -196,6 +196,25 @@ export const api = {
       result_summary: unknown;
       error: string | null;
     }, Record<string, unknown>>("/api/ops/run-intraday", payload),
+
+  // Phase C-Validate: enqueue a data_validate op for a
+  // (canonical, asset_class) tuple. The Mac-side tradepro-data-worker
+  // claims it, walks manifests, posts a gap report back via
+  // /api/ops/complete-data/{id}. Status polled via opsSessions(kind="data_validate").
+  runDataValidate: (payload: {
+    canonical: string;
+    asset_class: string;
+    resolution?: string;
+  }) =>
+    post<{
+      request_id: string;
+      kind: string;
+      state: string;
+      params: Record<string, unknown>;
+      requested_at_utc: string;
+      result_summary: unknown;
+      error: string | null;
+    }, typeof payload>("/api/ops/run-data-validate", payload),
   cancelOpsSession: (requestId: string) =>
     post<unknown, {}>(
       `/api/ops/sessions/${encodeURIComponent(requestId)}/cancel`, {}),
