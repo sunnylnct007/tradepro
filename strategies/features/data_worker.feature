@@ -54,3 +54,40 @@ Feature: tradepro-data-worker — Phase C-Validate
   Scenario: LocalBarCacheStorage.describe reports backend metadata
     Given a tmp bar cache with no SPY directory
     Then the storage describe reports backend "local"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Phase C-Backfill — operator-triggered cache population
+  # ──────────────────────────────────────────────────────────────────
+
+  Scenario: data_backfill populates an empty cache via the provider chain
+    Given a synthetic yfinance provider returning a full December 2024 month
+    And a tmp bar cache with no SPY directory
+    When I dispatch a data_backfill request for SPY us_etf 1m 2024-12-02 to 2024-12-31
+    Then the data op result is ok
+    And the data op result summary contains "via yfinance"
+    And the data op result detail partitions_before is 0
+    And the data op result detail partitions_after is 1
+    And the data op result detail partitions_added is 1
+
+  Scenario: data_backfill rejects missing required params
+    When I dispatch a data_backfill request with empty params
+    Then the data op result is not ok
+    And the data op result error mentions "missing required params"
+    And the data op result detail missing includes "canonical"
+    And the data op result detail missing includes "asset_class"
+    And the data op result detail missing includes "resolution"
+    And the data op result detail missing includes "from"
+
+  Scenario: data_backfill rejects unparseable from-date
+    When I dispatch a data_backfill request for SPY us_etf 1m with from "not-a-date"
+    Then the data op result is not ok
+    And the data op result summary contains "date parse error"
+
+  Scenario: data_backfill rejects when to is before from
+    When I dispatch a data_backfill request for SPY us_etf 1m 2024-12-31 to 2024-12-02
+    Then the data op result is not ok
+    And the data op result summary contains "to date must be on or after from"
+
+  Scenario: BackfillHandler is registered in the data_ops registry
+    When I list registered data_op kinds
+    Then the registered kinds include "data_backfill"
