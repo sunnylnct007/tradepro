@@ -231,6 +231,29 @@ export const api = {
       result_summary: unknown;
       error: string | null;
     }, typeof payload>("/api/ops/run-data-validate", payload),
+
+  // Phase C-Backfill: enqueue a data_backfill op for a
+  // (canonical, asset_class, resolution, from, to) tuple. The Mac-
+  // side tradepro-data-worker claims it, calls BarStore.get through
+  // the configured provider chain, posts a coverage report back via
+  // /api/ops/complete-data/{id}.
+  runDataBackfill: (payload: {
+    canonical: string;
+    asset_class: string;
+    resolution: string;
+    from: string;            // YYYY-MM-DD or "today"
+    to?: string;             // YYYY-MM-DD or "today"; defaults to today
+    allow_partial?: boolean; // defaults to true; opt out to fail-loud on gaps
+  }) =>
+    post<{
+      request_id: string;
+      kind: string;
+      state: string;
+      params: Record<string, unknown>;
+      requested_at_utc: string;
+      result_summary: unknown;
+      error: string | null;
+    }, typeof payload>("/api/ops/run-data-backfill", payload),
   cancelOpsSession: (requestId: string) =>
     post<unknown, {}>(
       `/api/ops/sessions/${encodeURIComponent(requestId)}/cancel`, {}),

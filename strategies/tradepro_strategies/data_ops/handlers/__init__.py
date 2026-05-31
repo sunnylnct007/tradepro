@@ -10,6 +10,7 @@ its registered name.
 """
 from __future__ import annotations
 
+from .backfill import BackfillHandler  # noqa: F401 — registers
 from .validate import ValidateHandler  # noqa: F401 — registers
 
-__all__ = ["ValidateHandler"]
+__all__ = ["BackfillHandler", "ValidateHandler"]

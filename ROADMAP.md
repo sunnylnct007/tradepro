@@ -668,16 +668,30 @@ remaining op kinds as new files under `data_ops/handlers/`.
     via `install-launchd.sh --data-worker`.
   - 7 BDD scenarios in `data_worker.feature` covering dispatch,
     handler shape, unregistered kinds, registry, storage describe.
-- **C-Backfill** (next slice):
-  - New handler under `data_ops/handlers/backfill.py` registered as
-    `data_backfill`. Calls `BarStore.get(...)` for the requested
-    (canonical, asset_class, resolution, range), honours the
-    provider chain.
-  - Backend `POST /api/ops/run-data-backfill` mirroring the
-    validate endpoint. Polling reuses `/poll-data`.
-  - UI: per-row "Backfill missing" button with payload-preview confirm.
-  - Rate-limit guard (token bucket per provider).
-- **C-Reload** (subsequent):
+- **C-Backfill SHIPPED (this PR)**:
+  - `BackfillHandler` under `data_ops/handlers/backfill.py`
+    registered as `data_backfill`. Calls `BarStore.get(...)` for the
+    requested (canonical, asset_class, resolution, range), honours
+    the provider chain (yfinance + IG today), wires up
+    `BackendTelemetrySink` + `PreferencesLoader` when `api_base` is
+    set.
+  - Reports `partitions_before / partitions_after / partitions_added`
+    in the result detail so the cockpit shows "did anything change?"
+    without a separate validate call.
+  - Backend `POST /api/ops/run-data-backfill` with light-touch
+    payload validation (required fields + date format). Polling
+    reuses `/poll-data`.
+  - Frontend `api.runDataBackfill` + Backfill button per row in
+    the Bar cache activity panel. Two-step UX (date range prompt
+    → payload-preview confirm).
+  - 5 new BDD scenarios: happy path (empty cache → populated),
+    missing params, unparseable date, to-before-from rejection,
+    registry coherence.
+  - Operator value: clicks Backfill → multi-year SPY history
+    populates via the configured provider chain (yfinance falls
+    back to IG /prices on 7-day ceiling). **First end-to-end
+    operator-actionable data fetch through the trustworthy layer.**
+- **C-Reload** (next slice):
   - Destructive: force re-fetch + overwrite. Modal + reason text.
   - Handler under `data_ops/handlers/reload.py`.
 - **C-Repartition**, **C-Purge**: future slices.

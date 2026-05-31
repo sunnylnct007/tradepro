@@ -217,6 +217,7 @@ public static class OpsEndpoints
         // /complete-data/{requestId}.
 
         const string DataValidateKind = "data_validate";
+        const string DataBackfillKind = "data_backfill";
 
         group.MapPost("/run-data-validate", (JsonElement payload, ISessionRequestsStore store) =>
         {
@@ -232,6 +233,40 @@ public static class OpsEndpoints
                 || string.IsNullOrWhiteSpace(assetClass.GetString()))
                 return Results.BadRequest(new { error = "asset_class required" });
             var req = store.Put(DataValidateKind, payload);
+            return Results.Ok(Envelope(req));
+        });
+
+        // ─── Phase C-Backfill: enqueue a data_backfill op ───────────
+        // Requires more fields than validate — the worker calls
+        // BarStore.get(canonical, asset_class, resolution, start, end)
+        // which is meaningless without all four.
+        //
+        // Date format validation is intentionally cheap (parse + reject)
+        // rather than business-rule (e.g. "from must be a trading day").
+        // The worker enforces real semantics; here we just keep
+        // unprocessable junk out of the queue.
+        group.MapPost("/run-data-backfill", (JsonElement payload, ISessionRequestsStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            if (!TryReadNonEmptyString(payload, "canonical", out var canonical))
+                return Results.BadRequest(new { error = "canonical required" });
+            if (!TryReadNonEmptyString(payload, "asset_class", out var assetClass))
+                return Results.BadRequest(new { error = "asset_class required" });
+            if (!TryReadNonEmptyString(payload, "resolution", out var resolution))
+                return Results.BadRequest(new { error = "resolution required (e.g. '1m', '1d')" });
+            if (!TryReadNonEmptyString(payload, "from", out var fromDate))
+                return Results.BadRequest(new { error = "from required (YYYY-MM-DD)" });
+            if (!IsValidDateOrToday(fromDate))
+                return Results.BadRequest(new { error = "from must be YYYY-MM-DD or 'today'" });
+            if (payload.TryGetProperty("to", out var toEl)
+                && toEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(toEl.GetString())
+                && !IsValidDateOrToday(toEl.GetString()!))
+            {
+                return Results.BadRequest(new { error = "to must be YYYY-MM-DD or 'today'" });
+            }
+            var req = store.Put(DataBackfillKind, payload);
             return Results.Ok(Envelope(req));
         });
 
@@ -318,4 +353,37 @@ public static class OpsEndpoints
 
     private static string ReadStringOrDefault(JsonElement el, string key, string fallback)
         => JsonbHelpers.ReadString(el, key) ?? fallback;
+
+    // ── Light-touch payload validation helpers (Phase C-Backfill) ──
+    // Keep enqueue-time checks cheap — the worker enforces business
+    // semantics (date is a trading day, range fits provider depth,
+    // etc.). The API just refuses payloads that would crash the
+    // worker before it gets to handle them.
+
+    private static bool TryReadNonEmptyString(JsonElement el, string key, out string value)
+    {
+        if (el.TryGetProperty(key, out var prop)
+            && prop.ValueKind == JsonValueKind.String)
+        {
+            var s = prop.GetString();
+            if (!string.IsNullOrWhiteSpace(s))
+            {
+                value = s;
+                return true;
+            }
+        }
+        value = string.Empty;
+        return false;
+    }
+
+    private static bool IsValidDateOrToday(string s)
+    {
+        if (string.Equals(s, "today", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return DateTime.TryParseExact(
+            s, "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out _);
+    }
 }

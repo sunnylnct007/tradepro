@@ -608,7 +608,7 @@ function BarCacheActivityPanel() {
 }
 
 function HealthRow({ row }: { row: BarHealth }) {
-  const [validating, setValidating] = useState(false);
+  const [busyKind, setBusyKind] = useState<"validate" | "backfill" | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const onValidate = async () => {
@@ -619,7 +619,7 @@ function HealthRow({ row }: { row: BarHealth }) {
       `Non-destructive — only reads files.`,
     );
     if (!ok) return;
-    setValidating(true);
+    setBusyKind("validate");
     setFeedback(null);
     try {
       const res = await api.runDataValidate({
@@ -630,16 +630,70 @@ function HealthRow({ row }: { row: BarHealth }) {
     } catch (e) {
       setFeedback(String(e));
     } finally {
-      setValidating(false);
+      setBusyKind(null);
     }
   };
+
+  const onBackfill = async () => {
+    // Reasonable defaults: pick up from the existing coverage_end_date
+    // when present, otherwise default to one year back. The operator
+    // can override either with prompt() inputs (good enough for v1;
+    // a proper modal lands in a follow-up if the field overhead bites).
+    const today = new Date().toISOString().slice(0, 10);
+    const defaultFrom = row.coverage_end_date ?? _oneYearAgoIso();
+    const fromDate = window.prompt(
+      `Backfill ${row.canonical} (${row.asset_class}) starting from which date?\n` +
+      `Format: YYYY-MM-DD`,
+      defaultFrom,
+    );
+    if (fromDate == null || !fromDate.trim()) return;
+    const toDate = window.prompt(
+      `…up to which date?\nFormat: YYYY-MM-DD (or leave as today)`,
+      today,
+    );
+    if (toDate == null || !toDate.trim()) return;
+    const resolution = window.prompt(
+      `Which resolution? (1m / 5m / 15m / 30m / 1h / 1d)`,
+      row.last_fetched_resolution ?? "1d",
+    );
+    if (resolution == null || !resolution.trim()) return;
+    const confirmed = window.confirm(
+      `Enqueue a data_backfill op?\n\n` +
+      `  ${row.canonical} (${row.asset_class}) @ ${resolution.trim()}\n` +
+      `  ${fromDate.trim()} → ${toDate.trim()}\n\n` +
+      `The Mac data-worker will fetch bars through the configured ` +
+      `provider chain (see Provider preferences above). Additive — ` +
+      `existing partitions are not overwritten.`,
+    );
+    if (!confirmed) return;
+    setBusyKind("backfill");
+    setFeedback(null);
+    try {
+      const res = await api.runDataBackfill({
+        canonical: row.canonical,
+        asset_class: row.asset_class,
+        resolution: resolution.trim(),
+        from: fromDate.trim(),
+        to: toDate.trim(),
+      });
+      setFeedback(`✓ queued (${res.request_id.slice(0, 8)}…)`);
+    } catch (e) {
+      setFeedback(String(e));
+    } finally {
+      setBusyKind(null);
+    }
+  };
+
+  const validateBusy = busyKind === "validate";
+  const backfillBusy = busyKind === "backfill";
+  const anyBusy = busyKind !== null;
 
   return (
     <div
       style={{
         display: "grid",
         gridTemplateColumns:
-          "100px 80px 100px 120px 110px 110px 70px 90px",
+          "100px 80px 100px 120px 110px 110px 70px 140px",
         gap: 8, alignItems: "center",
         padding: "6px 0",
         borderTop: "1px solid var(--border)",
@@ -678,20 +732,36 @@ function HealthRow({ row }: { row: BarHealth }) {
         {row.missing_days_count}
       </span>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-        <button
-          disabled={validating}
-          onClick={onValidate}
-          style={{
-            padding: "3px 8px", fontSize: 10, fontWeight: 600,
-            border: "1px solid var(--border)", borderRadius: 3,
-            background: "transparent",
-            color: validating ? "var(--text-muted)" : "var(--text)",
-            cursor: validating ? "default" : "pointer",
-          }}
-          title="Enqueue a data_validate op for this symbol"
-        >
-          {validating ? "Queuing…" : "Validate"}
-        </button>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            disabled={anyBusy}
+            onClick={onValidate}
+            style={{
+              padding: "3px 8px", fontSize: 10, fontWeight: 600,
+              border: "1px solid var(--border)", borderRadius: 3,
+              background: "transparent",
+              color: anyBusy ? "var(--text-muted)" : "var(--text)",
+              cursor: anyBusy ? "default" : "pointer",
+            }}
+            title="Enqueue a data_validate op for this symbol"
+          >
+            {validateBusy ? "Queuing…" : "Validate"}
+          </button>
+          <button
+            disabled={anyBusy}
+            onClick={onBackfill}
+            style={{
+              padding: "3px 8px", fontSize: 10, fontWeight: 600,
+              border: "1px solid var(--border)", borderRadius: 3,
+              background: "transparent",
+              color: anyBusy ? "var(--text-muted)" : "var(--text)",
+              cursor: anyBusy ? "default" : "pointer",
+            }}
+            title="Enqueue a data_backfill op for this symbol (additive)"
+          >
+            {backfillBusy ? "Queuing…" : "Backfill"}
+          </button>
+        </div>
         {feedback && (
           <span style={{
             fontSize: 9,
@@ -703,6 +773,12 @@ function HealthRow({ row }: { row: BarHealth }) {
       </div>
     </div>
   );
+}
+
+function _oneYearAgoIso(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 // ─── Backfill panel (Phase-A placeholder) ────────────────────────────

@@ -282,3 +282,117 @@ def step_kinds_include(context, kind: str):
 def step_storage_describe(context, backend: str):
     storage = _ensure_storage(context)
     assert storage.describe().get("backend") == backend, storage.describe()
+
+
+# ─── Phase C-Backfill scenarios ──────────────────────────────────
+
+
+@given("a synthetic yfinance provider returning a full December 2024 month")
+def step_synthetic_yfinance(context):
+    """Register a YFinanceProvider with an injected fetcher so the
+    BackfillHandler's BarStore call lands on synthetic data. Same
+    pattern the bar_cache.feature §1 happy-path scenarios use."""
+    _clear_registry_for_tests()
+
+    cur = date(2024, 12, 2)
+    dates = []
+    while cur <= date(2024, 12, 31):
+        if cur.weekday() < 5 and cur != date(2024, 12, 25):
+            dates.append(cur)
+        cur += timedelta(days=1)
+    full_df = _build_dec_2024_frame(dates)
+
+    def fake_fetch(symbol, interval, start, end):
+        return full_df[(full_df.index >= start) & (full_df.index < end)]
+
+    register_provider(YFinanceProvider(_fetch_fn=fake_fetch))
+
+
+@when(
+    "I dispatch a data_backfill request for SPY us_etf 1m "
+    "{from_y:d}-{from_m:d}-{from_d:d} to "
+    "{to_y:d}-{to_m:d}-{to_d:d}"
+)
+def step_dispatch_backfill(
+    context, from_y, from_m, from_d, to_y, to_m, to_d,
+):
+    storage = _ensure_storage(context)
+    context.dop_result = dispatch(
+        DataOpRequest(
+            request_id="r-backfill",
+            kind="data_backfill",
+            params={
+                "canonical": "SPY",
+                "asset_class": "us_etf",
+                "resolution": "1m",
+                "from": f"{from_y:04d}-{from_m:02d}-{from_d:02d}",
+                "to":   f"{to_y:04d}-{to_m:02d}-{to_d:02d}",
+            },
+        ),
+        storage,
+    )
+
+
+@when("I dispatch a data_backfill request with empty params")
+def step_dispatch_backfill_empty(context):
+    storage = _ensure_storage(context)
+    context.dop_result = dispatch(
+        DataOpRequest(
+            request_id="r-empty-backfill",
+            kind="data_backfill",
+            params={},
+        ),
+        storage,
+    )
+
+
+@when(
+    'I dispatch a data_backfill request for SPY us_etf 1m with from "{bad_date}"'
+)
+def step_dispatch_backfill_bad_date(context, bad_date: str):
+    storage = _ensure_storage(context)
+    context.dop_result = dispatch(
+        DataOpRequest(
+            request_id="r-bad-date",
+            kind="data_backfill",
+            params={
+                "canonical": "SPY",
+                "asset_class": "us_etf",
+                "resolution": "1m",
+                "from": bad_date,
+                "to": "2024-12-31",
+            },
+        ),
+        storage,
+    )
+
+
+@then('the data op result summary contains "{phrase}"')
+def step_summary_contains(context, phrase: str):
+    assert phrase in context.dop_result.summary, (
+        f"summary {context.dop_result.summary!r} does not contain {phrase!r}"
+    )
+
+
+@then("the data op result detail partitions_before is {n:d}")
+def step_partitions_before(context, n: int):
+    actual = context.dop_result.detail.get("partitions_before")
+    assert actual == n, f"partitions_before {actual} != {n}"
+
+
+@then("the data op result detail partitions_after is {n:d}")
+def step_partitions_after(context, n: int):
+    actual = context.dop_result.detail.get("partitions_after")
+    assert actual == n, f"partitions_after {actual} != {n}"
+
+
+@then("the data op result detail partitions_added is {n:d}")
+def step_partitions_added(context, n: int):
+    actual = context.dop_result.detail.get("partitions_added")
+    assert actual == n, f"partitions_added {actual} != {n}"
+
+
+@then('the data op result detail missing includes "{field}"')
+def step_detail_missing_includes(context, field: str):
+    missing = context.dop_result.detail.get("missing") or []
+    assert field in missing, f"{field!r} not in missing list {missing}"
