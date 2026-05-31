@@ -577,8 +577,12 @@ public sealed class PostgresOmsService : IOmsService
         // Sign-flip the SELL fills so the SUM yields signed net qty.
         // Weighted avg = SUM(qty * price) / SUM(qty) on the absolute
         // qty so a zero-net position doesn't divide by zero.
+        // No strategy filter → ALL positions, INCLUDING strategy-less ones
+        // (broker-level reconcile/manual adjustments have strategy_id=NULL;
+        // the old `IS NOT NULL` hid them, so "Sync OMS ← broker" wrote 21
+        // fills that never showed up in the positions view).
         var (where, args) = strategyId is null
-            ? ("WHERE o.strategy_id IS NOT NULL", (object)new { })
+            ? ("", (object)new { })
             : ("WHERE o.strategy_id = @sid", (object)new { sid = strategyId });
         var rows = await conn.QueryAsync<OmsPosition>($@"
             SELECT
