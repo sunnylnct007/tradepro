@@ -120,6 +120,21 @@ public sealed class RiskGate
                     $"FX market is closed (weekend) — refusing {order.Symbol}"));
             }
 
+            // Gate 3b-ii: US equity market hours. Orders placed after the
+            // cash-session close (or pre-open / weekend) don't fill — they
+            // sit SUBMITTED queued for the next open (the exact cause of the
+            // 10 stuck ichimoku_equity orders placed at 20:47 UTC, after the
+            // 20:00 UTC EDT close). The trader's rule: "if market is closed,
+            // don't send the order." Wall-clock now, converted to NY so it's
+            // DST-correct (close is 20:00 UTC in summer, 21:00 UTC in winter).
+            if (IsUsEquitySymbol(order.Symbol) && !UsEquityMarketOpenUtc(DateTime.UtcNow))
+            {
+                failures.Add(new RiskFailure(
+                    "market_closed",
+                    $"US equity market is closed — refusing {order.Symbol} "
+                    + "(would queue unfilled until next open)"));
+            }
+
             // Gate 3c: broker capability — Trading 212's public API is
             // Invest-only (equities + ETFs); it CANNOT trade FX/CFD. An FX
             // order routed to T212 (mis-config, or a manual trigger that
@@ -154,6 +169,38 @@ public sealed class RiskGate
                         + $"on {order.Symbol} below veto threshold "
                         + $"{settings.SentimentBuyVetoScore:F2}; "
                         + $"scored {sent.Value.ageMinutes:F0}min ago"));
+                }
+            }
+
+            // Gate 4-floor: hard minimum free cash. Runs even PRE-FILL (no
+            // price needed), unlike the notional cash_check below which is
+            // skipped until an order has a price. A near-empty demo account
+            // blocks new BUYs LOCALLY with a clear reason instead of firing
+            // a whole basket that T212 rejects en masse with
+            // insufficient-free-for-stocks (the zero-fill root cause). 0
+            // disables it (operator-tunable via risk_min_free_to_trade_usd).
+            if (settings.MinFreeToTradeUsd > 0
+                && string.Equals(order.Broker, "T212_DEMO", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(order.Side, "BUY", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var cash = await _cashCache.GetAsync(ct);
+                    if (cash.Free is decimal free)
+                    {
+                        context["t212_free"] = free;
+                        if (free < (decimal)settings.MinFreeToTradeUsd)
+                        {
+                            failures.Add(new RiskFailure(
+                                "buying_power_floor",
+                                $"T212 demo free {free:C0} below minimum {settings.MinFreeToTradeUsd:C0} "
+                                + "to trade — top up / reset the demo account"));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "buying_power_floor failed to evaluate");
                 }
             }
 
@@ -249,6 +296,47 @@ public sealed class RiskGate
         _ => true,
     };
 
+    // US equity = T212 "AAPL_US_EQ" / any "<TICKER>_EQ" form. NOT FX
+    // (6-letter pairs are caught by IsFxSymbol first). Bare tickers are
+    // ambiguous (could be UK/other), so we only gate the explicit US_EQ
+    // form the equity strategies actually emit — conservative on purpose.
+    private static bool IsUsEquitySymbol(string symbol)
+    {
+        var s = (symbol ?? "").ToUpperInvariant();
+        return s.EndsWith("_US_EQ") || s.EndsWith("_EQ");
+    }
+
+    private static readonly TimeZoneInfo? _nyTz = ResolveNyTz();
+    private static TimeZoneInfo? ResolveNyTz()
+    {
+        foreach (var id in new[] { "America/New_York", "Eastern Standard Time" })
+        {
+            try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+            catch { /* try next */ }
+        }
+        return null;
+    }
+
+    // US cash session: 09:30–16:00 America/New_York, weekdays. Converting
+    // UTC→NY keeps it DST-correct without hardcoding the seasonal UTC
+    // offset. Holidays are not modelled — a holiday order just queues,
+    // which is a minor, safe degradation. If the tz database is missing
+    // (shouldn't happen on the EC2 image), fall back to the EDT window so
+    // we still gate the common (summer) case rather than failing open.
+    private static bool UsEquityMarketOpenUtc(DateTime nowUtc)
+    {
+        DateTime ny;
+        if (_nyTz is not null)
+            ny = TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc), _nyTz);
+        else
+            ny = nowUtc.AddHours(-4); // EDT fallback
+
+        if (ny.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return false;
+        var mins = ny.Hour * 60 + ny.Minute;
+        return mins >= 9 * 60 + 30 && mins < 16 * 60;
+    }
+
     private async Task<string?> IsBlacklistedAsync(string symbol)
     {
         await using var conn = await _db.OpenConnectionAsync();
@@ -289,6 +377,7 @@ public sealed class RiskGate
                 'risk_max_order_notional_usd',
                 'risk_max_orders_per_minute',
                 'risk_cash_safety_margin',
+                'risk_min_free_to_trade_usd',
                 'risk_fail_closed',
                 'risk_sentiment_buy_veto_score',
                 'risk_sentiment_max_age_minutes'
@@ -306,6 +395,10 @@ public sealed class RiskGate
             MaxOrderNotionalUsd: Parse("risk_max_order_notional_usd", 0m),
             MaxOrdersPerMinute: Parse("risk_max_orders_per_minute", 0),
             CashSafetyMargin: Parse("risk_cash_safety_margin", 0.0),
+            // 0 disables the floor (operator opts in). When set, blocks new
+            // BUYs whenever T212 demo free cash is below this — the local
+            // backstop for buying-power exhaustion.
+            MinFreeToTradeUsd: Parse("risk_min_free_to_trade_usd", 0.0),
             FailClosed: Parse("risk_fail_closed", true),
             // 0 disables the sentiment veto entirely (useful while the
             // local LLM is calibrating + we haven't seen real signal
@@ -400,6 +493,7 @@ public sealed class RiskGate
         decimal MaxOrderNotionalUsd,
         int MaxOrdersPerMinute,
         double CashSafetyMargin,
+        double MinFreeToTradeUsd,
         bool FailClosed,
         double SentimentBuyVetoScore,
         int SentimentMaxAgeMinutes);
