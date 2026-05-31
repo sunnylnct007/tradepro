@@ -446,6 +446,137 @@ public sealed class IGClient
                 Array.Empty<IGMarketMatch>(), ex.Message, (int)resp.StatusCode);
         }
     }
+
+    // ─── Historical prices ──────────────────────────────────────
+    //
+    // GET /prices/{epic}?resolution=&from=&to=&max= — multi-resolution
+    // historical bars. The endpoint counts each bar against the
+    // demo account's weekly allowance (typically 10k datapoints/week);
+    // exceeding it returns 403 with errorCode = exceeded.allowance,
+    // which we surface as HttpStatus 403 + Error so callers can
+    // back off + try yfinance for the same range.
+    //
+    // Resolutions accepted: MINUTE / MINUTE_2 / MINUTE_3 / MINUTE_5 /
+    // MINUTE_10 / MINUTE_15 / MINUTE_30 / HOUR / HOUR_2 / HOUR_3 /
+    // HOUR_4 / DAY / WEEK / MONTH. The Python BarStore maps the
+    // canonical resolutions (1m / 5m / 1h / 1d) to IG's strings.
+    //
+    // The response shape varies between API versions; we use v3 which
+    // returns ``prices: [{ snapshotTime, openPrice {bid, ask, lastTraded}, ... }]``.
+    // For US equity bars (Phase B-4 first use) we take lastTraded as
+    // OHLC and lastTradedVolume as the volume.
+
+    /// <summary>GET /prices/{epic} — historical bars at a resolution
+    /// over a date range. ``from`` and ``to`` are ISO 8601 strings;
+    /// ``max`` caps the response count (IG default 10, we send a
+    /// large enough cap to cover a typical month of 1m bars). Returns
+    /// the bars + the consumed allowance count from the response
+    /// metadata.</summary>
+    public async Task<IGPricesResult> GetPricesAsync(
+        string epic, string resolution, string from, string to,
+        int max = 5000,
+        CancellationToken ct = default)
+    {
+        if (!IsEnabled)
+        {
+            return new IGPricesResult(
+                Bars: Array.Empty<IGPriceBar>(),
+                AllowanceRemaining: null, AllowanceTotal: null,
+                Error: "IG disabled", HttpStatus: 503);
+        }
+
+        // Use v3 explicitly — earlier versions return a different
+        // shape and lose the allowance metadata we want for telemetry.
+        var path = $"prices/{Uri.EscapeDataString(epic)}" +
+                   $"?resolution={Uri.EscapeDataString(resolution)}" +
+                   $"&from={Uri.EscapeDataString(from)}" +
+                   $"&to={Uri.EscapeDataString(to)}" +
+                   $"&max={max}";
+        using var resp = await SendWithAuthAsync(
+            HttpMethod.Get, path, null, version: "3", ct);
+        var text = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            return new IGPricesResult(
+                Bars: Array.Empty<IGPriceBar>(),
+                AllowanceRemaining: null, AllowanceTotal: null,
+                Error: text, HttpStatus: (int)resp.StatusCode);
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            // Allowance — best-effort; missing fields stay null.
+            int? remaining = null;
+            int? total = null;
+            if (root.TryGetProperty("allowance", out var allowance))
+            {
+                if (allowance.TryGetProperty("remainingAllowance", out var ra))
+                    remaining = ra.GetInt32();
+                if (allowance.TryGetProperty("totalAllowance", out var ta))
+                    total = ta.GetInt32();
+            }
+            var bars = new List<IGPriceBar>();
+            if (root.TryGetProperty("prices", out var prices)
+                && prices.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var p in prices.EnumerateArray())
+                {
+                    bars.Add(ParseBar(p));
+                }
+            }
+            return new IGPricesResult(
+                Bars: bars,
+                AllowanceRemaining: remaining,
+                AllowanceTotal: total,
+                Error: null,
+                HttpStatus: (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IGPricesResult(
+                Bars: Array.Empty<IGPriceBar>(),
+                AllowanceRemaining: null, AllowanceTotal: null,
+                Error: ex.Message, HttpStatus: (int)resp.StatusCode);
+        }
+    }
+
+    private static IGPriceBar ParseBar(JsonElement p)
+    {
+        // Each price has openPrice / closePrice / highPrice / lowPrice
+        // as objects { bid, ask, lastTraded } — we take lastTraded for
+        // equity bars (the right call for FX would be mid; that comes
+        // later when fx_spot is a real asset class).
+        decimal? Pick(string prop, string field)
+        {
+            if (p.TryGetProperty(prop, out var obj)
+                && obj.ValueKind == JsonValueKind.Object
+                && obj.TryGetProperty(field, out var v)
+                && v.ValueKind == JsonValueKind.Number)
+                return v.GetDecimal();
+            return null;
+        }
+        var snapshotTime = p.TryGetProperty("snapshotTime", out var t)
+            ? t.GetString() : null;
+        var openLast = Pick("openPrice", "lastTraded");
+        var highLast = Pick("highPrice", "lastTraded");
+        var lowLast = Pick("lowPrice", "lastTraded");
+        var closeLast = Pick("closePrice", "lastTraded");
+        long? volume = null;
+        if (p.TryGetProperty("lastTradedVolume", out var vol)
+            && vol.ValueKind == JsonValueKind.Number)
+        {
+            try { volume = vol.GetInt64(); }
+            catch { volume = (long)vol.GetDouble(); }
+        }
+        return new IGPriceBar(
+            SnapshotTime: snapshotTime ?? "",
+            Open: openLast ?? 0m,
+            High: highLast ?? 0m,
+            Low: lowLast ?? 0m,
+            Close: closeLast ?? 0m,
+            Volume: volume ?? 0L);
+    }
 }
 
 // ─── DTOs ──────────────────────────────────────────────────────
@@ -485,5 +616,20 @@ public sealed record IGMarketMatch(
 
 public sealed record IGMarketSearchResult(
     IReadOnlyList<IGMarketMatch> Matches,
+    string? Error,
+    int HttpStatus);
+
+public sealed record IGPriceBar(
+    string SnapshotTime,         // "2024-12-23T14:30:00" — IG's local TZ; UTC when account is set so
+    decimal Open,
+    decimal High,
+    decimal Low,
+    decimal Close,
+    long Volume);
+
+public sealed record IGPricesResult(
+    IReadOnlyList<IGPriceBar> Bars,
+    int? AllowanceRemaining,     // datapoints left this week (demo cap ~10k)
+    int? AllowanceTotal,
     string? Error,
     int HttpStatus);

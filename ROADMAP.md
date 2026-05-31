@@ -535,11 +535,19 @@ rows from the same queue — no new schema, no new infra.
   — HTTP failure or missing row falls back to the BarStore default
   chain. Telemetry breadcrumb (`chain_source: preferences|default`)
   on every fetch. Manifest records the actually-resolved chain.
-- **B-4**: additional plugins (`us_equity`, `fx_spot`) + additional
-  providers (`ig` via /prices, `finnhub`). With B-3 shipped, an
-  operator adds a provider to the chain via the Settings panel and
-  it's live on the next fetch — no code change at the preferences
-  layer is required.
+- **B-4 SHIPPED (this PR)**: IG `/prices` wired as a second provider.
+  IGClient.cs gains GetPricesAsync; new GET
+  `/api/admin/data-trust/ig/prices` proxy endpoint; Python IGProvider
+  uses IGEpicMap for canonical → epic resolution; migration 033 seeds
+  `us_etf 1m + 1h` chain to `['yfinance', 'ig']`. With B-3's chain
+  resolver, the BarStore now actually falls through on yfinance
+  rate-limit. **§L1 downgraded from CRITICAL to HIGH** —
+  multi-year 1m equity history is reachable for symbols with
+  populated IG epics.
+- **B-4 follow-ups** (separate PRs):
+  - `us_equity` plugin (single names beyond ETFs)
+  - `fx_spot` plugin with bid/ask schema (not lastTraded)
+  - `finnhub` provider for a third source on US equities
 - **B-5** (was B-2 in the original plan): strategy opt-in.
   `intraday_flat` consumes BarStore via a feature flag; backward-
   compatible with existing `cache.py`. Deferred until B-4 ships

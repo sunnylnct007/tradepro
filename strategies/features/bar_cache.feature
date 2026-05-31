@@ -159,3 +159,35 @@ Feature: Trustworthy bar cache (Phase B-1)
     And I clear the PreferencesLoader cache
     And I call chain_for us_etf 1m
     Then the HTTP getter received exactly 2 requests
+
+  # ──────────────────────────────────────────────────────────────────
+  # Section 7: Multi-provider chain failover (Phase B-4)
+  # ──────────────────────────────────────────────────────────────────
+  # IGProvider proxies through the backend's /ig/prices endpoint. With
+  # the loader providing chain=['yfinance', 'ig'], the BarStore tries
+  # yfinance first; on rate-limit / parse error it falls through to
+  # IG. Both providers can be tested with synthetic HTTP / fetch stubs.
+
+  Scenario: yfinance rate-limited → IG fills the gap
+    Given a PreferencesLoader returning ["yfinance", "ig"] for us_etf 1m
+    And a provider "yfinance" raising rate_limit
+    And a provider "ig" returning a full December 2024 month for SPY
+    When I get SPY us_etf 1m bars for full December 2024 via the BarStore with that loader
+    Then the BarFrame coverage_complete is True
+    And the chain shows yfinance_rate_limit before ig_ok
+    And the manifest's provider_used is "ig"
+
+  Scenario: both providers fail → NoProviderAvailableError
+    Given a PreferencesLoader returning ["yfinance", "ig"] for us_etf 1m
+    And a provider "yfinance" raising rate_limit
+    And a provider "ig" raising rate_limit
+    When I get SPY us_etf 1m bars for full December 2024 via the BarStore with that loader
+    Then a BarFetchError is raised with error_class "no_provider"
+
+  Scenario: yfinance succeeds first → IG is never called
+    Given a PreferencesLoader returning ["yfinance", "ig"] for us_etf 1m
+    And a provider "yfinance" returning a full December 2024 month
+    And a recording IG provider that counts calls
+    When I get SPY us_etf 1m bars for full December 2024 via the BarStore with that loader
+    Then the BarFrame coverage_complete is True
+    And the recording IG provider was called 0 times
