@@ -246,31 +246,59 @@ export function OmsOrders() {
     "unapprovable_pending_gates_block",
     "broker_not_found_assume_terminal",
   ];
+  // Position-sync (reconcile) rows are NOT real fills: the
+  // /oms/positions/sync-from-broker flow writes a synthetic FILLED order
+  // (placed_by=HUMAN, no strategy, actor "oms-sync", brokerFillId
+  // "reconcile-…") purely to make OMS-derived positions match the broker.
+  // Counting them as FILLED inflated the pill to 119 and made it look
+  // like strategies traded when they didn't. Treat them as noise: out of
+  // the pill counts + hidden unless "Show noise" is on. (The orders-list
+  // row doesn't carry actor/brokerFillId, so we key on the stable
+  // signature FILLED + HUMAN + no strategy.)
+  const isReconcileFill = (o: OmsOrderRow) =>
+    o.state === "FILLED" && o.placedBy === "HUMAN" && !o.strategyId;
+  const isNoise = (o: OmsOrderRow) =>
+    isReconcileFill(o)
+    || (o.state === "CANCELLED"
+        && !!o.cancelledReason
+        && NOISE_REASONS.some((n) => o.cancelledReason!.includes(n)));
+
+  // De-noised base: when "Hide noise" is on (default), drop reconcile
+  // fills + noise-cancellations BEFORE computing both the pill counts and
+  // the table, so the FILLED pill reflects real fills and the table
+  // matches it. State-filter toggles still survive (counts come from this
+  // base, not from the already state-filtered visible set).
+  const denoised = useMemo(
+    () => (hideNoiseCancellations ? orders.filter((o) => !isNoise(o)) : orders),
+    [orders, hideNoiseCancellations],
+  );
+
   const visibleOrders = useMemo(() => {
-    return orders.filter((o) => {
+    return denoised.filter((o) => {
       if (strategyFilter && o.strategyId !== strategyFilter) return false;
       if (filterStates.size > 0 && !filterStates.has(o.state as OmsState)) return false;
-      if (hideNoiseCancellations && o.state === "CANCELLED"
-          && o.cancelledReason
-          && NOISE_REASONS.some((n) => o.cancelledReason!.includes(n))) {
-        return false;
-      }
       return true;
     });
-  }, [orders, strategyFilter, filterStates, hideNoiseCancellations]);
+  }, [denoised, strategyFilter, filterStates]);
 
-  // Totals are computed from the full (strategy-scoped) order set,
-  // NOT from visibleOrders, so each pill's count survives a state-
-  // filter toggle. Strategy filter still applies — when scoped to
-  // one strategy, the pills show that strategy's state breakdown.
+  // Totals come from the de-noised, strategy-scoped set (NOT the
+  // state-filtered visible set) so each pill's count survives a state
+  // toggle while still excluding position-sync noise.
   const totals = useMemo(() => {
     const scope = strategyFilter
-      ? orders.filter((o) => o.strategyId === strategyFilter)
-      : orders;
+      ? denoised.filter((o) => o.strategyId === strategyFilter)
+      : denoised;
     const by: Record<string, number> = {};
     for (const o of scope) by[o.state] = (by[o.state] || 0) + 1;
     return by;
-  }, [orders, strategyFilter]);
+  }, [denoised, strategyFilter]);
+
+  // How many position-sync rows are currently folded away — shown on the
+  // noise toggle so the count isn't silently hidden.
+  const reconcileCount = useMemo(
+    () => orders.filter(isReconcileFill).length,
+    [orders],
+  );
 
   return (
     <div style={{ padding: 24 }}>
@@ -365,13 +393,17 @@ export function OmsOrders() {
             color: hideNoiseCancellations ? "var(--text-dim)" : "var(--text)",
           }}
           title={
-            "Toggle visibility of low-signal cancellations: "
-            + "'superseded by newer order' (OMS supersede), "
-            + "'unapprovable_pending_gates_block' (gate refused), "
-            + "'broker_not_found_assume_terminal' (poller 404)."
+            "Toggle low-signal rows: position-sync reconcile fills "
+            + "(synthetic FILLED rows that adopt broker positions, not real "
+            + "trades) + low-signal cancellations ('superseded by newer "
+            + "order', 'unapprovable_pending_gates_block', "
+            + "'broker_not_found_assume_terminal')."
           }
         >
           {hideNoiseCancellations ? "Show noise" : "Hide noise"}
+          {reconcileCount > 0 && (
+            <span style={{ opacity: 0.7 }}> ({reconcileCount} sync)</span>
+          )}
         </button>
       </div>
 
@@ -475,6 +507,13 @@ export function OmsOrders() {
                         >
                           {o.strategyId}
                         </Link>
+                      ) : isReconcileFill(o) ? (
+                        <span
+                          style={{ fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}
+                          title="Synthetic reconcile fill — adopts a broker position into OMS; not a real trade."
+                        >
+                          position sync
+                        </span>
                       ) : (
                         "—"
                       )}
