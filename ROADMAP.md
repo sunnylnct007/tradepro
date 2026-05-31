@@ -449,12 +449,26 @@ rows from the same queue — no new schema, no new infra.
   - Operator CLI: `tradepro-bar-cache-get`
   - 9 BDD scenarios covering happy path + failure modes
   - Hardcoded chain `["yfinance"]` (DB-driven chain in B-3)
-- **B-2**: strategy opt-in. intraday_flat consumes BarStore via a
-  feature flag; backward-compatible with existing cache.py.
-- **B-3**: provider chain driven from `data_source_preferences`
-  table — Phase A's editable knob now reaches code.
+- **B-2 SHIPPED (PR #37 / 5d6dc3e)**: telemetry visibility loop. POST
+  `/api/admin/data-trust/bar-cache/events` + GET `/events` + `/health`
+  endpoints; `BackendTelemetrySink` POSTs every fetch; cockpit's
+  "Bar cache activity" panel renders coverage + recent events.
+- **B-3 SHIPPED (this PR)**: provider chain driven from
+  `data_source_preferences` table. `PreferencesLoader` GETs the
+  preferences endpoint with a 60s TTL cache; `BarStore` resolves the
+  chain per (asset_class, resolution) per call. Loader is non-fatal
+  — HTTP failure or missing row falls back to the BarStore default
+  chain. Telemetry breadcrumb (`chain_source: preferences|default`)
+  on every fetch. Manifest records the actually-resolved chain.
 - **B-4**: additional plugins (`us_equity`, `fx_spot`) + additional
-  providers (`ig` via /prices, `finnhub`).
+  providers (`ig` via /prices, `finnhub`). With B-3 shipped, an
+  operator adds a provider to the chain via the Settings panel and
+  it's live on the next fetch — no code change at the preferences
+  layer is required.
+- **B-5** (was B-2 in the original plan): strategy opt-in.
+  `intraday_flat` consumes BarStore via a feature flag; backward-
+  compatible with existing `cache.py`. Deferred until B-4 ships
+  multi-provider coverage so the opt-in actually buys something.
 
 **Phase C — Operator-facing backfill (UI-FIRST)**
 - New `tradepro-data-worker` daemon polls `session_requests` for

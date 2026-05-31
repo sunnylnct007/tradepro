@@ -119,3 +119,43 @@ Feature: Trustworthy bar cache (Phase B-1)
     When I get SPY us_etf 1m bars for full December 2024 via the backend sink
     Then the BarFrame coverage_complete is True
     And the JSONL fallback file exists
+
+  # ──────────────────────────────────────────────────────────────────
+  # Section 6: DB-driven provider chain (Phase B-3)
+  # ──────────────────────────────────────────────────────────────────
+  # PreferencesLoader pulls the provider chain from the backend's
+  # /api/admin/data-trust/preferences endpoint per (asset_class,
+  # resolution). BarStore uses it when configured; falls back to the
+  # hardcoded default chain when the loader has no opinion or fails.
+
+  Scenario: PreferencesLoader chain takes precedence over the default
+    Given a PreferencesLoader returning ["yfinance"] for us_etf 1m
+    And a provider "yfinance" returning a full December 2024 month
+    When I get SPY us_etf 1m bars for full December 2024 via the BarStore with that loader
+    Then the chain_source breadcrumb in the source_chain is "preferences"
+    And the manifest's provider_chain is ["yfinance"]
+
+  Scenario: Loader miss falls back to the BarStore default chain
+    Given a PreferencesLoader returning no preference for us_etf 1m
+    And a provider "yfinance" returning a full December 2024 month
+    When I get SPY us_etf 1m bars for full December 2024 via the BarStore with that loader
+    Then the chain_source breadcrumb in the source_chain is "default"
+
+  Scenario: Loader HTTP failure falls back to the default chain
+    Given a PreferencesLoader whose HTTP getter raises an exception
+    And a provider "yfinance" returning a full December 2024 month
+    When I get SPY us_etf 1m bars for full December 2024 via the BarStore with that loader
+    Then the chain_source breadcrumb in the source_chain is "default"
+    And the BarFrame coverage_complete is True
+
+  Scenario: PreferencesLoader caches snapshots within its TTL
+    Given a PreferencesLoader with a recording HTTP getter and 60s TTL
+    When I call chain_for us_etf 1m twice in a row
+    Then the HTTP getter received exactly 1 request
+
+  Scenario: PreferencesLoader clear_cache forces a re-fetch
+    Given a PreferencesLoader with a recording HTTP getter and 60s TTL
+    When I call chain_for us_etf 1m
+    And I clear the PreferencesLoader cache
+    And I call chain_for us_etf 1m
+    Then the HTTP getter received exactly 2 requests

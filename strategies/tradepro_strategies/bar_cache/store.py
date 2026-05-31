@@ -56,6 +56,7 @@ from .errors import (
     SchemaVersionMismatch,
 )
 from .manifest import Manifest
+from .preferences import PreferencesLoader
 from .providers import get_provider
 from .telemetry import FetchEvent, NullSink, TelemetrySink
 
@@ -100,13 +101,55 @@ class BarStore:
         *,
         telemetry: Optional[TelemetrySink] = None,
         provider_chain: Optional[list[str]] = None,
+        preferences_loader: Optional[PreferencesLoader] = None,
     ) -> None:
+        """Args:
+            base_dir: where Parquet partitions + manifests live.
+            telemetry: where fetch events are emitted (default NullSink).
+            provider_chain: hardcoded fallback used when no preference
+                is configured for a tuple, or when preferences can't be
+                loaded. Default ``["yfinance"]`` matches Phase B-1.
+            preferences_loader: when provided, the chain for each
+                (asset_class, resolution) is resolved per-call from the
+                backend's data_source_preferences table. Cached inside
+                the loader with a short TTL so the BarStore doesn't
+                HTTP every call. The loader is non-fatal — if it can't
+                deliver a chain for a tuple, the BarStore uses the
+                ``provider_chain`` fallback.
+        """
         self.base_dir = Path(base_dir)
         self.telemetry = telemetry or NullSink()
-        # Hardcoded chain for B-1 — B-3 reads data_source_preferences.
-        self._chain = provider_chain or ["yfinance"]
+        # Default chain when the preferences loader is absent or
+        # silent for a tuple.
+        self._default_chain = provider_chain or ["yfinance"]
+        self._preferences_loader = preferences_loader
 
     # ── Public API ──────────────────────────────────────────────────
+
+    def _chain_for(
+        self, asset_class: str, resolution: str,
+    ) -> tuple[list[str], str]:
+        """Resolve the provider chain for the tuple. Returns
+        ``(chain, source)`` where ``source`` is one of:
+          * ``"preferences"`` — loader supplied a chain
+          * ``"default"`` — fell back to the hardcoded default
+        ``source`` is for the telemetry trail; callers don't branch on
+        it. Phase B-3 introduces this; B-1/B-2 always returned the
+        hardcoded default."""
+        if self._preferences_loader is not None:
+            try:
+                chain = self._preferences_loader.chain_for(
+                    asset_class, resolution,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "preferences chain_for(%s, %s) failed (default chain): %s",
+                    asset_class, resolution, exc,
+                )
+                chain = None
+            if chain:
+                return chain, "preferences"
+        return list(self._default_chain), "default"
 
     def get(
         self,
@@ -355,7 +398,18 @@ class BarStore:
         last_exc: Optional[BarFetchError] = None
         attempted: list[str] = []
 
-        for provider_name in self._chain:
+        chain, chain_source = self._chain_for(asset_class, resolution)
+        # Leave breadcrumb in the audit trail so the cockpit can show
+        # "this fetch used the operator-configured chain" vs "fell
+        # back to default" — both lead the source_chain log when an
+        # operator is debugging "why isn't my new provider being
+        # tried?".
+        chain_log.append(f"chain_source:{chain_source}")
+        # Stash the resolved chain on the call so _write_partition
+        # records it in the manifest.
+        self._resolved_chain_for_call = chain
+
+        for provider_name in chain:
             try:
                 provider = get_provider(provider_name)
             except KeyError:
@@ -474,6 +528,13 @@ class BarStore:
         actual_session_dates = sorted({
             d.isoformat() for d in (df.index.tz_convert("UTC").date if not df.empty else [])
         })
+        # The chain we ACTUALLY tried — may be from preferences
+        # (operator-configured) or the hardcoded default. Recording
+        # the resolved chain (not ``self._default_chain``) keeps the
+        # manifest honest about provenance.
+        resolved_chain = getattr(
+            self, "_resolved_chain_for_call", self._default_chain,
+        )
         manifest = Manifest(
             schema_version=plugin.schema.schema_version,
             canonical=canonical,
@@ -484,7 +545,7 @@ class BarStore:
             expected_session_dates=[d.isoformat() for d in expected_sessions],
             actual_bar_count=int(len(df)),
             actual_session_dates=actual_session_dates,
-            provider_chain=list(self._chain),
+            provider_chain=list(resolved_chain),
             provider_used=provider_used,
             fetched_at_utc=Manifest.now_iso(),
             fetched_by=fetched_by,

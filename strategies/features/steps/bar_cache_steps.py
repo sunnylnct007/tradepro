@@ -542,3 +542,165 @@ def step_coverage_true(context) -> None:
     assert context.result.coverage_complete is True, (
         context.result.coverage_complete
     )
+
+
+# ─── Section 6: DB-driven provider chain (Phase B-3) ──────────────
+
+
+class _RecordingHttpGetter:
+    """Stand-in for ``requests.get`` — records URLs requested and
+    returns a fake-ok response with the configured payload."""
+
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+        self.requests: list[dict] = []
+
+    def __call__(self, url, headers=None, timeout=None):
+        self.requests.append({"url": url, "headers": headers})
+        payload = self._payload
+
+        class _OkResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return payload
+
+        return _OkResponse()
+
+
+class _FailingHttpGetter:
+    def __call__(self, url, headers=None, timeout=None):
+        raise RuntimeError("synthetic preferences-endpoint outage")
+
+
+@given('a PreferencesLoader returning [{provider_csv}] for {asset_class} {resolution}')
+def step_loader_with_chain(context, provider_csv, asset_class, resolution):
+    from tradepro_strategies.bar_cache import PreferencesLoader
+    chain = [p.strip().strip('"') for p in provider_csv.split(",")]
+    payload = {
+        "validProviders": ["yfinance", "ig", "finnhub"],
+        "preferences": [
+            {
+                "asset_class": asset_class,
+                "resolution": resolution,
+                "provider_chain": chain,
+            },
+        ],
+    }
+    context._getter = _RecordingHttpGetter(payload)
+    context.loader = PreferencesLoader(
+        "http://localhost:5252",
+        _http_get=context._getter,
+        ttl_seconds=60,
+    )
+
+
+@given('a PreferencesLoader returning no preference for {asset_class} {resolution}')
+def step_loader_no_preference(context, asset_class, resolution):
+    from tradepro_strategies.bar_cache import PreferencesLoader
+    payload = {
+        "validProviders": ["yfinance"],
+        "preferences": [],  # nothing for the requested tuple
+    }
+    context._getter = _RecordingHttpGetter(payload)
+    context.loader = PreferencesLoader(
+        "http://localhost:5252",
+        _http_get=context._getter,
+        ttl_seconds=60,
+    )
+
+
+@given("a PreferencesLoader whose HTTP getter raises an exception")
+def step_loader_failing(context):
+    from tradepro_strategies.bar_cache import PreferencesLoader
+    context._getter = _FailingHttpGetter()
+    context.loader = PreferencesLoader(
+        "http://localhost:5252",
+        _http_get=context._getter,
+        ttl_seconds=60,
+    )
+
+
+@given("a PreferencesLoader with a recording HTTP getter and {ttl:d}s TTL")
+def step_loader_recording(context, ttl):
+    from tradepro_strategies.bar_cache import PreferencesLoader
+    payload = {
+        "validProviders": ["yfinance", "ig"],
+        "preferences": [
+            {
+                "asset_class": "us_etf",
+                "resolution": "1m",
+                "provider_chain": ["yfinance"],
+            },
+        ],
+    }
+    context._getter = _RecordingHttpGetter(payload)
+    context.loader = PreferencesLoader(
+        "http://localhost:5252",
+        _http_get=context._getter,
+        ttl_seconds=float(ttl),
+    )
+
+
+@when(
+    "I get SPY us_etf 1m bars for full December 2024 via the BarStore with that loader"
+)
+def step_get_with_loader(context):
+    store = BarStore(
+        base_dir=context.cache_base,
+        telemetry=context.telemetry if hasattr(context, "telemetry") else NullSink(),
+        preferences_loader=context.loader,
+    )
+    context.result = store.get(
+        canonical="SPY", asset_class="us_etf", resolution="1m",
+        start=_START_DEC, end=_END_DEC,
+    )
+
+
+@when("I call chain_for {asset_class} {resolution} twice in a row")
+def step_loader_chain_for_twice(context, asset_class, resolution):
+    context.loader.chain_for(asset_class, resolution)
+    context.loader.chain_for(asset_class, resolution)
+
+
+@when("I call chain_for {asset_class} {resolution}")
+def step_loader_chain_for(context, asset_class, resolution):
+    context.loader.chain_for(asset_class, resolution)
+
+
+@when("I clear the PreferencesLoader cache")
+def step_clear_cache(context):
+    context.loader.clear_cache()
+
+
+@then('the chain_source breadcrumb in the source_chain is "{expected}"')
+def step_chain_source(context, expected):
+    chain = context.result.provider_chain_tried
+    found = [s for s in chain if s.startswith("chain_source:")]
+    assert found, f"no chain_source breadcrumb in {chain}"
+    actual = found[-1].split(":", 1)[1]
+    assert actual == expected, f"chain_source={actual!r} != {expected!r}"
+
+
+@then("the manifest's provider_chain is [{expected_csv}]")
+def step_manifest_chain(context, expected_csv):
+    import json
+    expected = [p.strip().strip('"') for p in expected_csv.split(",")]
+    mf = (
+        context.cache_base / "us_etf" / "SPY" / "1m" / "2024-12.manifest.json"
+    )
+    body = json.loads(mf.read_text())
+    assert body["provider_chain"] == expected, (
+        f"manifest chain {body['provider_chain']} != {expected}"
+    )
+
+
+@then("the HTTP getter received exactly {n:d} request")
+@then("the HTTP getter received exactly {n:d} requests")
+def step_getter_count(context, n):
+    assert len(context._getter.requests) == n, (
+        f"getter received {len(context._getter.requests)} requests, "
+        f"expected exactly {n}"
+    )

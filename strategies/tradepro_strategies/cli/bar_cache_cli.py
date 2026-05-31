@@ -33,7 +33,11 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from tradepro_strategies.bar_cache import BarFetchError, BarStore
+from tradepro_strategies.bar_cache import (
+    BarFetchError,
+    BarStore,
+    PreferencesLoader,
+)
 from tradepro_strategies.bar_cache.asset_classes import UsEtfPlugin  # noqa: F401 — registers
 from tradepro_strategies.bar_cache.providers import YFinanceProvider  # noqa: F401 — registers
 from tradepro_strategies.bar_cache.telemetry import (
@@ -111,10 +115,24 @@ def main() -> int:
             api_base=args.api_base,
             auth_token=token,
         )
+        # Phase B-3 — the provider chain now reads from the
+        # data_source_preferences table the cockpit edits. The CLI
+        # only wires the loader when --api-base is set; without it
+        # the BarStore stays on the hardcoded default (matching
+        # Phase B-2 behaviour for offline-mode operators).
+        preferences_loader = PreferencesLoader(
+            api_base=args.api_base,
+            auth_token=token,
+        )
     else:
         telemetry = TelemetrySink(base_dir=base_dir)
+        preferences_loader = None
 
-    store = BarStore(base_dir=base_dir, telemetry=telemetry)
+    store = BarStore(
+        base_dir=base_dir,
+        telemetry=telemetry,
+        preferences_loader=preferences_loader,
+    )
 
     try:
         result = store.get(
