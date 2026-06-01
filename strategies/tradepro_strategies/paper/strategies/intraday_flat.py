@@ -179,8 +179,15 @@ class IntradayFlatStrategy(Strategy):
             # intersects with the IG epic map's mapped symbols so a
             # name without a populated epic can't accidentally make
             # the basket.
-            "candidates": ["SPY", "QQQ", "IWM", "DIA", "XLF"],
-            "top_n": 5,
+            # IG-demo TRADEABLE share CFDs (epics in ig_epic_map.json,
+            # discovered + name-verified 2026-06-01). The old SPY/IWM/DIA/XLF
+            # ETF basket was dropped: IG demo only exposes those as index
+            # CFDs / options (unit + price-scale mismatch with the share-based
+            # ATR sizing). regime_symbol stays SPY — that's a price read via
+            # yahoo for the bull/bear gate, NOT a traded instrument.
+            "candidates": ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META",
+                           "TSLA", "QQQ", "AMD", "NFLX", "AVGO"],
+            "top_n": 6,
 
             # Regime -------------------------------------------------------
             # SPY 200-SMA is the BULL/BEAR switch. BEAR → no entries

@@ -1,39 +1,14 @@
 {
-  "_comment": "Symbol -> IG epic mapping for paper-traded equities / ETFs. Populate the `epic` field by hitting IG /gateway/deal/markets?searchTerm=<symbol> against demo creds; pick the epic whose instrumentName matches the listing you intend to trade. Entries with `epic: null` are intentionally unusable; the strategy will refuse to route them (IGEpicMissingError). The seed below is the phase-0 candidate basket (5 liquid US ETFs). See ig_epic_map.py for the loader contract.",
-
-  "SPY": {
-    "epic": null,
-    "instrument_name": "SPDR S&P 500 ETF",
-    "currency": "USD",
-    "size_unit": "shares",
-    "notes": "Seed entry; epic TBD. Try searchTerm=SPY; pick the US-listed cash ETF row."
-  },
-  "QQQ": {
-    "epic": null,
-    "instrument_name": "Invesco QQQ Trust (Nasdaq-100 ETF)",
-    "currency": "USD",
-    "size_unit": "shares",
-    "notes": "Seed entry; epic TBD. Try searchTerm=QQQ."
-  },
-  "IWM": {
-    "epic": null,
-    "instrument_name": "iShares Russell 2000 ETF",
-    "currency": "USD",
-    "size_unit": "shares",
-    "notes": "Seed entry; epic TBD. Try searchTerm=IWM."
-  },
-  "DIA": {
-    "epic": null,
-    "instrument_name": "SPDR Dow Jones Industrial Average ETF",
-    "currency": "USD",
-    "size_unit": "shares",
-    "notes": "Seed entry; epic TBD. Try searchTerm=DIA."
-  },
-  "XLF": {
-    "epic": null,
-    "instrument_name": "Financial Select Sector SPDR Fund",
-    "currency": "USD",
-    "size_unit": "shares",
-    "notes": "Seed entry; epic TBD. Try searchTerm=XLF."
-  }
+  "_comment": "Symbol -> IG epic mapping for paper-traded equities / ETFs. Populate the `epic` field by hitting IG /gateway/deal/markets?searchTerm=<symbol> against demo creds; pick the epic whose instrumentName matches the listing you intend to trade. Entries with `epic: null` are intentionally unusable; the strategy will refuse to route them (IGEpicMissingError). See ig_epic_map.py for the loader contract. NOTE: epics below are IG-demo SHARE CFDs (24h US names), discovered + name-verified 2026-06-01 via /api/admin/ig/search. They match intraday_flat's share-based ATR sizing. The SPY/IWM/DIA/XLF ETF basket was dropped because IG demo only exposes those as index CFDs / options (unit + price-scale mismatch with the strategy).",
+  "AAPL": { "epic": "UA.D.AAPL.CASH.IP", "instrument_name": "Apple Inc (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." },
+  "MSFT": { "epic": "UC.D.MSFT.CASH.IP", "instrument_name": "Microsoft Corp (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." },
+  "NVDA": { "epic": "UC.D.NVDA.CASH.IP", "instrument_name": "NVIDIA Corp (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." },
+  "AMZN": { "epic": "UA.D.AMZN.CASH.IP", "instrument_name": "Amazon.com Inc (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." },
+  "GOOGL": { "epic": "UB.D.GOOGL.CASH.IP", "instrument_name": "Alphabet Inc - A (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." },
+  "META": { "epic": "UB.D.FB.CASH.IP", "instrument_name": "Meta Platforms Inc (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; epic retains legacy FB token, instrumentName confirms Meta. Verified 2026-06-01." },
+  "TSLA": { "epic": "UD.D.TSLA.CASH.IP", "instrument_name": "Tesla Motors Inc (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." },
+  "QQQ": { "epic": "UC.D.QQQ.CASH.IP", "instrument_name": "Invesco QQQ Trust Series 1 (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD on the QQQ ETF; name-verified 2026-06-01." },
+  "AMD": { "epic": "SA.D.AMD.CASH.IP", "instrument_name": "Advanced Micro Devices Inc (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." },
+  "AVGO": { "epic": "UA.D.AVGO.CASH.IP", "instrument_name": "Broadcom Inc (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." },
+  "NFLX": { "epic": "UC.D.NFLX.CASH.IP", "instrument_name": "Netflix Inc (24 Hours)", "currency": "USD", "size_unit": "shares", "notes": "IG demo share CFD; name-verified 2026-06-01." }
 }

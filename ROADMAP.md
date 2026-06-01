@@ -49,6 +49,41 @@ because a strategy can *look* like it works while doing nothing.
   live (universe vs spec, bars-have-vs-need, warmup/lookback, data source,
   broker, capital) so assumptions are visible + decidable BEFORE testing.
 
+### ⚠️ ASSUMPTIONS LOG — surfaced 2026-06-01 (afternoon, trader live-review)
+- ⚠️ **Cockpit panels read `/api/ops/sessions` (manual runs) not the live
+  daemon snapshots** (`/api/paper/snapshots`, written by `--push`). ⇒ every
+  panel showed a stale 09:29 "0-bars" run while desks traded live; readiness
+  painted RED on a live, reconciled, trading desk. **FIXED + DEPLOYED**: live
+  snapshot now drives bars/decisions/as_of; readiness is evidence-first
+  (✓ live for a desk that ran today, amber not red for an *unconfirmed* gate
+  gap). Revisit: a single backend "latest live run per strategy" endpoint so
+  the cockpit isn't reconciling two ingestion paths client-side.
+- 🔴 **Equity decision is stamped with a STALE session-bar ts (2026-05-22
+  04:00) + `price=bar.close`**, even though the BUY/SELL signal is computed
+  on the *fresh* daily cache (last bar 2026-05-29). `on_bar` fires the MOO on
+  a session bar; the session bar bus is serving an old/odd-hour (04:00, not
+  the daily 00:00) bar. MOO still fills at the real open so execution is
+  likely OK, but the *displayed* trace + price reference are wrong/confusing.
+  **OPEN BUG — investigate the equity session-bar source vs the daily-signal
+  bar.** Likely fix: trigger + stamp off the last *completed daily* bar.
+- 🔴 **`ig_epic_map.json` is empty (only `_comment`)** and
+  `/api/admin/ig/search` returns nothing for SPY/QQQ/IWM/DIA/XLF ⇒
+  **intraday_flat has an EMPTY basket** (it intersects candidates with mapped
+  epics) and will trade nothing at the US open until epics are populated. FX
+  is unaffected (it routes via the `CS.D.{PAIR}.MINI.IP` convention, not this
+  map). Needs IG-authenticated epic discovery. **Decision pending:** the
+  trader wants symbols/epics persisted in the **DB with a background
+  refresher** — that's the durable fix (replaces this JSON + the per-daemon
+  `--symbols` CLI lists + options underlyings with one refreshable registry).
+- ⚠️ **Equity universe expanded 10 → 43** cache-fresh liquid US names (all
+  verified last-bar ≥ 2026-05-29 before wiring, to avoid the silent-starve
+  trap). `sleeve-size` still 10 (top-N sizing) — more candidates ⇒ more fire
+  signals surfaced even if ≤10 get sized. Plists remain un-versioned (debt).
+- ⚠️ **NEW trader ask — single P&L overview sheet**: realized + unrealised
+  P&L per desk, an executed-trade P&L curve from the *sim* fills (not
+  backtest), and price charts for products we actually hold. Additive,
+  read-only over OMS data — queued as a high-trust build.
+
 ### Shipped + deployed today (all on `main`, auto-rolled to showsoldprice.com = the AWS EC2; Firebase is NOT the prod frontend)
 - **Zero-fill root cause = T212 demo out of buying power ($248) + after-close placement.** Fixed: trader reset demo to £50K; added **equity market-hours gate** (09:30–16:00 America/New_York, DST-correct) + **buying-power floor** (`risk_min_free_to_trade_usd`, BUY-only — SELLs are NEVER capital-gated, by design) in `RiskGate.cs`.
 - **OMS flattened** to the reset broker (net 0); **sync-from-broker made idempotent** — `ReconcileMath.ComputeAdjustments` SUMS across (symbol,strategy) buckets (the old GroupBy.First diverged + accumulated junk). Added `Force=true` to bypass the empty-broker fail-safe after a genuine reset. **6 regression tests** in `ReconcileMathTest.cs` (closes the "no coverage" gap the trader flagged).
