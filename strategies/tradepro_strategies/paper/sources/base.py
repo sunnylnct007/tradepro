@@ -61,6 +61,19 @@ async def _fetch_window(
     base = session_date.replace(hour=0, minute=0, second=0, microsecond=0)
     candidates = _lookback_dates(session_date, lookback_days)
 
+    # Prefer a SINGLE ranged fetch when the source supports it — one call
+    # for the whole [earliest..session_date] window instead of N per-day
+    # calls. The per-day fan-out rate-limits a multi-symbol, deep-history
+    # warmup (FX: 10 pairs × ~21 days = ~210 Yahoo calls → 429s → dropped
+    # pairs / starved 624h-horizon signals). Falls back to per-day if the
+    # ranged fetch returns nothing, so behaviour never regresses.
+    if lookback_days > 0 and hasattr(source, "fetch_range"):
+        ranged = await source.fetch_range(symbol, min(candidates), base, interval)  # type: ignore[attr-defined]
+        if ranged:
+            earliest = next((b.timestamp for b in ranged
+                             if b.timestamp.date() < base.date()), None)
+            return ranged, earliest
+
     per_day = await asyncio.gather(*[source.fetch(symbol, d, interval) for d in candidates])
 
     session_bars: list[Bar] = []

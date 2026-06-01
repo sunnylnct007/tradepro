@@ -71,28 +71,36 @@ class YfinanceSource(BarSource):
     ) -> list[Bar]:
         return await asyncio.to_thread(self._fetch_sync, symbol, session_date, interval)
 
-    @staticmethod
-    def _fetch_sync(symbol: str, session_date: datetime, interval: str) -> list[Bar]:
-        import pandas as pd
-        import yfinance as yf
+    async def fetch_range(
+        self,
+        symbol: str,
+        start_date: datetime,
+        session_date: datetime,
+        interval: str,
+    ) -> list[Bar]:
+        """Bulk window fetch — ONE ranged download covering
+        [start_date .. session_date] instead of N per-day calls.
 
-        start = session_date.date().isoformat()
-        end_dt = session_date.date() + timedelta(days=1)
-        yahoo_ticker = _yahoo_ticker(symbol)
-        if yahoo_ticker != symbol:
-            log.debug("yfinance: %s → %s", symbol, yahoo_ticker)
-        # Retry with backoff. Yahoo rate-limits (429 → empty df) when many
-        # symbols are fetched in a burst — the symptom was the *later* pairs
-        # in a 10-pair FX sweep (USDCAD/NZDUSD/EURGBP/EURJPY/GBPJPY) silently
-        # returning empty while the first 5 succeeded. A short backoff lets
-        # the limiter recover so every pair gets its bars. A genuinely empty
-        # day (weekend/holiday) just returns [] after the attempts — cheap.
+        The per-day warmup fan-out (`_fetch_window` → `fetch` per business
+        day) rate-limits badly for a multi-symbol, deep-history strategy:
+        FX needs ~800 hourly bars (its Ichimoku horizons run to 624h), and
+        fetching that day-by-day for 10 pairs is ~hundreds of Yahoo calls →
+        429s → dropped pairs / starved signals. One ranged call per symbol
+        fixes it (10 calls total for the whole FX universe)."""
+        return await asyncio.to_thread(
+            self._fetch_range_sync, symbol, start_date, session_date, interval)
+
+    @staticmethod
+    def _download_with_retry(yahoo_ticker, start_iso, end_iso, interval, symbol):
+        """yf.download with 3-attempt backoff (Yahoo 429s → empty df).
+        Returns the df (possibly None/empty after retries)."""
         import time as _time
+        import yfinance as yf
         df = None
         for attempt in range(3):
             try:
                 df = yf.download(
-                    yahoo_ticker, start=start, end=end_dt.isoformat(),
+                    yahoo_ticker, start=start_iso, end=end_iso,
                     interval=interval, auto_adjust=False, progress=False,
                 )
             except Exception as exc:  # noqa: BLE001 — transient yfinance/HTTP error
@@ -100,19 +108,18 @@ class YfinanceSource(BarSource):
                             symbol, yahoo_ticker, attempt + 1, exc)
                 df = None
             if df is not None and not df.empty:
-                break
+                return df
             if attempt < 2:
                 _time.sleep(1.5 * (attempt + 1))  # 1.5s, 3.0s backoff
+        return df
+
+    @staticmethod
+    def _df_to_bars(df, symbol: str, interval: str) -> list[Bar]:
+        import pandas as pd
         if df is None or df.empty:
-            # Loud, not silent — a dropped pair must be visible to the
-            # operator (it means that pair generates no signals this run).
-            log.warning("yfinance: NO BARS after retries for %s (%s) %s–%s @ %s "
-                        "— pair will be silent this run",
-                        symbol, yahoo_ticker, start, end_dt.isoformat(), interval)
             return []
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel("Ticker")
-
         tf_seconds = _interval_seconds(interval)
         bars: list[Bar] = []
         for ts, row in df.iterrows():
@@ -135,6 +142,37 @@ class YfinanceSource(BarSource):
                 volume=int(row["Volume"]),
                 timeframe_seconds=tf_seconds,
             ))
+        return bars
+
+    @staticmethod
+    def _fetch_sync(symbol: str, session_date: datetime, interval: str) -> list[Bar]:
+        start = session_date.date().isoformat()
+        end_dt = session_date.date() + timedelta(days=1)
+        yahoo_ticker = _yahoo_ticker(symbol)
+        df = YfinanceSource._download_with_retry(
+            yahoo_ticker, start, end_dt.isoformat(), interval, symbol)
+        if df is None or df.empty:
+            log.warning("yfinance: NO BARS after retries for %s (%s) %s–%s @ %s "
+                        "— pair will be silent this run",
+                        symbol, yahoo_ticker, start, end_dt.isoformat(), interval)
+            return []
+        return YfinanceSource._df_to_bars(df, symbol, interval)
+
+    @staticmethod
+    def _fetch_range_sync(symbol: str, start_date: datetime,
+                          session_date: datetime, interval: str) -> list[Bar]:
+        start = start_date.date().isoformat()
+        end_dt = session_date.date() + timedelta(days=1)
+        yahoo_ticker = _yahoo_ticker(symbol)
+        df = YfinanceSource._download_with_retry(
+            yahoo_ticker, start, end_dt.isoformat(), interval, symbol)
+        if df is None or df.empty:
+            log.warning("yfinance: NO BARS (range) for %s (%s) %s–%s @ %s",
+                        symbol, yahoo_ticker, start, end_dt.isoformat(), interval)
+            return []
+        bars = YfinanceSource._df_to_bars(df, symbol, interval)
+        log.info("yfinance: range %s (%s) %s–%s @ %s → %d bars",
+                 symbol, yahoo_ticker, start, end_dt.isoformat(), interval, len(bars))
         return bars
 
 
