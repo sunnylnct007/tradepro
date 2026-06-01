@@ -233,7 +233,14 @@ public sealed class IGClient
             size = effectiveSize,
             orderType = "MARKET",
             currencyCode = currency,
-            forceOpen = true,                          // open new position
+            // forceOpen=false so an order NETS against any existing opposing
+            // position instead of opening a separate deal. ichimoku_fx_mr is a
+            // delta-based net-position strategy (it emits target-minus-current
+            // sized orders), so the correct IG behaviour is to net: a SELL
+            // against a long reduces it, a same-direction order aggregates.
+            // forceOpen=true was opening a NEW deal per order, which is why
+            // EUR/USD had 21 coexisting deals netting to one position.
+            forceOpen = false,
             guaranteedStop = false,
         };
         using var resp = await SendWithAuthAsync(
