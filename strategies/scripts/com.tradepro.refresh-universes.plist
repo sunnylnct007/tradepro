@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tradepro.refresh-universes</string>
+    <!--
+      Daily morning refresh of the symbol-universe lists (the "scan list
+      persisted in DB" the trader asked for). Scrapes the index constituents
+      (sp500, nasdaq100, sp400/sp600 midcap/smallcap, ftse100, dax, cac40) and
+      POSTs to /api/ingest/universes (wipe-and-replace per universe, idempotent).
+      Runs at 07:00 local each day — before market prep — so strategies that
+      read their universe from the DB pick up constituent changes overnight.
+      Was never scheduled; universes only refreshed on manual runs.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-refresh-universes --push 2&gt;&amp;1</string>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/tmp/tradepro-refresh-universes.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/tradepro-refresh-universes.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>/Users/skumar</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+</dict>
+</plist>
