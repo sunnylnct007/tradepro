@@ -415,66 +415,31 @@ public static class OmsEndpoints
                           + "seconds, or pass force=true if you just reset the account and it is genuinely flat.",
                     debug = dbg,
                 }, statusCode: 409);
-            static string Bare(string s)
-            {
-                var u = (s ?? "").ToUpperInvariant();
-                if (u.StartsWith("CS.D.") || u.StartsWith("IX.D."))
-                {
-                    var parts = u.Split('.');
-                    if (parts.Length >= 4) return parts[2];
-                }
-                return u.Contains('_') ? u.Split('_')[0] : u;
-            }
-            // SUM across buckets per bare symbol — NOT .First(). OMS
-            // positions are reported per (symbol, strategy): a symbol can
-            // have a strategy bucket (e.g. ichimoku_equity +1.31) AND a
-            // null reconcile bucket simultaneously. Taking .First() saw only
-            // one, so the offsetting fill never cancelled the true net and
-            // repeated syncs DIVERGED (the null bucket accumulated junk).
-            // Summing makes the delta the real net, so the sync is
-            // idempotent — it converges to the broker's number and stops.
-            // This matters: demo reset → flatten is a FREQUENT operation
-            // (it won't happen in prod), so it must be safely repeatable.
-            var omsByBare = omsRows
-                .GroupBy(p => Bare(p.Symbol))
-                .ToDictionary(g => g.Key, g => (
-                    Qty: g.Sum(p => p.Quantity),
-                    Symbol: g.First().Symbol,
-                    AvgPrice: g.First().AvgPrice));
-            var actualByBare = actuals.GroupBy(a => Bare(a.Symbol)).ToDictionary(g => g.Key, g => g.First());
+            // 3. Compute the netting plan (pure, unit-tested in
+            //    ReconcileMath — sums across per-strategy buckets so the sync
+            //    is idempotent), then apply each adjustment as an oms-sync
+            //    fill. placed_by CHECK allows only HUMAN | STRATEGY_AUTO;
+            //    operator-triggered → HUMAN, reconcile nature marked by
+            //    actor="oms-sync" + brokerFillId="reconcile-…".
+            var plan = ReconcileMath.ComputeAdjustments(
+                omsRows.Select(p => new ReconcileMath.Pos(p.Symbol, p.Quantity, p.AvgPrice)),
+                actuals.Select(a => new ReconcileMath.Pos(a.Symbol, a.Qty, a.Avg)));
 
-            // 3. For every symbol in either set, write the adjustment to
-            //    bring OMS to the broker's number (broker flat → close).
             var adjustments = new List<object>();
-            foreach (var bare in omsByBare.Keys.Union(actualByBare.Keys))
+            foreach (var adj in plan)
             {
-                var hasActual = actualByBare.TryGetValue(bare, out var act);
-                var hasOms = omsByBare.TryGetValue(bare, out var omsP);
-                var omsQty = hasOms ? omsP.Qty : 0m;
-                var targetQty = hasActual ? act.Qty : 0m;
-                var delta = targetQty - omsQty;
-                if (Math.Abs(delta) < 0.0001m) continue;
-                var symbol = hasActual ? act.Symbol : omsP.Symbol;
-                // Skip rows with no usable symbol (e.g. a T212 cash/pie
-                // entry with a null ticker) — they can't be a real
-                // position and a null Symbol violates oms_orders NOT NULL.
-                if (string.IsNullOrWhiteSpace(symbol)) continue;
-                var price = (hasActual ? act.Avg : (hasOms ? omsP.AvgPrice : null)) ?? 0m;
                 var intent = new OrderIntent(
                     ClientOrderId: Guid.NewGuid(),
                     Broker: broker,
-                    Symbol: symbol,
-                    Side: delta > 0 ? "BUY" : "SELL",
-                    Qty: Math.Abs(delta),
+                    Symbol: adj.Symbol,
+                    Side: adj.Side,
+                    Qty: adj.Qty,
                     OrderType: "MKT",
                     StrategyId: null,
-                    // placed_by CHECK allows only HUMAN | STRATEGY_AUTO.
-                    // Operator-triggered → HUMAN; the reconcile nature is
-                    // marked by actor="oms-sync" + brokerFillId="reconcile-…".
                     PlacedBy: "HUMAN");
                 var order = await oms.EnqueueAsync(intent, "oms-sync");
-                await oms.RecordFillAsync(order.Id, Math.Abs(delta), price, 0m, "USD", $"reconcile-{order.Id:N}", "oms-sync");
-                adjustments.Add(new { symbol, side = intent.Side, delta, targetQty, fromOmsQty = omsQty });
+                await oms.RecordFillAsync(order.Id, adj.Qty, adj.Price, 0m, "USD", $"reconcile-{order.Id:N}", "oms-sync");
+                adjustments.Add(new { symbol = adj.Symbol, side = adj.Side, delta = adj.TargetQty - adj.FromOmsQty, targetQty = adj.TargetQty, fromOmsQty = adj.FromOmsQty });
             }
 
             dbg["omsCount"] = omsRows.Count;
