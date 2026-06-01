@@ -29,6 +29,24 @@ public static class PaperBacktestEndpoints
             return env is null ? Results.NotFound() : Results.Ok(env.Payload);
         });
 
+        // Phase D-2: find every report that ran on the same data state
+        // (same SHA256 of BarStore partition fingerprints). The cockpit
+        // result viewer hits this when the user clicks the data_state_hash
+        // chip on a backtest result. Returns summaries (not full
+        // payloads) so a "200 reports share this hash" lookup stays
+        // cheap. Empty array when the hash is null / sentinel / unknown.
+        group.MapGet("/reports/by-hash/{dataStateHash}", (
+            string dataStateHash, int? limit, IPaperBacktestStore store) =>
+        {
+            var rows = store.ListByDataStateHash(dataStateHash, limit ?? 50);
+            return Results.Ok(new
+            {
+                dataStateHash,
+                count = rows.Count,
+                reports = rows,
+            });
+        });
+
         // Catalog of registered paper-trading strategies pushed from
         // the Mac (`tradepro-paper-strategies-push`). 404 until the
         // Mac has pushed once — the UI handles that gracefully with

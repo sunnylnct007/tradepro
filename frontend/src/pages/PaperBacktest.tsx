@@ -18,6 +18,11 @@ type ReportSummary = {
   end?: string;
   entryCount: number;
   receivedAtUtc: string;
+  // Phase D-2: SHA256 of BarStore partition fingerprints the report
+  // consumed. Null when produced before D-1 / by a non-BarStore code
+  // path. Reports with matching hashes are byte-reproducible against
+  // each other (same data → same numbers).
+  dataStateHash: string | null;
 };
 
 type ComparatorEntry = {
@@ -935,9 +940,104 @@ function ReportList(props: {
             <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
               received {new Date(r.receivedAtUtc).toLocaleString()}
             </div>
+            {/* Phase D-2: data-state hash chip. Click to find every
+                report that ran on the same data (reproducibility
+                match). Tooltip shows the full 64-char hash. */}
+            {r.dataStateHash && (
+              <DataStateHashChip hash={r.dataStateHash} />
+            )}
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function DataStateHashChip({ hash }: { hash: string }) {
+  const [matchCount, setMatchCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const short = hash.length >= 12 ? hash.slice(0, 12) : hash;
+  const isSentinel = hash === "EMPTY_DATA_STATE";
+
+  const onClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();   // don't trigger the parent button (select report)
+    if (isSentinel) return;
+    if (matchCount !== null) {
+      // Already looked up — copy the full hash on a second click so
+      // operators can paste it into a different cockpit search.
+      try {
+        await navigator.clipboard.writeText(hash);
+      } catch {
+        /* clipboard API blocked in some browsers; silent best-effort */
+      }
+      return;
+    }
+    setLoading(true);
+    try {
+      const resp = await api.paperBacktestReportsByHash(hash);
+      setMatchCount(resp.count);
+    } catch {
+      setMatchCount(-1);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Colour-code: green chip when ≥2 reports share the hash
+  // (reproducible match found); amber when only this report; grey
+  // sentinel.
+  const colour = isSentinel
+    ? "#6b7280"
+    : matchCount === null
+      ? "#6b7280"
+      : matchCount >= 2
+        ? "#16a34a"
+        : "#ca8a04";
+
+  const tooltip = isSentinel
+    ? "Sentinel hash — report had no partitions to track"
+    : matchCount === null
+      ? `data_state_hash: ${hash}\nClick to find matching reports`
+      : matchCount === -1
+        ? `data_state_hash: ${hash}\nLookup failed; try again`
+        : matchCount >= 2
+          ? (
+              `data_state_hash: ${hash}\n` +
+              `${matchCount} reports share this data (reproducible). ` +
+              `Click again to copy hash.`
+            )
+          : (
+              `data_state_hash: ${hash}\n` +
+              `Only this report uses this data. ` +
+              `Click again to copy hash.`
+            );
+
+  return (
+    <div
+      onClick={onClick}
+      title={tooltip}
+      style={{
+        marginTop: 4,
+        padding: "2px 6px",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        background: `${colour}26`,
+        color: colour,
+        border: `1px solid ${colour}55`,
+        borderRadius: 3,
+        fontSize: 9,
+        fontFamily: "monospace",
+        fontWeight: 600,
+        cursor: isSentinel ? "help" : "pointer",
+      }}
+    >
+      <span>data:</span>
+      <span>{isSentinel ? "EMPTY" : short}</span>
+      {loading && <span>…</span>}
+      {!loading && !isSentinel && matchCount !== null && matchCount >= 2 && (
+        <span title="reproducible match">·{matchCount}↔</span>
+      )}
     </div>
   );
 }
