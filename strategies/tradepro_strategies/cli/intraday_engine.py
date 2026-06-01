@@ -360,12 +360,21 @@ def _effective_session_date(now: datetime, bypass_window: bool) -> datetime:
 # decorator actually fires before `available()` is queried. The
 # BDD scenario `Default intraday strategies are all registered` in
 # `paper_quant_strategies.feature` guards against that drift.
+# NOTE: this engine builds a single **T212** router per session
+# (build_session(broker="t212", ...) below), so every strategy listed here
+# routes to T212_DEMO regardless of its own broker_label. intraday_flat is an
+# **IG** strategy (broker_label=IG_DEMO + ig_epic_map instrument_id) — leaving
+# it here routed its orders to T212 as equity, where it churned and went short
+# (it's long-only), and competed with ichimoku_equity for the same demo cash.
+# It is therefore NOT in this list; it runs via its own IG session
+# (tradepro-paper --broker ig --strategy intraday_flat). To run it *inside*
+# this engine instead, build_session must grow a MultiBrokerRouter (dispatch
+# mode) that routes by broker_label — see paper/multi_router.py.
 _INTRADAY_DEFAULT_STRATEGY_NAMES: tuple[str, ...] = (
     "orb",
     "vwap_mean_reversion",
     "bollinger_bounce",
     "ma_crossover",
-    "intraday_flat",
 )
 
 
