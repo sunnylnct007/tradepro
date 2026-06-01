@@ -396,3 +396,83 @@ def step_partitions_added(context, n: int):
 def step_detail_missing_includes(context, field: str):
     missing = context.dop_result.detail.get("missing") or []
     assert field in missing, f"{field!r} not in missing list {missing}"
+
+
+# ─── Phase C-Reload scenarios ────────────────────────────────────
+
+
+@when(
+    "I dispatch a data_reload request for SPY us_etf 1m "
+    "{from_y:d}-{from_m:d}-{from_d:d} to "
+    "{to_y:d}-{to_m:d}-{to_d:d} with reason \"{reason}\""
+)
+def step_dispatch_reload(
+    context, from_y, from_m, from_d, to_y, to_m, to_d, reason: str,
+):
+    storage = _ensure_storage(context)
+    context.dop_result = dispatch(
+        DataOpRequest(
+            request_id="r-reload",
+            kind="data_reload",
+            params={
+                "canonical": "SPY",
+                "asset_class": "us_etf",
+                "resolution": "1m",
+                "from": f"{from_y:04d}-{from_m:02d}-{from_d:02d}",
+                "to":   f"{to_y:04d}-{to_m:02d}-{to_d:02d}",
+                "reason": reason,
+            },
+        ),
+        storage,
+    )
+
+
+@when(
+    "I dispatch a data_reload request for SPY us_etf 1m "
+    "{from_y:d}-{from_m:d}-{from_d:d} to "
+    "{to_y:d}-{to_m:d}-{to_d:d} with an empty reason"
+)
+def step_dispatch_reload_empty_reason(
+    context, from_y, from_m, from_d, to_y, to_m, to_d,
+):
+    storage = _ensure_storage(context)
+    context.dop_result = dispatch(
+        DataOpRequest(
+            request_id="r-reload-no-reason",
+            kind="data_reload",
+            params={
+                "canonical": "SPY",
+                "asset_class": "us_etf",
+                "resolution": "1m",
+                "from": f"{from_y:04d}-{from_m:02d}-{from_d:02d}",
+                "to":   f"{to_y:04d}-{to_m:02d}-{to_d:02d}",
+                "reason": "",
+            },
+        ),
+        storage,
+    )
+
+
+@when("I dispatch a data_reload request with empty params")
+def step_dispatch_reload_empty(context):
+    storage = _ensure_storage(context)
+    context.dop_result = dispatch(
+        DataOpRequest(
+            request_id="r-empty-reload",
+            kind="data_reload",
+            params={},
+        ),
+        storage,
+    )
+
+
+@then("the data op result detail partitions_overwritten is {n:d}")
+def step_partitions_overwritten(context, n: int):
+    actual = context.dop_result.detail.get("partitions_overwritten")
+    assert actual == n, f"partitions_overwritten {actual} != {n}"
+
+
+@then('the data op result detail reason mentions "{phrase}"')
+def step_detail_reason_mentions(context, phrase: str):
+    reason = context.dop_result.detail.get("reason") or ""
+    assert phrase in reason, f"{phrase!r} not in reason {reason!r}"

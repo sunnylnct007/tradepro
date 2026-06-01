@@ -218,6 +218,7 @@ public static class OpsEndpoints
 
         const string DataValidateKind = "data_validate";
         const string DataBackfillKind = "data_backfill";
+        const string DataReloadKind = "data_reload";
 
         group.MapPost("/run-data-validate", (JsonElement payload, ISessionRequestsStore store) =>
         {
@@ -270,6 +271,57 @@ public static class OpsEndpoints
             return Results.Ok(Envelope(req));
         });
 
+        // ─── Phase C-Reload: enqueue a destructive data_reload op ──
+        // Adds `reason` to the required-field set. The handler also
+        // requires reason (defence in depth); this endpoint enforces
+        // it at the network boundary so a malformed payload never
+        // reaches the queue. The audit trail records reason in the
+        // session_requests.params JSON so future investigators can
+        // answer "who reloaded SPY at 14:00, and why?".
+        //
+        // Same enqueue/poll/complete pattern as backfill — the worker
+        // doesn't need a new code path; the handler-registry routes
+        // by `kind`.
+        group.MapPost("/run-data-reload", (JsonElement payload, ISessionRequestsStore store) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            if (!TryReadNonEmptyString(payload, "canonical", out var canonical))
+                return Results.BadRequest(new { error = "canonical required" });
+            if (!TryReadNonEmptyString(payload, "asset_class", out var assetClass))
+                return Results.BadRequest(new { error = "asset_class required" });
+            if (!TryReadNonEmptyString(payload, "resolution", out var resolution))
+                return Results.BadRequest(new { error = "resolution required (e.g. '1m', '1d')" });
+            if (!TryReadNonEmptyString(payload, "from", out var fromDate))
+                return Results.BadRequest(new { error = "from required (YYYY-MM-DD)" });
+            if (!IsValidDateOrToday(fromDate))
+                return Results.BadRequest(new { error = "from must be YYYY-MM-DD or 'today'" });
+            if (payload.TryGetProperty("to", out var toEl)
+                && toEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(toEl.GetString())
+                && !IsValidDateOrToday(toEl.GetString()!))
+            {
+                return Results.BadRequest(new { error = "to must be YYYY-MM-DD or 'today'" });
+            }
+            if (!TryReadNonEmptyString(payload, "reason", out var reason))
+                return Results.BadRequest(new
+                {
+                    error = "reason required for destructive ops",
+                    detail = "data_reload overwrites existing partitions. Provide a non-empty reason for the audit trail.",
+                });
+            // Trivially-short reasons get rejected too — "x" or " "
+            // aren't audit-useful. Threshold is deliberately low (10
+            // chars) so honest brief reasons still pass.
+            if (reason.Trim().Length < 10)
+                return Results.BadRequest(new
+                {
+                    error = "reason too short",
+                    detail = "Provide at least 10 characters explaining WHY the reload is needed (e.g. 'corp action on AAPL split adj drift').",
+                });
+            var req = store.Put(DataReloadKind, payload);
+            return Results.Ok(Envelope(req));
+        });
+
         // The worker daemon polls this; multi-kind polling (one daemon
         // handles all data_* kinds when they exist) is the natural
         // extension. For now it's data_validate only — adding kinds
@@ -294,7 +346,18 @@ public static class OpsEndpoints
                     }
                 }
             }
-            if (kinds.Count == 0) kinds.Add(DataValidateKind);
+            // Default to every data_* kind we know about so the
+            // worker picks up any of them when no explicit filter is
+            // passed. The Python worker also defaults to data_ops
+            // .list_kinds() if --kinds is omitted; that's the
+            // authoritative source of truth, this is a safety net for
+            // calls that don't specify.
+            if (kinds.Count == 0)
+            {
+                kinds.Add(DataValidateKind);
+                kinds.Add(DataBackfillKind);
+                kinds.Add(DataReloadKind);
+            }
 
             // Try each kind in order; first available row is claimed.
             // Phase D upgrades to a single-query OR claim when the
