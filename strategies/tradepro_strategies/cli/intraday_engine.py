@@ -67,6 +67,11 @@ log = logging.getLogger("tradepro.intraday")
 
 DEFAULT_POLL_SECONDS = 30
 PAUSE_FILE = Path.home() / ".tradepro" / "intraday-engine.pause"
+# Hard cap on a single intraday session's universe — a curated intraday set
+# is a handful of names; a session asking for hundreds is a mis-trigger (the
+# full-S&P flood) and is refused rather than flooding the OMS with orders
+# that can't be funded.
+MAX_INTRADAY_SYMBOLS = 30
 
 # Compiled defaults — used when the API returns no intraday block
 # (fresh install, settings file truncated) so the engine still has a
@@ -159,6 +164,23 @@ def _cycle(base_url: str, token: str, host: str) -> None:
             _complete(base_url, token, request_id, "completed", {
                 "skipped": "watchlist empty — nothing to scan",
                 "config": cfg,
+            })
+            return
+
+        # Oversized-universe guard. A stray session carrying the full S&P
+        # (~500 symbols) flooded the OMS with 125 PENDING orders that can't
+        # be funded — refuse it loudly instead of scanning. Curated intraday
+        # universes are <= ~25 names; anything far bigger is a mis-trigger.
+        if len(symbols) > MAX_INTRADAY_SYMBOLS:
+            log.warning("refusing oversized intraday session %s: %d symbols (> %d)",
+                        request_id, len(symbols), MAX_INTRADAY_SYMBOLS)
+            _complete(base_url, token, request_id, "completed", {
+                "skipped": (
+                    f"universe too large ({len(symbols)} symbols > "
+                    f"{MAX_INTRADAY_SYMBOLS}) — refusing to flood the OMS; "
+                    f"pin a curated set in intraday.symbols"
+                ),
+                "symbol_count": len(symbols),
             })
             return
 
