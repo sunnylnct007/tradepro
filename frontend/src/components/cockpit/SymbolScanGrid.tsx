@@ -28,7 +28,16 @@ type Card = {
   detail: Record<string, unknown>;
   /** Pretty session-detail link for drill-down. */
   sessionId: string;
+  /** When this strategy's scan run completed (ISO) — so the trader can
+   *  see WHICH strategy swept the symbol and WHEN, not just a bare chip. */
+  scannedAt: string;
 };
+
+/** "2026-06-01T17:12:28Z" → "17:12". Empty/invalid → "—". */
+function hhmm(iso: string): string {
+  if (!iso || iso.length < 16) return "—";
+  return iso.slice(11, 16);
+}
 
 export function SymbolScanGrid({
   latestSessions, onHide,
@@ -117,18 +126,41 @@ export function SymbolScanGrid({
             <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "12px 0" }}>
               No symbols match the current filter.
             </div>
-          ) : view === "heatmap" ? (
-            <HeatmapView cards={visible} />
           ) : (
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-              gap: 6,
-              maxHeight: 480,
-              overflowY: "auto",
-              paddingRight: 4,
-            }}>
-              {visible.map((c) => (<SymbolCard key={c.key} card={c} />))}
+            // Group by strategy so a chip is never anonymous — each block
+            // says WHICH strategy swept these symbols and WHEN it ran.
+            <div style={{ maxHeight: 520, overflowY: "auto", paddingRight: 4 }}>
+              {groupByStrategy(visible).map(([strategy, group]) => (
+                <div key={strategy} style={{ marginBottom: 14 }}>
+                  <div style={{
+                    display: "flex", alignItems: "baseline", gap: 8,
+                    margin: "2px 0 6px", paddingBottom: 4,
+                    borderBottom: "1px solid var(--border)",
+                  }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12, color: "var(--text)" }}>
+                      {strategy}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      scanned {hhmm(group[0].scannedAt)} · {group.length} symbol{group.length === 1 ? "" : "s"}
+                      {" · "}
+                      {group.filter((c) => c.action.startsWith("fire-")).length} fire
+                      {" / "}
+                      {group.filter((c) => c.action.startsWith("skip-")).length} skip
+                    </span>
+                  </div>
+                  {view === "heatmap" ? (
+                    <HeatmapView cards={group} />
+                  ) : (
+                    <div style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+                      gap: 6,
+                    }}>
+                      {group.map((c) => (<SymbolCard key={c.key} card={c} />))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </>
@@ -149,6 +181,7 @@ function collectCards(latestSessions: LatestSession[]): Card[] {
         reason: d.reason,
         detail: d.detail,
         sessionId: s.requestId,
+        scannedAt: s.completedAtUtc ?? "",
       });
     }
   }
@@ -161,6 +194,23 @@ function collectCards(latestSessions: LatestSession[]): Card[] {
     return a.symbol.localeCompare(b.symbol);
   });
   return cards;
+}
+
+/** Group cards by strategy, preserving the fire-first/alpha order within
+ *  each group. Groups ordered by those with fires first (most actionable
+ *  on top), then by strategy name. */
+function groupByStrategy(cards: Card[]): [string, Card[]][] {
+  const groups = new Map<string, Card[]>();
+  for (const c of cards) {
+    const g = groups.get(c.strategy);
+    if (g) g.push(c); else groups.set(c.strategy, [c]);
+  }
+  return [...groups.entries()].sort((a, b) => {
+    const aFires = a[1].some((c) => c.action.startsWith("fire-")) ? 0 : 1;
+    const bFires = b[1].some((c) => c.action.startsWith("fire-")) ? 0 : 1;
+    if (aFires !== bFires) return aFires - bFires;
+    return a[0].localeCompare(b[0]);
+  });
 }
 
 function FilterBar({
