@@ -254,6 +254,31 @@ export const api = {
       result_summary: unknown;
       error: string | null;
     }, typeof payload>("/api/ops/run-data-backfill", payload),
+
+  // Phase C-Reload: enqueue a destructive data_reload op. Force-
+  // refreshes the requested partitions through the configured
+  // provider chain, OVERWRITING existing parquet files. The `reason`
+  // field is mandatory (audit trail); backend rejects payloads
+  // without it. The worker's ReloadHandler also requires it as
+  // defence in depth.
+  runDataReload: (payload: {
+    canonical: string;
+    asset_class: string;
+    resolution: string;
+    from: string;
+    to?: string;
+    reason: string;          // mandatory; min 10 chars enforced server-side
+    allow_partial?: boolean;
+  }) =>
+    post<{
+      request_id: string;
+      kind: string;
+      state: string;
+      params: Record<string, unknown>;
+      requested_at_utc: string;
+      result_summary: unknown;
+      error: string | null;
+    }, typeof payload>("/api/ops/run-data-reload", payload),
   cancelOpsSession: (requestId: string) =>
     post<unknown, {}>(
       `/api/ops/sessions/${encodeURIComponent(requestId)}/cancel`, {}),

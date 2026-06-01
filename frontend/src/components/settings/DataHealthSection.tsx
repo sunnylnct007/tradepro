@@ -515,7 +515,7 @@ function BarCacheActivityPanel() {
           style={{
             display: "grid",
             gridTemplateColumns:
-              "100px 80px 100px 120px 110px 110px 70px 90px",
+              "100px 80px 100px 120px 110px 110px 70px 200px",
             gap: 8, alignItems: "center",
             paddingBottom: 4, marginBottom: 4,
             borderBottom: "1px solid var(--border)",
@@ -608,8 +608,9 @@ function BarCacheActivityPanel() {
 }
 
 function HealthRow({ row }: { row: BarHealth }) {
-  const [busyKind, setBusyKind] = useState<"validate" | "backfill" | null>(null);
+  const [busyKind, setBusyKind] = useState<"validate" | "backfill" | "reload" | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [reloadModalOpen, setReloadModalOpen] = useState(false);
 
   const onValidate = async () => {
     const ok = window.confirm(
@@ -686,6 +687,7 @@ function HealthRow({ row }: { row: BarHealth }) {
 
   const validateBusy = busyKind === "validate";
   const backfillBusy = busyKind === "backfill";
+  const reloadBusy = busyKind === "reload";
   const anyBusy = busyKind !== null;
 
   return (
@@ -693,7 +695,7 @@ function HealthRow({ row }: { row: BarHealth }) {
       style={{
         display: "grid",
         gridTemplateColumns:
-          "100px 80px 100px 120px 110px 110px 70px 140px",
+          "100px 80px 100px 120px 110px 110px 70px 200px",
         gap: 8, alignItems: "center",
         padding: "6px 0",
         borderTop: "1px solid var(--border)",
@@ -761,6 +763,20 @@ function HealthRow({ row }: { row: BarHealth }) {
           >
             {backfillBusy ? "Queuing…" : "Backfill"}
           </button>
+          <button
+            disabled={anyBusy}
+            onClick={() => setReloadModalOpen(true)}
+            style={{
+              padding: "3px 8px", fontSize: 10, fontWeight: 600,
+              border: "1px solid #dc2626", borderRadius: 3,
+              background: "transparent",
+              color: anyBusy ? "var(--text-muted)" : "#dc2626",
+              cursor: anyBusy ? "default" : "pointer",
+            }}
+            title="Enqueue a data_reload op — OVERWRITES existing partitions"
+          >
+            {reloadBusy ? "Queuing…" : "Reload"}
+          </button>
         </div>
         {feedback && (
           <span style={{
@@ -771,6 +787,225 @@ function HealthRow({ row }: { row: BarHealth }) {
           </span>
         )}
       </div>
+
+      {reloadModalOpen && (
+        <ReloadConfirmModal
+          row={row}
+          onClose={() => setReloadModalOpen(false)}
+          onConfirm={async ({ from, to, resolution, reason }) => {
+            setReloadModalOpen(false);
+            setBusyKind("reload");
+            setFeedback(null);
+            try {
+              const res = await api.runDataReload({
+                canonical: row.canonical,
+                asset_class: row.asset_class,
+                resolution,
+                from,
+                to,
+                reason,
+              });
+              setFeedback(`✓ queued (${res.request_id.slice(0, 8)}…)`);
+            } catch (e) {
+              setFeedback(String(e));
+            } finally {
+              setBusyKind(null);
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReloadConfirmModal({
+  row, onClose, onConfirm,
+}: {
+  row: BarHealth;
+  onClose: () => void;
+  onConfirm: (args: {
+    from: string;
+    to: string;
+    resolution: string;
+    reason: string;
+  }) => Promise<void>;
+}) {
+  const [resolution, setResolution] = useState(
+    row.last_fetched_resolution ?? "1d",
+  );
+  const [from, setFrom] = useState(row.coverage_start_date ?? _oneYearAgoIso());
+  const [to, setTo] = useState(
+    row.coverage_end_date ?? new Date().toISOString().slice(0, 10),
+  );
+  const [reason, setReason] = useState("");
+  const [typedCanonical, setTypedCanonical] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const reasonValid = reason.trim().length >= 10;
+  const canonicalMatches = typedCanonical.trim() === row.canonical;
+  const canSubmit =
+    reasonValid && canonicalMatches && from && to && resolution && !submitting;
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0,
+        background: "rgba(0,0,0,0.7)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 10,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--bg)",
+          border: "2px solid #dc2626",
+          borderRadius: 8,
+          padding: "20px 24px",
+          maxWidth: 540,
+          width: "92%",
+          color: "var(--text)",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+        }}
+      >
+        <div style={{
+          fontSize: 12, fontWeight: 700, color: "#dc2626",
+          textTransform: "uppercase", letterSpacing: "0.05em",
+          marginBottom: 4,
+        }}>
+          ⚠ Destructive operation
+        </div>
+        <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>
+          Reload {row.canonical} ({row.asset_class})
+        </h3>
+        <p style={{
+          margin: "0 0 14px", fontSize: 12, color: "var(--text-dim)",
+          lineHeight: 1.55,
+        }}>
+          This will <strong style={{ color: "#dc2626" }}>overwrite</strong>{" "}
+          existing cached partitions for{" "}
+          <code>{row.canonical}/{row.asset_class}</code> in the chosen
+          range. The provider chain is consulted from scratch (force_refresh
+          mode). Use this when a corp action drifted the cached prices, a
+          provider revision is known-bad, or you need a clean re-fetch.
+        </p>
+
+        <Field label="Resolution">
+          <input
+            type="text"
+            value={resolution}
+            onChange={(e) => setResolution(e.target.value)}
+            placeholder="1m / 5m / 15m / 30m / 1h / 1d"
+            style={modalInputStyle}
+          />
+        </Field>
+        <Field label="From">
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            style={modalInputStyle}
+          />
+        </Field>
+        <Field label="To">
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            style={modalInputStyle}
+          />
+        </Field>
+        <Field label="Reason (≥10 chars, recorded in audit log)">
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder='e.g. "AAPL 2:1 split on 2024-06-10 — yfinance adjusted prices drifted; re-pull through IG"'
+            rows={2}
+            style={{ ...modalInputStyle, resize: "vertical", minHeight: 48 }}
+          />
+          {!reasonValid && reason.length > 0 && (
+            <div style={{ fontSize: 10, color: "#dc2626", marginTop: 2 }}>
+              Reason must be at least 10 characters.
+            </div>
+          )}
+        </Field>
+        <Field label={`Type "${row.canonical}" to confirm`}>
+          <input
+            type="text"
+            value={typedCanonical}
+            onChange={(e) => setTypedCanonical(e.target.value)}
+            placeholder={row.canonical}
+            style={{
+              ...modalInputStyle,
+              borderColor: canonicalMatches
+                ? "#16a34a" : "var(--border)",
+            }}
+          />
+        </Field>
+
+        <div style={{
+          marginTop: 18, display: "flex", gap: 8,
+          justifyContent: "flex-end",
+        }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: "6px 14px", fontSize: 12,
+              border: "1px solid var(--border)", borderRadius: 4,
+              background: "transparent", color: "var(--text)",
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            disabled={!canSubmit}
+            onClick={async () => {
+              setSubmitting(true);
+              try {
+                await onConfirm({
+                  from, to, resolution: resolution.trim(),
+                  reason: reason.trim(),
+                });
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            style={{
+              padding: "6px 14px", fontSize: 12, fontWeight: 600,
+              border: "none", borderRadius: 4,
+              background: canSubmit ? "#dc2626" : "var(--text-muted)",
+              color: "white",
+              cursor: canSubmit ? "pointer" : "default",
+            }}
+          >
+            {submitting ? "Queuing…" : "Reload (overwrite)"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const modalInputStyle: React.CSSProperties = {
+  width: "100%", padding: "6px 8px", fontSize: 12,
+  border: "1px solid var(--border)", borderRadius: 4,
+  background: "transparent", color: "var(--text)",
+  fontFamily: "monospace",
+};
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <label style={{
+        display: "block", fontSize: 10, fontWeight: 600,
+        color: "var(--text-dim)", textTransform: "uppercase",
+        letterSpacing: "0.04em", marginBottom: 3,
+      }}>
+        {label}
+      </label>
+      {children}
     </div>
   );
 }

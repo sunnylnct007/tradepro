@@ -91,3 +91,44 @@ Feature: tradepro-data-worker — Phase C-Validate
   Scenario: BackfillHandler is registered in the data_ops registry
     When I list registered data_op kinds
     Then the registered kinds include "data_backfill"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Phase C-Reload — destructive force-refresh op
+  # ──────────────────────────────────────────────────────────────────
+  # data_reload re-fetches the partition range and OVERWRITES existing
+  # parquet files. The handler requires `reason` (audit) and counts
+  # partitions_overwritten by diffing manifest fetched_at_utc.
+
+  Scenario: data_reload overwrites populated partitions
+    Given a synthetic yfinance provider returning a full December 2024 month
+    And a tmp bar cache populated with a full December 2024 SPY partition
+    When I dispatch a data_reload request for SPY us_etf 1m 2024-12-02 to 2024-12-31 with reason "corp action drift on SPY 2024-12-20"
+    Then the data op result is ok
+    And the data op result detail partitions_overwritten is 1
+    And the data op result detail partitions_added is 0
+    And the data op result summary contains "overwrote 1"
+    And the data op result detail reason mentions "corp action drift"
+
+  Scenario: data_reload rejects missing reason
+    When I dispatch a data_reload request for SPY us_etf 1m 2024-12-02 to 2024-12-31 with an empty reason
+    Then the data op result is not ok
+    And the data op result error mentions "missing required params"
+    And the data op result detail missing includes "reason"
+
+  Scenario: data_reload of empty cache adds partitions (zero overwritten)
+    Given a synthetic yfinance provider returning a full December 2024 month
+    And a tmp bar cache with no SPY directory
+    When I dispatch a data_reload request for SPY us_etf 1m 2024-12-02 to 2024-12-31 with reason "initial seed after provider change"
+    Then the data op result is ok
+    And the data op result detail partitions_overwritten is 0
+    And the data op result detail partitions_added is 1
+
+  Scenario: data_reload rejects missing canonical
+    When I dispatch a data_reload request with empty params
+    Then the data op result is not ok
+    And the data op result detail missing includes "canonical"
+    And the data op result detail missing includes "reason"
+
+  Scenario: ReloadHandler is registered in the data_ops registry
+    When I list registered data_op kinds
+    Then the registered kinds include "data_reload"

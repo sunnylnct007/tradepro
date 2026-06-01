@@ -11,6 +11,7 @@ its registered name.
 from __future__ import annotations
 
 from .backfill import BackfillHandler  # noqa: F401 — registers
+from .reload import ReloadHandler  # noqa: F401 — registers
 from .validate import ValidateHandler  # noqa: F401 — registers
 
-__all__ = ["BackfillHandler", "ValidateHandler"]
+__all__ = ["BackfillHandler", "ReloadHandler", "ValidateHandler"]

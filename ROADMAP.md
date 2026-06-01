@@ -691,9 +691,26 @@ remaining op kinds as new files under `data_ops/handlers/`.
     populates via the configured provider chain (yfinance falls
     back to IG /prices on 7-day ceiling). **First end-to-end
     operator-actionable data fetch through the trustworthy layer.**
-- **C-Reload** (next slice):
-  - Destructive: force re-fetch + overwrite. Modal + reason text.
-  - Handler under `data_ops/handlers/reload.py`.
+- **C-Reload SHIPPED (this PR)**:
+  - `ReloadHandler` under `data_ops/handlers/reload.py` registered
+    as `data_reload`. Calls `BarStore.get(force_refresh=True)` so
+    existing partitions are re-pulled from the chain and overwritten.
+  - Mandatory `reason` field (≥10 chars enforced server-side, also
+    checked in the handler). Flows into the audit trail —
+    session_requests.params keeps it visible to investigators.
+  - Reports `partitions_overwritten` by diffing manifest
+    `fetched_at_utc` timestamps before/after the fetch.
+  - Backend `POST /api/ops/run-data-reload` mirrors backfill with
+    the added reason-required check.
+  - Frontend: **dedicated destructive-confirm modal** (not a
+    `window.confirm()`). Reason textarea + typed-canonical safety
+    rail. The button only enables when reason is ≥10 chars AND the
+    operator has typed the canonical exactly. Audit-friendly.
+  - 5 new BDD scenarios: overwrite count is accurate, missing-reason
+    rejection, empty-cache reload counts as added not overwritten,
+    missing-canonical rejection, registry coherence.
+  - Poll endpoint default kinds now includes `data_reload` so any
+    worker without `--kinds` picks it up.
 - **C-Repartition**, **C-Purge**: future slices.
 
 Each handler is a single file. Worker / queue / UI plumbing doesn't
