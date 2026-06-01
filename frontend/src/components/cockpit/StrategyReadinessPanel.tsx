@@ -20,7 +20,6 @@ import { api } from "../../api/client";
 import { deskFor, executionMode, metaFor } from "../../util/strategyMeta";
 
 const RED = "#ef4444";
-const AMBER = "#f59e0b";
 const UP = "#1fc16b";
 
 type CatalogStrategy = {
