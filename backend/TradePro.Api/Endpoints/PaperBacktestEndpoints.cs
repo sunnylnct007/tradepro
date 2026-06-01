@@ -110,6 +110,18 @@ public static class PaperBacktestEndpoints
             return env is null ? Results.NotFound() : Results.Ok(env.Payload);
         });
 
+        // Per-strategy P&L time series for the cockpit "P&L at a glance"
+        // graph. ?scope=daily (all-time, one point/strategy/day) | intraday
+        // (today's points/strategy). One line per strategy on the frontend.
+        var pnl = app.MapGroup("/paper/pnl").WithTags("PaperBacktest");
+        pnl.MapGet("/series", (IPaperSnapshotStore store, string? scope) =>
+        {
+            var s = (scope ?? "daily").ToLowerInvariant();
+            if (s is not ("daily" or "intraday"))
+                return Results.BadRequest(new { error = "scope must be 'daily' or 'intraday'" });
+            return Results.Ok(new { scope = s, series = store.PnlSeries(s) });
+        });
+
         // Pending paper orders (manual-mode placement). UI reads here
         // to render the "Pending orders" panel; Approve / Reject
         // buttons hit the POST endpoints below. The Approve endpoint

@@ -58,6 +58,40 @@ public sealed class PostgresPaperSnapshotStore : IPaperSnapshotStore
                     received_at_utc = EXCLUDED.received_at_utc;",
             new { sessionLabel, broker, asOfTs, strategyCount, totalFills, payload = jsonText, receivedAt });
 
+        // Append per-strategy P&L points for the intraday cockpit curve.
+        // paper_sessions only keeps the day's LATEST snapshot (UPSERT), so
+        // without this the intraday shape is lost. Best-effort — a points
+        // write must never fail the snapshot ingest.
+        if (strategiesEl.ValueKind == JsonValueKind.Array)
+        {
+            try
+            {
+                foreach (var s in strategiesEl.EnumerateArray())
+                {
+                    var sid = JsonbHelpers.ReadString(s, "strategy_id");
+                    if (string.IsNullOrWhiteSpace(sid)) continue;
+                    conn.Execute(@"
+                        INSERT INTO paper_pnl_points
+                            (strategy_id, broker, as_of_utc, realised_pnl, unrealised_pnl, equity)
+                        VALUES (@sid, @broker, @asOfTs, @realised, @unrealised, @equity);",
+                        new
+                        {
+                            sid,
+                            broker,
+                            asOfTs,
+                            realised = JsonbHelpers.ReadDoubleOrNull(s, "realised_pnl") ?? 0.0,
+                            unrealised = JsonbHelpers.ReadDoubleOrNull(s, "unrealised_pnl") ?? 0.0,
+                            equity = JsonbHelpers.ReadDoubleOrNull(s, "equity") ?? 0.0,
+                        });
+                }
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: the snapshot (and its daily row) already landed.
+                System.Diagnostics.Debug.WriteLine($"paper_pnl_points insert failed: {ex.Message}");
+            }
+        }
+
         return new PaperSnapshotEnvelope(
             SessionLabel: sessionLabel,
             Broker: broker,
@@ -103,6 +137,68 @@ public sealed class PostgresPaperSnapshotStore : IPaperSnapshotStore
             TotalFills: r.total_fills,
             ReceivedAtUtc: r.received_at_utc)).ToArray();
     }
+
+    public IReadOnlyList<PnlStrategySeries> PnlSeries(string scope)
+    {
+        using var conn = _db.OpenConnection();
+        if (scope == "intraday")
+        {
+            // Real intraday shape from the append-only points table (today).
+            var pts = conn.Query<PnlPointRow>(@"
+                SELECT strategy_id, as_of_utc, realised_pnl, unrealised_pnl, equity
+                FROM paper_pnl_points
+                WHERE as_of_utc >= date_trunc('day', NOW())
+                ORDER BY strategy_id, as_of_utc ASC;").ToList();
+            return pts
+                .GroupBy(p => p.strategy_id)
+                .Select(g => new PnlStrategySeries(
+                    g.Key,
+                    g.Select(p => new PnlPoint(
+                        p.as_of_utc.ToString("o"), p.realised_pnl, p.unrealised_pnl,
+                        p.equity, p.realised_pnl + p.unrealised_pnl)).ToArray()))
+                .OrderBy(s => s.StrategyId)
+                .ToArray();
+        }
+
+        // Daily (all-time): one point per (strategy, day) from the session
+        // snapshots. session_label is "{strategy}-{date}", one row per day,
+        // so we parse each payload's per-strategy P&L. Cap to a year.
+        var rows = conn.Query<SnapshotRow>(@"
+            SELECT session_label, broker, as_of_utc, strategy_count, total_fills, received_at_utc, payload::text AS payload
+            FROM paper_sessions
+            WHERE as_of_utc >= NOW() - INTERVAL '365 days'
+            ORDER BY as_of_utc ASC;").ToList();
+
+        var byStrategy = new Dictionary<string, Dictionary<string, PnlPoint>>();
+        foreach (var row in rows)
+        {
+            var day = row.as_of_utc.ToString("yyyy-MM-dd");
+            JsonElement payload;
+            try { payload = JsonbHelpers.FromJsonb(row.payload); }
+            catch { continue; }
+            if (!payload.TryGetProperty("strategies", out var arr)
+                || arr.ValueKind != JsonValueKind.Array) continue;
+            foreach (var s in arr.EnumerateArray())
+            {
+                var sid = JsonbHelpers.ReadString(s, "strategy_id");
+                if (string.IsNullOrWhiteSpace(sid)) continue;
+                var r = JsonbHelpers.ReadDoubleOrNull(s, "realised_pnl") ?? 0.0;
+                var u = JsonbHelpers.ReadDoubleOrNull(s, "unrealised_pnl") ?? 0.0;
+                var e = JsonbHelpers.ReadDoubleOrNull(s, "equity") ?? 0.0;
+                if (!byStrategy.TryGetValue(sid, out var pts)) byStrategy[sid] = pts = new();
+                pts[day] = new PnlPoint(day, r, u, e, r + u);  // latest snapshot of the day wins
+            }
+        }
+        return byStrategy
+            .Select(kv => new PnlStrategySeries(
+                kv.Key, kv.Value.Values.OrderBy(p => p.Ts).ToArray()))
+            .OrderBy(s => s.StrategyId)
+            .ToArray();
+    }
+
+    private sealed record PnlPointRow(
+        string strategy_id, DateTime as_of_utc,
+        double realised_pnl, double unrealised_pnl, double equity);
 
     private sealed record SnapshotRow(
         string session_label, string broker, DateTime as_of_utc,

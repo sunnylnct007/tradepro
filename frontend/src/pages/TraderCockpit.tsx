@@ -15,6 +15,7 @@ import { StrategyReadinessPanel } from "../components/cockpit/StrategyReadinessP
 import { OrdersByBrokerPanel } from "../components/cockpit/OrdersByBrokerPanel";
 import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
+import { PnlGraph } from "../components/cockpit/PnlGraph";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { BrokerCashStrip } from "../components/cockpit/BrokerCashStrip";
@@ -363,6 +364,7 @@ export function TraderCockpit() {
   // click × on the card → moves to HiddenWidgetsBar; click the pill
   // → restored.
   const WIDGETS: WidgetMeta[] = [
+    { id: "pnl-graph",    title: "P&L at a glance" },
     { id: "desks",        title: "Strategy desks" },
     { id: "warnings",     title: "Warnings" },
     { id: "broker-cash",  title: "Broker cash (multi)" },
@@ -563,6 +565,12 @@ export function TraderCockpit() {
           positions={positions}
           onHide={() => widgets.hide("desks")}
         />
+      )}
+
+      {/* P&L at a glance — per-strategy lines, today-intraday / all-time
+          toggle. The trader's "how am I doing" read; sits with the desks. */}
+      {v("pnl-graph") && (
+        <PnlGraph onHide={() => widgets.hide("pnl-graph")} />
       )}
 
       {/* Strategy readiness — surfaces the assumptions (bars-needed vs

@@ -332,6 +332,16 @@ export const api = {
     }>>("/api/paper/snapshots/"),
   paperSnapshot: (sessionLabel: string) =>
     get<unknown>(`/api/paper/snapshots/${encodeURIComponent(sessionLabel)}`),
+  // Per-strategy P&L time series for the cockpit "P&L at a glance" graph.
+  // scope=daily → one point/strategy/day (all-time); intraday → today.
+  pnlSeries: (scope: "daily" | "intraday") =>
+    get<{
+      scope: string;
+      series: Array<{
+        strategyId: string;
+        points: Array<{ ts: string; realised: number; unrealised: number; equity: number; total: number }>;
+      }>;
+    }>("/api/paper/pnl/series", { scope }),
   paperPendingOrders: () =>
     get<Array<{
       orderId: string;
