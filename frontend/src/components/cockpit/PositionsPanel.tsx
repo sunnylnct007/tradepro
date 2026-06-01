@@ -150,10 +150,10 @@ export function PositionsPanel({
   // stay VISIBLE here, just correctly labelled, not hidden.
   const igFx = (ig?.positions ?? []).filter((p) => productOf(p.ticker) === "FX");
   const igEq = (ig?.positions ?? []).filter((p) => productOf(p.ticker) === "Equity");
-  const igOther = (ig?.positions ?? []).filter((p) => {
-    const t = productOf(p.ticker);
-    return t !== "FX" && t !== "Equity";
-  });
+  // Options get their OWN card (the Weekly EURUSD CALL/PUT). Manual today
+  // — the options strategy will post here once it executes on IG. Anything
+  // else non-FX/non-equity/non-option (futures/crypto) falls to igMisc.
+  const igOptions = (ig?.positions ?? []).filter((p) => productOf(p.ticker) === "Option");
 
   const equityCount = positions?.enabled ? positions.positionCount : 0;
 
@@ -242,32 +242,30 @@ export function PositionsPanel({
       </CockpitCard>
       )}
 
-      {/* ════ Manual / external positions (options, futures …) ════ */}
-      {/* Booked directly at the broker, NOT strategy-attributed. e.g. the
-          Weekly EURUSD options on IG demo. Kept OUT of the Equity card —
-          EURUSD options aren't equity. The options STRATEGY is signal-only
-          (no execution), so it never produces broker positions; anything
-          here is manual. */}
-      {igOther.length > 0 && (
+      {/* ════ Options positions (IG) ════ */}
+      {/* Manual today (booked directly in the demo — Weekly EURUSD CALL/PUT).
+          The options strategy will post here once it executes on IG; until
+          then these are flagged manual / not-strategy-attributed. Kept OUT
+          of the Equity card — options aren't equity. */}
+      {igOptions.length > 0 && (
       <CockpitCard
-        id="positions-manual"
-        title="Manual / external positions"
-        badge={igOther.length}
-        onHide={() => onHide("positions-manual")}
+        id="positions-options"
+        title="Options positions"
+        badge={igOptions.length}
+        onHide={() => onHide("positions-options")}
       >
-        <Account label={`IG · ${ig?.mode ?? "?"} — booked directly (not strategy-attributed)`} reconciled={null} first>
-          <ProductSection title="Manual / external" loading={false} error={null} connected empty={false} notConnected="" emptyText="">
+        <Account label={`IG · ${ig?.mode ?? "?"} — manual (not strategy-attributed)`} reconciled={null} first>
+          <ProductSection title="Options" loading={false} error={null} connected empty={false} notConnected="" emptyText="">
             <table style={tableStyle}>
               <thead>
                 <tr style={{ color: "var(--text-dim)" }}>
-                  <th style={th}>Instrument</th><th style={th}>Product</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th><th style={rTh}>Side</th>
+                  <th style={th}>Instrument</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th><th style={rTh}>Side</th>
                 </tr>
               </thead>
               <tbody>
-                {igOther.map((p, i) => (
+                {igOptions.map((p, i) => (
                   <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
-                    <td style={{ ...td, color: "var(--text-muted)" }}>{productOf(p.ticker)}</td>
                     <td style={numTd}>{Math.abs(p.quantity)}</td>
                     <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
                     <td style={{ ...numTd, color: p.quantity >= 0 ? UP : DOWN }}>{p.quantity >= 0 ? "LONG" : "SHORT"}</td>
