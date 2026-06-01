@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tradepro.paper-intraday-flat</string>
+    <!--
+      intraday_flat on its OWN IG session (NOT the T212 intraday-engine, which
+      mis-routed it to T212 and churned). Long-only intraday EOD-flat: scans the
+      IG-mapped share-CFD basket, enters in-window, manages stop/target/time-exit
+      each run, flattens by the close. Every 5 min so stops + the 19:50 EOD
+      flatten are checked frequently. Routes via ig_epic_map.json epics (e.g.
+      UA.D.AAPL.CASH.IP); the backend IGClient places with per-epic currency +
+      minDealSize + forceOpen=false (net, don't stack deals).
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-paper --broker ig --strategy intraday_flat --symbols AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA,QQQ,AMD,NFLX,AVGO --interval 1m --lookback-days 1 --capital-usd 50000 --placement-mode auto --push 2&gt;&amp;1</string>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/tmp/tradepro-paper-intraday-flat.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/tradepro-paper-intraday-flat.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>/Users/skumar</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StartInterval</key>
+    <integer>300</integer>
+</dict>
+</plist>
