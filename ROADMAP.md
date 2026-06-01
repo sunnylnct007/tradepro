@@ -860,11 +860,26 @@ change between slices.
   Identical bars → identical hash. New `bar_cache.hashing` module
   + 5 BDD scenarios. **§L4 downgraded from MEDIUM to LOW**: the
   data layer half of reproducibility is solved.
-- **D-2** (next slice): plumb the hash into backtest result envelopes.
-  `paper_backtest_reports` table gains a `data_state_hash` column;
-  the .NET endpoints record it; result viewer surfaces it as a chip.
-  Two runs with matching hashes are flagged "reproducible against
-  prior run X".
+- **D-2 SHIPPED (this PR)**: hash plumbed into backtest result
+  envelopes end-to-end.
+  - Migration 034 adds nullable `paper_backtests.data_state_hash`
+    with a partial index for fast by-hash lookup.
+  - `PaperBacktestEnvelope` + `PaperBacktestSummary` carry the hash.
+    Both `InMemoryPaperBacktestStore` and `PostgresPaperBacktestStore`
+    read it from the payload (accepting both top-level
+    `data_state_hash` AND nested `data_state.hash` shapes for
+    forward-compatibility).
+  - New `IPaperBacktestStore.ListByDataStateHash(hash)` method +
+    `GET /api/paper/backtest/reports/by-hash/{hash}` endpoint.
+    Sentinel `EMPTY_DATA_STATE` + blank strings excluded from the
+    reproducibility-match lookup.
+  - Frontend `PaperBacktest.tsx` renders a colour-coded
+    `DataStateHashChip` per report (green = ≥2 reports share hash =
+    reproducible; amber = only this report; grey = sentinel). Click
+    once to look up matches; click again to copy the full hash.
+  - 9 new `.NET` tests covering payload-shape parsing, round-trip,
+    sentinel exclusion, multi-report matching against both store
+    backends.
 - **D-3**: walk-forward + Monte Carlo carry the hash per-leg so
   sub-run divergence becomes auditable.
 - **D-4** (optional, deferred): bytes-level content hash via

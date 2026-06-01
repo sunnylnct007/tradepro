@@ -109,7 +109,10 @@ export const api = {
     }
     return resp.text();
   },
-  // Paper-trading backtest reports — list newest-first + drill into one
+  // Paper-trading backtest reports — list newest-first + drill into one.
+  // Phase D-2: every summary row now carries the optional data_state_hash.
+  // Null when the report was produced before Phase D-1 or by a non-BarStore
+  // code path (e.g. legacy paper_session callers reading via cache.py).
   paperBacktestReports: () =>
     get<Array<{
       reportId: string;
@@ -119,9 +122,30 @@ export const api = {
       end?: string;
       entryCount: number;
       receivedAtUtc: string;
+      dataStateHash: string | null;
     }>>("/api/paper/backtest/reports"),
   paperBacktestReport: (reportId: string) =>
     get<unknown>(`/api/paper/backtest/reports/${encodeURIComponent(reportId)}`),
+  // Phase D-2: find every report that ran on the same data state.
+  // The cockpit result viewer hits this when the user clicks the hash
+  // chip on a backtest row.
+  paperBacktestReportsByHash: (dataStateHash: string) =>
+    get<{
+      dataStateHash: string;
+      count: number;
+      reports: Array<{
+        reportId: string;
+        kind: string;
+        symbol: string;
+        start?: string;
+        end?: string;
+        entryCount: number;
+        receivedAtUtc: string;
+        dataStateHash: string | null;
+      }>;
+    }>(
+      `/api/paper/backtest/reports/by-hash/${encodeURIComponent(dataStateHash)}`,
+    ),
   paperStrategies: () =>
     get<{
       count: number;
