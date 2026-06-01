@@ -99,7 +99,11 @@ export function StrategyDesks({
     // IG, filtered by asset class
     if (!ig?.enabled) return [];
     return ig.positions
-      .filter((p) => productOf(p.ticker) === d.assetClass || (d.assetClass === "Equity" && productOf(p.ticker) !== "FX"))
+      // Strict product match — previously "Equity" swallowed anything
+      // non-FX, so IG options (OD.D.* weekly EUR CALL/PUT) showed up under
+      // the equity desk. Options/futures now classify correctly and stay
+      // off the strategy desks (no desk trades them).
+      .filter((p) => productOf(p.ticker) === d.assetClass)
       .map((p) => ({ symbol: p.ticker, qty: p.quantity, avg: p.averagePricePaid, now: null, unrlAbs: null, unrlPct: null }));
   }
 

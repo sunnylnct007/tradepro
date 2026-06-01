@@ -38,8 +38,14 @@ export function productOf(raw: string): ProductType {
   // OCC-style option symbol: ROOT + YYMMDD + C/P + strike (e.g. AAPL230616C00150000)
   if (/\d{6}[CP]\d{5,}$/.test(s)) return "Option";
   if (s.includes("OPT") || s.includes(".OPT.")) return "Option";
+  // IG option epics ("OD.D.WK2EURO.32.IP" = Weekly EUR option) + the
+  // friendly IG names ("Weekly EURUSD 11650 CALL/PUT"). These were
+  // falling through to the Equity default and showing on the equity desk.
+  if (s.startsWith("OD.D.")) return "Option";
+  if (/\b(CALL|PUT)\b/.test(s)) return "Option";
   if (/(BTC|ETH|USDT|USDC)/.test(bare)) return "Crypto";
   if (s.startsWith("IX.D.") || s.includes("FUT")) return "Future";
+  // IG spot-FX epics ("CS.D.EURUSD.MINI.IP") reduce to a 6-letter pair.
   if (/^[A-Z]{6}$/.test(bare)) return "FX";
   return "Equity";
 }
