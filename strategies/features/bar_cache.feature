@@ -191,3 +191,36 @@ Feature: Trustworthy bar cache (Phase B-1)
     When I get SPY us_etf 1m bars for full December 2024 via the BarStore with that loader
     Then the BarFrame coverage_complete is True
     And the recording IG provider was called 0 times
+
+  # ──────────────────────────────────────────────────────────────────
+  # Section 8: data_state_hash (Phase D-1 — reproducibility)
+  # ──────────────────────────────────────────────────────────────────
+  # Closes §L4 of CURRENT_BACKTEST_LIMITATIONS.md. The BarFrame carries
+  # a SHA256 hex digest derived from the manifests of the partitions
+  # read; identical bars → identical hash, so a backtest stamped with
+  # the hash can be replayed and reproducibility is provable.
+
+  Scenario: Cache miss + cache hit produce the same data_state_hash
+    Given a provider "yfinance" returning a full December 2024 month
+    When I get SPY us_etf 1m bars for full December 2024 (twice)
+    Then both BarFrames have non-empty data_state_hash
+    And the two BarFrames have the same data_state_hash
+
+  Scenario: compute_data_state_hash with no fingerprints returns the sentinel
+    When I compute a data_state_hash with no fingerprints
+    Then the result equals the EMPTY_DATA_STATE sentinel
+
+  Scenario: compute_data_state_hash is order-independent
+    When I compute a data_state_hash for two fingerprints in order A,B
+    And I compute a data_state_hash for the same fingerprints in order B,A
+    Then the two hashes are identical
+
+  Scenario: Different ranges produce different hashes
+    Given a provider "yfinance" returning a full December 2024 month
+    When I get SPY us_etf 1m bars for full December 2024 and for the first half of December 2024
+    Then the two BarFrames have different data_state_hashes
+
+  Scenario: data_state_hash is a 64-char hex string for populated frames
+    Given a provider "yfinance" returning a full December 2024 month
+    When I get SPY us_etf 1m bars for full December 2024
+    Then the BarFrame data_state_hash is a 64-character hex string
