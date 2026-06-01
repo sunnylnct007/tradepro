@@ -493,6 +493,24 @@ class IntradayFlatStrategy(Strategy):
         # ── D. Managed open position? ──────────────────────────────
         pos = self.position_for(bar.symbol)
         if not pos.is_flat:
+            # Don't stack a second exit while one is already in flight.
+            # The fill hasn't landed, so the position STILL reads
+            # non-flat — emitting another stop/target/EOD sell here
+            # over-sells through zero into a SHORT (a long-only strategy
+            # must NEVER go net short; the trader's model is long/flat,
+            # weights clamped ≥ 0 — see docs/portfolio.py). The fill
+            # clears the flag and we re-check next bar. Mirrors the
+            # entry path's in-flight guard (section G).
+            if self.has_order_in_flight(bar.symbol):
+                self.log_decision(
+                    symbol=bar.symbol, bar_ts=bar.timestamp,
+                    action="skip-exit-in-flight",
+                    reason=(
+                        "an exit order is already in flight for this name; "
+                        "not stacking another (would over-sell into a short)"
+                    ),
+                )
+                return []
             exit_order = self._manage_open_position(bar, pos, p)
             if exit_order is not None:
                 return [exit_order]

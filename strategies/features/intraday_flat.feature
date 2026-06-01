@@ -119,6 +119,19 @@ Feature: IntradayFlatStrategy — explainable, risk-averse, EOD-flat
     And the order tag contains "TIME"
     And a "fire-time-stop" decision is logged for "IWM"
 
+  # A stop that stays breached across consecutive bars must NOT stack a
+  # second sell while the first is still in flight — that over-sells
+  # through zero into a SHORT. Long-only means long/flat only (the
+  # trader's weights are clamped >= 0). Regression for the net-short
+  # observed in a live replay (AAPL +11 -11 -11 => -11).
+  Scenario: A breached stop does not stack a second sell while one is in flight
+    Given an IntradayFlatStrategy holding an "IWM" long with stop 198.0 and target 210.0
+    When I feed one in-window bar for "IWM" with low 197.5 and high 200.0
+    Then a SELL MARKET order is emitted for "IWM"
+    When I feed one in-window bar for "IWM" with low 197.5 and high 200.0
+    Then no orders are emitted
+    And a "skip-exit-in-flight" decision is logged for "IWM"
+
   # ────────────────────────────────────────────────────────────────── #
   # Section 5: EOD flatten — never LLM-gated                            #
   # ────────────────────────────────────────────────────────────────── #
