@@ -421,22 +421,45 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int
             f"golden source. Add it to _REAL_BROKER_POSITION_PATHS."
         )
     log = logging.getLogger("tradepro.cli")
-    try:
-        import requests
-        from . import push_to_api
-        base, token = push_to_api.load_credentials()
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
-        base = base.rstrip('/')
-        resp = requests.get(f"{base}{path}", headers=headers, timeout=10)
-        resp.raise_for_status()
-        rows = resp.json().get("positions") or []
-    except Exception as exc:  # noqa: BLE001
-        # Any failure to READ the broker is fail-closed — do NOT fall
-        # back to flat, do NOT fall back to OMS. Raise so the caller
-        # aborts the session.
+    import time as _time
+
+    import requests
+    from . import push_to_api
+    base, token = push_to_api.load_credentials()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    base = base.rstrip('/')
+
+    # Retry-with-backoff before fail-closed. The positions endpoint briefly
+    # 500s while the API restarts on every deploy; a single attempt then
+    # tripped the fail-closed abort and fired a CRITICAL alert on each
+    # deploy. Ride through transient blips (a few tries over ~10s) but STILL
+    # fail closed on a genuine outage so we never trade on an unconfirmed
+    # book. Backoffs: 2s, 4s (3 attempts total).
+    backoffs = [2.0, 4.0]
+    last_exc: Exception | None = None
+    rows = None
+    for attempt in range(len(backoffs) + 1):
+        try:
+            resp = requests.get(f"{base}{path}", headers=headers, timeout=10)
+            resp.raise_for_status()
+            rows = resp.json().get("positions") or []
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < len(backoffs):
+                log.warning(
+                    "could not read %s positions (attempt %d/%d): %s — "
+                    "retrying in %.0fs",
+                    b, attempt + 1, len(backoffs) + 1, exc, backoffs[attempt],
+                )
+                _time.sleep(backoffs[attempt])
+    if rows is None:
+        # Exhausted retries — fail-closed: do NOT fall back to flat, do NOT
+        # fall back to OMS. Raise so the caller aborts the session.
         raise PositionSeedError(
-            f"could not read {b!r} positions (golden source): {exc}"
-        ) from exc
+            f"could not read {b!r} positions (golden source) after "
+            f"{len(backoffs) + 1} attempts: {last_exc}"
+        ) from last_exc
 
     # The IG account is SHARED across strategies (FX pairs CS.D.*.MINI.IP,
     # intraday_flat equity CFDs UA.D.*.CASH.IP, plus manual options DO.D./
