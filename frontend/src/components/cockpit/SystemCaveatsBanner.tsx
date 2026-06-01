@@ -37,6 +37,23 @@ function parseCash(detail: string): { amount: number; ccy: string } | null {
   return { amount: Number(m[1].replace(/,/g, "")), ccy: m[2].toUpperCase() };
 }
 
+/** Turn a raw broker rejection reason into a plain-English phrase. The
+ * trader shouldn't have to decode `HTTP 400 {"type":"/api-errors/...}`. */
+function prettifyReason(raw: string | null | undefined): string {
+  const s = raw || "";
+  if (/insufficient-free/.test(s)) return "broker out of buying power";
+  if (/selling-equity-not-owned/.test(s)) return "tried to sell equity not owned (no shorting on T212)";
+  if (/instrument-disabled/.test(s)) return "instrument disabled at broker";
+  if (/quantity-precision-mismatch/.test(s)) return "quantity precision mismatch";
+  if (/market[_\s]?closed/i.test(s)) return "market closed";
+  if (/buying_power_floor/.test(s)) return "below buying-power floor (gate)";
+  if (/broker_capability/.test(s)) return "broker can't trade this instrument";
+  // Generic /api-errors/<type> → humanise the type token.
+  const m = s.match(/api-errors\/([a-z-]+)/i);
+  if (m) return m[1].replace(/-/g, " ");
+  return s.slice(0, 50) || "unknown";
+}
+
 export function SystemCaveatsBanner() {
   const [caveats, setCaveats] = useState<Caveat[]>([]);
   const [open, setOpen] = useState(true);
@@ -110,15 +127,19 @@ export function SystemCaveatsBanner() {
         (o) => o.state === "REJECTED" && within72h(o.createdAtUtc),
       );
       if (recentRejects.length > 0) {
-        const cashRejects = recentRejects.filter((o) =>
-          (o.cancelledReason || "").includes("insufficient-free"),
-        ).length;
+        // Group by plain-English reason and surface the dominant one(s) so
+        // the trader sees WHY, not just a count.
+        const byReason = new Map<string, number>();
+        for (const o of recentRejects) {
+          const r = prettifyReason(o.cancelledReason);
+          byReason.set(r, (byReason.get(r) ?? 0) + 1);
+        }
+        const ranked = [...byReason.entries()].sort((a, b) => b[1] - a[1]);
+        const summary = ranked.map(([r, n]) => `${n}× ${r}`).join(" · ");
         found.push({
           sev: "red",
-          title: `${recentRejects.length} order rejections in last 72h`,
-          detail: cashRejects > 0
-            ? `${cashRejects} were broker out-of-buying-power. The strategy is firing signals that can't be funded.`
-            : "Strategy orders are being rejected at the broker — see the /oms rejection histogram.",
+          title: `${recentRejects.length} order rejection${recentRejects.length === 1 ? "" : "s"} in last 72h`,
+          detail: `${summary}. ${ranked[0][0].includes("buying power") ? "Strategy is firing orders it can't fund. " : ""}See the /oms rejection histogram for detail.`,
         });
       }
 
