@@ -25,6 +25,7 @@ Injectable _data_fn: fn(pair_name) -> pd.DataFrame | None
 from __future__ import annotations
 
 import logging
+import warnings
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -106,8 +107,15 @@ def _ichimoku_lines(
     senkou_b = midrange(sb).to_numpy()
 
     stacked = np.vstack([senkou_a, senkou_b])
-    cloud_high = np.nanmax(stacked, axis=0)
-    cloud_low = np.nanmin(stacked, axis=0)
+    # Warmup columns (before the rolling windows fill) are all-NaN, so
+    # nanmax/nanmin emit a benign "All-NaN slice encountered" RuntimeWarning
+    # per call — noisy in the FX logs every bar. The NaN result is intended
+    # (those bars are pre-warmup and ignored downstream via nan_to_num in the
+    # signal), so suppress just that warning here.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", r"All-NaN slice encountered", RuntimeWarning)
+        cloud_high = np.nanmax(stacked, axis=0)
+        cloud_low = np.nanmin(stacked, axis=0)
     return tenkan, kijun, cloud_high, cloud_low
 
 
