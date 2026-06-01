@@ -13,6 +13,44 @@ those assumptions change.
 
 ---
 
+## SESSION STATE — 2026-06-01 (Monday pre-open zero-fill + trader-audit sprint)
+
+Context anchor so we don't lose the thread across the long session. The
+trader provided a full **drift audit** (spec vs live) + demanded fills work
+for Monday's open. Demo account was reset → **£50K** fresh capital.
+
+### Shipped + deployed today (all on `main`, auto-rolled to showsoldprice.com = the AWS EC2; Firebase is NOT the prod frontend)
+- **Zero-fill root cause = T212 demo out of buying power ($248) + after-close placement.** Fixed: trader reset demo to £50K; added **equity market-hours gate** (09:30–16:00 America/New_York, DST-correct) + **buying-power floor** (`risk_min_free_to_trade_usd`, BUY-only — SELLs are NEVER capital-gated, by design) in `RiskGate.cs`.
+- **OMS flattened** to the reset broker (net 0); **sync-from-broker made idempotent** — `ReconcileMath.ComputeAdjustments` SUMS across (symbol,strategy) buckets (the old GroupBy.First diverged + accumulated junk). Added `Force=true` to bypass the empty-broker fail-safe after a genuine reset. **6 regression tests** in `ReconcileMathTest.cs` (closes the "no coverage" gap the trader flagged).
+- **`default_broker` → `PAPER`** (was T212_DEMO). So only the 3 explicitly-mapped strategies are LIVE (ichimoku_equity→T212_DEMO, ichimoku_fx_mr→IG_DEMO, intraday_flat→IG_DEMO); everything else is signal-only at the backend too. Catalog shows LIVE only for explicit real-broker mappings.
+- **ORB unblocked:** `intraday.symbols` was `[]` → populated 10 liquid US names (AAPL MSFT NVDA AMZN META GOOGL TSLA AMD AVGO NFLX) via `PUT /api/settings`.
+- **FX fetch retry/backoff** (`sources/yfinance.py`) to recover the 5 pairs Yahoo rate-limited to empty (USDCAD/NZDUSD/EURGBP/EURJPY/GBPJPY). Loud warning on drop.
+- **UI fixes on /strategies:** dark-theme tokens (was `--surface-*`+#fff fallback → white cards hiding text), session-symbol overflow clamp, IG options no longer mislabeled as equity, **manual/external IG positions now shown** in a labelled section (trader books trades directly in demo — must stay visible).
+- **Caveats banner + plain-English rejection reasons** on the cockpit (re-derives severity from real state — goes red even when `/health` says ok).
+- **Deploy pipeline:** `aws-redeploy` now auto-runs after `aws-build-push` via `workflow_run` + self-heals a stopped instance (waits for SSM Online). No more manual redeploy / nightly-stop failures.
+- EPS snapshot launchd job registered + baseline seeded (fixed uv path); Finnhub VERIFIED working server-side (the "broken" was stale Mac compare, not the key).
+
+### ⚠️ LESSON / gotcha (self-inflicted, caught + reverted)
+**FX warmup is a HARD gate** (`ichimoku_fx_mr.py:333` `if bars < warmup: skip`). I bumped warmup 200→800 (per audit spec) but `--lookback-days 14` only feeds ~336 bars → `336<800` → **skip-warmup forever → FX books nothing.** Reverted to 200. The spec's 800 needs the **bar-cache data platform** (deep history without Yahoo rate-limit) — do NOT just raise warmup without matching lookback + a non-rate-limited source.
+
+### 🔴 SECURITY — staged, flip AFTER today's close
+`/api/*` is **internet-reachable with no token** (place orders / change settings / read positions). Root cause: `Firebase:RequireAuth=false` is set on the EC2 (env=Production), so the existing `AllowedUsers` policy is bypassed. Basic-auth (Caddy) only covers the SPA HTML, not `/api`. **Fix = set `Firebase:RequireAuth=true` + `Firebase:ProjectId` on EC2** (API throws on boot if ProjectId missing — verify first!). SPA sends Firebase tokens, Mac worker/MCP use the ingest-token scheme (policy already honours it), anonymous blocked. **Do it after close with `RequireAuth=false` rollback staged** — flipping at the open risks an API outage. (Trader: keep basic-auth for now, remove later.)
+
+### Staged for after close (higher-risk — NOT during the session)
+1. **Auth lockdown** (above).
+2. **EURUSD zero-cost-basis reconcile** — inherited position shows avg_entry 0 (P&L unreliable); touches the live FX book + the IG positions read has a negative-avg-price parse edge to handle.
+3. **Signal-coherence scorer fix** (`compare.py` `compute_bucket`/`compute_conviction` — already pure/testable). Audit: 5/9 filters trend-family (trend overweight) + `today_bucket` WAIT vs `entry_signal` BUY shown together (likely explainability, not a logic bug — the worst contradiction class is already fixed). Est. **~1 day** incl. tests; validation limited until the signal-ledger has fills.
+
+### Live state for the open (verify against this)
+- Demo T212 £50K, OMS flat. IG ~£9.97M. All providers healthy (Finnhub, Yahoo, Ollama/sentiment).
+- Daemons: paper-equity + paper-fx every 15 min; intraday-engine running. Equity opens 13:30 UTC.
+- Verify at open: equity FILLS (the headline), FX 10-pair coverage (fetch fix), ORB books, rejections show plain-English.
+- The trader's full **drift audit is the de-facto acceptance spec** — turn it into a tracked conformance checklist (still TODO).
+
+---
+
+---
+
 ## NEW WORKSTREAM — Options trading framework (2026-05-30, SRS received)
 
 Goal NOW: **signals + display potential opportunities only — NO execution**
