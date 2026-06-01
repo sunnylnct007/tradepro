@@ -165,7 +165,7 @@ export function PositionsPanel({
       <CockpitCard
         id="positions-equity"
         title="Equity positions"
-        badge={(equityCount + igEq.length + igOther.length) || undefined}
+        badge={(equityCount + igEq.length) || undefined}
         onHide={() => onHide("positions-equity")}
       >
         <Account
@@ -237,32 +237,46 @@ export function PositionsPanel({
             </ProductSection>
           </Account>
         )}
-        {igOther.length > 0 && (
-          <Account label={`IG · ${ig?.mode ?? "?"} — manual / other`} reconciled={null}>
-            <ProductSection title="Manual / external (not strategy-attributed)" loading={false} error={null} connected empty={false} notConnected="" emptyText="">
-              <table style={tableStyle}>
-                <thead>
-                  <tr style={{ color: "var(--text-dim)" }}>
-                    <th style={th}>Instrument</th><th style={th}>Product</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th><th style={rTh}>Side</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {igOther.map((p, i) => (
-                    <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
-                      <td style={{ ...td, color: "var(--text-muted)" }}>{productOf(p.ticker)}</td>
-                      <td style={numTd}>{Math.abs(p.quantity)}</td>
-                      <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
-                      <td style={{ ...numTd, color: p.quantity >= 0 ? UP : DOWN }}>{p.quantity >= 0 ? "LONG" : "SHORT"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ProductSection>
-          </Account>
-        )}
         {syncMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 8 }}>{syncMsg}</div>}
         <ReconNote />
+      </CockpitCard>
+      )}
+
+      {/* ════ Manual / external positions (options, futures …) ════ */}
+      {/* Booked directly at the broker, NOT strategy-attributed. e.g. the
+          Weekly EURUSD options on IG demo. Kept OUT of the Equity card —
+          EURUSD options aren't equity. The options STRATEGY is signal-only
+          (no execution), so it never produces broker positions; anything
+          here is manual. */}
+      {igOther.length > 0 && (
+      <CockpitCard
+        id="positions-manual"
+        title="Manual / external positions"
+        badge={igOther.length}
+        onHide={() => onHide("positions-manual")}
+      >
+        <Account label={`IG · ${ig?.mode ?? "?"} — booked directly (not strategy-attributed)`} reconciled={null} first>
+          <ProductSection title="Manual / external" loading={false} error={null} connected empty={false} notConnected="" emptyText="">
+            <table style={tableStyle}>
+              <thead>
+                <tr style={{ color: "var(--text-dim)" }}>
+                  <th style={th}>Instrument</th><th style={th}>Product</th><th style={rTh}>Qty</th><th style={rTh}>Entry</th><th style={rTh}>Side</th>
+                </tr>
+              </thead>
+              <tbody>
+                {igOther.map((p, i) => (
+                  <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
+                    <td style={{ ...td, color: "var(--text-muted)" }}>{productOf(p.ticker)}</td>
+                    <td style={numTd}>{Math.abs(p.quantity)}</td>
+                    <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
+                    <td style={{ ...numTd, color: p.quantity >= 0 ? UP : DOWN }}>{p.quantity >= 0 ? "LONG" : "SHORT"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </ProductSection>
+        </Account>
       </CockpitCard>
       )}
 
