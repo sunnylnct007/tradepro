@@ -49,6 +49,35 @@ because a strategy can *look* like it works while doing nothing.
   live (universe vs spec, bars-have-vs-need, warmup/lookback, data source,
   broker, capital) so assumptions are visible + decidable BEFORE testing.
 
+### 🔴 FOUNDATION DEBT — replay-trade model (the #1 thing distorting strategy behaviour)
+**Symptom:** ichimoku_fx_mr fired **357 times in one run** to net 17 orders;
+intraday_flat accumulated **18 IG deals for a 6-name basket**. Both churn.
+**Root cause:** the paper-session daemon streams the WHOLE `--lookback-days`
+window through `strategy.on_bar` every run, and the strategy *trades every
+bar*. ichimoku_fx_mr also sets `_fx_positions[pair] = target` optimistically
+(ichimoku_fx_mr.py:503), so as the mean-reversion signal flips across the
+historical replay it re-enters/exits repeatedly — and by the live bar it's
+`skip-no-delta` (thinks it's already positioned) while the *broker* is flat.
+So live ≠ backtest, and any P&L/optimisation on top is fiction.
+**Why it's not a quick patch:** `Bar` is frozen; the two strategies need
+DIFFERENT behaviour — FX should act ONLY on the latest (live) bar (replay =
+indicator warmup), while intraday_flat is genuinely intra-session (stops /
+time-exits must run on every in-window bar, but entries must be once-per-name
+and seeded from the broker so re-runs don't re-pile).
+**Designed fix (dedicated, tested pass — do BEFORE trusting any optimisation):**
+1. Mark the last bar per symbol live in `ReplayBarBus.run` (materialise the
+   list, `dataclasses.replace(bar, is_live=True)` on the final index per
+   symbol) — covers SourceBackedBus + MultiSymbolSourceBackedBus + tests.
+2. Add `is_live: bool = False` to the frozen `Bar` (back-compat default).
+3. ichimoku_fx_mr.on_bar: compute the signal on every bar (warmup) but only
+   emit the delta order + update `_fx_positions` when `bar.is_live`.
+4. intraday_flat: keep intra-session management, but gate ENTRIES so a re-run
+   that's seeded-from-broker (already holding the name) never re-enters; rely
+   on forceOpen=false to aggregate, and the EOD flatten as the backstop.
+5. Update the BDD/unit suites that drive ReplayBarBus directly.
+**Status 2026-06-01:** STABILISED (both daemons paused, pending cancelled, no
+active churn) — fix pending as a focused pass.
+
 ### ⚠️ ASSUMPTIONS LOG — surfaced 2026-06-01 (afternoon, trader live-review)
 - ⚠️ **Cockpit panels read `/api/ops/sessions` (manual runs) not the live
   daemon snapshots** (`/api/paper/snapshots`, written by `--push`). ⇒ every
