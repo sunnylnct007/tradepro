@@ -375,11 +375,16 @@ class T212OrderRouter(OrderRouter):
         # Symbol translation depends on the resolved broker_label.
         # IG expects EPICs like "CS.D.EURUSD.MINI.IP" for FX. T212
         # expects suffixed tickers like "EURUSD" (raw) / "AAPL_US_EQ".
-        broker_symbol = (
-            _to_ig_epic(order.symbol)
-            if broker_label and broker_label.startswith("IG")
-            else _to_t212_ticker(order.symbol)
-        )
+        if broker_label and broker_label.startswith("IG"):
+            # Prefer the epic the strategy already resolved on the order
+            # (order.instrument_id — e.g. intraday_flat's share-CFD epics from
+            # ig_epic_map.json like "UA.D.AAPL.CASH.IP"). Fall back to the FX
+            # symbol→epic convention for strategies that leave it None
+            # (ichimoku_fx_mr). Without this, _to_ig_epic raised on equity
+            # symbols because its table is FX-only.
+            broker_symbol = order.instrument_id or _to_ig_epic(order.symbol)
+        else:
+            broker_symbol = _to_t212_ticker(order.symbol)
         # IG MINI FX contracts trade in lots, not units. The strategy
         # works in unit terms internally (e.g. 17244 EURUSD units).
         # Convert to mini-lot units (1 mini = 10,000 base units) and

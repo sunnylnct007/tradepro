@@ -55,7 +55,7 @@ from ..paper.profiles import build_multi_broker_session, build_session
 from ..paper.strategies.opening_range_breakout import OpeningRangeBreakout
 
 
-_STRATEGY_CHOICES = ("orb", "ichimoku_equity", "ichimoku_fx_mr")
+_STRATEGY_CHOICES = ("orb", "ichimoku_equity", "ichimoku_fx_mr", "intraday_flat")
 
 # Sensible interval defaults per strategy — overridden by --interval.
 _DEFAULT_INTERVALS = {
@@ -260,6 +260,27 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
             risk=RiskLimits(
                 max_position_value_usd=args.max_position_value_usd,
                 allow_short=True,
+            ),
+        )
+
+    if strategy_name == "intraday_flat":
+        from ..paper.strategies.intraday_flat import IntradayFlatStrategy
+        return IntradayFlatStrategy(
+            strategy_id=strategy_id,
+            params={
+                # The scanner ranks `candidates` then intersects with the IG
+                # epic map; pass the daemon's --symbols as the candidate set.
+                "candidates": symbols,
+                "capital_usd": args.capital_usd,
+                "risk_per_trade_usd": args.risk_per_trade_usd,
+                # Route to IG (matches --broker ig). Orders carry this
+                # broker_label + the per-symbol epic from ig_epic_map.json.
+                "broker_label": "IG_DEMO",
+            },
+            # Long-only intraday by design — never short.
+            risk=RiskLimits(
+                max_position_value_usd=args.max_position_value_usd,
+                allow_short=False,
             ),
         )
 
