@@ -321,21 +321,41 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             return []
 
         # Accumulate rolling OHLC.
-        warmup = int(p.get("warmup_bars", 200))
+        warmup_arg = int(p.get("warmup_bars", 200))
         horizons = tuple(p.get("horizons") or HORIZONS)
         smooths = tuple(p.get("smooths") or SMOOTHS)
-        maxlen = max(700, max(horizons) * 4 + max(smooths) + 10)
+        # The ensemble's LONGEST horizon needs horizon*4 + smooth + 10 bars
+        # (senkou_b = 4*horizon). Start signalling earlier than that and the
+        # long horizons silently return 0 → the ensemble collapses toward 0
+        # → the strategy looks alive but NEVER trades (the 2026-06-01 FX
+        # bug, where warmup_bars=800 ≪ the ~2578 the 624h horizon needs).
+        # So the REAL warmup is what the full ensemble needs — and when we're
+        # short of it, say so LOUDLY instead of emitting silent-zero signals.
+        bars_needed = max(horizons) * 4 + max(smooths) + 10
+        warmup = max(warmup_arg, bars_needed)
+        maxlen = max(700, bars_needed)
         self._closes.setdefault(pair, deque(maxlen=maxlen)).append(bar.close)
         self._highs.setdefault(pair, deque(maxlen=maxlen)).append(bar.high)
         self._lows.setdefault(pair, deque(maxlen=maxlen)).append(bar.low)
         self._bar_counts[pair] = self._bar_counts.get(pair, 0) + 1
 
-        # Warmup gate -- collect history, no orders until we've seen enough bars.
+        # Warmup gate -- no orders until enough bars for the FULL ensemble.
         if self._bar_counts[pair] < warmup:
+            # Loudly flag the dangerous middle ground: past the configured
+            # warmup_bars gate but still short of what the ensemble needs —
+            # the exact silent-zero condition. Fire once (on crossing).
+            if self._bar_counts[pair] == warmup_arg and warmup_arg < bars_needed:
+                _log.warning(
+                    "ichimoku_fx_mr DATA-STARVED for %s: %d bars, but the %dh "
+                    "horizon needs %d (senkou_b=4×horizon). Signals stay 0 "
+                    "until then — deepen --lookback-days or use the bar-cache.",
+                    pair, self._bar_counts[pair], max(horizons), bars_needed,
+                )
             self.log_decision(
                 symbol=pair, bar_ts=bar.timestamp,
                 action="skip-warmup",
-                reason=f"warmup {self._bar_counts[pair]}/{warmup} bars",
+                reason=(f"warmup {self._bar_counts[pair]}/{warmup} bars "
+                        f"(longest horizon {max(horizons)}h needs {bars_needed})"),
                 bars_seen=self._bar_counts[pair],
                 bars_required=warmup,
             )
