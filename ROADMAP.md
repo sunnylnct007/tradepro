@@ -19,6 +19,36 @@ Context anchor so we don't lose the thread across the long session. The
 trader provided a full **drift audit** (spec vs live) + demanded fills work
 for Monday's open. Demo account was reset → **£50K** fresh capital.
 
+### ⚠️ ASSUMPTIONS LOG — surfaced 2026-06-01 (REVISIT each)
+Process rule (trader directive): **when development relies on an assumption,
+HIGHLIGHT it in the moment AND log it here to revisit.** Most of today's
+bugs were *silent assumptions* that only broke at runtime — high-impact
+because a strategy can *look* like it works while doing nothing.
+- ⚠️ **FX needs ~2,578 bars, not 800.** `ichimoku_fx_mr` requires
+  `horizon×4 + smooth + 10` bars; the 624h horizon ⇒ ~2,578 hourly bars.
+  The `warmup_bars` GATE (800) ≠ the bars the ensemble actually needs.
+  Fed only ~336–840 ⇒ signal silently `0.0` ⇒ never traded. FIXED via
+  ranged fetch + lookback 130. **Revisit:** make "bars-needed" derived +
+  asserted, not a hand-set warmup.
+- ⚠️ **Bar-bus assumed ≤5 symbols** (`symbols[:5]`) ⇒ ran FX + equity on
+  half their universe. FIXED (cap 40). Revisit: should be unbounded / per
+  strategy, sourced from the data platform.
+- ⚠️ **Per-day Yahoo fetch** assumed low call volume ⇒ rate-limited multi-
+  symbol deep-history. FIXED (ranged bulk fetch). Revisit: replace with the
+  bar-cache data platform as canonical source.
+- ⚠️ **default_broker=T212** ⇒ unmapped strategies would route LIVE.
+  FIXED (→ PAPER). Revisit: new strategies must be signal-only by default.
+- ⚠️ **Equity capital 100k assumed** vs £50k demo ⇒ would over-commit.
+  FIXED (→50k). Revisit: size from live broker cash, not a hardcoded arg.
+- ⚠️ **Daily strategy assumed today's bar exists** intraday ⇒ no trigger on
+  the incomplete day; Monday's weekend gap broke `default_lookback_days=1`.
+  FIXED (lookback 5). Revisit: trigger off the last *completed* bar.
+- ⚠️ **launchd reloads on `load`** — it caches the plist; config edits need
+  `bootout`+`bootstrap`. Plists also aren't version-controlled (debt).
+- **GO-FORWARD:** building the **Strategy-readiness panel** to surface these
+  live (universe vs spec, bars-have-vs-need, warmup/lookback, data source,
+  broker, capital) so assumptions are visible + decidable BEFORE testing.
+
 ### Shipped + deployed today (all on `main`, auto-rolled to showsoldprice.com = the AWS EC2; Firebase is NOT the prod frontend)
 - **Zero-fill root cause = T212 demo out of buying power ($248) + after-close placement.** Fixed: trader reset demo to £50K; added **equity market-hours gate** (09:30–16:00 America/New_York, DST-correct) + **buying-power floor** (`risk_min_free_to_trade_usd`, BUY-only — SELLs are NEVER capital-gated, by design) in `RiskGate.cs`.
 - **OMS flattened** to the reset broker (net 0); **sync-from-broker made idempotent** — `ReconcileMath.ComputeAdjustments` SUMS across (symbol,strategy) buckets (the old GroupBy.First diverged + accumulated junk). Added `Force=true` to bypass the empty-broker fail-safe after a genuine reset. **6 regression tests** in `ReconcileMathTest.cs` (closes the "no coverage" gap the trader flagged).
