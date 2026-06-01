@@ -33,12 +33,31 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
     return localStorage.getItem("cockpit.pnl.scope") === "daily" ? "daily" : "intraday";
   });
   const [series, setSeries] = useState<Series[]>([]);
+  const [brokerByStrat, setBrokerByStrat] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     try { localStorage.setItem("cockpit.pnl.scope", scope); } catch { /* noop */ }
   }, [scope]);
+
+  // Which strategy runs on which broker (config-driven, from the
+  // strategy_broker_map). Only brokers that actually REPORT P&L give a
+  // trustworthy line; today that's T212 (unrealisedAbs per position). IG
+  // positions carry no P&L yet, so IG-routed desks (FX, intraday) are shown
+  // as "pending" rather than plotted as a misleading ~0 line.
+  useEffect(() => {
+    let live = true;
+    api.strategyBrokerMap()
+      .then((bm) => {
+        if (!live) return;
+        const m: Record<string, string> = {};
+        for (const row of bm.mappings) m[row.strategy_id] = row.broker;
+        setBrokerByStrat(m);
+      })
+      .catch(() => { /* leave empty → treat all as pending until known */ });
+    return () => { live = false; };
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -63,39 +82,53 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
     return () => { live = false; clearInterval(t); };
   }, [scope]);
 
+  // A line is trustworthy unless its broker is EXPLICITLY IG — IG positions
+  // carry no P&L through our integration yet, so an IG line would be a
+  // misleading ~0. We exclude only known-IG (not unknown) so a missing /
+  // unloaded map never hides the real T212 equity line (empty graph is worse
+  // than a caveated one). Flip to a T212-allowlist once IG P&L is wired.
+  const pnlCapable = (sid: string) =>
+    !(brokerByStrat[sid] ?? "").toUpperCase().startsWith("IG");
+
+  // Real lines we can stand behind vs strategies whose P&L isn't wired yet.
+  const realSeries = useMemo(() => series.filter((s) => pnlCapable(s.strategyId)), [series, brokerByStrat]);
+  const pendingStrategies = useMemo(
+    () => series.filter((s) => !pnlCapable(s.strategyId)).map((s) => s.strategyId),
+    [series, brokerByStrat]);
+
   // Merge per-strategy series into recharts rows keyed by timestamp. Each
   // row carries every strategy's total at that ts (null where it has no
   // point — connectNulls bridges the gaps so sparse intraday lines join).
   const { rows, strategies } = useMemo(() => {
     const tsSet = new Set<string>();
-    for (const s of series) for (const p of s.points) tsSet.add(p.ts);
+    for (const s of realSeries) for (const p of s.points) tsSet.add(p.ts);
     const sortedTs = [...tsSet].sort();
     const byStrat: Record<string, Map<string, number>> = {};
-    for (const s of series) {
+    for (const s of realSeries) {
       byStrat[s.strategyId] = new Map(s.points.map((p) => [p.ts, p.total]));
     }
     const rows = sortedTs.map((ts) => {
       const row: Record<string, number | string | null> = { ts };
-      for (const s of series) row[s.strategyId] = byStrat[s.strategyId].get(ts) ?? null;
+      for (const s of realSeries) row[s.strategyId] = byStrat[s.strategyId].get(ts) ?? null;
       return row;
     });
-    return { rows, strategies: series.map((s) => s.strategyId) };
-  }, [series]);
+    return { rows, strategies: realSeries.map((s) => s.strategyId) };
+  }, [realSeries]);
 
   const fmtX = (ts: string) =>
     scope === "intraday" ? (ts.length >= 16 ? ts.slice(11, 16) : ts) : (ts.length >= 10 ? ts.slice(5, 10) : ts);
   const colorFor = (sid: string, i: number) => STRATEGY_COLOR[sid] ?? PALETTE[i % PALETTE.length];
 
   const totalNow = useMemo(() => {
-    // Latest total across desks (sum of each strategy's last point).
-    return series.reduce((acc, s) => acc + (s.points.at(-1)?.total ?? 0), 0);
-  }, [series]);
+    // Latest total across P&L-capable desks only (sum of last points).
+    return realSeries.reduce((acc, s) => acc + (s.points.at(-1)?.total ?? 0), 0);
+  }, [realSeries]);
 
   return (
     <CockpitCard
       id="pnl-graph"
-      title="P&L at a glance — per strategy"
-      badge={series.length ? `$${totalNow.toFixed(0)}` : undefined}
+      title="Open P&L (mark-to-market) — per strategy"
+      badge={realSeries.length ? `$${totalNow.toFixed(0)}` : undefined}
       fullWidth
       onHide={onHide}
     >
@@ -103,9 +136,15 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
         <ScopePill v="intraday" cur={scope} set={setScope} label="Today (intraday)" />
         <ScopePill v="daily" cur={scope} set={setScope} label="All-time (daily)" />
         <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto" }}>
-          total P&amp;L = realised + unrealised · per-strategy lines
+          open positions only (mark-to-market) · excludes closed/realised trades
         </span>
       </div>
+      {pendingStrategies.length > 0 && (
+        <div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 8 }}>
+          ⚠ P&amp;L not shown for {pendingStrategies.join(", ")} — IG broker P&amp;L
+          integration pending (positions exposed, P&amp;L not yet).
+        </div>
+      )}
 
       {loading && rows.length === 0 ? (
         <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "24px 0" }}>Loading…</div>
