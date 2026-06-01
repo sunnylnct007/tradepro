@@ -508,11 +508,17 @@ def main(argv: list[str] | None = None) -> int:
 
     broker_list = [b.strip() for b in args.broker.split(",") if b.strip()]
 
-    # For daily / multi-symbol strategies the bar bus only needs to
-    # deliver one trigger bar per symbol — the strategy fetches its own
-    # history.  Use the first symbol as the bus anchor; the strategy's
-    # on_bar handles the full list itself.
-    bus_symbols = symbols if len(symbols) <= 5 else symbols[:5]
+    # The bar bus delivers one trigger bar PER SYMBOL, and the multi-symbol
+    # strategies (ichimoku_fx_mr 10 pairs, ichimoku_equity ~10-20 names)
+    # decide per-symbol in on_bar — so a symbol with no trigger bar is
+    # NEVER evaluated. The old `[:5]` cap therefore silently dropped half
+    # the FX universe (USDCAD/NZDUSD/EURGBP/EURJPY/GBPJPY) and half the
+    # equity names — the strategy ran on only its first 5 symbols, not the
+    # user's full list. Raise the cap to cover real daemon universes; the
+    # pathological huge-list case (the ~500-symbol intraday scan) is guarded
+    # separately in the intraday engine (MAX_INTRADAY_SYMBOLS).
+    _BUS_SYMBOL_CAP = 40
+    bus_symbols = symbols if len(symbols) <= _BUS_SYMBOL_CAP else symbols[:_BUS_SYMBOL_CAP]
 
     if len(broker_list) > 1:
         bus, router = build_multi_broker_session(
