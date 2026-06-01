@@ -205,6 +205,12 @@ function groupByStrategy(cards: Card[]): [string, Card[]][] {
     const g = groups.get(c.strategy);
     if (g) g.push(c); else groups.set(c.strategy, [c]);
   }
+  // Symbols within a strategy block are shown in ALPHABETIC order so the
+  // trader can find a ticker by eye (A→Z), rather than fire-first which
+  // scattered them. Use the FIRE/SKIP pills to scope to actionable ones.
+  for (const g of groups.values()) {
+    g.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  }
   return [...groups.entries()].sort((a, b) => {
     const aFires = a[1].some((c) => c.action.startsWith("fire-")) ? 0 : 1;
     const bFires = b[1].some((c) => c.action.startsWith("fire-")) ? 0 : 1;
