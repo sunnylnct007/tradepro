@@ -586,12 +586,16 @@ public sealed class PostgresOmsService : IOmsService
             : ("WHERE o.strategy_id = @sid", (object)new { sid = strategyId });
         var rows = await conn.QueryAsync<OmsPosition>($@"
             SELECT
-                o.strategy_id      AS StrategyId,
+                COALESCE(o.strategy_id, '(unattributed)') AS StrategyId,
                 o.symbol           AS Symbol,
                 o.broker           AS Broker,
-                SUM(CASE WHEN o.side = 'BUY' THEN f.qty ELSE -f.qty END) AS Quantity,
+                SUM(CASE WHEN o.side = 'BUY' THEN f.qty ELSE -f.qty END)::numeric AS Quantity,
+                -- ::numeric so the result maps to .NET decimal (f.price is
+                -- double precision; the raw division returns double, which
+                -- Dapper can't bind to decimal? → the endpoint 500'd for ALL
+                -- strategies on a single bad row). NULLIF guards divide-by-zero.
                 CASE WHEN SUM(f.qty) = 0 THEN NULL
-                     ELSE SUM(f.qty * f.price) / SUM(f.qty)
+                     ELSE (SUM(f.qty * f.price) / NULLIF(SUM(f.qty), 0))::numeric
                 END                AS AvgPrice,
                 MAX(f.fill_at_utc) AS LastFillAtUtc
             FROM oms_orders o
