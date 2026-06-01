@@ -41,6 +41,13 @@ from .errors import (
     ProviderRateLimitError,
     SchemaVersionMismatch,
 )
+from .hashing import (
+    EMPTY_DATA_STATE_HASH,
+    PartitionFingerprint,
+    compute_data_state_hash,
+    fingerprint_from_manifest,
+    short_hash,
+)
 from .manifest import Manifest
 from .preferences import PreferencesLoader
 from .store import BarStore, BarFrame
@@ -49,12 +56,17 @@ __all__ = [
     "BarFetchError",
     "BarFrame",
     "BarStore",
+    "EMPTY_DATA_STATE_HASH",
     "Manifest",
     "ManifestViolation",
     "NoProviderAvailableError",
+    "PartitionFingerprint",
     "PreferencesLoader",
     "ProviderNetworkError",
     "ProviderParseError",
     "ProviderRateLimitError",
     "SchemaVersionMismatch",
+    "compute_data_state_hash",
+    "fingerprint_from_manifest",
+    "short_hash",
 ]

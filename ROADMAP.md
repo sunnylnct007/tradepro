@@ -819,11 +819,22 @@ Each handler is a single file. Worker / queue / UI plumbing doesn't
 change between slices.
 
 **Phase D — Reproducibility + audit**
-- Backtest results stamp `data_provider`, `provider_version`,
-  `bar_count_per_symbol`, `bar_partition_hash`.
-- Result viewer surfaces the data state ("ran on cache hash abc123;
-  matches the 2024-08-15 baseline").
-- Walk-forward + Monte Carlo become fully reproducible.
+
+- **D-1 SHIPPED (this PR)**: `BarFrame.data_state_hash` —
+  deterministic SHA256 of the manifests of partitions read.
+  Identical bars → identical hash. New `bar_cache.hashing` module
+  + 5 BDD scenarios. **§L4 downgraded from MEDIUM to LOW**: the
+  data layer half of reproducibility is solved.
+- **D-2** (next slice): plumb the hash into backtest result envelopes.
+  `paper_backtest_reports` table gains a `data_state_hash` column;
+  the .NET endpoints record it; result viewer surfaces it as a chip.
+  Two runs with matching hashes are flagged "reproducible against
+  prior run X".
+- **D-3**: walk-forward + Monte Carlo carry the hash per-leg so
+  sub-run divergence becomes auditable.
+- **D-4** (optional, deferred): bytes-level content hash via
+  streaming SHA256 over parquet bytes — for cases where the
+  manifest-level hash isn't strict enough.
 
 **Phase E — Backtest hard-block on incomplete data**
 - The backtest CLI / endpoint refuses to run when the data layer

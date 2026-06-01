@@ -148,27 +148,56 @@ unavailability.
 
 ---
 
-### L4 — Reproducibility is weak (MEDIUM)
+### L4 — Reproducibility is weak (MEDIUM → DOWNGRADED to LOW after Phase D-1)
 
-**Severity**: MEDIUM — undermines walk-forward + Monte Carlo confidence.
+**Status update (Phase D-1)**: `BarStore.get()` now stamps every
+`BarFrame` with `data_state_hash` — a SHA256 digest computed
+deterministically from the manifests of the partitions read. Identical
+bars produce identical hashes. The data-layer half of reproducibility
+is solved; what's left is plumbing the hash into backtest result
+envelopes (Phase D-2) so cockpit users can see "this run used the
+same data as the 2024-08 baseline".
 
-**What's true**:
-- yfinance silently revises historical bars (corporate actions, late dividend reinvestments, split adjustments).
-- Two backtest runs of the same strategy on the same period, executed weeks apart, can disagree by a few bps.
-- No backtest result currently records the data state it used.
+**What's true (post D-1)**:
+- yfinance still silently revises historical bars — but any
+  BarStore-mediated fetch now leaves a hash fingerprint on the
+  retrieved frame.
+- The hash is deterministic across cache rebuilds (excludes
+  wall-clock fields like `fetched_at_utc` for that reason). Two
+  fresh cache builds against the same providers + same bars produce
+  the same hash.
+- `BarFrame.data_state_hash` is the public surface. Sentinel
+  `EMPTY_DATA_STATE_HASH` ("EMPTY_DATA_STATE") is returned when no
+  partitions were touched.
+- Backtest results don't yet stamp the hash — D-2 plumbs it through
+  the backtest layer.
 
-**Consequence**:
-- Can't reliably compare a backtest result from 2024 with one from today.
-- Walk-forward sweeps that depend on stable historical data have a noise floor higher than zero.
-- A team member running the same backtest as another team member can get different numbers; the diff isn't a bug, it's data drift.
+**Consequence (residual)**:
+- A backtest replayed on a different cache state still produces
+  different numbers — but now we can DETECT it (the hashes differ),
+  rather than silently disagreeing.
+- The hash is over manifest fields, not parquet bytes — a subtle
+  byte-level rewrite with identical row count + file size would
+  collide. Sufficient signal for normal cases (yfinance revisions,
+  schema bumps, provider switches); a future bytes-hash mode lands
+  if/when stricter equality is needed.
 
 **Remedy**:
-- Phase D: stamp every backtest result with `data_provider`, `data_provider_version`, `bar_count_per_symbol`, `bar_partition_hash`. Reruns with matching hashes MUST produce identical numbers.
-- Phase D+1: result viewer surfaces the data hash; "this matches the 2024-08 run" vs "this used different bars".
+- ✅ Phase D-1 SHIPPED: `data_state_hash` on every `BarFrame`,
+  deterministic, order-independent, hashes manifest fields per
+  partition.
+- Phase D-2: plumb the hash into backtest result envelopes; result
+  viewer surfaces it; matching hashes are flagged as "reproducible
+  against prior run X".
+- Phase D-3: walk-forward + Monte Carlo carry the hash through
+  every leg so any deviation between sub-runs is auditable.
 
-**Mitigation today**:
-- For a definitive comparison, rerun both legs of a comparison on the same day with the same cache state.
-- Treat backtest "trends over months" with appropriate humility: the data underneath has been silently rewritten.
+**Mitigation today (post D-1)**:
+- For definitive comparison: capture the `BarFrame.data_state_hash`
+  alongside any backtest output. Matching hashes = same data;
+  different hashes = explanation needed.
+- Until Phase D-2 ships, callers must stash the hash themselves
+  (the field is on every successful `BarStore.get()` result).
 
 ---
 

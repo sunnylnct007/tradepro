@@ -55,6 +55,12 @@ from .errors import (
     ProviderRateLimitError,
     SchemaVersionMismatch,
 )
+from .hashing import (
+    EMPTY_DATA_STATE_HASH,
+    PartitionFingerprint,
+    compute_data_state_hash,
+    fingerprint_from_manifest,
+)
 from .manifest import Manifest
 from .preferences import PreferencesLoader
 from .providers import get_provider
@@ -71,7 +77,16 @@ class BarFrame:
     Carries the bars + the provenance the caller needs to reason
     about what they have ("did this come from cache, from yfinance,
     is the coverage complete?"). The strategy code reads ``df``;
-    everything else is for the audit trail."""
+    everything else is for the audit trail.
+
+    ``data_state_hash`` (Phase D-1) is a SHA256 hex digest derived
+    from the manifests of every partition read. Two BarStore.get()
+    calls over the same range that hit the same on-disk parquets
+    produce the SAME hash. A future backtest stamped with the hash
+    can be replayed knowing the data was identical. See
+    ``bar_cache.hashing`` for what's in the hash + why. The sentinel
+    string ``EMPTY_DATA_STATE`` (exported from hashing.py) means
+    "no partitions were touched"."""
     df: pd.DataFrame
     coverage_complete: bool
     partitions_used: list[str]
@@ -81,6 +96,9 @@ class BarFrame:
     rows_expected: int
     schema_version: str
     fetched_at_utc: str
+    # Phase D-1: deterministic hash of the data state. Reproducibility
+    # check for backtests + walk-forwards. See bar_cache.hashing.
+    data_state_hash: str = ""
     notes: list[str] = field(default_factory=list)
 
 
@@ -362,6 +380,16 @@ class BarStore:
             latency_ms=_ms(t0),
         )
 
+        # Phase D-1: compute the data_state_hash from the manifests of
+        # the partitions we actually touched. Reading manifests off
+        # disk is cheap (small JSON), so we do it unconditionally —
+        # the cost is amortised by the fetch itself when there was a
+        # cache miss, and trivial on cache hits.
+        data_state_hash = self._compute_data_state_hash(
+            canonical=canonical, asset_class=asset_class,
+            resolution=resolution, partitions=partitions_used,
+        )
+
         return BarFrame(
             df=df,
             coverage_complete=coverage_complete,
@@ -372,6 +400,7 @@ class BarStore:
             rows_expected=rows_expected,
             schema_version=plugin.schema.schema_version,
             fetched_at_utc=Manifest.now_iso(),
+            data_state_hash=data_state_hash,
             notes=[],
         )
 
@@ -691,7 +720,43 @@ class BarStore:
             rows_expected=0,
             schema_version=plugin.schema.schema_version,
             fetched_at_utc=Manifest.now_iso(),
+            # No partitions read → sentinel hash so a downstream
+            # backtest can pivot on "no data state" cleanly.
+            data_state_hash=EMPTY_DATA_STATE_HASH,
         )
+
+    def _compute_data_state_hash(
+        self,
+        canonical: str,
+        asset_class: str,
+        resolution: str,
+        partitions: list[str],
+    ) -> str:
+        """Build the per-partition fingerprints from disk + hash.
+
+        Reads each touched partition's manifest. A missing manifest
+        is treated as "absent fingerprint" — the partition is dropped
+        from the hash rather than the call failing. The manifest
+        validation in ``get()`` would have raised earlier if the
+        manifest were unreadable, so this is just defence in depth
+        against a partition that exists in the partition list but
+        had its manifest deleted out-of-band between fetch + hash.
+        """
+        if not partitions:
+            return EMPTY_DATA_STATE_HASH
+        fingerprints: list[PartitionFingerprint] = []
+        for partition in partitions:
+            manifest_path = self._manifest_path(
+                canonical, asset_class, resolution, partition,
+            )
+            if not manifest_path.exists():
+                continue
+            try:
+                manifest = Manifest.read(manifest_path)
+            except Exception:  # noqa: BLE001
+                continue
+            fingerprints.append(fingerprint_from_manifest(manifest))
+        return compute_data_state_hash(fingerprints)
 
     def _emit_event(
         self, *,
