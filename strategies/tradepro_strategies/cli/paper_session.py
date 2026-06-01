@@ -381,24 +381,42 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int
             f"could not read {b!r} positions (golden source): {exc}"
         ) from exc
 
+    # The IG account is SHARED across strategies (FX pairs CS.D.*.MINI.IP,
+    # intraday_flat equity CFDs UA.D.*.CASH.IP, plus manual options DO.D./
+    # OD.D.*). Seeding a strategy with positions that aren't its own corrupts
+    # its delta math — e.g. ichimoku_fx_mr was seeded with the equity CFDs +
+    # options, computed current==target on every pair, and went skip-no-delta
+    # forever (so only 1 FX pair ever showed). Restrict the seed to THIS
+    # strategy's declared universe.
+    p = getattr(strategy, "params", {}) or {}
+    universe: set[str] = set()
+    for key in ("pairs", "symbols", "candidates"):
+        universe.update(str(x).strip().upper() for x in (p.get(key) or []) if str(x).strip())
+
     positions: dict[str, int] = {}
     for r in rows:
         t = (r.get("ticker") or r.get("epic") or "").upper()
         if not t:
             continue
-        # Strip broker suffixes so the strategy's internal book
-        # (which keys on bare ticker / pair) finds a match:
-        #   AAPL_US_EQ              → AAPL
-        #   CS.D.EURUSD.MINI.IP     → EURUSD
-        #   CS.D.GBPUSD.CFD.IP      → GBPUSD
-        # IG epic format is fixed: <market_class>.D.<pair>.<size>.IP
+        # Strip broker suffixes so the strategy's internal book (which keys on
+        # bare ticker / pair) finds a match. IG epics are <class>.D.<sym>.<*>.IP:
+        #   CS.D.EURUSD.MINI.IP  → EURUSD   (FX)
+        #   UA.D.AAPL.CASH.IP    → AAPL     (equity CFD)
+        #   AAPL_US_EQ           → AAPL     (T212)
+        # Options (DO.D.EURO.42.IP / OD.D.WK2EURO.32.IP) strip to a token that
+        # matches no strategy universe → filtered out below.
         bare = t
-        if t.startswith("CS.D.") or t.startswith("IX.D."):
+        if t.endswith(".IP") and "." in t:
             parts = t.split(".")
             if len(parts) >= 4:
                 bare = parts[2]
         elif "_" in t:
             bare = t.split("_", 1)[0]
+        # Per-strategy filter: drop anything not in this strategy's universe
+        # (other strategies' instruments + manual options). Empty universe →
+        # don't filter (preserve old behaviour for strategies without one).
+        if universe and bare not in universe:
+            continue
         try:
             # Truncate toward zero so we never overstate the held
             # quantity — T212 fractional shares (6.7022 NVDA) rounding
