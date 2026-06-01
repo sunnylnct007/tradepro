@@ -70,7 +70,10 @@ Done + deployed today:
 ⬜ PENDING — after today's close (higher-risk):
 - [ ] 🔴 Auth lockdown: set `Firebase:RequireAuth=true` + verify `Firebase:ProjectId` on EC2 (API throws on boot if missing); rollback `=false` staged
 - [ ] EURUSD zero-cost-basis reconcile (touches live FX book) + negative avg-price parse edge in IG positions read
-- [ ] Signal-coherence scorer fix (`compare.py` compute_bucket/conviction; 5/9 trend-family overweight + bucket-vs-entry_signal explainability) — est. ~1 day incl. tests
+- [x] ~~Signal-coherence scorer fix~~ — DIAGNOSED 2026-06-01: ALREADY implemented + wired + tested. `compare.py:993` calls `cap_bucket_at_low_conviction` (BUG-001 veto: trend-fail → conviction LOW → BUY demoted to WAIT); `compare.py:581-615` reconciles `entry_signal` to the bucket (raw preserved for the trace, so "bucket WAIT vs entry_signal BUY" can't surface). Tested in `conviction.feature` (12 scenarios). The trader's audit was STALE on this. Remaining (separate, NOT a coherence bug): the 5/9-trend-family *weighting* of the price gate — a tuning decision, not urgent.
+
+### Background work while trader away (2026-06-01 ~11:00–11:20 UTC, pre-US-open)
+- **FX warmup was STILL 800** despite the plist + API params + session build all reading 200. Root cause: **launchd caches the plist at load time** — `launchctl unload/load` and even an earlier `bootout/bootstrap/kickstart` didn't refresh it; the 15-min `StartInterval` respawns kept using the cached 800 config → `warmup 331/800` → `skip-warmup` → FX couldn't fire. Fix: a clean `bootout` (remove service) → `bootstrap` (reload from file) → `kickstart`. Verified: the 11:17 run is `50× skip-no-delta, 0 skip-warmup` → warmup 200 live, all pairs evaluating, no dropped-pair warnings. ⚠️ VERIFY the next StartInterval run (~11:32) HOLDS 200 (caching has bitten twice). Lesson: plist edits need `bootout`+`bootstrap`, not `load`; and these daemon plists aren't version-controlled (debt).
 
 ⬜ PENDING — follow-ups / debt:
 - [ ] Daemon plist configs (equity US-only universe, capital, FX warmup) live ONLY on the Mac `~/Library/LaunchAgents` — NOT version-controlled. Bring under version control.
