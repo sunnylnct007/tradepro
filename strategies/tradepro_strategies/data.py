@@ -38,6 +38,11 @@ def _yahoo(req: DataRequest) -> pd.DataFrame:
     # yfinance is imported lazily so the package still imports without it.
     import yfinance as yf
 
+    # Drop yfinance's benign "possibly delisted; no price data" ERROR spam
+    # (market-holiday gaps trip it for every ticker). Idempotent.
+    from .yf_noise import quiet_yfinance_delisted_noise
+    quiet_yfinance_delisted_noise()
+
     def _dl(sym: str) -> pd.DataFrame:
         return yf.download(
             sym,

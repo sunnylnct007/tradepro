@@ -25,6 +25,7 @@ from typing import Any
 
 import pandas as pd
 
+from ...yf_noise import quiet_yfinance_delisted_noise
 from ..errors import (
     ProviderNetworkError,
     ProviderParseError,
@@ -34,6 +35,12 @@ from .base import Provider, register_provider
 
 
 _log = logging.getLogger("tradepro.bar_cache.yfinance")
+
+# Silence yfinance's benign "possibly delisted; no price data" ERROR spam
+# (holiday gaps trip it across the whole universe on every warmup fetch).
+# Typed ProviderRateLimitError / ProviderNetworkError still surface real
+# failures.
+quiet_yfinance_delisted_noise()
 
 
 # Resolutions yfinance accepts mapped to its interval strings + the

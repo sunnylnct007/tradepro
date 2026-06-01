@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import asyncio
 import heapq
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from ..bar_bus import BarBus, ReplayBarBus
 from ..strategy import Bar
+
+_log = logging.getLogger("tradepro.paper.sources")
 
 
 def _lookback_dates(session_date: datetime, lookback_days: int) -> list[datetime]:
@@ -78,11 +81,34 @@ async def _fetch_window(
 
     session_bars: list[Bar] = []
     lookback_filled: list[tuple[datetime, list[Bar]]] = []
+    empty_lookback_days = 0
     for d, bars in zip(candidates, per_day):
         if d == base:
             session_bars = bars
         elif bars:
             lookback_filled.append((d, bars))
+        else:
+            empty_lookback_days += 1
+
+    # One line per symbol for the whole window instead of yfinance's
+    # per-empty-day "possibly delisted" ERROR spam (now filtered). We do
+    # NOT silently swallow real failures: total data absence escalates to a
+    # WARNING (a genuinely delisted/invalid symbol, or a dead feed), while a
+    # partial gap — almost always market holidays the buffer covers — is a
+    # gentle INFO.
+    if lookback_days > 0 and not lookback_filled and not session_bars:
+        _log.warning(
+            "%s: NO data on ANY of %d candidate day(s) AND no session bars — "
+            "symbol may be delisted/invalid or the feed is down; signals will "
+            "be starved this run",
+            symbol, len(candidates),
+        )
+    elif empty_lookback_days and lookback_days > 0:
+        _log.info(
+            "%s: %d empty lookback day(s) (likely holidays) — fell back to "
+            "%d trading day(s) for the %d-day warmup window",
+            symbol, empty_lookback_days, len(lookback_filled), lookback_days,
+        )
 
     # Take the most recent lookback_days non-empty days (ascending order).
     selected = lookback_filled[-lookback_days:] if lookback_days > 0 else []

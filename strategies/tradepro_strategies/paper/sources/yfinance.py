@@ -21,11 +21,17 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from ...yf_noise import quiet_yfinance_delisted_noise
 from ..strategy import Bar
 from .base import BarSource
 
 
 log = logging.getLogger("tradepro.paper.sources.yfinance")
+
+# Silence yfinance's per-symbol-per-day "possibly delisted; no price data"
+# ERROR spam (market-holiday gaps trip it for the whole universe). Our own
+# log lines below carry the meaningful "NO BARS after retries" signal.
+quiet_yfinance_delisted_noise()
 
 
 # Canonical pair → Yahoo ticker. Internal code uses the canonical
