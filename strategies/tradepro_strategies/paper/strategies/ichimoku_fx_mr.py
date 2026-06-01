@@ -374,6 +374,20 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             )
             return []
 
+        # Trade ONLY on the live (latest) bar. The historical lookback was
+        # accumulated into the deques above purely as indicator WARMUP — it is
+        # NOT a stream of tradeable moments. Acting on every replayed bar made
+        # the strategy fire 357×/run as the mean-reversion signal flipped over
+        # history, churn the broker, and reach skip-no-delta by the live bar.
+        # The bus marks the final bar per symbol is_live=True.
+        if not bar.is_live:
+            self.log_decision(
+                symbol=pair, bar_ts=bar.timestamp,
+                action="skip-warmup-bar",
+                reason="historical lookback (indicator warmup); trade fires on the live bar",
+            )
+            return []
+
         # Compute the latest reversion signal.
         closes_arr = np.fromiter(self._closes[pair], dtype=float)
         highs_arr = np.fromiter(self._highs[pair], dtype=float)

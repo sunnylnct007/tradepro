@@ -619,6 +619,27 @@ def step_seed_positions(context, payload: str) -> None:
     context.strat.seed_positions(_parse_qty_dict(payload))
 
 
+@when('the "{sym}" position is flattened by a fill')
+def step_flatten_by_fill(context, sym: str) -> None:
+    # Simulate the engine applying the flatten order's fill: the position
+    # goes flat and on_fill clears the in-flight guard (otherwise the next
+    # bar would skip-in-flight instead of reaching the entry path we want
+    # to assert is blocked).
+    pos = context.strat.position_for(sym)
+    qty = abs(pos.quantity)
+    pos.quantity = 0
+    context.strat.on_fill(Fill(
+        order_id="flatten-1",
+        strategy_id=context.strat.strategy_id,
+        symbol=sym,
+        side=OrderSide.SELL,
+        quantity=qty,
+        fill_price=200.0,
+        fill_time=_IN_WINDOW_TS,
+        commission=0.0,
+    ))
+
+
 @given('initial_positions "{payload}" passed via params')
 def step_initial_positions_param(context, payload: str) -> None:
     context.strat.params["initial_positions"] = _parse_qty_dict(payload)

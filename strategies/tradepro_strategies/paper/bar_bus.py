@@ -83,9 +83,18 @@ class ReplayBarBus(BarBus):
         out_queue: asyncio.Queue,
         shutdown_queue: asyncio.Queue,
     ) -> None:
+        from dataclasses import replace as _dc_replace
+        # Materialise so we can find the LAST bar per symbol → the "live" bar.
+        # Net-position strategies use the rest as indicator warmup and act
+        # once, on the live bar, instead of re-trading every replayed bar.
+        bars = list(self.bars)
+        last_index_per_symbol: dict[str, int] = {}
+        for i, b in enumerate(bars):
+            last_index_per_symbol[b.symbol] = i
+        live_indices = set(last_index_per_symbol.values())
         seq = 0
         prev_ts: datetime | None = None
-        for bar in self.bars:
+        for i, bar in enumerate(bars):
             if not shutdown_queue.empty():
                 break
             if self.pace_seconds == "realtime" and prev_ts is not None:
@@ -94,6 +103,8 @@ class ReplayBarBus(BarBus):
                     await asyncio.sleep(gap)
             elif isinstance(self.pace_seconds, (int, float)) and self.pace_seconds > 0:
                 await asyncio.sleep(self.pace_seconds)
+            if i in live_indices and not bar.is_live:
+                bar = _dc_replace(bar, is_live=True)
             await out_queue.put(BarEvent(bar=bar, sequence=seq))
             seq += 1
             prev_ts = bar.timestamp

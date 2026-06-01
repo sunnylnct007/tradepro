@@ -138,9 +138,11 @@ interface T212Position {
   yahooSymbol?: string;
   quantity: number;
   averagePricePaid: number;
-  currentPrice: number;
-  unrealisedPct: number;
-  unrealisedAbs: number;
+  // Nullable: the IG positions feed (FX's actual broker) returns no live
+  // price / PnL, so these are null for IG-routed strategies.
+  currentPrice: number | null;
+  unrealisedPct: number | null;
+  unrealisedAbs: number | null;
   currency?: string;
 }
 
@@ -195,6 +197,35 @@ export function IchimokuFx() {
   }, []);
 
   const fetchT212 = useCallback(async () => {
+    // CONFIG-DRIVEN: read THIS strategy's broker from the strategy_broker_map
+    // (the config we maintain) and fetch positions from THAT broker. FX is
+    // mapped to IG_DEMO; the old hardcoded T212 fetch put the equity desk's
+    // book on the FX page. Generic rule: positions come from the strategy's
+    // configured broker, never a hardcoded one.
+    let broker = "IG_DEMO";
+    try {
+      const bm = await api.strategyBrokerMap();
+      const m = bm.mappings.find((x) => x.strategy_id === STRATEGY_ID);
+      if (m?.broker) broker = m.broker;
+    } catch { /* fall back to IG_DEMO (FX's known venue) */ }
+
+    if (broker.startsWith("IG")) {
+      const ig = await api.igPositions();
+      // FX MINI pairs only (CS.D.<PAIR>.MINI.IP) — never equity CFDs/options
+      // that share the IG account. Map the epic back to the bare pair.
+      const positions: T212Position[] = (ig.positions || [])
+        .filter((p) => /^CS\.D\..+\.MINI\.IP$/i.test(p.ticker))
+        .map((p) => ({
+          ticker: p.ticker.replace(/^CS\.D\./i, "").replace(/\.MINI\.IP$/i, ""),
+          quantity: p.quantity,
+          averagePricePaid: p.averagePricePaid ?? 0,
+          currentPrice: null,
+          unrealisedPct: null,
+          unrealisedAbs: null,
+        }));
+      setT212({ enabled: ig.enabled, mode: ig.mode, positionCount: positions.length, positions });
+      return;
+    }
     const url = `${config.apiBaseUrl}/api/integrations/trading212/positions?account=demo`;
     const resp = await fetch(url);
     if (resp.ok) {
@@ -444,7 +475,11 @@ export function IchimokuFx() {
               </thead>
               <tbody>
                 {t212Positions.map((p, i) => {
-                  const pnlColor = p.unrealisedPct >= 0 ? C.green : C.red;
+                  // IG-routed FX positions carry no live price/PnL (the IG
+                  // positions feed returns none) — render "—" rather than
+                  // fabricating a 0.0000 that reads as a real quote.
+                  const hasPnl = p.unrealisedPct != null;
+                  const pnlColor = (p.unrealisedPct ?? 0) >= 0 ? C.green : C.red;
                   return (
                     <tr key={p.ticker} style={i % 2 === 0 ? rowEven : rowOdd}>
                       <td style={tdStyle}><strong>{p.ticker}</strong></td>
@@ -455,15 +490,21 @@ export function IchimokuFx() {
                         {p.averagePricePaid.toFixed(4)}
                       </td>
                       <td style={{ ...tdStyle, textAlign: "right", fontFamily: "monospace" }}>
-                        {p.currentPrice.toFixed(4)}
+                        {p.currentPrice != null ? p.currentPrice.toFixed(4) : "—"}
                       </td>
                       <td style={{ ...tdStyle, textAlign: "right" }}>
-                        <span style={{ color: pnlColor, fontFamily: "monospace" }}>
-                          {fmtPct(p.unrealisedPct)}
-                        </span>
-                        <span style={{ color: C.muted, fontSize: 10, marginLeft: 6 }}>
-                          ({p.unrealisedAbs >= 0 ? "+" : ""}{p.unrealisedAbs.toFixed(4)})
-                        </span>
+                        {hasPnl ? (
+                          <>
+                            <span style={{ color: pnlColor, fontFamily: "monospace" }}>
+                              {fmtPct(p.unrealisedPct as number)}
+                            </span>
+                            <span style={{ color: C.muted, fontSize: 10, marginLeft: 6 }}>
+                              ({(p.unrealisedAbs as number) >= 0 ? "+" : ""}{(p.unrealisedAbs as number).toFixed(4)})
+                            </span>
+                          </>
+                        ) : (
+                          <span style={{ color: C.muted, fontFamily: "monospace" }}>—</span>
+                        )}
                       </td>
                     </tr>
                   );

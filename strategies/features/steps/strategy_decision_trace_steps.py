@@ -16,7 +16,7 @@ from tradepro_strategies.paper.strategies.ichimoku_fx_mr import (
 from tradepro_strategies.paper.strategy import Bar
 
 
-def _bar(symbol: str, t: datetime, close: float) -> Bar:
+def _bar(symbol: str, t: datetime, close: float, is_live: bool = False) -> Bar:
     # 1h FX bars; OHLC are deterministic walks so the warmup gate is
     # the only thing that fires for the first N bars.
     return Bar(
@@ -28,6 +28,7 @@ def _bar(symbol: str, t: datetime, close: float) -> Bar:
         close=close,
         volume=0,
         timeframe_seconds=3600,
+        is_live=is_live,
     )
 
 
@@ -37,14 +38,27 @@ def _drive(strategy: IchimokuFXMeanReversionStrategy, symbol: str, n_bars: int) 
     for i in range(n_bars):
         # Gentle drift so post-warmup bars produce a non-zero signal.
         price += 0.0015 * ((-1) ** i)
-        strategy.on_bar(_bar(symbol, t0 + timedelta(hours=i), price))
+        # Mark the final bar live — a net-position strategy only acts on the
+        # live bar now (historical bars are indicator warmup), exactly as the
+        # bus marks the last bar per symbol in a real session.
+        is_live = i == n_bars - 1
+        strategy.on_bar(_bar(symbol, t0 + timedelta(hours=i), price, is_live=is_live))
 
 
 @given("a fresh ichimoku_fx_mr strategy with warmup_bars = {n:d}")
 def step_fresh_strategy(context, n: int) -> None:
+    # Tiny ensemble (horizons=[3], smooths=[1]) so the REAL warmup the
+    # strategy enforces — max(horizons)*4 + max(smooths) + 10 = 23 bars —
+    # is reachable in a unit test. The production default (624h horizon)
+    # needs ~2578 bars to clear the warmup gate, which no feature can feed.
     context.strategy = IchimokuFXMeanReversionStrategy(
         strategy_id="ichimoku_fx_mr",
-        params={"warmup_bars": n, "pairs": ["EURUSD"]},
+        params={
+            "warmup_bars": n,
+            "pairs": ["EURUSD"],
+            "horizons": [3],
+            "smooths": [1],
+        },
     )
 
 
@@ -84,13 +98,19 @@ def step_skip_warmup_detail(context) -> None:
 @then('its decision trace contains at least one non-warmup entry for EURUSD')
 def step_has_non_warmup(context) -> None:
     decisions = context.strategy.recent_decisions()
+    # Post-warmup the strategy now acts ONLY on the live bar: historical
+    # bars past warmup log "skip-warmup-bar" (indicator warmup), and the
+    # live bar runs the signal path. A genuine "non-trivial" decision is
+    # therefore one that is neither the warmup gate NOR the not-live gate
+    # — proving the live trading path actually executed.
+    gate_actions = {"skip-warmup", "skip-warmup-bar"}
     others = [
         d for d in decisions
-        if d["symbol"] == "EURUSD" and d["action"] != "skip-warmup"
+        if d["symbol"] == "EURUSD" and d["action"] not in gate_actions
     ]
     assert others, (
-        f"expected at least one post-warmup decision, got only: "
-        f"{[d['action'] for d in decisions]}"
+        f"expected at least one live-bar decision past both warmup gates, "
+        f"got only: {[d['action'] for d in decisions]}"
     )
 
 

@@ -150,6 +150,14 @@ class IntradayFlatStrategy(Strategy):
     _basket_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Symbols already entered this session (the "one-per-day" guard).
     _entries_today: set[str] = field(default_factory=set)
+    # Symbols seeded from the broker this session (overnight leftovers).
+    # The daemon replays the lookback + re-seeds the broker book on every
+    # run; without this guard a seeded name gets flattened on the first
+    # in-window bar, goes flat, and the entry path RE-ENTERS it (seed →
+    # flatten → enter → EOD-flatten churn — the 2026-06-01 "18 deals for a
+    # 6-name basket" bug). A name the broker already holds must not get a
+    # fresh intraday entry; the existing exposure is managed/flattened.
+    _seeded_today: set[str] = field(default_factory=set)
     # Symbols whose flatten order already emitted (don't double-emit).
     _flatten_emitted: set[str] = field(default_factory=set)
     # Per-position risk levels — set on the entry's fill (not on the
@@ -268,6 +276,7 @@ class IntradayFlatStrategy(Strategy):
         self._basket_strength.clear()
         self._basket_meta.clear()
         self._entries_today.clear()
+        self._seeded_today.clear()
         self._flatten_emitted.clear()
 
         # Pre-load positions from params.initial_positions if the daemon
@@ -517,6 +526,24 @@ class IntradayFlatStrategy(Strategy):
             )
             return []
 
+        # ── F2. Seeded from broker this session (no re-pile) ───────
+        # The name was seeded as an overnight leftover (broker already
+        # holds it). Once the leftover is flattened the position goes
+        # flat and this entry path would otherwise re-open it — exactly
+        # the seed→flatten→enter→EOD-flatten churn. The broker book is
+        # golden: if it held this name today, we manage that exposure,
+        # we don't open a competing intraday deal.
+        if bar.symbol in self._seeded_today:
+            self.log_decision(
+                symbol=bar.symbol, bar_ts=bar.timestamp,
+                action="skip-seeded-from-broker",
+                reason=(
+                    "broker seeded this name as an overnight leftover this "
+                    "session; flattening it, not opening a fresh entry"
+                ),
+            )
+            return []
+
         # ── G. Order in flight (avoid emit-twice race) ─────────────
         if self.has_order_in_flight(bar.symbol):
             self.log_decision(
@@ -747,6 +774,11 @@ class IntradayFlatStrategy(Strategy):
         first in-window bar, no fabricated stop levels)."""
         pos = self.position_for(sym)
         pos.quantity = qty
+        # Block a fresh entry for this name this session: the broker
+        # already holds it, so re-entering would re-pile a second deal
+        # on top of the leftover. The leftover itself is flattened by
+        # _manage_open_position on the first in-window bar.
+        self._seeded_today.add(sym)
         # avg_entry_price unknown; leave at 0 so any unrealised_pnl
         # math reads as a sentinel rather than pretending we know.
         self.log_decision(

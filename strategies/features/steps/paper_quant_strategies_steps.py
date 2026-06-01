@@ -563,8 +563,16 @@ def step_feed_random_bars(context, n: int, pair: str) -> None:
 
 @when("I drive the strategy to compute its signal")
 def step_drive_fx(context) -> None:
+    from dataclasses import replace as _dc_replace
     all_orders: list = []
-    for bar in context.fx_bars:
+    n = len(context.fx_bars)
+    for i, bar in enumerate(context.fx_bars):
+        # Mark the final bar live — ichimoku_fx_mr now trades ONLY on the
+        # live bar (the rest is indicator warmup), exactly as the bus marks
+        # the last bar per symbol in a real session. Without this every
+        # post-warmup bar hits the not-live gate and the strategy never acts.
+        if i == n - 1 and not bar.is_live:
+            bar = _dc_replace(bar, is_live=True)
         all_orders.extend(context.fx_strat.on_bar(bar))
     context.fx_orders = all_orders
 

@@ -69,6 +69,13 @@ class Bar:
     close: float
     volume: int
     timeframe_seconds: int   # 60 for 1m bars, 300 for 5m, etc.
+    # True only for the most-recent bar per symbol in a replay/session — the
+    # "live" bar. Lets a net-position strategy (e.g. ichimoku_fx_mr) use the
+    # historical lookback purely as indicator WARMUP and act once, on the live
+    # bar, instead of re-trading every replayed bar (the churn bug). Defaults
+    # False so every existing constructor + test bar is unaffected; the bus
+    # marks the final bar per symbol live.
+    is_live: bool = False
 
 
 @dataclass

@@ -11,7 +11,7 @@ Feature: Per-bar decision trace — answer "why didn't strategy X trade?"
 
   Scenario: ichimoku_fx_mr logs a non-trivial decision once warm
     Given a fresh ichimoku_fx_mr strategy with warmup_bars = 5
-    When I feed it 12 EURUSD bars
+    When I feed it 30 EURUSD bars
     Then its decision trace contains at least one non-warmup entry for EURUSD
 
   Scenario: snapshot decisions field is populated and JSON-serialisable

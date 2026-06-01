@@ -178,6 +178,19 @@ Feature: IntradayFlatStrategy — explainable, risk-averse, EOD-flat
     Then a SELL MARKET order is emitted for "QQQ"
     And the order tag contains "OVERNIGHT-LEFTOVER"
 
+  # The daemon replays the lookback + re-seeds the broker book every run.
+  # A name the broker already holds (and that is also in today's basket)
+  # must be flattened ONCE — never flattened then re-entered, which was
+  # the 2026-06-01 "18 deals for a 6-name basket" churn bug.
+  Scenario: A flattened broker leftover is NOT re-entered the same session
+    Given an IntradayFlatStrategy basket "AAPL" plus a 22-share overnight leftover in "AAPL"
+    When I feed one in-window bar for "AAPL"
+    Then a SELL MARKET order is emitted for "AAPL"
+    When the "AAPL" position is flattened by a fill
+    And I feed one in-window bar for "AAPL"
+    Then no orders are emitted
+    And a "skip-seeded-from-broker" decision is logged for "AAPL"
+
   # ────────────────────────────────────────────────────────────────── #
   # Section 7: Concurrency + halt guards                                #
   # ────────────────────────────────────────────────────────────────── #
