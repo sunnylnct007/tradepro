@@ -34,8 +34,13 @@ type DeskDef = {
   id: string; label: string; broker: string; omsBroker: string;
   assetClass: "Equity" | "FX"; source: "t212" | "ig"; capitalUsd: number;
 };
+// capitalUsd MUST mirror each daemon's --capital-usd (the launchd plists):
+// ichimoku_equity=50000, ichimoku_fx_mr=50000, intraday_flat=50000. It was
+// 100_000 for equity here while the daemon ran --capital-usd 50000, so the
+// cockpit showed "Alloc $100k" on a ~$50k T212 account. TODO: source this
+// from a config endpoint instead of mirroring by hand (no-hardcoding).
 const DESKS: DeskDef[] = [
-  { id: "ichimoku_equity", label: "Ichimoku Equity", broker: "T212", omsBroker: "T212_DEMO", assetClass: "Equity", source: "t212", capitalUsd: 100_000 },
+  { id: "ichimoku_equity", label: "Ichimoku Equity", broker: "T212", omsBroker: "T212_DEMO", assetClass: "Equity", source: "t212", capitalUsd: 50_000 },
   { id: "ichimoku_fx_mr",  label: "Ichimoku FX",     broker: "IG",   omsBroker: "IG_DEMO",   assetClass: "FX",     source: "ig",   capitalUsd: 50_000 },
   { id: "intraday_flat",   label: "Intraday EOD-flat", broker: "IG", omsBroker: "IG_DEMO",   assetClass: "Equity", source: "ig",   capitalUsd: 50_000 },
 ];
