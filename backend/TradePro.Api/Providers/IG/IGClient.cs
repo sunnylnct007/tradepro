@@ -269,6 +269,19 @@ public sealed class IGClient
             var root = doc.RootElement;
             var dealStatus = root.TryGetProperty("dealStatus", out var ds) ? ds.GetString() : null;
             var reason = root.TryGetProperty("reason", out var rs) ? rs.GetString() : null;
+            // IG's `reason` is frequently a useless "UNKNOWN" on rejection,
+            // which left us unable to tell WHY (bad epic vs size vs market).
+            // Enrich it with the epic + a compact raw-body snippet so the
+            // OMS cancellation reason + logs are actually diagnosable. (The
+            // observed pattern: USD-quote pairs fill, the rest reject — a
+            // strong hint the non-USD-quote epics are wrong/untradeable.)
+            if (string.Equals(dealStatus, "REJECTED", StringComparison.OrdinalIgnoreCase)
+                && (string.IsNullOrWhiteSpace(reason) || reason == "UNKNOWN"))
+            {
+                var epic = root.TryGetProperty("epic", out var ep) ? ep.GetString() : null;
+                var snippet = text.Length > 240 ? text[..240] : text;
+                reason = $"{reason ?? "UNKNOWN"} (epic={epic ?? "?"}; raw={snippet})";
+            }
             return new IGOrderResult(
                 DealReference: dealReference,
                 Status: dealStatus ?? "UNKNOWN",
