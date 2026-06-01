@@ -133,10 +133,23 @@ class T212OrderRouter(OrderRouter):
         shutdown_queue: asyncio.Queue,
     ) -> None:
         if not self.api_key:
-            log.error(
-                "T212OrderRouter started without TRADEPRO_T212_API_KEY — "
-                "no orders will be placed. Rejecting all approvals."
-            )
+            if self.placement_mode in ("auto", "manual"):
+                # In auto/manual the router posts EVERY order to the OMS
+                # (/api/oms/orders); the .NET backend holds the broker
+                # credentials and places server-side. The local direct-T212
+                # key is NOT used in these modes, so its absence is expected
+                # and orders STILL place. (The old "Rejecting all approvals"
+                # error here was false in push mode and caused misdiagnoses.)
+                log.info(
+                    "T212OrderRouter: no local TRADEPRO_T212_API_KEY — fine "
+                    "in %s mode; orders route via the OMS push path and the "
+                    "backend places them.", self.placement_mode,
+                )
+            else:
+                log.error(
+                    "T212OrderRouter started without TRADEPRO_T212_API_KEY "
+                    "in direct-placement mode — no orders will be placed."
+                )
         if not self._live_orders_enabled():
             log.warning(
                 "T212OrderRouter is in %s mode without the live-trading "
