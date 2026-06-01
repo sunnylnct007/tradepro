@@ -495,6 +495,53 @@ public sealed class PostgresOmsService : IOmsService
         return openIds;
     }
 
+    // Brokers that attempt a SYNCHRONOUS placement in ApproveAsync and set
+    // broker_order_id on success — so a persistent NULL broker_order_id
+    // means placement failed. PAPER (engine-filled), IBKR + T212_LIVE
+    // (placement not yet wired) legitimately have NULL broker ids and are
+    // NOT swept.
+    private static readonly string[] PlacementBrokers =
+        { "T212_DEMO", "IG_DEMO", "IG_LIVE" };
+
+    // Post-approval in-flight states only — never PENDING_APPROVAL (which
+    // has no broker id yet by definition and is awaiting human/auto approval,
+    // not a failed dispatch).
+    private static readonly string[] PostApprovalInFlight =
+        { OmsState.Submitted, OmsState.Working, OmsState.PartiallyFilled };
+
+    public async Task<IReadOnlyList<Guid>> ExpireUnacceptedAsync(TimeSpan grace, string actor)
+    {
+        var cutoff = DateTime.UtcNow - grace;
+        List<Guid> ids;
+        await using (var conn = await _db.OpenConnectionAsync())
+        {
+            ids = (await conn.QueryAsync<Guid>(@"
+                SELECT id FROM oms_orders
+                WHERE state = ANY(@states)
+                  AND broker = ANY(@brokers)
+                  AND broker_order_id IS NULL
+                  AND last_state_change_at_utc < @cutoff
+                ORDER BY created_at_utc ASC
+                LIMIT 200;",
+                new { states = PostApprovalInFlight, brokers = PlacementBrokers, cutoff }))
+                .ToList();
+        }
+
+        foreach (var id in ids)
+        {
+            try
+            {
+                await CancelAsync(id, actor, "expired_no_broker_ack");
+            }
+            catch (InvalidOperationException)
+            {
+                // A concurrent fill/cancel moved it out of an open state
+                // between the SELECT and the transition — benign, skip.
+            }
+        }
+        return ids;
+    }
+
     public async Task<OmsOrder> RecordFillAsync(
         Guid orderId, decimal qty, decimal price, decimal fee, string currency,
         string? brokerFillId, string actor)

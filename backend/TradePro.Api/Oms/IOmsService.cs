@@ -39,6 +39,17 @@ public interface IOmsService
     /// the IDs that were cancelled (for the caller's audit log).</summary>
     Task<IReadOnlyList<Guid>> CancelAllOpenAsync(string actor, string reason);
 
+    /// <summary>Expire post-approval in-flight orders a PLACEMENT broker
+    /// (IG/T212 demo) never accepted: state SUBMITTED/WORKING/PARTIALLY_FILLED,
+    /// broker_order_id IS NULL, and stale longer than <paramref name="grace"/>.
+    /// A successful dispatch assigns the broker id synchronously in
+    /// ApproveAsync, so a persistent NULL means placement failed (client
+    /// threw or was disabled) and the broker holds no deal — the order is a
+    /// zombie that must not linger as phantom "in-flight". PAPER/IBKR/T212_LIVE
+    /// are excluded (a NULL broker id is normal for them). Returns the
+    /// cancelled IDs.</summary>
+    Task<IReadOnlyList<Guid>> ExpireUnacceptedAsync(TimeSpan grace, string actor);
+
     /// <summary>Record a fill chunk. Updates filled_qty + avg_fill_price
     /// on the parent and transitions to PARTIALLY_FILLED or FILLED.</summary>
     Task<OmsOrder> RecordFillAsync(

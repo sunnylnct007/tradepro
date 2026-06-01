@@ -210,4 +210,76 @@ public sealed class OmsServiceTest
         var after = await oms.GetAsync(open.Id);
         Assert.Equal(OmsState.PendingApproval, after!.State);
     }
+
+    // ── ExpireUnaccepted: clean up dispatch-failure zombies ─────────────
+
+    private static OrderIntent IgIntent(string epic) =>
+        new(
+            ClientOrderId: Guid.NewGuid(),
+            Broker: "IG_DEMO",
+            Symbol: epic,
+            Side: "BUY",
+            Qty: 1m,
+            OrderType: "MKT",
+            StrategyId: "ichimoku_fx_mr");
+
+    private void Backdate(Guid id, TimeSpan ago)
+    {
+        using var conn = _fx.Db.OpenConnection();
+        conn.Execute(
+            "UPDATE oms_orders SET last_state_change_at_utc = @t WHERE id = @id;",
+            new { t = DateTime.UtcNow - ago, id });
+    }
+
+    [Fact]
+    public async Task ExpireUnaccepted_cancels_stale_placement_order_with_no_broker_id()
+    {
+        var oms = NewService();   // _services null → ResolveIG()/T212 null → no placement,
+                                  // so an IG_DEMO approve lands in SUBMITTED with broker_order_id NULL.
+
+        // Zombie: IG_DEMO, SUBMITTED, no broker id, stale.
+        var zombie = await oms.EnqueueAsync(IgIntent("CS.D.EURUSD.MINI.IP"), "test");
+        await oms.ApproveAsync(zombie.Id, "operator");
+        Assert.Equal(OmsState.Submitted, (await oms.GetAsync(zombie.Id))!.State);
+        Backdate(zombie.Id, TimeSpan.FromMinutes(10));
+
+        // PAPER, SUBMITTED, no broker id, stale — must NOT be swept (engine
+        // fills it; a null broker id is normal, not a failed dispatch).
+        var paper = await oms.EnqueueAsync(SampleIntent("AAPL"), "test");
+        await oms.ApproveAsync(paper.Id, "operator");
+        Backdate(paper.Id, TimeSpan.FromMinutes(10));
+
+        // FRESH IG_DEMO (within grace) — must NOT be swept yet.
+        var fresh = await oms.EnqueueAsync(IgIntent("CS.D.GBPUSD.MINI.IP"), "test");
+        await oms.ApproveAsync(fresh.Id, "operator");
+
+        var expired = await oms.ExpireUnacceptedAsync(TimeSpan.FromMinutes(5), "poller:reconcile");
+
+        Assert.Equal(new[] { zombie.Id }, expired);
+        Assert.Equal(OmsState.Cancelled, (await oms.GetAsync(zombie.Id))!.State);
+        Assert.Equal("expired_no_broker_ack", (await oms.GetAsync(zombie.Id))!.CancelledReason);
+        Assert.Equal(OmsState.Submitted, (await oms.GetAsync(paper.Id))!.State);   // PAPER protected
+        Assert.Equal(OmsState.Submitted, (await oms.GetAsync(fresh.Id))!.State);   // within grace
+
+        Assert.Equal("CANCELLED", (await oms.ListEventsAsync(zombie.Id)).Last().EventType);
+    }
+
+    [Fact]
+    public async Task ExpireUnaccepted_leaves_orders_that_have_a_broker_id()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(IgIntent("CS.D.EURUSD.MINI.IP"), "test");
+        await oms.ApproveAsync(row.Id, "operator");
+        // Simulate a successful dispatch having stamped a broker deal ref.
+        using (var conn = _fx.Db.OpenConnection())
+            conn.Execute(
+                "UPDATE oms_orders SET broker_order_id = 'DEALREF123' WHERE id = @id;",
+                new { id = row.Id });
+        Backdate(row.Id, TimeSpan.FromMinutes(10));
+
+        var expired = await oms.ExpireUnacceptedAsync(TimeSpan.FromMinutes(5), "poller:reconcile");
+
+        Assert.Empty(expired);
+        Assert.Equal(OmsState.Submitted, (await oms.GetAsync(row.Id))!.State);
+    }
 }

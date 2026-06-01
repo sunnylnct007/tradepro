@@ -35,6 +35,7 @@ public sealed class OmsFillPoller : BackgroundService
     private readonly ILogger<OmsFillPoller> _log;
     private readonly TimeSpan _tickInterval;
     private readonly TimeSpan _perOrderDelay;
+    private readonly TimeSpan _unacceptedGrace;
 
     public OmsFillPoller(
         NpgsqlDataSource db,
@@ -48,6 +49,12 @@ public sealed class OmsFillPoller : BackgroundService
         var secs = config.GetValue<int?>("Oms:PollSeconds") ?? 30;
         _tickInterval = TimeSpan.FromSeconds(Math.Clamp(secs, 5, 600));
         _perOrderDelay = TimeSpan.FromMilliseconds(1100);
+        // Grace before an in-flight order with no broker_order_id is
+        // treated as never-accepted-by-the-broker and expired. A real
+        // dispatch assigns the broker id synchronously inside ApproveAsync,
+        // so this only needs to outlast a momentary blip. Default 3 min.
+        var graceSecs = config.GetValue<int?>("Oms:UnacceptedGraceSeconds") ?? 180;
+        _unacceptedGrace = TimeSpan.FromSeconds(Math.Clamp(graceSecs, 30, 3600));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -78,6 +85,34 @@ public sealed class OmsFillPoller : BackgroundService
 
     private async Task PollTickAsync(CancellationToken ct)
     {
+        // 0. Reconcile ZOMBIE orders against the broker (golden source):
+        //    any in-flight order with no broker_order_id that has sat past
+        //    the grace window. ApproveAsync assigns the broker id
+        //    synchronously on a successful dispatch, so a NULL after
+        //    minutes means placement never completed — the IG/T212 client
+        //    threw or was disabled at approve time and the order was "left
+        //    SUBMITTED". The broker has NO deal for it, so it must not keep
+        //    showing as in-flight ("N waiting" on the cockpit) when the
+        //    book is actually flat. This is broker-agnostic and runs even
+        //    when T212 is unavailable, so IG zombies get cleaned too (the
+        //    T212-only fill poll below never touched them).
+        using (var sweepScope = _services.CreateScope())
+        {
+            var sweepOms = sweepScope.ServiceProvider.GetRequiredService<IOmsService>();
+            try
+            {
+                var expired = await sweepOms.ExpireUnacceptedAsync(_unacceptedGrace, "poller:reconcile");
+                if (expired.Count > 0)
+                    _log.LogInformation(
+                        "OmsFillPoller: expired {Count} zombie order(s) the broker never accepted "
+                        + "(no broker_order_id, stale > {Grace}s)", expired.Count, _unacceptedGrace.TotalSeconds);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.LogError(ex, "OmsFillPoller: zombie-expiry sweep threw");
+            }
+        }
+
         // 1. Find in-flight T212_DEMO orders with a broker_order_id
         //    (no broker id means the placement call hasn't completed
         //    or failed; nothing to poll). Cap to 50 per tick so a
