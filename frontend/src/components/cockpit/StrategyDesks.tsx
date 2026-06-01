@@ -108,7 +108,11 @@ export function StrategyDesks({
   }
 
   const desks = DESKS.map((d) => {
-    const pos = deskPositions(d);
+    // Net per pair/symbol for display. IG opens a separate DEAL per order
+    // (no auto-netting), so a pair like EUR/USD can have 12 stacked deals
+    // (+1, -1.7, -0.9 …) whose real position is the sum (-3.3). Show one
+    // netted row per symbol — the individual deals live in the FX panel.
+    const pos = netPositionsByBare(deskPositions(d));
     const unrl = pos.reduce((n, p) => n + (p.unrlAbs ?? 0), 0);
     const hasPnl = pos.some((p) => p.unrlAbs != null);
     // reconcile vs OMS by net per bare symbol
@@ -172,7 +176,7 @@ function DeskCard({ x, expanded, onToggle, omsNet }: {
       <div style={{ display: "flex", gap: 14, alignItems: "baseline", marginTop: 8, flexWrap: "wrap" }}>
         {hasPnl
           ? <Metric label="Unrealised" value={fmtSigned(unrl)} colour={unrl >= 0 ? UP : DOWN} big />
-          : <Metric label="Exposure" value={`${pos.length} ${d.assetClass === "FX" ? "deal(s)" : "pos"}`} big />}
+          : <Metric label="Exposure" value={`${pos.length} ${d.assetClass === "FX" ? "net" : "pos"}`} big />}
         <Metric label="Positions" value={String(pos.length)} />
         <Metric label="Alloc" value={`$${(d.capitalUsd / 1000).toFixed(0)}k`} />
         {driftSyms.length > 0
@@ -236,6 +240,23 @@ function Metric({ label, value, colour, big }: { label: string; value: string; c
 
 function fmtSigned(n: number): string {
   return `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
+}
+
+/** Net stacked deals into one row per bare symbol (sum qty + P&L). IG opens
+ * a separate deal per order, so a pair shows many rows whose real position
+ * is the sum; T212 is already netted so this is a no-op there. Net-zero
+ * (fully offset) positions are dropped. unrlAbs stays null when no input
+ * carried P&L (so the desk's hasPnl detection isn't fooled into 0). */
+function netPositionsByBare(rows: Pos[]): Pos[] {
+  const m = new Map<string, Pos>();
+  for (const p of rows) {
+    const k = bareSymbol(p.symbol);
+    const ex = m.get(k);
+    if (!ex) { m.set(k, { ...p }); continue; }
+    ex.qty += p.qty;
+    if (p.unrlAbs != null) ex.unrlAbs = (ex.unrlAbs ?? 0) + p.unrlAbs;
+  }
+  return [...m.values()].filter((p) => Math.abs(p.qty) > 1e-9);
 }
 
 const th: React.CSSProperties = { textAlign: "left", padding: "3px 6px", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" };
