@@ -35,6 +35,14 @@ public sealed class IGClient
     private string? _xSecurityToken;
     private readonly SemaphoreSlim _loginLock = new(1, 1);
 
+    // Per-epic dealing rules cache: (default dealing currency, min deal size).
+    // IG rejects orders that send a currencyCode the instrument doesn't
+    // support (e.g. hardcoded "USD" on EUR/JPY) or a size below the epic's
+    // minDealSize — both with an opaque reason:"UNKNOWN". We fetch
+    // /markets/{epic} once per epic to use the correct currency + floor the
+    // size. Cached for process lifetime (dealing rules don't change intraday).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Currency, decimal MinSize)> _dealingCache = new();
+
     public IGClient(
         HttpClient http,
         IOptions<IGOptions> options,
@@ -148,19 +156,83 @@ public sealed class IGClient
     /// per-listing. <paramref name="direction"/> = "BUY" / "SELL".
     /// Returns the deal reference; poll <see cref="ConfirmDealAsync"/>
     /// for the final status.</summary>
+    /// <summary>Resolve the epic's default dealing currency + min deal size
+    /// from GET /markets/{epic}. Cached. DEFENSIVE: on any failure (network,
+    /// parse, missing fields) returns ("USD", 0m) — i.e. exactly the old
+    /// hardcoded behaviour — so this can never regress a pair that already
+    /// works. minSize 0 means "don't clamp".</summary>
+    private async Task<(string Currency, decimal MinSize)> GetDealingRulesAsync(
+        string epic, CancellationToken ct)
+    {
+        if (_dealingCache.TryGetValue(epic, out var cached)) return cached;
+        var result = ("USD", 0m);
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get, $"markets/{Uri.EscapeDataString(epic)}", null, version: "3", ct);
+            if (resp.IsSuccessStatusCode)
+            {
+                var text = await resp.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(text);
+                var root = doc.RootElement;
+                string currency = "USD";
+                decimal minSize = 0m;
+                if (root.TryGetProperty("instrument", out var instr)
+                    && instr.TryGetProperty("currencies", out var ccys)
+                    && ccys.ValueKind == JsonValueKind.Array && ccys.GetArrayLength() > 0)
+                {
+                    // Prefer the IG-flagged default; else the first listed.
+                    JsonElement chosen = ccys[0];
+                    foreach (var c in ccys.EnumerateArray())
+                        if (c.TryGetProperty("isDefault", out var d) && d.ValueKind == JsonValueKind.True)
+                        { chosen = c; break; }
+                    if (chosen.TryGetProperty("code", out var code) && code.GetString() is { Length: > 0 } cc)
+                        currency = cc;
+                }
+                if (root.TryGetProperty("dealingRules", out var rules)
+                    && rules.TryGetProperty("minDealSize", out var mds)
+                    && mds.TryGetProperty("value", out var mv)
+                    && mv.TryGetDecimal(out var mval))
+                    minSize = mval;
+                result = (currency, minSize);
+            }
+            else
+            {
+                _log.LogWarning("IG markets/{Epic} returned {Status}; using USD/no-clamp fallback",
+                    epic, (int)resp.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "IG dealing-rules fetch failed for {Epic}; using USD/no-clamp fallback", epic);
+        }
+        _dealingCache[epic] = result;
+        return result;
+    }
+
     public async Task<IGOrderResult> PlaceMarketOrderAsync(
         string epic, string direction, decimal size,
         string? expiry = "-",
         CancellationToken ct = default)
     {
+        // Use the epic's real dealing currency + min size. The old code
+        // hardcoded currencyCode="USD" (which IG rejects for non-USD-quote
+        // pairs like EUR/JPY, USD/CHF — reason:"UNKNOWN") and never floored
+        // the size to minDealSize (so vol-target sizes like 0.1 bounced).
+        var (currency, minSize) = await GetDealingRulesAsync(epic, ct);
+        var effectiveSize = (minSize > 0m && size < minSize) ? minSize : size;
+        if (effectiveSize != size || currency != "USD")
+            _log.LogInformation(
+                "IG order {Epic}: currency {Ccy}, size {Size}->{Eff} (minDealSize {Min})",
+                epic, currency, size, effectiveSize, minSize);
         var body = new
         {
             epic,
             expiry = expiry ?? "-",
             direction = direction.ToUpperInvariant(),  // BUY / SELL
-            size,
+            size = effectiveSize,
             orderType = "MARKET",
-            currencyCode = "USD",
+            currencyCode = currency,
             forceOpen = true,                          // open new position
             guaranteedStop = false,
         };
