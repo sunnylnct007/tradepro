@@ -114,6 +114,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--universe", default=None,
+        help=(
+            "Named universe to trade (e.g. 'high_beta') — symbols are loaded "
+            "live from /api/universes/<name> (effective tickers after "
+            "overrides) instead of a hardcoded --symbols list. This is the "
+            "trader's dynamic universe: tradepro-build-high-beta-universe "
+            "rebuilds it; the daemon picks up changes without a plist edit. "
+            "Merged with --symbols if both are given."
+        ),
+    )
+    p.add_argument(
         "--date", default=None,
         help="Session date YYYY-MM-DD (required for replay/yfinance/t212/stub_live)",
     )
@@ -175,11 +186,42 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _fetch_universe_symbols(name: str) -> list[str]:
+    """Load a named universe's EFFECTIVE tickers from the API (the same
+    universe the UI shows and tradepro-build-high-beta-universe pushes). The
+    daemon reads this live so the trader's dynamic high-beta sleeve drives the
+    live book instead of a hardcoded --symbols list. Fail-LOUD: a universe
+    that can't be read raises (a silent empty universe = the strategy trades
+    nothing / falls back to a stale list, which we must not do quietly)."""
+    import requests
+    from . import push_to_api
+    base, token = push_to_api.load_credentials()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    url = f"{base.rstrip('/')}/api/universes/{name}"
+    resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()
+    syms = resp.json().get("symbols") or []
+    # `effective` reflects INCLUDE/EXCLUDE overrides; only trade what's in.
+    out = [str(s.get("ticker", "")).strip().upper()
+           for s in syms
+           if s.get("effective", True) and s.get("ticker")]
+    if not out:
+        raise SystemExit(
+            f"ERROR: universe {name!r} resolved to 0 effective symbols — "
+            f"refusing to run on an empty universe."
+        )
+    return out
+
+
 def _resolve_symbols(args: argparse.Namespace) -> list[str]:
-    """Merge --symbol and --symbols into a deduplicated list."""
+    """Merge --symbol, --symbols and --universe into a deduplicated list."""
     out: list[str] = []
+    if getattr(args, "universe", None):
+        out.extend(_fetch_universe_symbols(args.universe))
     if args.symbols:
-        out.extend(s.strip().upper() for s in args.symbols.split(",") if s.strip())
+        for s in (x.strip().upper() for x in args.symbols.split(",") if x.strip()):
+            if s not in out:
+                out.append(s)
     if args.symbol:
         sym = args.symbol.strip().upper()
         if sym not in out:
