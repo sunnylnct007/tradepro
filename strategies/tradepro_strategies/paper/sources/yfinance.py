@@ -81,13 +81,34 @@ class YfinanceSource(BarSource):
         yahoo_ticker = _yahoo_ticker(symbol)
         if yahoo_ticker != symbol:
             log.debug("yfinance: %s → %s", symbol, yahoo_ticker)
-        df = yf.download(
-            yahoo_ticker, start=start, end=end_dt.isoformat(),
-            interval=interval, auto_adjust=False, progress=False,
-        )
-        if df.empty:
-            log.info("yfinance: no bars for %s (%s) %s–%s @ %s",
-                     symbol, yahoo_ticker, start, end_dt.isoformat(), interval)
+        # Retry with backoff. Yahoo rate-limits (429 → empty df) when many
+        # symbols are fetched in a burst — the symptom was the *later* pairs
+        # in a 10-pair FX sweep (USDCAD/NZDUSD/EURGBP/EURJPY/GBPJPY) silently
+        # returning empty while the first 5 succeeded. A short backoff lets
+        # the limiter recover so every pair gets its bars. A genuinely empty
+        # day (weekend/holiday) just returns [] after the attempts — cheap.
+        import time as _time
+        df = None
+        for attempt in range(3):
+            try:
+                df = yf.download(
+                    yahoo_ticker, start=start, end=end_dt.isoformat(),
+                    interval=interval, auto_adjust=False, progress=False,
+                )
+            except Exception as exc:  # noqa: BLE001 — transient yfinance/HTTP error
+                log.warning("yfinance: fetch error for %s (%s) attempt %d/3: %s",
+                            symbol, yahoo_ticker, attempt + 1, exc)
+                df = None
+            if df is not None and not df.empty:
+                break
+            if attempt < 2:
+                _time.sleep(1.5 * (attempt + 1))  # 1.5s, 3.0s backoff
+        if df is None or df.empty:
+            # Loud, not silent — a dropped pair must be visible to the
+            # operator (it means that pair generates no signals this run).
+            log.warning("yfinance: NO BARS after retries for %s (%s) %s–%s @ %s "
+                        "— pair will be silent this run",
+                        symbol, yahoo_ticker, start, end_dt.isoformat(), interval)
             return []
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel("Ticker")
