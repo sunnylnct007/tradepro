@@ -23,3 +23,26 @@ Feature: Strategy.seed_positions — initialise position state from external sna
     And I seed positions {"EURUSD": -3, "USDCHF": 1}
     Then the strategy reports current position EURUSD = -3
     And the strategy reports current position USDCHF = 1
+
+  # Broker-seed row parsing (paper_session._parse_broker_position_rows).
+  # IG FX MINI positions report in mini-lots (|qty| < 1.0); truncating to
+  # int gave a FLAT seed, so FX re-sent its full delta every run and stacked
+  # duplicate deals. Sign is preserved as +/-1; options/other-universe rows
+  # are filtered out.
+  Scenario: IG FX mini-lot positions seed as signed +/-1, not truncated to 0
+    Given broker rows:
+      | ticker               | quantity |
+      | CS.D.EURUSD.MINI.IP  | -0.4     |
+      | CS.D.AUDUSD.MINI.IP  | -0.7     |
+      | CS.D.USDCHF.MINI.IP  | 0.6      |
+      | OD.D.WK2EURO.32.IP   | -5       |
+    When I parse the broker rows for universe "EURUSD,AUDUSD,USDCHF,USDJPY"
+    Then the parsed seed is {"EURUSD": -1, "AUDUSD": -1, "USDCHF": 1}
+
+  Scenario: equity CFD / T212 share quantities keep whole-unit truncation
+    Given broker rows:
+      | ticker            | quantity |
+      | UA.D.AAPL.CASH.IP | 11       |
+      | MSFT_US_EQ        | 6.7022   |
+    When I parse the broker rows for universe "AAPL,MSFT"
+    Then the parsed seed is {"AAPL": 11, "MSFT": 6}

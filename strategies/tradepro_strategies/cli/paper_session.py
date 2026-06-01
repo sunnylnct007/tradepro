@@ -327,6 +327,63 @@ def broker_requires_position_seed(broker: str) -> bool:
     return broker.strip().lower() not in _SIM_BROKERS
 
 
+def _parse_broker_position_rows(
+    rows: list[dict], universe: set[str],
+) -> dict[str, int]:
+    """Pure: broker position rows → {bare_symbol: signed_int_qty}, filtered
+    to ``universe`` (empty universe = no filter). Extracted from the broker
+    seed so the epic-stripping + mini-lot handling is unit-testable without
+    HTTP.
+
+    The IG account is SHARED across strategies (FX pairs CS.D.*.MINI.IP,
+    intraday_flat equity CFDs UA.D.*.CASH.IP, plus manual options DO.D./
+    OD.D.*). Seeding a strategy with positions that aren't its own corrupts
+    its delta math, so we strip broker suffixes to the bare symbol and keep
+    only this strategy's universe.
+
+    IG FX MINI positions report in MINI-LOTS (|qty| typically < 1.0, e.g.
+    -0.7). int()-truncating those to 0 made the seed report a FLAT book, so
+    ichimoku_fx_mr re-sent its full delta every run and stacked duplicate
+    deals on IG. We keep the SIGN (+/-1 unit) for minis — enough for the
+    delta math to read delta=0 on the dominant +/-1 target. Exact multi-unit
+    mini-lot<->unit conversion still needs the per-pair IG contract size
+    (backend follow-up)."""
+    positions: dict[str, int] = {}
+    for r in rows:
+        t = (r.get("ticker") or r.get("epic") or "").upper()
+        if not t:
+            continue
+        # Strip broker suffixes. IG epics are <class>.D.<sym>.<*>.IP:
+        #   CS.D.EURUSD.MINI.IP  -> EURUSD   (FX)
+        #   UA.D.AAPL.CASH.IP    -> AAPL     (equity CFD)
+        #   AAPL_US_EQ           -> AAPL     (T212)
+        # Options (DO.D.EURO.42.IP / OD.D.WK2EURO.32.IP) strip to a token
+        # that matches no strategy universe -> filtered out below.
+        bare = t
+        if t.endswith(".IP") and "." in t:
+            parts = t.split(".")
+            if len(parts) >= 4:
+                bare = parts[2]
+        elif "_" in t:
+            bare = t.split("_", 1)[0]
+        if universe and bare not in universe:
+            continue
+        try:
+            raw = float(r.get("quantity") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ".MINI." in t:
+            qty = 0 if raw == 0 else (1 if raw > 0 else -1)
+        else:
+            # Truncate toward zero so we never overstate the held quantity —
+            # T212 fractional shares (6.7022 NVDA) / IG equity CFDs are whole
+            # units; rounding up would trigger "selling more than owned".
+            qty = int(raw)
+        if qty != 0:
+            positions[bare] = positions.get(bare, 0) + qty
+    return positions
+
+
 def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int]:
     """Fetch the strategy's current position FROM THE BROKER and seed it
     so reruns compute a delta (target - current) instead of re-emitting a
@@ -393,42 +450,7 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int
     for key in ("pairs", "symbols", "candidates"):
         universe.update(str(x).strip().upper() for x in (p.get(key) or []) if str(x).strip())
 
-    positions: dict[str, int] = {}
-    for r in rows:
-        t = (r.get("ticker") or r.get("epic") or "").upper()
-        if not t:
-            continue
-        # Strip broker suffixes so the strategy's internal book (which keys on
-        # bare ticker / pair) finds a match. IG epics are <class>.D.<sym>.<*>.IP:
-        #   CS.D.EURUSD.MINI.IP  → EURUSD   (FX)
-        #   UA.D.AAPL.CASH.IP    → AAPL     (equity CFD)
-        #   AAPL_US_EQ           → AAPL     (T212)
-        # Options (DO.D.EURO.42.IP / OD.D.WK2EURO.32.IP) strip to a token that
-        # matches no strategy universe → filtered out below.
-        bare = t
-        if t.endswith(".IP") and "." in t:
-            parts = t.split(".")
-            if len(parts) >= 4:
-                bare = parts[2]
-        elif "_" in t:
-            bare = t.split("_", 1)[0]
-        # Per-strategy filter: drop anything not in this strategy's universe
-        # (other strategies' instruments + manual options). Empty universe →
-        # don't filter (preserve old behaviour for strategies without one).
-        if universe and bare not in universe:
-            continue
-        try:
-            # Truncate toward zero so we never overstate the held
-            # quantity — T212 fractional shares (6.7022 NVDA) rounding
-            # up would trigger "selling more than owned" rejections.
-            # NOTE: IG MINI FX positions report in mini-lots (often
-            # < 1.0), which this truncates to 0 — a known follow-up
-            # (symmetric units<->mini-lot conversion) tracked separately.
-            qty = int(float(r.get("quantity") or 0))
-        except (TypeError, ValueError):
-            continue
-        if qty != 0:
-            positions[bare] = positions.get(bare, 0) + qty
+    positions = _parse_broker_position_rows(rows, universe)
 
     if positions:
         log.info(
