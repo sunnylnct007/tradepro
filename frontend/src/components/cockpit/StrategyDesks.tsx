@@ -68,11 +68,15 @@ export function StrategyDesks({
 }) {
   const [ig, setIg] = useState<IGPosResp | null>(null);
   const [oms, setOms] = useState<OmsPositions | null>(null);
+  const [orders, setOrders] = useState<Awaited<ReturnType<typeof api.omsOrders>>["orders"]>([]);
   const [openDesk, setOpenDesk] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try { setIg(await api.igPositions()); } catch { /* keep */ }
     try { setOms(await api.omsPositions()); } catch { /* keep */ }
+    // Waiting orders (signals queued at the broker boundary) — so a desk
+    // with orders held for the open reads "N waiting", not "Flat".
+    try { setOrders((await api.omsOrders(undefined, 300)).orders); } catch { /* keep */ }
   }, []);
   useEffect(() => {
     void load();
@@ -124,7 +128,16 @@ export function StrategyDesks({
       if (o != null && Math.round(o) !== Math.round(q)) driftSyms.push(bare);
     }
     const connected = d.source === "t212" ? !!positions?.enabled : !!ig?.enabled;
-    return { d, pos, unrl, hasPnl, driftSyms, connected, open: marketOpen(d.assetClass) };
+    // Waiting orders for this desk = strategy orders still at the broker
+    // boundary (queued / held for the open). Match the desk's strategy id
+    // (intraday_flat also owns "intraday-*" per-symbol ids).
+    const waiting = orders.filter((o) => {
+      if (o.state !== "PENDING_APPROVAL" && o.state !== "SUBMITTED" && o.state !== "WORKING") return false;
+      const sid = o.strategyId || "";
+      return sid === d.id || sid.startsWith(d.id)
+        || (d.id === "intraday_flat" && sid.startsWith("intraday"));
+    }).length;
+    return { d, pos, unrl, hasPnl, driftSyms, connected, waiting, open: marketOpen(d.assetClass) };
   });
 
   const totalUnrl = desks.reduce((n, x) => n + (x.hasPnl ? x.unrl : 0), 0);
@@ -156,10 +169,10 @@ export function StrategyDesks({
 }
 
 function DeskCard({ x, expanded, onToggle, omsNet }: {
-  x: { d: DeskDef; pos: Pos[]; unrl: number; hasPnl: boolean; driftSyms: string[]; connected: boolean; open: boolean };
+  x: { d: DeskDef; pos: Pos[]; unrl: number; hasPnl: boolean; driftSyms: string[]; connected: boolean; waiting: number; open: boolean };
   expanded: boolean; onToggle: () => void; omsNet: (b: string, s: string) => number | null;
 }) {
-  const { d, pos, unrl, hasPnl, driftSyms, connected, open } = x;
+  const { d, pos, unrl, hasPnl, driftSyms, connected, waiting, open } = x;
   const movers = [...pos].filter((p) => p.unrlAbs != null).sort((a, b) => (b.unrlAbs ?? 0) - (a.unrlAbs ?? 0));
   const best = movers[0], worst = movers[movers.length - 1];
   return (
@@ -179,6 +192,11 @@ function DeskCard({ x, expanded, onToggle, omsNet }: {
           : <Metric label="Exposure" value={`${pos.length} ${d.assetClass === "FX" ? "net" : "pos"}`} big />}
         <Metric label="Positions" value={String(pos.length)} />
         <Metric label="Alloc" value={`$${(d.capitalUsd / 1000).toFixed(0)}k`} />
+        {waiting > 0 && (
+          <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 700 }} title="Strategy orders queued at the broker (held for the open / awaiting approval)">
+            ⏳ {waiting} waiting
+          </span>
+        )}
         {driftSyms.length > 0
           ? <span style={{ fontSize: 10, color: AMBER, fontWeight: 700 }} title={`OMS drift: ${driftSyms.join(", ")}`}>⚠ {driftSyms.length} drift</span>
           : connected && <span style={{ fontSize: 10, color: UP, fontWeight: 700 }}>✓ reconciled</span>}
@@ -188,7 +206,11 @@ function DeskCard({ x, expanded, onToggle, omsNet }: {
           {d.broker} not connected{d.id === "intraday_flat" ? " — trades the US session once IG epics are set." : "."}
         </div>
       ) : pos.length === 0 ? (
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>Flat — no open positions.</div>
+        <div style={{ fontSize: 11, color: waiting > 0 ? "#f59e0b" : "var(--text-muted)", marginTop: 8 }}>
+          {waiting > 0
+            ? `Flat — ${waiting} order${waiting === 1 ? "" : "s"} queued (held for the open / awaiting approval).`
+            : "Flat — no open positions."}
+        </div>
       ) : (
         <>
           {hasPnl && best && worst && (
