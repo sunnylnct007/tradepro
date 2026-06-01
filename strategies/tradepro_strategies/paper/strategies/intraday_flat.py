@@ -298,6 +298,17 @@ class IntradayFlatStrategy(Strategy):
                 if qty_int != 0:
                     self._seed_overnight_leftover(sym, qty_int, session_date)
 
+        # Re-derive the seeded-from-broker guard from any position we
+        # ALREADY hold here. paper_session seeds the broker book BEFORE
+        # on_session_start runs, and the clear above wiped that flag — so
+        # without this, a leftover that gets flattened mid-session would
+        # be re-entered (it's no longer marked seeded). Any non-flat
+        # position at session start is an overnight leftover we didn't
+        # open this session: guard it from a fresh entry.
+        for sym, held in self.positions.items():
+            if held.quantity != 0:
+                self._seeded_today.add(sym)
+
         candidates = list(p.get("candidates", []))
         if not candidates:
             self.log_decision(
@@ -1028,9 +1039,15 @@ class IntradayFlatStrategy(Strategy):
         detail: str,
         action_log: str,
     ) -> Order:
-        """Build the opposing market order. Long-only → SELL. Carries
-        broker_label + instrument_id so the same OMS dispatch that
-        handled the entry handles the exit."""
+        """Build the order that flattens `pos` to ZERO. Close direction
+        is set by the position SIGN: SELL to close a long, BUY to COVER a
+        short. A long-only strategy should never be short, but it can be
+        SEEDED short from the broker (e.g. wreckage of a prior churn bug);
+        flattening must cover that short (BUY abs(qty)), not SELL more —
+        a SELL on a short deepens it and the risk gate correctly rejects
+        it as short_disallowed, so the leftover could never be cleared.
+        Carries broker_label + instrument_id so the same OMS dispatch
+        that handled the entry handles the exit."""
         p = self._p()
         try:
             epic_entry = self._epic_map.get(bar.symbol)
@@ -1042,12 +1059,14 @@ class IntradayFlatStrategy(Strategy):
             # hold on a position that needs out.)
             epic = None
 
-        tag = f"intraday_flat {reason_tag} {bar.symbol} {detail}"
+        qty = abs(pos.quantity)
+        close_side = OrderSide.SELL if pos.quantity > 0 else OrderSide.BUY
+        tag = f"intraday_flat {reason_tag} {bar.symbol} {close_side.value} qty={qty} {detail}"
         order = Order(
             strategy_id=self.strategy_id,
             symbol=bar.symbol,
-            side=OrderSide.SELL,
-            quantity=abs(pos.quantity),
+            side=close_side,
+            quantity=qty,
             type=OrderType.MARKET,
             tag=tag,
             broker_label=str(p.get("broker_label", "IG_DEMO")),
@@ -1056,7 +1075,7 @@ class IntradayFlatStrategy(Strategy):
         self.log_decision(
             symbol=bar.symbol, bar_ts=bar.timestamp,
             action=action_log, reason=detail,
-            quantity=abs(pos.quantity),
+            side=close_side.value, quantity=qty,
         )
         self._flatten_emitted.add(bar.symbol)
         self.mark_order_in_flight(bar.symbol)

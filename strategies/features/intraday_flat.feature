@@ -191,6 +191,18 @@ Feature: IntradayFlatStrategy — explainable, risk-averse, EOD-flat
     Then a SELL MARKET order is emitted for "QQQ"
     And the order tag contains "OVERNIGHT-LEFTOVER"
 
+  # The IG demo account can be SHORT a name (wreckage of a prior churn
+  # bug). Flatten = go to zero, so a short must be COVERED with a BUY —
+  # a SELL deepens the short and the risk gate rejects it short_disallowed,
+  # so the leftover would pile up forever. Regression for the 2026-06-01
+  # un-flattenable seed {AAPL:-88, MSFT:-10, ...} on the live IG demo book.
+  Scenario: A broker-seeded SHORT leftover is covered with a BUY, not deepened
+    Given an IntradayFlatStrategy basket "MSFT" plus a -10-share overnight leftover in "MSFT"
+    When I feed one in-window bar for "MSFT"
+    Then a BUY MARKET order is emitted for "MSFT"
+    And the order tag contains "OVERNIGHT-LEFTOVER"
+    And the emitted order has quantity 10
+
   # The daemon replays the lookback + re-seeds the broker book every run.
   # A name the broker already holds (and that is also in today's basket)
   # must be flattened ONCE — never flattened then re-entered, which was
