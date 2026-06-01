@@ -16,16 +16,20 @@ from tradepro_strategies.paper.strategies.ichimoku_fx_mr import (
 @given("broker rows:")
 def step_broker_rows(context) -> None:
     # Behave table → list[dict] mirroring a broker /positions payload.
-    context.broker_rows = [
-        {"ticker": row["ticker"], "quantity": row["quantity"]}
-        for row in context.table
-    ]
+    # An optional avgPrice column maps to the broker's averagePricePaid.
+    context.broker_rows = []
+    for row in context.table:
+        r = {"ticker": row["ticker"], "quantity": row["quantity"]}
+        if "avgPrice" in row.headings and row["avgPrice"]:
+            r["averagePricePaid"] = row["avgPrice"]
+        context.broker_rows.append(r)
 
 
 @when('I parse the broker rows for universe "{csv}"')
 def step_parse_rows(context, csv: str) -> None:
     universe = {s.strip().upper() for s in csv.split(",") if s.strip()}
-    context.parsed_seed = _parse_broker_position_rows(context.broker_rows, universe)
+    context.parsed_seed, context.parsed_avgs = _parse_broker_position_rows(
+        context.broker_rows, universe)
 
 
 @then("the parsed seed is {payload}")
@@ -33,6 +37,14 @@ def step_parsed_seed_is(context, payload: str) -> None:
     expected = json.loads(payload)
     assert context.parsed_seed == expected, (
         f"expected {expected}, got {context.parsed_seed}"
+    )
+
+
+@then("the parsed cost basis is {payload}")
+def step_parsed_avgs_is(context, payload: str) -> None:
+    expected = json.loads(payload)
+    assert context.parsed_avgs == expected, (
+        f"expected avg {expected}, got {context.parsed_avgs}"
     )
 
 

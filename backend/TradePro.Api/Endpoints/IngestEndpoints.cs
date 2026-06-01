@@ -231,6 +231,21 @@ public static class IngestEndpoints
             return Results.Ok(new { accepted = true, id, receivedAtUtc = DateTime.UtcNow });
         });
 
+        // Auto-resolve: a producer clears its own alert when the underlying
+        // condition self-heals (e.g. a paper session that aborted on a broker
+        // blip and then seeded cleanly on its next run). Resolves every OPEN
+        // alert with the given dedupKey so a transient critical doesn't leave
+        // a sticky banner.
+        group.MapPost("/alert/resolve", (JsonElement payload, IAlertStore store) =>
+        {
+            var dedupKey = JsonbHelpers.ReadString(payload, "dedupKey");
+            if (string.IsNullOrWhiteSpace(dedupKey))
+                return Results.BadRequest(new { error = "resolve requires a non-empty 'dedupKey'" });
+            var resolvedBy = JsonbHelpers.ReadString(payload, "resolvedBy") ?? "producer:auto-resolve";
+            var n = store.ResolveByDedupKey(dedupKey, resolvedBy);
+            return Results.Ok(new { resolved = n, dedupKey });
+        });
+
         return app;
     }
 }

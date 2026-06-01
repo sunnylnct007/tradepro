@@ -329,11 +329,18 @@ def broker_requires_position_seed(broker: str) -> bool:
 
 def _parse_broker_position_rows(
     rows: list[dict], universe: set[str],
-) -> dict[str, int]:
-    """Pure: broker position rows → {bare_symbol: signed_int_qty}, filtered
-    to ``universe`` (empty universe = no filter). Extracted from the broker
-    seed so the epic-stripping + mini-lot handling is unit-testable without
-    HTTP.
+) -> tuple[dict[str, int], dict[str, float]]:
+    """Pure: broker position rows → ({bare_symbol: signed_int_qty},
+    {bare_symbol: avg_entry_price}), filtered to ``universe`` (empty universe
+    = no filter). Extracted from the broker seed so the epic-stripping +
+    mini-lot handling is unit-testable without HTTP.
+
+    The avg-price map is the broker's cost basis (averagePricePaid). The
+    ledger needs it so unrealised P&L = (mark − avg) × qty is REAL — without
+    it avg defaults to 0 and unrealised collapses to mark × qty (≈ position
+    VALUE, not P&L), which made the cockpit P&L curve read ~$32k instead of
+    the true +$284. Symbols with no/zero broker avg are omitted (the ledger
+    leaves their cost basis untouched).
 
     The IG account is SHARED across strategies (FX pairs CS.D.*.MINI.IP,
     intraday_flat equity CFDs UA.D.*.CASH.IP, plus manual options DO.D./
@@ -349,6 +356,7 @@ def _parse_broker_position_rows(
     mini-lot<->unit conversion still needs the per-pair IG contract size
     (backend follow-up)."""
     positions: dict[str, int] = {}
+    avg_prices: dict[str, float] = {}
     for r in rows:
         t = (r.get("ticker") or r.get("epic") or "").upper()
         if not t:
@@ -381,10 +389,21 @@ def _parse_broker_position_rows(
             qty = int(raw)
         if qty != 0:
             positions[bare] = positions.get(bare, 0) + qty
-    return positions
+            # Broker cost basis for honest unrealised P&L. T212 + IG both
+            # report it as averagePricePaid (IG can be null → skip).
+            avg_raw = (r.get("averagePricePaid")
+                       if r.get("averagePricePaid") is not None
+                       else r.get("avgPrice"))
+            try:
+                avg = float(avg_raw) if avg_raw is not None else 0.0
+            except (TypeError, ValueError):
+                avg = 0.0
+            if avg > 0:
+                avg_prices[bare] = avg
+    return positions, avg_prices
 
 
-def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int]:
+def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[str, int], dict[str, float]]:
     """Fetch the strategy's current position FROM THE BROKER and seed it
     so reruns compute a delta (target - current) instead of re-emitting a
     full entry every run.
@@ -402,10 +421,11 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int
     network/HTTP failure, or an unparseable response. Callers running
     with --push MUST abort on this rather than trade blind.
 
-    Returns {symbol: signed_int_qty}. An EMPTY dict is a positive result:
-    the broker confirmed a genuinely flat book, so opening new positions
-    is safe. (A failure to reach the broker is NOT an empty dict — it
-    raises.)
+    Returns ({symbol: signed_int_qty}, {symbol: avg_entry_price}). An EMPTY
+    positions dict is a positive result: the broker confirmed a genuinely
+    flat book, so opening new positions is safe. (A failure to reach the
+    broker is NOT an empty dict — it raises.) The avg-price map is the
+    broker cost basis for the ledger's unrealised-P&L math.
     """
     b = broker.strip().lower()
     if not hasattr(strategy, "seed_positions"):
@@ -429,13 +449,14 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     base = base.rstrip('/')
 
-    # Retry-with-backoff before fail-closed. The positions endpoint briefly
-    # 500s while the API restarts on every deploy; a single attempt then
-    # tripped the fail-closed abort and fired a CRITICAL alert on each
-    # deploy. Ride through transient blips (a few tries over ~10s) but STILL
-    # fail closed on a genuine outage so we never trade on an unconfirmed
-    # book. Backoffs: 2s, 4s (3 attempts total).
-    backoffs = [2.0, 4.0]
+    # Retry-with-backoff before fail-closed. The positions endpoint is down
+    # while the API restarts on every deploy — and a .NET cold start (Postgres
+    # migrations + secrets) takes 60-90s (see aws-deploy "start_period 90s"),
+    # so the old 6s retry never had a chance and the abort fired a CRITICAL
+    # alert on every deploy. Span a full cold start (~80s) so a deploy blip is
+    # ridden out, but STILL fail closed on a genuine outage — we never trade
+    # on an unconfirmed book. Backoffs sum ~80s across 6 attempts.
+    backoffs = [5.0, 10.0, 15.0, 20.0, 30.0]
     last_exc: Exception | None = None
     rows = None
     for attempt in range(len(backoffs) + 1):
@@ -461,6 +482,17 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int
             f"{len(backoffs) + 1} attempts: {last_exc}"
         ) from last_exc
 
+    # Broker was readable → self-heal. Clear any prior fail-closed abort
+    # alert for this (strategy, broker) so a transient blip that's now
+    # recovered doesn't leave a sticky CRITICAL banner. Best-effort; matches
+    # the dedup_key _abort_on_unconfirmed_position raises with.
+    try:
+        push_to_api.resolve_alert(
+            base, token,
+            dedup_key=f"position_seed_failed:{getattr(strategy, 'strategy_id', '?')}:{broker}")
+    except Exception:  # noqa: BLE001
+        pass
+
     # The IG account is SHARED across strategies (FX pairs CS.D.*.MINI.IP,
     # intraday_flat equity CFDs UA.D.*.CASH.IP, plus manual options DO.D./
     # OD.D.*). Seeding a strategy with positions that aren't its own corrupts
@@ -473,12 +505,12 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int
     for key in ("pairs", "symbols", "candidates"):
         universe.update(str(x).strip().upper() for x in (p.get(key) or []) if str(x).strip())
 
-    positions = _parse_broker_position_rows(rows, universe)
+    positions, avg_prices = _parse_broker_position_rows(rows, universe)
 
     if positions:
         log.info(
-            "POSITION SEED (%s-broker): %s starting with %s",
-            b, strategy.strategy_id, positions,
+            "POSITION SEED (%s-broker): %s starting with %s (cost basis for %d)",
+            b, strategy.strategy_id, positions, len(avg_prices),
         )
         strategy.seed_positions(positions)
     else:
@@ -486,7 +518,7 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> dict[str, int
             "POSITION SEED (%s-broker): %s — broker confirms a flat book",
             b, strategy.strategy_id,
         )
-    return positions
+    return positions, avg_prices
 
 
 def _abort_on_unconfirmed_position(
@@ -646,12 +678,13 @@ def main(argv: list[str] | None = None) -> int:
     # every strategy and every (non-sim) broker, current or future.
     # See PositionSeedError / broker_requires_position_seed.
     seeded_positions: dict[str, int] = {}
+    seeded_avg_prices: dict[str, float] = {}
     if args.push:
         for b in broker_list:
             if not broker_requires_position_seed(b):
                 continue  # sim broker — no persistent position to confirm
             try:
-                seeded = _seed_strategy_positions_from_broker(strategy, broker=b)
+                seeded, seeded_avg = _seed_strategy_positions_from_broker(strategy, broker=b)
             except PositionSeedError as exc:
                 _abort_on_unconfirmed_position(
                     log,
@@ -663,6 +696,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 2  # fail-closed: engine never runs, no orders
             seeded_positions.update(seeded)
+            seeded_avg_prices.update(seeded_avg)
 
     engine = Engine(bus=bus, router=router)
     engine.register_strategy(
@@ -676,10 +710,14 @@ def main(argv: list[str] | None = None) -> int:
     # router. project_broker_is_golden_source: broker is truth, both
     # strategy and engine must reflect that.
     if seeded_positions and hasattr(engine, "ledger"):
-        engine.ledger.seed_positions(strategy.strategy_id, seeded_positions)
+        # Pass the broker cost basis so the ledger's unrealised P&L is REAL
+        # (mark − avg) × qty — not mark × qty (≈ position value) which made
+        # the cockpit P&L curve read ~$32k instead of the true +$284.
+        engine.ledger.seed_positions(
+            strategy.strategy_id, seeded_positions, avg_price=seeded_avg_prices or None)
         log.info(
-            "LEDGER SEED: %s engine.ledger.book mirrored %d position(s)",
-            strategy.strategy_id, len(seeded_positions),
+            "LEDGER SEED: %s mirrored %d position(s), %d with cost basis",
+            strategy.strategy_id, len(seeded_positions), len(seeded_avg_prices),
         )
 
     log.info(

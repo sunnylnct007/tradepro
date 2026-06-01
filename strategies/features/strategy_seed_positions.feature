@@ -46,3 +46,16 @@ Feature: Strategy.seed_positions — initialise position state from external sna
       | MSFT_US_EQ        | 6.7022   |
     When I parse the broker rows for universe "AAPL,MSFT"
     Then the parsed seed is {"AAPL": 11, "MSFT": 6}
+
+  # Cost basis (averagePricePaid) is captured so the ledger's unrealised P&L
+  # = (mark - avg) x qty is real, not mark x qty (~position value). Rows with
+  # no/zero broker avg are omitted (ledger leaves their basis untouched).
+  Scenario: broker average entry price is captured as cost basis
+    Given broker rows:
+      | ticker            | quantity | avgPrice |
+      | UA.D.AAPL.CASH.IP | 11       | 305.40   |
+      | MSFT_US_EQ        | 5        | 426.10   |
+      | UC.D.QQQ.CASH.IP  | 6        |          |
+    When I parse the broker rows for universe "AAPL,MSFT,QQQ"
+    Then the parsed seed is {"AAPL": 11, "MSFT": 5, "QQQ": 6}
+    And the parsed cost basis is {"AAPL": 305.40, "MSFT": 426.10}

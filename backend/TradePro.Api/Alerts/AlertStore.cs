@@ -48,6 +48,12 @@ public interface IAlertStore
     /// Mark an alert resolved. Returns false if it didn't exist / was
     /// already resolved.
     bool Resolve(Guid id, string resolvedBy);
+
+    /// Resolve any OPEN alert(s) with this dedup_key — used by a producer to
+    /// auto-clear its own alert when the underlying condition self-heals
+    /// (e.g. a paper session that aborted on a broker blip and then seeded
+    /// cleanly on its next run). Returns the number resolved.
+    int ResolveByDedupKey(string dedupKey, string resolvedBy);
 }
 
 /// <summary>
@@ -166,6 +172,17 @@ public sealed class PostgresAlertStore : IAlertStore
              WHERE id = @id AND resolved_at_utc IS NULL;",
             new { id, resolvedBy });
         return n > 0;
+    }
+
+    public int ResolveByDedupKey(string dedupKey, string resolvedBy)
+    {
+        if (string.IsNullOrWhiteSpace(dedupKey)) return 0;
+        using var conn = _db.OpenConnection();
+        return conn.Execute(@"
+            UPDATE system_alerts
+               SET resolved_at_utc = NOW(), resolved_by = @resolvedBy
+             WHERE dedup_key = @dedupKey AND resolved_at_utc IS NULL;",
+            new { dedupKey, resolvedBy });
     }
 
     private static string[] ParseSymbols(string? json)

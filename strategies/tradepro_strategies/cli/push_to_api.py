@@ -160,6 +160,34 @@ def raise_alert(
     return False
 
 
+def resolve_alert(
+    base_url: str,
+    token: str,
+    *,
+    dedup_key: str,
+    resolved_by: str = "producer:auto-resolve",
+    timeout: float = 10.0,
+) -> bool:
+    """Clear any OPEN alert with this dedup_key — used by a producer to
+    auto-resolve its own alert when the condition self-heals (e.g. a paper
+    session that aborted on a broker blip then seeded cleanly next run), so a
+    transient critical doesn't leave a sticky banner. Best-effort: never
+    raises, never exits. Returns True on a 2xx ack."""
+    url = f"{base_url.rstrip('/')}/api/ingest/alert/resolve"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.post(
+            url, headers=headers,
+            json={"dedupKey": dedup_key, "resolvedBy": resolved_by},
+            timeout=timeout)
+        if 200 <= resp.status_code < 300:
+            return True
+        print(f"resolve_alert: HTTP {resp.status_code} {resp.text[:200]}", file=sys.stderr)
+    except requests.RequestException as e:
+        print(f"resolve_alert: post failed — {e}", file=sys.stderr)
+    return False
+
+
 def _maybe_archive_to_s3(kind: str, payload: dict) -> None:
     """Optional: push a copy of the payload to S3 for replay history.
 
