@@ -187,43 +187,75 @@ export function TraderCockpit() {
           charts,
         });
       }
-      // Merge charts from /api/paper/snapshots — those land via
-      // `tradepro-paper --push` (different ingestion path) but the
-      // cockpit only fetches /api/ops/sessions natively. Without
-      // this, the Strategy Charts card stays empty even when the
-      // strategy emitted recent_charts data. Best-effort: snapshot
-      // fetch failure leaves charts blank, doesn't break the card.
+      // Fold in /api/paper/snapshots — the LIVE daemon (`tradepro-paper
+      // --push`) writes here every run, while /api/ops/sessions only
+      // carries the occasional *manual* runs. Reading only /api/ops/sessions
+      // is why the cockpit showed a stale 09:29 "0 bars" run for a desk
+      // that's been trading live all morning. The snapshot is the freshest
+      // truth: it carries bars_seen, decisions AND charts, so when a
+      // snapshot is newer than the ops-sessions record (or there's no
+      // record at all) we let it drive the panel. Best-effort: a fetch
+      // failure just leaves the prior data in place, doesn't break the card.
       try {
         const snapshots = await api.paperSnapshots();
         const today = new Date().toISOString().slice(0, 10);
         for (const snap of snapshots) {
           if (!snap.sessionLabel.endsWith(today)) continue;
           const strategyName = snap.sessionLabel.replace(`-${today}`, "");
-          const detail = await api.paperSnapshot(snap.sessionLabel) as
-            { strategies?: Array<{ charts?: Record<string, unknown> }> };
+          const detail = await api.paperSnapshot(snap.sessionLabel) as {
+            as_of_utc?: string;
+            strategies?: Array<{
+              charts?: Record<string, unknown>;
+              bars_seen?: unknown[];
+              decisions?: Array<Record<string, unknown>>;
+            }>;
+          };
           const charts: Record<string, unknown> = {};
+          const snapDecisions: DecisionEntry[] = [];
+          let snapBars = 0;
           for (const st of detail.strategies ?? []) {
-            if (st.charts && typeof st.charts === "object") {
-              Object.assign(charts, st.charts);
+            if (st.charts && typeof st.charts === "object") Object.assign(charts, st.charts);
+            if (Array.isArray(st.bars_seen)) snapBars += st.bars_seen.length;
+            for (const d of st.decisions ?? []) {
+              snapDecisions.push({
+                barTs: (d.bar_ts as string) || null,
+                symbol: (d.symbol as string) || "",
+                action: (d.action as string) || "",
+                reason: (d.reason as string) || "",
+                detail: (d.detail as Record<string, unknown>) || {},
+              });
             }
           }
-          if (Object.keys(charts).length === 0) continue;
+          snapDecisions.sort((a, b) => (b.barTs ?? "").localeCompare(a.barTs ?? ""));
+          const snapAsOf = detail.as_of_utc || snap.asOfUtc;
           const existing = byStrategy.get(strategyName);
+          // The snapshot wins when it's strictly newer than whatever
+          // /api/ops/sessions recorded — that's how the live daemon run
+          // replaces a stale manual run instead of being hidden behind it.
+          const snapIsNewer = !existing
+            || !existing.completedAtUtc
+            || (snapAsOf ?? "") > existing.completedAtUtc;
           if (existing) {
             existing.charts = { ...existing.charts, ...charts };
+            if (snapIsNewer) {
+              existing.completedAtUtc = snapAsOf;
+              existing.barsSeen = snapBars;
+              existing.decisions = snapDecisions.slice(0, 30);
+              existing.requestId = snap.sessionLabel;
+            }
           } else {
             byStrategy.set(strategyName, {
               strategy: strategyName,
               requestId: snap.sessionLabel,
-              completedAtUtc: snap.asOfUtc,
-              decisions: [],
-              barsSeen: 0,
+              completedAtUtc: snapAsOf,
+              decisions: snapDecisions.slice(0, 30),
+              barsSeen: snapBars,
               charts,
             });
           }
         }
       } catch {
-        // ignore — charts panel just stays empty.
+        // ignore — panel keeps whatever /api/ops/sessions provided.
       }
       setLatestSessions(Array.from(byStrategy.values()));
     } catch {
@@ -537,7 +569,7 @@ export function TraderCockpit() {
           warmup gate, universe, broker, exec) so silent data-starvation /
           config gaps are visible before testing, not discovered mid-run. */}
       {v("strategy-readiness") && (
-        <StrategyReadinessPanel onHide={() => widgets.hide("strategy-readiness")} />
+        <StrategyReadinessPanel onHide={() => widgets.hide("strategy-readiness")} sessions={latestSessions} />
       )}
 
       {/* Detailed broker→product positions (with flatten / sync) —
