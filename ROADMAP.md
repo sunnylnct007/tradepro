@@ -47,7 +47,38 @@ for Monday's open. Demo account was reset → **£50K** fresh capital.
 - Verify at open: equity FILLS (the headline), FX 10-pair coverage (fetch fix), ORB books, rejections show plain-English.
 - The trader's full **drift audit is the de-facto acceptance spec** — turn it into a tracked conformance checklist (still TODO).
 
----
+### ✅ DONE / ⬜ PENDING (marked 2026-06-01)
+
+Done + deployed today:
+- [x] Equity market-hours gate + buying-power floor (RiskGate); SELLs never capital-gated
+- [x] OMS flattened to reset broker; sync idempotent (`ReconcileMath` sums buckets) + 6 regression tests; `Force=true`
+- [x] `default_broker` → `PAPER` (only the 3 mapped strategies are LIVE)
+- [x] ORB unblocked (`intraday.symbols` = 10 US names)
+- [x] FX warmup reverted 200 (was starving signals) + fetch retry/backoff
+- [x] UI: dark-theme tokens, session-symbol overflow clamp, LIVE=explicit-mapping-only, IG options classified, manual/external positions visible
+- [x] Caveats banner + plain-English rejection reasons
+- [x] Deploy pipeline: auto-redeploy after build-push + stopped-instance self-heal
+- [x] EPS launchd job registered + seeded; Finnhub verified working
+- [x] Flood cleanup: cancelled 125 stale PENDING + 3 Claimed 503-symbol sessions
+- [x] Equity US-only universe + capital 100k→50k (match demo)
+- [x] Intraday engine oversized-session guard (refuse >30 symbols)
+
+⬜ PENDING — at the open (today):
+- [ ] Enqueue clean `intraday_flat` session over the 10 US names (in-window only; one enqueue = one scan — no continuous scheduler yet)
+- [ ] Verify at open: equity FILLS, FX 10-pair coverage (fetch fix), no 503 respawn, rejection reasons render
+
+⬜ PENDING — after today's close (higher-risk):
+- [ ] 🔴 Auth lockdown: set `Firebase:RequireAuth=true` + verify `Firebase:ProjectId` on EC2 (API throws on boot if missing); rollback `=false` staged
+- [ ] EURUSD zero-cost-basis reconcile (touches live FX book) + negative avg-price parse edge in IG positions read
+- [ ] Signal-coherence scorer fix (`compare.py` compute_bucket/conviction; 5/9 trend-family overweight + bucket-vs-entry_signal explainability) — est. ~1 day incl. tests
+
+⬜ PENDING — follow-ups / debt:
+- [ ] Daemon plist configs (equity US-only universe, capital, FX warmup) live ONLY on the Mac `~/Library/LaunchAgents` — NOT version-controlled. Bring under version control.
+- [ ] Find/kill the source that manually enqueues 503-symbol intraday sessions (no cron/backend scheduler found; guard mitigates)
+- [ ] Continuous intraday scheduler (so intraday_flat scans through the session, not one-shot)
+- [ ] Turn the trader drift-audit into a tracked conformance checklist (executable where possible)
+- [ ] COMPASS data caveats on Decide + re-run refresh; signal-ledger is empty (no outcome data)
+- [ ] Alpha-breadth vs reference: 3-sleeve ensemble, high-beta UniverseBuilder, GLD sleeve; capital-gate v2 (price-aware via bar-cache); Options P2
 
 ---
 
