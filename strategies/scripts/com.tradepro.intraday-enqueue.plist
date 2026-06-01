@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tradepro.intraday-enqueue</string>
+    <!--
+      Producer for the intraday engine. The engine (com.tradepro.intraday-engine)
+      is a CONSUMER: it polls /api/ops/poll-intraday and only runs when a session
+      request is queued. Nothing was enqueuing them, so intraday_flat never fired.
+      This job POSTs /api/ops/run-intraday on a cadence; out-of-window ticks are
+      cheaply skipped server-side ("outside session window 13:30..20:00 UTC"), so a
+      simple fixed interval is safe. Direct EC2 IP (http) avoids Caddy/TLS basic-auth.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] enqueue intraday tick" &amp;&amp; curl -s --max-time 20 -X POST http://16.60.201.137/api/ops/run-intraday -H "Content-Type: application/json" -d '{"note":"scheduled intraday tick (launchd producer)"}' ; echo</string>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/tmp/tradepro-intraday-enqueue.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/tradepro-intraday-enqueue.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>300</integer>
+</dict>
+</plist>
