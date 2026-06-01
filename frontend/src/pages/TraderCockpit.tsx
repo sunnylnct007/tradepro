@@ -11,6 +11,7 @@ import { StrategyChartsCard } from "../components/cockpit/StrategyChartsCard";
 import { PositionChartsCard } from "../components/cockpit/PositionChartsCard";
 import { PositionsPanel } from "../components/cockpit/PositionsPanel";
 import { StrategyDesks } from "../components/cockpit/StrategyDesks";
+import { StrategyReadinessPanel } from "../components/cockpit/StrategyReadinessPanel";
 import { OrdersByBrokerPanel } from "../components/cockpit/OrdersByBrokerPanel";
 import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
@@ -530,6 +531,13 @@ export function TraderCockpit() {
           positions={positions}
           onHide={() => widgets.hide("desks")}
         />
+      )}
+
+      {/* Strategy readiness — surfaces the assumptions (bars-needed vs
+          warmup gate, universe, broker, exec) so silent data-starvation /
+          config gaps are visible before testing, not discovered mid-run. */}
+      {v("strategy-readiness") && (
+        <StrategyReadinessPanel onHide={() => widgets.hide("strategy-readiness")} />
       )}
 
       {/* Detailed broker→product positions (with flatten / sync) —
