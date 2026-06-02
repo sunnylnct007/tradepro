@@ -148,6 +148,15 @@ Feature: IntradayFlatStrategy — explainable, risk-averse, EOD-flat
     When I feed one EOD-WINDOW bar for "IWM"
     Then a SELL MARKET order is emitted for "IWM"
 
+  # Regression: a replayed (non-live) bar must NEVER trigger a flatten/exit.
+  # The bus replays the whole day's 1m history as warmup on every daemon run;
+  # before the is_live gate, the EOD/leftover flatten fired on these historical
+  # bars → seed→flatten→re-enter churn (round-trip fills minutes apart).
+  Scenario: A replayed (non-live) warmup bar does NOT flatten open positions
+    Given an IntradayFlatStrategy holding open longs in "IWM" and "SPY"
+    When I feed one NON-LIVE (replayed warmup) EOD-WINDOW bar
+    Then no orders are emitted
+
   Scenario: on_session_end emits an alert when positions remain open
     Given an IntradayFlatStrategy holding an "IWM" long
     When I call on_session_end without flattening first

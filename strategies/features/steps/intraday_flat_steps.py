@@ -176,6 +176,7 @@ def _make_bar(
     close: float = 100.0,
     high: float | None = None,
     low: float | None = None,
+    is_live: bool = True,
 ) -> Bar:
     return Bar(
         symbol=symbol,
@@ -186,7 +187,20 @@ def _make_bar(
         close=close,
         volume=100_000,
         timeframe_seconds=60,
+        # Each test bar represents a live decision moment — on_bar now gates
+        # on is_live (skips replayed warmup bars), so tests mark bars live by
+        # default; pass is_live=False to exercise the warmup-skip gate.
+        is_live=is_live,
     )
+
+
+@when('I feed one NON-LIVE (replayed warmup) EOD-WINDOW bar')
+def step_feed_nonlive_eod(context) -> None:
+    # A replayed historical bar — must NOT trigger any flatten/exit, even in
+    # the EOD window (the churn fix: only the live bar acts).
+    sym = context.both_symbols[0] if hasattr(context, "both_symbols") else next(iter(context.strat.positions))
+    bar = _make_bar(sym, ts=_EOD_WINDOW_TS, close=200.0, is_live=False)
+    context.orders = context.strat.on_bar(bar)
 
 
 # ====================================================================== #

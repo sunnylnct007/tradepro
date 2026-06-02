@@ -490,6 +490,21 @@ class IntradayFlatStrategy(Strategy):
         if bar.symbol not in self._basket and self.position_for(bar.symbol).is_flat:
             return []
 
+        # ── B½. Live-bar gate (act ONLY on the latest bar) ─────────
+        # The bus replays the WHOLE day's 1-minute history as warmup on
+        # every 5-min daemon run. Without this gate the EOD-flatten and
+        # overnight-leftover paths fired on HISTORICAL bars, flattening
+        # freshly-seeded positions → broker went flat → next run re-entered
+        # → seed→flatten→re-enter churn (round-trip fills minutes apart).
+        # This is the SAME class of bug fixed for ichimoku_fx_mr
+        # (is_live gate). Entry signals + ATR come from the cached daily df
+        # (_fetch_df), NOT from on_bar accumulation, so skipping warmup bars
+        # starves nothing — stop/target/time/EOD/leftover decisions must
+        # only ever evaluate against the true CURRENT bar. The bus marks the
+        # final bar per symbol is_live=True (bar_bus.ReplayBarBus).
+        if not bar.is_live:
+            return []
+
         # ── C. EOD flatten window (HIGHEST priority) ───────────────
         # Even if the position management or entry would fire below,
         # the EOD gate wins. Exits are NEVER LLM-gated; the close is
