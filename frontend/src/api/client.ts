@@ -1104,6 +1104,52 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/bar-cache/coverage-matrix", qp);
   },
+  // Phase F-3 — fill-quality analytics. Empty payload until F-2
+  // capture starts landing in production. Sign convention: positive
+  // realised_bps = worse than mid (BUY above mid, SELL below mid),
+  // negative = price improvement.
+  fillQuality: (params?: {
+    limit?: number;
+    broker?: string;
+    sinceDays?: number;
+  }) => {
+    const qp: Record<string, string | undefined> = {};
+    if (params?.limit !== undefined) qp.limit = String(params.limit);
+    if (params?.broker) qp.broker = params.broker;
+    if (params?.sinceDays !== undefined) qp.sinceDays = String(params.sinceDays);
+    return get<{
+      window_days: number;
+      broker: string | null;
+      empty_state: boolean;
+      recent_fills: Array<{
+        id: number;
+        order_id: string;
+        broker: string;
+        strategy_id: string;
+        symbol: string;
+        side: string;
+        qty: number;
+        price: number;
+        bid_at_fill: number | null;
+        ask_at_fill: number | null;
+        mid_at_fill: number | null;
+        snapshot_source: string | null;
+        fill_at_utc: string;
+        snapshot_at_utc: string | null;
+        realised_bps: number | null;
+      }>;
+      per_symbol_aggregates: Array<{
+        broker: string;
+        symbol: string;
+        n_fills: number;
+        avg_bps: number | null;
+        median_bps: number | null;
+        p95_bps: number | null;
+        min_bps: number | null;
+        max_bps: number | null;
+      }>;
+    }>("/api/admin/data-trust/fill-quality", qp);
+  },
 };
 
 // Shape of the artifact emitted by strategies/cli/equity_pipeline.py

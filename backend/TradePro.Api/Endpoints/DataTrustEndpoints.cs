@@ -549,6 +549,121 @@ public static class DataTrustEndpoints
             return Results.Ok(new { health = rows.AsList() });
         });
 
+        // Phase F-3 — Fill-quality analytics.
+        //
+        // Reads oms_fills WHERE mid_at_fill IS NOT NULL (the rows F-2
+        // started capturing) and joins to oms_orders for side. Produces
+        // two views:
+        //
+        //   1. ``recent_fills`` — last N fills with realised_bps. Sign
+        //      convention: positive = paid more than mid (BUY filled
+        //      above mid / SELL filled below mid). Negative = price
+        //      improvement. Same convention regardless of side so the
+        //      operator can sort + compare across buys and sells.
+        //
+        //   2. ``per_symbol_aggregates`` — n_fills + avg/median/p95
+        //      bps per symbol, ordered by absolute avg descending so
+        //      the widest-spread symbols surface first. The trader
+        //      uses this to decide which symbols deserve a custom
+        //      slippage_bps in backtests (vs the default 5bp).
+        //
+        // Empty until F-2 captures land in production. Frontend renders
+        // an honest "no L1 data yet" empty state — preserves the
+        // trust-before-breadth principle in the project memory.
+        g.MapGet("/fill-quality", async (
+            NpgsqlDataSource db,
+            int? limit,
+            string? broker,
+            int? sinceDays) =>
+        {
+            int row_limit = Math.Clamp(limit ?? 50, 1, 500);
+            int days = Math.Clamp(sinceDays ?? 30, 1, 365);
+            await using var conn = await db.OpenConnectionAsync();
+
+            // Recent fills — newest first. The bps math runs in SQL so
+            // we don't ship 500 rows back to compute it in C#. The
+            // CASE flips the sign so positive always = "worse than mid"
+            // regardless of side.
+            var recent = (await conn.QueryAsync<(
+                long id, Guid order_id, string broker, string strategy_id,
+                string symbol, string side,
+                decimal qty, decimal price, decimal? bid_at_fill,
+                decimal? ask_at_fill, decimal? mid_at_fill,
+                string? snapshot_source,
+                DateTime fill_at_utc, DateTime? snapshot_at_utc,
+                decimal? realised_bps)>(@"
+                SELECT
+                    f.id, f.order_id,
+                    o.broker, o.strategy_id, o.symbol, o.side,
+                    f.qty, f.price,
+                    f.bid_at_fill, f.ask_at_fill, f.mid_at_fill,
+                    f.snapshot_source,
+                    f.fill_at_utc, f.snapshot_at_utc,
+                    CASE
+                        WHEN f.mid_at_fill IS NULL OR f.mid_at_fill = 0 THEN NULL
+                        WHEN upper(o.side) = 'BUY'
+                            THEN (f.price - f.mid_at_fill) / f.mid_at_fill * 10000
+                        ELSE
+                            (f.mid_at_fill - f.price) / f.mid_at_fill * 10000
+                    END AS realised_bps
+                FROM oms_fills f
+                JOIN oms_orders o ON o.id = f.order_id
+                WHERE f.mid_at_fill IS NOT NULL
+                  AND f.fill_at_utc >= NOW() - (@days || ' days')::INTERVAL
+                  AND (@broker IS NULL OR o.broker = @broker)
+                ORDER BY f.fill_at_utc DESC
+                LIMIT @row_limit;",
+                new { row_limit, days = days.ToString(), broker })).ToList();
+
+            // Per-symbol aggregates — only over the same window.
+            // Postgres percentile_cont is the cleanest median + p95.
+            // Worth noting: this is the raw "what the broker gave us"
+            // distribution; Phase F-3.1 will add an outlier filter
+            // (drop top 5% of bps) once we have enough data to know
+            // what's outlier vs structural.
+            var per_symbol = (await conn.QueryAsync<(
+                string broker, string symbol, int n_fills,
+                decimal? avg_bps, decimal? median_bps, decimal? p95_bps,
+                decimal? min_bps, decimal? max_bps)>(@"
+                WITH base AS (
+                    SELECT
+                        o.broker, o.symbol,
+                        CASE
+                            WHEN upper(o.side) = 'BUY'
+                                THEN (f.price - f.mid_at_fill) / f.mid_at_fill * 10000
+                            ELSE
+                                (f.mid_at_fill - f.price) / f.mid_at_fill * 10000
+                        END AS bps
+                    FROM oms_fills f
+                    JOIN oms_orders o ON o.id = f.order_id
+                    WHERE f.mid_at_fill IS NOT NULL
+                      AND f.mid_at_fill <> 0
+                      AND f.fill_at_utc >= NOW() - (@days || ' days')::INTERVAL
+                      AND (@broker IS NULL OR o.broker = @broker)
+                )
+                SELECT broker, symbol,
+                       COUNT(*)::int                                       AS n_fills,
+                       AVG(bps)                                            AS avg_bps,
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY bps)    AS median_bps,
+                       percentile_cont(0.95) WITHIN GROUP (ORDER BY bps)   AS p95_bps,
+                       MIN(bps)                                            AS min_bps,
+                       MAX(bps)                                            AS max_bps
+                FROM base
+                GROUP BY broker, symbol
+                ORDER BY ABS(AVG(bps)) DESC NULLS LAST, symbol
+                LIMIT 100;",
+                new { days = days.ToString(), broker })).ToList();
+
+            return Results.Ok(new
+            {
+                window_days = days,
+                broker = broker,
+                recent_fills = recent,
+                per_symbol_aggregates = per_symbol,
+                empty_state = recent.Count == 0,
+            });
+        });
+
         return app;
     }
 
