@@ -156,6 +156,9 @@ def _build_strategy(
             "entry_window_end_utc": "19:00",
             "flatten_start_utc": "19:50",
             "session_close_utc": "20:00",
+            # Fixed pre-close wall-clock so the EOD wall-clock backstop is
+            # deterministic (off) for the bar-timestamp-driven scenarios.
+            "_now_fn": lambda: datetime(2026, 6, 2, 14, 30, tzinfo=timezone.utc),
             "_data_fn": lambda s: dfs.get(s),
             "_llm_gate": llm_gate,
         },
@@ -229,6 +232,29 @@ def step_fresh_seed(context, sym: str) -> None:
     b.on_session_start(_PERSIST_SESSION)
     b.seed_positions({sym: 10})
     context.strat = b   # so the decision-assert step inspects this instance
+
+
+@given('an IntradayFlatStrategy past its session close by wall-clock holding an "{sym}" long')
+def step_past_close_holding(context, sym: str) -> None:
+    context.strat = IntradayFlatStrategy(
+        strategy_id="it_eod",
+        params={
+            "candidates": [sym], "use_regime_filter": False,
+            "entry_window_start_utc": "13:35", "entry_window_end_utc": "19:00",
+            "flatten_start_utc": "19:50", "session_close_utc": "20:00",
+            # Wall-clock is PAST the 19:50 close even though the bar below lags.
+            "_now_fn": lambda: datetime(2026, 6, 2, 20, 5, tzinfo=timezone.utc),
+            "_data_fn": lambda s: None,
+        },
+    )
+    context.strat.position_for(sym).quantity = 5
+
+
+@when('I feed a live bar stamped BEFORE the flatten window (a lagging feed)')
+def step_feed_lagging_bar(context) -> None:
+    sym = next(iter(context.strat.positions))
+    bar = _make_bar(sym, ts=datetime(2026, 6, 2, 14, 40, tzinfo=timezone.utc), close=200.0)
+    context.orders = context.strat.on_bar(bar)
 
 
 @then('feeding an in-window bar between stop and target emits no orders')

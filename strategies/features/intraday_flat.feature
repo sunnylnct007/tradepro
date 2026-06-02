@@ -157,6 +157,17 @@ Feature: IntradayFlatStrategy — explainable, risk-averse, EOD-flat
     When I feed one NON-LIVE (replayed warmup) EOD-WINDOW bar
     Then no orders are emitted
 
+  # Regression: the EOD flatten otherwise needs a bar whose TIMESTAMP reaches
+  # the window. A lagging feed (yfinance 1m delay) can leave the live bar
+  # stamped before 19:50 while real time is past the close → positions ride
+  # overnight. The wall-clock backstop flattens once real time passes the close
+  # regardless of the (lagging) bar timestamp.
+  Scenario: EOD wall-clock backstop flattens when the feed lags past the close
+    Given an IntradayFlatStrategy past its session close by wall-clock holding an "AAPL" long
+    When I feed a live bar stamped BEFORE the flatten window (a lagging feed)
+    Then a SELL MARKET order is emitted for "AAPL"
+    And the order tag contains "EOD"
+
   Scenario: on_session_end emits an alert when positions remain open
     Given an IntradayFlatStrategy holding an "IWM" long
     When I call on_session_end without flattening first

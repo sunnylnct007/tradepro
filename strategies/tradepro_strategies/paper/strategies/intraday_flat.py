@@ -224,6 +224,10 @@ class IntradayFlatStrategy(Strategy):
             # persist the management state to this dir keyed by session date
             # and restore it on seed. None → ~/.tradepro/intraday_state.
             "state_dir": None,
+            # Injectable wall-clock (callable → tz-aware UTC datetime) so the
+            # EOD wall-clock flatten backstop is deterministic in tests.
+            # None → datetime.now(timezone.utc) in production.
+            "_now_fn": None,
 
             # Session timing (UTC HH:MM strings, compared to bar.time())
             # Defaults assume US-equity DST (Mar–Nov):
@@ -1239,7 +1243,29 @@ class IntradayFlatStrategy(Strategy):
         start_str = p.get("flatten_start_utc")
         if not start_str:
             return False
-        return bar.timestamp.time() >= _parse_hhmm(start_str)
+        start = _parse_hhmm(start_str)
+        if bar.timestamp.time() >= start:
+            return True
+        # Wall-clock backstop: the EOD flatten otherwise needs a bar whose
+        # TIMESTAMP has reached the window — but a lagging feed (yfinance 1m
+        # is delayed) can leave the live bar stamped before 19:50 while real
+        # time is already past the close, so positions would ride OVERNIGHT.
+        # Once wall-clock passes the flatten start, ANY live bar flattens the
+        # whole book (_build_eod_flatten_orders iterates all positions).
+        # Guarded to TODAY's session so a backtest/replay of a past day
+        # (historical bar date) never trips on the current wall-clock.
+        now = self._now()
+        return (
+            getattr(bar, "is_live", False)
+            and bar.timestamp.date() == now.date()
+            and now.time() >= start
+        )
+
+    def _now(self) -> datetime:
+        """Wall-clock (UTC). Injectable via `_now_fn` so the EOD backstop is
+        deterministic in tests; defaults to real time in production."""
+        fn = self._p().get("_now_fn")
+        return fn() if fn else datetime.now(timezone.utc)
 
     def _fetch_df(self, symbol: str, p: dict[str, Any]) -> pd.DataFrame | None:
         """Pluggable data lookup — tests inject `_data_fn`, production
