@@ -665,13 +665,17 @@ public sealed class PostgresOmsService : IOmsService
                 COALESCE(o.strategy_id, '(unattributed)') AS StrategyId,
                 o.symbol           AS Symbol,
                 o.broker           AS Broker,
-                SUM(CASE WHEN o.side = 'BUY' THEN f.qty ELSE -f.qty END)::numeric AS Quantity,
-                -- ::numeric so the result maps to .NET decimal (f.price is
-                -- double precision; the raw division returns double, which
-                -- Dapper can't bind to decimal? → the endpoint 500'd for ALL
-                -- strategies on a single bad row). NULLIF guards divide-by-zero.
+                ROUND(SUM(CASE WHEN o.side = 'BUY' THEN f.qty ELSE -f.qty END)::numeric, 8) AS Quantity,
+                -- ROUND(..., 10) BOUNDS the scale so the result always fits a
+                -- .NET decimal (28-29 sig digits). The bare ::numeric division
+                -- produced unbounded-scale quotients (e.g. avg 0.6933767632492327,
+                -- 16 dp); a reconcile/unattributed row produced one whose
+                -- precision OVERFLOWED decimal, so Dapper threw a parse error on
+                -- the avgprice column and the WHOLE unfiltered positions endpoint
+                -- 500d. NULLIF guards divide-by-zero; 10 dp is ample for any
+                -- price or FX rate.
                 CASE WHEN SUM(f.qty) = 0 THEN NULL
-                     ELSE (SUM(f.qty * f.price) / NULLIF(SUM(f.qty), 0))::numeric
+                     ELSE ROUND((SUM(f.qty * f.price) / NULLIF(SUM(f.qty), 0))::numeric, 10)
                 END                AS AvgPrice,
                 MAX(f.fill_at_utc) AS LastFillAtUtc
             FROM oms_orders o
