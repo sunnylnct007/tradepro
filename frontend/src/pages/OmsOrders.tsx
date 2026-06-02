@@ -65,6 +65,48 @@ function stateBadge(state: OmsState): { fg: string; bg: string } {
   }
 }
 
+/**
+ * humanizeReason — turn a raw broker/OMS cancelled_reason into a short,
+ * plain-English line the trader can act on, without expanding the full
+ * audit chain. Returns { short, hint } where `short` is the inline label
+ * and `hint` is a one-line explanation (shown with the raw text on hover).
+ * Falls back to a trimmed raw string for reasons we don't recognise — we
+ * never hide a reason, we just make the common ones legible.
+ */
+function humanizeReason(raw: string): { short: string; hint: string } {
+  const r = raw.trim();
+  const lower = r.toLowerCase();
+  if (lower.includes("entity-not-found") || lower.includes("404")) {
+    return {
+      short: "Instrument not found at broker",
+      hint: "The broker rejected this symbol (404). Usually a ticker-format "
+        + "mismatch — e.g. T212 needs 'IBM_US_EQ', not 'IBM'. Harmonization "
+        + "now maps these at placement; older rows pre-date the fix.",
+    };
+  }
+  if (lower.includes("stale_pending_auto_clean")) {
+    return {
+      short: "Auto-cleaned (never accepted)",
+      hint: "The order sat unaccepted past its TTL and the zombie sweep "
+        + "cancelled it so it couldn't fill late. Not a broker rejection.",
+    };
+  }
+  if (lower.includes("insufficient") && lower.includes("fund")) {
+    return { short: "Insufficient funds", hint: "Broker rejected: account lacked buying power for this order." };
+  }
+  if (lower.includes("market") && lower.includes("clos")) {
+    return { short: "Market closed", hint: "Broker rejected: the instrument's market was closed at placement." };
+  }
+  if (lower.includes("mode flip") || lower.includes("cancel-on-flip")) {
+    return { short: "Cancelled on Manual/Auto flip", hint: "Open order cancelled when the OMS mode was switched." };
+  }
+  // Unknown — surface a trimmed raw string so nothing is ever hidden.
+  const oneLine = r.replace(/\s+/g, " ");
+  return { short: oneLine.length > 64 ? oneLine.slice(0, 61) + "…" : oneLine, hint: r };
+}
+
+const REASON_STATES = new Set<OmsState>(["REJECTED", "CANCELLED", "EXPIRED"]);
+
 const pillButton = (active: boolean): React.CSSProperties => ({
   padding: "4px 10px",
   fontSize: 11,
@@ -559,6 +601,25 @@ export function OmsOrders() {
                       >
                         {o.state}
                       </span>
+                      {REASON_STATES.has(o.state) && o.cancelledReason && (() => {
+                        const { short, hint } = humanizeReason(o.cancelledReason);
+                        return (
+                          <div
+                            title={`${hint}\n\nRaw: ${o.cancelledReason}`}
+                            style={{
+                              marginTop: 3,
+                              fontSize: 10,
+                              lineHeight: 1.3,
+                              color: o.state === "REJECTED" ? "#ef4444" : "var(--text-muted)",
+                              cursor: "help",
+                              maxWidth: 220,
+                              whiteSpace: "normal",
+                            }}
+                          >
+                            {short}
+                          </div>
+                        );
+                      })()}
                     </Td>
                     <Td>
                       {o.broker}
