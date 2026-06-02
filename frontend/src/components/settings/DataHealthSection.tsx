@@ -60,6 +60,7 @@ export function DataHealthSection() {
       <PreferencesPanel />
       <BarCacheActivityPanel />
       <CoverageMatrixPanel />
+      <FillQualityPanel />
       <BackfillPanel />
     </Section>
   );
@@ -1212,6 +1213,245 @@ function CoverageMatrixGrid({ data }: { data: CoverageMatrix }) {
       ))}
     </div>
   );
+}
+
+// ─── Fill-quality panel (Phase F-3) ──────────────────────────────────
+//
+// Reads /fill-quality which queries oms_fills where the F-2 L1 snapshot
+// landed. Two tables: per-symbol aggregate (avg / median / p95 bps) on
+// top, recent raw fills underneath. Empty state surfaces honestly
+// ("no L1 captured yet") so the panel doesn't pretend to have data
+// before F-2 produces it.
+
+type FillQuality = Awaited<ReturnType<typeof api.fillQuality>>;
+
+function FillQualityPanel() {
+  const [data, setData] = useState<FillQuality | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [windowDays, setWindowDays] = useState<number>(30);
+
+  const load = async (days: number) => {
+    setLoading(true);
+    try {
+      const r = await api.fillQuality({ sinceDays: days, limit: 50 });
+      setData(r);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(windowDays); }, [windowDays]);
+
+  return (
+    <Subsection title="Fill quality — realised vs mid (Phase F-3)">
+      <div style={{
+        fontSize: 10, color: "var(--text-muted)",
+        marginBottom: 8, lineHeight: 1.55,
+      }}>
+        Realised execution price vs the L1 mid captured at fill time
+        (Phase F-2). <strong>Positive bps = worse than mid</strong>{" "}
+        (BUY filled above, SELL filled below); negative = price
+        improvement. Surfaces empty until live IG fills land — the
+        bps math is built but the data flow only starts when the IG
+        order poller hits its first ACCEPTED deal.
+      </div>
+
+      <div style={{
+        display: "flex", gap: 10, alignItems: "center",
+        marginBottom: 8, fontSize: 10,
+      }}>
+        <span style={{ color: "var(--text-muted)" }}>Window:</span>
+        {[7, 30, 90].map((d) => (
+          <button
+            key={d}
+            onClick={() => setWindowDays(d)}
+            style={{
+              padding: "2px 8px", fontSize: 10, fontWeight: 600,
+              border: `1px solid ${windowDays === d ? "var(--accent, #1fc16b)" : "var(--border)"}`,
+              borderRadius: 3,
+              background: windowDays === d ? "rgba(31, 193, 107, 0.12)" : "transparent",
+              color: windowDays === d ? "var(--accent, #1fc16b)" : "var(--text-dim)",
+              cursor: "pointer",
+            }}
+          >
+            {d}d
+          </button>
+        ))}
+      </div>
+
+      {loading && <Muted>Loading…</Muted>}
+      {error && <ErrorText>{error}</ErrorText>}
+      {!loading && !error && data && data.empty_state && (
+        <div style={{
+          padding: "10px 14px",
+          border: "1px dashed var(--border)",
+          borderRadius: 4,
+          fontSize: 11,
+          color: "var(--text-dim)",
+          lineHeight: 1.55,
+        }}>
+          <Pill color="#6b7280">NO L1 CAPTURED YET</Pill>{" "}
+          No fills in the last {data.window_days} days have an L1
+          snapshot. F-2 captures bid/ask at IG-routed fills; this
+          panel lights up once the poller hits its first ACCEPTED
+          deal post-F-2 deploy. Paper / T212 fills don't carry L1
+          and are excluded by design.
+        </div>
+      )}
+      {!loading && !error && data && !data.empty_state && (
+        <FillQualityTables data={data} />
+      )}
+    </Subsection>
+  );
+}
+
+function FillQualityTables({ data }: { data: FillQuality }) {
+  return (
+    <>
+      <h5 style={{
+        margin: "10px 0 6px", fontSize: 10, fontWeight: 700,
+        color: "var(--text-dim)", letterSpacing: "0.05em",
+        textTransform: "uppercase",
+      }}>
+        Per-symbol aggregates ({data.per_symbol_aggregates.length})
+      </h5>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "90px 80px 70px 80px 80px 80px 80px 80px",
+          gap: 8, alignItems: "center",
+          paddingBottom: 4, marginBottom: 4,
+          borderBottom: "1px solid var(--border)",
+          fontSize: 9, color: "var(--text-muted)",
+          textTransform: "uppercase", letterSpacing: "0.05em",
+        }}
+      >
+        <span>Broker</span>
+        <span>Symbol</span>
+        <span style={{ textAlign: "right" }}>N fills</span>
+        <span style={{ textAlign: "right" }}>Avg bps</span>
+        <span style={{ textAlign: "right" }}>Median</span>
+        <span style={{ textAlign: "right" }}>P95</span>
+        <span style={{ textAlign: "right" }}>Min</span>
+        <span style={{ textAlign: "right" }}>Max</span>
+      </div>
+      {data.per_symbol_aggregates.map((row) => (
+        <div
+          key={`${row.broker}-${row.symbol}`}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "90px 80px 70px 80px 80px 80px 80px 80px",
+            gap: 8, alignItems: "center",
+            padding: "5px 0",
+            borderTop: "1px solid var(--border)",
+            fontSize: 11, fontFamily: "monospace",
+          }}
+        >
+          <span>{row.broker}</span>
+          <span style={{ fontWeight: 600 }}>{row.symbol}</span>
+          <span style={{ textAlign: "right" }}>{row.n_fills}</span>
+          <span style={{ textAlign: "right", color: bpsColor(row.avg_bps) }}>
+            {formatBps(row.avg_bps)}
+          </span>
+          <span style={{ textAlign: "right", color: bpsColor(row.median_bps) }}>
+            {formatBps(row.median_bps)}
+          </span>
+          <span style={{ textAlign: "right", color: bpsColor(row.p95_bps) }}>
+            {formatBps(row.p95_bps)}
+          </span>
+          <span style={{ textAlign: "right" }}>{formatBps(row.min_bps)}</span>
+          <span style={{ textAlign: "right" }}>{formatBps(row.max_bps)}</span>
+        </div>
+      ))}
+
+      <h5 style={{
+        margin: "16px 0 6px", fontSize: 10, fontWeight: 700,
+        color: "var(--text-dim)", letterSpacing: "0.05em",
+        textTransform: "uppercase",
+      }}>
+        Recent fills ({data.recent_fills.length})
+      </h5>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "130px 80px 60px 90px 90px 90px 80px",
+          gap: 8, alignItems: "center",
+          paddingBottom: 4, marginBottom: 4,
+          borderBottom: "1px solid var(--border)",
+          fontSize: 9, color: "var(--text-muted)",
+          textTransform: "uppercase", letterSpacing: "0.05em",
+        }}
+      >
+        <span>Filled at</span>
+        <span>Symbol</span>
+        <span>Side</span>
+        <span style={{ textAlign: "right" }}>Price</span>
+        <span style={{ textAlign: "right" }}>Mid</span>
+        <span style={{ textAlign: "right" }}>Spread</span>
+        <span style={{ textAlign: "right" }}>Bps</span>
+      </div>
+      {data.recent_fills.map((row) => {
+        const spreadBps =
+          row.bid_at_fill !== null && row.ask_at_fill !== null
+            && row.mid_at_fill !== null && row.mid_at_fill !== 0
+            ? ((row.ask_at_fill - row.bid_at_fill) / row.mid_at_fill) * 10000
+            : null;
+        return (
+          <div
+            key={row.id}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "130px 80px 60px 90px 90px 90px 80px",
+              gap: 8, alignItems: "center",
+              padding: "5px 0",
+              borderTop: "1px solid var(--border)",
+              fontSize: 11, fontFamily: "monospace",
+            }}
+          >
+            <span style={{ color: "var(--text-dim)" }}>
+              {new Date(row.fill_at_utc).toLocaleString()}
+            </span>
+            <span style={{ fontWeight: 600 }}>{row.symbol}</span>
+            <span style={{ color: row.side === "BUY" ? "#16a34a" : "#dc2626" }}>
+              {row.side}
+            </span>
+            <span style={{ textAlign: "right" }}>{row.price.toFixed(4)}</span>
+            <span style={{ textAlign: "right" }}>
+              {row.mid_at_fill?.toFixed(4) ?? "—"}
+            </span>
+            <span style={{ textAlign: "right", color: "var(--text-dim)" }}>
+              {formatBps(spreadBps)}
+            </span>
+            <span style={{
+              textAlign: "right", fontWeight: 600,
+              color: bpsColor(row.realised_bps),
+            }}>
+              {formatBps(row.realised_bps)}
+            </span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function formatBps(v: number | null): string {
+  if (v === null || v === undefined) return "—";
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}`;
+}
+
+function bpsColor(v: number | null): string {
+  // Sign convention: positive = worse than mid (cost), negative = improvement.
+  // Mid-zero (rare in practice) defaults to neutral.
+  if (v === null || v === undefined) return "var(--text-dim)";
+  if (v > 5) return "#dc2626";        // > +5bps = expensive
+  if (v > 2) return "#ea580c";        // mild cost
+  if (v >= -2) return "var(--text)";  // around mid
+  return "#16a34a";                   // price improvement
 }
 
 // ─── Backfill panel (Phase-A placeholder) ────────────────────────────

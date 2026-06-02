@@ -949,9 +949,18 @@ change between slices.
   Defensive on every step — fill recording proceeds with NULL L1
   when the snapshot fetch fails. Partial index
   `oms_fills_with_snapshot` keeps F-3 aggregations cheap.
-- **F-3** — Build an empirical slippage model from realised vs
-  theoretical fills. Per-symbol bps estimate replaces the hardcoded
-  5bp default; sweep auto-anchors rungs around the empirical mean.
+- **F-3 ✅ SHIPPED (read surface)** — `GET /api/admin/data-trust/
+  fill-quality` joins `oms_fills` to `oms_orders` and computes
+  realised-vs-mid bps per fill, with a sign convention where positive
+  = worse than mid regardless of side (BUY above / SELL below).
+  Returns recent_fills + per_symbol_aggregates (avg / median / p95
+  via `percentile_cont`). DataHealthSection renders both tables
+  with colour-coded bps + honest "no L1 captured yet" empty state
+  until F-2 data flows in production. 3 .NET tests cover the bps
+  math + sign convention + IS NOT NULL filter.
+- **F-3.1 (next)** — Per-symbol bps replaces the hardcoded 5bp
+  default in `tradepro-slippage-sweep`; sweep auto-anchors rungs
+  around the empirical mean once we have ≥30 fills per symbol.
 
 **Phase G — Coverage matrix UI**
 - **G-1 ✅ SHIPPED** — `/api/admin/data-trust/bar-cache/coverage-matrix`

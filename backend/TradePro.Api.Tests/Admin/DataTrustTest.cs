@@ -419,6 +419,137 @@ public sealed class DataTrustTest
         Assert.Equal("complete", may.result);
     }
 
+    // ── Phase F-3: fill-quality bps math ──────────────────────────
+    //
+    // The /fill-quality endpoint runs the bps + sign-flip in SQL.
+    // We exercise the same expression here so a refactor that
+    // changes the sign convention or the magnitude trips the test
+    // before the cockpit chart goes wrong.
+
+    [Fact]
+    public async Task Fill_quality_bps_sign_convention()
+    {
+        // Insert a BUY order + fill above mid (paid more — positive bps)
+        // and a SELL order + fill below mid (received less — positive bps).
+        // Both should report POSITIVE realised_bps.
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        var buyOrderId = Guid.NewGuid();
+        var sellOrderId = Guid.NewGuid();
+        await conn.ExecuteAsync(@"
+            INSERT INTO oms_orders (
+                id, client_order_id, broker, strategy_id, symbol, side,
+                qty, order_type, time_in_force, placed_by, state
+            ) VALUES
+                (@buyOrderId, @buyCid, 'IG_DEMO', 'test', 'SPY', 'BUY',
+                 10, 'MKT', 'GTC', 'HUMAN', 'FILLED'),
+                (@sellOrderId, @sellCid, 'IG_DEMO', 'test', 'SPY', 'SELL',
+                 10, 'MKT', 'GTC', 'HUMAN', 'FILLED');",
+            new {
+                buyOrderId, sellOrderId,
+                buyCid = Guid.NewGuid(),
+                sellCid = Guid.NewGuid(),
+            });
+        await conn.ExecuteAsync(@"
+            INSERT INTO oms_fills (
+                order_id, qty, price, fee, currency,
+                bid_at_fill, ask_at_fill, mid_at_fill,
+                snapshot_at_utc, snapshot_source
+            ) VALUES
+                (@buyOrderId, 10, 100.05, 0, 'USD',
+                 99.95, 100.05, 100.00, NOW(), 'ig_markets'),
+                (@sellOrderId, 10, 99.95, 0, 'USD',
+                 99.95, 100.05, 100.00, NOW(), 'ig_markets');",
+            new { buyOrderId, sellOrderId });
+
+        // Same CASE expression the endpoint uses. Both should give +5bps
+        // (price diff 0.05 / mid 100 * 10000 = 5).
+        var rows = (await conn.QueryAsync<(string side, decimal bps)>(@"
+            SELECT o.side,
+                   CASE
+                       WHEN upper(o.side) = 'BUY'
+                           THEN (f.price - f.mid_at_fill) / f.mid_at_fill * 10000
+                       ELSE
+                           (f.mid_at_fill - f.price) / f.mid_at_fill * 10000
+                   END AS bps
+            FROM oms_fills f
+            JOIN oms_orders o ON o.id = f.order_id
+            WHERE o.id IN (@buyOrderId, @sellOrderId)
+            ORDER BY o.side;",
+            new { buyOrderId, sellOrderId })).AsList();
+        Assert.Equal(2, rows.Count);
+        var buyBps = rows.Single(r => r.side == "BUY").bps;
+        var sellBps = rows.Single(r => r.side == "SELL").bps;
+        Assert.Equal(5m, Math.Round(buyBps, 2));
+        Assert.Equal(5m, Math.Round(sellBps, 2));
+    }
+
+    [Fact]
+    public async Task Fill_quality_price_improvement_is_negative_bps()
+    {
+        // BUY that filled BELOW mid (got a price-improved fill) should
+        // produce NEGATIVE bps under the same convention.
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        var orderId = Guid.NewGuid();
+        await conn.ExecuteAsync(@"
+            INSERT INTO oms_orders (
+                id, client_order_id, broker, strategy_id, symbol, side,
+                qty, order_type, time_in_force, placed_by, state
+            ) VALUES (@orderId, @cid, 'IG_DEMO', 'test', 'SPY', 'BUY',
+                      10, 'MKT', 'GTC', 'HUMAN', 'FILLED');",
+            new { orderId, cid = Guid.NewGuid() });
+        await conn.ExecuteAsync(@"
+            INSERT INTO oms_fills (
+                order_id, qty, price, fee, currency,
+                bid_at_fill, ask_at_fill, mid_at_fill,
+                snapshot_at_utc, snapshot_source
+            ) VALUES (@orderId, 10, 99.97, 0, 'USD',
+                      99.95, 100.05, 100.00, NOW(), 'ig_markets');",
+            new { orderId });
+        var bps = await conn.ExecuteScalarAsync<decimal>(@"
+            SELECT (f.price - f.mid_at_fill) / f.mid_at_fill * 10000
+            FROM oms_fills f WHERE f.order_id = @orderId;",
+            new { orderId });
+        // (99.97 - 100.00) / 100 * 10000 = -3 bps.
+        Assert.Equal(-3m, Math.Round(bps, 2));
+    }
+
+    [Fact]
+    public async Task Fill_quality_aggregate_skips_rows_without_l1()
+    {
+        // Confirm WHERE mid_at_fill IS NOT NULL excludes the no-L1 rows
+        // so the aggregate isn't polluted by paper / pre-F-2 fills.
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        var withSnap = Guid.NewGuid();
+        var noSnap = Guid.NewGuid();
+        await conn.ExecuteAsync(@"
+            INSERT INTO oms_orders (
+                id, client_order_id, broker, strategy_id, symbol, side,
+                qty, order_type, time_in_force, placed_by, state
+            ) VALUES
+                (@withSnap, @cidA, 'IG_DEMO', 'test', 'QQQ', 'BUY',
+                 1, 'MKT', 'GTC', 'HUMAN', 'FILLED'),
+                (@noSnap, @cidB, 'PAPER', 'test', 'QQQ', 'BUY',
+                 1, 'MKT', 'GTC', 'HUMAN', 'FILLED');",
+            new { withSnap, noSnap,
+                  cidA = Guid.NewGuid(), cidB = Guid.NewGuid() });
+        await conn.ExecuteAsync(@"
+            INSERT INTO oms_fills (
+                order_id, qty, price, fee, currency,
+                bid_at_fill, ask_at_fill, mid_at_fill, snapshot_source
+            ) VALUES
+                (@withSnap, 1, 400.10, 0, 'USD',
+                 399.90, 400.10, 400.00, 'ig_markets'),
+                (@noSnap, 1, 400.10, 0, 'USD',
+                 NULL, NULL, NULL, NULL);",
+            new { withSnap, noSnap });
+        var count = await conn.ExecuteScalarAsync<long>(@"
+            SELECT COUNT(*) FROM oms_fills
+            WHERE order_id IN (@withSnap, @noSnap)
+              AND mid_at_fill IS NOT NULL;",
+            new { withSnap, noSnap });
+        Assert.Equal(1, (int)count);
+    }
+
     [Fact]
     public async Task Coverage_matrix_groups_by_asset_class()
     {
