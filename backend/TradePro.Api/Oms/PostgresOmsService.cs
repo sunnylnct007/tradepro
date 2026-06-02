@@ -310,16 +310,16 @@ public sealed class PostgresOmsService : IOmsService
             var signedQty = approved.Side == "BUY"
                 ? Math.Abs(approved.Qty)
                 : -Math.Abs(approved.Qty);
-            // Harmonise at the placement boundary so MANUAL/external orders
-            // (bare "IBM") reach T212 as "IBM_US_EQ" — strategy orders are
-            // already suffixed, so this is a no-op for them. Without this a
-            // manual SELL is rejected 404 and the operator believes a held
-            // position is flat. See SymbolHarmonization.
-            var brokerSymbol = SymbolHarmonization.ToBrokerTicker(approved.Symbol, "T212_DEMO");
+            // Resolve the broker instrument symbol CONFIG-FIRST: the SAME
+            // instrument has different codes on different brokers (Block was
+            // SQ→XYZ; SanDisk re-listed; etc.), so a guessed "+_US_EQ" suffix
+            // can't be authoritative. broker_ticker_map is the maintained
+            // config; the suffix heuristic is only a logged last-resort.
+            var brokerSymbol = await ResolveBrokerSymbolAsync("T212_DEMO", approved.Symbol);
             if (!string.Equals(brokerSymbol, approved.Symbol, StringComparison.Ordinal))
             {
                 _log.LogInformation(
-                    "OMS order {OrderId}: harmonised symbol {Bare} -> {Broker} for T212 placement",
+                    "OMS order {OrderId}: resolved symbol {Bare} -> {Broker} for T212 placement",
                     approved.Id, approved.Symbol, brokerSymbol);
             }
             try
@@ -709,6 +709,41 @@ public sealed class PostgresOmsService : IOmsService
             ORDER BY o.strategy_id, o.symbol;",
             args);
         return rows.ToList();
+    }
+
+    /// <summary>
+    /// Resolve the broker's instrument code for an order symbol, CONFIG-FIRST.
+    /// Looks up broker_ticker_map (broker, source_ticker) — the maintained,
+    /// per-broker mapping — and only falls back to the SymbolHarmonization
+    /// suffix heuristic when no mapping exists (logged WARN so the operator
+    /// knows to add one). No hardcoding: the per-broker symbol lives in config,
+    /// because the same instrument differs across brokers.
+    /// </summary>
+    private async Task<string> ResolveBrokerSymbolAsync(string broker, string orderSymbol)
+    {
+        var bare = SymbolHarmonization.BareSourceTicker(orderSymbol);
+        try
+        {
+            await using var conn = await _db.OpenConnectionAsync();
+            var mapped = await conn.QueryFirstOrDefaultAsync<string?>(@"
+                SELECT broker_ticker FROM broker_ticker_map
+                WHERE broker = @broker AND source_ticker = @bare;",
+                new { broker, bare });
+            if (!string.IsNullOrWhiteSpace(mapped))
+                return mapped!;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex,
+                "broker_ticker_map lookup failed for ({Broker}, {Bare}); using heuristic",
+                broker, bare);
+        }
+        var heuristic = SymbolHarmonization.ToBrokerTicker(orderSymbol, broker);
+        _log.LogWarning(
+            "No broker_ticker_map entry for ({Broker}, {Bare}) — using heuristic {Heuristic}. "
+            + "Add a mapping if this rejects; broker symbols differ per venue.",
+            broker, bare, heuristic);
+        return heuristic;
     }
 
     public async Task<IReadOnlyList<OmsOrderEvent>> ListEventsAsync(Guid orderId)

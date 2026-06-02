@@ -37,4 +37,12 @@ public class SymbolHarmonizationTest
     [Fact]
     public void Unknown_broker_returns_uppercased_input()
         => Assert.Equal("FOO", SymbolHarmonization.ToBrokerTicker("foo", "PAPER"));
+
+    [Theory]
+    [InlineData("AAPL_US_EQ", "AAPL")]   // T212 suffix
+    [InlineData("UA.D.AVGO.CASH.IP", "AVGO")]  // IG equity-CFD epic
+    [InlineData("CS.D.EURUSD.MINI.IP", "EURUSD")]  // IG FX epic
+    [InlineData("xyz", "XYZ")]           // bare, uppercased
+    public void BareSourceTicker_strips_to_the_natural_ticker(string input, string expected)
+        => Assert.Equal(expected, SymbolHarmonization.BareSourceTicker(input));
 }

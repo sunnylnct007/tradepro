@@ -22,6 +22,24 @@ public static class SymbolHarmonization
     /// <paramref name="brokerLabel"/>. Idempotent: an already-harmonised
     /// symbol (e.g. "AAPL_US_EQ") is returned unchanged.
     /// </summary>
+    /// <summary>
+    /// Strip a symbol back to its natural "source" ticker (the key used in
+    /// broker_ticker_map.source_ticker): "AAPL_US_EQ" → "AAPL",
+    /// "UA.D.AVGO.CASH.IP" → "AVGO", "AAPL" → "AAPL". Used to look up the
+    /// per-broker instrument code in config.
+    /// </summary>
+    public static string BareSourceTicker(string symbol)
+    {
+        var s = symbol.Trim().ToUpperInvariant();
+        if (s.EndsWith(".IP", StringComparison.Ordinal) && s.Contains(".D."))
+        {
+            var parts = s.Split('.');
+            if (parts.Length >= 4) return parts[2];
+        }
+        var u = s.IndexOf('_');
+        return u > 0 ? s[..u] : s;
+    }
+
     public static string ToBrokerTicker(string symbol, string brokerLabel)
     {
         var s = symbol.Trim().ToUpperInvariant();
