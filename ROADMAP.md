@@ -909,18 +909,31 @@ change between slices.
   - 9 new `.NET` tests covering payload-shape parsing, round-trip,
     sentinel exclusion, multi-report matching against both store
     backends.
-- **D-3**: walk-forward + Monte Carlo carry the hash per-leg so
-  sub-run divergence becomes auditable.
+- **D-3 ✅ SHIPPED (combined with E)**: producer-side automatic
+  hashing. `tradepro-paper-backtest --data-asset <class>` runs the
+  preflight, auto-stamps `data_state_hash` + nested `data_state`
+  block on the report payload (no per-CLI plumbing). Walk-forward
+  legs share the range-level hash; the Phase D-2 chip and by-hash
+  lookup light up automatically.
 - **D-4** (optional, deferred): bytes-level content hash via
   streaming SHA256 over parquet bytes — for cases where the
   manifest-level hash isn't strict enough.
 
-**Phase E — Backtest hard-block on incomplete data**
-- The backtest CLI / endpoint refuses to run when the data layer
-  detects gaps in the requested range.
-- Refusal includes a specific remediation message (which provider to
-  configure, which CLI to run, or `--allow-partial` to override —
-  override is opt-in and stamped on the result).
+**Phase E — Backtest hard-block on incomplete data ✅ SHIPPED**
+- `preflight_data_state(..., require_complete=True)` (default)
+  raises a structured `IncompleteDataError` before the backtest
+  engine starts when BarStore reports partial coverage.
+- The error JSON carries `canonical / asset_class / resolution /
+  rows_expected / rows_returned / missing_sessions[] / remediation`
+  — operator runs the backfill from the cockpit or via
+  `tradepro-bar-cache-get`, then re-runs.
+- `--allow-incomplete-data` overrides the hard-block; the report
+  still carries the hash + `coverage_complete=false` so the consumer
+  knows to discount the result.
+- Shared module: `strategies/tradepro_strategies/bar_cache/
+  backtest_preflight.py` (`IncompleteDataError`, `PreflightResult`,
+  `preflight_data_state`). Reusable by Monte Carlo / scan-replay /
+  any future backtest CLI — auto-stamping + hard-block are one call.
 
 **Phase F — Fill-quality + slippage layer**
 - Store IG L1 bid/ask snapshot at every fill (`oms_fills` extension).

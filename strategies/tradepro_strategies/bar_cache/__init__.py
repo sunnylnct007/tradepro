@@ -32,6 +32,11 @@ without backend wiring).
 """
 from __future__ import annotations
 
+from .backtest_preflight import (
+    IncompleteDataError,
+    PreflightResult,
+    preflight_data_state,
+)
 from .errors import (
     BarFetchError,
     ManifestViolation,
@@ -57,16 +62,19 @@ __all__ = [
     "BarFrame",
     "BarStore",
     "EMPTY_DATA_STATE_HASH",
+    "IncompleteDataError",
     "Manifest",
     "ManifestViolation",
     "NoProviderAvailableError",
     "PartitionFingerprint",
     "PreferencesLoader",
+    "PreflightResult",
     "ProviderNetworkError",
     "ProviderParseError",
     "ProviderRateLimitError",
     "SchemaVersionMismatch",
     "compute_data_state_hash",
     "fingerprint_from_manifest",
+    "preflight_data_state",
     "short_hash",
 ]

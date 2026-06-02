@@ -81,6 +81,29 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--push", action="store_true",
                    help="POST the result JSON to the API as a paper-backtest report. "
                         "Reads ~/.tradepro/credentials for api_base_url + api_token.")
+    # Phase D-3 + E: optional data-layer preflight. When --data-asset is
+    # set the CLI calls BarStore.get for the full range BEFORE running
+    # the backtest, capturing the data_state_hash for the report and
+    # refusing the run on incomplete data (Phase E "stop pretending"
+    # guarantee). Without --data-asset, behaviour is unchanged (legacy
+    # cache.py path).
+    p.add_argument("--data-asset", default=None,
+                   help=("Asset class for the bar-cache preflight (e.g. "
+                         "'us_etf'). When set, the CLI auto-stamps "
+                         "data_state_hash on the report (Phase D-3) and "
+                         "refuses to run if coverage is incomplete (Phase E)."))
+    p.add_argument("--data-resolution", default="1d",
+                   help="Bar resolution for the preflight. Default 1d.")
+    p.add_argument("--data-api-base", default=None,
+                   help=("API base for telemetry + provider-preferences "
+                         "lookup. Without it preflight uses local-only "
+                         "telemetry + hardcoded yfinance chain."))
+    p.add_argument("--allow-incomplete-data", action="store_true",
+                   help=("Override Phase E hard-block. Preflight still "
+                         "captures the data_state_hash but partial "
+                         "coverage no longer refuses the run. The report "
+                         "carries coverage_complete=False so consumers "
+                         "can pivot."))
     return p.parse_args(argv)
 
 
@@ -160,6 +183,32 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
 
+    # Phase D-3 + E preflight. When --data-asset is set, call BarStore
+    # for the full range to (a) auto-stamp the data_state_hash on the
+    # report and (b) refuse the run on incomplete data unless the
+    # operator explicitly overrides. Skipped when --data-asset is omitted
+    # so legacy callers (paper_session that reads via cache.py) keep
+    # working unchanged.
+    preflight_payload: dict | None = None
+    if args.data_asset:
+        from datetime import datetime as _dt, timezone as _tz
+        from ..bar_cache import IncompleteDataError, preflight_data_state
+        try:
+            pf = preflight_data_state(
+                canonical=args.symbol,
+                asset_class=args.data_asset,
+                resolution=args.data_resolution,
+                start=_dt.combine(start, _dt.min.time()).replace(tzinfo=_tz.utc),
+                end=_dt.combine(end, _dt.min.time()).replace(tzinfo=_tz.utc),
+                require_complete=not args.allow_incomplete_data,
+                api_base=args.data_api_base,
+                fetched_by=f"paper-backtest:{spec.name}",
+            )
+        except IncompleteDataError as exc:
+            print(json.dumps(exc.to_dict(), indent=2), file=sys.stderr)
+            return 3
+        preflight_payload = pf.to_report_dict()
+
     validator = WalkForwardValidator(
         strategy_factory=make_strategy,
         symbol=args.symbol,
@@ -171,6 +220,8 @@ def main(argv: list[str] | None = None) -> int:
     result = asyncio.run(validator.run(start, end))
 
     output = result.to_summary()
+    if preflight_payload is not None:
+        output.update(preflight_payload)
     if args.include_sessions:
         output["sessions"] = [
             {
