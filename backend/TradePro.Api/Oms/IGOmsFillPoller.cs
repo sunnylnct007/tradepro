@@ -138,13 +138,20 @@ public sealed class IGOmsFillPoller : BackgroundService
                             epic);
                     }
 
-                    // IG returns ACCEPTED on a successful fill. We
-                    // don't get per-leg fill price back from /confirms
-                    // directly; the level is on the source IGOrderResult
-                    // from placement. Record at 0 if missing and let
-                    // the operator reconcile against /positions.
+                    // Fill price: prefer IG's executed `level` from /confirms;
+                    // fall back to the L1 snapshot mid; only then 0. Recording
+                    // 0 gave every IG fill a zero cost basis → no unrealised
+                    // P&L for FX + intraday (the cockpit showed blanks). The
+                    // mid is a sound proxy when IG omits the level.
+                    var fillPrice = confirm.Level
+                        ?? (snapshot is not null ? (snapshot.Bid + snapshot.Ask) / 2m : (decimal?)null)
+                        ?? 0m;
+                    if (fillPrice == 0m)
+                        _log.LogWarning(
+                            "IGOmsFillPoller: order {OrderId} ({Epic}) filled with NO price (confirm.level + L1 both absent) — cost basis will be 0",
+                            orderId, epic);
                     await oms.RecordFillAsync(
-                        orderId, qty: qty, price: 0m, fee: 0m,
+                        orderId, qty: qty, price: fillPrice, fee: 0m,
                         currency: "GBP",
                         brokerFillId: dealRef,
                         actor: "poller:IG",

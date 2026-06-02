@@ -374,11 +374,20 @@ public sealed class IGClient
                 var snippet = text.Length > 240 ? text[..240] : text;
                 reason = $"{reason ?? "UNKNOWN"} (epic={epic ?? "?"}; raw={snippet})";
             }
+            // IG /confirms returns `level` = the executed fill price on an
+            // ACCEPTED deal. Capture it so the OMS records the REAL fill price
+            // (was hardcoded 0 → zero cost basis → no unrealised P&L for FX +
+            // intraday). null when absent (IG omits it on some instruments).
+            decimal? level = root.TryGetProperty("level", out var lvl)
+                && lvl.ValueKind == JsonValueKind.Number
+                ? lvl.GetDecimal()
+                : null;
             return new IGOrderResult(
                 DealReference: dealReference,
                 Status: dealStatus ?? "UNKNOWN",
                 StatusReason: reason,
-                HttpStatus: (int)resp.StatusCode);
+                HttpStatus: (int)resp.StatusCode,
+                Level: level);
         }
         catch (Exception ex)
         {
@@ -752,7 +761,8 @@ public sealed record IGOrderResult(
     string? DealReference,
     string Status,            // ACCEPTED / REJECTED / UNKNOWN / PARSE_ERROR
     string? StatusReason,
-    int HttpStatus);
+    int HttpStatus,
+    decimal? Level = null);   // executed fill price from /confirms (null if absent)
 
 public sealed record IGPosition(
     string Epic,
