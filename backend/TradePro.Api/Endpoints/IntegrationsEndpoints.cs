@@ -111,17 +111,26 @@ public static class IntegrationsEndpoints
                 });
             }
             var result = await ig.GetPositionsAsync(ct);
+            // Pull the per-instrument CONTRACT SIZE (units-per-contract) from the
+            // broker — golden source, not a hardcoded constant — to scale P&L to
+            // money. /positions only carries lotSize (1 for FX), which is NOT the
+            // multiplier, so the dollar pairs showed ~$0. Cached process-wide, so
+            // this is one /markets call per epic per process, then free.
+            var contractSize = new Dictionary<string, decimal?>();
+            foreach (var p in result.Positions)
+                if (!contractSize.ContainsKey(p.Epic))
+                    contractSize[p.Epic] = await ig.GetContractSizeAsync(p.Epic, ct);
             var rows = result.Positions.Select(p =>
             {
                 var signedQty = p.Direction == "SELL" ? -p.Size : p.Size;
-                // Live mark = mid of the broker-provided bid/offer. P&L uses
-                // the broker's OWN lotSize (no hardcoded contract constants) so
-                // this generalises to any broker that fills FX — the desk reads
-                // the same uniform shape (currentPrice/unrealisedAbs/Pct) it
-                // reads for T212. lotSize absent → 1 (price-move P&L; magnitude
-                // may understate but is never a missing-field zero).
+                // Live mark = mid of the broker-provided bid/offer. P&L scales by
+                // the broker's contractSize (units/contract); fall back to lotSize
+                // then 1 so a missing size never zeroes the row. Same uniform shape
+                // (currentPrice/unrealisedAbs/Pct) the desk reads for T212 → any
+                // broker that fills FX plugs in identically. NOTE: P&L is in the
+                // QUOTE currency; cross/account-ccy conversion is a follow-up.
                 decimal? mid = (p.Bid is decimal b && p.Offer is decimal o) ? (b + o) / 2m : null;
-                decimal lot = p.LotSize ?? 1m;
+                decimal lot = contractSize.GetValueOrDefault(p.Epic) ?? p.LotSize ?? 1m;
                 decimal? unrealisedAbs = null, unrealisedPct = null;
                 if (mid is decimal m && p.EntryLevel > 0m)
                 {
@@ -138,6 +147,7 @@ public static class IntegrationsEndpoints
                     unrealisedAbs,
                     unrealisedPct,
                     lotSize = p.LotSize,
+                    contractSize = contractSize.GetValueOrDefault(p.Epic),
                     instrumentName = p.InstrumentName,
                     dealId = p.DealId,
                 };

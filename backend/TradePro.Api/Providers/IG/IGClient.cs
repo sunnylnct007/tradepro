@@ -589,6 +589,47 @@ public sealed class IGClient
         }
     }
 
+    // Contract size is STATIC per instrument, so cache process-wide. IGClient
+    // is transient (DI), so this MUST be static — an instance cache would
+    // re-fetch /markets every request (same class of bug as the /session flood
+    // the singleton IGSessionCache fixed).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, decimal> _contractSizeCache = new();
+
+    /// <summary>
+    /// GET /markets/{epic} → instrument.contractSize (the units-per-contract
+    /// used to scale P&amp;L to money). Broker-provided golden source — NOT a
+    /// hardcoded constant. Cached process-wide (static value). Returns null if
+    /// IG omits it; callers fall back so a missing size never zeroes a fill.
+    /// </summary>
+    public async Task<decimal?> GetContractSizeAsync(string epic, CancellationToken ct = default)
+    {
+        if (_contractSizeCache.TryGetValue(epic, out var cached)) return cached;
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get, $"markets/{Uri.EscapeDataString(epic)}", null, version: "3", ct);
+            if (!resp.IsSuccessStatusCode) return null;   // don't cache failures
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.TryGetProperty("instrument", out var inst)
+                && inst.ValueKind == JsonValueKind.Object
+                && inst.TryGetProperty("contractSize", out var cs))
+            {
+                // IG reports contractSize as a STRING ("10000") or number.
+                var raw = cs.ValueKind == JsonValueKind.String ? cs.GetString()
+                          : cs.ValueKind == JsonValueKind.Number ? cs.GetRawText() : null;
+                if (decimal.TryParse(raw, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0)
+                {
+                    _contractSizeCache[epic] = v;
+                    return v;
+                }
+            }
+            return null;
+        }
+        catch { return null; }
+    }
+
     // ─── Market search ─────────────────────────────────────────
 
     /// <summary>GET /markets?searchTerm=&lt;term&gt; — discover EPICs for a
