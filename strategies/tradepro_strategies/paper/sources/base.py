@@ -223,13 +223,21 @@ class MultiSymbolSourceBackedBus(BarBus):
             raise ValueError(
                 "MultiSymbolSourceBackedBus requires source + symbols + session_date"
             )
-        results = await asyncio.gather(*[
-            _fetch_window(
-                self.source, sym, self.session_date, self.interval,
-                self.lookback_days,
-            )
-            for sym in self.symbols
-        ])
+        # Bound fetch concurrency. Gathering ALL symbols at once exhausted
+        # file descriptors on a large universe ("OSError: Too many open
+        # files" at ~164 symbols) and bursts the upstream rate limit. A
+        # semaphore caps in-flight fetches; the window is the same, just
+        # paced. 12 is comfortably under typical FD/connection ceilings.
+        sem = asyncio.Semaphore(12)
+
+        async def _bounded(sym: str) -> tuple[list[Bar], datetime | None]:
+            async with sem:
+                return await _fetch_window(
+                    self.source, sym, self.session_date, self.interval,
+                    self.lookback_days,
+                )
+
+        results = await asyncio.gather(*[_bounded(sym) for sym in self.symbols])
         per_symbol_bars = [bars for bars, _ in results]
         window_starts = [ws for _, ws in results if ws is not None]
         # Earliest non-empty lookback date across all symbols.
