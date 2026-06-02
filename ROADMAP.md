@@ -13,6 +13,75 @@ those assumptions change.
 
 ---
 
+## SESSION STATE — 2026-06-02 (Tuesday — replay-trade fix landed + order-trust sprint)
+
+The day's theme: turn the 2026-06-01 "FOUNDATION DEBT — replay-trade model"
+(below) from *designed* into *shipped + verified*, then chase why orders were
+still untrustworthy (no P&L, no chart, fills at price 0). Every fix is
+test-backed; live-verified where noted.
+
+### ✅ Shipped + verified today (all on `main`)
+- **Replay-trade FOUNDATION DEBT — RESOLVED.** The designed fix (items 1–5
+  below) is now live:
+  - `ichimoku_fx_mr` — `is_live` gate (already had it; confirmed).
+  - **`intraday_flat` — `is_live` gate added** → within-run churn `skip-exit-in-flight` **66 → 0**.
+  - **`intraday_flat` cross-run state loss** — the daemon reruns as a fresh
+    process every ~5 min and re-seeded from the broker, mistaking its OWN
+    intraday holds for overnight leftovers and flattening them every run (closed
+    positions, no P&L). FIXED: **persist `{stop,target,open_at,entry}` to a
+    session-keyed file on fill, restore on seed** → same-session holds are
+    managed; genuine prior-session leftovers still flatten.
+- **Equity stuck at 0 fills — RESOLVED → 38 fills (verified live).** Root cause:
+  `client_order_id` is a deterministic daily hash; pre-open orders died
+  (market-closed gate → stale-swept) and every post-open re-emit **deduped to
+  the CANCELLED corpse** (Tier-1 returned it regardless of state). Fix:
+  `EnqueueAsync` dedup ignores terminal (CANCELLED/REJECTED/EXPIRED) orders and
+  mints a fresh id; FILLED still dedupes (no double-fill).
+- **IG fills booked at price 0 — RESOLVED.** `IGOmsFillPoller` hardcoded
+  `price: 0m`; IG `/confirms` DOES return `level`. Now records
+  `confirm.Level ?? L1-mid ?? 0` (+WARN on 0). **This was the root of "no P&L
+  for FX + intraday"** (zero fill price → zero cost basis).
+- **Portfolio screen 500** — `/api/oms/positions` overflowed .NET decimal on an
+  unbounded `::numeric` avg; bounded with `ROUND(...,10/8)`.
+- **OMS↔broker sync** (T212 net-reconciled, IG synced, IG options adopted) +
+  **symbol harmonization** at the T212 placement boundary (manual SELL 404) +
+  **top-N-by-conviction sleeve cap** + **OMS capital backstop** (max in-flight
+  BUYs/strategy) + **rejection-reason UI** + **order legitimacy-chart epic→bare**
+  fix + **EOD wall-clock flatten backstop** (no overnight hold on a lagging feed).
+
+### ⚠️ Order-trust gaps surfaced (the "how do we KNOW an order is right" thread)
+The audit panel must show: signal → chart → risk gates → LLM/sentiment → real
+fill+slippage. Status after today: **chart ✅, fill price ✅**. Remaining:
+- ⬜ **Cost-basis BACKFILL** — the fill-price fix only helps NEW IG fills; positions
+  filled before it still read avg 0 → no P&L until re-filled or re-synced with a
+  real entry level (IG `/positions.level`). Decide: re-sync avg from IG level.
+- ⬜ **LLM gate not wired** into the paper_session daemons (only `StrategyRunner`
+  builds it). Enabling is a DELIBERATE feature call: needs a configured LLM
+  provider (`llm.factory.get_provider`) + a decision on advisory-vs-veto.
+  NOT a bug — don't auto-wire. Roadmap item.
+- ⬜ **Risk-gate detail on PASS** is a single `all_gates ALLOWED` row (per-gate
+  rows only on block). Enrich to list evaluated gates for a complete trail.
+- ⬜ **Order→decision link** — surface the strategy decision (`fire-moo-entry`,
+  signal) that generated each order in the audit panel.
+
+### ⬜ Other open items reprioritised
+- **Equity universe hygiene** — drop invalid T212 tickers (`P`, `SNDK`, `XYZ`
+  repeatedly 404 "ticker does not exist").
+- **Equity pre-open churn** — `market_closed` gate BLOCKS (→ dead orders) instead
+  of HOLDING to the open; the dedup fix unsticks it but it still churns pre-open.
+  Make `market_closed` a deferral.
+- **PAPER sim positions** pollute real strategy views (bare `AUDUSD 57826` etc.,
+  `broker=PAPER`) — clean them out of the IG/T212 strategy position lists.
+- **EOD total-feed-outage** — wall-clock backstop still needs a live bar; a fully
+  bar-independent daemon flatten job is the belt-and-braces follow-up.
+- **OMS-position display precision** — frontend shows `1.0000000000000009`
+  (low priority, cosmetic).
+- **Plists not version-controlled** (Mac `~/Library/LaunchAgents`) — standing debt.
+- **EPS revision history + analyst coverage** not loaded — fundamental-data gap
+  (see DATA_ROADMAP / Finnhub covers it).
+
+---
+
 ## SESSION STATE — 2026-06-01 (Monday pre-open zero-fill + trader-audit sprint)
 
 Context anchor so we don't lose the thread across the long session. The
