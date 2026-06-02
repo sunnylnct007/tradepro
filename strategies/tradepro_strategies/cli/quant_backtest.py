@@ -64,6 +64,10 @@ from ..quant_engine.monte_carlo import MonteCarloResult, MonteCarloSimulator
 from ..quant_engine.portfolio_metrics import summarise
 from ..quant_engine.sleeve import Sleeve
 from ..viz import build_chart
+# Phase D-3/E for the quant backtest path. The `_run_preflight` helper
+# is split out so a BDD scenario can exercise the hash combination
+# logic without spinning up the engine. Late imports inside the helper
+# keep the CLI cheap to import for callers that don't preflight.
 
 
 log = logging.getLogger("tradepro.cli.quant_backtest")
@@ -107,6 +111,31 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="Opaque request id echoed into the result_summary envelope.",
     )
+    # Phase D-3 / E preflight flags (override the payload values).
+    # When --data-asset is set the CLI runs BarStore.get for every
+    # symbol in the range, auto-stamps the data_state_hash on the
+    # report, and refuses incomplete coverage (Phase E) unless
+    # --allow-incomplete-data is also supplied.
+    p.add_argument(
+        "--data-asset", default=None,
+        help="Asset class for the BarStore preflight (e.g. 'us_etf'). "
+             "Overrides payload.data_asset.",
+    )
+    p.add_argument(
+        "--data-resolution", default=None,
+        help="Resolution for the preflight (default 1d). "
+             "Overrides payload.data_resolution.",
+    )
+    p.add_argument(
+        "--data-api-base", default=None,
+        help="API base for telemetry + provider preferences. Without it the "
+             "preflight uses local JSONL telemetry + hardcoded chain.",
+    )
+    p.add_argument(
+        "--allow-incomplete-data", action="store_true",
+        help="Override Phase E hard-block. Preflight still captures the "
+             "data_state_hash but partial coverage no longer refuses the run.",
+    )
     return p.parse_args(argv)
 
 
@@ -130,6 +159,87 @@ def _load_payload(args: argparse.Namespace) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Data fetch
 # ---------------------------------------------------------------------------
+
+def _combine_data_state_hashes(per_symbol: dict[str, str]) -> str:
+    """Combine per-symbol BarStore hashes into a single fingerprint.
+
+    The D-2 cockpit chip indexes one hash per backtest report. For a
+    quant backtest (multi-symbol by definition) we hash the sorted
+    'symbol:per_symbol_hash' lines. Same symbols + same data → same
+    fingerprint; one symbol's cache rebuild shifts the combined hash."""
+    import hashlib
+    lines = sorted(f"{sym}:{h}" for sym, h in per_symbol.items())
+    if not lines:
+        return "EMPTY_DATA_STATE"
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _run_preflight(
+    symbols: list[str],
+    start: datetime,
+    end: datetime,
+    *,
+    asset_class: str,
+    resolution: str,
+    api_base: str | None,
+    allow_incomplete: bool,
+) -> dict[str, Any]:
+    """Run `preflight_data_state` for every symbol in the backtest.
+
+    Returns a dict to merge into the result_summary's `data_state`
+    block. On any symbol's incomplete coverage (and require_complete),
+    re-raises ``IncompleteDataError`` with the list of missing
+    sessions so the caller can stop the run with a structured exit.
+
+    The combined `data_state_hash` is the SHA256 of sorted
+    'symbol:hash' lines so the D-2 cockpit chip indexes one hash per
+    backtest. Each per-symbol detail is preserved under
+    `per_symbol_states` for drill-in."""
+    from datetime import timezone as _tz
+    from ..bar_cache import IncompleteDataError, preflight_data_state
+
+    per_symbol_states: dict[str, dict[str, Any]] = {}
+    per_symbol_hashes: dict[str, str] = {}
+    coverage_complete = True
+
+    start_utc = (
+        start.replace(tzinfo=_tz.utc) if start.tzinfo is None else start
+    )
+    end_utc = end.replace(tzinfo=_tz.utc) if end.tzinfo is None else end
+
+    for sym in symbols:
+        try:
+            pf = preflight_data_state(
+                canonical=sym,
+                asset_class=asset_class,
+                resolution=resolution,
+                start=start_utc,
+                end=end_utc,
+                require_complete=not allow_incomplete,
+                api_base=api_base,
+                fetched_by=f"quant-backtest:{asset_class}",
+            )
+        except IncompleteDataError:
+            # Bubble up — caller wraps as exit 3 with the structured
+            # error payload from IncompleteDataError.to_dict().
+            raise
+        per_symbol_hashes[sym] = pf.data_state_hash
+        per_symbol_states[sym] = pf.to_report_dict()
+        if not pf.coverage_complete:
+            coverage_complete = False
+
+    combined_hash = _combine_data_state_hashes(per_symbol_hashes)
+    return {
+        "data_state_hash": combined_hash,
+        "data_state": {
+            "hash": combined_hash,
+            "coverage_complete": coverage_complete,
+            "asset_class": asset_class,
+            "resolution": resolution,
+            "per_symbol_states": per_symbol_states,
+        },
+    }
+
 
 def _load_sleeve_data(
     symbols: list[str],
@@ -190,12 +300,17 @@ def _spy_benchmark(start: datetime, end: datetime, initial_capital: float) -> tu
 # Backtest orchestration
 # ---------------------------------------------------------------------------
 
-def _run_backtest(payload: dict[str, Any]) -> tuple[EnsembleResult, MonteCarloResult, Any, dict]:
+def _run_backtest(
+    payload: dict[str, Any],
+) -> tuple[EnsembleResult, MonteCarloResult, Any, dict, dict[str, Any] | None]:
     """Execute the ensemble + Monte Carlo and return the four objects
     the chart builders consume.
 
-    Returns ``(ensemble_result, mc_result, spy_equity, spy_summary)``.
-    Caller is responsible for the chart build + result_summary assembly.
+    Returns ``(ensemble_result, mc_result, spy_equity, spy_summary,
+    preflight_payload)``. ``preflight_payload`` is None when the
+    payload omits ``data_asset`` (legacy callers stay unchanged);
+    otherwise it carries the combined data_state_hash + per-symbol
+    BarStore states for stamping on the report.
     """
     symbols = list(payload.get("symbols") or [])
     if not symbols:
@@ -204,6 +319,38 @@ def _run_backtest(payload: dict[str, Any]) -> tuple[EnsembleResult, MonteCarloRe
     start = datetime.fromisoformat(str(payload.get("start", "2020-01-01")))
     end = datetime.fromisoformat(str(payload.get("end", "2024-12-31")))
     initial_capital = float(payload.get("initial_capital", 100_000.0))
+
+    # Phase D-3 / E for the quant backtest path. When `data_asset` is
+    # set on the payload, run the BarStore preflight BEFORE the
+    # `load_candles` fetch. The preflight populates the cache, stamps
+    # a combined hash, and refuses the run on incomplete coverage
+    # (unless `allow_incomplete_data=true` overrides).
+    preflight_payload: dict[str, Any] | None = None
+    data_asset = payload.get("data_asset")
+    if data_asset:
+        from ..bar_cache import IncompleteDataError
+        try:
+            preflight_payload = _run_preflight(
+                symbols=symbols,
+                start=start,
+                end=end,
+                asset_class=str(data_asset),
+                resolution=str(payload.get("data_resolution", "1d")),
+                api_base=payload.get("data_api_base"),
+                allow_incomplete=bool(payload.get("allow_incomplete_data", False)),
+            )
+        except IncompleteDataError as exc:
+            # Marker-delimited structured error so the daemon can scoop
+            # it the same way it scoops the success payload. Exit 3
+            # mirrors paper_backtest's hard-block convention.
+            sys.stdout.write(f"\n{RESULT_BEGIN}\n")
+            sys.stdout.write(json.dumps({
+                "kind": "backtest",
+                "error": exc.to_dict(),
+            }, default=str))
+            sys.stdout.write(f"\n{RESULT_END}\n")
+            sys.stdout.flush()
+            raise SystemExit(3) from exc
 
     log.info(
         "loading bars for %d symbols from %s to %s",
@@ -232,7 +379,7 @@ def _run_backtest(payload: dict[str, Any]) -> tuple[EnsembleResult, MonteCarloRe
     )
 
     spy_equity, spy_summary = _spy_benchmark(start, end, initial_capital)
-    return result, mc, spy_equity, spy_summary
+    return result, mc, spy_equity, spy_summary, preflight_payload
 
 
 def _build_result_summary(
@@ -242,6 +389,7 @@ def _build_result_summary(
     spy_equity: Any,
     spy_summary: dict,
     request_id: str | None,
+    preflight_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the final result_summary envelope.
 
@@ -294,7 +442,7 @@ def _build_result_summary(
         "positions": [],
     }]
 
-    return {
+    envelope: dict[str, Any] = {
         "kind": "backtest",
         "summary": summary,
         "charts": {
@@ -303,6 +451,14 @@ def _build_result_summary(
         },
         "strategies": strategies,
     }
+    # Phase D-3 / E — when preflight ran, stamp the combined hash at
+    # the top level (matches paper_backtest's envelope shape so the
+    # .NET ingest path picks it up unchanged) and into summary so
+    # consumers reading either layer see it.
+    if preflight_payload is not None:
+        envelope.update(preflight_payload)
+        summary["data_state_hash"] = preflight_payload["data_state_hash"]
+    return envelope
 
 
 # ---------------------------------------------------------------------------
@@ -316,9 +472,10 @@ def run_backtest_from_payload(payload: dict[str, Any], request_id: str | None = 
     ``build_chart`` (which round-trips through plotly.io.to_json),
     but the caller is free to ``json.dumps`` to confirm.
     """
-    result, mc, spy_equity, spy_summary = _run_backtest(payload)
+    result, mc, spy_equity, spy_summary, preflight_payload = _run_backtest(payload)
     return _build_result_summary(
         payload, result, mc, spy_equity, spy_summary, request_id,
+        preflight_payload=preflight_payload,
     )
 
 
@@ -329,6 +486,17 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
     payload = _load_payload(args)
+    # CLI flags override payload values for the preflight knobs so
+    # operators can re-run an existing payload with stricter / looser
+    # data trustworthiness without editing the JSON.
+    if args.data_asset is not None:
+        payload["data_asset"] = args.data_asset
+    if args.data_resolution is not None:
+        payload["data_resolution"] = args.data_resolution
+    if args.data_api_base is not None:
+        payload["data_api_base"] = args.data_api_base
+    if args.allow_incomplete_data:
+        payload["allow_incomplete_data"] = True
     summary = run_backtest_from_payload(payload, request_id=args.request_id)
 
     # Marker-delimited so the daemon can scoop the dict out of stdout
