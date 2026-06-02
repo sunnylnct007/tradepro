@@ -675,7 +675,14 @@ def main(argv: list[str] | None = None) -> int:
     # user's full list. Raise the cap to cover real daemon universes; the
     # pathological huge-list case (the ~500-symbol intraday scan) is guarded
     # separately in the intraday engine (MAX_INTRADAY_SYMBOLS).
-    _BUS_SYMBOL_CAP = 40
+    # Cap exists so the bus doesn't fan out an unbounded per-symbol fetch and
+    # get rate-limited. Raised to 150 to cover the trader's full high_beta
+    # sleeve (116) — trading the WHOLE sleeve, not an arbitrary alphabetical
+    # slice. Daily bars are cached (CachedSource) so after the first cold
+    # fetch each day the 15-min reruns hit cache; cold fetches degrade
+    # gracefully (a 429-dropped symbol just refills next run). The ~500-symbol
+    # intraday scan is still guarded separately (MAX_INTRADAY_SYMBOLS).
+    _BUS_SYMBOL_CAP = 150
     bus_symbols = symbols if len(symbols) <= _BUS_SYMBOL_CAP else symbols[:_BUS_SYMBOL_CAP]
 
     if len(broker_list) > 1:
