@@ -111,13 +111,36 @@ public static class IntegrationsEndpoints
                 });
             }
             var result = await ig.GetPositionsAsync(ct);
-            var rows = result.Positions.Select(p => new
+            var rows = result.Positions.Select(p =>
             {
-                ticker = p.Epic,                                  // IG epic
-                quantity = p.Direction == "SELL" ? -p.Size : p.Size,
-                averagePricePaid = (decimal?)p.EntryLevel,
-                instrumentName = p.InstrumentName,
-                dealId = p.DealId,
+                var signedQty = p.Direction == "SELL" ? -p.Size : p.Size;
+                // Live mark = mid of the broker-provided bid/offer. P&L uses
+                // the broker's OWN lotSize (no hardcoded contract constants) so
+                // this generalises to any broker that fills FX — the desk reads
+                // the same uniform shape (currentPrice/unrealisedAbs/Pct) it
+                // reads for T212. lotSize absent → 1 (price-move P&L; magnitude
+                // may understate but is never a missing-field zero).
+                decimal? mid = (p.Bid is decimal b && p.Offer is decimal o) ? (b + o) / 2m : null;
+                decimal lot = p.LotSize ?? 1m;
+                decimal? unrealisedAbs = null, unrealisedPct = null;
+                if (mid is decimal m && p.EntryLevel > 0m)
+                {
+                    unrealisedAbs = (m - p.EntryLevel) * signedQty * lot;
+                    unrealisedPct = (m - p.EntryLevel) / p.EntryLevel * 100m
+                                    * (p.Direction == "SELL" ? -1m : 1m);
+                }
+                return new
+                {
+                    ticker = p.Epic,                              // IG epic
+                    quantity = signedQty,
+                    averagePricePaid = (decimal?)p.EntryLevel,
+                    currentPrice = mid,
+                    unrealisedAbs,
+                    unrealisedPct,
+                    lotSize = p.LotSize,
+                    instrumentName = p.InstrumentName,
+                    dealId = p.DealId,
+                };
             }).ToArray();
             return Results.Ok(new
             {

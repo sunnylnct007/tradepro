@@ -113,7 +113,12 @@ export function StrategyDesks({
       // the equity desk. Options/futures now classify correctly and stay
       // off the strategy desks (no desk trades them).
       .filter((p) => productOf(p.ticker) === d.assetClass)
-      .map((p) => ({ symbol: p.ticker, qty: p.quantity, avg: p.averagePricePaid, now: null, unrlAbs: null, unrlPct: null }));
+      // Same uniform shape as the T212 branch — the IG endpoint now computes
+      // currentPrice + unrealised from broker data, so FX/IG desks show P&L too.
+      .map((p) => ({
+        symbol: p.ticker, qty: p.quantity, avg: p.averagePricePaid ?? null,
+        now: p.currentPrice ?? null, unrlAbs: p.unrealisedAbs ?? null, unrlPct: p.unrealisedPct ?? null,
+      }));
   }
 
   const desks = DESKS.map((d) => {

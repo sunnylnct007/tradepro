@@ -436,13 +436,24 @@ public sealed class IGClient
                     var size = pos.TryGetProperty("size", out var sz) ? sz.GetDecimal() : 0m;
                     var level = pos.TryGetProperty("level", out var lv) ? lv.GetDecimal() : 0m;
                     var dealId = pos.TryGetProperty("dealId", out var di) ? di.GetString() : null;
+                    // Current mark + lot size from the market block so the
+                    // position can carry a live price + unrealised P&L — same
+                    // uniform shape T212 emits, so the desk stays broker-agnostic.
+                    decimal? Num(JsonElement el, string prop) =>
+                        el.ValueKind == JsonValueKind.Object
+                        && el.TryGetProperty(prop, out var v)
+                        && v.ValueKind == JsonValueKind.Number
+                            ? v.GetDecimal() : (decimal?)null;
                     positions.Add(new IGPosition(
                         Epic: epic ?? "?",
                         InstrumentName: instrumentName,
                         Direction: direction ?? "?",
                         Size: size,
                         EntryLevel: level,
-                        DealId: dealId));
+                        DealId: dealId,
+                        Bid: Num(market, "bid"),
+                        Offer: Num(market, "offer"),
+                        LotSize: Num(market, "lotSize")));
                 }
             }
             return new IGPositionsResult(positions, Error: null, HttpStatus: (int)resp.StatusCode);
@@ -770,7 +781,10 @@ public sealed record IGPosition(
     string Direction,         // BUY / SELL
     decimal Size,
     decimal EntryLevel,
-    string? DealId);
+    string? DealId,
+    decimal? Bid = null,      // current market bid (from /positions market block)
+    decimal? Offer = null,    // current market offer
+    decimal? LotSize = null); // contract/lot size — P&L scale (broker-provided)
 
 public sealed record IGPositionsResult(
     IReadOnlyList<IGPosition> Positions,

@@ -840,6 +840,10 @@ export const api = {
         ticker: string;
         quantity: number;
         averagePricePaid: number | null;
+        currentPrice: number | null;
+        unrealisedAbs: number | null;
+        unrealisedPct: number | null;
+        lotSize: number | null;
         instrumentName: string | null;
         dealId: string | null;
       }>;
