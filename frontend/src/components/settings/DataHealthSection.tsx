@@ -59,6 +59,7 @@ export function DataHealthSection() {
       <AssumptionsPanel />
       <PreferencesPanel />
       <BarCacheActivityPanel />
+      <CoverageMatrixPanel />
       <BackfillPanel />
     </Section>
   );
@@ -1014,6 +1015,203 @@ function _oneYearAgoIso(): string {
   const d = new Date();
   d.setFullYear(d.getFullYear() - 1);
   return d.toISOString().slice(0, 10);
+}
+
+// ─── Coverage matrix panel (Phase G-1) ───────────────────────────────
+//
+// Per-(canonical × month) status grid driven by the new
+// /bar-cache/coverage-matrix endpoint. Rows = symbols, columns =
+// months in the rolling window. Cells colour-coded so an operator
+// can see at a glance which months need backfilling.
+//
+// G-1 minimum: visibility only. Click-to-drill modal lands in G-2
+// (today the tooltip carries the last_result + provider + counts).
+
+type CoverageMatrix = Awaited<ReturnType<typeof api.barCacheCoverageMatrix>>;
+type CoverageCell = CoverageMatrix["rows"][number]["cells"][string];
+
+const COVERAGE_STATUS_COLORS: Record<CoverageCell["status"], string> = {
+  full:          "#16a34a",
+  partial:       "#ca8a04",
+  error:         "#dc2626",
+  rate_limited:  "#ea580c",
+  no_provider:   "#7c3aed",
+  unknown:       "#3f3f46",  // dim — the "we just don't know" case
+};
+const COVERAGE_STATUS_LEGEND: Record<CoverageCell["status"], string> = {
+  full:          "complete cache for the month",
+  partial:       "cache hit but fewer bars than expected",
+  error:         "manifest violation or provider failure",
+  rate_limited:  "429 from provider; chain may still recover next fetch",
+  no_provider:   "no provider configured for (asset_class, resolution)",
+  unknown:       "no fetch telemetry for this month yet",
+};
+
+function CoverageMatrixPanel() {
+  const [data, setData] = useState<CoverageMatrix | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [monthsWindow, setMonthsWindow] = useState<number>(12);
+  // No asset_class filter pill yet (single asset_class in production
+  // today is us_etf). The endpoint accepts the filter; the picker
+  // ships when a second asset_class joins the live universe.
+
+  const load = async (months: number) => {
+    setLoading(true);
+    try {
+      const r = await api.barCacheCoverageMatrix({ months });
+      setData(r);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(monthsWindow); }, [monthsWindow]);
+
+  return (
+    <Subsection title="Coverage matrix (per symbol × month)">
+      <div style={{
+        fontSize: 10, color: "var(--text-muted)",
+        marginBottom: 8, lineHeight: 1.55,
+      }}>
+        Last-known fetch status per (canonical, month) derived from{" "}
+        <code style={{
+          background: "rgba(0,0,0,0.2)", padding: "1px 5px", borderRadius: 3,
+          fontSize: 10,
+        }}>
+          bar_cache_events
+        </code>. Hover a cell for the underlying result + provider +
+        row count. Coloured cells = real telemetry; grey cells = no
+        fetch recorded for that month (use Backfill in the table above
+        to populate). G-2 adds click-to-drill into the specific gap.
+      </div>
+
+      <div style={{
+        display: "flex", gap: 10, alignItems: "center",
+        marginBottom: 8, fontSize: 10,
+      }}>
+        <span style={{ color: "var(--text-muted)" }}>Window:</span>
+        {[6, 12, 24].map((m) => (
+          <button
+            key={m}
+            onClick={() => setMonthsWindow(m)}
+            style={{
+              padding: "2px 8px", fontSize: 10, fontWeight: 600,
+              border: `1px solid ${monthsWindow === m ? "var(--accent, #1fc16b)" : "var(--border)"}`,
+              borderRadius: 3,
+              background: monthsWindow === m ? "rgba(31, 193, 107, 0.12)" : "transparent",
+              color: monthsWindow === m ? "var(--accent, #1fc16b)" : "var(--text-dim)",
+              cursor: "pointer",
+            }}
+          >
+            {m}m
+          </button>
+        ))}
+        <span style={{ marginLeft: 14, color: "var(--text-muted)" }}>Legend:</span>
+        {(["full", "partial", "error", "rate_limited", "no_provider", "unknown"] as const).map((s) => (
+          <span key={s} title={COVERAGE_STATUS_LEGEND[s]}>
+            <Pill color={COVERAGE_STATUS_COLORS[s]}>{s}</Pill>
+          </span>
+        ))}
+      </div>
+
+      {loading && <Muted>Loading…</Muted>}
+      {error && <ErrorText>{error}</ErrorText>}
+      {!loading && !error && data && data.rows.length === 0 && (
+        <Muted>
+          No coverage telemetry yet for the last {monthsWindow} months.
+          Run a fetch via <code>tradepro-bar-cache-get</code> or the
+          per-symbol Validate / Backfill buttons above.
+        </Muted>
+      )}
+      {!loading && data && data.rows.length > 0 && (
+        <CoverageMatrixGrid data={data} />
+      )}
+    </Subsection>
+  );
+}
+
+function CoverageMatrixGrid({ data }: { data: CoverageMatrix }) {
+  // Sticky-left column for (canonical, asset_class) header so the
+  // matrix scrolls horizontally on narrow screens without losing the
+  // row identifier. Cells are square-ish (24×20) for density.
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `160px repeat(${data.months.length}, 24px)`,
+        gap: 2, alignItems: "center",
+        overflowX: "auto",
+        paddingBottom: 4,
+      }}
+    >
+      {/* Header row */}
+      <div style={{
+        fontSize: 9, color: "var(--text-muted)",
+        textTransform: "uppercase", letterSpacing: "0.05em",
+        position: "sticky", left: 0, background: "var(--bg)",
+        paddingRight: 6,
+      }}>
+        symbol · asset
+      </div>
+      {data.months.map((m) => (
+        <div key={m} style={{
+          fontSize: 8, fontFamily: "monospace",
+          color: "var(--text-muted)", textAlign: "center",
+          writingMode: "vertical-rl", height: 44,
+        }}>
+          {m}
+        </div>
+      ))}
+      {/* Data rows */}
+      {data.rows.map((row) => (
+        <>
+          <div
+            key={`label-${row.canonical}-${row.asset_class}`}
+            style={{
+              fontSize: 11, fontFamily: "monospace",
+              color: "var(--text)",
+              position: "sticky", left: 0, background: "var(--bg)",
+              paddingRight: 6, lineHeight: 1.2,
+            }}
+          >
+            <strong>{row.canonical}</strong>{" "}
+            <span style={{ color: "var(--text-muted)", fontSize: 9 }}>
+              {row.asset_class}
+            </span>
+          </div>
+          {data.months.map((m) => {
+            const cell = row.cells[m];
+            const status: CoverageCell["status"] = cell?.status ?? "unknown";
+            const color = COVERAGE_STATUS_COLORS[status];
+            const tooltip = cell
+              ? `${m} · ${cell.last_result}` +
+                (cell.last_provider ? ` · ${cell.last_provider}` : "") +
+                (cell.rows_returned !== null && cell.rows_expected !== null
+                  ? ` · ${cell.rows_returned}/${cell.rows_expected} bars`
+                  : "") +
+                ` · last seen ${new Date(cell.occurred_at_utc).toLocaleDateString()}`
+              : `${m} · ${COVERAGE_STATUS_LEGEND.unknown}`;
+            return (
+              <div
+                key={`${row.canonical}-${row.asset_class}-${m}`}
+                title={tooltip}
+                style={{
+                  width: 24, height: 20,
+                  background: `${color}55`,
+                  border: `1px solid ${color}aa`,
+                  borderRadius: 2,
+                  cursor: "default",
+                }}
+              />
+            );
+          })}
+        </>
+      ))}
+    </div>
+  );
 }
 
 // ─── Backfill panel (Phase-A placeholder) ────────────────────────────

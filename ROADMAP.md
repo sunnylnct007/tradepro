@@ -949,9 +949,15 @@ change between slices.
   5bp default; sweep auto-anchors rungs around the empirical mean.
 
 **Phase G — Coverage matrix UI**
-- Grid view: rows = (asset_class, symbol), columns = months. Cells
-  colour-coded full / partial / missing / unknown. Click → drill into
-  the specific gap with explanation + fix path.
+- **G-1 ✅ SHIPPED** — `/api/admin/data-trust/bar-cache/coverage-matrix`
+  endpoint pivots `bar_cache_events` into per-(canonical × month)
+  status cells (full / partial / error / rate_limited / no_provider /
+  unknown). DataHealthSection renders a sticky-left grid with a
+  rolling 6/12/24-month window pill + colour-coded legend. Hover →
+  tooltip with last_result + provider + rows_returned/expected.
+- **G-2** — Click-to-drill modal per cell: which sessions are
+  missing, deep link to the Backfill / Reload buttons pre-filled
+  with the gap range.
 
 **Phase H — LLM gate replay**
 - Backtest mode for the LLM gate replays stored `llm_evaluations`

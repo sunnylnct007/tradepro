@@ -1072,6 +1072,38 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/bar-cache/health", qp);
   },
+  // Phase G-1 — coverage matrix. Returns per-(canonical × month)
+  // status derived from bar_cache_events. `months` is the rolling
+  // window (default 12, clamped server-side to [1, 36]).
+  barCacheCoverageMatrix: (params?: {
+    assetClass?: string;
+    resolution?: string;
+    months?: number;
+  }) => {
+    const qp: Record<string, string | undefined> = {};
+    if (params?.assetClass) qp.asset_class = params.assetClass;
+    if (params?.resolution) qp.resolution = params.resolution;
+    if (params?.months !== undefined) qp.months = String(params.months);
+    return get<{
+      months: string[]; // "YYYY-MM", ascending
+      asset_class: string | null;
+      resolution: string | null;
+      rows: Array<{
+        canonical: string;
+        asset_class: string;
+        cells: Record<string, {
+          status:
+            | "full" | "partial" | "error"
+            | "rate_limited" | "no_provider" | "unknown";
+          last_result: string;
+          last_provider: string | null;
+          rows_returned: number | null;
+          rows_expected: number | null;
+          occurred_at_utc: string;
+        }>;
+      }>;
+    }>("/api/admin/data-trust/bar-cache/coverage-matrix", qp);
+  },
 };
 
 // Shape of the artifact emitted by strategies/cli/equity_pipeline.py
