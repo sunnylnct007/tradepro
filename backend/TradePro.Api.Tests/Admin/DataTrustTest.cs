@@ -353,4 +353,103 @@ public sealed class DataTrustTest
         Assert.Equal("fetched_partial", result2);
         Assert.Equal(5, missing2);
     }
+
+    // ── Phase G-1: coverage matrix pivot ──────────────────────────
+    //
+    // The /bar-cache/coverage-matrix endpoint runs an inline DISTINCT ON
+    // over bar_cache_events. We exercise the same SQL here so a future
+    // refactor that breaks the pivot trips the test instead of the UI.
+
+    [Fact]
+    public async Task Coverage_matrix_picks_latest_event_per_month()
+    {
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        // Two events in the same month — the later one (fetched_partial)
+        // must win the cell. Plus one event in a different month for
+        // the same symbol — that cell stays "full".
+        await conn.ExecuteAsync(@"
+            INSERT INTO bar_cache_events (
+                canonical, asset_class, resolution,
+                range_start_utc, range_end_utc,
+                result, provider_used, rows_returned, rows_expected,
+                schema_version, occurred_at_utc
+            ) VALUES
+                ('SPY', 'us_etf', '1m',
+                 '2026-04-01', '2026-04-30',
+                 'complete', 'yfinance', 8190, 8190,
+                 'us_equity_v1', '2026-04-15 10:00:00+00'),
+                ('SPY', 'us_etf', '1m',
+                 '2026-04-05', '2026-04-12',
+                 'fetched_partial', 'yfinance', 2730, 3120,
+                 'us_equity_v1', '2026-04-20 14:00:00+00'),
+                ('SPY', 'us_etf', '1m',
+                 '2026-05-01', '2026-05-31',
+                 'complete', 'yfinance', 8190, 8190,
+                 'us_equity_v1', '2026-05-12 10:00:00+00');");
+
+        var rows = (await conn.QueryAsync<(
+            string canonical, string month,
+            string result, string? provider_used,
+            int? rows_returned, int? rows_expected)>(@"
+            SELECT DISTINCT ON (canonical, asset_class, month_bucket)
+                   canonical,
+                   to_char(date_trunc('month', range_start_utc), 'YYYY-MM') AS month,
+                   result, provider_used, rows_returned, rows_expected
+            FROM (
+                SELECT canonical, asset_class, resolution,
+                       range_start_utc, result, provider_used,
+                       rows_returned, rows_expected, occurred_at_utc,
+                       date_trunc('month', range_start_utc) AS month_bucket
+                FROM bar_cache_events
+                WHERE canonical = 'SPY'
+                  AND asset_class = 'us_etf'
+                  AND resolution = '1m'
+            ) AS scoped
+            ORDER BY canonical, asset_class, month_bucket,
+                     occurred_at_utc DESC;")).AsList();
+
+        Assert.Equal(2, rows.Count);
+        var april = rows.Single(r => r.month == "2026-04");
+        var may = rows.Single(r => r.month == "2026-05");
+        // April: latest event was fetched_partial (occurred_at = 04-20).
+        Assert.Equal("fetched_partial", april.result);
+        Assert.Equal(2730, april.rows_returned);
+        Assert.Equal(3120, april.rows_expected);
+        // May: only one event, complete.
+        Assert.Equal("complete", may.result);
+    }
+
+    [Fact]
+    public async Task Coverage_matrix_groups_by_asset_class()
+    {
+        // Same symbol in two asset classes should appear twice in the pivot.
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        await conn.ExecuteAsync(@"
+            INSERT INTO bar_cache_events (
+                canonical, asset_class, resolution,
+                range_start_utc, range_end_utc,
+                result, schema_version, occurred_at_utc
+            ) VALUES
+                ('AAPL', 'us_etf',    '1d', '2026-04-01', '2026-04-30',
+                 'complete', 'us_equity_v1', '2026-04-30 10:00:00+00'),
+                ('AAPL', 'us_equity', '1d', '2026-04-01', '2026-04-30',
+                 'fetched_partial', 'us_equity_v1', '2026-04-30 10:00:00+00');");
+
+        var rows = (await conn.QueryAsync<(string canonical, string asset_class, string result)>(@"
+            SELECT DISTINCT ON (canonical, asset_class, month_bucket)
+                   canonical, asset_class, result
+            FROM (
+                SELECT canonical, asset_class,
+                       range_start_utc, result, occurred_at_utc,
+                       date_trunc('month', range_start_utc) AS month_bucket
+                FROM bar_cache_events
+                WHERE canonical = 'AAPL'
+            ) AS scoped
+            ORDER BY canonical, asset_class, month_bucket,
+                     occurred_at_utc DESC;")).AsList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.Contains(rows, r => r.asset_class == "us_etf" && r.result == "complete");
+        Assert.Contains(rows, r => r.asset_class == "us_equity" && r.result == "fetched_partial");
+    }
 }

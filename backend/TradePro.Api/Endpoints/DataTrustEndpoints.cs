@@ -31,6 +31,22 @@ public static class DataTrustEndpoints
         "polygon", "databento", "oanda", "binance",
     };
 
+    // Phase G-1 — map the bar_cache_events.result enum into the coarse
+    // cell-status the cockpit colour-codes. Two "complete" variants
+    // collapse into "full"; everything broken collapses into "error"
+    // unless it's worth flagging separately (rate_limited, no_provider).
+    private static string MapResultToStatus(string result) => result switch
+    {
+        "complete"           => "full",
+        "fetched_complete"   => "full",
+        "fetched_partial"    => "partial",
+        "manifest_violation" => "error",
+        "provider_error"     => "error",
+        "rate_limited"       => "rate_limited",
+        "no_provider"        => "no_provider",
+        _                    => "unknown",
+    };
+
     public static IEndpointRouteBuilder MapDataTrustEndpoints(this IEndpointRouteBuilder app)
     {
         var g = app.MapGroup("/admin/data-trust").WithTags("Admin");
@@ -400,6 +416,113 @@ public static class DataTrustEndpoints
                     close = (double)b.Close,
                     volume = b.Volume,
                 }),
+            });
+        });
+
+        // Phase G-1 — Coverage matrix.
+        //
+        // Per-(canonical × month) status grid derived from bar_cache_events.
+        // For each (canonical, year-month) tuple, we pick the most recent
+        // fetch event whose range_start_utc falls inside that month and
+        // map its `result` onto a coarse status:
+        //
+        //   complete | fetched_complete             → "full"
+        //   fetched_partial                          → "partial"
+        //   manifest_violation | provider_error      → "error"
+        //   rate_limited                             → "rate_limited"
+        //   no_provider                              → "no_provider"
+        //   (no event in this month)                 → "unknown"
+        //
+        // Frontend renders a grid: rows = (canonical, asset_class),
+        // columns = the last N months. Click → drill into a single cell
+        // (G-2). Today the matrix is a visibility primitive only — it
+        // tells the operator which months to backfill / reload.
+        //
+        // Cheap to compute: one DISTINCT ON over bar_cache_events filtered
+        // by asset_class + resolution + the rolling window. Postgres uses
+        // bar_cache_events_canonical_occurred for the inner scan.
+        g.MapGet("/bar-cache/coverage-matrix", async (
+            NpgsqlDataSource db,
+            string? asset_class,
+            string? resolution,
+            int? months) =>
+        {
+            // Bound the window: default 12 months, clamp [1, 36] so a
+            // misbehaved caller can't sweep five years of telemetry.
+            int monthCount = Math.Clamp(months ?? 12, 1, 36);
+            var nowUtc = DateTime.UtcNow;
+            var windowStart = new DateTime(nowUtc.Year, nowUtc.Month, 1,
+                0, 0, 0, DateTimeKind.Utc).AddMonths(-(monthCount - 1));
+
+            // Build the ordered month label list ("YYYY-MM", oldest first).
+            var monthLabels = new List<string>(monthCount);
+            for (int i = 0; i < monthCount; i++)
+            {
+                var d = windowStart.AddMonths(i);
+                monthLabels.Add($"{d:yyyy-MM}");
+            }
+
+            await using var conn = await db.OpenConnectionAsync();
+            // DISTINCT ON picks the most recent event per (canonical,
+            // asset_class, partition-month). The month bucket comes
+            // from date_trunc('month', range_start_utc) so we don't
+            // need to materialise the column on the table.
+            var rows = (await conn.QueryAsync<(
+                string canonical, string asset_class, string month,
+                string result, string? provider_used,
+                int? rows_returned, int? rows_expected,
+                DateTime occurred_at_utc)>(@"
+                SELECT DISTINCT ON (canonical, asset_class, month_bucket)
+                       canonical, asset_class,
+                       to_char(date_trunc('month', range_start_utc), 'YYYY-MM') AS month,
+                       result, provider_used,
+                       rows_returned, rows_expected,
+                       occurred_at_utc
+                FROM (
+                    SELECT canonical, asset_class, resolution,
+                           range_start_utc, result, provider_used,
+                           rows_returned, rows_expected, occurred_at_utc,
+                           date_trunc('month', range_start_utc) AS month_bucket
+                    FROM bar_cache_events
+                    WHERE range_start_utc >= @windowStart
+                      AND (@asset_class IS NULL OR asset_class = @asset_class)
+                      AND (@resolution  IS NULL OR resolution  = @resolution)
+                ) AS scoped
+                ORDER BY canonical, asset_class, month_bucket,
+                         occurred_at_utc DESC;",
+                new { windowStart, asset_class, resolution })).ToList();
+
+            // Pivot: group by (canonical, asset_class) → cells keyed by month.
+            // The Dictionary preserves only the latest per month (DISTINCT ON
+            // already did the work; the dict is just lookup-shaped output).
+            var grouped = rows
+                .GroupBy(r => (r.canonical, r.asset_class))
+                .Select(g => new
+                {
+                    canonical = g.Key.canonical,
+                    asset_class = g.Key.asset_class,
+                    cells = g.ToDictionary(
+                        r => r.month,
+                        r => new
+                        {
+                            status = MapResultToStatus(r.result),
+                            last_result = r.result,
+                            last_provider = r.provider_used,
+                            rows_returned = r.rows_returned,
+                            rows_expected = r.rows_expected,
+                            occurred_at_utc = r.occurred_at_utc,
+                        }),
+                })
+                .OrderBy(x => x.canonical)
+                .ThenBy(x => x.asset_class)
+                .ToList();
+
+            return Results.Ok(new
+            {
+                months = monthLabels,
+                asset_class = asset_class,
+                resolution = resolution,
+                rows = grouped,
             });
         });
 
