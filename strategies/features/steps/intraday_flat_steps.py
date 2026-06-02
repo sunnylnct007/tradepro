@@ -194,6 +194,52 @@ def _make_bar(
     )
 
 
+_PERSIST_SESSION = datetime(2026, 6, 2, 14, 5, tzinfo=timezone.utc)
+
+
+def _persist_strat(state_dir: str):
+    return IntradayFlatStrategy(
+        strategy_id="it_persist",
+        params={
+            "candidates": ["AAPL"], "use_regime_filter": False,
+            "state_dir": state_dir,
+            "entry_window_start_utc": "13:35", "entry_window_end_utc": "19:00",
+            "flatten_start_utc": "19:50", "session_close_utc": "20:00",
+            "_data_fn": lambda s: None,
+        },
+    )
+
+
+@given('an IntradayFlatStrategy that opened a 10-share "{sym}" long and persisted its state')
+def step_open_and_persist(context, sym: str) -> None:
+    context.state_dir = tempfile.mkdtemp(prefix="intraday-state-")
+    a = _persist_strat(context.state_dir)
+    a._basket_atr[sym] = 2.0
+    a.position_for(sym).quantity = 10
+    a.on_fill(Fill(order_id="o1", strategy_id="it_persist", symbol=sym,
+                   side=OrderSide.BUY, quantity=10, fill_price=200.0,
+                   fill_time=_PERSIST_SESSION, commission=0.0))
+    context.persisted_stop = a._position_stop[sym]
+    context.persisted_target = a._position_target[sym]
+
+
+@when('a fresh instance with the same state dir is seeded with 10 "{sym}" this session')
+def step_fresh_seed(context, sym: str) -> None:
+    b = _persist_strat(context.state_dir)   # a brand-new process would start empty
+    b.on_session_start(_PERSIST_SESSION)
+    b.seed_positions({sym: 10})
+    context.strat = b   # so the decision-assert step inspects this instance
+
+
+@then('feeding an in-window bar between stop and target emits no orders')
+def step_hold_bar_no_orders(context) -> None:
+    mid = (context.persisted_stop + context.persisted_target) / 2.0
+    bar = _make_bar("AAPL", ts=datetime(2026, 6, 2, 15, 0, tzinfo=timezone.utc),
+                    close=mid, high=mid + 0.5, low=mid - 0.5)
+    orders = context.strat.on_bar(bar)
+    assert not orders, f"a managed hold must NOT flatten between stop/target, got {orders}"
+
+
 @when('I feed one NON-LIVE (replayed warmup) EOD-WINDOW bar')
 def step_feed_nonlive_eod(context) -> None:
     # A replayed historical bar — must NOT trigger any flatten/exit, even in

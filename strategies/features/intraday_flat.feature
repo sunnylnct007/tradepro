@@ -187,6 +187,17 @@ Feature: IntradayFlatStrategy — explainable, risk-averse, EOD-flat
     Then an "alert-overnight-leftover" decision is logged for "AAPL"
     And the strategy's position for "AAPL" is 22 shares
 
+  # Regression: the daemon reruns as a fresh process every few minutes and
+  # re-seeds from the broker. Without persisted state it mistook its OWN
+  # intraday holds for overnight leftovers and flattened them every run
+  # (closing positions with no realised P&L). Persisted state lets a
+  # same-session hold be RESTORED and managed to its real exit.
+  Scenario: A same-session hold is restored and managed after a daemon restart
+    Given an IntradayFlatStrategy that opened a 10-share "AAPL" long and persisted its state
+    When a fresh instance with the same state dir is seeded with 10 "AAPL" this session
+    Then a "restored-managed-position" decision is logged for "AAPL"
+    And feeding an in-window bar between stop and target emits no orders
+
   Scenario: Overnight leftover is flattened on the first in-window bar
     Given an IntradayFlatStrategy with a 22-share overnight leftover in "AAPL"
     When I feed one in-window bar for "AAPL"

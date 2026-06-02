@@ -74,10 +74,12 @@ What this strategy DELIBERATELY DOES NOT do (caveats list)
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta, timezone
 from math import floor
+from pathlib import Path
 from typing import Any, Callable, ClassVar
 
 import pandas as pd
@@ -213,6 +215,15 @@ class IntradayFlatStrategy(Strategy):
             "stop_atr_mult": 1.5,
             "target_atr_mult": 2.5,        # 2.5/1.5 = ~1.67 R reward:risk
             "max_hold_minutes": 240,        # 4-hour time-stop
+
+            # Cross-run position-state persistence. The daemon reruns every
+            # few minutes as a FRESH process, so in-memory stop/target/open_at
+            # are lost — without this the strategy mistakes its OWN intraday
+            # holds (re-seeded from the broker) for overnight leftovers and
+            # flattens them every run (closing positions with no P&L). We
+            # persist the management state to this dir keyed by session date
+            # and restore it on seed. None → ~/.tradepro/intraday_state.
+            "state_dir": None,
 
             # Session timing (UTC HH:MM strings, compared to bar.time())
             # Defaults assume US-equity DST (Mar–Nov):
@@ -808,23 +819,99 @@ class IntradayFlatStrategy(Strategy):
                 continue
             self._seed_overnight_leftover(sym, qty_int, now)
 
+    # ─────────────────────────────────────────────────────────────────
+    # Cross-run position-state persistence
+    # ─────────────────────────────────────────────────────────────────
+    # The daemon reruns every few minutes as a FRESH process; in-memory
+    # stop/target/open_at don't survive. We persist them keyed by session
+    # date so the next run can RESTORE the management state of a position
+    # WE opened earlier today (and keep riding it to its exit) instead of
+    # mistaking it for an overnight leftover and flattening it every run.
+
+    def _state_file(self) -> Path:
+        base = self._p().get("state_dir") or (Path.home() / ".tradepro" / "intraday_state")
+        return Path(base) / f"{self.strategy_id}.json"
+
+    def _persist_positions(self, session_date: datetime) -> None:
+        """Write the current open-position management state to disk."""
+        try:
+            path = self._state_file()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "session_date": session_date.date().isoformat(),
+                "positions": {
+                    sym: {
+                        "stop": self._position_stop.get(sym),
+                        "target": self._position_target.get(sym),
+                        "open_at": self._position_open_at[sym].isoformat(),
+                        "entry": self._position_entry_price.get(sym),
+                    }
+                    for sym in list(self._position_open_at)
+                },
+            }
+            path.write_text(json.dumps(payload))
+        except Exception:  # noqa: BLE001 — persistence is best-effort
+            _log.exception("intraday_flat: failed to persist position state")
+
+    def _restore_managed_position(self, sym: str, session_date: datetime) -> bool:
+        """Restore stop/target/open_at/entry for `sym` IF we persisted them
+        THIS session. Returns True when restored (→ manage, don't flatten).
+        A stale/absent record means a genuine prior-session leftover."""
+        try:
+            path = self._state_file()
+            if not path.exists():
+                return False
+            data = json.loads(path.read_text())
+            if data.get("session_date") != session_date.date().isoformat():
+                return False  # stale → genuine prior-session leftover
+            rec = (data.get("positions") or {}).get(sym)
+            if not rec or rec.get("stop") is None or rec.get("open_at") is None:
+                return False
+            self._position_stop[sym] = float(rec["stop"])
+            if rec.get("target") is not None:
+                self._position_target[sym] = float(rec["target"])
+            self._position_open_at[sym] = datetime.fromisoformat(rec["open_at"])
+            if rec.get("entry") is not None:
+                self._position_entry_price[sym] = float(rec["entry"])
+            return True
+        except Exception:  # noqa: BLE001
+            _log.exception("intraday_flat: failed to restore position state")
+            return False
+
     def _seed_overnight_leftover(
         self, sym: str, qty: int, ts: datetime,
     ) -> None:
-        """Record a position the strategy did not open this session.
-        Sets the engine-visible Position so on_bar's manage path
-        catches it, deliberately leaves stop/target/open_at unset so
-        `_manage_open_position` treats it as a leftover (flatten on
-        first in-window bar, no fabricated stop levels)."""
+        """Adopt a broker-seeded position. If we persisted management state
+        for it THIS session, it's a position WE opened earlier today (a
+        prior daemon run, now a fresh process) — restore stop/target/open_at
+        and keep MANAGING it to its exit. Otherwise it's a genuine overnight
+        leftover (prior session's flatten failed): leave stop/target/open_at
+        unset so `_manage_open_position` flattens it."""
         pos = self.position_for(sym)
         pos.quantity = qty
-        # Block a fresh entry for this name this session: the broker
-        # already holds it, so re-entering would re-pile a second deal
-        # on top of the leftover. The leftover itself is flattened by
-        # _manage_open_position on the first in-window bar.
+        # Block a fresh entry for this name this session: the broker already
+        # holds it, so re-entering would pile a second deal on top.
         self._seeded_today.add(sym)
-        # avg_entry_price unknown; leave at 0 so any unrealised_pnl
-        # math reads as a sentinel rather than pretending we know.
+
+        # Same-session hold we opened → restore + manage (NOT flatten). This
+        # is the fix for positions being closed every 5-min run with no P&L.
+        if qty > 0 and self._restore_managed_position(sym, ts):
+            self.log_decision(
+                symbol=sym, bar_ts=ts,
+                action="restored-managed-position",
+                reason=(
+                    f"re-seeded {qty} shares we opened earlier this session; "
+                    f"restored stop={self._position_stop.get(sym):.4f} "
+                    f"target={self._position_target.get(sym):.4f} open_at="
+                    f"{self._position_open_at.get(sym)} — riding to exit, "
+                    f"NOT flattening as a leftover"
+                ),
+                quantity=qty,
+            )
+            return
+
+        # Genuine overnight leftover — avg_entry unknown; leave at 0 so any
+        # unrealised_pnl math reads as a sentinel rather than pretending.
         self.log_decision(
             symbol=sym, bar_ts=ts,
             action="alert-overnight-leftover",
@@ -867,6 +954,10 @@ class IntradayFlatStrategy(Strategy):
                 fill_price=fill.fill_price,
                 quantity=fill.quantity,
             )
+            # Persist so the next daemon run (fresh process) restores this
+            # position's stop/target/open_at and KEEPS managing it instead of
+            # flattening it as a phantom overnight leftover.
+            self._persist_positions(fill.fill_time)
             return
 
         # Exit fill → clear position state.
@@ -875,6 +966,8 @@ class IntradayFlatStrategy(Strategy):
             self._position_stop.pop(fill.symbol, None)
             self._position_target.pop(fill.symbol, None)
             open_at = self._position_open_at.pop(fill.symbol, None)
+            # Drop the now-closed position from the persisted state.
+            self._persist_positions(fill.fill_time)
             held_minutes = None
             if open_at is not None:
                 held_minutes = round(
