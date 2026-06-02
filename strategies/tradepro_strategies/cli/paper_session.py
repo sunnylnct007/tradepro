@@ -214,10 +214,16 @@ def _fetch_universe_symbols(name: str) -> list[str]:
 
 
 def _resolve_symbols(args: argparse.Namespace) -> list[str]:
-    """Merge --symbol, --symbols and --universe into a deduplicated list."""
+    """Merge --symbol, --symbols and --universe into a deduplicated list.
+    --universe accepts a comma-separated list of universes so the equity
+    daemon can trade the trader's MULTI-SLEEVE universe in one go
+    (large_50 + high_beta), deduped across overlaps."""
     out: list[str] = []
     if getattr(args, "universe", None):
-        out.extend(_fetch_universe_symbols(args.universe))
+        for uname in (u.strip() for u in args.universe.split(",") if u.strip()):
+            for s in _fetch_universe_symbols(uname):
+                if s not in out:
+                    out.append(s)
     if args.symbols:
         for s in (x.strip().upper() for x in args.symbols.split(",") if x.strip()):
             if s not in out:
@@ -676,13 +682,13 @@ def main(argv: list[str] | None = None) -> int:
     # pathological huge-list case (the ~500-symbol intraday scan) is guarded
     # separately in the intraday engine (MAX_INTRADAY_SYMBOLS).
     # Cap exists so the bus doesn't fan out an unbounded per-symbol fetch and
-    # get rate-limited. Raised to 150 to cover the trader's full high_beta
-    # sleeve (116) — trading the WHOLE sleeve, not an arbitrary alphabetical
-    # slice. Daily bars are cached (CachedSource) so after the first cold
-    # fetch each day the 15-min reruns hit cache; cold fetches degrade
-    # gracefully (a 429-dropped symbol just refills next run). The ~500-symbol
-    # intraday scan is still guarded separately (MAX_INTRADAY_SYMBOLS).
-    _BUS_SYMBOL_CAP = 150
+    # get rate-limited. 170 covers the trader's full combined equity universe
+    # (large_50 ∪ high_beta ≈ 163, + GLD) so all three sleeves' names are
+    # traded, not an arbitrary slice. Daily bars are cached (CachedSource) so
+    # after the first cold fetch each day the 15-min reruns hit cache; cold
+    # fetches degrade gracefully (a 429-dropped symbol just refills next run).
+    # The ~500-symbol intraday scan is still guarded by MAX_INTRADAY_SYMBOLS.
+    _BUS_SYMBOL_CAP = 170
     bus_symbols = symbols if len(symbols) <= _BUS_SYMBOL_CAP else symbols[:_BUS_SYMBOL_CAP]
 
     if len(broker_list) > 1:
