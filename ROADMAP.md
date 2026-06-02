@@ -936,10 +936,17 @@ change between slices.
   any future backtest CLI — auto-stamping + hard-block are one call.
 
 **Phase F — Fill-quality + slippage layer**
-- Store IG L1 bid/ask snapshot at every fill (`oms_fills` extension).
-- Build an empirical slippage model from realised vs theoretical fills.
-- Spread-haircut backtest mode (apply ½-spread or full-spread cost
-  per round-trip).
+- **F-1 ✅ SHIPPED** — `tradepro-slippage-sweep` re-runs a backtest
+  at multiple `slippage_bps` rungs (default 1/5/10/25/50),
+  interpolates the break-even bps, and classifies the strategy as
+  robust / fragile / broken. Answers L2 directly without live fill
+  data: "would my strategy survive at 25bps?".
+- **F-2** — Store IG L1 bid/ask snapshot at every fill (`oms_fills`
+  extension). Migration + `RecordFillAsync` extension + IG
+  `/markets/{epic}` snapshot capture before the fill insert.
+- **F-3** — Build an empirical slippage model from realised vs
+  theoretical fills. Per-symbol bps estimate replaces the hardcoded
+  5bp default; sweep auto-anchors rungs around the empirical mean.
 
 **Phase G — Coverage matrix UI**
 - Grid view: rows = (asset_class, symbol), columns = months. Cells
