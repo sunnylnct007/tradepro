@@ -76,6 +76,23 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--push", action="store_true",
                    help="POST the sweep JSON to the API as a paper-backtest "
                         "report (kind=slippage-sweep).")
+    # Phase D-3 / E preflight. When --data-asset is set, the sweep
+    # preflights the symbol's coverage through BarStore BEFORE the
+    # first rung runs, stamps the hash on the report, and refuses
+    # incomplete coverage. Sweep is single-symbol so the per-symbol
+    # hash IS the report hash — no combination needed.
+    p.add_argument("--data-asset", default=None,
+                   help="Asset class for the BarStore preflight (e.g. 'us_etf'). "
+                        "When set, stamps data_state_hash on the report and "
+                        "refuses to run on incomplete coverage.")
+    p.add_argument("--data-resolution", default=None,
+                   help="Resolution for the preflight. Defaults to --interval "
+                        "(1m sweep → 1m preflight, etc.).")
+    p.add_argument("--data-api-base", default=None,
+                   help="API base for telemetry + provider preferences.")
+    p.add_argument("--allow-incomplete-data", action="store_true",
+                   help="Override the Phase E hard-block. The report carries "
+                        "coverage_complete=false so consumers can discount.")
     return p.parse_args(argv)
 
 
@@ -142,6 +159,30 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
 
+    # Phase D-3 / E preflight (opt-in). Runs ONCE before the rungs —
+    # the sweep re-runs the same data N times, so a single preflight
+    # covers every rung's hash. Same exit-3 + structured-JSON
+    # convention paper_backtest uses.
+    preflight_payload: dict | None = None
+    if args.data_asset:
+        from datetime import datetime as _dt, timezone as _tz
+        from ..bar_cache import IncompleteDataError, preflight_data_state
+        try:
+            pf = preflight_data_state(
+                canonical=args.symbol,
+                asset_class=args.data_asset,
+                resolution=args.data_resolution or args.interval,
+                start=_dt.combine(start, _dt.min.time()).replace(tzinfo=_tz.utc),
+                end=_dt.combine(end, _dt.min.time()).replace(tzinfo=_tz.utc),
+                require_complete=not args.allow_incomplete_data,
+                api_base=args.data_api_base,
+                fetched_by=f"slippage-sweep:{spec.name}",
+            )
+        except IncompleteDataError as exc:
+            print(json.dumps(exc.to_dict(), indent=2), file=sys.stderr)
+            return 3
+        preflight_payload = pf.to_report_dict()
+
     print(
         f"Sweeping {args.symbol} {spec.name} {start}..{end} across "
         f"bps={list(bps_list)} — first rung populates cache.",
@@ -164,6 +205,11 @@ def main(argv: list[str] | None = None) -> int:
     print(format_table(result), file=sys.stderr)
 
     output = result.to_dict()
+    if preflight_payload is not None:
+        # Stamps top-level data_state_hash + nested data_state block
+        # the same way paper_backtest does, so the D-2 cockpit chip
+        # indexes sweep reports unchanged.
+        output.update(preflight_payload)
     output["kind"] = "slippage-sweep"
     output["symbol"] = args.symbol
     output["strategy_id"] = strategy_id
