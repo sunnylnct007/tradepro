@@ -90,16 +90,33 @@ public sealed class PostgresOmsService : IOmsService
         await using var conn = await _db.OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();
 
-        // Idempotency: if a row with the same client_order_id exists,
-        // return it untouched. Lets the daemon retry safely without
-        // duplicating intents.
-        var existingId = await conn.QueryFirstOrDefaultAsync<Guid?>(@"
-            SELECT id FROM oms_orders WHERE client_order_id = @cid;",
+        // Idempotency on client_order_id — BUT only against a still-relevant
+        // order. A LIVE (non-terminal) or already-FILLED order with this id is
+        // a true duplicate → return it untouched (safe daemon retry). A DEAD
+        // attempt (CANCELLED/REJECTED/EXPIRED) must NOT be returned: the
+        // strategy's client_order_id is a deterministic hash of
+        // (strategy,symbol,side,qty,bar_ts) that stays constant all day, so
+        // re-emitting after the prior attempt died would otherwise hand back
+        // the corpse — which can never fill — and the daemon's /approve on a
+        // cancelled order no-ops. That's exactly why equity stuck at 0 fills:
+        // its pre-open orders died and every post-open re-emit deduped to them.
+        // For a dead attempt we mint a FRESH client_order_id (the column is
+        // UNIQUE, so we can't reuse it) and fall through to place anew;
+        // cross-run duplicate protection is still covered by the in-flight
+        // (Tier 2) and supersede (Tier 3) checks below.
+        var existing = await conn.QueryFirstOrDefaultAsync<(Guid Id, string State)?>(@"
+            SELECT id AS Id, state AS State FROM oms_orders WHERE client_order_id = @cid;",
             new { cid = intent.ClientOrderId }, transaction: tx);
-        if (existingId is not null)
+        var clientOrderId = intent.ClientOrderId;
+        if (existing is not null)
         {
-            await tx.CommitAsync();
-            return (await GetAsync(existingId.Value))!;
+            var deadAttempt = existing.Value.State is "CANCELLED" or "REJECTED" or "EXPIRED";
+            if (!deadAttempt)
+            {
+                await tx.CommitAsync();
+                return (await GetAsync(existing.Value.Id))!;
+            }
+            clientOrderId = Guid.NewGuid();   // retry after a dead attempt
         }
 
         // In-flight dedupe — if any recent non-terminal order exists
@@ -175,7 +192,13 @@ public sealed class PostgresOmsService : IOmsService
                 @PlacedBy, 'PENDING_APPROVAL'
             )
             RETURNING id;",
-            intent, transaction: tx);
+            new
+            {
+                ClientOrderId = clientOrderId,   // fresh id if retrying after a dead attempt
+                intent.Broker, intent.StrategyId, intent.Symbol, intent.Side,
+                intent.Qty, intent.OrderType, intent.LimitPrice, intent.StopPrice,
+                intent.TimeInForce, intent.PlacedBy,
+            }, transaction: tx);
 
         await InsertEventAsync(conn, tx, orderId,
             eventType: "ENQUEUED",

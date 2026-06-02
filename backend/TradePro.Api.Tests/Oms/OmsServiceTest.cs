@@ -74,6 +74,39 @@ public sealed class OmsServiceTest
     }
 
     [Fact]
+    public async Task Enqueue_after_a_dead_attempt_places_a_FRESH_order_not_the_corpse()
+    {
+        // Regression: equity stuck at 0 fills because its client_order_id is a
+        // deterministic daily hash. Pre-open orders died (market_closed →
+        // stale-swept), then every post-open re-emit deduped to the CANCELLED
+        // corpse (which can never fill). A re-emit after a terminal attempt
+        // must place a brand-new, live order.
+        var oms = NewService();
+        var intent = SampleIntent();
+        var first = await oms.EnqueueAsync(intent, "test");
+        await oms.CancelAsync(first.Id, "risk_monitor", "stale_pending_auto_clean");
+
+        var second = await oms.EnqueueAsync(intent, "test");   // same client_order_id
+        Assert.NotEqual(first.Id, second.Id);                  // NOT the corpse
+        Assert.Equal(OmsState.PendingApproval, second.State);  // a live, placeable order
+    }
+
+    [Fact]
+    public async Task Enqueue_still_dedupes_to_a_FILLED_order_no_double_fill()
+    {
+        // The flip side: a FILLED order with this client_id IS a true
+        // duplicate — re-emitting must return it, never place a second fill.
+        var oms = NewService();
+        var intent = SampleIntent();
+        var first = await oms.EnqueueAsync(intent, "test");
+        await oms.ApproveAsync(first.Id, "operator");
+        await oms.RecordFillAsync(first.Id, intent.Qty, 100m, 0m, "USD", "fill-1", "broker");
+
+        var second = await oms.EnqueueAsync(intent, "test");
+        Assert.Equal(first.Id, second.Id);                     // same order, no double-fill
+    }
+
+    [Fact]
     public async Task Approve_moves_pending_to_submitted()
     {
         var oms = NewService();
