@@ -1018,9 +1018,18 @@ change between slices.
   combine into one SHA256 fingerprint stamped on the report. Monte
   Carlo + ensemble runs now carry the same `data_state_hash` the
   paper backtest report does, so the D-2 cockpit chip lights up.
-- **D-3/E migration: equity_pipeline + signal_scan** — equity_pipeline
-  is the natural follow-up; signal_scan runs server-side .NET, so
-  its preflight belongs in `/api/signals/scan`, not Python.
+- **D-3/E migration: `tradepro-equity-pipeline` ✅ SHIPPED** —
+  Opt-in `--preflight` flag (default off so weekly runs don't break
+  on incomplete data). When enabled, BarStore preflights SPY +
+  `large_50` + gold (the deterministic universes), combines their
+  hashes into one fingerprint stamped on the artifact, and hard-
+  blocks on incomplete coverage. Hibeta is **explicitly excluded**
+  from the hash and documented in
+  `data_state.excluded_from_hash` because the universe is data-
+  derived (β-filter runs against fetched series). Honest partial
+  trust > pretending full coverage.
+- **D-3/E migration: signal_scan** — runs server-side .NET, so its
+  preflight belongs in `/api/signals/scan`, not Python. Open.
 
 **Phase F — Fill-quality + slippage layer**
 - **F-1 ✅ SHIPPED** — `tradepro-slippage-sweep` re-runs a backtest

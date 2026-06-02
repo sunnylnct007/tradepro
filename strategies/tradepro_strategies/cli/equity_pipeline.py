@@ -150,6 +150,69 @@ def _mc_quantiles(paths: np.ndarray, quantiles: tuple[float, ...] = (0.05, 0.25,
     return out
 
 
+def _equity_pipeline_preflight(
+    *,
+    symbols: list[str],
+    start: datetime,
+    end: datetime,
+    asset_class: str,
+    resolution: str,
+    api_base: str | None,
+    allow_incomplete: bool,
+) -> dict[str, Any]:
+    """Preflight the deterministic universes (SPY + large_50 + gold)
+    through BarStore. Reuses the same combined-hash convention as
+    `tradepro-quant-backtest`. Hibeta is excluded by design — its
+    universe is data-derived (beta filter runs against fetched
+    series), so a pre-fetch preflight can't enumerate it. We document
+    that limitation on the report via `preflight_scope`."""
+    from datetime import timezone as _tz
+    from ..bar_cache import IncompleteDataError, preflight_data_state
+    from .quant_backtest import _combine_data_state_hashes
+
+    start_utc = (
+        start.replace(tzinfo=_tz.utc) if start.tzinfo is None else start
+    )
+    end_utc = end.replace(tzinfo=_tz.utc) if end.tzinfo is None else end
+    per_symbol_states: dict[str, dict[str, Any]] = {}
+    per_symbol_hashes: dict[str, str] = {}
+    coverage_complete = True
+    for sym in symbols:
+        pf = preflight_data_state(
+            canonical=sym,
+            asset_class=asset_class,
+            resolution=resolution,
+            start=start_utc,
+            end=end_utc,
+            require_complete=not allow_incomplete,
+            api_base=api_base,
+            fetched_by=f"equity-pipeline:{asset_class}",
+        )
+        per_symbol_hashes[sym] = pf.data_state_hash
+        per_symbol_states[sym] = pf.to_report_dict()
+        if not pf.coverage_complete:
+            coverage_complete = False
+
+    combined_hash = _combine_data_state_hashes(per_symbol_hashes)
+    return {
+        "data_state_hash": combined_hash,
+        "data_state": {
+            "hash": combined_hash,
+            "coverage_complete": coverage_complete,
+            "asset_class": asset_class,
+            "resolution": resolution,
+            "per_symbol_states": per_symbol_states,
+            # Documented limitation — hibeta symbols don't go through
+            # the hash because the universe is data-derived. Consumers
+            # comparing two equity-pipeline reports should know the
+            # match means "same SPY + large_50 + gold data", not
+            # "identical hibeta picks".
+            "preflight_scope": ["benchmark", "large_50", "gold"],
+            "excluded_from_hash": ["hibeta (universe is data-derived)"],
+        },
+    }
+
+
 def run_pipeline(
     cfg: QuantEngineConfig | None = None,
     *,
@@ -162,6 +225,15 @@ def run_pipeline(
     mc_years: int = 10,
     mc_initial: float = 10_000.0,
     mc_seed: int | None = 42,
+    # Phase D-3 / E migration. Opt-in by default so existing weekly
+    # runs don't break; when `preflight=True` + `data_asset` set, the
+    # CLI runs BarStore for SPY + large_50 + gold, stamps a combined
+    # hash, and (without allow_incomplete) refuses on partial cover.
+    preflight: bool = False,
+    data_asset: str = "us_etf",
+    data_resolution: str = "1d",
+    data_api_base: str | None = None,
+    allow_incomplete_data: bool = False,
 ) -> dict[str, Any]:
     """Trader's StrategyRunner.run() ported. Returns the result dict
     that the CLI serialises to JSON.
@@ -218,6 +290,41 @@ def run_pipeline(
     timings: dict[str, float] = {}
     t_overall = time.monotonic()
     sleeves_meta: list[dict[str, Any]] = []
+
+    # Phase D-3 / E preflight (opt-in via `preflight=True`). Stamps a
+    # combined hash over the deterministic universes — benchmark +
+    # large_50 + gold. Hibeta is data-derived (beta filter runs
+    # against fetched series) so it can't be enumerated up-front;
+    # documented as excluded_from_hash on the result.
+    preflight_payload: dict[str, Any] | None = None
+    if preflight:
+        from ..bar_cache import IncompleteDataError
+        t0 = time.monotonic()
+        deterministic = (
+            [cfg.benchmark] + list(cfg.large_50) + list(cfg.gold_tickers)
+        )
+        # De-dupe while preserving order — list() of dict.fromkeys()
+        # idiom keeps the cockpit list readable.
+        deterministic = list(dict.fromkeys(deterministic))
+        try:
+            preflight_payload = _equity_pipeline_preflight(
+                symbols=deterministic,
+                start=start, end=end,
+                asset_class=data_asset,
+                resolution=data_resolution,
+                api_base=data_api_base,
+                allow_incomplete=allow_incomplete_data,
+            )
+        except IncompleteDataError as exc:
+            # Re-raise as RuntimeError so the CLI's outer try/except
+            # turns it into exit 1 with the structured message. The
+            # exception payload preserves the missing_sessions list
+            # for the operator's backfill remediation.
+            raise RuntimeError(
+                "equity-pipeline preflight refused — "
+                + json.dumps(exc.to_dict(), default=str)
+            ) from exc
+        timings["preflight"] = time.monotonic() - t0
 
     # 1. Benchmark
     t0 = time.monotonic()
@@ -377,7 +484,7 @@ def run_pipeline(
 
     timings["total"] = time.monotonic() - t_overall
 
-    return {
+    result_payload: dict[str, Any] = {
         "as_of_utc": datetime.now(timezone.utc).isoformat(),
         "config": {
             "start_date": start_date, "end_date": end_date,
@@ -415,6 +522,13 @@ def run_pipeline(
         "sleeves_meta": sleeves_meta,
         "timings_sec": {k: round(v, 2) for k, v in timings.items()},
     }
+    if preflight_payload is not None:
+        # Stamp the combined data_state_hash + data_state block onto
+        # the report — same shape paper_backtest + quant_backtest use,
+        # so the D-2 cockpit chip indexes equity-pipeline artifacts
+        # uniformly.
+        result_payload.update(preflight_payload)
+    return result_payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -464,6 +578,33 @@ def main(argv: list[str] | None = None) -> int:
         "--note", default=None,
         help="Free-text note stored with the artifact (e.g. 'weekly refresh').",
     )
+    # Phase D-3 / E preflight flags. Opt-in — the trader's weekly
+    # workflow keeps working unchanged. Enable to stamp a combined
+    # data_state_hash + hard-block on incomplete coverage of the
+    # deterministic universes (SPY + large_50 + gold).
+    p.add_argument(
+        "--preflight", action="store_true",
+        help="Run BarStore preflight against the deterministic universes "
+             "before fetching. Hard-blocks on incomplete coverage and "
+             "stamps a data_state_hash on the artifact.",
+    )
+    p.add_argument(
+        "--data-asset", default="us_etf",
+        help="Asset class for the preflight (default us_etf).",
+    )
+    p.add_argument(
+        "--data-resolution", default="1d",
+        help="Resolution for the preflight (default 1d).",
+    )
+    p.add_argument(
+        "--data-api-base", default=None,
+        help="API base for telemetry + provider preferences during preflight.",
+    )
+    p.add_argument(
+        "--allow-incomplete-data", action="store_true",
+        help="Override the Phase E hard-block. The artifact still carries "
+             "the hash + coverage_complete=false so consumers can discount it.",
+    )
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
 
     try:
@@ -474,6 +615,11 @@ def main(argv: list[str] | None = None) -> int:
             run_mc=not args.no_mc,
             mc_n_sims=args.mc_sims,
             mc_years=args.mc_years,
+            preflight=args.preflight,
+            data_asset=args.data_asset,
+            data_resolution=args.data_resolution,
+            data_api_base=args.data_api_base,
+            allow_incomplete_data=args.allow_incomplete_data,
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("pipeline failed: %s", exc)

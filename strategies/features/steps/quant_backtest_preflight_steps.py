@@ -11,6 +11,7 @@ from unittest.mock import patch
 from behave import given, then, when
 
 from tradepro_strategies.bar_cache import PreflightResult
+from tradepro_strategies.cli.equity_pipeline import _equity_pipeline_preflight
 from tradepro_strategies.cli.quant_backtest import (
     _combine_data_state_hashes,
     _run_preflight,
@@ -172,3 +173,43 @@ def step_assert_coverage_complete_true(context):
 def step_assert_coverage_complete_false(context):
     cc = context.preflight_result["data_state"]["coverage_complete"]
     assert cc is False, f"expected coverage_complete False, got {cc!r}"
+
+
+# ── Equity-pipeline preflight (documents hibeta exclusion) ─────────
+
+
+@when('the equity-pipeline preflight runs for asset_class "{asset}" '
+      'resolution "{resolution}"')
+def step_run_equity_preflight(context, asset, resolution):
+    symbols = list(context.preflight_specs.keys())
+    fake = _make_fake_preflight(context.preflight_specs)
+    with patch(
+        "tradepro_strategies.bar_cache.preflight_data_state",
+        side_effect=fake,
+    ):
+        context.preflight_result = _equity_pipeline_preflight(
+            symbols=symbols,
+            start=datetime(2026, 1, 1),
+            end=datetime(2026, 1, 31),
+            asset_class=asset,
+            resolution=resolution,
+            api_base=None,
+            allow_incomplete=False,
+        )
+
+
+@then('the preflight_scope lists "{a}", "{b}", and "{c}"')
+def step_assert_scope(context, a, b, c):
+    scope = context.preflight_result["data_state"]["preflight_scope"]
+    expected = {a, b, c}
+    assert set(scope) == expected, (
+        f"expected scope == {expected}, got {scope}"
+    )
+
+
+@then('the excluded_from_hash list mentions hibeta')
+def step_assert_excluded(context):
+    excluded = context.preflight_result["data_state"]["excluded_from_hash"]
+    assert any("hibeta" in item.lower() for item in excluded), (
+        f"expected hibeta in excluded_from_hash, got {excluded}"
+    )
