@@ -90,6 +90,10 @@ class IchimokuEquityStrategy(Strategy):
     _daily_signals: dict[str, tuple[float, float, dict]] = field(default_factory=dict)
     _realised_vols: dict[str, float | None] = field(default_factory=dict)
     _moo_fired: set[str] = field(default_factory=set)
+    # Names cleared for a NEW entry this session — the top-N-by-conviction
+    # winners per sleeve. Empty set + no sleeves config = no cap (every
+    # signalling name may enter, the pre-sleeve behaviour).
+    _selected_entries: set[str] = field(default_factory=set)
     _overrides: OverrideRegistry | None = None
     _gate: LLMSignalGate | None = None
 
@@ -104,6 +108,14 @@ class IchimokuEquityStrategy(Strategy):
             # (the trader's large/hibeta/gold = 20/30/1, capital split equally
             # across sleeves) rather than one flat sleeve_size. None → flat.
             "per_symbol_capital": None,
+            # Per-sleeve membership + slot counts for top-N-by-conviction
+            # selection: {name: {"symbols": [...], "size": N}}. When set, each
+            # session keeps held names then fills remaining slots with the
+            # highest-conviction new candidates, so the number of positions —
+            # and thus deployed capital — never exceeds the sleeve sizes (the
+            # trader's fixed-slot model). None → no cap (every signalling name
+            # may enter, the original behaviour).
+            "sleeves": None,
             "tenkan": 5,
             "kijun": 32,
             "senkou_b": 50,
@@ -156,6 +168,13 @@ class IchimokuEquityStrategy(Strategy):
                     self._positions[sym] = int(qty)
                 except (TypeError, ValueError):
                     continue
+
+        # Portfolio construction: rank this session's signalling names by
+        # conviction and keep only the top-N per sleeve, so the number of
+        # held positions — and thus deployed capital — can't exceed the
+        # sleeve budgets. Runs AFTER positions are seeded so held names are
+        # counted against their slots. No-op when no sleeves are configured.
+        self._select_entries(p, session_date)
 
     def seed_positions(self, positions: dict[str, int]) -> None:
         """Called by paper_session._seed_strategy_positions_from_broker
@@ -249,6 +268,22 @@ class IchimokuEquityStrategy(Strategy):
 
         # Long entry.
         if signal >= 1.0 and position == 0:
+            # Top-N-by-conviction gate: when sleeves are configured, only the
+            # winners selected at session start may enter. A signalling name
+            # that didn't make its sleeve's slot cut is dropped this session
+            # so capital goes to the strongest names (the trader's fixed-slot
+            # model). Empty set = no sleeves configured = no cap.
+            if self._selected_entries and sym not in self._selected_entries:
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp,
+                    action="skip-not-selected",
+                    reason=(
+                        "signal fired but ranked below the sleeve's top-N by "
+                        "conviction — capital allocated to stronger names this session"
+                    ),
+                    signal=signal, cloud_position=cloud_pos,
+                )
+                return []
             # ── LLM signal gate ─────────────────────────────────────────
             # Runs BEFORE sizing so BOOSTED decisions can scale the qty.
             # The gate is advisory (fail_open=True default): an LLM error
@@ -462,6 +497,56 @@ class IchimokuEquityStrategy(Strategy):
             return float(psc[sym])
         return float(p["capital_usd"]) / max(1, int(p.get("sleeve_size", 20)))
 
+    def _select_entries(self, p: dict[str, Any], session_date) -> None:
+        """Top-N-by-conviction portfolio construction (the trader's fixed-slot
+        model). For each sleeve: names we ALREADY hold (and that still signal)
+        keep their slot; the remaining slots are filled with the highest-
+        conviction NEW candidates. Everything below the cut is dropped this
+        session. This caps the position count per sleeve — and therefore the
+        deployed capital — so the strategy never emits more orders than the
+        budget can fund (the root cause of the pre-open
+        'universe_too_large_for_capital' sweeps).
+
+        No `sleeves` config → `_selected_entries` is left empty and on_bar
+        treats an empty set as 'no cap' (original behaviour preserved)."""
+        self._selected_entries = set()
+        sleeves = p.get("sleeves")
+        if not sleeves:
+            return  # no cap configured
+
+        for name, spec in sleeves.items():
+            syms = spec.get("symbols") or []
+            size = int(spec.get("size", len(syms)))
+            held = 0
+            candidates: list[tuple[float, str]] = []
+            for sym in syms:
+                sig, _vol, meta = self._compute_signal(sym, None, p)
+                if self._positions.get(sym, 0) > 0:
+                    # Already holding → occupies a slot (kept by on_bar while
+                    # the signal holds; we don't re-enter or exit it here).
+                    held += 1
+                    continue
+                if sig >= 1.0:
+                    conv = float(meta.get("conviction", 0.0)) if meta else 0.0
+                    candidates.append((conv, sym))
+            free = max(0, size - held)
+            candidates.sort(key=lambda t: t[0], reverse=True)
+            chosen = [sym for _conv, sym in candidates[:free]]
+            self._selected_entries.update(chosen)
+            dropped = len(candidates) - len(chosen)
+            self.log_decision(
+                symbol=f"sleeve:{name}", bar_ts=session_date,
+                action="sleeve-selection",
+                reason=(
+                    f"sleeve '{name}': {held} held + {len(chosen)} new = "
+                    f"{held + len(chosen)}/{size} slots; ranked {len(candidates)} "
+                    f"new signals by conviction, dropped {dropped} below the cut "
+                    f"(capital is allocated to the strongest names first)"
+                ),
+                sleeve=name, slots=size, held=held,
+                selected=len(chosen), dropped=dropped,
+            )
+
     def _fetch_df(self, symbol: str, p: dict[str, Any]) -> pd.DataFrame | None:
         """Pluggable data lookup. Tests inject `_data_fn`; production
         falls back to the on-disk cache (no live network call here)."""
@@ -488,10 +573,15 @@ class IchimokuEquityStrategy(Strategy):
     def _compute_signal(
         self,
         symbol: str,
-        bar: Bar,
+        bar: Bar | None,
         p: dict[str, Any],
     ) -> tuple[float, float | None, dict]:
-        """Returns (signal_0_or_1, realised_vol, metadata). Memoised per session."""
+        """Returns (signal_0_or_1, realised_vol, metadata). Memoised per session.
+
+        `bar` is unused (the signal derives entirely from the cached daily
+        history via `_fetch_df`); it stays in the signature for call-site
+        symmetry with `on_bar`, and `_select_entries` passes None at
+        session-start to precompute every symbol's signal + conviction."""
         if symbol in self._daily_signals:
             sig, vol, meta = self._daily_signals[symbol]
             return sig, (vol if vol > 0 else None), meta
@@ -527,6 +617,17 @@ class IchimokuEquityStrategy(Strategy):
             if not self._regime_ok(p):
                 signal = 0.0
                 meta = {**meta, "regime_block": True}
+
+        # Conviction score for top-N ranking: how far the close sits above
+        # the cloud top, as a fraction. Only meaningful for a long signal
+        # (close > cloud_top ⇒ positive); a bigger gap = a more established
+        # trend = higher conviction. Stashed in meta so _select_entries can
+        # rank without recomputing.
+        if signal >= 1.0:
+            cloud_top = meta.get("cloud_top")
+            last_close = float(close.iloc[-1])
+            if cloud_top and cloud_top > 0:
+                meta = {**meta, "conviction": (last_close - float(cloud_top)) / float(cloud_top)}
 
         # Vol for sizing.
         lookback = int(p.get("vol_lookback", 60))

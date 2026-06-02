@@ -222,8 +222,10 @@ def _fetch_universe_symbols(name: str) -> list[str]:
     return out
 
 
-def _resolve_sleeves(spec: str, capital_usd: float) -> tuple[list[str], dict[str, float]]:
-    """Parse '<name>:<size>,...' into (union_symbols, {symbol: capital_per_slot}).
+def _resolve_sleeves(
+    spec: str, capital_usd: float
+) -> tuple[list[str], dict[str, float], dict[str, dict[str, Any]]]:
+    """Parse '<name>:<size>,...' into (union, {symbol: capital_per_slot}, sleeve_map).
 
     Capital splits EQUALLY across sleeves; within a sleeve each name gets
     sleeve_capital/sleeve_size (the trader's 20/30/1). A sleeve name resolves
@@ -231,7 +233,12 @@ def _resolve_sleeves(spec: str, capital_usd: float) -> tuple[list[str], dict[str
     single bare ticker (e.g. GLD). On overlap the FIRST sleeve wins (a name
     can hold only one live position). Fail-loud on a non-404 universe error
     (a real universe that's temporarily unreadable must not silently become a
-    bogus ticker)."""
+    bogus ticker).
+
+    `sleeve_map` is {name: {"symbols": [...], "size": N}} — the membership +
+    slot count the strategy needs for top-N-by-conviction selection. A symbol
+    appears in exactly ONE sleeve (the first that claimed it), so the slot
+    accounting matches the capital map."""
     import requests
     sleeves: list[tuple[str, int]] = []
     for part in spec.split(","):
@@ -244,6 +251,7 @@ def _resolve_sleeves(spec: str, capital_usd: float) -> tuple[list[str], dict[str
     sleeve_capital = capital_usd / len(sleeves)
     union: list[str] = []
     per_cap: dict[str, float] = {}
+    sleeve_map: dict[str, dict[str, Any]] = {}
     for name, size in sleeves:
         try:
             syms = _fetch_universe_symbols(name)
@@ -253,12 +261,15 @@ def _resolve_sleeves(spec: str, capital_usd: float) -> tuple[list[str], dict[str
             else:
                 raise
         per_slot = sleeve_capital / max(1, size)
+        owned: list[str] = []           # names this sleeve actually claims
         for s in syms:
             if s not in per_cap:        # first sleeve wins on overlap
                 per_cap[s] = per_slot
+                owned.append(s)
             if s not in union:
                 union.append(s)
-    return union, per_cap
+        sleeve_map[name] = {"symbols": owned, "size": size}
+    return union, per_cap, sleeve_map
 
 
 def _resolve_symbols(args: argparse.Namespace) -> list[str]:
@@ -267,10 +278,12 @@ def _resolve_symbols(args: argparse.Namespace) -> list[str]:
     per-symbol capital map on args for the strategy. --universe accepts a
     comma-separated list of universes (deduped across overlaps)."""
     if getattr(args, "sleeves", None):
-        syms, per_cap = _resolve_sleeves(args.sleeves, args.capital_usd)
-        args.per_symbol_capital = per_cap  # consumed by _build_strategy
+        syms, per_cap, sleeve_map = _resolve_sleeves(args.sleeves, args.capital_usd)
+        args.per_symbol_capital = per_cap   # consumed by _build_strategy
+        args.sleeves_map = sleeve_map       # drives top-N-by-conviction selection
         return syms
     args.per_symbol_capital = None
+    args.sleeves_map = None
     out: list[str] = []
     if getattr(args, "universe", None):
         for uname in (u.strip() for u in args.universe.split(",") if u.strip()):
@@ -340,6 +353,9 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "sleeve_size": args.sleeve_size,
                 # Per-sleeve capital map from --sleeves (None → flat sizing).
                 "per_symbol_capital": getattr(args, "per_symbol_capital", None),
+                # Per-sleeve membership + slot counts → top-N-by-conviction
+                # selection so held names never exceed capital (None → no cap).
+                "sleeves": getattr(args, "sleeves_map", None),
                 "target_vol": args.target_vol,
                 "max_leverage": args.max_leverage,
                 "use_regime_filter": not args.no_regime_filter,
