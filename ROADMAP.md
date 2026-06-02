@@ -52,9 +52,17 @@ test-backed; live-verified where noted.
 ### ⚠️ Order-trust gaps surfaced (the "how do we KNOW an order is right" thread)
 The audit panel must show: signal → chart → risk gates → LLM/sentiment → real
 fill+slippage. Status after today: **chart ✅, fill price ✅**. Remaining:
-- ⬜ **Cost-basis BACKFILL** — the fill-price fix only helps NEW IG fills; positions
-  filled before it still read avg 0 → no P&L until re-filled or re-synced with a
-  real entry level (IG `/positions.level`). Decide: re-sync avg from IG level.
+- ✅/⬜ **Cost basis — desk P&L RESOLVED; magnitude blocked by mini-lot qty.**
+  Verified 2026-06-02: the FX ledger seed DOES capture cost basis (IG populates
+  `averagePricePaid`, e.g. AUDUSD 0.71828; seed logged "8/8 with cost basis";
+  snapshot shows `avg_entry_price` + `unrealised_pnl`). So the earlier "no FX
+  P&L" was a STALE snapshot, not a missing-cost-basis bug. **The real blocker:
+  IG-MINI positions seed as ±1 (sign only), so unrealised P&L ≈ $0.00006 —
+  correct but invisible.** Fix = convert MINI lots → units via IG per-pair
+  contract size (`/markets/{epic}` lotSize/contractSize). This also corrects the
+  delta/sizing math (strategy currently thinks it holds ±1 unit). ⬜ NEXT for
+  meaningful FX P&L. Separately: OMS-derived avg (audit view) still 0 for
+  pre-fill orders — fixed for NEW fills by the fill-price change.
 - ⬜ **LLM gate not wired** into the paper_session daemons (only `StrategyRunner`
   builds it). Enabling is a DELIBERATE feature call: needs a configured LLM
   provider (`llm.factory.get_provider`) + a decision on advisory-vs-veto.
