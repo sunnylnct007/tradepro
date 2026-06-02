@@ -37,20 +37,17 @@ export type Desk = {
 export const DESKS: Record<DeskId, Desk> = {
   trend: {
     id: "trend",
-    // Friendly desk owner (trader request 2026-06-02). Mr Foyle runs both the
-    // equity (trend) and FX (mean-reversion) books; the broker·asset subtitle
-    // still distinguishes the two cards.
-    trader: "Mr Foyle Desk",
+    trader: "Trend Desk",
     blurb: "Rides established trends in US equities.",
   },
   mean_reversion: {
     id: "mean_reversion",
-    trader: "Mr Foyle Desk",
+    trader: "Mean-Reversion Desk",
     blurb: "Fades stretched moves back toward the mean (equity + FX).",
   },
   intraday: {
     id: "intraday",
-    trader: "Kumar Desk",
+    trader: "Intraday Desk",
     blurb: "Opens and closes within the session — flat by the bell.",
   },
   options: {
@@ -70,6 +67,12 @@ export type AssetClass = "Equity" | "FX" | "Options";
 
 export type StrategyMeta = {
   desk: DeskId;
+  /** Friendly owner label for THIS specific strategy (trader request). Only
+   * the live desks are named (Mr Foyle / Kumar); dormant strategies fall back
+   * to their desk-category name via ownerFor(). Set per-strategy — NOT on the
+   * desk category — so renaming one live desk doesn't sweep in every dormant
+   * strategy that shares its category. */
+  owner?: string;
   /** Indicators the strategy leans on internally. DESCRIPTIVE ONLY —
    * shown so a newcomer understands what's under the hood, not a claim
    * that the indicator is itself a strategy. */
@@ -82,17 +85,21 @@ export type StrategyMeta = {
 
 export const STRATEGY_META: Record<string, StrategyMeta> = {
   // ── Trend Desk ────────────────────────────────────────────────
-  ichimoku_equity: { desk: "trend", indicators: ["Ichimoku Cloud"], assetClass: "Equity", liveBroker: "T212_DEMO" },
+  // ichimoku_equity = the TRADER's (Mr Foyle's) provided equity logic.
+  ichimoku_equity: { desk: "trend", owner: "Mr Foyle Desk", indicators: ["Ichimoku Cloud"], assetClass: "Equity", liveBroker: "T212_DEMO" },
   ma_crossover: { desk: "trend", indicators: ["EMA fast/slow crossover"], assetClass: "Equity", liveBroker: null },
   compass_momentum: { desk: "trend", indicators: ["COMPASS momentum"], assetClass: "Equity", liveBroker: null },
 
   // ── Mean-Reversion Desk ───────────────────────────────────────
-  ichimoku_fx_mr: { desk: "mean_reversion", indicators: ["Ichimoku", "mean reversion"], assetClass: "FX", liveBroker: "IG_DEMO" },
+  // ichimoku_fx_mr = the TRADER's (Mr Foyle's) provided FX logic.
+  ichimoku_fx_mr: { desk: "mean_reversion", owner: "Mr Foyle Desk", indicators: ["Ichimoku", "mean reversion"], assetClass: "FX", liveBroker: "IG_DEMO" },
   vwap_mean_reversion: { desk: "mean_reversion", indicators: ["VWAP fade"], assetClass: "Equity", liveBroker: null },
   bollinger_bounce: { desk: "mean_reversion", indicators: ["Bollinger Bands"], assetClass: "Equity", liveBroker: null },
 
   // ── Intraday Desk ─────────────────────────────────────────────
-  intraday_flat: { desk: "intraday", indicators: ["scanner basket", "EOD flat"], assetClass: "Equity", liveBroker: "IG_DEMO" },
+  // intraday_flat = OUR (Kumar's) own intraday addition, modelled on the
+  // trader's symbol universe. ONLY this strategy is the Kumar Desk.
+  intraday_flat: { desk: "intraday", owner: "Kumar Desk", indicators: ["scanner basket", "EOD flat"], assetClass: "Equity", liveBroker: "IG_DEMO" },
   orb: { desk: "intraday", indicators: ["opening-range breakout"], assetClass: "Equity", liveBroker: null },
   // Long-form alias kept by the registry for back-compat; same desk as orb.
   opening_range_breakout: { desk: "intraday", indicators: ["opening-range breakout"], assetClass: "Equity", liveBroker: null },
@@ -123,6 +130,14 @@ export function metaFor(strategyId: string): StrategyMeta | undefined {
 export function deskFor(strategyId: string): Desk {
   const m = STRATEGY_META[strategyId];
   return m ? DESKS[m.desk] : UNASSIGNED;
+}
+
+/** Friendly owner label for a strategy: its per-strategy `owner` if set (the
+ * named live desks — Mr Foyle / Kumar), else the generic desk-category name.
+ * Use this for display so renaming one live desk never sweeps in the dormant
+ * strategies that merely share its category. */
+export function ownerFor(strategyId: string): string {
+  return STRATEGY_META[strategyId]?.owner ?? deskFor(strategyId).trader;
 }
 
 /** Stable display order for desks in grouped views. */

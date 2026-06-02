@@ -17,7 +17,7 @@
 import { useEffect, useState } from "react";
 import { CockpitCard } from "../CockpitCard";
 import { api } from "../../api/client";
-import { deskFor, executionMode, metaFor } from "../../util/strategyMeta";
+import { executionMode, metaFor, ownerFor } from "../../util/strategyMeta";
 import type { LatestSession } from "../../types/cockpit";
 
 const AMBER = "#f5a623";
@@ -142,7 +142,7 @@ export function StrategyReadinessPanel(
             {items.map((i) => (
               <tr key={i.name} style={{ borderTop: "1px solid var(--border)" }}>
                 <td style={td}><span style={{ fontWeight: 600 }}>{i.name}</span></td>
-                <td style={{ ...td, color: "var(--text-muted)" }}>{i.meta && deskFor(i.name).trader}</td>
+                <td style={{ ...td, color: "var(--text-muted)" }}>{i.meta && ownerFor(i.name)}</td>
                 <td style={td}>
                   <span style={{ fontSize: 10, fontWeight: 700, color: i.mode === "live" ? UP : "#4f8cff" }}>
                     {i.mode === "live" ? "LIVE" : "SIGNAL"}

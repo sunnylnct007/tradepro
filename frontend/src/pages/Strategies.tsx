@@ -25,7 +25,7 @@ import { api } from "../api/client";
 import {
   DESK_ORDER,
   DESKS,
-  deskFor,
+  ownerFor,
   executionMode,
   metaFor,
   STRATEGY_ALIASES,
@@ -587,7 +587,7 @@ function StrategyRow({
           <td colSpan={7} style={{ padding: "10px 14px" }}>
             <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>
               {s.class} · default_lookback_days={s.default_lookback_days ?? 0}
-              {meta && <> · owner: <strong style={{ color: "var(--text-muted)" }}>{deskFor(s.name).trader}</strong></>}
+              {meta && <> · owner: <strong style={{ color: "var(--text-muted)" }}>{ownerFor(s.name)}</strong></>}
               {isOverridden && override && (
                 <> · override: <span style={{ color: "var(--text-muted)" }}>{override.UpdatedBy} at {new Date(override.UpdatedAtUtc).toLocaleString()}</span></>
               )}
