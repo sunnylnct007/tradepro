@@ -82,8 +82,12 @@ public sealed class IGOmsFillPoller : BackgroundService
         // Pull in-flight IG orders (state ∈ SUBMITTED/WORKING) with a
         // non-empty broker_order_id (= dealReference). Filter on the
         // broker prefix to scope to IG_*.
-        var rows = (await conn.QueryAsync<(Guid id, string brokerOrderId, decimal qty)>(@"
-            SELECT id, broker_order_id, qty
+        // Phase F-2 — also pull symbol so the poller can hit /markets/{epic}
+        // for an L1 snapshot right before RecordFill. On IG-routed orders
+        // the OMS symbol IS the epic (see PostgresOmsService.ApproveAsync
+        // comment on `approved.Symbol`).
+        var rows = (await conn.QueryAsync<(Guid id, string brokerOrderId, decimal qty, string symbol)>(@"
+            SELECT id, broker_order_id, qty, symbol
             FROM oms_orders
             WHERE broker LIKE 'IG_%'
               AND state IN ('SUBMITTED', 'WORKING')
@@ -94,7 +98,7 @@ public sealed class IGOmsFillPoller : BackgroundService
         if (rows.Count == 0) return;
         _log.LogDebug("IGOmsFillPoller: polling {Count} in-flight IG orders", rows.Count);
 
-        foreach (var (orderId, dealRef, qty) in rows)
+        foreach (var (orderId, dealRef, qty, epic) in rows)
         {
             if (ct.IsCancellationRequested) return;
             try
@@ -103,6 +107,37 @@ public sealed class IGOmsFillPoller : BackgroundService
                 var s = (confirm.Status ?? "").ToUpperInvariant();
                 if (s == "ACCEPTED")
                 {
+                    // Phase F-2 — fetch L1 snapshot before RecordFill so
+                    // the fill row carries bid/ask/mid for slippage
+                    // analytics. Defensive: on any snapshot failure we
+                    // proceed with the fill — null L1 is strictly better
+                    // than a missed fill. Source tag = "ig_markets" so
+                    // F-3 can compare quote quality across brokers.
+                    FillSnapshot? snapshot = null;
+                    try
+                    {
+                        var snap = await ig.GetMarketSnapshotAsync(epic, ct);
+                        if (snap.Bid is decimal b && snap.Ask is decimal a)
+                        {
+                            snapshot = new FillSnapshot(
+                                Bid: b, Ask: a,
+                                SnapshotAtUtc: DateTime.UtcNow,
+                                Source: "ig_markets");
+                        }
+                        else
+                        {
+                            _log.LogDebug(
+                                "IGOmsFillPoller: no L1 snapshot for {Epic} (status={Status} err={Err}); recording fill without bps",
+                                epic, snap.HttpStatus, snap.Error);
+                        }
+                    }
+                    catch (Exception snapEx)
+                    {
+                        _log.LogWarning(snapEx,
+                            "IGOmsFillPoller: L1 snapshot fetch threw for {Epic}; recording fill without bps",
+                            epic);
+                    }
+
                     // IG returns ACCEPTED on a successful fill. We
                     // don't get per-leg fill price back from /confirms
                     // directly; the level is on the source IGOrderResult
@@ -112,10 +147,12 @@ public sealed class IGOmsFillPoller : BackgroundService
                         orderId, qty: qty, price: 0m, fee: 0m,
                         currency: "GBP",
                         brokerFillId: dealRef,
-                        actor: "poller:IG");
+                        actor: "poller:IG",
+                        snapshot: snapshot);
                     _log.LogInformation(
-                        "IGOmsFillPoller: order {OrderId} FILLED qty={Qty} dealRef={Deal}",
-                        orderId, qty, dealRef);
+                        "IGOmsFillPoller: order {OrderId} FILLED qty={Qty} dealRef={Deal} l1={L1}",
+                        orderId, qty, dealRef,
+                        snapshot is null ? "absent" : $"{snapshot.Bid}/{snapshot.Ask}");
                 }
                 else if (s == "REJECTED")
                 {

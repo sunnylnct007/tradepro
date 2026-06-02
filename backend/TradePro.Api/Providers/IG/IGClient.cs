@@ -507,6 +507,68 @@ public sealed class IGClient
         }
     }
 
+    // ─── Market snapshot (Phase F-2 — fill-quality capture) ───
+    //
+    // GET /markets/{epic} (v3) — returns a `snapshot` block with
+    // top-of-book bid/offer + update timestamp. We use this right
+    // before recording a fill so we can store realised-vs-mid bps
+    // on oms_fills (Phase F-3 builds the empirical slippage model
+    // from these rows).
+    //
+    // Defensive: on any failure (network, parse, market closed) we
+    // return an IGSnapshotResult with bid/ask = null + the error
+    // message + http status, so the caller can fall through to
+    // RecordFill without the snapshot. Recording a fill without a
+    // snapshot is strictly better than refusing to record it.
+    public async Task<IGSnapshotResult> GetMarketSnapshotAsync(
+        string epic, CancellationToken ct = default)
+    {
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"markets/{Uri.EscapeDataString(epic)}",
+                null, version: "3", ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return new IGSnapshotResult(
+                    Bid: null, Ask: null, MarketStatus: null,
+                    UpdateTime: null, Error: text, HttpStatus: (int)resp.StatusCode);
+            }
+            using var doc = JsonDocument.Parse(text);
+            if (!doc.RootElement.TryGetProperty("snapshot", out var snap)
+                || snap.ValueKind != JsonValueKind.Object)
+            {
+                return new IGSnapshotResult(
+                    Bid: null, Ask: null, MarketStatus: null,
+                    UpdateTime: null,
+                    Error: "no snapshot block in response",
+                    HttpStatus: (int)resp.StatusCode);
+            }
+            decimal? bid = snap.TryGetProperty("bid", out var b)
+                && b.ValueKind == JsonValueKind.Number
+                && b.TryGetDecimal(out var bv) ? bv : (decimal?)null;
+            decimal? offer = snap.TryGetProperty("offer", out var o)
+                && o.ValueKind == JsonValueKind.Number
+                && o.TryGetDecimal(out var ov) ? ov : (decimal?)null;
+            string? marketStatus = snap.TryGetProperty("marketStatus", out var ms)
+                ? ms.GetString() : null;
+            string? updateTime = snap.TryGetProperty("updateTime", out var ut)
+                ? ut.GetString() : null;
+            return new IGSnapshotResult(
+                Bid: bid, Ask: offer, MarketStatus: marketStatus,
+                UpdateTime: updateTime, Error: null,
+                HttpStatus: (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IGSnapshotResult(
+                Bid: null, Ask: null, MarketStatus: null,
+                UpdateTime: null, Error: ex.Message, HttpStatus: 0);
+        }
+    }
+
     // ─── Market search ─────────────────────────────────────────
 
     /// <summary>GET /markets?searchTerm=&lt;term&gt; — discover EPICs for a
@@ -721,6 +783,19 @@ public sealed record IGMarketMatch(
 
 public sealed record IGMarketSearchResult(
     IReadOnlyList<IGMarketMatch> Matches,
+    string? Error,
+    int HttpStatus);
+
+// Phase F-2 — top-of-book snapshot, captured around fill time so we
+// can stamp realised-vs-mid bps on oms_fills. Nullable bid/ask let
+// the caller proceed without a snapshot when the market is closed
+// or the fetch threw — recording a fill without bps data is still
+// better than not recording the fill.
+public sealed record IGSnapshotResult(
+    decimal? Bid,
+    decimal? Ask,
+    string? MarketStatus,          // TRADEABLE / EDITS_ONLY / OFFLINE ...
+    string? UpdateTime,            // IG's local timestamp string
     string? Error,
     int HttpStatus);
 

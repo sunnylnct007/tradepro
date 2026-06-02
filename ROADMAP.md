@@ -941,9 +941,14 @@ change between slices.
   interpolates the break-even bps, and classifies the strategy as
   robust / fragile / broken. Answers L2 directly without live fill
   data: "would my strategy survive at 25bps?".
-- **F-2** — Store IG L1 bid/ask snapshot at every fill (`oms_fills`
-  extension). Migration + `RecordFillAsync` extension + IG
-  `/markets/{epic}` snapshot capture before the fill insert.
+- **F-2 ✅ SHIPPED** — Migration 036 extends `oms_fills` with
+  `bid_at_fill / ask_at_fill / mid_at_fill / snapshot_at_utc /
+  snapshot_source`. `IGClient.GetMarketSnapshotAsync` parses the
+  /markets/{epic} `snapshot` block; `IGOmsFillPoller` captures L1
+  before `RecordFillAsync` and passes a `FillSnapshot` through.
+  Defensive on every step — fill recording proceeds with NULL L1
+  when the snapshot fetch fails. Partial index
+  `oms_fills_with_snapshot` keeps F-3 aggregations cheap.
 - **F-3** — Build an empirical slippage model from realised vs
   theoretical fills. Per-symbol bps estimate replaces the hardcoded
   5bp default; sweep auto-anchors rungs around the empirical mean.

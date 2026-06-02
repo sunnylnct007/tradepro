@@ -51,7 +51,14 @@ public interface IOmsService
     Task<IReadOnlyList<Guid>> ExpireUnacceptedAsync(TimeSpan grace, string actor);
 
     /// <summary>Record a fill chunk. Updates filled_qty + avg_fill_price
-    /// on the parent and transitions to PARTIALLY_FILLED or FILLED.</summary>
+    /// on the parent and transitions to PARTIALLY_FILLED or FILLED.
+    /// <para/>
+    /// Phase F-2: optional <paramref name="snapshot"/> captures the L1
+    /// bid/ask the broker advertised right before the fill landed. When
+    /// supplied, columns bid_at_fill / ask_at_fill / mid_at_fill /
+    /// snapshot_at_utc / snapshot_source on oms_fills are populated for
+    /// downstream slippage analytics (Phase F-3). Callers that don't
+    /// have a snapshot (paper engine, T212 today) just pass null.</summary>
     Task<OmsOrder> RecordFillAsync(
         Guid orderId,
         decimal qty,
@@ -59,7 +66,8 @@ public interface IOmsService
         decimal fee,
         string currency,
         string? brokerFillId,
-        string actor);
+        string actor,
+        FillSnapshot? snapshot = null);
 
     /// <summary>Event trail for an order, oldest first.</summary>
     Task<IReadOnlyList<OmsOrderEvent>> ListEventsAsync(Guid orderId);
@@ -71,6 +79,25 @@ public interface IOmsService
     /// ("continuous optimization" — task #28). `strategyId` filters;
     /// null returns positions across every strategy.</summary>
     Task<IReadOnlyList<OmsPosition>> ListPositionsAsync(string? strategyId);
+}
+
+/// <summary>Phase F-2 — L1 snapshot captured around fill time.
+/// <para/>
+/// Stamped on oms_fills so Phase F-3 can compute realised-vs-mid bps
+/// per fill + roll up an empirical slippage model per (symbol,
+/// strategy). All four numeric fields are populated together by the
+/// broker poller; <paramref name="Source"/> is a free-text tag
+/// ("ig_markets", "t212_quote", "lightstreamer") that identifies
+/// the snapshot path so analysts can compare quote quality across
+/// brokers.</summary>
+public sealed record FillSnapshot(
+    decimal Bid,
+    decimal Ask,
+    DateTime SnapshotAtUtc,
+    string Source
+)
+{
+    public decimal Mid => (Bid + Ask) / 2m;
 }
 
 /// <summary>One row of the OMS-derived position view. quantity is

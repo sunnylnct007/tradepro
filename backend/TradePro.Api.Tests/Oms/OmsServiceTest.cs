@@ -146,6 +146,86 @@ public sealed class OmsServiceTest
         Assert.Equal(101.2m, afterFull.AvgFillPrice);
     }
 
+    // ── Phase F-2: L1 snapshot capture on RecordFillAsync ─────────
+
+    [Fact]
+    public async Task RecordFill_with_snapshot_persists_bid_ask_mid()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");
+
+        var snap = new FillSnapshot(
+            Bid: 99.95m, Ask: 100.05m,
+            SnapshotAtUtc: DateTime.UtcNow,
+            Source: "ig_markets");
+        await oms.RecordFillAsync(
+            row.Id, qty: 10m, price: 100m, fee: 0m, currency: "USD",
+            brokerFillId: "f-snap", actor: "broker", snapshot: snap);
+
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        var (bid, ask, mid, source) = await conn.QuerySingleAsync<(
+            decimal? bid, decimal? ask, decimal? mid, string? source)>(@"
+            SELECT bid_at_fill, ask_at_fill, mid_at_fill, snapshot_source
+            FROM oms_fills WHERE broker_fill_id = 'f-snap';");
+        Assert.Equal(99.95m, bid);
+        Assert.Equal(100.05m, ask);
+        Assert.Equal(100.00m, mid);          // (99.95 + 100.05) / 2
+        Assert.Equal("ig_markets", source);
+    }
+
+    [Fact]
+    public async Task RecordFill_without_snapshot_leaves_l1_columns_null()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");
+
+        await oms.RecordFillAsync(
+            row.Id, qty: 10m, price: 100m, fee: 0m, currency: "USD",
+            brokerFillId: "f-nosnap", actor: "broker");
+
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        var (bid, ask, mid) = await conn.QuerySingleAsync<(
+            decimal? bid, decimal? ask, decimal? mid)>(@"
+            SELECT bid_at_fill, ask_at_fill, mid_at_fill
+            FROM oms_fills WHERE broker_fill_id = 'f-nosnap';");
+        Assert.Null(bid);
+        Assert.Null(ask);
+        Assert.Null(mid);
+    }
+
+    [Fact]
+    public async Task RecordFill_partial_with_snapshot_only_stamps_that_chunk()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");
+
+        // First chunk: no snapshot. Second chunk: snapshot. Both rows
+        // exist on oms_fills; only the second carries L1.
+        await oms.RecordFillAsync(
+            row.Id, qty: 4m, price: 100m, fee: 0m, currency: "USD",
+            brokerFillId: "f-partial-1", actor: "broker");
+        var snap = new FillSnapshot(
+            Bid: 102m, Ask: 102.1m,
+            SnapshotAtUtc: DateTime.UtcNow,
+            Source: "ig_markets");
+        await oms.RecordFillAsync(
+            row.Id, qty: 6m, price: 102m, fee: 0m, currency: "USD",
+            brokerFillId: "f-partial-2", actor: "broker", snapshot: snap);
+
+        await using var conn = await _fx.Db.OpenConnectionAsync();
+        var rows = (await conn.QueryAsync<(string brokerFillId, decimal? mid)>(@"
+            SELECT broker_fill_id, mid_at_fill
+            FROM oms_fills
+            WHERE broker_fill_id IN ('f-partial-1', 'f-partial-2')
+            ORDER BY broker_fill_id;")).AsList();
+        Assert.Equal(2, rows.Count);
+        Assert.Null(rows.Single(r => r.brokerFillId == "f-partial-1").mid);
+        Assert.Equal(102.05m, rows.Single(r => r.brokerFillId == "f-partial-2").mid);
+    }
+
     [Fact]
     public async Task CancelAllOpen_only_touches_open_state_orders()
     {
