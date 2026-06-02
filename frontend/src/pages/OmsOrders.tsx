@@ -932,9 +932,15 @@ function SymbolChartSection({ orderSymbol }: { orderSymbol: string }) {
 
 function bareSymbolForChart(symbol: string): string {
   // Strip broker suffixes so we join on the bare ticker:
-  //   AAPL_US_EQ → AAPL
-  //   CS.D.EURUSD.MINI.IP → EURUSD
-  if (symbol.startsWith("CS.D.") || symbol.startsWith("IX.D.")) {
+  //   AAPL_US_EQ          → AAPL    (T212)
+  //   CS.D.EURUSD.MINI.IP → EURUSD  (IG FX)
+  //   UA.D.AVGO.CASH.IP   → AVGO    (IG equity CFD — intraday_flat)
+  // IG epics are <class>.D.<SYM>.<type>.IP for ANY class prefix (CS/IX/UA/
+  // UC/UD/SA/…), so match the general pattern, not specific prefixes — the
+  // old CS.D./IX.D.-only check missed every equity-CFD epic, so intraday
+  // order charts never resolved. Mirrors the backend's epic-stripping in
+  // _parse_broker_position_rows.
+  if (symbol.endsWith(".IP") && symbol.includes(".D.")) {
     const parts = symbol.split(".");
     if (parts.length >= 4) return parts[2].toUpperCase();
   }
