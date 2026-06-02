@@ -48,3 +48,14 @@ Feature: Quant-backtest preflight (Phase D-3 / E migration)
     When the quant preflight runs for asset_class "us_etf" resolution "1d" allowing incomplete data
     Then coverage_complete is false at the top level
     And the combined data_state_hash is still produced
+
+  Scenario: equity-pipeline preflight documents the hibeta exclusion
+    Given a fake preflight that returns
+      | symbol | hash      | coverage_complete |
+      | SPY    | aaa11111  | true              |
+      | AAPL   | bbb22222  | true              |
+      | GLD    | ccc33333  | true              |
+    When the equity-pipeline preflight runs for asset_class "us_etf" resolution "1d"
+    Then the per_symbol_states block carries 3 entries
+    And the preflight_scope lists "benchmark", "large_50", and "gold"
+    And the excluded_from_hash list mentions hibeta
