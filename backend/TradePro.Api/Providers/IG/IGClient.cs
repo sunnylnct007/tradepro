@@ -29,11 +29,10 @@ public sealed class IGClient
     private readonly IGOptions _options;
     private readonly ILogger<IGClient> _log;
 
-    // Session tokens — set after a successful /session call. Both
-    // must be present on every subsequent request.
-    private string? _cst;
-    private string? _xSecurityToken;
-    private readonly SemaphoreSlim _loginLock = new(1, 1);
+    // Session tokens live in a SINGLETON cache shared across every (transient)
+    // IGClient instance — see IGSessionCache. Holding them per-instance made
+    // every request re-login to /session, tripping IG's anti-abuse block.
+    private readonly IGSessionCache _session;
 
     // Per-epic dealing rules cache: (default dealing currency, min deal size).
     // IG rejects orders that send a currencyCode the instrument doesn't
@@ -46,10 +45,12 @@ public sealed class IGClient
     public IGClient(
         HttpClient http,
         IOptions<IGOptions> options,
+        IGSessionCache session,
         ILogger<IGClient> log)
     {
         _http = http;
         _options = options.Value;
+        _session = session;
         _log = log;
         if (_options.IsEnabled)
         {
@@ -72,10 +73,20 @@ public sealed class IGClient
     /// concurrent callers don't all hit /session at once.</summary>
     private async Task LoginAsync(CancellationToken ct)
     {
-        await _loginLock.WaitAsync(ct);
+        await _session.Lock.WaitAsync(ct);
         try
         {
-            if (_cst is not null && _xSecurityToken is not null) return;
+            // Another caller may have logged in while we waited on the lock,
+            // or a still-valid session may already be cached — reuse it.
+            if (_session.IsValid) return;
+            // Back off during the post-failure cooldown so we don't hammer
+            // /session while IG is blocking us (which keeps the block alive).
+            if (!_session.MayAttemptLogin)
+            {
+                throw new InvalidOperationException(
+                    "IG login backing off after a recent failure (cooldown) — "
+                    + "not re-hitting /session yet");
+            }
             var body = new
             {
                 identifier = _options.Username,
@@ -91,24 +102,27 @@ public sealed class IGClient
             if (!resp.IsSuccessStatusCode)
             {
                 var bodyText = await resp.Content.ReadAsStringAsync(ct);
+                _session.RecordFailure();
                 throw new InvalidOperationException(
                     $"IG /session failed {(int)resp.StatusCode}: {bodyText}");
             }
             // IG returns the session tokens in RESPONSE headers, not body.
-            _cst = resp.Headers.TryGetValues("CST", out var cst)
+            var cstVal = resp.Headers.TryGetValues("CST", out var cst)
                 ? cst.FirstOrDefault() : null;
-            _xSecurityToken = resp.Headers.TryGetValues("X-SECURITY-TOKEN", out var xst)
+            var xstVal = resp.Headers.TryGetValues("X-SECURITY-TOKEN", out var xst)
                 ? xst.FirstOrDefault() : null;
-            if (_cst is null || _xSecurityToken is null)
+            if (cstVal is null || xstVal is null)
             {
+                _session.RecordFailure();
                 throw new InvalidOperationException(
                     "IG /session returned 200 but no CST / X-SECURITY-TOKEN headers");
             }
+            _session.Set(cstVal, xstVal);
             _log.LogInformation("IG session established ({Mode})", _options.Mode);
         }
         finally
         {
-            _loginLock.Release();
+            _session.Lock.Release();
         }
     }
 
@@ -120,15 +134,15 @@ public sealed class IGClient
         {
             throw new InvalidOperationException("IG client is disabled — set Mode + creds");
         }
-        if (_cst is null) await LoginAsync(ct);
+        if (!_session.IsValid) await LoginAsync(ct);
 
         async Task<HttpResponseMessage> SendOnce()
         {
             using var req = new HttpRequestMessage(method, path);
             req.Headers.Add("X-IG-API-KEY", _options.ApiKey);
             req.Headers.Add("Version", version);
-            if (_cst is not null) req.Headers.Add("CST", _cst);
-            if (_xSecurityToken is not null) req.Headers.Add("X-SECURITY-TOKEN", _xSecurityToken);
+            if (_session.Cst is not null) req.Headers.Add("CST", _session.Cst);
+            if (_session.XSecurityToken is not null) req.Headers.Add("X-SECURITY-TOKEN", _session.XSecurityToken);
             if (extraHeaders is not null)
                 foreach (var (k, val) in extraHeaders) req.Headers.Add(k, val);
             if (jsonBody is not null) req.Content = JsonContent.Create(jsonBody);
@@ -138,9 +152,8 @@ public sealed class IGClient
         var resp = await SendOnce();
         if (resp.StatusCode == HttpStatusCode.Unauthorized)
         {
-            // Token expired — clear + retry once.
-            _cst = null;
-            _xSecurityToken = null;
+            // Token expired — clear the shared cache + re-login once.
+            _session.Clear();
             resp.Dispose();
             await LoginAsync(ct);
             resp = await SendOnce();

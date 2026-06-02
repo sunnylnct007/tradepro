@@ -123,6 +123,10 @@ builder.Services.AddSingleton<Trading212DemoCashCache>();
 builder.Services
     .AddOptions<TradePro.Api.Providers.IG.IGOptions>()
     .Bind(builder.Configuration.GetSection("IG"));
+// Singleton IG session cache — shared across the transient IGClient
+// instances so we log in to IG ~once per token lifetime (~6h) instead of
+// per request (which tripped IG's anti-abuse 403 block). See IGSessionCache.
+builder.Services.AddSingleton<TradePro.Api.Providers.IG.IGSessionCache>();
 builder.Services.AddHttpClient<TradePro.Api.Providers.IG.IGClient>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
