@@ -1028,6 +1028,12 @@ change between slices.
   `data_state.excluded_from_hash` because the universe is data-
   derived (β-filter runs against fetched series). Honest partial
   trust > pretending full coverage.
+- **D-3/E migration: `tradepro-slippage-sweep` ✅ SHIPPED** —
+  Opt-in `--data-asset` / `--data-resolution` / `--data-api-base` /
+  `--allow-incomplete-data` flags. Preflight runs ONCE before the
+  rungs (same bars feed every rung), stamps the single-symbol hash
+  + `data_state` block on the report, refuses incomplete coverage
+  with the same exit-3 + structured JSON paper_backtest uses.
 - **D-3/E migration: signal_scan** — runs server-side .NET, so its
   preflight belongs in `/api/signals/scan`, not Python. Open.
 
