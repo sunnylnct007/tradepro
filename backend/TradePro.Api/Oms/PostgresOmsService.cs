@@ -287,10 +287,22 @@ public sealed class PostgresOmsService : IOmsService
             var signedQty = approved.Side == "BUY"
                 ? Math.Abs(approved.Qty)
                 : -Math.Abs(approved.Qty);
+            // Harmonise at the placement boundary so MANUAL/external orders
+            // (bare "IBM") reach T212 as "IBM_US_EQ" — strategy orders are
+            // already suffixed, so this is a no-op for them. Without this a
+            // manual SELL is rejected 404 and the operator believes a held
+            // position is flat. See SymbolHarmonization.
+            var brokerSymbol = SymbolHarmonization.ToBrokerTicker(approved.Symbol, "T212_DEMO");
+            if (!string.Equals(brokerSymbol, approved.Symbol, StringComparison.Ordinal))
+            {
+                _log.LogInformation(
+                    "OMS order {OrderId}: harmonised symbol {Bare} -> {Broker} for T212 placement",
+                    approved.Id, approved.Symbol, brokerSymbol);
+            }
             try
             {
                 var result = await t212Demo.PlaceMarketOrderAsync(
-                    approved.Symbol, signedQty, CancellationToken.None);
+                    brokerSymbol, signedQty, CancellationToken.None);
 
                 if (!string.IsNullOrEmpty(result.Error))
                 {

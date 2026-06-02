@@ -248,30 +248,12 @@ public static class TradePlanEndpoints
         return app;
     }
 
-    // T212 expects "AAPL_US_EQ" style for US equities. Our trade plan
-    // emits bare "AAPL" (strategy_decisions.symbol). Translate at the
-    // OMS boundary.
+    // T212 expects "AAPL_US_EQ" style for US equities; our trade plan
+    // emits bare "AAPL". Harmonise at the OMS boundary via the shared
+    // SymbolHarmonization helper (also applied at placement-time for
+    // manual orders) so there is a single source of truth.
     private static string ToBrokerTicker(string symbol, string brokerLabel)
-    {
-        var s = symbol.Trim().ToUpperInvariant();
-        // T212 — already in T212 suffix form (AAPL_US_EQ) or convert.
-        if (brokerLabel.StartsWith("T212", StringComparison.OrdinalIgnoreCase))
-        {
-            if (s.Contains('_')) return s;
-            return s + "_US_EQ";
-        }
-        // IG — uses EPICs like "US.D.AAPL.CASH.IP". For Day-1 the
-        // operator-maintained broker_ticker_map handles the lookup;
-        // here we strip any T212 suffix back to the bare ticker so
-        // the lookup matches. Real mapping comes in the next IG
-        // iteration once we wire broker_ticker_map joins.
-        if (brokerLabel.StartsWith("IG", StringComparison.OrdinalIgnoreCase))
-        {
-            var underscore = s.IndexOf('_');
-            return underscore > 0 ? s[..underscore] : s;
-        }
-        return s;
-    }
+        => TradePro.Api.Oms.SymbolHarmonization.ToBrokerTicker(symbol, brokerLabel);
 
     private static Guid DeterministicGuid(string input)
     {
