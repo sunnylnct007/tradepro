@@ -105,6 +105,32 @@ public sealed class RiskGate
                 }
             }
 
+            // Gate 3c: strategy capital backstop (position-count cap).
+            // A true dollar-notional cap needs a pre-fill price the OMS
+            // doesn't have for market orders, so we cap the number of
+            // concurrent open+pending positions per strategy instead. Under
+            // the fixed-slot sizing model each position is ~capital/slots, so
+            // capping the COUNT caps deployed capital. This is the OMS-level
+            // backstop for the "full universe emitted, too_large_for_capital"
+            // incident: the strategy-side top-N selection is the primary
+            // control; this catches a runaway emission regardless of the
+            // strategy (manual flood, bad config, replay bug). Counts BUYs
+            // only — exits/sells reduce exposure and must never be blocked.
+            if (settings.MaxOpenPositionsPerStrategy > 0
+                && order.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(order.StrategyId))
+            {
+                var openCount = await CountOpenPositionsAsync(order.StrategyId, order.Id);
+                if (openCount >= settings.MaxOpenPositionsPerStrategy)
+                {
+                    failures.Add(new RiskFailure(
+                        "strategy_position_cap",
+                        $"strategy {order.StrategyId} already has {openCount} open/pending "
+                        + $"positions (cap {settings.MaxOpenPositionsPerStrategy}) — capital "
+                        + "backstop; the universe is too large for the configured capital"));
+                }
+            }
+
             // Gate 3b: market hours — never send an order into a CLOSED
             // venue. Spot FX is 24/5; reject FX orders on the weekend
             // regardless of which strategy/path emitted them or what the
@@ -372,6 +398,28 @@ public sealed class RiskGate
             new { strategyId });
     }
 
+    /// <summary>
+    /// Count this strategy's concurrent IN-FLIGHT buy orders — the
+    /// non-terminal orders simultaneously tying up capital. Deliberately
+    /// excludes FILLED: a filled BUY later closed by a SELL is flat, but both
+    /// rows persist, so counting FILLED would inflate over a trading day and
+    /// false-block. The incident this guards against is a single-cycle FLOOD
+    /// (125 PENDING at once), which the in-flight count catches exactly.
+    /// Excludes the order under evaluation (already SUBMITTED when the gate
+    /// runs) so the cap admits exactly N concurrent positions.
+    /// </summary>
+    private async Task<int> CountOpenPositionsAsync(string strategyId, Guid excludeId)
+    {
+        await using var conn = await _db.OpenConnectionAsync();
+        return await conn.ExecuteScalarAsync<int>(@"
+            SELECT COUNT(*) FROM oms_orders
+            WHERE strategy_id = @strategyId
+              AND id <> @excludeId
+              AND side = 'BUY'
+              AND state IN ('PENDING_APPROVAL', 'SUBMITTED', 'WORKING', 'PARTIALLY_FILLED');",
+            new { strategyId, excludeId });
+    }
+
     private async Task<RiskSettings> ReadSettingsAsync()
     {
         await using var conn = await _db.OpenConnectionAsync();
@@ -386,7 +434,8 @@ public sealed class RiskGate
                 'risk_min_free_to_trade_usd',
                 'risk_fail_closed',
                 'risk_sentiment_buy_veto_score',
-                'risk_sentiment_max_age_minutes'
+                'risk_sentiment_max_age_minutes',
+                'risk_max_open_positions_per_strategy'
             );")).ToDictionary(r => r.key, r => r.value_text);
 
         T Parse<T>(string key, T fallback)
@@ -411,7 +460,12 @@ public sealed class RiskGate
             // quality yet — per the paper-eval methodology in
             // project_overnight_risk_options).
             SentimentBuyVetoScore: Parse("risk_sentiment_buy_veto_score", -0.5),
-            SentimentMaxAgeMinutes: Parse("risk_sentiment_max_age_minutes", 60));
+            SentimentMaxAgeMinutes: Parse("risk_sentiment_max_age_minutes", 60),
+            // Capital backstop: max concurrent in-flight BUYs per strategy.
+            // 0 disables (operator opts in, like the other caps). Seeded to 80
+            // in migration 037 — comfortably above the equity sleeves' 51
+            // legitimate slots, so it only ever trips on a runaway emission.
+            MaxOpenPositionsPerStrategy: Parse("risk_max_open_positions_per_strategy", 0));
     }
 
     private async Task<(double score, string classification, double ageMinutes)?>
@@ -502,7 +556,8 @@ public sealed class RiskGate
         double MinFreeToTradeUsd,
         bool FailClosed,
         double SentimentBuyVetoScore,
-        int SentimentMaxAgeMinutes);
+        int SentimentMaxAgeMinutes,
+        int MaxOpenPositionsPerStrategy);
 }
 
 public sealed record RiskFailure(string Gate, string Reason);
