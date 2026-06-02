@@ -934,6 +934,16 @@ change between slices.
   backtest_preflight.py` (`IncompleteDataError`, `PreflightResult`,
   `preflight_data_state`). Reusable by Monte Carlo / scan-replay /
   any future backtest CLI — auto-stamping + hard-block are one call.
+- **D-3/E migration: `tradepro-quant-backtest` ✅ SHIPPED** —
+  Payload now accepts `data_asset / data_resolution /
+  data_api_base / allow_incomplete_data` (CLI flags override). Per-
+  symbol preflight runs before `load_candles`; per-symbol hashes
+  combine into one SHA256 fingerprint stamped on the report. Monte
+  Carlo + ensemble runs now carry the same `data_state_hash` the
+  paper backtest report does, so the D-2 cockpit chip lights up.
+- **D-3/E migration: equity_pipeline + signal_scan** — equity_pipeline
+  is the natural follow-up; signal_scan runs server-side .NET, so
+  its preflight belongs in `/api/signals/scan`, not Python.
 
 **Phase F — Fill-quality + slippage layer**
 - **F-1 ✅ SHIPPED** — `tradepro-slippage-sweep` re-runs a backtest
