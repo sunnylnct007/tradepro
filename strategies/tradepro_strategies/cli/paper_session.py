@@ -116,12 +116,21 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument(
         "--universe", default=None,
         help=(
-            "Named universe to trade (e.g. 'high_beta') — symbols are loaded "
-            "live from /api/universes/<name> (effective tickers after "
-            "overrides) instead of a hardcoded --symbols list. This is the "
-            "trader's dynamic universe: tradepro-build-high-beta-universe "
-            "rebuilds it; the daemon picks up changes without a plist edit. "
-            "Merged with --symbols if both are given."
+            "Named universe(s) to trade, comma-separated (e.g. 'high_beta' or "
+            "'large_50,high_beta'). Symbols load live from /api/universes/<name> "
+            "(effective tickers after overrides) instead of a hardcoded "
+            "--symbols list. Merged with --symbols if both are given."
+        ),
+    )
+    p.add_argument(
+        "--sleeves", default=None,
+        help=(
+            "Trader's MULTI-SLEEVE equity sizing: comma-separated "
+            "'<universe-or-symbol>:<sleeve_size>' (e.g. "
+            "'large_50:20,high_beta:30,GLD:1'). Capital is split EQUALLY across "
+            "sleeves; each name is sized by its sleeve's 1/sleeve_size slot "
+            "(per-sleeve vol-targeted sizing — matches docs/main 4.py). The "
+            "union of sleeve symbols is the universe. Overrides --universe."
         ),
     )
     p.add_argument(
@@ -213,11 +222,55 @@ def _fetch_universe_symbols(name: str) -> list[str]:
     return out
 
 
+def _resolve_sleeves(spec: str, capital_usd: float) -> tuple[list[str], dict[str, float]]:
+    """Parse '<name>:<size>,...' into (union_symbols, {symbol: capital_per_slot}).
+
+    Capital splits EQUALLY across sleeves; within a sleeve each name gets
+    sleeve_capital/sleeve_size (the trader's 20/30/1). A sleeve name resolves
+    to a universe's symbols, or — if there's no such universe (404) — to a
+    single bare ticker (e.g. GLD). On overlap the FIRST sleeve wins (a name
+    can hold only one live position). Fail-loud on a non-404 universe error
+    (a real universe that's temporarily unreadable must not silently become a
+    bogus ticker)."""
+    import requests
+    sleeves: list[tuple[str, int]] = []
+    for part in spec.split(","):
+        name, _, size = part.partition(":")
+        name = name.strip()
+        if name:
+            sleeves.append((name, int(size) if size.strip() else 1))
+    if not sleeves:
+        raise SystemExit(f"ERROR: --sleeves {spec!r} parsed to no sleeves")
+    sleeve_capital = capital_usd / len(sleeves)
+    union: list[str] = []
+    per_cap: dict[str, float] = {}
+    for name, size in sleeves:
+        try:
+            syms = _fetch_universe_symbols(name)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                syms = [name.upper()]   # not a universe → a single ticker (GLD)
+            else:
+                raise
+        per_slot = sleeve_capital / max(1, size)
+        for s in syms:
+            if s not in per_cap:        # first sleeve wins on overlap
+                per_cap[s] = per_slot
+            if s not in union:
+                union.append(s)
+    return union, per_cap
+
+
 def _resolve_symbols(args: argparse.Namespace) -> list[str]:
     """Merge --symbol, --symbols and --universe into a deduplicated list.
-    --universe accepts a comma-separated list of universes so the equity
-    daemon can trade the trader's MULTI-SLEEVE universe in one go
-    (large_50 + high_beta), deduped across overlaps."""
+    --sleeves (if given) wins: it sets the multi-sleeve universe + stashes the
+    per-symbol capital map on args for the strategy. --universe accepts a
+    comma-separated list of universes (deduped across overlaps)."""
+    if getattr(args, "sleeves", None):
+        syms, per_cap = _resolve_sleeves(args.sleeves, args.capital_usd)
+        args.per_symbol_capital = per_cap  # consumed by _build_strategy
+        return syms
+    args.per_symbol_capital = None
     out: list[str] = []
     if getattr(args, "universe", None):
         for uname in (u.strip() for u in args.universe.split(",") if u.strip()):
@@ -285,6 +338,8 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "symbols": symbols,
                 "capital_usd": args.capital_usd,
                 "sleeve_size": args.sleeve_size,
+                # Per-sleeve capital map from --sleeves (None → flat sizing).
+                "per_symbol_capital": getattr(args, "per_symbol_capital", None),
                 "target_vol": args.target_vol,
                 "max_leverage": args.max_leverage,
                 "use_regime_filter": not args.no_regime_filter,

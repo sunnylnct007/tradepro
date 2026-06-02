@@ -99,6 +99,11 @@ class IchimokuEquityStrategy(Strategy):
             "symbols": [],
             "sleeve_size": 20,
             "capital_usd": 100_000.0,
+            # Per-sleeve sizing: {symbol: capital_per_slot}. When set (by the
+            # daemon's --sleeves), a name is sized by ITS sleeve's allocation
+            # (the trader's large/hibeta/gold = 20/30/1, capital split equally
+            # across sleeves) rather than one flat sleeve_size. None → flat.
+            "per_symbol_capital": None,
             "tenkan": 5,
             "kijun": 32,
             "senkou_b": 50,
@@ -274,7 +279,7 @@ class IchimokuEquityStrategy(Strategy):
 
             qty = size_from_vol_target(
                 price=bar.close,
-                capital=p["capital_usd"] / max(1, int(p["sleeve_size"])),
+                capital=self._capital_per_slot(sym, p),
                 target_vol=p["target_vol"],
                 realised_vol=vol,
                 max_leverage=p["max_leverage"],
@@ -443,6 +448,19 @@ class IchimokuEquityStrategy(Strategy):
 
     def _p(self) -> dict[str, Any]:
         return {**self.default_params(), **(self.params or {})}
+
+    def _capital_per_slot(self, sym: str, p: dict[str, Any]) -> float:
+        """Capital allocated to one position before vol-scaling.
+
+        Per-sleeve sizing (the trader's model): when the daemon passes
+        `per_symbol_capital` = {symbol: sleeve_capital/sleeve_size}, each name
+        is sized by ITS sleeve (large/hibeta/gold = 20/30/1, capital split
+        equally across sleeves). Falls back to the flat capital_usd/sleeve_size
+        for any symbol without a per-sleeve allocation (back-compat)."""
+        psc = p.get("per_symbol_capital") or {}
+        if sym in psc:
+            return float(psc[sym])
+        return float(p["capital_usd"]) / max(1, int(p.get("sleeve_size", 20)))
 
     def _fetch_df(self, symbol: str, p: dict[str, Any]) -> pd.DataFrame | None:
         """Pluggable data lookup. Tests inject `_data_fn`; production
