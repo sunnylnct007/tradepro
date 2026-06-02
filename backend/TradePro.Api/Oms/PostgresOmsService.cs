@@ -544,7 +544,8 @@ public sealed class PostgresOmsService : IOmsService
 
     public async Task<OmsOrder> RecordFillAsync(
         Guid orderId, decimal qty, decimal price, decimal fee, string currency,
-        string? brokerFillId, string actor)
+        string? brokerFillId, string actor,
+        FillSnapshot? snapshot = null)
     {
         if (qty <= 0)
             throw new ArgumentException("fill qty must be > 0", nameof(qty));
@@ -581,12 +582,28 @@ public sealed class PostgresOmsService : IOmsService
             throw new InvalidOperationException(
                 $"cannot fill terminal order in state {parent.State}");
 
+        // Phase F-2 — when the caller supplied an L1 snapshot, write the
+        // bid/ask/mid + capture timestamp + source on the fill row. NULL
+        // columns when no snapshot (paper / T212 today).
+        var bidAtFill = snapshot?.Bid;
+        var askAtFill = snapshot?.Ask;
+        var midAtFill = snapshot?.Mid;
+        var snapshotAtUtc = snapshot?.SnapshotAtUtc;
+        var snapshotSource = snapshot?.Source;
         await conn.ExecuteAsync(@"
             INSERT INTO oms_fills
-              (order_id, broker_fill_id, qty, price, fee, currency)
+              (order_id, broker_fill_id, qty, price, fee, currency,
+               bid_at_fill, ask_at_fill, mid_at_fill,
+               snapshot_at_utc, snapshot_source)
             VALUES
-              (@orderId, @brokerFillId, @qty, @price, @fee, @currency);",
-            new { orderId, brokerFillId, qty, price, fee, currency },
+              (@orderId, @brokerFillId, @qty, @price, @fee, @currency,
+               @bidAtFill, @askAtFill, @midAtFill,
+               @snapshotAtUtc, @snapshotSource);",
+            new {
+                orderId, brokerFillId, qty, price, fee, currency,
+                bidAtFill, askAtFill, midAtFill,
+                snapshotAtUtc, snapshotSource,
+            },
             transaction: tx);
 
         var newFilledQty = parent.FilledQty + qty;
