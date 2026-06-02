@@ -76,10 +76,13 @@ unavailability.
 - ✅ Phase B-4 SHIPPED: IG `/prices` provider wired in. Migration 033
   seeds `us_etf 1m` chain to `['yfinance', 'ig']` so the fallback is
   live by default.
-- Phase C: backfill CLI + UI button (Settings panel) lets trade
-  support populate the cache without SSH/CLI.
-- Phase E: refuse to run a backtest whose data is incomplete, with a
-  clear remediation message pointing at the backfill button.
+- ✅ Phase C SHIPPED: backfill CLI + UI button (Settings panel) lets
+  trade support populate the cache without SSH/CLI.
+- ✅ Phase E SHIPPED: `tradepro-paper-backtest --data-asset us_etf`
+  now refuses to run when the data layer reports gaps, returning a
+  structured JSON with the missing sessions and a backfill command.
+  `--allow-incomplete-data` overrides per run; the report carries
+  `coverage_complete=false` so consumers can pivot.
 
 **Mitigation today (post B-4)**:
 - For symbols with IG epics populated: `tradepro-bar-cache-get
@@ -148,15 +151,14 @@ unavailability.
 
 ---
 
-### L4 — Reproducibility is weak (MEDIUM → DOWNGRADED to LOW after Phase D-1)
+### L4 — Reproducibility is weak (MEDIUM → DOWNGRADED to LOW after Phase D-1/D-2/D-3)
 
-**Status update (Phase D-1)**: `BarStore.get()` now stamps every
-`BarFrame` with `data_state_hash` — a SHA256 digest computed
-deterministically from the manifests of the partitions read. Identical
-bars produce identical hashes. The data-layer half of reproducibility
-is solved; what's left is plumbing the hash into backtest result
-envelopes (Phase D-2) so cockpit users can see "this run used the
-same data as the 2024-08 baseline".
+**Status update (Phase D-3)**: `tradepro-paper-backtest --data-asset
+<class>` now auto-stamps `data_state_hash` (and the nested
+`data_state` block) on every report payload — no per-CLI plumbing.
+The backend ingests it (D-2), the cockpit chip lights up green when
+≥2 runs share the hash, and the operator can click the chip to look
+up sibling reports.
 
 **What's true (post D-1)**:
 - yfinance still silently revises historical bars — but any
@@ -186,18 +188,18 @@ same data as the 2024-08 baseline".
 - ✅ Phase D-1 SHIPPED: `data_state_hash` on every `BarFrame`,
   deterministic, order-independent, hashes manifest fields per
   partition.
-- Phase D-2: plumb the hash into backtest result envelopes; result
-  viewer surfaces it; matching hashes are flagged as "reproducible
-  against prior run X".
-- Phase D-3: walk-forward + Monte Carlo carry the hash through
-  every leg so any deviation between sub-runs is auditable.
+- ✅ Phase D-2 SHIPPED: backend ingest + endpoints carry
+  `data_state_hash`; cockpit chip renders colour-coded match status;
+  by-hash lookup endpoint surfaces sibling runs.
+- ✅ Phase D-3 SHIPPED: producer-side auto-stamping via
+  `bar_cache.preflight_data_state`. `tradepro-paper-backtest
+  --data-asset <class>` does it for free; future CLIs (Monte Carlo,
+  scan-replay) reuse the same helper for one-line wiring.
 
-**Mitigation today (post D-1)**:
-- For definitive comparison: capture the `BarFrame.data_state_hash`
-  alongside any backtest output. Matching hashes = same data;
-  different hashes = explanation needed.
-- Until Phase D-2 ships, callers must stash the hash themselves
-  (the field is on every successful `BarStore.get()` result).
+**Mitigation today (post D-3)**:
+- Run with `--data-asset us_etf --data-resolution 1m` to auto-stamp
+  the hash; click the chip in the cockpit to find matching prior
+  runs. No more manual hash stashing.
 
 ---
 

@@ -3,11 +3,23 @@
 Two Claude Code sessions may work on this repo concurrently on the same Mac.
 Read this before starting any work. Update when you start something new.
 
-**Last updated: 2026-05-29**
+**Last updated: 2026-06-01**
 
 ---
 
-## Current branch: feature/bar-cache-phase-d-backtest-envelope  (laneB checkout)
+## Current branch: feature/data-layer-d3-and-e  (laneB checkout)
+
+Phase D-3 (auto-stamp `data_state_hash` on backtest reports) + Phase E
+(refuse to run on incomplete data) combined into a single PR. Adds
+`bar_cache/backtest_preflight.py` with `IncompleteDataError`,
+`PreflightResult`, and `preflight_data_state()`. Wires four flags onto
+`tradepro-paper-backtest`: `--data-asset`, `--data-resolution`,
+`--data-api-base`, `--allow-incomplete-data`. The same preflight helper
+will plug into Monte Carlo + scan-replay CLIs unchanged.
+
+---
+
+## Previously: feature/bar-cache-phase-d-backtest-envelope  (laneB checkout)
 
 Follow-up on the `intraday_flat` strategy (phase-1 shipped in PR #28 /
 commit `6f58920`). Adds overnight-leftover handling + 8 BDD scenarios
