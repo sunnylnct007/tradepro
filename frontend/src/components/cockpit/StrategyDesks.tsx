@@ -239,11 +239,11 @@ function DeskCard({ x, expanded, onToggle, omsNet }: {
                   return (
                     <tr key={`${p.symbol}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
                       <td style={td} title={p.symbol}>{prettySymbol(p.symbol)}</td>
-                      <td style={numTd}>{p.qty}</td>
+                      <td style={numTd}>{fmtQty(p.qty)}</td>
                       <td style={{ ...numTd, color: hasPnl ? ((p.unrlAbs ?? 0) >= 0 ? UP : DOWN) : (p.qty >= 0 ? UP : DOWN) }}>
                         {hasPnl ? fmtSigned(p.unrlAbs ?? 0) : (p.qty >= 0 ? "LONG" : "SHORT")}
                       </td>
-                      <td style={{ ...numTd, color: drift ? AMBER : "var(--text-muted)" }}>{o == null ? "—" : drift ? `⚠ ${o}` : o}</td>
+                      <td style={{ ...numTd, color: drift ? AMBER : "var(--text-muted)" }}>{o == null ? "—" : drift ? `⚠ ${fmtQty(o)}` : fmtQty(o)}</td>
                     </tr>
                   );
                 })}
@@ -267,6 +267,14 @@ function Metric({ label, value, colour, big }: { label: string; value: string; c
 
 function fmtSigned(n: number): string {
   return `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
+}
+
+/** Strip floating-point noise from a quantity for display (e.g. summing OMS
+ *  rows yields 1.0000000000000009). Rounds to 6 dp and drops trailing zeros,
+ *  so whole shares show clean (1) while real fractional shares (6.7022) and
+ *  FX minis (-0.7) survive. */
+function fmtQty(n: number): number {
+  return Number(n.toFixed(6));
 }
 
 /** Net stacked deals into one row per bare symbol (sum qty + P&L). IG opens

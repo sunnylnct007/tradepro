@@ -37,17 +37,20 @@ export type Desk = {
 export const DESKS: Record<DeskId, Desk> = {
   trend: {
     id: "trend",
-    trader: "Trend Desk",
+    // Friendly desk owner (trader request 2026-06-02). Mr Foyle runs both the
+    // equity (trend) and FX (mean-reversion) books; the broker·asset subtitle
+    // still distinguishes the two cards.
+    trader: "Mr Foyle Desk",
     blurb: "Rides established trends in US equities.",
   },
   mean_reversion: {
     id: "mean_reversion",
-    trader: "Mean-Reversion Desk",
+    trader: "Mr Foyle Desk",
     blurb: "Fades stretched moves back toward the mean (equity + FX).",
   },
   intraday: {
     id: "intraday",
-    trader: "Intraday Desk",
+    trader: "Kumar Desk",
     blurb: "Opens and closes within the session — flat by the bell.",
   },
   options: {
