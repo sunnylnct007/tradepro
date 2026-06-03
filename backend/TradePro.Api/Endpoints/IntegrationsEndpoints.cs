@@ -384,6 +384,41 @@ public static class IntegrationsEndpoints
         });
 
         // GET /api/integrations/ig/status — IG broker connectivity check.
+        // GET /api/integrations/ig/history?days=7 — REALISED P&L from IG's own
+        // closed-deal history (golden source; nets spread + financing). Answers
+        // "what did we make on each day" — which the OMS can't (pre-2026-06-02
+        // IG fills were booked at price 0). Returns per-day totals + the raw
+        // transactions. `reference` maps to OMS broker_order_id for a future
+        // per-strategy split.
+        app.MapGet("/integrations/ig/history", async (
+            int? days,
+            TradePro.Api.Providers.IG.IGClient ig,
+            CancellationToken ct) =>
+        {
+            if (!ig.IsEnabled)
+                return Results.Ok(new { enabled = false, byDay = Array.Empty<object>(), transactions = Array.Empty<object>() });
+            var to = DateOnly.FromDateTime(DateTime.UtcNow);
+            var from = to.AddDays(-Math.Clamp(days ?? 7, 1, 90));
+            var hist = await ig.GetTransactionHistoryAsync(from, to, ct);
+            // Realised P&L per UTC date (only rows that carry a P&L).
+            var byDay = hist.Transactions
+                .Where(t => t.Date is not null)
+                .GroupBy(t => t.Date!.Length >= 10 ? t.Date![..10] : t.Date!)
+                .Select(g => new { date = g.Key, realised = g.Sum(t => t.ProfitAndLoss), trades = g.Count() })
+                .OrderBy(x => x.date)
+                .ToArray();
+            return Results.Ok(new
+            {
+                enabled = true,
+                from = from.ToString("yyyy-MM-dd"),
+                to = to.ToString("yyyy-MM-dd"),
+                totalRealised = hist.Transactions.Sum(t => t.ProfitAndLoss),
+                byDay,
+                transactions = hist.Transactions.Take(200),
+                error = hist.Error,
+            });
+        });
+
         app.MapGet("/integrations/ig/status", async (
             TradePro.Api.Providers.IG.IGClient ig,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IG.IGOptions> opts,

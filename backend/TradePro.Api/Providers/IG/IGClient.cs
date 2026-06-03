@@ -538,6 +538,59 @@ public sealed class IGClient
         }
     }
 
+    /// <summary>
+    /// GET /history/transactions — IG's own CLOSED-deal P&L (realised, net of
+    /// spread + financing). This is the golden source for "what did we make on
+    /// date X" — our OMS can't answer it (pre-2026-06-02 IG fills were booked
+    /// at price 0). Each transaction's `profitAndLoss` is a money STRING like
+    /// "£12.34" / "-E5.00"; ParseIgMoney strips the currency symbol.
+    /// </summary>
+    public async Task<IGHistoryResult> GetTransactionHistoryAsync(
+        DateOnly from, DateOnly to, CancellationToken ct = default)
+    {
+        try
+        {
+            var path = $"history/transactions?from={from:yyyy-MM-dd}T00:00:00"
+                       + $"&to={to:yyyy-MM-dd}T23:59:59&pageSize=0";
+            using var resp = await SendWithAuthAsync(HttpMethod.Get, path, null, version: "2", ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IGHistoryResult(Array.Empty<IGTransaction>(), text, (int)resp.StatusCode);
+            using var doc = JsonDocument.Parse(text);
+            var txns = new List<IGTransaction>();
+            if (doc.RootElement.TryGetProperty("transactions", out var arr)
+                && arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in arr.EnumerateArray())
+                {
+                    string? Str(string k) => t.TryGetProperty(k, out var v) ? v.GetString() : null;
+                    txns.Add(new IGTransaction(
+                        Date: Str("dateUtc") ?? Str("date"),
+                        Instrument: Str("instrumentName"),
+                        Type: Str("transactionType"),
+                        Reference: Str("reference"),
+                        ProfitAndLoss: ParseIgMoney(Str("profitAndLoss")),
+                        RawProfitAndLoss: Str("profitAndLoss")));
+                }
+            }
+            return new IGHistoryResult(txns, null, (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IGHistoryResult(Array.Empty<IGTransaction>(), ex.Message, 0);
+        }
+    }
+
+    /// <summary>Parse IG's money strings ("£12.34", "-E5.00", "1,234.5") to a
+    /// decimal — keep digits, sign and point; drop the currency symbol/commas.</summary>
+    internal static decimal ParseIgMoney(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return 0m;
+        var cleaned = new string(s.Where(ch => char.IsDigit(ch) || ch == '-' || ch == '.').ToArray());
+        return decimal.TryParse(cleaned, System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0m;
+    }
+
     // ─── Market snapshot (Phase F-2 — fill-quality capture) ───
     //
     // GET /markets/{epic} (v3) — returns a `snapshot` block with
@@ -888,6 +941,19 @@ public sealed record IGCashResult(
     int HttpStatus,
     decimal? ProfitLoss = null,   // IG's OWN running account P&L (open positions) — golden source
     decimal? Deposit = null);     // net deposited; net-since-start = (balance + profitLoss) − deposit
+
+public sealed record IGTransaction(
+    string? Date,
+    string? Instrument,
+    string? Type,
+    string? Reference,            // deal reference → maps to OMS broker_order_id → strategy
+    decimal ProfitAndLoss,        // realised P&L, currency symbol stripped
+    string? RawProfitAndLoss);
+
+public sealed record IGHistoryResult(
+    IReadOnlyList<IGTransaction> Transactions,
+    string? Error,
+    int HttpStatus);
 
 public sealed record IGMarketMatch(
     string Epic,
