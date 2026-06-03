@@ -30,6 +30,36 @@ type FigureLike = {
   config?: unknown;
 };
 
+// plotly.js-basic-dist ships only scatter/bar/pie/etc — it does NOT include
+// the `candlestick` / `ohlc` finance modules. When a figure hands us a
+// candlestick (our Ichimoku charts use one for the price), the basic build
+// can't process its open/high/low/close (worse: it can't decode the binary
+// {dtype,bdata} typed arrays for an unregistered trace), so the price fails
+// to render AND the y-axis auto-ranges off garbage — the "weird green
+// diagonal at the bottom" bug. Down-convert any candlestick/ohlc to a clean
+// scatter line on `close` so it renders correctly without bloating the bundle
+// with the full finance dist.
+function normaliseTraces(data: unknown[]): unknown[] {
+  return data.map((trace) => {
+    if (!trace || typeof trace !== "object") return trace;
+    const t = trace as Record<string, unknown>;
+    if (t.type !== "candlestick" && t.type !== "ohlc") return trace;
+    const inc = (t.increasing as Record<string, unknown> | undefined)?.line as
+      | Record<string, unknown>
+      | undefined;
+    const colour = (inc?.color as string) ?? "#06A77D";
+    return {
+      type: "scatter",
+      mode: "lines",
+      x: t.x,
+      y: t.close,                // close series — typed-array safe in basic-dist
+      name: t.name ?? "Price",
+      line: { color: colour, width: 1.5 },
+      hovertemplate: t.hovertemplate,
+    };
+  });
+}
+
 export function PlotlyChart({
   figure,
   className,
@@ -66,7 +96,7 @@ export function PlotlyChart({
         }
       >
         <Plot
-          data={(fig as Record<string, unknown>).data as unknown[]}
+          data={normaliseTraces((fig as Record<string, unknown>).data as unknown[])}
           layout={
             ((fig as Record<string, unknown>).layout as Record<string, unknown>) ?? {}
           }
