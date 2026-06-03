@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Iterable
@@ -84,6 +85,11 @@ class Engine:
     risk: RiskService = field(default_factory=RiskService)
     ledger: Ledger = field(default_factory=Ledger)
     registrations: dict[str, StrategyRegistration] = field(default_factory=dict)
+    # Recent risk-gate rejections per strategy, surfaced in the snapshot so the
+    # UI isn't blind to locally-blocked orders (e.g. an FX book 100%-rejected by
+    # max_position_value never reached the OMS, so nothing flagged it). One
+    # bounded deque per strategy_id; attached to the snapshot each build.
+    _rejections: dict[str, deque] = field(default_factory=dict)
     # Bounded queues force back-pressure: the bus can't pump bar N+1
     # until consumers have pulled bar N. Without this, asyncio queues
     # are unbounded and put() doesn't yield, so strategy_consumer
@@ -250,6 +256,7 @@ class Engine:
         self.attach_decisions(snapshot)
         self.attach_bars(snapshot)
         self.attach_charts(snapshot)
+        self.attach_rejections(snapshot)
         return snapshot
 
     def attach_decisions(self, snapshot: dict, *, limit: int = 50) -> None:
@@ -265,6 +272,17 @@ class Engine:
                 entry["decisions"] = []
                 continue
             entry["decisions"] = reg.strategy.recent_decisions(limit=limit)
+
+    def attach_rejections(self, snapshot: dict, *, limit: int = 50) -> None:
+        """Inject each strategy's recent risk-gate rejections into the snapshot
+        so the UI can show locally-blocked orders. Without this an entire desk
+        can be 100%-rejected by the gate (e.g. max_position_value) and every
+        surface looks normal — the order never reached the OMS to be flagged.
+        Same re-apply rule as attach_decisions."""
+        for entry in snapshot.get("strategies", []):
+            sid = entry.get("strategy_id")
+            rej = self._rejections.get(sid)
+            entry["recent_rejections"] = list(rej)[-limit:] if rej else []
 
     def attach_bars(self, snapshot: dict, *, limit: int = 300) -> None:
         """Inject each strategy's recently-seen bars into the snapshot
@@ -489,6 +507,15 @@ class Engine:
                 "order rejected · strategy=%s · symbol=%s · code=%s · %s",
                 msg.order.strategy_id, msg.order.symbol, msg.code, msg.reason,
             )
+            # Record for the snapshot so the UI surfaces locally-blocked orders.
+            sid = msg.order.strategy_id
+            self._rejections.setdefault(sid, deque(maxlen=100)).append({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "symbol": msg.order.symbol,
+                "side": getattr(msg.order.side, "value", str(msg.order.side)),
+                "code": msg.code,
+                "reason": msg.reason,
+            })
 
     # ----- Helpers for risk / fills --------------------------------
 

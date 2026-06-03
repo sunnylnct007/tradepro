@@ -619,6 +619,7 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
         engine.attach_decisions(snap)
         engine.attach_bars(snap)
         engine.attach_charts(snap)
+        engine.attach_rejections(snap)
         by_sid: dict[str, dict] = {
             entry.get("strategy_id"): entry
             for entry in (snap.get("strategies") or [])

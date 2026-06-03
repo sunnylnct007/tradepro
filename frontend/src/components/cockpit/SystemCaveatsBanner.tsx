@@ -48,6 +48,13 @@ function prettifyReason(raw: string | null | undefined): string {
   if (/market[_\s]?closed/i.test(s)) return "market closed";
   if (/buying_power_floor/.test(s)) return "below buying-power floor (gate)";
   if (/broker_capability/.test(s)) return "broker can't trade this instrument";
+  // Local engine risk-gate codes (never reach the OMS).
+  if (/max_position_value/.test(s)) return "position-value cap (risk gate)";
+  if (/max_position_pct/.test(s)) return "position-% cap (risk gate)";
+  if (/position_cap|strategy_position_cap/.test(s)) return "position-count cap (risk gate)";
+  if (/short_disallowed/.test(s)) return "short blocked (long-only)";
+  if (/halted/.test(s)) return "strategy halted (risk gate)";
+  if (/entity-not-found|does not exist|Ticker does not exist/i.test(s)) return "unknown ticker at broker";
   // Generic /api-errors/<type> → humanise the type token.
   const m = s.match(/api-errors\/([a-z-]+)/i);
   if (m) return m[1].replace(/-/g, " ");
@@ -162,6 +169,46 @@ export function SystemCaveatsBanner() {
       }
     } catch {
       /* OMS unreachable — the provider caveat above already covers connectivity */
+    }
+
+    // ── Local risk-gate rejections (invisible to the OMS) ──────────────
+    // A strategy's order can be killed by the Mac engine's LOCAL risk gate
+    // (e.g. max_position_value) BEFORE it ever reaches the OMS — so the OMS
+    // block above can't see it and an entire desk can be 100%-blocked while
+    // every other surface looks fine. The snapshot now carries
+    // recent_rejections; surface today's per strategy with the reason.
+    try {
+      const snaps = await api.paperSnapshots();
+      const today = new Date().toISOString().slice(0, 10);
+      const live = snaps.filter((s) => (s.sessionLabel || "").endsWith(today));
+      const details = await Promise.all(
+        live.map((s) =>
+          api.paperSnapshot(s.sessionLabel).then((d) => d).catch(() => null)),
+      );
+      for (const d of details) {
+        const strategies = ((d as Record<string, unknown> | null)?.strategies ?? []) as Array<{
+          strategy_id?: string;
+          recent_rejections?: Array<{ ts?: string; code?: string; reason?: string; symbol?: string }>;
+        }>;
+        for (const st of strategies) {
+          const todays = (st.recent_rejections ?? []).filter((r) => (r.ts || "").slice(0, 10) === today);
+          if (todays.length === 0) continue;
+          const byCode = new Map<string, number>();
+          for (const r of todays) {
+            const c = prettifyReason(r.code || r.reason);
+            byCode.set(c, (byCode.get(c) ?? 0) + 1);
+          }
+          const ranked = [...byCode.entries()].sort((a, b) => b[1] - a[1]);
+          const summary = ranked.map(([c, n]) => `${n}× ${c}`).join(" · ");
+          found.push({
+            sev: "red",
+            title: `${st.strategy_id}: ${todays.length} order${todays.length === 1 ? "" : "s"} blocked by the risk gate today`,
+            detail: `${summary}. These were rejected LOCALLY (never reached the broker), so the desk can look idle while it's actually 100% blocked. Fix the gate/sizing or the symbol mapping.`,
+          });
+        }
+      }
+    } catch {
+      /* snapshots unreachable — non-fatal, the other caveats still render */
     }
 
     setCaveats(found);

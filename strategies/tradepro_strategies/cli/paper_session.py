@@ -864,6 +864,7 @@ def main(argv: list[str] | None = None) -> int:
     engine.attach_decisions(snapshot)
     engine.attach_bars(snapshot)
     engine.attach_charts(snapshot)
+    engine.attach_rejections(snapshot)
     snapshot["kind"] = "paper-snapshot"
     snapshot["session_label"] = (
         f"{args.strategy}-{(session_date or datetime.utcnow()).date().isoformat()}"
