@@ -425,8 +425,16 @@ export function Strategies() {
                     <Td>{sess.claimed_by || "—"}</Td>
                     <Td>
                       {sess.result_summary
-                        ? <code style={codeStyle}>
-                            {JSON.stringify(sess.result_summary).slice(0, 120)}
+                        ? <code
+                            style={{
+                              ...codeStyle,
+                              display: "block", maxWidth: 320,
+                              whiteSpace: "nowrap", overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                            title={JSON.stringify(sess.result_summary, null, 2)}
+                          >
+                            {JSON.stringify(sess.result_summary)}
                           </code>
                         : "—"}
                     </Td>
