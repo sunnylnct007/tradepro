@@ -30,6 +30,7 @@ import { api } from "../../api/client";
 import type { LatestSession, T212PosResp } from "../../types/cockpit";
 import { bareSymbol, prettySymbol, productOf } from "../../util/brokerSymbols";
 import { buildChartBySymbol } from "../../util/chartBySymbol";
+import { fmtQty } from "../../util/numbers";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
 type OmsPositions = Awaited<ReturnType<typeof api.omsPositions>>;
@@ -498,9 +499,10 @@ function ProductSection({ title, loading, error, connected, empty, notConnected,
 function DriftCell({ broker, oms }: { broker: number; oms: number | null }) {
   if (oms == null) return <td style={{ ...numTd, color: "var(--text-muted)" }}>—</td>;
   const drift = Math.round(oms) !== Math.round(broker);
+  const shown = fmtQty(oms);  // strip float noise (1.0000000000000007 → 1)
   return (
     <td style={{ ...numTd, color: drift ? AMBER : "var(--text-muted)" }} title={drift ? "OMS disagrees with broker" : "matches broker"}>
-      {drift ? `⚠ ${oms}` : oms}
+      {drift ? `⚠ ${shown}` : shown}
     </td>
   );
 }

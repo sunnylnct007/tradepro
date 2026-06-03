@@ -23,6 +23,7 @@ import type { T212PosResp } from "../../types/cockpit";
 import { bareSymbol, exchangeOf, prettySymbol, productOf } from "../../util/brokerSymbols";
 import { ownerFor } from "../../util/strategyMeta";
 import { deskHelp } from "../../util/deskHelp";
+import { fmtQty } from "../../util/numbers";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
 type OmsPositions = Awaited<ReturnType<typeof api.omsPositions>>;
@@ -322,9 +323,6 @@ function fmtSigned(n: number): string {
  *  rows yields 1.0000000000000009). Rounds to 6 dp and drops trailing zeros,
  *  so whole shares show clean (1) while real fractional shares (6.7022) and
  *  FX minis (-0.7) survive. */
-function fmtQty(n: number): number {
-  return Number(n.toFixed(6));
-}
 
 /** Net stacked deals into one row per bare symbol (sum qty + P&L). IG opens
  * a separate deal per order, so a pair shows many rows whose real position
