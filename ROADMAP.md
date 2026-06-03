@@ -13,6 +13,49 @@ those assumptions change.
 
 ---
 
+## SESSION STATE — 2026-06-03 (Wednesday — realised-P&L "show it" + per-desk attribution + help)
+
+Theme: make the app HONESTLY say whether it's making money, per desk, from
+the golden source — and explain each desk end-to-end.
+
+### ✅ Shipped + verified today (all on `main`, deployed to EC2)
+- **Broker-realised P&L strip** on the P&L card. Closed-deal P&L from IG
+  `/history/transactions` (nets spread + financing/admin fees) — the open-MTM
+  curve can't show this. Per-day chips + 7-day total. `/api/integrations/ig/history`.
+- **60s cache + stale-fallback** on that endpoint. IG demo tripped
+  `exceeded-api-key-allowance` (returns enabled:true + empty) under cockpit
+  polling; we now serve the last GOOD payload instead of flashing blank, and
+  never cache an errored/empty response. Guards IG anti-abuse.
+- **Per-desk split** of IG realised P&L (asset-class attribution). The OMS
+  holds ZERO IG fills, so attribution comes from the golden source: tag each
+  transaction FX vs EQUITY off the instrument, map asset-class → IG strategy
+  via `strategy_broker_map` + emitted symbols (config-driven, not hardcoded).
+  **Verified 7-day: Kumar/intraday_flat EQUITY −£1,859.94 (264 trades);
+  Mr Foyle/ichimoku_fx_mr FX +£168.01 (70 trades); total −£1,691.93.**
+  → the loss is intraday EQUITY churn, NOT FX financing as first assumed.
+- **Per-desk (?) help icon** — detailed end-to-end explainer (what it trades,
+  signal logic, gates, P&L sources, caveats), grounded in the strategy source.
+
+### 🔴 Surfaced today — OMS↔IG fill link is BROKEN (new debt)
+- `fills` table has **zero** rows. All 579 `orders` are tagged `broker=t212`,
+  including the 575 `ichimoku_fx_mr` rows that actually route to IG (stale tag
+  from the FX→IG migration). `intraday_flat` has **no** OMS orders at all.
+- Consequence: the OMS cannot attribute IG P&L or even confirm IG fills.
+  IGOmsFillPoller isn't writing fills + the broker tag on orders is wrong.
+- Until reconciled, IG truth = IG transactions, never the OMS. See memory
+  `project_oms_no_ig_fills`.
+
+### ⬜ Still queued
+- ROOT fix: stop capturing cost-basis-0 P&L points + purge historical garbage
+  (currently masked by a client-side >£15k filter).
+- OMS↔IG reconcile (record IG fills; correct the broker tag on orders).
+- Symbol-click → 404 (session-detail lookup vs /api/paper/snapshots mismatch).
+- Sentiment LLM: AWS can't reach Mac-local Ollama → Claude Sonnet (cloud) + a
+  news source. Options strategy scheduling. IBKR adapter (low-pri, creds in).
+  Risk module + LLM overlay (the "next big thing").
+
+---
+
 ## SESSION STATE — 2026-06-02 (Tuesday — replay-trade fix landed + order-trust sprint)
 
 The day's theme: turn the 2026-06-01 "FOUNDATION DEBT — replay-trade model"
