@@ -515,11 +515,22 @@ public sealed class IGClient
             var balance = bal.ValueKind == JsonValueKind.Object
                           && bal.TryGetProperty("balance", out var bv)
                 ? bv.GetDecimal() : (decimal?)null;
+            // IG reports its OWN account P&L + net deposit in the same block —
+            // golden source for "are we making money", no derivation needed.
+            var profitLoss = bal.ValueKind == JsonValueKind.Object
+                             && bal.TryGetProperty("profitLoss", out var pl)
+                             && pl.ValueKind == JsonValueKind.Number
+                ? pl.GetDecimal() : (decimal?)null;
+            var deposit = bal.ValueKind == JsonValueKind.Object
+                          && bal.TryGetProperty("deposit", out var dp)
+                          && dp.ValueKind == JsonValueKind.Number
+                ? dp.GetDecimal() : (decimal?)null;
             var currency = target.Value.TryGetProperty("currency", out var c) ? c.GetString() : null;
             return new IGCashResult(
                 Available: available, Balance: balance,
                 Currency: currency, Error: null,
-                HttpStatus: (int)resp.StatusCode);
+                HttpStatus: (int)resp.StatusCode,
+                ProfitLoss: profitLoss, Deposit: deposit);
         }
         catch (Exception ex)
         {
@@ -874,7 +885,9 @@ public sealed record IGCashResult(
     decimal? Balance,
     string? Currency,
     string? Error,
-    int HttpStatus);
+    int HttpStatus,
+    decimal? ProfitLoss = null,   // IG's OWN running account P&L (open positions) — golden source
+    decimal? Deposit = null);     // net deposited; net-since-start = (balance + profitLoss) − deposit
 
 public sealed record IGMarketMatch(
     string Epic,
