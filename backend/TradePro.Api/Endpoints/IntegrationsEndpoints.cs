@@ -1,4 +1,7 @@
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
+using Dapper;
+using Npgsql;
 using TradePro.Api.Providers.Finnhub;
 using TradePro.Api.Providers.Trading212;
 
@@ -15,6 +18,33 @@ public static class IntegrationsEndpoints
     // an empty strip. See memory: IG anti-abuse / broker-session caching.
     private static readonly ConcurrentDictionary<int, (DateTime At, object Payload)> _igHistoryCache = new();
     private static readonly TimeSpan _igHistoryTtl = TimeSpan.FromSeconds(60);
+
+    // ISO-4217 codes for the currencies our FX sleeves trade. Reference data
+    // (not strategy config) — used purely to recognise a currency-pair shape
+    // like "EURUSD" or "AUD/USD Mini" so a transaction can be tagged FX.
+    private static readonly HashSet<string> _iso4217 = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "USD","EUR","GBP","JPY","CHF","AUD","NZD","CAD","SEK","NOK","DKK",
+        "SGD","HKD","ZAR","MXN","PLN","CZK","HUF","TRY","CNH",
+    };
+
+    // Asset class of an IG instrument NAME / description or a trading symbol.
+    // Currency-pair shapes → "FX"; anything else with text → "EQUITY"; empty
+    // → null (unattributed). This reads the instrument as broker data — the
+    // same spirit as the frontend's exchangeOf() — it is NOT a hardcoded
+    // strategy→class map. Catches both deals ("AUD/USD Mini") and the fee
+    // rows whose description embeds the pair ("…FX Interest…AUD/USD Mini…").
+    internal static string? AssetClassOf(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        var u = s.ToUpperInvariant();
+        if (Regex.IsMatch(u, @"\b[A-Z]{3}/[A-Z]{3}\b")) return "FX";
+        var first = u.Split(' ', '\t', '-')[0];
+        if (Regex.IsMatch(first, @"^[A-Z]{6}$")
+            && _iso4217.Contains(first[..3]) && _iso4217.Contains(first[3..]))
+            return "FX";
+        return "EQUITY";
+    }
 
     public static IEndpointRouteBuilder MapIntegrationsEndpoints(this IEndpointRouteBuilder app)
     {
@@ -398,12 +428,22 @@ public static class IntegrationsEndpoints
         // GET /api/integrations/ig/history?days=7 — REALISED P&L from IG's own
         // closed-deal history (golden source; nets spread + financing). Answers
         // "what did we make on each day" — which the OMS can't (pre-2026-06-02
-        // IG fills were booked at price 0). Returns per-day totals + the raw
-        // transactions. `reference` maps to OMS broker_order_id for a future
-        // per-strategy split.
+        // IG fills were booked at price 0; today the OMS holds ZERO IG fills).
+        // Returns per-day totals, a per-STRATEGY split, and the raw transactions.
+        //
+        // Per-strategy attribution (the OMS can't help — it has no IG fills):
+        //   1. read which strategies route to IG from strategy_broker_map,
+        //   2. tag each transaction with an asset class from its instrument
+        //      (FX vs EQUITY — broker data, not a hardcoded strategy map),
+        //   3. derive each IG strategy's asset class from the symbols it has
+        //      actually emitted (orders table); the lone IG strategy with no
+        //      derivable symbols absorbs the remaining asset class.
+        // This is config-driven: add an IG strategy and it attributes itself
+        // as soon as it emits a recognisable symbol.
         app.MapGet("/integrations/ig/history", async (
             int? days,
             TradePro.Api.Providers.IG.IGClient ig,
+            NpgsqlDataSource db,
             CancellationToken ct) =>
         {
             if (!ig.IsEnabled)
@@ -434,6 +474,64 @@ public static class IntegrationsEndpoints
                 .Select(g => new { date = g.Key, realised = g.Sum(t => t.ProfitAndLoss), trades = g.Count() })
                 .OrderBy(x => x.date)
                 .ToArray();
+
+            // ── per-strategy attribution ──────────────────────────────
+            // assetClass → owning IG strategy. Built from config + emitted
+            // symbols; never from a hardcoded strategy list.
+            var classToStrategy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                await using var conn = await db.OpenConnectionAsync(ct);
+                // Strategies that route to an IG broker (config-driven).
+                var igStrategies = (await conn.QueryAsync<string>(
+                    "SELECT strategy_id FROM strategy_broker_map WHERE broker ILIKE 'IG%'"))
+                    .ToList();
+                // Each IG strategy's asset classes, derived from the distinct
+                // symbols it has emitted (e.g. EURUSD → FX). Strategies that
+                // have emitted nothing recognisable stay "unknown".
+                var derived = new Dictionary<string, HashSet<string>>();
+                foreach (var sid in igStrategies)
+                {
+                    var syms = await conn.QueryAsync<string>(
+                        "SELECT DISTINCT symbol FROM orders WHERE strategy_name = @sid", new { sid });
+                    var classes = syms.Select(AssetClassOf).Where(c => c is not null)
+                        .Select(c => c!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    derived[sid] = classes;
+                    foreach (var c in classes)
+                        classToStrategy.TryAdd(c, sid);  // first claimant wins
+                }
+                // The lone IG strategy with no derivable symbols absorbs every
+                // asset class no symbol-derived strategy claimed (here:
+                // intraday_flat → EQUITY, since it has no OMS fills/orders).
+                var unknownStrategies = derived.Where(kv => kv.Value.Count == 0)
+                    .Select(kv => kv.Key).ToList();
+                var seenClasses = hist.Transactions.Select(t => AssetClassOf(t.Instrument))
+                    .Where(c => c is not null).Select(c => c!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var unclaimed = seenClasses.Where(c => !classToStrategy.ContainsKey(c)).ToList();
+                if (unknownStrategies.Count == 1)
+                    foreach (var c in unclaimed) classToStrategy.TryAdd(c, unknownStrategies[0]);
+            }
+            catch { /* attribution is best-effort; byDay/total still ship */ }
+
+            string? StrategyFor(string? instrument)
+            {
+                var cls = AssetClassOf(instrument);
+                return cls is not null && classToStrategy.TryGetValue(cls, out var sid) ? sid : null;
+            }
+
+            var byStrategy = hist.Transactions
+                .Select(t => new { t, sid = StrategyFor(t.Instrument), cls = AssetClassOf(t.Instrument) })
+                .GroupBy(x => new { Strategy = x.sid ?? "unattributed", x.cls })
+                .Select(g => new
+                {
+                    strategyId = g.Key.Strategy,
+                    assetClass = g.Key.cls,
+                    realised = g.Sum(x => x.t.ProfitAndLoss),
+                    trades = g.Count(),
+                })
+                .OrderByDescending(x => Math.Abs(x.realised))
+                .ToArray();
+
             var payload = new
             {
                 enabled = true,
@@ -441,6 +539,8 @@ public static class IntegrationsEndpoints
                 to = to.ToString("yyyy-MM-dd"),
                 totalRealised = hist.Transactions.Sum(t => t.ProfitAndLoss),
                 byDay,
+                byStrategy,
+                attributionBasis = "instrument asset-class → IG strategy (strategy_broker_map + emitted symbols); OMS has no IG fills",
                 transactions = hist.Transactions.Take(200),
                 error = hist.Error,
             };

@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { CockpitCard } from "../CockpitCard";
 import { api } from "../../api/client";
+import { ownerFor } from "../../util/strategyMeta";
 
 type Series = { strategyId: string; points: Array<{ ts: string; total: number }> };
 
@@ -40,7 +41,11 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
   // closed-deal P&L incl. financing/admin fees — the honest "did we actually
   // make or lose money each day" number, independent of the open-MTM curve.
   const [realised, setRealised] = useState<
-    { byDay: Array<{ date: string; realised: number; trades: number }>; total: number } | null
+    {
+      byDay: Array<{ date: string; realised: number; trades: number }>;
+      byStrategy: Array<{ strategyId: string; assetClass: string | null; realised: number; trades: number }>;
+      total: number;
+    } | null
   >(null);
 
   useEffect(() => {
@@ -74,7 +79,7 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
       api.igHistory(7)
         .then((h) => {
           if (!live || !h.enabled || !h.byDay) return;
-          setRealised({ byDay: h.byDay, total: h.totalRealised ?? 0 });
+          setRealised({ byDay: h.byDay, byStrategy: h.byStrategy ?? [], total: h.totalRealised ?? 0 });
         })
         .catch(() => { /* leave null → strip simply hidden */ });
     void load();
@@ -254,6 +259,41 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
               );
             })}
           </div>
+
+          {realised.byStrategy.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5 }}>
+                by desk (asset-class attributed · OMS holds no IG fills)
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {realised.byStrategy.map((s) => {
+                  const pos = s.realised >= 0;
+                  const known = s.strategyId !== "unattributed";
+                  const label = known ? ownerFor(s.strategyId) : "Unattributed";
+                  return (
+                    <div
+                      key={`${s.strategyId}:${s.assetClass}`}
+                      style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12 }}
+                    >
+                      <span style={{ fontWeight: 600, minWidth: 110 }}>{label}</span>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                        {known ? s.strategyId : "no IG-strategy match"}
+                        {s.assetClass ? ` · ${s.assetClass}` : ""} · {s.trades} trades
+                      </span>
+                      <span
+                        style={{
+                          marginLeft: "auto", fontFamily: "monospace", fontWeight: 700,
+                          color: pos ? "#1fc16b" : "#ef4444",
+                        }}
+                      >
+                        {pos ? "+" : "−"}£{Math.abs(s.realised).toFixed(2)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </CockpitCard>

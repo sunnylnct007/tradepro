@@ -351,6 +351,13 @@ export const api = {
       from?: string; to?: string;
       totalRealised?: number;
       byDay?: Array<{ date: string; realised: number; trades: number }>;
+      byStrategy?: Array<{
+        strategyId: string;       // OMS strategy_id, or "unattributed"
+        assetClass: string | null; // "FX" | "EQUITY" | null
+        realised: number;
+        trades: number;
+      }>;
+      attributionBasis?: string;
       error?: string | null;
     }>("/api/integrations/ig/history", { days }),
   paperPendingOrders: () =>
