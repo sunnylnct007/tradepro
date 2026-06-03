@@ -109,6 +109,8 @@ export function SystemCaveatsBanner() {
       const now = Date.now();
       const within72h = (iso: string) =>
         iso && now - new Date(iso).getTime() < 72 * 3600 * 1000;
+      const within24h = (iso: string) =>
+        iso && now - new Date(iso).getTime() < 24 * 3600 * 1000;
 
       const stuckSubmitted = orders.filter(
         (o) => o.state === "SUBMITTED" && o.placedBy === "STRATEGY_AUTO",
@@ -124,7 +126,7 @@ export function SystemCaveatsBanner() {
       }
 
       const recentRejects = orders.filter(
-        (o) => o.state === "REJECTED" && within72h(o.createdAtUtc),
+        (o) => o.state === "REJECTED" && within24h(o.createdAtUtc),
       );
       if (recentRejects.length > 0) {
         // Group by plain-English reason and surface the dominant one(s) so
@@ -138,7 +140,7 @@ export function SystemCaveatsBanner() {
         const summary = ranked.map(([r, n]) => `${n}× ${r}`).join(" · ");
         found.push({
           sev: "red",
-          title: `${recentRejects.length} order rejection${recentRejects.length === 1 ? "" : "s"} in last 72h`,
+          title: `${recentRejects.length} order rejection${recentRejects.length === 1 ? "" : "s"} in last 24h`,
           detail: `${summary}. ${ranked[0][0].includes("buying power") ? "Strategy is firing orders it can't fund. " : ""}See the /oms rejection histogram for detail.`,
         });
       }
