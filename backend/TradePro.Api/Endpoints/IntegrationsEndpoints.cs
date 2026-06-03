@@ -319,9 +319,12 @@ public static class IntegrationsEndpoints
             Trading212DemoClient t212Demo,
             Trading212DemoCashCache t212DemoCache,
             TradePro.Api.Providers.IG.IGClient ig,
+            NpgsqlDataSource db,
             CancellationToken ct) =>
         {
             var rows = new List<object>();
+            // Captured for the daily account-value snapshot (equity curve).
+            var snap = new List<(string Broker, string? Ccy, decimal Value)>();
 
             // T212 LIVE — cash isn't exposed via Trading212Client yet;
             // surface as "read-only mode" with status known + a note.
@@ -356,6 +359,8 @@ public static class IntegrationsEndpoints
                         total = cash.Total, openPnl = cash.Ppl,
                         error = cash.Error,
                     });
+                    if (cash.Error is null && cash.Total is { } t212Total)
+                        snap.Add(("T212_DEMO", cash.Currency ?? "USD", t212Total));
                 }
                 else
                 {
@@ -393,6 +398,8 @@ public static class IntegrationsEndpoints
                         openPnl = cash.ProfitLoss,
                         error = cash.Error,
                     });
+                    if (cash.Error is null && cash.Balance is { } igBal)
+                        snap.Add((ig.BrokerLabel, cash.Currency, igBal));
                 }
                 else
                 {
@@ -417,11 +424,61 @@ public static class IntegrationsEndpoints
                 note = "Not yet integrated — roadmap.",
             });
 
+            // Persist today's account value per broker (equity-curve history).
+            // Upsert keeps the LATEST value per day, so by EOD the row holds the
+            // day's closing value. Best-effort — never fail the cash-summary read.
+            if (snap.Count > 0)
+            {
+                try
+                {
+                    await using var conn = await db.OpenConnectionAsync(ct);
+                    foreach (var (broker, ccy, value) in snap)
+                    {
+                        await conn.ExecuteAsync(@"
+                            INSERT INTO account_value_history (broker, as_of_date, currency, total_value, captured_at_utc)
+                            VALUES (@broker, (NOW() AT TIME ZONE 'UTC')::date, @ccy, @value, NOW())
+                            ON CONFLICT (broker, as_of_date) DO UPDATE
+                                SET total_value = EXCLUDED.total_value,
+                                    currency = EXCLUDED.currency,
+                                    captured_at_utc = NOW();",
+                            new { broker, ccy, value = (double)value });
+                    }
+                }
+                catch { /* non-fatal: the cash summary still returns */ }
+            }
+
             return Results.Ok(new
             {
                 utc = DateTime.UtcNow,
                 brokers = rows,
             });
+        });
+
+        // GET /api/account-value/history?days=N — daily account value per
+        // broker for the equity curve. Series starts when capture shipped
+        // (we can't backfill un-stored history). Combined curve converts on
+        // the read side; here we return per-broker raw value + currency.
+        app.MapGet("/account-value/history", async (
+            int? days,
+            NpgsqlDataSource db,
+            CancellationToken ct) =>
+        {
+            var window = Math.Clamp(days ?? 30, 1, 365);
+            try
+            {
+                await using var conn = await db.OpenConnectionAsync(ct);
+                var rows = (await conn.QueryAsync(@"
+                    SELECT broker, as_of_date::text AS date, currency, total_value AS value
+                    FROM account_value_history
+                    WHERE as_of_date >= (NOW() AT TIME ZONE 'UTC')::date - @window
+                    ORDER BY as_of_date ASC, broker ASC;",
+                    new { window })).AsList();
+                return Results.Ok(new { from = window, points = rows });
+            }
+            catch (Exception ex)
+            {
+                return Results.Ok(new { from = window, points = Array.Empty<object>(), error = ex.Message });
+            }
         });
 
         // GET /api/integrations/ig/status — IG broker connectivity check.
