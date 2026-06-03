@@ -51,9 +51,10 @@ const DESK_SPECIFICS: Record<string, { oneLiner: string; sections: HelpSection[]
       {
         heading: "Signal logic",
         body:
-          "Ichimoku Cloud trend filter — long when price holds above the cloud, flat when the trend breaks. Long-or-flat only " +
-          "(never short, per the trader's spec). A regime gate blocks NEW longs when SPY is below its 200-day SMA (existing " +
-          "positions still exit on their own signal). Size is vol-targeted: bigger when 60-day realised vol is low, smaller when high.",
+          "Ichimoku Cloud trend filter (the trader's tuned 5/32/50 periods). Goes LONG when price is above the cloud AND tenkan>kijun; " +
+          "exits when price falls below the cloud OR tenkan<kijun. It HOLDS the long while price sits inside the cloud (the cloud " +
+          "thickness is a hold band) — long-or-flat only, never short. A regime gate blocks NEW longs when SPY is below its 200-day " +
+          "SMA. Size is vol-targeted off 60-day realised vol. The math is a verbatim copy of the trader's spec, pinned by a parity test.",
       },
       {
         heading: "Gates before an order fires",

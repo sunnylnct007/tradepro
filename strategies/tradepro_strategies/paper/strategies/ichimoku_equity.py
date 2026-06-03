@@ -3,6 +3,18 @@
 Converts the quant_engine daily sleeve signals into live paper orders
 via the TradePro paper engine.
 
+SIGNAL FIDELITY — the long/flat signal is a VERBATIM port of the trader's
+spec (docs/strategy.py IchimokuStrategy), kept in `_equity_trader_signal.py`
+and pinned by `tests/test_equity_signal_parity.py`. The trader's logic, exactly:
+  - Ichimoku params 5/32/50, 32-bar displacement (the trader's optimised set,
+    not classic 9/26/52).
+  - ENTRY: Close>cloud_top AND tenkan>kijun.  EXIT: Close<cloud_bottom OR
+    tenkan<kijun.  STATEFUL (ffill) — a long is HELD while price sits inside
+    the cloud; it only exits below cloud_bottom (the cloud thickness is the
+    hold band). Long/flat only, never short.
+(A prior version drifted: a stateless 1/0 recompute with an extra close>tenkan
+entry condition, which dropped the hold-band and churned. Fixed 2026-06-03.)
+
 Execution model (Market-on-Open):
   Signal computed ONCE at session start using prior-day cached daily data.
   -> Entry/exit order placed at the FIRST bar of the new session (MOO).
@@ -47,10 +59,12 @@ from ..llm_gate import GateDecision, LLMSignalGate
 from ..overrides import OverrideRegistry
 from ..registry import register_strategy
 from ..signal_bridge import (
-    ichimoku_daily_signal,
     realised_vol_from_closes,
     size_from_vol_target,
 )
+# The long/flat SIGNAL is a verbatim port of the trader's spec (docs/strategy.py),
+# kept in _equity_trader_signal so it can't drift. Parity-tested.
+from ._equity_trader_signal import latest_signal_and_meta
 from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 
 
@@ -69,6 +83,11 @@ class IchimokuEquityStrategy(Strategy):
 
     source = "trader-quant"
     caveats = [
+        "FIDELITY: the long/flat signal is a verbatim port of the trader's "
+        "spec (docs/strategy.py), pinned by a parity test. A prior version had "
+        "drifted (extra close>tenkan entry condition; stateless recompute "
+        "instead of the trader's stateful ffill hold through the cloud) — "
+        "fixed 2026-06-03.",
         "Daily MOO entries (one per symbol per session) — designed for "
         "multi-week / multi-year holds, not intraday entries.",
         "Single-indicator (Ichimoku) trend filter — vulnerable to a "
@@ -602,14 +621,12 @@ class IchimokuEquityStrategy(Strategy):
             self._daily_signals[symbol] = (0.0, 0.0, {})
             return 0.0, None, {}
 
-        signal, meta = ichimoku_daily_signal(
-            high=high,
-            low=low,
-            close=close,
-            tenkan=p["tenkan"],
-            kijun=p["kijun"],
-            senkou_b=p["senkou_b"],
-            displacement=p["displacement"],
+        # Trader-faithful stateful long/flat (verbatim docs/strategy.py):
+        # ENTRY close>cloud_top AND tenkan>kijun; EXIT close<cloud_bottom OR
+        # tenkan<kijun; held (ffill) through the cloud in between. Uses the
+        # trader's params (5/32/50/32) baked into the module.
+        signal, meta = latest_signal_and_meta(
+            close.to_numpy(), high.to_numpy(), low.to_numpy(),
         )
 
         # Regime gate -- only blocks NEW long entries.
