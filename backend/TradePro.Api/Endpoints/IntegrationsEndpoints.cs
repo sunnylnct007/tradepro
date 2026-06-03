@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using TradePro.Api.Providers.Finnhub;
 using TradePro.Api.Providers.Trading212;
 
@@ -5,6 +6,16 @@ namespace TradePro.Api.Endpoints;
 
 public static class IntegrationsEndpoints
 {
+    // Short-TTL cache for the IG realised-history payload, keyed by the
+    // requested day-window. IG's demo API enforces a tight per-app key
+    // allowance (we have already tripped `exceeded-api-key-allowance`), and
+    // anti-abuse can escalate to a 403 session block. The cockpit polls this
+    // endpoint, so without a cache every client + refresh hammers IG. On a
+    // throttle we serve the last GOOD payload (stale-but-truthful) rather than
+    // an empty strip. See memory: IG anti-abuse / broker-session caching.
+    private static readonly ConcurrentDictionary<int, (DateTime At, object Payload)> _igHistoryCache = new();
+    private static readonly TimeSpan _igHistoryTtl = TimeSpan.FromSeconds(60);
+
     public static IEndpointRouteBuilder MapIntegrationsEndpoints(this IEndpointRouteBuilder app)
     {
         // Surfaces both T212 connections in one envelope — live (reads)
@@ -397,9 +408,25 @@ public static class IntegrationsEndpoints
         {
             if (!ig.IsEnabled)
                 return Results.Ok(new { enabled = false, byDay = Array.Empty<object>(), transactions = Array.Empty<object>() });
+            var window = Math.Clamp(days ?? 7, 1, 90);
+
+            // Serve a fresh-enough cached payload without touching IG at all.
+            if (_igHistoryCache.TryGetValue(window, out var cached)
+                && DateTime.UtcNow - cached.At < _igHistoryTtl)
+                return Results.Ok(cached.Payload);
+
             var to = DateOnly.FromDateTime(DateTime.UtcNow);
-            var from = to.AddDays(-Math.Clamp(days ?? 7, 1, 90));
+            var from = to.AddDays(-window);
             var hist = await ig.GetTransactionHistoryAsync(from, to, ct);
+
+            // IG throttled (or otherwise errored) AND we have a prior good
+            // payload → serve that rather than flash an empty strip. The
+            // realised P&L is closed-deal history; a 60-second-stale copy is
+            // honest, an empty one is misleading.
+            if ((hist.Error is not null || hist.Transactions.Count == 0)
+                && _igHistoryCache.TryGetValue(window, out var stale))
+                return Results.Ok(stale.Payload);
+
             // Realised P&L per UTC date (only rows that carry a P&L).
             var byDay = hist.Transactions
                 .Where(t => t.Date is not null)
@@ -407,7 +434,7 @@ public static class IntegrationsEndpoints
                 .Select(g => new { date = g.Key, realised = g.Sum(t => t.ProfitAndLoss), trades = g.Count() })
                 .OrderBy(x => x.date)
                 .ToArray();
-            return Results.Ok(new
+            var payload = new
             {
                 enabled = true,
                 from = from.ToString("yyyy-MM-dd"),
@@ -416,7 +443,12 @@ public static class IntegrationsEndpoints
                 byDay,
                 transactions = hist.Transactions.Take(200),
                 error = hist.Error,
-            });
+            };
+            // Only cache a GOOD payload (no error, has rows) so a throttled
+            // empty never becomes the served-stale copy.
+            if (hist.Error is null && hist.Transactions.Count > 0)
+                _igHistoryCache[window] = (DateTime.UtcNow, payload);
+            return Results.Ok(payload);
         });
 
         app.MapGet("/integrations/ig/status", async (
