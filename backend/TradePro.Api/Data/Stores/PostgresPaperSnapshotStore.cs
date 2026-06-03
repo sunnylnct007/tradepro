@@ -21,6 +21,36 @@ public sealed class PostgresPaperSnapshotStore : IPaperSnapshotStore
 
     public PostgresPaperSnapshotStore(NpgsqlDataSource db) { _db = db; }
 
+    /// <summary>
+    /// Clean unrealised P&L for a strategy, dropping the contribution of any
+    /// position whose avg_entry_price is missing/zero. A cost-basis-0 position
+    /// computes unrealised as (mark − 0) × qty = the position NOTIONAL (~$27k),
+    /// not P&L — which poisoned the P&L curve (a $50k desk read +$27k). We
+    /// can't compute real P&L without a cost basis, so such a position
+    /// contributes 0. Only overrides the strategy-reported scalar when a
+    /// cost-basis-0 position is actually present (so FX price-unit semantics
+    /// and normal snapshots are untouched). Falls back to <paramref name="fallback"/>
+    /// when there's no positions array to recompute from.
+    /// </summary>
+    private static double CleanUnrealised(JsonElement s, double fallback)
+    {
+        if (!s.TryGetProperty("positions", out var pos) || pos.ValueKind != JsonValueKind.Array)
+            return fallback;
+        var sum = 0.0;
+        var sawCostBasisZero = false;
+        var any = false;
+        foreach (var p in pos.EnumerateArray())
+        {
+            any = true;
+            var avg = JsonbHelpers.ReadDoubleOrNull(p, "avg_entry_price") ?? 0.0;
+            if (avg > 0)
+                sum += JsonbHelpers.ReadDoubleOrNull(p, "unrealised_pnl") ?? 0.0;
+            else
+                sawCostBasisZero = true;  // drop its notional-as-P&L contribution
+        }
+        return (any && sawCostBasisZero) ? sum : fallback;
+    }
+
     public PaperSnapshotEnvelope Put(JsonElement payload)
     {
         var sessionLabel = JsonbHelpers.ReadString(payload, "session_label")
@@ -80,7 +110,7 @@ public sealed class PostgresPaperSnapshotStore : IPaperSnapshotStore
                             broker,
                             asOfTs,
                             realised = JsonbHelpers.ReadDoubleOrNull(s, "realised_pnl") ?? 0.0,
-                            unrealised = JsonbHelpers.ReadDoubleOrNull(s, "unrealised_pnl") ?? 0.0,
+                            unrealised = CleanUnrealised(s, JsonbHelpers.ReadDoubleOrNull(s, "unrealised_pnl") ?? 0.0),
                             equity = JsonbHelpers.ReadDoubleOrNull(s, "equity") ?? 0.0,
                         });
                 }
