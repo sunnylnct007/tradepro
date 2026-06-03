@@ -18,9 +18,10 @@
  * the chart key. AAPL_US_EQ / CS.D.AAPL.CASH.IP / AAPL all match
  * a chart keyed on 'AAPL'.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CockpitCard } from "../CockpitCard";
 import { PlotlyChart } from "../PlotlyChart";
+import { api } from "../../api/client";
 import type { LatestSession, T212PosResp } from "../../types/cockpit";
 
 type Props = {
@@ -45,8 +46,18 @@ type Tile = {
 export function PositionChartsCard({ positions, latestSessions, onHide }: Props) {
   const [showAll, setShowAll] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // IG positions (FX + intraday) so their charts get tiles too — the equity
+  // desk is T212 (the `positions` prop), but FX/intraday live on IG.
+  const [igPositions, setIgPositions] = useState<ChartablePosition[]>([]);
+  useEffect(() => {
+    let live = true;
+    api.igPositions()
+      .then((r) => { if (live && r.enabled) setIgPositions(r.positions ?? []); })
+      .catch(() => { /* IG unreachable → just no IG tiles */ });
+    return () => { live = false; };
+  }, []);
 
-  const tiles = buildTiles(positions, latestSessions);
+  const tiles = buildTiles(positions, latestSessions, igPositions);
   const visible = showAll ? tiles : tiles.slice(0, 5);
 
   return (
@@ -174,7 +185,22 @@ function PositionTile({
   );
 }
 
-function buildTiles(positions: T212PosResp | null, latestSessions: LatestSession[]): Tile[] {
+// IG positions share the T212 position field shape (ticker / quantity /
+// averagePricePaid / currentPrice / unrealised*), so both feed buildTiles.
+type ChartablePosition = {
+  ticker: string;
+  quantity: number;
+  averagePricePaid: number | null;
+  currentPrice: number | null;
+  unrealisedAbs: number | null;
+  unrealisedPct: number | null;
+};
+
+function buildTiles(
+  positions: T212PosResp | null,
+  latestSessions: LatestSession[],
+  igPositions: ChartablePosition[] = [],
+): Tile[] {
   // Aggregate all charts available from any session, keyed by bare symbol.
   const chartBySymbol = new Map<string, unknown>();
   for (const s of latestSessions) {
@@ -188,7 +214,13 @@ function buildTiles(positions: T212PosResp | null, latestSessions: LatestSession
   }
 
   const tiles: Tile[] = [];
-  for (const p of positions?.positions ?? []) {
+  // T212 (equity) + IG (FX + intraday) positions both get chart tiles, so
+  // clicking ANY held position surfaces its Ichimoku chart + entry markers.
+  const allPositions: ChartablePosition[] = [
+    ...(positions?.positions ?? []),
+    ...igPositions,
+  ];
+  for (const p of allPositions) {
     const bare = bareTicker(p.ticker);
     const figure = chartBySymbol.get(bare.toUpperCase()) ?? null;
     const qty = Number(p.quantity ?? 0);
