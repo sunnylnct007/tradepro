@@ -335,6 +335,14 @@ public static class IntegrationsEndpoints
                 if (ig.IsEnabled)
                 {
                     var cash = await ig.GetCashAsync(ct);
+                    // "Are we making money" for IG, from IG's OWN numbers (golden
+                    // source): openPnl = running P&L on open positions; netSinceStart
+                    // = equity − net deposited = (balance + profitLoss) − deposit,
+                    // i.e. realised + open since the account was funded.
+                    decimal? netSinceStart =
+                        (cash.Balance is decimal bal && cash.Deposit is decimal dep)
+                            ? bal + (cash.ProfitLoss ?? 0m) - dep
+                            : (decimal?)null;
                     rows.Add(new
                     {
                         broker = ig.BrokerLabel,
@@ -343,6 +351,9 @@ public static class IntegrationsEndpoints
                         currency = cash.Currency,
                         available = cash.Available,
                         balance = cash.Balance,
+                        openPnl = cash.ProfitLoss,
+                        deposit = cash.Deposit,
+                        netSinceStart,
                         error = cash.Error,
                     });
                 }
