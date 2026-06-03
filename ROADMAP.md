@@ -1130,6 +1130,22 @@ change between slices.
 - Bootstrap restore CLI ("rehydrate cache from S3").
 - EC2 same-region read for full-universe backtests.
 
+**Catalyst overlay — north-star gap #1 (new stream)**
+- **C-1 ✅ SHIPPED** — Migration 038 `catalysts` registry with idempotent
+  UNIQUE on (symbol, kind, occurs_on, source). `CatalystsEndpoints.cs`
+  exposes GET (window + symbol + kind + status filters, severity-then-date
+  sort) / POST (UPSERT) / PATCH /{id}/dismiss. Cockpit `CatalystsSection`
+  on the Settings page renders the active list with severity pill, kind
+  icon, days-until indicator + an operator manual-add form. 6 backend
+  tests cover defaults, UNIQUE, UPSERT, window filter, dismiss, severity
+  ordering.
+- **C-2** — Wire the existing `tradepro_strategies.catalysts` news
+  extractor to POST rows automatically. Source tag `extractor.news`
+  so operator-added rows stay distinguishable in audit.
+- **C-3** — Layer catalysts into the cockpit decision row + LLM gate
+  (the Ecopetrol moment — "tech says WAIT but high-severity catalyst
+  in 10d"). Conviction adjustment per project memory's 3-axis schema.
+
 **Phase J — Additional asset classes (mandate-driven, not now)**
 - Options chains EOD snapshots (when an options strategy joins the
   roadmap).
