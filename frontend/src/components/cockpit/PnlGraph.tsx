@@ -65,9 +65,17 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
       try {
         const r = await api.pnlSeries(scope);
         if (!live) return;
+        // Drop cost-basis-0 artifact points: when a historical snapshot had
+        // avg_entry=0, unrealised was computed as mark×qty = the whole
+        // position NOTIONAL (~$27k), not P&L — which made the graph read
+        // −$26k while the desk was +$645. Open MTM on a ~$50k demo desk can't
+        // plausibly swing > ~$15k in a day, so beyond that it's the artifact.
+        const SANE = 15_000;
         setSeries(r.series.map((s) => ({
           strategyId: s.strategyId,
-          points: s.points.map((p) => ({ ts: p.ts, total: p.total })),
+          points: s.points
+            .filter((p) => Math.abs(p.total) < SANE)
+            .map((p) => ({ ts: p.ts, total: p.total })),
         })));
         setErr(null);
       } catch (e) {
@@ -82,13 +90,16 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
     return () => { live = false; clearInterval(t); };
   }, [scope]);
 
-  // A line is trustworthy unless its broker is EXPLICITLY IG — IG positions
-  // carry no P&L through our integration yet, so an IG line would be a
-  // misleading ~0. We exclude only known-IG (not unknown) so a missing /
-  // unloaded map never hides the real T212 equity line (empty graph is worse
-  // than a caveated one). Flip to a T212-allowlist once IG P&L is wired.
+  // Only plot a strategy that is ACTUALLY BOOKED to a broker that reports P&L
+  // into the daily series. Today that's T212 (it returns unrealisedAbs per
+  // position). Excludes:
+  //   • orb / any PAPER / unmapped strategy — not booked to a broker at all,
+  //     so it has no real P&L (it was plotting a garbage line).
+  //   • IG-routed desks (FX, intraday) — IG position P&L isn't flowing into
+  //     the daily SERIES yet (the desk cards show it, the series doesn't),
+  //     so they'd be a misleading line. Shown as "pending" instead.
   const pnlCapable = (sid: string) =>
-    !(brokerByStrat[sid] ?? "").toUpperCase().startsWith("IG");
+    /^(T212|IBKR)_/.test((brokerByStrat[sid] ?? "").toUpperCase());
 
   // Real lines we can stand behind vs strategies whose P&L isn't wired yet.
   const realSeries = useMemo(() => series.filter((s) => pnlCapable(s.strategyId)), [series, brokerByStrat]);
