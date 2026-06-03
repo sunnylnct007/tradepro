@@ -248,6 +248,7 @@ class IchimokuFXMeanReversionStrategy(Strategy):
     _closes: dict[str, deque] = field(default_factory=dict)
     _highs: dict[str, deque] = field(default_factory=dict)
     _lows: dict[str, deque] = field(default_factory=dict)
+    _times: dict[str, deque] = field(default_factory=dict)  # bar timestamps, for charts
     _fx_positions: dict[str, int] = field(default_factory=dict)
     _bar_counts: dict[str, int] = field(default_factory=dict)
     _last_signal: dict[str, float] = field(default_factory=dict)
@@ -383,6 +384,7 @@ class IchimokuFXMeanReversionStrategy(Strategy):
         self._closes.setdefault(pair, deque(maxlen=maxlen)).append(bar.close)
         self._highs.setdefault(pair, deque(maxlen=maxlen)).append(bar.high)
         self._lows.setdefault(pair, deque(maxlen=maxlen)).append(bar.low)
+        self._times.setdefault(pair, deque(maxlen=maxlen)).append(bar.timestamp)
         self._bar_counts[pair] = self._bar_counts.get(pair, 0) + 1
 
         # Warmup gate -- no orders until enough bars for the FULL ensemble.
@@ -600,6 +602,42 @@ class IchimokuFXMeanReversionStrategy(Strategy):
 
     def _p(self) -> dict[str, Any]:
         return {**self.default_params(), **(self.params or {})}
+
+    def recent_charts(self) -> dict[str, dict[str, Any]]:  # type: ignore[override]
+        """Per-pair Ichimoku chart so the trader can SEE, per FX pair: the
+        price + trend, the cloud the fade-signal trades against (standard
+        9/26/52 Ichimoku — what reversion_signal uses), the Tenkan/Kijun
+        lines, and a BUY/SELL triangle at the exact price each fill executed.
+        The frontend overlays the avg-entry line on top. Per-pair errors are
+        swallowed so one bad pair doesn't strip charts from the rest."""
+        from ...viz import build_chart
+
+        out: dict[str, dict[str, Any]] = {}
+        for pair in list(self._closes.keys()):
+            try:
+                closes = list(self._closes.get(pair) or [])
+                highs = list(self._highs.get(pair) or [])
+                lows = list(self._lows.get(pair) or [])
+                times = list(self._times.get(pair) or [])
+                # Need enough bars for a meaningful cloud + matching timestamps.
+                if len(closes) < 60 or len(times) != len(closes):
+                    continue
+                df = pd.DataFrame(
+                    {"High": highs, "Low": lows, "Close": closes},
+                    index=pd.to_datetime(times, utc=True),
+                )
+                out[f"ichimoku_cloud:{pair}"] = build_chart(
+                    "ichimoku_cloud",
+                    symbol=pair,
+                    df=df,
+                    fills=self.recent_fills(symbol=pair),
+                    tenkan=9, kijun=26, senkou_b=52, displacement=26,
+                )
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "ichimoku_fx_mr recent_charts failed for %s — skipping", pair,
+                )
+        return out
 
 
 # Process-wide default registry shared with ichimoku_equity (one file).
