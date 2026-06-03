@@ -82,9 +82,11 @@ const DESK_SPECIFICS: Record<string, { oneLiner: string; sections: HelpSection[]
       {
         heading: "Signal logic",
         body:
-          "Mean-reversion: it FADES breaks away from the Ichimoku cloud, ensembled across several horizons and smoothing windows. " +
-          "Unlike the equity desk, the FX position is SIGNED: +1 long (fading a bearish break), −1 short (fading a bullish break). " +
-          "Size is vol-targeted off 480-hour realised vol, and the position per pair is capped at 3 units.",
+          "Mean-reversion: it FADES breaks away from the Ichimoku cloud. A break must clear THREE conditions — price vs the cloud, the " +
+          "tenkan/kijun cross, AND the chikou (lagging-span) confirmation — then a unit is held for the horizon (2–3.5 weeks), ensembled " +
+          "across 8 horizons and 3 smoothing windows. The position is SIGNED: +1 long (fading a bearish break), −1 short (fading a bullish " +
+          "break), vol-targeted off 480-hour realised vol and capped at 3 units/pair. The math is a verbatim copy of the trader's spec, " +
+          "pinned by an automated parity test so it can't silently drift.",
       },
       {
         heading: "Gates before an order fires",

@@ -31,28 +31,45 @@ the golden source — and explain each desk end-to-end.
   transaction FX vs EQUITY off the instrument, map asset-class → IG strategy
   via `strategy_broker_map` + emitted symbols (config-driven, not hardcoded).
   **Verified 7-day: Kumar/intraday_flat EQUITY −£1,859.94 (264 trades);
-  Mr Foyle/ichimoku_fx_mr FX +£168.01 (70 trades); total −£1,691.93.**
+  Mr Foley/ichimoku_fx_mr FX +£168.01 (70 trades); total −£1,691.93.**
   → the loss is intraday EQUITY churn, NOT FX financing as first assumed.
-- **Per-desk (?) help icon** — detailed end-to-end explainer (what it trades,
-  signal logic, gates, P&L sources, caveats), grounded in the strategy source.
+- **Per-desk (?) help icon** — detailed end-to-end explainer, grounded in source.
+- **Chart "weird green diagonal"** — `plotly.js-basic-dist` has no candlestick
+  module; down-convert candlestick→scatter line in PlotlyChart. Data was clean.
+- **Symbol-click 404** — SessionDetail now loads paper snapshots (not just ops
+  GUIDs); detects id shape and fetches `/api/paper/snapshots/{label}`.
+- **Cost-basis-0 P&L garbage** (£27,186 ghost on equity) — root fix:
+  `CleanUnrealised` drops cost-basis-0 positions at BOTH ingest and the DAILY
+  read path (daily reads the raw payload, not paper_pnl_points — that's why the
+  first two attempts missed). Equity daily now reads its true ~£731.
+- **Desk owner rename** Mr Foyle → **Mr Foley**.
+- **FX risk-gate bug** — `_risk_context_for` valued every pair at one strategy-
+  wide mark (a JPY pair ~160), inflating non-JPY orders ~138× → 78 FX orders
+  rejected locally today, 0 placed. Fix: per-symbol marks from
+  `ledger.latest_marks`. FX trading again (3 live fills verified).
+- **FX signal aligned to the trader's spec, verbatim** — the live signal had
+  drifted (HORIZONS as Ichimoku lookbacks not holding periods; chikou dropped;
+  state not edge-triggered). Ported `docs/main 3.py` ichimoku/reversion_signal/
+  vol_scale into `_fx_trader_signal.py`; strategy calls it on its window.
+  `tests/test_fx_signal_parity.py` pins it (9 cases). Side-effect: warmup drops
+  ~2578→~774 bars, so all 10 pairs trade instead of 8/10 data-starved.
 
-### 🔴 Surfaced today — OMS↔IG fill link is BROKEN (new debt)
-- `fills` table has **zero** rows. All 579 `orders` are tagged `broker=t212`,
-  including the 575 `ichimoku_fx_mr` rows that actually route to IG (stale tag
-  from the FX→IG migration). `intraday_flat` has **no** OMS orders at all.
-- Consequence: the OMS cannot attribute IG P&L or even confirm IG fills.
-  IGOmsFillPoller isn't writing fills + the broker tag on orders is wrong.
-- Until reconciled, IG truth = IG transactions, never the OMS. See memory
-  `project_oms_no_ig_fills`.
+### ⚠️ Correction logged (verify-before-claiming)
+- Earlier this session I claimed "OMS holds ZERO IG fills" from `/api/admin/*`
+  (the legacy `orders`/`fills` tables — stale). The LIVE store `oms_orders`
+  **does** record IG orders + fills (brokerOrderId populated). "No FX orders
+  today" = the strategy holding between flips, not a broken pipeline. Memory
+  `project_oms_no_ig_fills` corrected.
 
 ### ⬜ Still queued
-- ROOT fix: stop capturing cost-basis-0 P&L points + purge historical garbage
-  (currently masked by a client-side >£15k filter).
-- OMS↔IG reconcile (record IG fills; correct the broker tag on orders).
-- Symbol-click → 404 (session-detail lookup vs /api/paper/snapshots mismatch).
-- Sentiment LLM: AWS can't reach Mac-local Ollama → Claude Sonnet (cloud) + a
-  news source. Options strategy scheduling. IBKR adapter (low-pri, creds in).
-  Risk module + LLM overlay (the "next big thing").
+- **JEF 404 churn** — `JEF_US_EQ` invalid on T212, retried every cycle
+  (no backoff). Fix: broker_ticker_map entry / blacklist + suppress retries.
+- **Equity 160:1 BUY:SELL** — exit-logic fidelity check (under-firing exits or
+  re-buying held names?). Same "mirror the trader" theme as FX.
+- **UI blind to local engine rejections** — FX-block + JEF failures never
+  surfaced; pipe local RiskCheckResult rejections to the backend + show them.
+- Sentiment LLM → Claude Sonnet (cloud) + news source. Options scheduling.
+  IBKR adapter (low-pri, creds in). Risk module + LLM overlay (the "next big thing").
 
 ---
 
