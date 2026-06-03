@@ -22,12 +22,14 @@
  * already consume them; IG + OMS are fetched here). Adding a broker later
  * = add a fetch + an Account block.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CockpitCard } from "../CockpitCard";
+import { PlotlyChart } from "../PlotlyChart";
 import { api } from "../../api/client";
-import type { T212PosResp } from "../../types/cockpit";
+import type { LatestSession, T212PosResp } from "../../types/cockpit";
 import { bareSymbol, prettySymbol, productOf } from "../../util/brokerSymbols";
+import { buildChartBySymbol } from "../../util/chartBySymbol";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
 type OmsPositions = Awaited<ReturnType<typeof api.omsPositions>>;
@@ -54,6 +56,7 @@ export function PositionsPanel({
   onSyncOms,
   showEquity = true,
   showFx = true,
+  latestSessions = [],
 }: {
   positions: T212PosResp | null;
   posErr: string | null;
@@ -61,6 +64,9 @@ export function PositionsPanel({
   onHide: (id: string) => void;
   showEquity?: boolean;
   showFx?: boolean;
+  /** Per-strategy snapshots carrying Ichimoku charts, so clicking a position
+   * shows its chart (price + cloud + Tenkan/Kijun + BUY/SELL fill markers). */
+  latestSessions?: LatestSession[];
   /** Sync OMS from broker for the given OMS broker label (writes audited
    * reconcile adjustments so OMS matches the broker). When omitted the
    * per-account "Sync OMS ← broker" button is hidden. */
@@ -73,6 +79,12 @@ export function PositionsPanel({
   const [flattenMsg, setFlattenMsg] = useState<string | null>(null);
   const [showDeals, setShowDeals] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  // Click a position row → show its Ichimoku chart in one shared panel.
+  const [selectedSym, setSelectedSym] = useState<string | null>(null);
+
+  // bare symbol → chart figure (shared helper, used by every chart surface).
+  const chartBySymbol = useMemo(() => buildChartBySymbol(latestSessions), [latestSessions]);
+  const selectedFigure = selectedSym ? chartBySymbol.get(selectedSym) ?? null : null;
 
   const loadBroker = useCallback(async () => {
     try {
@@ -160,6 +172,28 @@ export function PositionsPanel({
   const t212OmsBroker = `T212_${account.toUpperCase()}`;
   return (
     <>
+      {/* Click-to-view chart: one shared panel above the position cards. */}
+      {selectedSym && (
+        <CockpitCard
+          id="position-chart-inline"
+          title={`Chart — ${selectedSym}`}
+          onHide={() => setSelectedSym(null)}
+        >
+          {selectedFigure ? (
+            // Responsive height: shorter on phones, capped on desktop. PlotlyChart
+            // itself is responsive (useResizeHandler), so it reflows on rotate/resize.
+            <div style={{ height: "clamp(260px, 50vh, 440px)", width: "100%" }}>
+              <PlotlyChart figure={selectedFigure as Parameters<typeof PlotlyChart>[0]["figure"]} />
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "16px 4px" }}>
+              No chart for {selectedSym} yet — the strategy emits one once it has
+              enough history (or this instrument isn't on a charting desk).
+            </div>
+          )}
+        </CockpitCard>
+      )}
+
       {/* ════ Card 1 — EQUITY (across brokers) ════ */}
       {showEquity && (
       <CockpitCard
@@ -194,7 +228,10 @@ export function PositionsPanel({
                 {positions?.positions.map((p) => {
                   const o = omsNet(t212OmsBroker, bareSymbol(p.ticker));
                   return (
-                    <tr key={p.ticker} style={{ borderTop: "1px solid var(--border)" }}>
+                    <tr key={p.ticker}
+                      onClick={() => setSelectedSym(bareSymbol(p.ticker).toUpperCase())}
+                      title="Show chart"
+                      style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td}>{prettySymbol(p.ticker)}</td>
                       <td style={numTd}>{p.quantity}</td>
                       <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
@@ -225,7 +262,10 @@ export function PositionsPanel({
                 </thead>
                 <tbody>
                   {igEq.map((p, i) => (
-                    <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                    <tr key={p.dealId ?? `${p.ticker}-${i}`}
+                      onClick={() => setSelectedSym(bareSymbol(p.ticker).toUpperCase())}
+                      title="Show chart"
+                      style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
                       <td style={numTd}>{Math.abs(p.quantity)}</td>
                       <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
@@ -264,7 +304,10 @@ export function PositionsPanel({
               </thead>
               <tbody>
                 {igOptions.map((p, i) => (
-                  <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                  <tr key={p.dealId ?? `${p.ticker}-${i}`}
+                    onClick={() => setSelectedSym(bareSymbol(p.ticker).toUpperCase())}
+                    title="Show chart"
+                    style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                     <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
                     <td style={numTd}>{Math.abs(p.quantity)}</td>
                     <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
@@ -309,7 +352,7 @@ export function PositionsPanel({
             {flattenMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>{flattenMsg}</div>}
             {/* Lead with the NET exposure per pair — the real position
                 under the (often many) stacked deals. */}
-            <NetByPair positions={igFx} prominent />
+            <NetByPair positions={igFx} prominent onSelect={setSelectedSym} />
             {igFx.length > 0 && (
               <button type="button" onClick={() => setShowDeals((s) => !s)}
                 style={{ marginTop: 8, fontSize: 11, background: "transparent", border: "none",
@@ -327,7 +370,10 @@ export function PositionsPanel({
                 </thead>
                 <tbody>
                   {igFx.map((p, i) => (
-                    <tr key={p.dealId ?? `${p.ticker}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
+                    <tr key={p.dealId ?? `${p.ticker}-${i}`}
+                      onClick={() => setSelectedSym(bareSymbol(p.ticker).toUpperCase())}
+                      title="Show chart"
+                      style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td} title={p.ticker}>{p.instrumentName || prettySymbol(p.ticker)}</td>
                       <td style={numTd}>{Math.abs(p.quantity)}</td>
                       <td style={numTd}>{p.averagePricePaid?.toFixed(4) ?? "—"}</td>
@@ -459,7 +505,10 @@ function DriftCell({ broker, oms }: { broker: number; oms: number | null }) {
   );
 }
 
-function NetByPair({ positions, prominent }: { positions: IGPosResp["positions"]; prominent?: boolean }) {
+function NetByPair({ positions, prominent, onSelect }: {
+  positions: IGPosResp["positions"]; prominent?: boolean;
+  onSelect?: (sym: string) => void;
+}) {
   const net = new Map<string, number>();
   for (const p of positions) {
     const bare = bareSymbol(p.ticker);
@@ -471,7 +520,9 @@ function NetByPair({ positions, prominent }: { positions: IGPosResp["positions"]
     return (
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "baseline" }}>
         {rows.map(([s, q]) => (
-          <span key={s} style={{ fontSize: 13 }}>
+          <span key={s} style={{ fontSize: 13, cursor: onSelect ? "pointer" : undefined }}
+            onClick={onSelect ? () => onSelect(s.toUpperCase()) : undefined}
+            title={onSelect ? "Show chart" : undefined}>
             <strong style={{ color: "var(--text)" }}>{prettySymbol(s)}</strong>{" "}
             <strong style={{ color: q >= 0 ? UP : DOWN, fontSize: 15, fontFamily: "monospace" }}>
               {q >= 0 ? "+" : ""}{q.toFixed(1)}

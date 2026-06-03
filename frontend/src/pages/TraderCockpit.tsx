@@ -590,6 +590,7 @@ export function TraderCockpit() {
           account={account}
           showEquity={v("positions-equity")}
           showFx={v("positions-fx")}
+          latestSessions={latestSessions}
           onHide={(id) => widgets.hide(id)}
           onSyncOms={(broker) => api.syncOmsFromBroker(broker)}
         />
