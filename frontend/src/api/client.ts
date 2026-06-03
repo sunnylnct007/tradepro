@@ -342,6 +342,17 @@ export const api = {
         points: Array<{ ts: string; realised: number; unrealised: number; equity: number; total: number }>;
       }>;
     }>("/api/paper/pnl/series", { scope }),
+  // Broker-reported REALISED P&L per day (golden source; nets spread +
+  // financing). The honest "what did we actually make/lose each day" the OMS
+  // can't give (pre-2026-06-02 IG fills were booked at price 0).
+  igHistory: (days = 7) =>
+    get<{
+      enabled: boolean;
+      from?: string; to?: string;
+      totalRealised?: number;
+      byDay?: Array<{ date: string; realised: number; trades: number }>;
+      error?: string | null;
+    }>("/api/integrations/ig/history", { days }),
   paperPendingOrders: () =>
     get<Array<{
       orderId: string;

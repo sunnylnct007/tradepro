@@ -36,6 +36,12 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
   const [brokerByStrat, setBrokerByStrat] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Broker-REALISED P&L (golden source: IG /history/transactions). This is
+  // closed-deal P&L incl. financing/admin fees — the honest "did we actually
+  // make or lose money each day" number, independent of the open-MTM curve.
+  const [realised, setRealised] = useState<
+    { byDay: Array<{ date: string; realised: number; trades: number }>; total: number } | null
+  >(null);
 
   useEffect(() => {
     try { localStorage.setItem("cockpit.pnl.scope", scope); } catch { /* noop */ }
@@ -57,6 +63,23 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
       })
       .catch(() => { /* leave empty → treat all as pending until known */ });
     return () => { live = false; };
+  }, []);
+
+  // Realised daily P&L from the broker (golden source). Refreshes with the
+  // curve cadence. Currency is the IG account ccy (GBP) — these are CLOSED
+  // trades incl. fees, so the sign is the truth about each day.
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      api.igHistory(7)
+        .then((h) => {
+          if (!live || !h.enabled || !h.byDay) return;
+          setRealised({ byDay: h.byDay, total: h.totalRealised ?? 0 });
+        })
+        .catch(() => { /* leave null → strip simply hidden */ });
+    void load();
+    const t = setInterval(load, 60_000);
+    return () => { live = false; clearInterval(t); };
   }, []);
 
   useEffect(() => {
@@ -188,6 +211,50 @@ export function PnlGraph({ onHide }: { onHide?: () => void }) {
             ))}
           </LineChart>
         </ResponsiveContainer>
+      )}
+
+      {realised && realised.byDay.length > 0 && (
+        <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Broker realised P&amp;L</span>
+            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+              golden source · IG closed deals incl. fees · GBP
+            </span>
+            <span
+              style={{
+                marginLeft: "auto", fontSize: 12, fontFamily: "monospace", fontWeight: 600,
+                color: realised.total >= 0 ? "#1fc16b" : "#ef4444",
+              }}
+            >
+              7-day £{realised.total.toFixed(2)}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {realised.byDay.map((d) => {
+              const pos = d.realised >= 0;
+              return (
+                <div
+                  key={d.date}
+                  title={`${d.date} · ${d.trades} closed trades · £${d.realised.toFixed(2)}`}
+                  style={{
+                    display: "flex", flexDirection: "column", gap: 2, minWidth: 84,
+                    padding: "6px 10px", borderRadius: 8,
+                    border: `1px solid ${pos ? "rgba(31,193,107,0.35)" : "rgba(239,68,68,0.35)"}`,
+                    background: pos ? "rgba(31,193,107,0.08)" : "rgba(239,68,68,0.08)",
+                  }}
+                >
+                  <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "monospace" }}>
+                    {d.date.slice(5)}
+                  </span>
+                  <span style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 700, color: pos ? "#1fc16b" : "#ef4444" }}>
+                    {pos ? "+" : "−"}£{Math.abs(d.realised).toFixed(2)}
+                  </span>
+                  <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{d.trades} trades</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </CockpitCard>
   );
