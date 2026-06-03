@@ -120,6 +120,21 @@ public static class IntegrationsEndpoints
             foreach (var p in result.Positions)
                 if (!contractSize.ContainsKey(p.Epic))
                     contractSize[p.Epic] = await ig.GetContractSizeAsync(p.Epic, ct);
+            // FX P&L comes out in the QUOTE currency (the pair's last 3 letters
+            // for a CS.D.<6-char>.MINI.IP epic). Convert to USD via IG rates so a
+            // JPY-quoted pair isn't shown as if its yen P&L were dollars.
+            static string? QuoteCcy(string epic)
+            {
+                var parts = epic.Split('.');
+                return parts.Length >= 4 && parts[2].Length == 6 ? parts[2][3..6] : null;
+            }
+            var usdRate = new Dictionary<string, decimal?>();
+            foreach (var p in result.Positions)
+            {
+                var q = QuoteCcy(p.Epic);
+                if (q != null && !usdRate.ContainsKey(q))
+                    usdRate[q] = await ig.GetUsdRateAsync(q, ct);
+            }
             var rows = result.Positions.Select(p =>
             {
                 var signedQty = p.Direction == "SELL" ? -p.Size : p.Size;
@@ -131,10 +146,13 @@ public static class IntegrationsEndpoints
                 // QUOTE currency; cross/account-ccy conversion is a follow-up.
                 decimal? mid = (p.Bid is decimal b && p.Offer is decimal o) ? (b + o) / 2m : null;
                 decimal lot = contractSize.GetValueOrDefault(p.Epic) ?? p.LotSize ?? 1m;
+                var q = QuoteCcy(p.Epic);
+                decimal rate = (q != null ? usdRate.GetValueOrDefault(q) : null) ?? 1m;
                 decimal? unrealisedAbs = null, unrealisedPct = null;
                 if (mid is decimal m && p.EntryLevel > 0m)
                 {
-                    unrealisedAbs = (m - p.EntryLevel) * signedQty * lot;
+                    // (price move) × size × contractSize → quote-ccy P&L; × rate → USD.
+                    unrealisedAbs = (m - p.EntryLevel) * signedQty * lot * rate;
                     unrealisedPct = (m - p.EntryLevel) / p.EntryLevel * 100m
                                     * (p.Direction == "SELL" ? -1m : 1m);
                 }
@@ -148,6 +166,8 @@ public static class IntegrationsEndpoints
                     unrealisedPct,
                     lotSize = p.LotSize,
                     contractSize = contractSize.GetValueOrDefault(p.Epic),
+                    quoteCcy = q,
+                    usdRate = q != null ? usdRate.GetValueOrDefault(q) : null,
                     instrumentName = p.InstrumentName,
                     dealId = p.DealId,
                 };

@@ -630,6 +630,43 @@ public sealed class IGClient
         catch { return null; }
     }
 
+    // FX rates move, so cache with a short TTL (display P&L tolerates minutes).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (decimal rate, DateTime at)> _usdRateCache = new();
+
+    /// <summary>
+    /// Multiplier to convert an amount in <paramref name="ccy"/> into USD,
+    /// sourced from IG (golden source). FX P&amp;L is computed in the QUOTE
+    /// currency; this converts it so a GBP/JPY position's JPY P&amp;L isn't shown
+    /// as if it were dollars (the −$211 vs −$1 bug). Tries {CCY}USD then
+    /// USD{CCY} so the market quoting convention is discovered, not hardcoded.
+    /// Returns null when neither pair is found (caller leaves quote-ccy value).
+    /// </summary>
+    public async Task<decimal?> GetUsdRateAsync(string ccy, CancellationToken ct = default)
+    {
+        ccy = (ccy ?? "").ToUpperInvariant();
+        if (ccy.Length != 3) return null;
+        if (ccy == "USD") return 1m;
+        if (_usdRateCache.TryGetValue(ccy, out var c) && (DateTime.UtcNow - c.at).TotalMinutes < 10)
+            return c.rate;
+        // {CCY}USD: 1 unit of CCY = mid USD (e.g. GBPUSD ⇒ GBP→USD = 1.27).
+        var direct = await GetMarketSnapshotAsync($"CS.D.{ccy}USD.MINI.IP", ct);
+        if (direct.Bid is decimal db && direct.Ask is decimal da && db + da > 0)
+        {
+            var r = (db + da) / 2m;
+            _usdRateCache[ccy] = (r, DateTime.UtcNow);
+            return r;
+        }
+        // USD{CCY}: 1 USD = mid CCY ⇒ CCY→USD = 1/mid (e.g. USDJPY 159.9 ⇒ JPY→USD).
+        var inv = await GetMarketSnapshotAsync($"CS.D.USD{ccy}.MINI.IP", ct);
+        if (inv.Bid is decimal ib && inv.Ask is decimal ia && ib + ia > 0)
+        {
+            var r = 2m / (ib + ia);
+            _usdRateCache[ccy] = (r, DateTime.UtcNow);
+            return r;
+        }
+        return null;
+    }
+
     // ─── Market search ─────────────────────────────────────────
 
     /// <summary>GET /markets?searchTerm=&lt;term&gt; — discover EPICs for a
