@@ -1154,6 +1154,77 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/fill-quality", qp);
   },
+  // Catalyst registry (Phase C-1). North-star item from project memory
+  // — pure-technical signals miss event-driven trades. C-1 is the
+  // persistence + visibility surface; the news extractor sink + signal
+  // overlay are C-2 / C-3.
+  catalysts: (params?: {
+    symbol?: string;
+    kind?: string;
+    lookbackDays?: number;
+    lookaheadDays?: number;
+    status?: string;
+  }) => {
+    const qp: Record<string, string | undefined> = {};
+    if (params?.symbol) qp.symbol = params.symbol;
+    if (params?.kind) qp.kind = params.kind;
+    if (params?.lookbackDays !== undefined) qp.lookbackDays = String(params.lookbackDays);
+    if (params?.lookaheadDays !== undefined) qp.lookaheadDays = String(params.lookaheadDays);
+    if (params?.status) qp.status = params.status;
+    return get<{
+      count: number;
+      window: { back_days: number; ahead_days: number };
+      status_filter: string;
+      catalysts: Array<{
+        id: number;
+        symbol: string;
+        kind: string;
+        occurs_on: string | null;
+        title: string;
+        source: string;
+        severity: "low" | "medium" | "high";
+        status: "active" | "expired" | "dismissed";
+        surfaced_at_utc: string;
+        payload_text: string;
+        note: string | null;
+        created_at_utc: string;
+        updated_at_utc: string;
+      }>;
+    }>("/api/catalysts/", qp);
+  },
+  upsertCatalyst: (body: {
+    symbol: string;
+    kind: string;
+    occursOn: string | null;     // YYYY-MM-DD or null when undated
+    title: string;
+    source: string;
+    severity?: "low" | "medium" | "high";
+    status?: "active" | "expired" | "dismissed";
+    payload?: unknown;
+    note?: string | null;
+  }) =>
+    post<{ id: number; status: string }, unknown>("/api/catalysts/", {
+      Symbol: body.symbol,
+      Kind: body.kind,
+      OccursOn: body.occursOn,
+      Title: body.title,
+      Source: body.source,
+      Severity: body.severity ?? "medium",
+      Status: body.status ?? "active",
+      Payload: body.payload ?? {},
+      Note: body.note ?? null,
+    }),
+  dismissCatalyst: async (id: number) => {
+    const headers = await authHeaders();
+    const resp = await fetch(
+      new URL(`/api/catalysts/${id}/dismiss`, config.apiBaseUrl),
+      { method: "PATCH", headers },
+    );
+    if (!resp.ok) {
+      throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+    }
+    return resp.json() as Promise<{ id: number; status: string }>;
+  },
 };
 
 // Shape of the artifact emitted by strategies/cli/equity_pipeline.py

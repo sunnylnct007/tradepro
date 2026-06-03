@@ -3,6 +3,7 @@ import { config } from "../config";
 import { getIdToken } from "../firebase";
 import { SettingsKvSection } from "../components/settings/SettingsKvSection";
 import { StrategyBrokerMapSection } from "../components/settings/StrategyBrokerMapSection";
+import { CatalystsSection } from "../components/settings/CatalystsSection";
 import { DataHealthSection } from "../components/settings/DataHealthSection";
 
 /** UI-editable runtime config.
@@ -241,6 +242,13 @@ export function Settings() {
           (asset_class × resolution), and the Phase-A placeholder
           for backfill. See CURRENT_BACKTEST_LIMITATIONS.md. */}
       <DataHealthSection />
+
+      {/* Catalyst overlay (Phase C-1) — dated events the trader
+          needs visible BEFORE the technical signal verdict. North-star
+          gap #1 per project memory (Ecopetrol example). C-1 is the
+          registry + manual-add surface; C-2 wires the news extractor;
+          C-3 layers catalysts into the decision row. */}
+      <CatalystsSection />
 
       {savedAt && !dirty && (
         <div className="card" style={{ borderLeft: "3px solid var(--up)", color: "var(--text-dim)", padding: "8px 12px", fontSize: 12 }}>
