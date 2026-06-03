@@ -78,6 +78,36 @@ type StrategyEntry = {
 const TABS = ["Overview", "Bars", "Decisions", "Fills", "Positions", "Charts"] as const;
 type Tab = (typeof TABS)[number];
 
+// Ops request ids are GUIDs (8-4-4-4-12 hex); paper session labels are
+// "<strategy>-YYYY-MM-DD". Anything that isn't a GUID is treated as a paper
+// label so the snapshot loader runs.
+function isOpsGuid(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+// Wrap a paper snapshot into the Session shape this page renders. The
+// snapshot's per-strategy frames (decisions/bars/positions/recent_fills/
+// charts) already match StrategyEntry, so result_summary is the snapshot.
+function adaptSnapshot(snap: unknown, id: string): Session {
+  const s = (snap ?? {}) as Record<string, unknown>;
+  const label = (s.session_label as string) || id;
+  const asOf = (s.as_of_utc as string) || new Date().toISOString();
+  // "ichimoku_equity-2026-06-02" → strategy "ichimoku_equity".
+  const strategy = label.replace(/-\d{4}-\d{2}-\d{2}$/, "");
+  return {
+    request_id: label,
+    kind: (s.kind as string) || "paper-snapshot",
+    params: { strategy, symbols: s.symbols ?? [], broker: s.broker },
+    state: "completed",
+    requested_at_utc: asOf,
+    claimed_at_utc: null,
+    claimed_by: (s.broker as string) ?? null,
+    completed_at_utc: asOf,
+    result_summary: { strategies: s.strategies ?? [] },
+    error: null,
+  };
+}
+
 function extractStrategies(rs: unknown): StrategyEntry[] {
   if (!rs || typeof rs !== "object") return [];
   const s = (rs as Record<string, unknown>).strategies;
@@ -199,8 +229,20 @@ export function SessionDetail() {
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    api
-      .getOpsSession(id)
+    setSession(null);
+    setError(null);
+    // Two kinds of id reach this page:
+    //   • ops request GUID (backtests, scans) → /api/ops/sessions/{guid}
+    //   • paper session label e.g. "ichimoku_equity-2026-06-02" (from the
+    //     symbol scan grid) → /api/paper/snapshots/{label}
+    // The ops store is keyed by GUID, so handing it a paper label 404s
+    // ("no session with id …") — the bug the symbol-click hit. Detect the
+    // shape and fetch the right source; the paper snapshot carries the same
+    // per-strategy frames (decisions/bars/positions/charts) this page renders.
+    const loader = isOpsGuid(id)
+      ? api.getOpsSession(id)
+      : api.paperSnapshot(id).then((snap) => adaptSnapshot(snap, id));
+    loader
       .then((s) => {
         if (!cancelled) setSession(s);
       })
