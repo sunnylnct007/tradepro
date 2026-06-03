@@ -22,6 +22,7 @@ import { api } from "../../api/client";
 import type { T212PosResp } from "../../types/cockpit";
 import { bareSymbol, exchangeOf, prettySymbol, productOf } from "../../util/brokerSymbols";
 import { ownerFor } from "../../util/strategyMeta";
+import { deskHelp } from "../../util/deskHelp";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
 type OmsPositions = Awaited<ReturnType<typeof api.omsPositions>>;
@@ -185,10 +186,28 @@ function DeskCard({ x, expanded, onToggle, omsNet }: {
   const { d, pos, unrl, hasPnl, driftSyms, connected, waiting, open } = x;
   const movers = [...pos].filter((p) => p.unrlAbs != null).sort((a, b) => (b.unrlAbs ?? 0) - (a.unrlAbs ?? 0));
   const best = movers[0], worst = movers[movers.length - 1];
+  const [showHelp, setShowHelp] = useState(false);
+  const help = deskHelp(d.id);
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", background: "rgba(0,0,0,0.10)" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
         <strong style={{ fontSize: 13, color: "var(--text)" }}>{d.label}</strong>
+        {help && (
+          <button
+            type="button"
+            onClick={() => setShowHelp((v) => !v)}
+            aria-label={`How the ${d.label} desk works`}
+            title="How this desk works — end-to-end"
+            style={{
+              fontSize: 10, lineHeight: 1, width: 16, height: 16, borderRadius: "50%",
+              border: `1px solid ${showHelp ? "#4f8cff" : "var(--border)"}`,
+              background: showHelp ? "rgba(79,140,255,0.12)" : "transparent",
+              color: showHelp ? "#4f8cff" : "var(--text-dim)", cursor: "pointer", padding: 0,
+            }}
+          >
+            ?
+          </button>
+        )}
         <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
           {ownerFor(d.id)} · {d.broker} · {d.assetClass}
         </span>
@@ -196,6 +215,23 @@ function DeskCard({ x, expanded, onToggle, omsNet }: {
           {connected ? (open ? "● live" : "○ closed") : "— off"}
         </span>
       </div>
+      {help && showHelp && (
+        <div
+          style={{
+            marginTop: 8, padding: "10px 12px", borderRadius: 8,
+            border: "1px solid var(--border)", background: "rgba(79,140,255,0.04)",
+            fontSize: 11.5, lineHeight: 1.5, color: "var(--text-dim)",
+          }}
+        >
+          <div style={{ fontStyle: "italic", color: "var(--text)", marginBottom: 8 }}>{help.oneLiner}</div>
+          {help.sections.map((sec) => (
+            <div key={sec.heading} style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, color: "var(--text)", marginBottom: 2 }}>{sec.heading}</div>
+              <div>{sec.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 14, alignItems: "baseline", marginTop: 8, flexWrap: "wrap" }}>
         {hasPnl
           ? <Metric label="Unrealised" value={fmtSigned(unrl)} colour={unrl >= 0 ? UP : DOWN} big />
