@@ -20,6 +20,47 @@ The day's theme: turn the 2026-06-01 "FOUNDATION DEBT — replay-trade model"
 still untrustworthy (no P&L, no chart, fills at price 0). Every fix is
 test-backed; live-verified where noted.
 
+### 2026-06-02 (evening) — UI review + FX P&L + platform-shape backlog
+Verified-done this block:
+- **FX P&L now correct end-to-end** — IG positions emit the uniform shape
+  (currentPrice/unrealisedAbs/Pct); P&L scales by IG `instrument.contractSize`
+  (golden source, cached) AND converts quote-ccy → USD via IG rates. GBP/JPY
+  went −$211 (yen-as-dollars) → +$1.41; total FX +$68.40. Broker-data-driven,
+  no hardcoded contract/rate constants.
+- **Desk owners are per-strategy** (Mr Foyle = trader's equity+FX; Kumar = our
+  intraday) — was leaking to every strategy in the desk category.
+- Qty float-noise stripped on display.
+
+Platform shape the trader is steering toward (a STANDARD systematic-algo OMS):
+Strategies → broker-AGNOSTIC OMS (broker = GOLDEN SOURCE) → Risk module →
+LLM overlay → pluggable broker adapters (each fills ONE uniform contract).
+No broker hardcoding; a strategy trades on any broker.
+
+Backlog opened/clarified this block (NOT yet done):
+- ⬜ **Exchange-driven market hours** — RiskGate hardcodes US hours for any
+  `_EQ` symbol (RiskGate.cs:156, IsUsEquitySymbol). A UK/LSE name would be
+  wrongly gated to US hours. Derive the session from the instrument's EXCHANGE
+  (config / broker metadata), not the suffix → US names US hours, UK names
+  08:00–16:30 London, same broker. Needs a UK universe to exploit it. Today's
+  equity is US-only by design, so US hours are correct *for it*.
+- ⬜ **Show the exchange on the symbol** in the UI (US / UK / FX venue).
+- ⬜ **Realized / life-to-date P&L from the broker's account history** (IG
+  `/history/transactions`) — desks show only OPEN mark-to-market, so a flat
+  desk (intraday EOD) shows nothing of what it MADE. Also: pre-2026-06-02 IG
+  fills were booked at price 0, so OMS-derived realized P&L is uncomputable for
+  past trades — the broker history is the only golden source. Answers "what did
+  intraday make yesterday" + "good daily but overall loss".
+- ⬜ **Daily P&L graph garbage** — the per-strategy MTM series shows a −$25k/
+  −$33k spike (bad/zero-cost-basis data point); needs cleansing.
+- ⬜ **Symbol-click → 404** — session-detail nav looks up a key that 404s while
+  the snapshot exists under /api/paper/snapshots/<label>.
+- ⬜ **Options strategy not scheduled** — generates no signals because there's
+  no daemon (signal-only). Part of the Options framework.
+- ⬜ **IBKR adapter** (credentials now in hand) — LOW priority; clean test of
+  the broker-agnostic contract.
+- ⬜ **Risk module** (clean pre-trade layer) + **LLM overlay** on top — the
+  "next big thing" once the OMS is fully broker-agnostic + golden-source.
+
 ### ✅ Shipped + verified today (all on `main`)
 - **Replay-trade FOUNDATION DEBT — RESOLVED.** The designed fix (items 1–5
   below) is now live:
