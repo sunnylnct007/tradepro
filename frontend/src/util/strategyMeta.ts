@@ -68,7 +68,7 @@ export type AssetClass = "Equity" | "FX" | "Options";
 export type StrategyMeta = {
   desk: DeskId;
   /** Friendly owner label for THIS specific strategy (trader request). Only
-   * the live desks are named (Mr Foyle / Kumar); dormant strategies fall back
+   * the live desks are named (Mr Foley / Kumar); dormant strategies fall back
    * to their desk-category name via ownerFor(). Set per-strategy — NOT on the
    * desk category — so renaming one live desk doesn't sweep in every dormant
    * strategy that shares its category. */
@@ -85,14 +85,14 @@ export type StrategyMeta = {
 
 export const STRATEGY_META: Record<string, StrategyMeta> = {
   // ── Trend Desk ────────────────────────────────────────────────
-  // ichimoku_equity = the TRADER's (Mr Foyle's) provided equity logic.
-  ichimoku_equity: { desk: "trend", owner: "Mr Foyle Desk", indicators: ["Ichimoku Cloud"], assetClass: "Equity", liveBroker: "T212_DEMO" },
+  // ichimoku_equity = the TRADER's (Mr Foley's) provided equity logic.
+  ichimoku_equity: { desk: "trend", owner: "Mr Foley Desk", indicators: ["Ichimoku Cloud"], assetClass: "Equity", liveBroker: "T212_DEMO" },
   ma_crossover: { desk: "trend", indicators: ["EMA fast/slow crossover"], assetClass: "Equity", liveBroker: null },
   compass_momentum: { desk: "trend", indicators: ["COMPASS momentum"], assetClass: "Equity", liveBroker: null },
 
   // ── Mean-Reversion Desk ───────────────────────────────────────
-  // ichimoku_fx_mr = the TRADER's (Mr Foyle's) provided FX logic.
-  ichimoku_fx_mr: { desk: "mean_reversion", owner: "Mr Foyle Desk", indicators: ["Ichimoku", "mean reversion"], assetClass: "FX", liveBroker: "IG_DEMO" },
+  // ichimoku_fx_mr = the TRADER's (Mr Foley's) provided FX logic.
+  ichimoku_fx_mr: { desk: "mean_reversion", owner: "Mr Foley Desk", indicators: ["Ichimoku", "mean reversion"], assetClass: "FX", liveBroker: "IG_DEMO" },
   vwap_mean_reversion: { desk: "mean_reversion", indicators: ["VWAP fade"], assetClass: "Equity", liveBroker: null },
   bollinger_bounce: { desk: "mean_reversion", indicators: ["Bollinger Bands"], assetClass: "Equity", liveBroker: null },
 
@@ -133,7 +133,7 @@ export function deskFor(strategyId: string): Desk {
 }
 
 /** Friendly owner label for a strategy: its per-strategy `owner` if set (the
- * named live desks — Mr Foyle / Kumar), else the generic desk-category name.
+ * named live desks — Mr Foley / Kumar), else the generic desk-category name.
  * Use this for display so renaming one live desk never sweeps in the dormant
  * strategies that merely share its category. */
 export function ownerFor(strategyId: string): string {
