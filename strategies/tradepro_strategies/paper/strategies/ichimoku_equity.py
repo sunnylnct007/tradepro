@@ -64,7 +64,7 @@ from ..signal_bridge import (
 )
 # The long/flat SIGNAL is a verbatim port of the trader's spec (docs/strategy.py),
 # kept in _equity_trader_signal so it can't drift. Parity-tested.
-from ._equity_trader_signal import latest_signal_and_meta
+from ._equity_trader_signal import latest_signal_and_meta, sleeve_weight
 from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 
 
@@ -83,11 +83,14 @@ class IchimokuEquityStrategy(Strategy):
 
     source = "trader-quant"
     caveats = [
-        "FIDELITY: the long/flat signal is a verbatim port of the trader's "
-        "spec (docs/strategy.py), pinned by a parity test. A prior version had "
-        "drifted (extra close>tenkan entry condition; stateless recompute "
-        "instead of the trader's stateful ffill hold through the cloud) — "
-        "fixed 2026-06-03.",
+        "FIDELITY: both the long/flat SIGNAL and the sleeve SIZING are verbatim "
+        "ports of the trader's spec (docs/strategy.py + docs/portfolio.py), "
+        "pinned by parity tests. Prior drift fixed 2026-06-03: (1) signal had "
+        "an extra close>tenkan condition + was stateless (not the trader's "
+        "stateful ffill hold through the cloud); (2) sizing used an invented "
+        "top-N-by-conviction cap + flat capital/sleeve_size that over-deployed "
+        ">100% when many names signalled — now each sleeve scales to ≤100% via "
+        "weight = 1/max(sleeve_size, n_signal), holding every signalling name.",
         "Daily MOO entries (one per symbol per session) — designed for "
         "multi-week / multi-year holds, not intraday entries.",
         "Single-indicator (Ichimoku) trend filter — vulnerable to a "
@@ -113,6 +116,11 @@ class IchimokuEquityStrategy(Strategy):
     # winners per sleeve. Empty set + no sleeves config = no cap (every
     # signalling name may enter, the pre-sleeve behaviour).
     _selected_entries: set[str] = field(default_factory=set)
+    # Per-symbol capital for THIS session, computed from the trader's sleeve
+    # weighting (1/max(sleeve_size, n_signal) × sleeve_capital) so each sleeve
+    # is ≤100% invested no matter how many names signal. Overrides the static
+    # per_symbol_capital. Set in _select_entries.
+    _dynamic_capital: dict[str, float] = field(default_factory=dict)
     _overrides: OverrideRegistry | None = None
     _gate: LLMSignalGate | None = None
 
@@ -511,59 +519,69 @@ class IchimokuEquityStrategy(Strategy):
         is sized by ITS sleeve (large/hibeta/gold = 20/30/1, capital split
         equally across sleeves). Falls back to the flat capital_usd/sleeve_size
         for any symbol without a per-sleeve allocation (back-compat)."""
+        # Trader-faithful dynamic allocation (set in _select_entries): each
+        # sleeve scaled to ≤100% invested via 1/max(sleeve_size, n_signal).
+        if sym in self._dynamic_capital:
+            return float(self._dynamic_capital[sym])
         psc = p.get("per_symbol_capital") or {}
         if sym in psc:
             return float(psc[sym])
         return float(p["capital_usd"]) / max(1, int(p.get("sleeve_size", 20)))
 
     def _select_entries(self, p: dict[str, Any], session_date) -> None:
-        """Top-N-by-conviction portfolio construction (the trader's fixed-slot
-        model). For each sleeve: names we ALREADY hold (and that still signal)
-        keep their slot; the remaining slots are filled with the highest-
-        conviction NEW candidates. Everything below the cut is dropped this
-        session. This caps the position count per sleeve — and therefore the
-        deployed capital — so the strategy never emits more orders than the
-        budget can fund (the root cause of the pre-open
-        'universe_too_large_for_capital' sweeps).
+        """Trader-faithful sleeve sizing (docs/portfolio 1.py). For each sleeve
+        we HOLD EVERY signalling name (no top-N cut — the trader doesn't have
+        one) and size each at the trader's weight:
 
-        No `sleeves` config → `_selected_entries` is left empty and on_bar
-        treats an empty set as 'no cap' (original behaviour preserved)."""
+            weight = 1 / max(sleeve_size, n_signal)   (sleeve scaled ≤100%)
+            per-name capital = weight × (capital / n_sleeves)
+
+        So as more names signal, each gets smaller and the sleeve stays ≤100%
+        invested — instead of the old top-N-by-conviction cap (an invented
+        divergence) + flat capital/sleeve_size sizing that over-deployed and
+        exhausted cash when >sleeve_size names signalled. The per-name capital
+        goes into `_dynamic_capital` (read by `_capital_per_slot`).
+
+        No `sleeves` config → `_selected_entries`/`_dynamic_capital` stay empty
+        and on_bar treats that as 'no cap / flat sizing' (original behaviour)."""
         self._selected_entries = set()
+        self._dynamic_capital = {}
         sleeves = p.get("sleeves")
         if not sleeves:
-            return  # no cap configured
+            return
+
+        capital = float(p["capital_usd"])
+        sleeve_capital = capital / max(1, len(sleeves))
 
         for name, spec in sleeves.items():
             syms = spec.get("symbols") or []
             size = int(spec.get("size", len(syms)))
-            held = 0
-            candidates: list[tuple[float, str]] = []
-            for sym in syms:
-                sig, _vol, meta = self._compute_signal(sym, None, p)
-                if self._positions.get(sym, 0) > 0:
-                    # Already holding → occupies a slot (kept by on_bar while
-                    # the signal holds; we don't re-enter or exit it here).
-                    held += 1
-                    continue
-                if sig >= 1.0:
-                    conv = float(meta.get("conviction", 0.0)) if meta else 0.0
-                    candidates.append((conv, sym))
-            free = max(0, size - held)
-            candidates.sort(key=lambda t: t[0], reverse=True)
-            chosen = [sym for _conv, sym in candidates[:free]]
-            self._selected_entries.update(chosen)
-            dropped = len(candidates) - len(chosen)
+            # Every name in the sleeve that signals long this session.
+            signalling = [
+                sym for sym in syms
+                if self._compute_signal(sym, None, p)[0] >= 1.0
+            ]
+            n_signal = len(signalling)
+            weight = sleeve_weight(n_signal, size)
+            per_name_cap = weight * sleeve_capital
+            for sym in signalling:
+                self._dynamic_capital[sym] = per_name_cap
+                # Names not already held are eligible to ENTER; held names that
+                # still signal keep their position (on_bar holds them). Held
+                # names that stopped signalling aren't here → on_bar exits them.
+                if self._positions.get(sym, 0) <= 0:
+                    self._selected_entries.add(sym)
             self.log_decision(
                 symbol=f"sleeve:{name}", bar_ts=session_date,
                 action="sleeve-selection",
                 reason=(
-                    f"sleeve '{name}': {held} held + {len(chosen)} new = "
-                    f"{held + len(chosen)}/{size} slots; ranked {len(candidates)} "
-                    f"new signals by conviction, dropped {dropped} below the cut "
-                    f"(capital is allocated to the strongest names first)"
+                    f"sleeve '{name}': {n_signal} signalling names, each weighted "
+                    f"1/max({size},{n_signal}) ⇒ {weight:.4f} of sleeve capital "
+                    f"(${per_name_cap:,.0f}/name); sleeve ≤100% invested "
+                    f"(trader's scale-to-100, no top-N cut)"
                 ),
-                sleeve=name, slots=size, held=held,
-                selected=len(chosen), dropped=dropped,
+                sleeve=name, slots=size, n_signal=n_signal,
+                weight=weight, per_name_capital=per_name_cap,
             )
 
     def _fetch_df(self, symbol: str, p: dict[str, Any]) -> pd.DataFrame | None:

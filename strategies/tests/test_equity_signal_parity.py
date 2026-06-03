@@ -70,6 +70,35 @@ def test_latest_position_matches_trader(seed):
     assert latest_position(df["Close"].to_numpy(), df["High"].to_numpy(), df["Low"].to_numpy()) == float(_golden_position(df).iloc[-1])
 
 
+def _trader_sleeve_weight(n_signal: int, sleeve_size: int) -> float:
+    """Verbatim trader sleeve weighting (docs/portfolio 1.py), per signalling
+    name, for one bar: raw_w = 1/sleeve_size each; scale = min(1, 1/Σraw_w)."""
+    if n_signal <= 0:
+        return 0.0
+    raw = np.array([1.0 / sleeve_size] * n_signal)
+    total = raw.sum()
+    scale = min(1.0, 1.0 / total) if total > 0 else 0.0
+    return float((raw * scale)[0])
+
+
+@pytest.mark.parametrize("n,size", [
+    (0, 20), (1, 20), (10, 20), (19, 20), (20, 20), (21, 20), (35, 20),
+    (1, 30), (30, 30), (50, 30), (1, 1), (5, 1),
+])
+def test_sleeve_weight_matches_trader(n, size):
+    """Sleeve scales to ≤100% invested: every signalling name held, sized
+    1/max(sleeve_size, n_signal) — never a top-N cut, never >100% deployed."""
+    from tradepro_strategies.paper.strategies._equity_trader_signal import sleeve_weight
+    assert sleeve_weight(n, size) == pytest.approx(_trader_sleeve_weight(n, size), abs=1e-12)
+
+
+@pytest.mark.parametrize("n,size", [(10, 20), (20, 20), (40, 20), (60, 30)])
+def test_sleeve_never_over_100pct(n, size):
+    """The whole sleeve is at most 100% invested (the over-deployment fix)."""
+    from tradepro_strategies.paper.strategies._equity_trader_signal import sleeve_weight
+    assert sleeve_weight(n, size) * n <= 1.0 + 1e-12
+
+
 def test_params_match_trader_spec():
     from tradepro_strategies.paper.strategies import _equity_trader_signal as mod
     assert (mod.TENKAN, mod.KIJUN, mod.SENKOU_B, mod.DISPLACEMENT) == (5, 32, 50, 32)

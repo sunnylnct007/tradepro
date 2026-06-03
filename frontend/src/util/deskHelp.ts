@@ -54,7 +54,9 @@ const DESK_SPECIFICS: Record<string, { oneLiner: string; sections: HelpSection[]
           "Ichimoku Cloud trend filter (the trader's tuned 5/32/50 periods). Goes LONG when price is above the cloud AND tenkan>kijun; " +
           "exits when price falls below the cloud OR tenkan<kijun. It HOLDS the long while price sits inside the cloud (the cloud " +
           "thickness is a hold band) — long-or-flat only, never short. A regime gate blocks NEW longs when SPY is below its 200-day " +
-          "SMA. Size is vol-targeted off 60-day realised vol. The math is a verbatim copy of the trader's spec, pinned by a parity test.",
+          "SMA. Sizing follows the trader's sleeves (large 20 / hi-beta 30 / gold 1): it holds EVERY signalling name, each weighted " +
+          "1/max(sleeve_size, names-signalling) so the sleeve is at most 100% invested — more names signalling just means smaller " +
+          "positions, never over-deploying. Then vol-targeted off 60-day vol. Both signal and sizing are verbatim ports of the trader's spec, parity-tested.",
       },
       {
         heading: "Gates before an order fires",

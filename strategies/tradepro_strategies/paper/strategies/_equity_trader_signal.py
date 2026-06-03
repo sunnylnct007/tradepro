@@ -83,6 +83,22 @@ def latest_position(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray) -> 
     return 0.0 if np.isnan(v) else v
 
 
+def sleeve_weight(n_signal: int, sleeve_size: int) -> float:
+    """Trader's per-name sleeve weight for the CURRENT bar (docs/portfolio 1.py).
+
+    The trader sizes each signalling name at 1/sleeve_size, then scales the
+    whole sleeve so it is AT MOST 100% invested:
+        raw_w  = 1 / sleeve_size          (per signalling name)
+        scale  = min(1, 1 / Σ raw_w)
+        weight = raw_w * scale
+    Closed form per name = 1 / max(sleeve_size, n_signal). So sleeve_size is a
+    SIZING denominator, NOT a position-count cap — the trader holds every
+    signalling name, scaled down as more signal (never a top-N cut)."""
+    if n_signal <= 0:
+        return 0.0
+    return 1.0 / max(int(sleeve_size), int(n_signal))
+
+
 def latest_signal_and_meta(closes: np.ndarray, highs: np.ndarray,
                            lows: np.ndarray) -> tuple[float, dict]:
     """Drop-in for the old signal_bridge.ichimoku_daily_signal: returns the
