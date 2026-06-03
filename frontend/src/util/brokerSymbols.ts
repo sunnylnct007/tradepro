@@ -50,6 +50,23 @@ export function productOf(raw: string): ProductType {
   return "Equity";
 }
 
+/** Exchange / venue label so the trader sees WHICH market (and session) an
+ * instrument trades on:
+ *   "AAPL_US_EQ"          → "US"   (T212 cash equity — region from the suffix)
+ *   "VOD_UK_EQ"           → "UK"
+ *   "CS.D.EURUSD.MINI.IP" → "FX"   (IG OTC spot FX — no single exchange)
+ *   "UA.D.AVGO.CASH.IP"   → "CFD"  (IG share CFD — OTC vs the underlying)
+ * Empty string when unknown so the caller can omit the tag. */
+export function exchangeOf(raw: string): string {
+  const s = (raw || "").toUpperCase();
+  if (productOf(s) === "Option") return "OPT";
+  const m = s.match(/^[A-Z0-9.]+_([A-Z]{2,3})_EQ$/);
+  if (m) return m[1];
+  if (s.startsWith("CS.D.") || /^[A-Z]{6}$/.test(bareSymbol(s))) return "FX";
+  if (s.endsWith(".CASH.IP")) return "CFD";
+  return "";
+}
+
 /** Short broker label for a chip, e.g. "T212_DEMO" → "T212 · demo". */
 export function brokerLabel(broker: string | null | undefined): string {
   if (!broker) return "—";

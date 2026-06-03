@@ -20,7 +20,7 @@ import { Link } from "react-router-dom";
 import { CockpitCard } from "../CockpitCard";
 import { api } from "../../api/client";
 import type { T212PosResp } from "../../types/cockpit";
-import { bareSymbol, prettySymbol, productOf } from "../../util/brokerSymbols";
+import { bareSymbol, exchangeOf, prettySymbol, productOf } from "../../util/brokerSymbols";
 import { ownerFor } from "../../util/strategyMeta";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
@@ -243,7 +243,15 @@ function DeskCard({ x, expanded, onToggle, omsNet }: {
                   const drift = o != null && Math.round(o) !== Math.round(p.qty);
                   return (
                     <tr key={`${p.symbol}-${i}`} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td style={td} title={p.symbol}>{prettySymbol(p.symbol)}</td>
+                      <td style={td} title={p.symbol}>
+                        {prettySymbol(p.symbol)}
+                        {exchangeOf(p.symbol) && (
+                          <span style={{ marginLeft: 6, fontSize: 9, padding: "1px 4px", borderRadius: 3,
+                            background: "var(--border)", color: "var(--text-muted)", letterSpacing: "0.04em" }}>
+                            {exchangeOf(p.symbol)}
+                          </span>
+                        )}
+                      </td>
                       <td style={numTd}>{fmtQty(p.qty)}</td>
                       <td style={{ ...numTd, color: hasPnl ? ((p.unrlAbs ?? 0) >= 0 ? UP : DOWN) : (p.qty >= 0 ? UP : DOWN) }}>
                         {hasPnl ? fmtSigned(p.unrlAbs ?? 0) : (p.qty >= 0 ? "LONG" : "SHORT")}
