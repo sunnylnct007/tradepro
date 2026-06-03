@@ -1,14 +1,31 @@
 """IchimokuFXMeanReversionStrategy — hourly G10 FX fade-the-break paper strategy.
 
 Intraday mean-reversion on G10 FX pairs using Ichimoku. Trades the
-REVERSION away from cloud breaks ("fade the break"), ensembled across
-horizons and smoothing windows exactly as in quant_engine/fx_strategy.py.
+REVERSION away from cloud breaks ("fade the break").
+
+SIGNAL FIDELITY — the signal is a VERBATIM port of the trader's spec
+(docs/main 3.py), kept in `_fx_trader_signal.py` and pinned by
+`tests/test_fx_signal_parity.py`. The live strategy calls
+`latest_target_position()` on its rolling window each bar and acts on the last
+value, so it cannot drift. The trader's logic, exactly:
+  - Classic Ichimoku with STANDARD periods (tenkan 9, kijun 26, senkou_b 52,
+    26-bar forward shift) — NOT the horizon as the lookback.
+  - A break needs THREE conditions: price vs cloud AND tenkan/kijun cross AND
+    the chikou (lagging-span) confirmation.
+  - Edge-TRIGGERED: a unit is stacked at the bar a break first fires and held
+    for the HORIZON (336–624h ≈ 2–3.5 weeks), ensembled across all 8 horizons.
+  - Smoothed across SMOOTHS (24/48/72h), then vol-scaled (vol_target / realised
+    vol over 480h) and clipped to ±POS_CAP.
+
+(A prior streaming re-implementation drifted from all of the above — see the
+DEAD CODE banner on `_ichimoku_lines` below. Fixed 2026-06-03.)
 
 Design:
   - One instance handles ALL FX pairs. Each pair has its own signal state.
   - Signal is recomputed on every hourly bar (rolling window, no lookahead).
   - Position is SIGNED: +1 = long (fade bearish break), -1 = short (fade bullish break).
-  - Vol-targeted sizing: qty proportional to vol_target / realised_vol_480h.
+  - Vol-targeting is carried in the position MAGNITUDE (units 1–3); the per-unit
+    notional is one capital-leg per pair.
   - Max position per pair capped at POS_CAP = 3 units.
 
 LLM signal gate (optional, fail_open by default):
@@ -43,10 +60,17 @@ from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 # Lazy-resolved inside default_params so import-time circulars stay clean.
 from ...quant_engine.fx_strategy import (
     G10_PAIRS,
+    FXMeanReversionStrategy as _FXBacktester,
+)
+# The SIGNAL is a verbatim port of the trader's spec (docs/main 3.py), kept in
+# _fx_trader_signal so it cannot drift. HORIZONS/SMOOTHS/POS_CAP come from there
+# too, so constants + math are a single source of truth (parity-tested).
+from ._fx_trader_signal import (
     HORIZONS,
     SMOOTHS,
     POS_CAP,
-    FXMeanReversionStrategy as _FXBacktester,
+    MIN_BARS as _TRADER_MIN_BARS,
+    latest_target_position,
 )
 
 
@@ -78,6 +102,15 @@ def _fx_market_open(ts) -> bool:
     return True            # Mon–Thu
 
 
+# ⚠️ DEAD CODE — DO NOT USE OR RE-WIRE. ⚠️
+# _ichimoku_lines / _reversion_signal_latest below are the OLD streaming
+# reinterpretation of the FX signal that DRIFTED from the trader's spec: they
+# mis-used HORIZONS as Ichimoku lookbacks (not holding periods), dropped the
+# chikou condition, and used instantaneous cloud state instead of edge-triggered
+# holds. The live signal now comes from `_fx_trader_signal.latest_target_position`
+# (a verbatim port of docs/main 3.py, parity-tested). These remain only so old
+# references don't NameError; they are no longer called. Delete once confirmed
+# unused everywhere.
 def _ichimoku_lines(
     high: np.ndarray,
     low: np.ndarray,
@@ -190,6 +223,10 @@ class IchimokuFXMeanReversionStrategy(Strategy):
 
     source = "trader-quant"
     caveats = [
+        "FIDELITY: the signal is a verbatim port of the trader's spec "
+        "(docs/main 3.py), pinned by a parity test. A prior version had "
+        "drifted (HORIZONS mis-used as Ichimoku lookbacks, chikou dropped, "
+        "state instead of edge-triggered holds) — fixed 2026-06-03.",
         "DESIGN-LIMITED. Ichimoku is a TREND-confirmation tool "
         "originally tuned for daily Japanese equities. Using it for "
         "intraday FX mean-reversion is contrarian to its design and "
@@ -204,7 +241,8 @@ class IchimokuFXMeanReversionStrategy(Strategy):
         "+ adds Bollinger Bands(20) + RSI(14) + ATR-based stop. Ask the "
         "quant before relying on v1 for live capital.",
     ]
-    # Bars-needed (2573 of 1h) means default_lookback_days=200.
+    # Bars-needed is now ~774 of 1h (≈32 days) with the trader-faithful signal
+    # (cloud + 624h hold + smooth + 480h vol). 200 lookback-days is ample.
     default_lookback_days = 200
 
     _closes: dict[str, deque] = field(default_factory=dict)
@@ -332,16 +370,16 @@ class IchimokuFXMeanReversionStrategy(Strategy):
         warmup_arg = int(p.get("warmup_bars", 200))
         horizons = tuple(p.get("horizons") or HORIZONS)
         smooths = tuple(p.get("smooths") or SMOOTHS)
-        # The ensemble's LONGEST horizon needs horizon*4 + smooth + 10 bars
-        # (senkou_b = 4*horizon). Start signalling earlier than that and the
-        # long horizons silently return 0 → the ensemble collapses toward 0
-        # → the strategy looks alive but NEVER trades (the 2026-06-01 FX
-        # bug, where warmup_bars=800 ≪ the ~2578 the 624h horizon needs).
-        # So the REAL warmup is what the full ensemble needs — and when we're
-        # short of it, say so LOUDLY instead of emitting silent-zero signals.
-        bars_needed = max(horizons) * 4 + max(smooths) + 10
+        # Warmup = what the trader's signal needs to be representative: the
+        # cloud (senkou_b 52 + 26 shift), the longest HOLDING horizon (624),
+        # the longest smooth (72) and the 480h vol lookback all filled
+        # (_fx_trader_signal.MIN_BARS ≈ 774). NOTE: HORIZONS are HOLDING
+        # PERIODS here, NOT Ichimoku lookbacks — the old code mis-used them as
+        # lookbacks (×4 for senkou_b ⇒ ~2578 bars), which data-starved 8/10
+        # pairs to a silent-zero signal. With ~800 warmup the book trades.
+        bars_needed = _TRADER_MIN_BARS
         warmup = max(warmup_arg, bars_needed)
-        maxlen = max(700, bars_needed)
+        maxlen = max(800, bars_needed + 10)
         self._closes.setdefault(pair, deque(maxlen=maxlen)).append(bar.close)
         self._highs.setdefault(pair, deque(maxlen=maxlen)).append(bar.high)
         self._lows.setdefault(pair, deque(maxlen=maxlen)).append(bar.low)
@@ -354,10 +392,11 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             # the exact silent-zero condition. Fire once (on crossing).
             if self._bar_counts[pair] == warmup_arg and warmup_arg < bars_needed:
                 _log.warning(
-                    "ichimoku_fx_mr DATA-STARVED for %s: %d bars, but the %dh "
-                    "horizon needs %d (senkou_b=4×horizon). Signals stay 0 "
-                    "until then — deepen --lookback-days or use the bar-cache.",
-                    pair, self._bar_counts[pair], max(horizons), bars_needed,
+                    "ichimoku_fx_mr DATA-STARVED for %s: %d bars, but the "
+                    "trader's signal needs %d (cloud + 624h hold + smooth + "
+                    "480h vol). Signals stay 0 until then — deepen "
+                    "--lookback-days or use the bar-cache.",
+                    pair, self._bar_counts[pair], bars_needed,
                 )
             self.log_decision(
                 symbol=pair, bar_ts=bar.timestamp,
@@ -396,17 +435,16 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             )
             return []
 
-        # Compute the latest reversion signal.
+        # Latest target position from the trader's VERBATIM signal pipeline
+        # (ichimoku → reversion_signal → vol_scale, in _fx_trader_signal). It
+        # returns the vol-scaled position already clipped to [-POS_CAP, POS_CAP];
+        # we round it to integer units below. This is the single source of
+        # truth — parity-tested against an independent copy of docs/main 3.py.
         closes_arr = np.fromiter(self._closes[pair], dtype=float)
         highs_arr = np.fromiter(self._highs[pair], dtype=float)
         lows_arr = np.fromiter(self._lows[pair], dtype=float)
 
-        signal = _reversion_signal_latest(
-            closes_arr, highs_arr, lows_arr,
-            horizons=horizons,
-            smooths=smooths,
-            pos_cap=int(p.get("pos_cap", POS_CAP)),
-        )
+        signal = latest_target_position(closes_arr, highs_arr, lows_arr)
         self._last_signal[pair] = signal
 
         # Veto consumes the would-be order regardless of signal.
@@ -577,6 +615,4 @@ def _default_registry() -> OverrideRegistry:
 
 __all__ = [
     "IchimokuFXMeanReversionStrategy",
-    "_reversion_signal_latest",
-    "_ichimoku_lines",
 ]
