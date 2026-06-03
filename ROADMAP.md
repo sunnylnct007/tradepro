@@ -1139,9 +1139,15 @@ change between slices.
   icon, days-until indicator + an operator manual-add form. 6 backend
   tests cover defaults, UNIQUE, UPSERT, window filter, dismiss, severity
   ordering.
-- **C-2** — Wire the existing `tradepro_strategies.catalysts` news
-  extractor to POST rows automatically. Source tag `extractor.news`
-  so operator-added rows stay distinguishable in audit.
+- **C-2 ✅ SHIPPED** — `tradepro_strategies.catalysts_sink` bridges
+  the extractor to the registry. `tradepro-catalysts-extract
+  --symbol AAPL` fetches Yahoo headlines, runs the existing keyword
+  extractor, and POSTs each detected dated catalyst with
+  `source="extractor.news"`. Confidence → severity coarsening
+  (≥0.9 high / ≥0.6 medium / else low). Best-effort: failed POSTs
+  counted but never raise. `--dry-run` prints would-post bodies
+  for spot-checks. 12 BDD scenarios pin the heuristic boundaries +
+  body shape + empty/failure edge cases.
 - **C-3** — Layer catalysts into the cockpit decision row + LLM gate
   (the Ecopetrol moment — "tech says WAIT but high-severity catalyst
   in 10d"). Conviction adjustment per project memory's 3-axis schema.
