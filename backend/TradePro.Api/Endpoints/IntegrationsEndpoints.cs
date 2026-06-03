@@ -335,14 +335,12 @@ public static class IntegrationsEndpoints
                 if (ig.IsEnabled)
                 {
                     var cash = await ig.GetCashAsync(ct);
-                    // "Are we making money" for IG, from IG's OWN numbers (golden
-                    // source): openPnl = running P&L on open positions; netSinceStart
-                    // = equity − net deposited = (balance + profitLoss) − deposit,
-                    // i.e. realised + open since the account was funded.
-                    decimal? netSinceStart =
-                        (cash.Balance is decimal bal && cash.Deposit is decimal dep)
-                            ? bal + (cash.ProfitLoss ?? 0m) - dep
-                            : (decimal?)null;
+                    // "Are we making money" for IG = openPnl (IG's OWN running P&L
+                    // on open positions — golden source, sane). We deliberately do
+                    // NOT derive netSinceStart from (balance − deposit): IG demo
+                    // accounts are funded with a huge notional and `deposit` isn't a
+                    // real cost baseline, so it came out ~£9.9M (nonsense). Realised
+                    // life-to-date P&L needs IG /history (roadmap), not the balance.
                     rows.Add(new
                     {
                         broker = ig.BrokerLabel,
@@ -352,8 +350,6 @@ public static class IntegrationsEndpoints
                         available = cash.Available,
                         balance = cash.Balance,
                         openPnl = cash.ProfitLoss,
-                        deposit = cash.Deposit,
-                        netSinceStart,
                         error = cash.Error,
                     });
                 }
