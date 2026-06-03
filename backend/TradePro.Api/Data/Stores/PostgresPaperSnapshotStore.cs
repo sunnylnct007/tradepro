@@ -213,7 +213,11 @@ public sealed class PostgresPaperSnapshotStore : IPaperSnapshotStore
                 var sid = JsonbHelpers.ReadString(s, "strategy_id");
                 if (string.IsNullOrWhiteSpace(sid)) continue;
                 var r = JsonbHelpers.ReadDoubleOrNull(s, "realised_pnl") ?? 0.0;
-                var u = JsonbHelpers.ReadDoubleOrNull(s, "unrealised_pnl") ?? 0.0;
+                // Recompute clean unrealised from positions, dropping cost-basis-0
+                // (notional-as-P&L) at READ time — repairs historical snapshots too
+                // (the daily series parses the raw payload, NOT paper_pnl_points, so
+                // the ingest-side guard + migration 039 don't reach this path).
+                var u = CleanUnrealised(s, JsonbHelpers.ReadDoubleOrNull(s, "unrealised_pnl") ?? 0.0);
                 var e = JsonbHelpers.ReadDoubleOrNull(s, "equity") ?? 0.0;
                 if (!byStrategy.TryGetValue(sid, out var pts)) byStrategy[sid] = pts = new();
                 pts[day] = new PnlPoint(day, r, u, e, r + u);  // latest snapshot of the day wins
