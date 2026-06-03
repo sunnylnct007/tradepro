@@ -112,6 +112,13 @@ class RiskContext:
     effect itself."""
     strategy_capital_usd: float
     mark_price: float
+    # Per-symbol latest marks. A multi-symbol strategy (e.g. G10 FX) holds
+    # instruments at wildly different price scales (EURUSD ~1.16 vs USDJPY
+    # ~160), so a single mark_price valued every symbol at one pair's price —
+    # inflating non-JPY position values ~138x and tripping max_position_value
+    # on every FX order. Look the order's own symbol up here; mark_price is the
+    # fallback for symbols not present.
+    marks: dict[str, float] = field(default_factory=dict)
     current_positions: dict[str, "Position"] = field(default_factory=dict)
     now: datetime | None = None
 
@@ -141,7 +148,9 @@ def check_order(
     # is to reduce risk).
     pos = ctx.current_positions.get(order.symbol)
     new_qty_signed = _projected_qty(pos, order)
-    new_position_value = abs(new_qty_signed) * ctx.mark_price
+    # Value the order at ITS OWN symbol's mark, not a strategy-wide one.
+    symbol_mark = ctx.marks.get(order.symbol) or ctx.mark_price
+    new_position_value = abs(new_qty_signed) * symbol_mark
 
     if limits.max_position_value_usd is not None:
         if new_position_value > limits.max_position_value_usd:

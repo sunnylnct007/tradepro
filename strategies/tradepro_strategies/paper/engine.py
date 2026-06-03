@@ -502,15 +502,26 @@ class Engine:
         # have come from a strategy yet either, so the sizing checks
         # only fire after the bus emits at least one bar.
         book = self.ledger.books.get(strategy_id)
-        marks = (
+        # Per-symbol marks from the ledger — every symbol that has seen a bar,
+        # INCLUDING ones with no open position (e.g. an FX pair we're about to
+        # open). This is what the risk gate values each order against.
+        per_symbol = {
+            sym: price
+            for sym, (price, _ts) in self.ledger.latest_marks.items()
+            if price > 0
+        }
+        # Legacy single mark — only a fallback for a symbol absent from the
+        # per-symbol map. Prefer a real position mark, else any known mark.
+        pos_marks = (
             [p.last_mark for p in book.positions.values() if p.last_mark > 0]
             if book is not None
             else []
         )
-        mark = marks[-1] if marks else 0.0
+        mark = pos_marks[-1] if pos_marks else (next(iter(per_symbol.values()), 0.0))
         return RiskContext(
             strategy_capital_usd=reg.capital_usd,
             mark_price=mark,
+            marks=per_symbol,
             current_positions=dict(reg.strategy.positions),
             now=datetime.now(timezone.utc),
         )
