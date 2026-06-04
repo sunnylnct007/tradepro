@@ -89,11 +89,17 @@ export function PositionsPanel({
   const [selectedMeta, setSelectedMeta] = useState<
     { entry: number | null; now: number | null; pnl: number | null; pct: number | null; side: "long" | "short" } | null
   >(null);
+  // The strategy of the clicked position — a symbol can be traded by several
+  // (AVGO on ichimoku_equity AND intraday_flat), so we scope entry/P&L,
+  // decisions and the chart's markers to THIS strategy.
+  const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null);
   const openChart = (
     ticker: string,
     p?: { quantity?: number; averagePricePaid?: number | null; currentPrice?: number | null; unrealisedAbs?: number | null; unrealisedPct?: number | null },
+    strategy?: string,
   ) => {
     setSelectedSym(bareSymbol(ticker).toUpperCase());
+    setSelectedStrategy(strategy ?? null);
     setSelectedMeta(p ? {
       entry: p.averagePricePaid ?? null, now: p.currentPrice ?? null,
       pnl: p.unrealisedAbs ?? null, pct: p.unrealisedPct ?? null,
@@ -103,22 +109,48 @@ export function PositionsPanel({
 
   // bare symbol → chart figure (shared helper, used by every chart surface).
   const chartBySymbol = useMemo(() => buildChartBySymbol(latestSessions), [latestSessions]);
-  const selectedFigure = selectedSym ? chartBySymbol.get(selectedSym) ?? null : null;
+  // Per-(strategy, symbol) figures so a shared symbol resolves to the CLICKED
+  // strategy's chart (its own periods + its own fill markers), not whichever.
+  const chartByStratSym = useMemo(() => {
+    const m = new Map<string, Map<string, unknown>>();
+    for (const s of latestSessions) {
+      const inner = m.get(s.strategy) ?? new Map<string, unknown>();
+      for (const [name, fig] of Object.entries(s.charts ?? {})) {
+        const sym = (name.includes(":") ? name.split(":")[1] : name).toUpperCase();
+        if (!inner.has(sym)) inner.set(sym, fig);
+      }
+      m.set(s.strategy, inner);
+    }
+    return m;
+  }, [latestSessions]);
+  const selectedFigure = !selectedSym ? null
+    : (selectedStrategy ? chartByStratSym.get(selectedStrategy)?.get(selectedSym) : undefined)
+      ?? chartBySymbol.get(selectedSym) ?? null;
 
   // The strategy's decisions for the selected symbol — "what it decided & when"
   // beside the candles (price & where it bought/sold). The post-trade story.
-  const selectedDecisions = useMemo(() => {
-    if (!selectedSym) return [];
-    const out: Array<{ barTs: string | null; action: string; reason: string; strategy: string }> = [];
+  // Grouped BY STRATEGY — the same symbol can be traded by multiple strategies
+  // (e.g. AVGO on both ichimoku_equity/T212 and intraday_flat/IG), so we show
+  // each strategy's decisions separately rather than mixing them.
+  const decisionsByStrategy = useMemo(() => {
+    if (!selectedSym) return [] as Array<{ strategy: string; rows: Array<{ barTs: string | null; action: string; reason: string }> }>;
+    const m = new Map<string, Array<{ barTs: string | null; action: string; reason: string }>>();
     for (const s of latestSessions) {
+      // Scope to the clicked position's strategy when known (a symbol can be
+      // traded by several); otherwise show every strategy that traded it.
+      if (selectedStrategy && s.strategy !== selectedStrategy) continue;
       for (const d of s.decisions ?? []) {
         if ((d.symbol ?? "").toUpperCase() === selectedSym) {
-          out.push({ barTs: d.barTs, action: d.action, reason: d.reason, strategy: s.strategy });
+          if (!m.has(s.strategy)) m.set(s.strategy, []);
+          m.get(s.strategy)!.push({ barTs: d.barTs, action: d.action, reason: d.reason });
         }
       }
     }
-    return out.sort((a, b) => (b.barTs ?? "").localeCompare(a.barTs ?? "")).slice(0, 25);
-  }, [selectedSym, latestSessions]);
+    return [...m.entries()].map(([strategy, rows]) => ({
+      strategy,
+      rows: rows.sort((a, b) => (b.barTs ?? "").localeCompare(a.barTs ?? "")).slice(0, 15),
+    }));
+  }, [selectedSym, selectedStrategy, latestSessions]);
 
   // MAE/MFE for the selected open position (since its entry fill).
   const excursion = useMemo(
@@ -262,36 +294,40 @@ export function PositionsPanel({
             </div>
           )}
 
-          {/* What the strategy decided & when — beside the price/markers above,
-              this is the "why did it buy/sell here" half of the analysis. */}
-          {selectedDecisions.length > 0 && (
+          {/* What each strategy decided & when — per strategy, since a symbol
+              can be traded by more than one (the "why did it buy/sell" half). */}
+          {decisionsByStrategy.length > 0 && (
             <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
-                What the strategy decided ({selectedDecisions[0].strategy})
+                What the strategies decided for {selectedSym}
               </div>
-              <div style={{ maxHeight: 180, overflowY: "auto" }}>
-                <table style={{ ...tableStyle }}>
-                  <tbody>
-                    {selectedDecisions.map((d, i) => {
-                      const fire = d.action.startsWith("fire");
-                      return (
-                        <tr key={i} style={{ borderTop: i ? "1px solid var(--border)" : undefined }}>
-                          <td style={{ ...td, fontFamily: "monospace", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                            {d.barTs ? d.barTs.slice(0, 16).replace("T", " ") : "—"}
-                          </td>
-                          <td style={{ ...td, whiteSpace: "nowrap" }}>
-                            <span style={{
-                              fontFamily: "monospace", fontSize: 11,
-                              color: fire ? "#1fc16b" : "var(--text-dim)",
-                            }}>{d.action}</span>
-                          </td>
-                          <td style={{ ...td, color: "var(--text-dim)" }}>{d.reason}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              {decisionsByStrategy.map((g) => (
+                <div key={g.strategy} style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 4, fontFamily: "monospace" }}>
+                    {g.strategy}
+                  </div>
+                  <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                    <table style={{ ...tableStyle }}>
+                      <tbody>
+                        {g.rows.map((d, i) => {
+                          const fire = d.action.startsWith("fire");
+                          return (
+                            <tr key={i} style={{ borderTop: i ? "1px solid var(--border)" : undefined }}>
+                              <td style={{ ...td, fontFamily: "monospace", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                                {d.barTs ? d.barTs.slice(0, 16).replace("T", " ") : "—"}
+                              </td>
+                              <td style={{ ...td, whiteSpace: "nowrap" }}>
+                                <span style={{ fontFamily: "monospace", fontSize: 11, color: fire ? "#1fc16b" : "var(--text-dim)" }}>{d.action}</span>
+                              </td>
+                              <td style={{ ...td, color: "var(--text-dim)" }}>{d.reason}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CockpitCard>
@@ -337,7 +373,7 @@ export function PositionsPanel({
                   const o = omsNet(t212OmsBroker, bareSymbol(p.ticker));
                   return (
                     <tr key={p.ticker}
-                      onClick={() => openChart(p.ticker, p)}
+                      onClick={() => openChart(p.ticker, p, "ichimoku_equity")}
                       title="Show chart"
                       style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td}>{prettySymbol(p.ticker)}</td>
@@ -371,7 +407,7 @@ export function PositionsPanel({
                 <tbody>
                   {igEq.map((p, i) => (
                     <tr key={p.dealId ?? `${p.ticker}-${i}`}
-                      onClick={() => openChart(p.ticker, p)}
+                      onClick={() => openChart(p.ticker, p, "intraday_flat")}
                       title="Show chart"
                       style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
@@ -460,7 +496,7 @@ export function PositionsPanel({
             {flattenMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>{flattenMsg}</div>}
             {/* Lead with the NET exposure per pair — the real position
                 under the (often many) stacked deals. */}
-            <NetByPair positions={igFx} prominent onSelect={(s) => { setSelectedSym(s); setSelectedMeta(null); }} />
+            <NetByPair positions={igFx} prominent onSelect={(s) => { setSelectedSym(s); setSelectedMeta(null); setSelectedStrategy("ichimoku_fx_mr"); }} />
             {igFx.length > 0 && (
               <button type="button" onClick={() => setShowDeals((s) => !s)}
                 style={{ marginTop: 8, fontSize: 11, background: "transparent", border: "none",
@@ -479,7 +515,7 @@ export function PositionsPanel({
                 <tbody>
                   {igFx.map((p, i) => (
                     <tr key={p.dealId ?? `${p.ticker}-${i}`}
-                      onClick={() => openChart(p.ticker, p)}
+                      onClick={() => openChart(p.ticker, p, "ichimoku_fx_mr")}
                       title="Show chart"
                       style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td} title={p.ticker}>{p.instrumentName || prettySymbol(p.ticker)}</td>
