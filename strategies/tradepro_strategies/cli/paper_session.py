@@ -311,6 +311,65 @@ def _resolve_symbols(args: argparse.Namespace) -> list[str]:
     return out
 
 
+def _validate_universe_against_broker(
+    args: argparse.Namespace, symbols: list[str]
+) -> list[str]:
+    """Filter the resolved universe to symbols the TARGET BROKER can actually
+    trade — PER BROKER, because T212 ≠ IG ≠ IBKR each list different
+    instruments. The Wikipedia→DB universe says what we'd LIKE to trade; this
+    intersects it with what the broker will ACCEPT, so names like WFRD/LFUS/JEF
+    (valid high-beta tickers, just not on T212) get dropped here instead of
+    404-ing at the order router every 5-minute cycle.
+
+    FAIL OPEN: if the broker catalog can't be fetched we trade the full
+    universe (a fetch hiccup must not halt the desk). Prunes
+    ``args.per_symbol_capital`` + ``args.sleeves_map`` in lockstep so the
+    sizing maps never reference a dropped name. Stashes the dropped list on
+    ``args.dropped_untradeable`` for snapshot surfacing."""
+    log = logging.getLogger("tradepro.cli")
+    args.dropped_untradeable = []
+    broker = (getattr(args, "broker", "") or "").lower()
+    if not symbols or "t212" not in broker:
+        # Only T212 equity validation is wired today; IG/IBKR pass through
+        # (their FX/CFD epics are already validated via the static epic maps).
+        return symbols
+
+    from ..paper.brokers.t212 import _T212_FX_TICKER, t212_tradeable_bare_symbols
+
+    catalog = t212_tradeable_bare_symbols()
+    if not catalog:
+        log.warning(
+            "universe validation skipped: T212 catalog unavailable "
+            "(fail-open — trading full %d-symbol universe)", len(symbols),
+        )
+        return symbols
+
+    kept: list[str] = []
+    dropped: list[str] = []
+    for s in symbols:
+        # Tradeable if T212 lists it, or it's a mapped FX pair, or it's already
+        # a fully-qualified broker ticker (has a suffix).
+        if s in catalog or s.upper() in _T212_FX_TICKER or "_" in s:
+            kept.append(s)
+        else:
+            dropped.append(s)
+
+    if dropped:
+        log.warning(
+            "universe validation: %d/%d symbol(s) NOT tradeable on T212 — "
+            "dropped before sizing: %s", len(dropped), len(symbols), dropped,
+        )
+        if getattr(args, "per_symbol_capital", None):
+            for s in dropped:
+                args.per_symbol_capital.pop(s, None)
+        if getattr(args, "sleeves_map", None):
+            for sl in args.sleeves_map.values():
+                sl["symbols"] = [x for x in sl.get("symbols", []) if x not in dropped]
+        args.dropped_untradeable = dropped
+
+    return kept
+
+
 def _resolve_session_date(arg: str | None) -> datetime | None:
     if arg is None:
         return None
@@ -746,6 +805,10 @@ def main(argv: list[str] | None = None) -> int:
         session_date = datetime.utcnow().replace(microsecond=0)
         log.info("session_date defaulted to today UTC: %s", session_date.date())
     symbols = _resolve_symbols(args)
+    # Per-broker instrument validation: drop universe names the target broker
+    # can't actually trade (T212 lists ≠ IG ≠ IBKR) BEFORE they reach sizing /
+    # the order router. Stops the WFRD/LFUS/JEF reject loop + phantom £0 fills.
+    symbols = _validate_universe_against_broker(args, symbols)
 
     # Interval: CLI flag → strategy default.
     if args.interval is None:

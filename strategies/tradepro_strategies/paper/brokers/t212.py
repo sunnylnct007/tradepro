@@ -517,6 +517,74 @@ def _to_t212_ticker(symbol: str) -> str:
     )
 
 
+# Process-cached T212 tradeable catalog. The instrument set is stable
+# intraday; the 07:00 universe refresh re-validates daily, so one fetch per
+# daemon process is plenty (and respects T212's 1 req/s metadata limit).
+_T212_TRADEABLE_CACHE: Optional[set[str]] = None
+
+
+def t212_tradeable_bare_symbols(
+    *,
+    api_key: Optional[str] = None,
+    api_secret: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> Optional[set[str]]:
+    """Bare symbols (``AAPL``, not ``AAPL_US_EQ``) that T212 LISTS as tradeable
+    US equities, from ``GET /equity/metadata/instruments``.
+
+    This is the broker-side half of universe validation: the Wikipedia→DB
+    universe says *what we'd like to trade*; this says *what T212 will actually
+    accept*. Their intersection is the live tradeable set — names only in the
+    universe (WFRD/LFUS/JEF on T212) get dropped before sizing instead of
+    404-ing at the order router every cycle.
+
+    Cached per process. Returns ``None`` on ANY failure so the caller FAILS
+    OPEN — a catalog hiccup must never halt the desk by emptying the universe.
+    """
+    global _T212_TRADEABLE_CACHE
+    if _T212_TRADEABLE_CACHE is not None:
+        return _T212_TRADEABLE_CACHE
+
+    key = api_key or get_secret("t212-api-key")
+    if not key:
+        return None
+    secret = api_secret or get_secret("t212-api-secret")
+    mode = get_secret("t212-mode")
+    base = base_url or (T212_LIVE_BASE if mode == "live" else T212_DEMO_BASE)
+    if secret:
+        token = base64.b64encode(f"{key}:{secret}".encode()).decode()
+        headers = {"Authorization": f"Basic {token}"}
+    else:
+        headers = {"Authorization": key}
+
+    try:
+        import httpx
+        with httpx.Client(base_url=base, timeout=30.0) as client:
+            resp = client.get("equity/metadata/instruments", headers=headers)
+            resp.raise_for_status()
+            instruments = resp.json()
+    except Exception:  # noqa: BLE001 — fail open, never block trading
+        log.warning(
+            "T212 instrument catalog fetch failed — universe validation "
+            "will FAIL OPEN (trade full universe this run)", exc_info=True,
+        )
+        return None
+
+    bare: set[str] = set()
+    for inst in instruments or []:
+        ticker = inst.get("ticker") or ""
+        # US equities list as "AAPL_US_EQ"; map back to the bare symbol the
+        # strategies + _to_t212_ticker use. Non-US suffixes (…l_EQ, …d_EQ) and
+        # FX are out of scope here (FX validates via _T212_FX_TICKER).
+        if ticker.endswith("_US_EQ"):
+            bare.add(ticker[: -len("_US_EQ")])
+    _T212_TRADEABLE_CACHE = bare
+    log.info(
+        "T212 instrument catalog: %d tradeable US-equity tickers cached", len(bare)
+    )
+    return bare
+
+
 _IG_FX_EPIC: dict[str, str] = {
     # IG demo MINI epics for G10 FX. Discovered via /api/admin/ig/search.
     # MINI variants because demo accounts typically have smaller min sizes
