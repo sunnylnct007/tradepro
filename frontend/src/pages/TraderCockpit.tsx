@@ -16,6 +16,7 @@ import { OrdersByBrokerPanel } from "../components/cockpit/OrdersByBrokerPanel";
 import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { PnlGraph } from "../components/cockpit/PnlGraph";
+import { PnlSummaryCard } from "../components/cockpit/PnlSummaryCard";
 import { EquityCurveCard } from "../components/cockpit/EquityCurveCard";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
@@ -365,6 +366,7 @@ export function TraderCockpit() {
   // click × on the card → moves to HiddenWidgetsBar; click the pill
   // → restored.
   const WIDGETS: WidgetMeta[] = [
+    { id: "pnl-summary",  title: "P&L — bottom line" },
     { id: "pnl-graph",    title: "P&L at a glance" },
     { id: "equity-curve", title: "Account value over time" },
     { id: "desks",        title: "Strategy desks" },
@@ -571,6 +573,9 @@ export function TraderCockpit() {
 
       {/* P&L at a glance — per-strategy lines, today-intraday / all-time
           toggle. The trader's "how am I doing" read; sits with the desks. */}
+      {v("pnl-summary") && (
+        <PnlSummaryCard onHide={() => widgets.hide("pnl-summary")} />
+      )}
       {v("pnl-graph") && (
         <PnlGraph onHide={() => widgets.hide("pnl-graph")} />
       )}
