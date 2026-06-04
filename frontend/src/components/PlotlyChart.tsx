@@ -100,7 +100,14 @@ export function PlotlyChart({
           layout={
             ((fig as Record<string, unknown>).layout as Record<string, unknown>) ?? {}
           }
-          config={{ responsive: true, displaylogo: false }}
+          config={{
+            responsive: true,
+            displaylogo: false,
+            scrollZoom: true,            // scroll/pinch to zoom into the chart
+            displayModeBar: true,        // always show zoom/pan/autoscale/reset tools
+            modeBarButtonsToRemove: ["select2d", "lasso2d"],
+            doubleClick: "reset",        // double-click to reset the view
+          }}
           style={{ width: "100%", height: "100%" }}
           useResizeHandler
         />

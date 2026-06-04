@@ -178,6 +178,7 @@ export function PositionsPanel({
         <CockpitCard
           id="position-chart-inline"
           title={`Chart — ${selectedSym}`}
+          fullWidth
           onHide={() => setSelectedSym(null)}
         >
           {selectedFigure ? (
