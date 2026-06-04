@@ -1152,11 +1152,33 @@ change between slices.
   (the Ecopetrol moment — "tech says WAIT but high-severity catalyst
   in 10d"). Conviction adjustment per project memory's 3-axis schema.
 
-**Phase J — Additional asset classes (mandate-driven, not now)**
-- Options chains EOD snapshots (when an options strategy joins the
-  roadmap).
-- Futures with contract rolling (when needed).
-- Crypto (BinanceProvider.cs exists but no consumer today).
+**Phase J — Additional asset classes**
+- **J-1 ✅ SHIPPED** — Asset-class breadth expansion. Four new
+  plugins land alongside the existing `us_etf`:
+    * `us_equity` — single-name NYSE listings (AAPL, MSFT, NVDA, ...).
+      Subclasses `UsEtfPlugin` for the identical NYSE calendar +
+      bar counts; segregated in `data_source_preferences` +
+      `bar_cache_events` for telemetry clarity.
+    * `uk_equity` — LSE listings (.L tickers). 510 1m bars per
+      full session (08:00–16:30 London), LSE holiday calendar +
+      half-day list.
+    * `fx_spot` — 24/5 spot FX (EUR/USD, GBP/USD, ...). New
+      `fx_v1` schema makes `volume` nullable (FX has no
+      centralised volume). Sunday/Friday partial-session bar
+      counts surface honestly.
+    * `crypto` — 24/7 spot crypto (BTC-USD, ETH-USD, ...). New
+      `crypto_v1` schema. Every calendar day is a session.
+  Migration 039 seeds `data_source_preferences` chains for every
+  new (asset_class × resolution) pair + fills the missing
+  intraday rungs for the existing classes. 14 BDD scenarios pin
+  registration, resolution ladders, calendar exclusions, bar
+  counts, and schema nullability.
+- **J-2** — Options chains EOD snapshots (when an options strategy
+  joins the roadmap).
+- **J-3** — Futures with contract rolling (when needed).
+- **J-4** — Binance / Coinbase Python providers for the `crypto`
+  plugin's chain (BinanceProvider.cs stub exists on the .NET side;
+  Python consumer ships when a crypto strategy lands).
 
 ### Coordination
 
