@@ -105,7 +105,9 @@ function formatResultSummary(s: Session): React.ReactNode {
   const equity = num("equity");
   const realised = num("realised_pnl");
   const positions = num("positions") ?? 0;
-  const symbols = (arr("symbols") as string[] | undefined) ?? [];
+  const symbols = ((arr("symbols") as string[] | undefined) ?? [])
+    .slice()
+    .sort((a, b) => String(a).localeCompare(String(b)));
   const omsPosted = num("oms_orders_posted");
   const strategies = arr("strategies") ?? [];
   let decisions = 0;

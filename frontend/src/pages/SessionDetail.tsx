@@ -554,7 +554,9 @@ function SessionSummaryHero({
 
   const params = (session.params || {}) as Record<string, unknown>;
   const strategyName = params.strategy as string | undefined;
-  const symbolsArr = Array.isArray(params.symbols) ? (params.symbols as string[]) : [];
+  const symbolsArr = (Array.isArray(params.symbols) ? (params.symbols as string[]) : [])
+    .slice()
+    .sort((a, b) => String(a).localeCompare(String(b)));
 
   // Wall clock summary — small + monospace.
   const enqAt = new Date(session.requested_at_utc);
@@ -672,7 +674,7 @@ function AssumptionChips({ params }: { params: unknown }) {
   };
   push("strategy", p.strategy, "info");
   if (Array.isArray(p.symbols)) {
-    push("symbols", (p.symbols as unknown[]).join(", "));
+    push("symbols", (p.symbols as unknown[]).map(String).sort((a, b) => a.localeCompare(b)).join(", "));
   }
   push("session_date", p.session_date ?? p.date);
   push("placement_mode", p.placement_mode,
