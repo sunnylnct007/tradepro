@@ -31,6 +31,8 @@ import type { LatestSession, T212PosResp } from "../../types/cockpit";
 import { bareSymbol, prettySymbol, productOf } from "../../util/brokerSymbols";
 import { buildChartBySymbol } from "../../util/chartBySymbol";
 import { fmtQty } from "../../util/numbers";
+import { useSort } from "../../util/useSort";
+import { SortTh } from "../SortTh";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
 type OmsPositions = Awaited<ReturnType<typeof api.omsPositions>>;
@@ -136,6 +138,18 @@ export function PositionsPanel({
     return rows.reduce((n, p) => n + p.quantity, 0);
   };
 
+  // Sortable T212 equity table (click any header). Reusable useSort hook.
+  const t212OmsBrokerLbl = `T212_${account.toUpperCase()}`;
+  const t212Sort = useSort(positions?.positions ?? [], {
+    ticker: (p) => bareSymbol(p.ticker),
+    qty: (p) => p.quantity,
+    avg: (p) => p.averagePricePaid,
+    now: (p) => p.currentPrice,
+    pnlpct: (p) => p.unrealisedPct,
+    pnl: (p) => p.unrealisedAbs,
+    oms: (p) => omsNet(t212OmsBrokerLbl, bareSymbol(p.ticker)),
+  }, { key: "pnl", dir: "asc" });
+
   const flatten = useCallback(async (opts: { symbol?: string; dealId?: string; label: string }) => {
     if (!window.confirm(`Flatten ${opts.label} on IG? This closes at market (rejected if the market is closed).`)) return;
     setFlattening(true);
@@ -222,12 +236,17 @@ export function PositionsPanel({
             <table style={tableStyle}>
               <thead>
                 <tr style={{ color: "var(--text-dim)" }}>
-                  <th style={th}>Ticker</th><th style={rTh}>Qty</th><th style={rTh}>Avg</th>
-                  <th style={rTh}>Now</th><th style={rTh}>P&L %</th><th style={rTh}>P&L</th><th style={rTh}>OMS</th>
+                  <SortTh label="Ticker" col="ticker" sortKey={t212Sort.sortKey} dir={t212Sort.dir} onSort={t212Sort.toggle} style={th} />
+                  <SortTh label="Qty" col="qty" sortKey={t212Sort.sortKey} dir={t212Sort.dir} onSort={t212Sort.toggle} style={rTh} />
+                  <SortTh label="Avg" col="avg" sortKey={t212Sort.sortKey} dir={t212Sort.dir} onSort={t212Sort.toggle} style={rTh} />
+                  <SortTh label="Now" col="now" sortKey={t212Sort.sortKey} dir={t212Sort.dir} onSort={t212Sort.toggle} style={rTh} />
+                  <SortTh label="P&L %" col="pnlpct" sortKey={t212Sort.sortKey} dir={t212Sort.dir} onSort={t212Sort.toggle} style={rTh} />
+                  <SortTh label="P&L" col="pnl" sortKey={t212Sort.sortKey} dir={t212Sort.dir} onSort={t212Sort.toggle} style={rTh} />
+                  <SortTh label="OMS" col="oms" sortKey={t212Sort.sortKey} dir={t212Sort.dir} onSort={t212Sort.toggle} style={rTh} />
                 </tr>
               </thead>
               <tbody>
-                {positions?.positions.map((p) => {
+                {t212Sort.sorted.map((p) => {
                   const o = omsNet(t212OmsBroker, bareSymbol(p.ticker));
                   return (
                     <tr key={p.ticker}
