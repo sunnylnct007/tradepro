@@ -345,6 +345,12 @@ export const api = {
   // Broker-reported REALISED P&L per day (golden source; nets spread +
   // financing). The honest "what did we actually make/lose each day" the OMS
   // can't give (pre-2026-06-02 IG fills were booked at price 0).
+  accountValueHistory: (days = 30) =>
+    get<{
+      from: number;
+      error?: string | null;
+      points: Array<{ broker: string; date: string; currency: string | null; value: number }>;
+    }>("/api/account-value/history", { days }),
   igHistory: (days = 7) =>
     get<{
       enabled: boolean;

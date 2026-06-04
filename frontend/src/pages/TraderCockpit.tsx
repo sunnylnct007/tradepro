@@ -16,6 +16,7 @@ import { OrdersByBrokerPanel } from "../components/cockpit/OrdersByBrokerPanel";
 import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { PnlGraph } from "../components/cockpit/PnlGraph";
+import { EquityCurveCard } from "../components/cockpit/EquityCurveCard";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { BrokerCashStrip } from "../components/cockpit/BrokerCashStrip";
@@ -365,6 +366,7 @@ export function TraderCockpit() {
   // → restored.
   const WIDGETS: WidgetMeta[] = [
     { id: "pnl-graph",    title: "P&L at a glance" },
+    { id: "equity-curve", title: "Account value over time" },
     { id: "desks",        title: "Strategy desks" },
     { id: "warnings",     title: "Warnings" },
     { id: "broker-cash",  title: "Broker cash (multi)" },
@@ -571,6 +573,9 @@ export function TraderCockpit() {
           toggle. The trader's "how am I doing" read; sits with the desks. */}
       {v("pnl-graph") && (
         <PnlGraph onHide={() => widgets.hide("pnl-graph")} />
+      )}
+      {v("equity-curve") && (
+        <EquityCurveCard onHide={() => widgets.hide("equity-curve")} />
       )}
 
       {/* Strategy readiness — surfaces the assumptions (bars-needed vs
