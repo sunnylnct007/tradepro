@@ -66,7 +66,14 @@ def step_start(context) -> None:
         },
     )
     strat.on_session_start(datetime(2026, 5, 9))
+    context.strat = strat
     context.selected = strat._selected_entries
+    context.dynamic_capital = dict(strat._dynamic_capital)
+
+
+@then("the selected entries are exactly STRONG, MED and WEAK")
+def step_assert_all_three(context) -> None:
+    assert context.selected == {"STRONG", "MED", "WEAK"}, context.selected
 
 
 @then("the selected entries are exactly STRONG and MED")
@@ -74,11 +81,21 @@ def step_assert_strong_med(context) -> None:
     assert context.selected == {"STRONG", "MED"}, context.selected
 
 
-@then("the selected entries are exactly STRONG")
-def step_assert_strong(context) -> None:
-    assert context.selected == {"STRONG"}, context.selected
+@then("each is weighted 1/max(2,3) of sleeve capital")
+def step_assert_equal_weight(context) -> None:
+    # No top-N cut: 3 names signal into a 2-slot sleeve, so each is weighted
+    # 1/max(sleeve_size=2, n_signal=3) = 1/3 of sleeve capital — equal across.
+    p = context.strat._p()
+    expected = float(p["capital_usd"]) / 1 / 3.0   # one sleeve in this test
+    caps = [context.dynamic_capital[s] for s in ("STRONG", "MED", "WEAK")]
+    for sym, cap in zip(("STRONG", "MED", "WEAK"), caps):
+        assert abs(cap - expected) < 1e-6, f"{sym}: {cap} != {expected}"
+    assert len({round(c, 6) for c in caps}) == 1, f"not equal-weight: {caps}"
 
 
-@then("WEAK is dropped as below the conviction cut")
-def step_assert_weak_dropped(context) -> None:
+@then("WEAK is held (signalling) but not re-entered")
+def step_assert_weak_held_not_reentered(context) -> None:
+    # WEAK still signals → carries a sleeve weight (in _dynamic_capital) and
+    # on_bar HOLDS it, but it's not a fresh ENTRY (already at the broker).
+    assert "WEAK" in context.dynamic_capital, context.dynamic_capital
     assert "WEAK" not in context.selected, context.selected

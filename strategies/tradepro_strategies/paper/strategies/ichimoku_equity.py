@@ -24,8 +24,15 @@ Regime gate:
   SPY < 200-SMA -> no new longs (AMBER/BEAR mode, existing positions hold
   until their own exit signal fires).
 
-Vol-targeted sizing:
-  qty = min(max_leverage, target_vol / realised_vol_60d) x capital_per_slot / price
+Vol-targeted sizing (trader-faithful, docs/portfolio 1.py):
+  Each signalling name gets an equal weight 1/max(sleeve_size, n_signal) of
+  sleeve capital (sleeve scaled ≤100% invested). The book is then scaled by ONE
+  portfolio-level vol scalar — NOT per name:
+      scalar   = min(max_leverage, target_vol / realised_vol_of_book)
+      notional = per_name_capital × scalar
+      qty      = floor(notional / price)   # NO max(1,…); sub-1-share → skip
+  Applying vol-target to the aggregate (vs each name by its own vol) captures
+  cross-name diversification, exactly as the trader's vectorised backtest does.
 
 LLM signal gate (optional, fail_open by default):
   For each new ENTRY signal, the gate evaluates recent news sentiment.
@@ -53,15 +60,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+import numpy as np
 import pandas as pd
 
 from ..llm_gate import GateDecision, LLMSignalGate
 from ..overrides import OverrideRegistry
 from ..registry import register_strategy
-from ..signal_bridge import (
-    realised_vol_from_closes,
-    size_from_vol_target,
-)
+from ..signal_bridge import realised_vol_from_closes
 # The long/flat SIGNAL is a verbatim port of the trader's spec (docs/strategy.py),
 # kept in _equity_trader_signal so it can't drift. Parity-tested.
 from ._equity_trader_signal import latest_signal_and_meta, sleeve_weight
@@ -121,6 +126,15 @@ class IchimokuEquityStrategy(Strategy):
     # is ≤100% invested no matter how many names signal. Overrides the static
     # per_symbol_capital. Set in _select_entries.
     _dynamic_capital: dict[str, float] = field(default_factory=dict)
+    # Trailing daily closes per signalling name (tail(vol_lookback+1)), stashed
+    # in _compute_signal so _select_entries can reconstruct the PORTFOLIO return
+    # series for the single aggregate vol scalar (docs/portfolio 1.py).
+    _closes_for_vol: dict[str, list[float]] = field(default_factory=dict)
+    # ONE portfolio-level vol-target scalar for the whole book this session —
+    # min(max_leverage, target_vol / realised_portfolio_vol). The trader applies
+    # vol-target to the AGGREGATE return, NOT per name, so cross-name
+    # diversification is captured. Set in _select_entries; 1.0 = no scaling.
+    _vol_scalar: float = 1.0
     _overrides: OverrideRegistry | None = None
     _gate: LLMSignalGate | None = None
 
@@ -181,6 +195,8 @@ class IchimokuEquityStrategy(Strategy):
     def on_session_start(self, session_date) -> None:  # type: ignore[override]
         self._daily_signals.clear()
         self._realised_vols.clear()
+        self._closes_for_vol.clear()
+        self._vol_scalar = 1.0
         self._moo_fired.clear()
         # Pre-load positions from params.initial_positions so the
         # strategy knows what we ALREADY hold at the broker. Without
@@ -339,13 +355,15 @@ class IchimokuEquityStrategy(Strategy):
             llm_scale = gate_decision.scale_factor
             # ────────────────────────────────────────────────────────────
 
-            qty = size_from_vol_target(
-                price=bar.close,
-                capital=self._capital_per_slot(sym, p),
-                target_vol=p["target_vol"],
-                realised_vol=vol,
-                max_leverage=p["max_leverage"],
-            )
+            # Trader-faithful sizing (docs/portfolio 1.py): per-name notional =
+            # capital weight × the ONE portfolio vol scalar; whole-share floor
+            # with NO max(1,…). A name whose fractional target rounds below 1
+            # share is SKIPPED (preserves the ≤100%-invested weight discipline)
+            # rather than force-bought at a 1-share position the trader never
+            # sized — that floor previously over-risked expensive volatile names.
+            per_name_cap = self._capital_per_slot(sym, p)
+            notional = per_name_cap * self._vol_scalar
+            qty = int(notional // bar.close) if bar.close > 0 else 0
             # Apply LLM boost to algo-computed size.
             qty = int(qty * llm_scale)
 
@@ -361,9 +379,14 @@ class IchimokuEquityStrategy(Strategy):
             if qty <= 0:
                 self.log_decision(
                     symbol=sym, bar_ts=bar.timestamp,
-                    action="skip-zero-qty",
-                    reason="vol-target sizer returned non-positive quantity",
+                    action="skip-sub-share",
+                    reason=(
+                        f"fractional target {self._capital_per_slot(sym, p) * self._vol_scalar:,.0f}$"
+                        f" / {float(bar.close):,.2f} < 1 share — skipped (trader weights "
+                        f"this name <1 share; not force-bought at a 1-share over-risk)"
+                    ),
                     signal=signal, vol=vol, price=float(bar.close),
+                    vol_scalar=self._vol_scalar,
                 )
                 return []
 
@@ -584,6 +607,65 @@ class IchimokuEquityStrategy(Strategy):
                 weight=weight, per_name_capital=per_name_cap,
             )
 
+        # ── Portfolio-level vol target (docs/portfolio 1.py:99-112) ──────────
+        # The trader scales the AGGREGATE book return by ONE scalar, not each
+        # name by its own vol. Reconstruct the trailing portfolio return from
+        # each name's overall weight (per_name_cap / capital) × its daily log
+        # returns, then scalar = min(max_leverage, target_vol / realised_vol).
+        # Captures diversification — per-name vol-targeting (the old, drifted
+        # behaviour) does not and over-shrinks individually-volatile names.
+        self._vol_scalar = self._portfolio_vol_scalar(p, capital, session_date)
+
+    def _portfolio_vol_scalar(
+        self, p: dict[str, Any], capital: float, session_date,
+    ) -> float:
+        """One vol-target scalar for the whole book — the trader's
+        `_apply_vol_target` (docs/portfolio 1.py) ported to streaming.
+
+        realised_vol = std(Σ wᵢ·log_returnᵢ) × √252  over the trailing window;
+        scalar = min(max_leverage, target_vol / realised_vol), default 1.0 when
+        there isn't enough history (mirrors the trader's `.fillna(1.0)`)."""
+        target_vol = float(p["target_vol"])
+        max_lev = float(p["max_leverage"])
+        if capital <= 0 or not self._dynamic_capital:
+            return 1.0
+
+        series: list[tuple[float, np.ndarray]] = []
+        for sym, cap in self._dynamic_capital.items():
+            closes = self._closes_for_vol.get(sym)
+            if not closes or len(closes) < 21:  # < 20 returns → too noisy
+                continue
+            arr = np.asarray(closes, dtype=float)
+            if np.any(arr <= 0):
+                continue
+            rets = np.diff(np.log(arr))
+            series.append((cap / capital, rets))  # overall portfolio weight
+
+        if not series:
+            return 1.0
+        n = min(len(r) for _, r in series)
+        if n < 20:
+            return 1.0
+        port = np.zeros(n)
+        for w, rets in series:
+            port += w * rets[-n:]
+        realised_vol = float(np.std(port, ddof=1)) * np.sqrt(252.0)
+        scalar = 1.0 if realised_vol <= 0 else min(max_lev, target_vol / realised_vol)
+
+        self.log_decision(
+            symbol="portfolio:vol-target", bar_ts=session_date,
+            action="vol-target",
+            reason=(
+                f"book realised vol {realised_vol:.1%} (ann.) over {n}d vs target "
+                f"{target_vol:.0%} ⇒ ONE scalar {scalar:.3f} (capped at "
+                f"{max_lev}×) applied to every name — trader's aggregate "
+                f"vol-target, not per-name"
+            ),
+            realised_vol=realised_vol, target_vol=target_vol,
+            scalar=scalar, names=len(series),
+        )
+        return scalar
+
     def _fetch_df(self, symbol: str, p: dict[str, Any]) -> pd.DataFrame | None:
         """Pluggable data lookup. Tests inject `_data_fn`; production
         falls back to the on-disk cache (no live network call here)."""
@@ -669,6 +751,9 @@ class IchimokuEquityStrategy(Strategy):
         closes_for_vol = close.tail(lookback + 1).tolist()
         vol = realised_vol_from_closes(closes_for_vol)
         self._realised_vols[symbol] = vol
+        # Stash for the portfolio-level vol scalar (_select_entries reconstructs
+        # the weighted book return from these). Only the trailing window matters.
+        self._closes_for_vol[symbol] = closes_for_vol
         self._daily_signals[symbol] = (signal, vol or 0.0, meta)
         return signal, vol, meta
 
