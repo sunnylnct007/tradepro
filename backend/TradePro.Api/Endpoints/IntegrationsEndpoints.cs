@@ -46,6 +46,25 @@ public static class IntegrationsEndpoints
         return "EQUITY";
     }
 
+    // A clean instrument label for per-symbol P&L grouping: the FX pair if
+    // present (deals AND financing rows both mention it), else the company
+    // name with IG's noise stripped ("(24 Hours)", commission/financing
+    // suffixes). So "NVIDIA Corp (24 Hours) COMM …" and the matching deal
+    // both group under "NVIDIA Corp".
+    internal static string NormaliseInstrument(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "—";
+        var fx = Regex.Match(s.ToUpperInvariant(), @"\b([A-Z]{3}/[A-Z]{3})\b");
+        if (fx.Success) return fx.Groups[1].Value;
+        var name = s;
+        foreach (var marker in new[] { " (24 Hours)", " COMM", " converted at", " - FX Interest", " Commission", " Admin Fee", " Financing" })
+        {
+            var idx = name.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx > 0) name = name[..idx];
+        }
+        return name.Trim();
+    }
+
     public static IEndpointRouteBuilder MapIntegrationsEndpoints(this IEndpointRouteBuilder app)
     {
         // Surfaces both T212 connections in one envelope — live (reads)
@@ -589,6 +608,30 @@ public static class IntegrationsEndpoints
                 .OrderByDescending(x => Math.Abs(x.realised))
                 .ToArray();
 
+            // Per-desk, per-symbol GROSS → COST → NET (the trade-analysis core):
+            // DEAL transactions = gross trade P&L; everything else (WITH:
+            // financing, admin, commission) = cost. Net = gross + cost. So a
+            // desk's churn shows as "gross ~0, big negative cost" per name.
+            var byStrategySymbol = hist.Transactions
+                .Select(t => new {
+                    t,
+                    sid = StrategyFor(t.Instrument) ?? "unattributed",
+                    sym = NormaliseInstrument(t.Instrument),
+                    isDeal = string.Equals(t.Type, "DEAL", StringComparison.OrdinalIgnoreCase),
+                })
+                .GroupBy(x => new { x.sid, x.sym })
+                .Select(g => new
+                {
+                    strategyId = g.Key.sid,
+                    symbol = g.Key.sym,
+                    gross = g.Where(x => x.isDeal).Sum(x => x.t.ProfitAndLoss),
+                    cost = g.Where(x => !x.isDeal).Sum(x => x.t.ProfitAndLoss),
+                    net = g.Sum(x => x.t.ProfitAndLoss),
+                    trades = g.Count(x => x.isDeal),
+                })
+                .OrderBy(x => x.net)  // biggest losers first — what needs attention
+                .ToArray();
+
             var payload = new
             {
                 enabled = true,
@@ -597,6 +640,7 @@ public static class IntegrationsEndpoints
                 totalRealised = hist.Transactions.Sum(t => t.ProfitAndLoss),
                 byDay,
                 byStrategy,
+                byStrategySymbol,
                 attributionBasis = "instrument asset-class → IG strategy (strategy_broker_map + emitted symbols); OMS has no IG fills",
                 transactions = hist.Transactions.Take(200),
                 error = hist.Error,
