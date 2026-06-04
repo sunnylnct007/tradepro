@@ -84,6 +84,17 @@ export function PositionsPanel({
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   // Click a position row → show its Ichimoku chart in one shared panel.
   const [selectedSym, setSelectedSym] = useState<string | null>(null);
+  // The clicked position's own numbers, for the "how much are we down" headline.
+  const [selectedMeta, setSelectedMeta] = useState<
+    { entry: number | null; now: number | null; pnl: number | null; pct: number | null } | null
+  >(null);
+  const openChart = (
+    ticker: string,
+    p?: { averagePricePaid?: number | null; currentPrice?: number | null; unrealisedAbs?: number | null; unrealisedPct?: number | null },
+  ) => {
+    setSelectedSym(bareSymbol(ticker).toUpperCase());
+    setSelectedMeta(p ? { entry: p.averagePricePaid ?? null, now: p.currentPrice ?? null, pnl: p.unrealisedAbs ?? null, pct: p.unrealisedPct ?? null } : null);
+  };
 
   // bare symbol → chart figure (shared helper, used by every chart surface).
   const chartBySymbol = useMemo(() => buildChartBySymbol(latestSessions), [latestSessions]);
@@ -210,6 +221,19 @@ export function PositionsPanel({
           fullWidth
           onHide={() => setSelectedSym(null)}
         >
+          {/* Loss headline: how much are we down on THIS position (open MTM). */}
+          {selectedMeta && (selectedMeta.entry != null || selectedMeta.pnl != null) && (
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "baseline", marginBottom: 8, fontSize: 12 }}>
+              {selectedMeta.entry != null && <span style={muted}>entry <strong style={{ color: "var(--text)", fontFamily: "monospace" }}>{selectedMeta.entry}</strong></span>}
+              {selectedMeta.now != null && <span style={muted}>now <strong style={{ color: "var(--text)", fontFamily: "monospace" }}>{selectedMeta.now}</strong></span>}
+              {selectedMeta.pnl != null && (
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: selectedMeta.pnl >= 0 ? UP : DOWN }}>
+                  open {selectedMeta.pnl >= 0 ? "+" : ""}{selectedMeta.pnl.toFixed(2)}
+                  {selectedMeta.pct != null ? ` (${selectedMeta.pct >= 0 ? "+" : ""}${selectedMeta.pct.toFixed(2)}%)` : ""}
+                </span>
+              )}
+            </div>
+          )}
           {selectedFigure ? (
             // TradingView-style candles + Ichimoku overlay + BUY/SELL markers.
             <CandleChart figure={selectedFigure} height={440} />
@@ -295,7 +319,7 @@ export function PositionsPanel({
                   const o = omsNet(t212OmsBroker, bareSymbol(p.ticker));
                   return (
                     <tr key={p.ticker}
-                      onClick={() => setSelectedSym(bareSymbol(p.ticker).toUpperCase())}
+                      onClick={() => openChart(p.ticker, p)}
                       title="Show chart"
                       style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td}>{prettySymbol(p.ticker)}</td>
@@ -329,7 +353,7 @@ export function PositionsPanel({
                 <tbody>
                   {igEq.map((p, i) => (
                     <tr key={p.dealId ?? `${p.ticker}-${i}`}
-                      onClick={() => setSelectedSym(bareSymbol(p.ticker).toUpperCase())}
+                      onClick={() => openChart(p.ticker, p)}
                       title="Show chart"
                       style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
@@ -371,7 +395,7 @@ export function PositionsPanel({
               <tbody>
                 {igOptions.map((p, i) => (
                   <tr key={p.dealId ?? `${p.ticker}-${i}`}
-                    onClick={() => setSelectedSym(bareSymbol(p.ticker).toUpperCase())}
+                    onClick={() => openChart(p.ticker, p)}
                     title="Show chart"
                     style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                     <td style={td} title={p.ticker}>{p.instrumentName || p.ticker}</td>
@@ -418,7 +442,7 @@ export function PositionsPanel({
             {flattenMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>{flattenMsg}</div>}
             {/* Lead with the NET exposure per pair — the real position
                 under the (often many) stacked deals. */}
-            <NetByPair positions={igFx} prominent onSelect={setSelectedSym} />
+            <NetByPair positions={igFx} prominent onSelect={(s) => { setSelectedSym(s); setSelectedMeta(null); }} />
             {igFx.length > 0 && (
               <button type="button" onClick={() => setShowDeals((s) => !s)}
                 style={{ marginTop: 8, fontSize: 11, background: "transparent", border: "none",
@@ -437,7 +461,7 @@ export function PositionsPanel({
                 <tbody>
                   {igFx.map((p, i) => (
                     <tr key={p.dealId ?? `${p.ticker}-${i}`}
-                      onClick={() => setSelectedSym(bareSymbol(p.ticker).toUpperCase())}
+                      onClick={() => openChart(p.ticker, p)}
                       title="Show chart"
                       style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                       <td style={td} title={p.ticker}>{p.instrumentName || prettySymbol(p.ticker)}</td>
