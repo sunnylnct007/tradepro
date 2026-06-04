@@ -522,6 +522,35 @@ def _parse_broker_position_rows(
     return positions, avg_prices
 
 
+def _fetch_broker_held_symbols(broker: str) -> list[str]:
+    """Bare symbols the strategy currently HOLDS at `broker` (golden source).
+
+    Used to union held names into the universe so a name that has rotated OUT
+    of the sleeve universe but is STILL HELD keeps getting bars + an exit
+    evaluation (the orphaned-hold fix: without this, a held name outside the
+    universe gets no bar → on_bar never runs its exit → it's stuck forever).
+    Best-effort — returns [] on any error (the union is an enhancement, not a
+    correctness gate; the seed itself still confirms the book separately)."""
+    b = broker.strip().lower()
+    path = _REAL_BROKER_POSITION_PATHS.get(b)
+    if path is None:
+        return []
+    try:
+        import requests
+        from . import push_to_api
+        base, token = push_to_api.load_credentials()
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        resp = requests.get(f"{base.rstrip('/')}{path}", headers=headers, timeout=10)
+        resp.raise_for_status()
+        rows = resp.json().get("positions") or []
+        positions, _ = _parse_broker_position_rows(rows, None)  # None = no universe filter
+        return [s for s, q in positions.items() if q != 0]
+    except Exception:  # noqa: BLE001
+        logging.getLogger("tradepro.cli").warning(
+            "orphaned-exit: could not read %s held positions for the universe union", b)
+        return []
+
+
 def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[str, int], dict[str, float]]:
     """Fetch the strategy's current position FROM THE BROKER and seed it
     so reruns compute a delta (target - current) instead of re-emitting a
@@ -742,6 +771,25 @@ def main(argv: list[str] | None = None) -> int:
     args.placement_mode = resolved_placement_mode
 
     broker_list = [b.strip() for b in args.broker.split(",") if b.strip()]
+
+    # Orphaned-exit fix: union the broker's HELD names into the universe so a
+    # name that has rotated out of the sleeves but is still held keeps getting
+    # bars + an exit evaluation (else it's stuck forever — e.g. NOW held at
+    # -10% with no sell signal because it's no longer in the universe). Only
+    # for a SINGLE, non-shared broker (T212 = all the equity strategy's own
+    # positions); the shared IG account is skipped so we don't pull another
+    # strategy's instruments into this one's book (the seed already guards
+    # that, but the universe drives bars + entries too).
+    if len(broker_list) == 1 and broker_list[0].lower() == "t212":
+        held = _fetch_broker_held_symbols(broker_list[0])
+        existing = {s.upper() for s in symbols}
+        added = [s for s in held if s.upper() not in existing]
+        if added:
+            symbols = symbols + added
+            log.info(
+                "orphaned-exit: unioned %d held name(s) into the universe for "
+                "exit evaluation: %s", len(added), added,
+            )
 
     # The bar bus delivers one trigger bar PER SYMBOL, and the multi-symbol
     # strategies (ichimoku_fx_mr 10 pairs, ichimoku_equity ~10-20 names)
