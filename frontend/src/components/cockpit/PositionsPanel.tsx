@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CockpitCard } from "../CockpitCard";
-import { PlotlyChart } from "../PlotlyChart";
+import { CandleChart } from "../CandleChart";
 import { api } from "../../api/client";
 import type { LatestSession, T212PosResp } from "../../types/cockpit";
 import { bareSymbol, prettySymbol, productOf } from "../../util/brokerSymbols";
@@ -196,11 +196,8 @@ export function PositionsPanel({
           onHide={() => setSelectedSym(null)}
         >
           {selectedFigure ? (
-            // Responsive height: shorter on phones, capped on desktop. PlotlyChart
-            // itself is responsive (useResizeHandler), so it reflows on rotate/resize.
-            <div style={{ height: "clamp(260px, 50vh, 440px)", width: "100%" }}>
-              <PlotlyChart figure={selectedFigure as Parameters<typeof PlotlyChart>[0]["figure"]} />
-            </div>
+            // TradingView-style candles + Ichimoku overlay + BUY/SELL markers.
+            <CandleChart figure={selectedFigure} height={440} />
           ) : (
             <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "16px 4px" }}>
               No chart for {selectedSym} yet — the strategy emits one once it has
