@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import {
-  CartesianGrid, Legend, Line, LineChart, ReferenceLine,
+  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { CockpitCard } from "../CockpitCard";
@@ -32,18 +32,27 @@ export function EquityCurveCard({ onHide }: { onHide?: () => void }) {
   const [points, setPoints] = useState<Point[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Daily realised P&L (golden source: IG closed deals incl. fees) — the
+  // "which day did we make/lose, compare days" view.
+  const [daily, setDaily] = useState<Array<{ date: string; realised: number; trades: number }>>([]);
 
   useEffect(() => {
     let live = true;
-    const load = () =>
+    const load = () => {
       api.accountValueHistory(30)
         .then((r) => { if (live) { setPoints(r.points ?? []); setErr(r.error ?? null); } })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : "failed"); })
         .finally(() => { if (live) setLoading(false); });
+      api.igHistory(14)
+        .then((h) => { if (live && h.enabled && h.byDay) setDaily(h.byDay); })
+        .catch(() => { /* realised strip simply hidden */ });
+    };
     void load();
     const t = setInterval(load, 60_000);
     return () => { live = false; clearInterval(t); };
   }, []);
+
+  const realisedTotal = useMemo(() => daily.reduce((a, d) => a + d.realised, 0), [daily]);
 
   const { rows, brokers, headline } = useMemo(() => {
     const byBroker = new Map<string, Point[]>();
@@ -133,6 +142,39 @@ export function EquityCurveCard({ onHide }: { onHide?: () => void }) {
             ))}
           </LineChart>
         </ResponsiveContainer>
+      )}
+
+      {/* Daily realised P&L — which day did we make/lose (golden source). */}
+      {daily.length > 0 && (
+        <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Daily realised P&amp;L</span>
+            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>IG closed deals incl. fees · GBP</span>
+            <span style={{ marginLeft: "auto", fontSize: 12, fontFamily: "monospace", fontWeight: 600,
+              color: realisedTotal >= 0 ? "#1fc16b" : "#ef4444" }}>
+              {daily.length}d £{realisedTotal.toFixed(2)}
+            </span>
+          </div>
+          <ResponsiveContainer width="100%" height={150}>
+            <BarChart data={daily} margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--text-muted)" }}
+                tickFormatter={(d: string) => (d.length >= 10 ? d.slice(5) : d)} minTickGap={16} />
+              <YAxis tick={{ fontSize: 10, fill: "var(--text-muted)" }} width={48}
+                tickFormatter={(v) => `£${v}`} />
+              <ReferenceLine y={0} stroke="var(--text-muted)" />
+              <Tooltip
+                contentStyle={{ background: "var(--bg)", border: "1px solid var(--border)", fontSize: 11 }}
+                formatter={(v: number) => [`£${Number(v).toFixed(2)}`, "realised"]}
+              />
+              <Bar dataKey="realised" name="Daily realised P&L" isAnimationActive={false}>
+                {daily.map((d) => (
+                  <Cell key={d.date} fill={d.realised >= 0 ? "#1fc16b" : "#ef4444"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       )}
     </CockpitCard>
   );
