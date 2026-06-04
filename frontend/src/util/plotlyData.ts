@@ -105,3 +105,33 @@ function dedupeSorted<T extends { time: number }>(pts: T[]): T[] {
   for (const p of pts) m.set(p.time, p);  // last write wins per timestamp
   return [...m.values()].sort((a, b) => a.time - b.time);
 }
+
+/**
+ * MAE/MFE — Maximum Adverse / Favourable Excursion SINCE the position's entry.
+ * "How far did this trade run against me (was my stop too tight?) and for me
+ * (did I give back gains?)" before now. Computed from REAL data: the entry is
+ * the most recent fill marker matching the side (markers come from actual
+ * fills), and the excursion scans real candle highs/lows since that bar.
+ * Returns null when there's no entry fill in the window to anchor to — we
+ * don't show a number we can't tie to an entry.
+ */
+export function computeExcursion(
+  figure: unknown,
+  entry: number | null | undefined,
+  side: "long" | "short",
+): { maePct: number; mfePct: number } | null {
+  const s = extractIchimoku(figure);
+  if (!s || !s.candles.length || !entry || entry <= 0) return null;
+  const wantSide = side === "long" ? "BUY" : "SELL";
+  const entries = s.markers.filter((m) => m.side === wantSide);
+  if (entries.length === 0) return null;                 // can't anchor → don't show
+  const entryTime = entries[entries.length - 1].time;
+  const since = s.candles.filter((c) => c.time >= entryTime);
+  if (since.length === 0) return null;
+  const maxHigh = Math.max(...since.map((c) => c.high));
+  const minLow = Math.min(...since.map((c) => c.low));
+  if (side === "long") {
+    return { mfePct: ((maxHigh - entry) / entry) * 100, maePct: ((minLow - entry) / entry) * 100 };
+  }
+  return { mfePct: ((entry - minLow) / entry) * 100, maePct: ((entry - maxHigh) / entry) * 100 };
+}

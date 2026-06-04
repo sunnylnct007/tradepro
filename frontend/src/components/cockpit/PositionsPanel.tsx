@@ -30,6 +30,7 @@ import { api } from "../../api/client";
 import type { LatestSession, T212PosResp } from "../../types/cockpit";
 import { bareSymbol, prettySymbol, productOf } from "../../util/brokerSymbols";
 import { buildChartBySymbol } from "../../util/chartBySymbol";
+import { computeExcursion } from "../../util/plotlyData";
 import { fmtQty } from "../../util/numbers";
 import { useSort } from "../../util/useSort";
 import { SortTh } from "../SortTh";
@@ -86,14 +87,18 @@ export function PositionsPanel({
   const [selectedSym, setSelectedSym] = useState<string | null>(null);
   // The clicked position's own numbers, for the "how much are we down" headline.
   const [selectedMeta, setSelectedMeta] = useState<
-    { entry: number | null; now: number | null; pnl: number | null; pct: number | null } | null
+    { entry: number | null; now: number | null; pnl: number | null; pct: number | null; side: "long" | "short" } | null
   >(null);
   const openChart = (
     ticker: string,
-    p?: { averagePricePaid?: number | null; currentPrice?: number | null; unrealisedAbs?: number | null; unrealisedPct?: number | null },
+    p?: { quantity?: number; averagePricePaid?: number | null; currentPrice?: number | null; unrealisedAbs?: number | null; unrealisedPct?: number | null },
   ) => {
     setSelectedSym(bareSymbol(ticker).toUpperCase());
-    setSelectedMeta(p ? { entry: p.averagePricePaid ?? null, now: p.currentPrice ?? null, pnl: p.unrealisedAbs ?? null, pct: p.unrealisedPct ?? null } : null);
+    setSelectedMeta(p ? {
+      entry: p.averagePricePaid ?? null, now: p.currentPrice ?? null,
+      pnl: p.unrealisedAbs ?? null, pct: p.unrealisedPct ?? null,
+      side: (p.quantity ?? 0) < 0 ? "short" : "long",
+    } : null);
   };
 
   // bare symbol → chart figure (shared helper, used by every chart surface).
@@ -114,6 +119,12 @@ export function PositionsPanel({
     }
     return out.sort((a, b) => (b.barTs ?? "").localeCompare(a.barTs ?? "")).slice(0, 25);
   }, [selectedSym, latestSessions]);
+
+  // MAE/MFE for the selected open position (since its entry fill).
+  const excursion = useMemo(
+    () => (selectedFigure && selectedMeta ? computeExcursion(selectedFigure, selectedMeta.entry, selectedMeta.side) : null),
+    [selectedFigure, selectedMeta],
+  );
 
   const loadBroker = useCallback(async () => {
     try {
@@ -230,6 +241,13 @@ export function PositionsPanel({
                 <span style={{ fontFamily: "monospace", fontWeight: 700, color: selectedMeta.pnl >= 0 ? UP : DOWN }}>
                   open {selectedMeta.pnl >= 0 ? "+" : ""}{selectedMeta.pnl.toFixed(2)}
                   {selectedMeta.pct != null ? ` (${selectedMeta.pct >= 0 ? "+" : ""}${selectedMeta.pct.toFixed(2)}%)` : ""}
+                </span>
+              )}
+              {excursion && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }} title="Max favourable / adverse excursion since entry: how far the trade ran for you (gains given back?) and against you (stop too tight?)">
+                  peak <strong style={{ color: UP, fontFamily: "monospace" }}>+{excursion.mfePct.toFixed(2)}%</strong>
+                  {" · "}worst <strong style={{ color: DOWN, fontFamily: "monospace" }}>{excursion.maePct.toFixed(2)}%</strong>
+                  {" since entry"}
                 </span>
               )}
             </div>
