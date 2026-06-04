@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 
-import tradepro_strategies.paper.brokers.t212 as t212mod
+import tradepro_strategies.cli.paper_session as ps
 from tradepro_strategies.cli.paper_session import _validate_universe_against_broker
 
 
@@ -23,7 +23,9 @@ def _args(broker="t212", per_cap=None, sleeves_map=None):
 
 
 def _patch_catalog(monkeypatch, catalog):
-    monkeypatch.setattr(t212mod, "t212_tradeable_bare_symbols", lambda: catalog)
+    # The Mac validation reads the tradeable set from the BACKEND (the Mac has
+    # no direct T212 creds); patch that source.
+    monkeypatch.setattr(ps, "_fetch_t212_tradeable_symbols", lambda: catalog)
 
 
 def test_drops_symbols_not_in_t212_catalog(monkeypatch):
@@ -71,7 +73,7 @@ def test_non_t212_broker_is_passthrough(monkeypatch):
     # IG / IBKR validate via their own epic maps — not this T212 path.
     called = {"n": 0}
     monkeypatch.setattr(
-        t212mod, "t212_tradeable_bare_symbols",
+        ps, "_fetch_t212_tradeable_symbols",
         lambda: called.__setitem__("n", called["n"] + 1) or {"AAPL"},
     )
     syms = ["EURUSD", "GBPUSD", "WFRD"]

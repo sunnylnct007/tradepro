@@ -311,6 +311,36 @@ def _resolve_symbols(args: argparse.Namespace) -> list[str]:
     return out
 
 
+def _fetch_t212_tradeable_symbols() -> set[str] | None:
+    """Bare strategy symbols T212 lists as tradeable, from the BACKEND's cached
+    instruments registry (``GET /api/instruments/t212/tradeable``).
+
+    The Mac paper-session daemon has NO direct T212 creds — orders execute
+    server-side via the .NET OMS ApproveAsync, which holds the creds — so the
+    broker catalog is read from the backend (which DOES have them). Returns
+    ``None`` on any failure (or when T212 isn't enabled server-side) so the
+    caller FAILS OPEN and trades the full universe rather than halting."""
+    try:
+        import requests
+        from . import push_to_api
+        base, token = push_to_api.load_credentials()
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        url = f"{base.rstrip('/')}/api/instruments/t212/tradeable"
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        body = resp.json()
+        if not body.get("enabled"):
+            return None
+        syms = body.get("symbols") or []
+        return {str(s).upper() for s in syms} or None
+    except Exception:  # noqa: BLE001 — fail open, never block trading
+        logging.getLogger("tradepro.cli").warning(
+            "T212 tradeable-set fetch from backend failed — universe "
+            "validation FAILS OPEN this run", exc_info=True,
+        )
+        return None
+
+
 def _validate_universe_against_broker(
     args: argparse.Namespace, symbols: list[str]
 ) -> list[str]:
@@ -334,9 +364,9 @@ def _validate_universe_against_broker(
         # (their FX/CFD epics are already validated via the static epic maps).
         return symbols
 
-    from ..paper.brokers.t212 import _T212_FX_TICKER, t212_tradeable_bare_symbols
+    from ..paper.brokers.t212 import _T212_FX_TICKER
 
-    catalog = t212_tradeable_bare_symbols()
+    catalog = _fetch_t212_tradeable_symbols()
     if not catalog:
         log.warning(
             "universe validation skipped: T212 catalog unavailable "

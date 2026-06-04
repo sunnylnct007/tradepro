@@ -78,6 +78,43 @@ public static class InstrumentEndpoints
                     query, merged.Count, merged));
             });
 
+        // Full set of bare strategy symbols T212 LISTS as tradeable US
+        // equities — for PER-BROKER universe validation. The Mac paper-session
+        // daemon has no direct T212 creds (orders execute server-side via
+        // ApproveAsync), so it reads this set to drop untradeable names BEFORE
+        // sizing instead of 404-ing at the router every cycle. Backed by the
+        // cached instruments registry (refreshes server-side). `enabled=false`
+        // when T212 isn't configured so the caller fails open (trades full
+        // universe rather than halting).
+        app.MapGet("/instruments/t212/tradeable",
+            async (Trading212InstrumentsService t212, CancellationToken ct) =>
+            {
+                if (!t212.IsEnabled)
+                {
+                    return Results.Ok(new
+                    {
+                        enabled = false,
+                        count = 0,
+                        symbols = Array.Empty<string>(),
+                    });
+                }
+                var all = await t212.GetAllAsync(ct);
+                var bare = all
+                    .Select(i => DeriveYahooFromT212(i.Ticker))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Select(s => s!.ToUpperInvariant())
+                    .Distinct()
+                    .OrderBy(s => s, StringComparer.Ordinal)
+                    .ToArray();
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    count = bare.Length,
+                    loadedAtUtc = t212.LoadedAtUtc,
+                    symbols = bare,
+                });
+            });
+
         return app;
     }
 
