@@ -176,6 +176,13 @@ class IntradayFlatStrategy(Strategy):
     # of the day so the entry path doesn't re-fetch SPY on every bar.
     _regime_bull: bool = True
     _regime_detail: dict[str, Any] = field(default_factory=dict)
+    # The trading-session date this run is operating in (set by
+    # on_session_start). seed_positions uses it to compare against the
+    # persisted state file's session_date — using wall-clock now instead
+    # would break across UTC midnight (a daemon run that starts the day
+    # after entry would see the persisted file as "stale" and flatten its
+    # own hold as an overnight leftover).
+    _session_date: datetime | None = None
 
     # ─────────────────────────────────────────────────────────────────
     # Parameters
@@ -286,6 +293,7 @@ class IntradayFlatStrategy(Strategy):
         the engine's crash-recovery can call us again without dragging
         in yesterday's basket."""
         p = self._p()
+        self._session_date = session_date
         self._basket = []
         self._basket_atr.clear()
         self._basket_strength.clear()
@@ -791,6 +799,25 @@ class IntradayFlatStrategy(Strategy):
         )
         self.mark_order_in_flight(bar.symbol)
         self._entries_today.add(bar.symbol)
+
+        # Record + PERSIST the management state at EMIT time — do not wait
+        # for on_fill. Under AUTO-OMS the order routes to the real broker and
+        # the fill confirmation never reaches this short-lived daemon process,
+        # so on_fill never runs (entry-filled: 0 in the live logs). Without a
+        # persisted record, the NEXT 5-min daemon run re-seeds this very
+        # position from the broker, finds no management state, and flattens it
+        # as a phantom "overnight leftover" — then re-enters. That ping-pong
+        # was the intraday churn (−£4.7k over 06-02/06-03, 583 round-trips).
+        # Stop/target use bar.close as the entry estimate; on_fill re-anchors
+        # to the true fill price IF it ever arrives. The record is keyed to
+        # the broker book (golden source): a rejected order leaves a stale
+        # entry here, but the next run won't seed it (broker doesn't hold it)
+        # so it's never restored and self-heals out of the file.
+        self._position_open_at[bar.symbol] = bar.timestamp
+        self._position_entry_price[bar.symbol] = entry_estimate
+        self._position_stop[bar.symbol] = stop_estimate
+        self._position_target[bar.symbol] = target_estimate
+        self._persist_positions(bar.timestamp)
         return [order]
 
     def seed_positions(self, positions: dict[str, int]) -> None:  # type: ignore[override]
@@ -807,7 +834,12 @@ class IntradayFlatStrategy(Strategy):
         Symbols are bare tickers ("AAPL"); the daemon translates broker
         suffixes (AAPL_US_EQ → AAPL) before calling. Quantities are
         signed (positive long, negative short)."""
-        now = datetime.now(timezone.utc)
+        # Use the trading-session date set by on_session_start, NOT
+        # datetime.now() — the persisted state file is keyed by session
+        # date, and a daemon run that wraps past UTC midnight would
+        # otherwise read its own same-session file as "stale" and
+        # flatten its own hold as a phantom overnight leftover.
+        now = self._session_date or self._now()
         for sym, qty in positions.items():
             try:
                 qty_int = int(qty)
