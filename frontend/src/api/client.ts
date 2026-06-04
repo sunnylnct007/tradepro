@@ -363,6 +363,14 @@ export const api = {
         realised: number;
         trades: number;
       }>;
+      byStrategySymbol?: Array<{
+        strategyId: string;
+        symbol: string;           // clean instrument label (FX pair / company)
+        gross: number;            // DEAL trade P&L
+        cost: number;             // financing + admin + commission (WITH)
+        net: number;              // gross + cost
+        trades: number;
+      }>;
       attributionBasis?: string;
       error?: string | null;
     }>("/api/integrations/ig/history", { days }),

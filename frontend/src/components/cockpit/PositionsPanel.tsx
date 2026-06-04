@@ -89,6 +89,21 @@ export function PositionsPanel({
   const chartBySymbol = useMemo(() => buildChartBySymbol(latestSessions), [latestSessions]);
   const selectedFigure = selectedSym ? chartBySymbol.get(selectedSym) ?? null : null;
 
+  // The strategy's decisions for the selected symbol — "what it decided & when"
+  // beside the candles (price & where it bought/sold). The post-trade story.
+  const selectedDecisions = useMemo(() => {
+    if (!selectedSym) return [];
+    const out: Array<{ barTs: string | null; action: string; reason: string; strategy: string }> = [];
+    for (const s of latestSessions) {
+      for (const d of s.decisions ?? []) {
+        if ((d.symbol ?? "").toUpperCase() === selectedSym) {
+          out.push({ barTs: d.barTs, action: d.action, reason: d.reason, strategy: s.strategy });
+        }
+      }
+    }
+    return out.sort((a, b) => (b.barTs ?? "").localeCompare(a.barTs ?? "")).slice(0, 25);
+  }, [selectedSym, latestSessions]);
+
   const loadBroker = useCallback(async () => {
     try {
       const d = await api.igPositions();
@@ -202,6 +217,39 @@ export function PositionsPanel({
             <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "16px 4px" }}>
               No chart for {selectedSym} yet — the strategy emits one once it has
               enough history (or this instrument isn't on a charting desk).
+            </div>
+          )}
+
+          {/* What the strategy decided & when — beside the price/markers above,
+              this is the "why did it buy/sell here" half of the analysis. */}
+          {selectedDecisions.length > 0 && (
+            <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
+                What the strategy decided ({selectedDecisions[0].strategy})
+              </div>
+              <div style={{ maxHeight: 180, overflowY: "auto" }}>
+                <table style={{ ...tableStyle }}>
+                  <tbody>
+                    {selectedDecisions.map((d, i) => {
+                      const fire = d.action.startsWith("fire");
+                      return (
+                        <tr key={i} style={{ borderTop: i ? "1px solid var(--border)" : undefined }}>
+                          <td style={{ ...td, fontFamily: "monospace", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                            {d.barTs ? d.barTs.slice(0, 16).replace("T", " ") : "—"}
+                          </td>
+                          <td style={{ ...td, whiteSpace: "nowrap" }}>
+                            <span style={{
+                              fontFamily: "monospace", fontSize: 11,
+                              color: fire ? "#1fc16b" : "var(--text-dim)",
+                            }}>{d.action}</span>
+                          </td>
+                          <td style={{ ...td, color: "var(--text-dim)" }}>{d.reason}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </CockpitCard>
