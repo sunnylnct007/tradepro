@@ -100,10 +100,15 @@ public sealed class BrokerTickerMapBuilder
                     await UpsertAsync(conn, broker, m, ct);
                     break;
                 case MatchMethod.ByName:
+                    // SAFETY RAIL: name matches are low-confidence (distinct
+                    // issuers can share a name, e.g. MZTI→LANC). They must NEVER
+                    // enter the live routing map — a wrong mapping mis-routes a
+                    // real order. Park them in the review queue for a human to
+                    // promote via /api/admin/instruments/promote-suggestion.
                     byName++;
                     if (byNameSamples.Count < 25)
-                        byNameSamples.Add($"{m.SourceTicker}→{m.BrokerTicker}");
-                    await UpsertAsync(conn, broker, m, ct);
+                        byNameSamples.Add($"{m.SourceTicker}→{m.BrokerTicker} (suggested, pending review)");
+                    await UpsertSuggestionAsync(conn, broker, m, ct);
                     break;
                 case MatchMethod.ByIsin:
                     byIsin++;
@@ -150,6 +155,36 @@ public sealed class BrokerTickerMapBuilder
             },
             cancellationToken: ct));
     }
+
+    /// <summary>Park a low-confidence (name) match in the review queue —
+    /// NOT the live routing map. A human promotes it after confirming.</summary>
+    private static async Task UpsertSuggestionAsync(
+        NpgsqlConnection conn, string broker, InstrumentMatchResult m, CancellationToken ct)
+    {
+        await conn.ExecuteAsync(new CommandDefinition(@"
+            INSERT INTO broker_ticker_map_suggestions
+                (broker, source_ticker, suggested_broker_ticker, method, isin, created_at_utc)
+            VALUES (@broker, @source, @brokerTicker, @method, @isin, NOW())
+            ON CONFLICT (broker, source_ticker) DO UPDATE
+                SET suggested_broker_ticker = EXCLUDED.suggested_broker_ticker,
+                    method                  = EXCLUDED.method,
+                    isin                    = EXCLUDED.isin,
+                    created_at_utc          = NOW();",
+            new
+            {
+                broker,
+                source = m.SourceTicker,
+                brokerTicker = m.BrokerTicker,
+                method = m.Method.ToString().ToLowerInvariant(),
+                isin = m.Isin,
+            },
+            cancellationToken: ct));
+    }
+
+    /// <summary>Whether a match method is trustworthy enough for the LIVE
+    /// routing map. Exact + ISIN are unambiguous; name is not.</summary>
+    public static bool IsTrustedForRouting(MatchMethod method) =>
+        method is MatchMethod.Exact or MatchMethod.ByIsin;
 
     private sealed record UniverseRow(string Ticker, string? Name);
 }
