@@ -1227,10 +1227,23 @@ change between slices.
   let Phase H replay attribute every scale change to the catalysts
   that drove it. 8 BDD scenarios pin the boundaries (severity,
   days-until, undated, mixed). Strategy-runner wiring is C-3.2.
-- **C-3.2 (next)** — strategy-runner fetches catalysts via the C-1
-  endpoint + passes them through to `evaluate()`. Closes the
-  paper-engine → cockpit loop: every emitted order carries the
-  catalysts that influenced its size.
+- **C-3.2 ✅ SHIPPED (injection point + fetcher)** —
+  `paper/catalysts_fetcher.py` ships an HTTP-backed
+  `CatalystFetcher` with per-symbol TTL caching (5min default),
+  fail-open on every HTTP path. All three live strategies
+  (`ichimoku_equity`, `intraday_flat`, `ichimoku_fx_mr`) gain a
+  `_catalyst_fetcher` injection slot. When the fetcher is set, the
+  strategy fetches catalysts before each `gate.evaluate` call so
+  the C-3.1 overlay fires in production. When the fetcher is None
+  (legacy default), the call signature stays minimal so existing
+  gate stubs in tests + third-party mocks keep working unchanged.
+  6 BDD scenarios cover the fetcher (200 happy path, 500 fail-open,
+  exception fail-open, TTL cache hit, invalidate, blank symbol
+  short-circuit). Full Python BDD unchanged from baseline (3 pre-
+  existing FX failures, no regressions).
+- **C-3.3 (next)** — `StrategyRunner` injects the production fetcher
+  into every paper strategy by default. Operator only sees changed
+  cockpit reasons + sizing — no per-strategy config.
 
 **Phase J — Additional asset classes**
 - **J-1 ✅ SHIPPED** — Asset-class breadth expansion. Four new

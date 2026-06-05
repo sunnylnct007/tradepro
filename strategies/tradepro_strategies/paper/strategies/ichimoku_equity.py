@@ -175,6 +175,11 @@ class IchimokuEquityStrategy(Strategy):
             # or leave None to disable the LLM layer (gate is opt-in here;
             # production uses StrategyRunner to build and inject it).
             "_llm_gate": None,
+            # Phase C-3.2 — injectable CatalystFetcher that pulls active
+            # catalysts from /api/catalysts/ before each gate.evaluate.
+            # None ⇒ no catalyst overlay (legacy behaviour preserved).
+            # Production wiring lives in StrategyRunner.
+            "_catalyst_fetcher": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -191,6 +196,9 @@ class IchimokuEquityStrategy(Strategy):
         self._overrides = reg
         # LLM gate — use injected instance if provided (tests / runner).
         self._gate = p.get("_llm_gate") or None
+        # Phase C-3.2 — optional CatalystFetcher (HTTP-backed lookup
+        # with TTL cache; None ⇒ no overlay).
+        self._catalyst_fetcher = p.get("_catalyst_fetcher") or None
 
     def on_session_start(self, session_date) -> None:  # type: ignore[override]
         self._daily_signals.clear()
@@ -332,14 +340,22 @@ class IchimokuEquityStrategy(Strategy):
             # The gate is advisory (fail_open=True default): an LLM error
             # never blocks trading. Exits are never gated — we can always
             # close a position regardless of news sentiment.
-            gate_decision = (
-                self._gate.evaluate(sym, signal)
-                if self._gate is not None
-                else GateDecision(
+            # Phase C-3.2 — pass catalysts only when a fetcher was
+            # injected. The no-fetcher path keeps the legacy 2-arg call
+            # signature so existing gate stubs in tests + third-party
+            # mocks don't trip on a new kwarg.
+            if self._gate is None:
+                gate_decision = GateDecision(
                     action=GateDecision.APPROVED, scale_factor=1.0,
                     reason="no gate configured",
                 )
-            )
+            elif self._catalyst_fetcher is not None:
+                gate_decision = self._gate.evaluate(
+                    sym, signal,
+                    catalysts=self._catalyst_fetcher.fetch(sym),
+                )
+            else:
+                gate_decision = self._gate.evaluate(sym, signal)
             if gate_decision.action == GateDecision.VETOED:
                 _log.info(
                     "IchimokuEquity LLM gate VETOED %s: %s", sym, gate_decision.reason

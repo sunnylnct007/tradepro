@@ -272,6 +272,8 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             # Injectable LLMSignalGate — set for tests or leave None to
             # disable the LLM layer. Production uses StrategyRunner to inject.
             "_llm_gate": None,
+            # Phase C-3.2 — injectable CatalystFetcher. None ⇒ no overlay.
+            "_catalyst_fetcher": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -285,6 +287,7 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             reg = _default_registry()
         self._overrides = reg
         self._gate = p.get("_llm_gate") or None
+        self._catalyst_fetcher = p.get("_catalyst_fetcher") or None
 
     def on_session_start(self, session_date) -> None:  # type: ignore[override]
         # Rolling state survives sessions on purpose: FX runs 24/5 and
@@ -494,7 +497,17 @@ class IchimokuFXMeanReversionStrategy(Strategy):
         # APPROVED_BOOSTED scales the unit_qty.
         llm_scale = 1.0
         if current == 0 and self._gate is not None:
-            gate_decision = self._gate.evaluate(pair, float(abs(target)))
+            # Phase C-3.2 — pass catalysts only when a fetcher was
+            # injected. No-fetcher path preserves the 2-arg call
+            # signature so legacy gate stubs in tests + third-party
+            # mocks don't trip on a new kwarg.
+            if self._catalyst_fetcher is not None:
+                gate_decision = self._gate.evaluate(
+                    pair, float(abs(target)),
+                    catalysts=self._catalyst_fetcher.fetch(pair),
+                )
+            else:
+                gate_decision = self._gate.evaluate(pair, float(abs(target)))
             if gate_decision.action == GateDecision.VETOED:
                 _log.info(
                     "IchimokuFXMR LLM gate VETOED %s: %s", pair, gate_decision.reason
