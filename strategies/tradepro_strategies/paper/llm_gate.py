@@ -83,11 +83,40 @@ class LLMGateConfig:
 
 
 @dataclass(frozen=True)
+class CatalystHint:
+    """Compact projection of a catalyst row for the gate's
+    consumption. Mirrors the .NET CatalystSummary shape (Phase C-3)
+    so callers can hand the gate whatever they fetched from
+    ``/api/catalysts`` without reshaping.
+
+    Defining a Python-side mirror (rather than reusing a richer
+    dataclass elsewhere) keeps `llm_gate` import-cheap — the gate
+    runs inside every paper strategy tick and we don't want it
+    dragging in the comparator graph."""
+    id: int
+    kind: str
+    occurs_on: str | None      # YYYY-MM-DD or None when undated
+    severity: str              # "low" | "medium" | "high"
+    title: str = ""
+    source: str = ""
+    days_until: int | None = None
+
+
+@dataclass(frozen=True)
 class GateDecision:
     """Outcome of a single LLMSignalGate.evaluate() call.
 
     Frozen so the strategy can pass it through to the audit log without
     worrying about downstream mutation.
+
+    Phase C-3.1 additions:
+      * ``catalyst_flag`` mirrors the .NET enricher's flag
+        (``tech_event_divergence`` / ``tech_event_alignment`` /
+        ``None``). Stamped on the audit row so Phase H replay can
+        attribute boosts/dampens to the catalyst overlay.
+      * ``catalyst_ids`` records the registry IDs the gate consulted.
+        Phase H matches against this to reconstruct the gate's view
+        of the world.
     """
     action: str
     scale_factor: float
@@ -95,10 +124,30 @@ class GateDecision:
     sentiment_score: float | None = None
     headlines_checked: int = 0
     provider_used: str = ""
+    catalyst_flag: str | None = None
+    catalyst_ids: tuple[int, ...] = ()
 
     APPROVED = "APPROVED"
     VETOED = "VETOED"
     APPROVED_BOOSTED = "APPROVED_BOOSTED"
+
+    def _replace_with_catalyst_metadata(
+        self, flag: str | None, ids: tuple[int, ...],
+    ) -> "GateDecision":
+        """Phase C-3.1 — return a copy of this decision with the
+        catalyst audit fields stamped. Used when there are catalysts
+        but no flag fired (record IDs anyway so Phase H replay can
+        reconstruct what the gate looked at)."""
+        return GateDecision(
+            action=self.action,
+            scale_factor=self.scale_factor,
+            reason=self.reason,
+            sentiment_score=self.sentiment_score,
+            headlines_checked=self.headlines_checked,
+            provider_used=self.provider_used,
+            catalyst_flag=flag,
+            catalyst_ids=ids,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -199,15 +248,147 @@ class LLMSignalGate:
         return out
 
     # ------------------------------------------------------------------ #
+    # Catalyst overlay (Phase C-3.1)                                       #
+    # ------------------------------------------------------------------ #
+
+    # Severity + days-until thresholds for the divergence/alignment flag.
+    # Match the .NET enricher (Phase C-3) so a divergence the cockpit
+    # flagged is the same divergence the gate dampens — the two paths
+    # never disagree about "is the catalyst imminent?".
+    _IMMINENT_DAYS = 14
+    _HIGH_SEVERITY = "high"
+
+    # When the gate detects divergence (signal direction conflicts with
+    # an imminent HIGH catalyst), apply a SCALE DAMPEN — NOT a veto. The
+    # trader keeps agency; the gate just sizes down. Tuned to 0.5 because
+    # a full veto on every imminent catalyst would suppress real trades
+    # whenever earnings / FOMC sit in the next two weeks (which is most
+    # of the time). The cockpit banner remains the louder signal.
+    _DIVERGENCE_SCALE = 0.5
+
+    # Alignment boost — BUY signal + imminent HIGH catalyst. Multiplies
+    # the existing scale_factor (so it stacks with sentiment-boost
+    # rather than overriding it).
+    _ALIGNMENT_BOOST = 1.25
+
+    @staticmethod
+    def _catalyst_flag(signal: float, catalysts: list[CatalystHint] | None) -> str | None:
+        """Mirror of the .NET ComputeFlag logic. Returns None /
+        'tech_event_divergence' / 'tech_event_alignment'.
+
+        Direction inference: positive `signal` (long bias) is the BUY
+        analogue; zero signal is the HOLD analogue (paper engine has
+        no native SELL — exits are flips of long positions). Keep
+        it symmetric with the .NET enricher so cockpit + gate read
+        the same room."""
+        if not catalysts:
+            return None
+        has_imminent_high = any(
+            c.severity and c.severity.lower() == LLMSignalGate._HIGH_SEVERITY
+            and c.days_until is not None
+            and 0 <= c.days_until <= LLMSignalGate._IMMINENT_DAYS
+            for c in catalysts
+        )
+        if not has_imminent_high:
+            return None
+        if signal == 0.0:
+            return "tech_event_divergence"
+        if signal > 0.0:
+            return "tech_event_alignment"
+        # Negative signal (SELL flip) — same ambiguity as the .NET
+        # side; surface chips but don't tip the flag.
+        return None
+
+    @staticmethod
+    def _apply_catalyst_overlay(
+        base: GateDecision,
+        signal: float,
+        catalysts: list[CatalystHint] | None,
+    ) -> GateDecision:
+        """Take whatever decision the sentiment path produced and
+        layer the catalyst flag over it. Pure function — fully
+        testable. The returned decision keeps the sentiment score +
+        provider so the audit row reads end-to-end."""
+        if not catalysts:
+            return base
+        flag = LLMSignalGate._catalyst_flag(signal, catalysts)
+        ids = tuple(c.id for c in catalysts)
+        if flag is None:
+            return base._replace_with_catalyst_metadata(None, ids)
+
+        if flag == "tech_event_divergence":
+            # Dampen the scale (do not veto). Reasons gets a suffix so
+            # the audit trail records WHY the size dropped.
+            new_scale = base.scale_factor * LLMSignalGate._DIVERGENCE_SCALE
+            reason = (
+                f"{base.reason}; catalyst_divergence dampens scale "
+                f"{base.scale_factor:.2f}->{new_scale:.2f}"
+            )
+            return GateDecision(
+                action=base.action,
+                scale_factor=new_scale,
+                reason=reason,
+                sentiment_score=base.sentiment_score,
+                headlines_checked=base.headlines_checked,
+                provider_used=base.provider_used,
+                catalyst_flag=flag,
+                catalyst_ids=ids,
+            )
+
+        if flag == "tech_event_alignment":
+            # Multiply the existing scale (stacks with sentiment boost).
+            new_scale = base.scale_factor * LLMSignalGate._ALIGNMENT_BOOST
+            reason = (
+                f"{base.reason}; catalyst_alignment boosts scale "
+                f"{base.scale_factor:.2f}->{new_scale:.2f}"
+            )
+            # If we were already APPROVED, promote to APPROVED_BOOSTED
+            # so the audit consumer treats this as a sized-up trade.
+            new_action = (
+                GateDecision.APPROVED_BOOSTED
+                if base.action == GateDecision.APPROVED
+                else base.action
+            )
+            return GateDecision(
+                action=new_action,
+                scale_factor=new_scale,
+                reason=reason,
+                sentiment_score=base.sentiment_score,
+                headlines_checked=base.headlines_checked,
+                provider_used=base.provider_used,
+                catalyst_flag=flag,
+                catalyst_ids=ids,
+            )
+
+        return base
+
+    # ------------------------------------------------------------------ #
     # Public: evaluate one signal                                          #
     # ------------------------------------------------------------------ #
 
-    def evaluate(self, symbol: str, signal: float) -> GateDecision:
+    def evaluate(
+        self,
+        symbol: str,
+        signal: float,
+        catalysts: list[CatalystHint] | None = None,
+    ) -> GateDecision:
         """Decide whether to APPROVE / VETO / BOOST a strategy's signal.
 
         Never raises; on internal error returns APPROVED (with the error
         in `reason`) when fail_open=True, VETOED otherwise.
-        """
+
+        Phase C-3.1: when ``catalysts`` is supplied, the gate layers
+        the divergence/alignment overlay on top of the sentiment
+        verdict. Dampens scale on divergence, boosts on alignment;
+        records every catalyst ID on the audit row so Phase H replay
+        can attribute the adjustment."""
+        base = self._evaluate_base(symbol, signal)
+        return self._apply_catalyst_overlay(base, signal, catalysts)
+
+    def _evaluate_base(self, symbol: str, signal: float) -> GateDecision:
+        """Pre-C-3.1 evaluate body. Splitting it out lets the catalyst
+        overlay layer uniformly on every return path without editing
+        each branch. No behaviour change vs the legacy entry point."""
         cfg = self.config
 
         if not cfg.enabled:
@@ -332,4 +513,9 @@ class LLMSignalGate:
             )
 
 
-__all__ = ["LLMGateConfig", "GateDecision", "LLMSignalGate"]
+__all__ = [
+    "LLMGateConfig",
+    "GateDecision",
+    "LLMSignalGate",
+    "CatalystHint",
+]

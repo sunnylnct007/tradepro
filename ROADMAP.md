@@ -1217,11 +1217,20 @@ change between slices.
   Action — trader keeps agency. Signals page renders a divergence /
   alignment banner + severity-coloured chips. 13 .NET tests pin
   flag math + batched query + dismissed-catalyst exclusion.
-- **C-3.1 (next)** — LLM gate hook: feed `CatalystFlag` into
-  `LLMSignalGate.evaluate` so the gate's APPROVED/VETOED/
-  APPROVED_BOOSTED can adjust to the divergence/alignment signal
-  + record `catalyst_id` references on `llm_evaluations.detail_json`
-  for Phase H replay coverage.
+- **C-3.1 ✅ SHIPPED** — `LLMSignalGate.evaluate(symbol, signal,
+  catalysts=...)` layers the catalyst flag onto the sentiment
+  verdict. Imminent HIGH-severity catalyst on HOLD-direction signal
+  dampens scale by 0.5 (no veto — trader keeps agency); on
+  BUY-direction boosts scale by 1.25 and promotes APPROVED →
+  APPROVED_BOOSTED. `GateDecision` now records `catalyst_flag` +
+  `catalyst_ids` so the audit row + future `llm_evaluations` payload
+  let Phase H replay attribute every scale change to the catalysts
+  that drove it. 8 BDD scenarios pin the boundaries (severity,
+  days-until, undated, mixed). Strategy-runner wiring is C-3.2.
+- **C-3.2 (next)** — strategy-runner fetches catalysts via the C-1
+  endpoint + passes them through to `evaluate()`. Closes the
+  paper-engine → cockpit loop: every emitted order carries the
+  catalysts that influenced its size.
 
 **Phase J — Additional asset classes**
 - **J-1 ✅ SHIPPED** — Asset-class breadth expansion. Four new
