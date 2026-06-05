@@ -265,6 +265,9 @@ class IntradayFlatStrategy(Strategy):
             "_override_registry": None,
             "_llm_gate": None,
             "_epic_map": None,            # pre-built IGEpicMap (tests)
+            # Phase C-3.2 — injectable CatalystFetcher. None ⇒ no overlay
+            # (legacy behaviour); production wiring lives in StrategyRunner.
+            "_catalyst_fetcher": None,
         }
 
     # ─────────────────────────────────────────────────────────────────
@@ -280,6 +283,9 @@ class IntradayFlatStrategy(Strategy):
         self._overrides = reg
 
         self._gate = p.get("_llm_gate")
+        # Phase C-3.2 — optional CatalystFetcher; consumed where we
+        # call gate.evaluate (look for `_catalysts =` site).
+        self._catalyst_fetcher = p.get("_catalyst_fetcher") or None
 
         em = p.get("_epic_map")
         if em is None:
@@ -672,7 +678,20 @@ class IntradayFlatStrategy(Strategy):
         strength = self._basket_strength.get(bar.symbol, 0.0)
         if self._gate is not None:
             try:
-                gate_decision = self._gate.evaluate(bar.symbol, float(abs(strength)))
+                # Phase C-3.2 — fetch catalysts when a fetcher was
+                # injected. Keep the call signature minimal (no kwarg)
+                # when there's no fetcher so existing gate stubs in
+                # tests + any third-party mock keep working unchanged.
+                if self._catalyst_fetcher is not None:
+                    _catalysts = self._catalyst_fetcher.fetch(bar.symbol)
+                    gate_decision = self._gate.evaluate(
+                        bar.symbol, float(abs(strength)),
+                        catalysts=_catalysts,
+                    )
+                else:
+                    gate_decision = self._gate.evaluate(
+                        bar.symbol, float(abs(strength)),
+                    )
             except Exception as exc:  # noqa: BLE001
                 # Defensive: LLMSignalGate.fail_open already covers
                 # provider failures, but if THAT machinery itself
