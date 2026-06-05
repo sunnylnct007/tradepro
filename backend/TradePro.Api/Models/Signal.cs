@@ -33,7 +33,33 @@ public record SignalDecision(
     // sum of in_position across strategies — surface here so Research
     // can reconcile with the same number.
     bool InPosition = false,
-    DateTime? PositionSince = null);
+    DateTime? PositionSince = null,
+    // Phase C-3 — catalyst overlay attached after the technical
+    // verdict computes. Always present (empty list when nothing
+    // active); never silently overrides Action. Frontend renders
+    // these as severity-coloured chips on the decision row.
+    IReadOnlyList<CatalystSummary>? Catalysts = null,
+    // CatalystFlag = a coarse divergence/alignment signal for the
+    // cockpit to chip / banner. Null = neutral / no notable event.
+    //   "tech_event_divergence" — Action=HOLD + a HIGH-severity
+    //                              catalyst is imminent. The
+    //                              Ecopetrol pattern.
+    //   "tech_event_alignment"  — Action=BUY + a HIGH-severity
+    //                              catalyst supports the call.
+    string? CatalystFlag = null);
+
+/// <summary>Phase C-3 — compact catalyst representation embedded
+/// on SignalDecision. Same id maps back to /api/catalysts/ so the
+/// frontend can drill into the full row + payload + extractor
+/// rationale.</summary>
+public record CatalystSummary(
+    long Id,
+    string Kind,
+    string? OccursOn,      // YYYY-MM-DD or null when undated
+    string Title,
+    string Severity,       // "low" | "medium" | "high"
+    string Source,
+    int? DaysUntil);       // null when OccursOn is null
 
 public record ScanRequest(
     string? Watchlist,        // named list (e.g. "uk"); optional if Symbols is set

@@ -159,6 +159,10 @@ builder.Services.AddScoped<ISimulator, Simulator>();
 builder.Services.AddScoped<ISignalEngine, SignalEngine>();
 builder.Services.AddScoped<ISignalScanner, SignalScanner>();
 builder.Services.AddScoped<IHitRateEngine, HitRateEngine>();
+// Phase C-3 — catalyst overlay enricher. Wraps the technical
+// SignalDecision with active catalysts from the registry +
+// computes the divergence/alignment flag (Ecopetrol pattern).
+builder.Services.AddScoped<ICatalystEnricher, CatalystEnricher>();
 // Phase 5 — every store now backed by Postgres. Survives redeploys.
 // In-memory + file-backed implementations are kept in the tree for
 // reference and tests but no longer registered. See VISION.md
