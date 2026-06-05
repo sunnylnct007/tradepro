@@ -543,8 +543,18 @@ public static class IntegrationsEndpoints
                 && _igHistoryCache.TryGetValue(window, out var stale))
                 return Results.Ok(stale.Payload);
 
+            // Realised P&L = TRADING transactions only. IG's full history also
+            // carries account FUNDING (DEPO — e.g. the ~£10M demo deposit),
+            // which is NOT P&L; summing it produced a nonsense £9.99M
+            // "realised". Keep DEAL (trade P&L) + WITH (financing / commission /
+            // admin costs on trades); exclude DEPO and any cash movement.
+            bool IsTradingTxn(string? type) =>
+                string.Equals(type, "DEAL", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "WITH", StringComparison.OrdinalIgnoreCase);
+            var realisedTxns = hist.Transactions.Where(t => IsTradingTxn(t.Type)).ToList();
+
             // Realised P&L per UTC date (only rows that carry a P&L).
-            var byDay = hist.Transactions
+            var byDay = realisedTxns
                 .Where(t => t.Date is not null)
                 .GroupBy(t => t.Date!.Length >= 10 ? t.Date![..10] : t.Date!)
                 .Select(g => new { date = g.Key, realised = g.Sum(t => t.ProfitAndLoss), trades = g.Count() })
@@ -595,7 +605,7 @@ public static class IntegrationsEndpoints
                 return cls is not null && classToStrategy.TryGetValue(cls, out var sid) ? sid : null;
             }
 
-            var byStrategy = hist.Transactions
+            var byStrategy = realisedTxns
                 .Select(t => new { t, sid = StrategyFor(t.Instrument), cls = AssetClassOf(t.Instrument) })
                 .GroupBy(x => new { Strategy = x.sid ?? "unattributed", x.cls })
                 .Select(g => new
@@ -612,7 +622,7 @@ public static class IntegrationsEndpoints
             // DEAL transactions = gross trade P&L; everything else (WITH:
             // financing, admin, commission) = cost. Net = gross + cost. So a
             // desk's churn shows as "gross ~0, big negative cost" per name.
-            var byStrategySymbol = hist.Transactions
+            var byStrategySymbol = realisedTxns
                 .Select(t => new {
                     t,
                     sid = StrategyFor(t.Instrument) ?? "unattributed",
@@ -637,7 +647,7 @@ public static class IntegrationsEndpoints
                 enabled = true,
                 from = from.ToString("yyyy-MM-dd"),
                 to = to.ToString("yyyy-MM-dd"),
-                totalRealised = hist.Transactions.Sum(t => t.ProfitAndLoss),
+                totalRealised = realisedTxns.Sum(t => t.ProfitAndLoss),
                 byDay,
                 byStrategy,
                 byStrategySymbol,
