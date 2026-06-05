@@ -17,6 +17,7 @@ import { LiveSignalFeed } from "../components/cockpit/LiveSignalFeed";
 import { SymbolScanGrid } from "../components/cockpit/SymbolScanGrid";
 import { PnlGraph } from "../components/cockpit/PnlGraph";
 import { PnlSummaryCard } from "../components/cockpit/PnlSummaryCard";
+import { StrategyPnlPanel } from "../components/cockpit/StrategyPnlPanel";
 import { EquityCurveCard } from "../components/cockpit/EquityCurveCard";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
@@ -367,6 +368,7 @@ export function TraderCockpit() {
   // → restored.
   const WIDGETS: WidgetMeta[] = [
     { id: "pnl-summary",  title: "P&L — bottom line" },
+    { id: "strategy-pnl", title: "P&L by strategy × symbol" },
     { id: "pnl-graph",    title: "P&L at a glance" },
     { id: "equity-curve", title: "Account value over time" },
     { id: "desks",        title: "Strategy desks" },
@@ -575,6 +577,12 @@ export function TraderCockpit() {
           toggle. The trader's "how am I doing" read; sits with the desks. */}
       {v("pnl-summary") && (
         <PnlSummaryCard onHide={() => widgets.hide("pnl-summary")} />
+      )}
+      {/* Canonical reconcilable P&L: atomic unit (strategy × symbol), single
+          mark source (broker), realised = IG golden. "AMZN +£120 in equity,
+          −£40 in intraday" — the question the old surfaces couldn't answer. */}
+      {v("strategy-pnl") && (
+        <StrategyPnlPanel onHide={() => widgets.hide("strategy-pnl")} />
       )}
       {v("pnl-graph") && (
         <PnlGraph onHide={() => widgets.hide("pnl-graph")} />
