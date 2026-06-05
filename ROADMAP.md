@@ -1208,9 +1208,20 @@ change between slices.
   counted but never raise. `--dry-run` prints would-post bodies
   for spot-checks. 12 BDD scenarios pin the heuristic boundaries +
   body shape + empty/failure edge cases.
-- **C-3** — Layer catalysts into the cockpit decision row + LLM gate
-  (the Ecopetrol moment — "tech says WAIT but high-severity catalyst
-  in 10d"). Conviction adjustment per project memory's 3-axis schema.
+- **C-3 ✅ SHIPPED (decision-row layer)** — `ICatalystEnricher`
+  wraps every `/signals/evaluate` + `/signals/scan` response with
+  the active catalysts for the symbol (±30d window, batched single
+  query for scan). `CatalystFlag` surfaces the Ecopetrol pattern:
+  HOLD + imminent HIGH-severity → `tech_event_divergence`; BUY +
+  imminent HIGH → `tech_event_alignment`. Never silently overrides
+  Action — trader keeps agency. Signals page renders a divergence /
+  alignment banner + severity-coloured chips. 13 .NET tests pin
+  flag math + batched query + dismissed-catalyst exclusion.
+- **C-3.1 (next)** — LLM gate hook: feed `CatalystFlag` into
+  `LLMSignalGate.evaluate` so the gate's APPROVED/VETOED/
+  APPROVED_BOOSTED can adjust to the divergence/alignment signal
+  + record `catalyst_id` references on `llm_evaluations.detail_json`
+  for Phase H replay coverage.
 
 **Phase J — Additional asset classes**
 - **J-1 ✅ SHIPPED** — Asset-class breadth expansion. Four new

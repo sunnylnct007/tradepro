@@ -120,6 +120,28 @@ export interface SignalDecision {
    *  the Decide page uses for "N of 7 currently long" so Research reconciles. */
   inPosition?: boolean;
   positionSince?: string | null;
+  // Phase C-3 — catalyst overlay. Active dated events scoped to the
+  // symbol within a ±30 day window. Always present (empty list when
+  // none). Click an entry for the full catalyst payload (handled by
+  // the cockpit Settings catalysts panel for now; deep-drill in C-3.1).
+  catalysts?: CatalystSummary[];
+  // null = no notable event flag.
+  // "tech_event_divergence" = HOLD + imminent HIGH-severity catalyst.
+  //                           The Ecopetrol pattern — tech disagrees
+  //                           with an event that matters now.
+  // "tech_event_alignment"  = BUY + imminent HIGH-severity catalyst.
+  //                           Tech and event story line up.
+  catalystFlag?: "tech_event_divergence" | "tech_event_alignment" | null;
+}
+
+export interface CatalystSummary {
+  id: number;
+  kind: string;
+  occursOn: string | null;     // YYYY-MM-DD or null
+  title: string;
+  severity: "low" | "medium" | "high";
+  source: string;
+  daysUntil: number | null;
 }
 
 export interface SignalRequest {

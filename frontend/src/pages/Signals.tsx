@@ -6,6 +6,7 @@ import type { CorporateActionMarker, EarningsMarker, HitRateResult, InsiderTrade
 import { config } from "../config";
 import { Info } from "../components/Info";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
+import { SignalCatalystChips } from "../components/SignalCatalystChips";
 import { StrategyPicker } from "../components/StrategyPicker";
 import { SymbolPicker } from "../components/SymbolPicker";
 
@@ -422,6 +423,19 @@ export function Signals() {
                 })}
               </div>
             </div>
+            {/* Phase C-3 — catalyst overlay. Renders nothing when
+                the decision has no active catalysts AND no flag, so
+                the visual weight stays out of the way until there's
+                something to say. The banner surfaces the
+                tech-vs-event divergence (the Ecopetrol moment). */}
+            {(decision.catalysts?.length || decision.catalystFlag) && (
+              <div className="card">
+                <h3 style={{ margin: "0 0 10px 0", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>
+                  Catalysts
+                </h3>
+                <SignalCatalystChips decision={decision} />
+              </div>
+            )}
             <div className="card">
               <h3 style={{ margin: "0 0 12px 0", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>
                 Indicators
