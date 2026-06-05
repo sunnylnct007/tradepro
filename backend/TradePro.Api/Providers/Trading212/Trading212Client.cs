@@ -431,4 +431,11 @@ public sealed record Trading212Position(
     decimal? AveragePricePaid,
     decimal? CurrentPrice,
     DateTime? CreatedAt,
-    Trading212InstrumentRef? Instrument);
+    Trading212InstrumentRef? Instrument,
+    // T212's OWN per-position unrealised P&L ("ppl" on /equity/portfolio).
+    // This is the GOLDEN open-P&L number — it sums to the account-level Ppl
+    // and prices delisted/illiquid holdings (e.g. LUK) correctly, where our
+    // (currentPrice − avg) recompute marks a missing-quote name to $0 and
+    // fabricates a phantom loss. Prefer this over recomputing. Null when the
+    // broker payload omits it → caller falls back to the recompute.
+    decimal? Ppl = null);

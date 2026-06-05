@@ -816,12 +816,24 @@ public static class IntegrationsEndpoints
                 var rows = result.Positions.Select(p =>
                 {
                     decimal? unrealisedPct = null;
-                    decimal? unrealisedAbs = null;
+                    // Prefer T212's OWN per-position P&L (golden — sums to the
+                    // account Ppl and prices delisted holdings like LUK
+                    // correctly). Only recompute from (currentPrice − avg) when
+                    // the broker omits it — and a missing/zero quote there marks
+                    // the holding to $0, fabricating a phantom loss, so guard it.
+                    decimal? unrealisedAbs = p.Ppl;
                     if (p.AveragePricePaid is decimal avg && avg > 0
                         && p.CurrentPrice is decimal cur)
                     {
                         unrealisedPct = (cur - avg) / avg * 100m;
-                        unrealisedAbs = (cur - avg) * p.Quantity;
+                        unrealisedAbs ??= (cur - avg) * p.Quantity;
+                    }
+                    // Derive % from the broker's P&L when we used it (so the %
+                    // and $ agree, instead of a −100% on a $0 phantom mark).
+                    if (p.Ppl is decimal ppl && p.AveragePricePaid is decimal a
+                        && a > 0 && p.Quantity != 0)
+                    {
+                        unrealisedPct = ppl / (a * p.Quantity) * 100m;
                     }
                     // T212 nests the ticker inside `instrument` on the
                     // /equity/portfolio response; the top-level Ticker
