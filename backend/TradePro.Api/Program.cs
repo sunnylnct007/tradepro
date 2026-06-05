@@ -292,6 +292,10 @@ api.MapOmsEndpoints();
 // Data-trust P&L / position reconciliation report (GET /api/pnl/reconciliation)
 // — invariants checked against the broker (golden source); fails loudly on drift.
 api.MapReconciliationEndpoints();
+// Per-strategy P&L comparison (GET /api/pnl/by-strategy) — rank the sleeves
+// side-by-side; open/realised per native currency, null + note where a broker
+// genuinely can't supply a component (never a fabricated number).
+api.MapPnlByStrategyEndpoints();
 // User-facing ops queue (run-intraday + list / cancel). Mac worker
 // routes mount on the ingest group below — same store, different
 // trust boundary.

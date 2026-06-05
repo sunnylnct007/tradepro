@@ -374,6 +374,25 @@ export const api = {
       attributionBasis?: string;
       error?: string | null;
     }>("/api/integrations/ig/history", { days }),
+  // Per-strategy P&L comparison — one row per strategy, per native currency.
+  // Any field null = genuinely not available (reason in `notes`), never a guess.
+  pnlByStrategy: (days = 3650) =>
+    get<{
+      utc: string;
+      error?: string | null;
+      window?: { days: number; basis: string };
+      rows: Array<{
+        strategyId: string;
+        broker: string;
+        currency: string;
+        openPnl: number | null;
+        realisedPnl: number | null;
+        totalPnl: number | null;
+        trades: number;
+        winRatePct: number | null;
+        notes: string;
+      }>;
+    }>("/api/pnl/by-strategy", { days }),
   paperPendingOrders: () =>
     get<Array<{
       orderId: string;
