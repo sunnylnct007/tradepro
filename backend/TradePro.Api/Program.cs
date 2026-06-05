@@ -289,6 +289,9 @@ api.MapInstrumentEndpoints();
 api.MapPaperBacktestEndpoints();
 api.MapOrdersEndpoints();
 api.MapOmsEndpoints();
+// Data-trust P&L / position reconciliation report (GET /api/pnl/reconciliation)
+// — invariants checked against the broker (golden source); fails loudly on drift.
+api.MapReconciliationEndpoints();
 // User-facing ops queue (run-intraday + list / cancel). Mac worker
 // routes mount on the ingest group below — same store, different
 // trust boundary.
