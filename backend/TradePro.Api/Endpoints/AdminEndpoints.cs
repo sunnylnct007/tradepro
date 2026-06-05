@@ -19,6 +19,24 @@ public static class AdminEndpoints
     {
         var g = app.MapGroup("/admin").WithTags("Admin");
 
+        // ── instrument identity: rebuild broker_ticker_map ─────────
+        // Reconciles the universe constituents against a broker's own
+        // instrument catalog and (re)populates broker_ticker_map with
+        // catalog-DERIVED mappings (exact-root, name, ISIN). Broker-
+        // agnostic: ?broker=T212_DEMO today; IG_DEMO/IBKR_PAPER become
+        // no-ops until a catalog is registered for them. Returns the
+        // per-method counts + samples so the operator can eyeball that
+        // name-matching (e.g. META→FB_US_EQ) behaved.
+        g.MapPost("/instruments/rebuild-map", async (
+            string? broker,
+            TradePro.Api.Instruments.BrokerTickerMapBuilder builder,
+            CancellationToken ct) =>
+        {
+            var label = string.IsNullOrWhiteSpace(broker) ? "T212_DEMO" : broker.Trim();
+            var result = await builder.RebuildAsync(label, ct);
+            return Results.Ok(result);
+        });
+
         // ── events table ──────────────────────────────────────────
         // Generic domain event log — every order_emitted, fill_received,
         // risk decision, heartbeat, etc. Filterable by event_type.

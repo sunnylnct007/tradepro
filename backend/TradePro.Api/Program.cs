@@ -110,6 +110,25 @@ builder.Services.AddHttpClient<Trading212DemoClient>(c =>
 // process. The cache loads from disk on construction and refreshes
 // lazily on first access if older than 24h.
 builder.Services.AddSingleton<Trading212InstrumentsService>();
+
+// ── Broker-agnostic instrument identity ───────────────────────────
+// Neutral catalog seam: each broker adapts its native instrument
+// registry into BrokerInstrument rows behind IBrokerInstrumentCatalog.
+// T212 is the only impl today; IG/IBKR drop in as siblings with no
+// change to the registry/builder/resolver below. The registry resolves
+// a broker LABEL ("T212_DEMO"/"T212_LIVE") to the matching catalog by
+// family prefix.
+builder.Services.AddSingleton<TradePro.Api.Instruments.IBrokerInstrumentCatalog,
+    TradePro.Api.Instruments.T212InstrumentCatalog>();
+builder.Services.AddSingleton<TradePro.Api.Instruments.IBrokerCatalogRegistry,
+    TradePro.Api.Instruments.BrokerCatalogRegistry>();
+// Builder rebuilds broker_ticker_map from the catalog (admin-triggered).
+builder.Services.AddScoped<TradePro.Api.Instruments.BrokerTickerMapBuilder>();
+// Read-side resolver — singleton so its per-broker map cache (5min TTL)
+// is process-wide. Registered + callable; NOT yet wired into the order
+// path (PostgresOmsService still owns that until a reviewed swap).
+builder.Services.AddSingleton<TradePro.Api.Instruments.IInstrumentResolver,
+    TradePro.Api.Instruments.InstrumentResolver>();
 // Caches /equity/positions for 30s by default (Trading212:PositionsCacheSeconds
 // to override). Stops dashboard + portfolio page from independently
 // tripping T212's 1 req/1s rate limit on every navigation. On 429
