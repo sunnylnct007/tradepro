@@ -176,6 +176,15 @@ builder.Services.AddHttpClient(
 builder.Services.AddHttpClient<TradePro.Api.Providers.IBKR.IBKRClient>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
+})
+// IBKR requires the `Accept-Encoding: gzip, deflate` request header (set in
+// IBKRClient), so api.ibkr.com responds with gzip-compressed bodies. Without
+// automatic decompression the raw gzip bytes (0x1F 0x8B magic) reach the JSON
+// parser and blow up with "'0x1F' is an invalid start of a value". Enabling
+// AutomaticDecompression makes .NET transparently inflate gzip/deflate bodies.
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate
 });
 
 builder.Services.AddScoped<TradePro.Api.Positions.PositionReconciler>();
