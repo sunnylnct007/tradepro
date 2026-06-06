@@ -17,15 +17,17 @@ namespace TradePro.Api.Tests.Providers;
 /// </summary>
 public class IBKRAuthTest
 {
-    private const string Aud = "https://api.ibkr.com/oauth2/api/v1/token";
+    // Default aud the production caller passes — the literal "/token" from
+    // the IBKR Postman collection (NOT the full token endpoint URL).
+    private const string Aud = IBKRClientAssertion.TokenAudience;
 
-    // ─── Client-assertion JWT ───────────────────────────────────────
+    // ─── Client-assertion JWT (STEP 1) ──────────────────────────────
 
     [Fact]
     public void ClientAssertion_has_RS256_header_with_kid()
     {
         using var rsa = RSA.Create(2048);
-        var jwt = IBKRClientAssertion.Build(rsa, "client-123", "key-abc", Aud);
+        var jwt = IBKRClientAssertion.Build(rsa, "client-123", "key-abc");
 
         var parts = jwt.Split('.');
         Assert.Equal(3, parts.Length);
@@ -38,23 +40,109 @@ public class IBKRAuthTest
     }
 
     [Fact]
-    public void ClientAssertion_claims_carry_clientId_and_scope()
+    public void ClientAssertion_aud_is_literal_slash_token()
     {
+        // Postman collection: the step-1 client-assertion aud is the literal
+        // string "/token", NOT the token endpoint URL. This is the claim that
+        // was wrong before (it was the full URL).
+        using var rsa = RSA.Create(2048);
+        var jwt = IBKRClientAssertion.Build(rsa, "client-123", "key-abc");
+        using var claimsDoc = JsonDocument.Parse(B64UrlDecode(jwt.Split('.')[1]));
+        Assert.Equal("/token", claimsDoc.RootElement.GetProperty("aud").GetString());
+    }
+
+    [Fact]
+    public void ClientAssertion_claims_match_postman_collection()
+    {
+        // VERBATIM check against the Postman collection step-1 claim set:
+        //   { iss, sub, aud="/token", exp=now+20, iat=now-10 }
+        // and NO jti / NO scope inside the JWT (scope is form-body only).
         using var rsa = RSA.Create(2048);
         var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
-        var jwt = IBKRClientAssertion.Build(
-            rsa, "client-123", "key-abc", Aud, now: now, lifetime: TimeSpan.FromMinutes(5));
+        var jwt = IBKRClientAssertion.Build(rsa, "client-123", "key-abc", now: now);
 
         var parts = jwt.Split('.');
         using var claimsDoc = JsonDocument.Parse(B64UrlDecode(parts[1]));
         var c = claimsDoc.RootElement;
         Assert.Equal("client-123", c.GetProperty("iss").GetString());
         Assert.Equal("client-123", c.GetProperty("sub").GetString());
-        Assert.Equal(Aud, c.GetProperty("aud").GetString());
-        Assert.Equal("sso-sessions.write", c.GetProperty("scope").GetString());
-        Assert.Equal(1_700_000_000, c.GetProperty("iat").GetInt64());
-        Assert.Equal(1_700_000_300, c.GetProperty("exp").GetInt64());
-        Assert.False(string.IsNullOrEmpty(c.GetProperty("jti").GetString()));
+        Assert.Equal("/token", c.GetProperty("aud").GetString());
+        Assert.Equal(1_700_000_000 - 10, c.GetProperty("iat").GetInt64());  // now-10
+        Assert.Equal(1_700_000_000 + 20, c.GetProperty("exp").GetInt64());  // now+20
+        // No scope / no jti in the assertion JWT (collection keeps them out).
+        Assert.False(c.TryGetProperty("scope", out _), "assertion JWT must not carry scope");
+        Assert.False(c.TryGetProperty("jti", out _), "assertion JWT must not carry jti");
+    }
+
+    // ─── SSO-session JWT (STEP 2 — the body of POST /sso-sessions) ───
+
+    [Fact]
+    public void SsoSession_jwt_has_RS256_header_with_kid()
+    {
+        using var rsa = RSA.Create(2048);
+        var jwt = IBKRClientAssertion.BuildSsoSession(
+            rsa, "client-123", "key-abc", "ibkr-user", "1.2.3.4");
+
+        var parts = jwt.Split('.');
+        Assert.Equal(3, parts.Length);
+        using var headerDoc = JsonDocument.Parse(B64UrlDecode(parts[0]));
+        var h = headerDoc.RootElement;
+        Assert.Equal("RS256", h.GetProperty("alg").GetString());
+        Assert.Equal("JWT", h.GetProperty("typ").GetString());
+        Assert.Equal("key-abc", h.GetProperty("kid").GetString());
+    }
+
+    [Fact]
+    public void SsoSession_jwt_claims_match_postman_collection_and_have_no_aud_no_sub()
+    {
+        // VERBATIM check against the Postman collection step-2 claim set:
+        //   { ip, credential, iss, exp=now+86400, iat=now }
+        //   with NO aud and NO sub (differs from step 1).
+        using var rsa = RSA.Create(2048);
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
+        var jwt = IBKRClientAssertion.BuildSsoSession(
+            rsa, "client-123", "key-abc", "ibkr-user", "16.60.201.137", now: now);
+
+        var parts = jwt.Split('.');
+        using var claimsDoc = JsonDocument.Parse(B64UrlDecode(parts[1]));
+        var c = claimsDoc.RootElement;
+        Assert.Equal("16.60.201.137", c.GetProperty("ip").GetString());
+        Assert.Equal("ibkr-user", c.GetProperty("credential").GetString());
+        Assert.Equal("client-123", c.GetProperty("iss").GetString());
+        Assert.Equal(1_700_000_000, c.GetProperty("iat").GetInt64());            // now
+        Assert.Equal(1_700_000_000 + 86400, c.GetProperty("exp").GetInt64());    // now+86400
+        // The whole point of the fix: NO aud, NO sub in the sso-session JWT.
+        Assert.False(c.TryGetProperty("aud", out _), "sso-session JWT must NOT carry aud");
+        Assert.False(c.TryGetProperty("sub", out _), "sso-session JWT must NOT carry sub");
+    }
+
+    [Fact]
+    public void SsoSession_jwt_signature_verifies_against_public_key()
+    {
+        using var rsa = RSA.Create(2048);
+        var jwt = IBKRClientAssertion.BuildSsoSession(
+            rsa, "client-123", "key-abc", "ibkr-user", "1.2.3.4");
+        var parts = jwt.Split('.');
+
+        using var verifier = RSA.Create();
+        verifier.ImportRSAPublicKey(rsa.ExportRSAPublicKey(), out _);
+        var ok = verifier.VerifyData(
+            Encoding.ASCII.GetBytes($"{parts[0]}.{parts[1]}"),
+            B64UrlDecode(parts[2]),
+            HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        Assert.True(ok);
+    }
+
+    [Theory]
+    [InlineData(null, "user", "1.2.3.4")]  // missing clientId
+    [InlineData("cid", null, "1.2.3.4")]   // missing credential
+    [InlineData("cid", "user", null)]      // missing ip
+    public void SsoSession_jwt_requires_clientId_credential_and_ip(
+        string? clientId, string? credential, string? ip)
+    {
+        using var rsa = RSA.Create(2048);
+        Assert.ThrowsAny<ArgumentException>(() =>
+            IBKRClientAssertion.BuildSsoSession(rsa, clientId!, "key-abc", credential!, ip!));
     }
 
     [Fact]
