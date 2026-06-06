@@ -431,6 +431,78 @@ public sealed class PostgresOmsService : IOmsService
             }
         }
 
+        // IBKR routing — IBKR_PAPER and IBKR_LIVE both go through the
+        // IBKRClient. Mode (paper/live) is encoded in IBKROptions.Mode
+        // (driven by the AWS tradepro/ibkr secret), which also selects the
+        // account id (DUP6... paper vs U2512... live). GUARDED behind
+        // IsEnabled: until tradepro/ibkr is populated this whole branch is
+        // a no-op, the order stays SUBMITTED, and ExpireUnacceptedAsync
+        // does NOT sweep it (IBKR is excluded from PlacementBrokers), so
+        // nothing breaks before the live keys land.
+        if (approved.Broker is "IBKR_PAPER" or "IBKR_LIVE")
+        {
+            var ibkr = ResolveIBKR();
+            if (ibkr is not null && ibkr.IsEnabled)
+            {
+                try
+                {
+                    // IBKR places by numeric contract id (conid). Resolve the
+                    // broker-native instrument key CONFIG-FIRST via
+                    // broker_ticker_map (same pattern as the T212/IG paths) —
+                    // never guess. If the mapped symbol is a numeric conid we
+                    // place; otherwise we can't safely route yet, so leave the
+                    // order SUBMITTED for operator review rather than guessing.
+                    var brokerSymbol = await ResolveBrokerSymbolAsync(approved.Broker, approved.Symbol);
+                    if (!long.TryParse(brokerSymbol, out var conid))
+                    {
+                        _log.LogWarning(
+                            "IBKR order {OrderId} ({Sym}->{Broker}): no numeric conid mapping; leaving SUBMITTED for operator review",
+                            approved.Id, approved.Symbol, brokerSymbol);
+                        return approved;
+                    }
+                    var side = approved.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase) ? "BUY" : "SELL";
+                    var place = await ibkr.PlaceMarketOrderAsync(
+                        conid: conid, side: side, quantity: Math.Abs(approved.Qty),
+                        ct: CancellationToken.None);
+                    if (place.Status == "REJECTED" || (place.OrderId is null && place.Status != "NEEDS_CONFIRM"))
+                    {
+                        _log.LogWarning(
+                            "IBKR order rejected at placement for OMS order {OrderId} ({Sym} {Side} {Qty}): {Reason}",
+                            approved.Id, approved.Symbol, approved.Side, approved.Qty, place.StatusReason);
+                        return await TransitionAsync(
+                            approved.Id, actor: $"broker:{approved.Broker}",
+                            allowedPriorStates: new[] { OmsState.Submitted },
+                            newState: OmsState.Rejected,
+                            eventType: "BROKER_REJECTED",
+                            extraSetSql: "cancelled_reason = @rejReason,",
+                            extraParams: new { rejReason = place.StatusReason ?? "ibkr-rejected" },
+                            cancelledReason: place.StatusReason ?? "ibkr-rejected",
+                            detail: new { httpStatus = place.HttpStatus });
+                    }
+                    // Persist the IBKR order id (or reply id when NEEDS_CONFIRM)
+                    // so fills can join back. The fill poller / confirm flow
+                    // picks it up later.
+                    if (place.OrderId is not null)
+                    {
+                        await using var conn = await _db.OpenConnectionAsync();
+                        await conn.ExecuteAsync(@"
+                            UPDATE oms_orders
+                            SET broker_order_id = @ref
+                            WHERE id = @oid;",
+                            new { @ref = place.OrderId, oid = approved.Id });
+                    }
+                    return (await GetAsync(approved.Id))!;
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex,
+                        "IBKR placement threw for OMS order {OrderId} — leaving SUBMITTED",
+                        approved.Id);
+                    return approved;
+                }
+            }
+        }
+
         return approved;
     }
 
@@ -439,6 +511,13 @@ public sealed class PostgresOmsService : IOmsService
         if (_services is null) return null;
         using var scope = _services.CreateScope();
         return scope.ServiceProvider.GetService<TradePro.Api.Providers.IG.IGClient>();
+    }
+
+    private TradePro.Api.Providers.IBKR.IBKRClient? ResolveIBKR()
+    {
+        if (_services is null) return null;
+        using var scope = _services.CreateScope();
+        return scope.ServiceProvider.GetService<TradePro.Api.Providers.IBKR.IBKRClient>();
     }
 
     public async Task<OmsOrder> RejectAsync(Guid orderId, string actor, string reason) =>

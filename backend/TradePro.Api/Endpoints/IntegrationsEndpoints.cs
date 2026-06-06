@@ -338,6 +338,7 @@ public static class IntegrationsEndpoints
             Trading212DemoClient t212Demo,
             Trading212DemoCashCache t212DemoCache,
             TradePro.Api.Providers.IG.IGClient ig,
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             NpgsqlDataSource db,
             CancellationToken ct) =>
         {
@@ -433,15 +434,46 @@ public static class IntegrationsEndpoints
                     status = "down", error = ex.Message });
             }
 
-            // IBKR placeholder so the UI shows the slot even before it's
-            // wired — sets user expectation that it's coming.
-            rows.Add(new
+            // IBKR — OAuth2 Web API. Reports live enabled/disabled from the
+            // client's IsEnabled gate (driven by the tradepro/ibkr secret +
+            // IBKR:Mode). When enabled, pull cash/net-liquidation from the
+            // ledger; when disabled, surface the slot so the UI sets the
+            // expectation that it's wired + waiting on secrets.
+            try
             {
-                broker = "IBKR_PAPER",
-                label = "IBKR Paper (planned)",
-                status = "disabled",
-                note = "Not yet integrated — roadmap.",
-            });
+                if (ibkr.IsEnabled)
+                {
+                    var cash = await ibkr.GetCashAsync(ct);
+                    rows.Add(new
+                    {
+                        broker = ibkr.BrokerLabel,
+                        label = $"IBKR {(ibkr.BrokerLabel.EndsWith("LIVE") ? "LIVE" : "PAPER")} (equities)",
+                        status = cash.Error is null ? "ok" : "down",
+                        currency = cash.Currency,
+                        free = cash.Cash,
+                        total = cash.NetLiquidation,
+                        openPnl = cash.UnrealizedPnl,
+                        error = cash.Error,
+                    });
+                    if (cash.Error is null && cash.NetLiquidation is { } ibkrNlv)
+                        snap.Add((ibkr.BrokerLabel, cash.Currency, ibkrNlv));
+                }
+                else
+                {
+                    rows.Add(new
+                    {
+                        broker = "IBKR_PAPER",
+                        label = "IBKR Paper (equities)",
+                        status = "disabled",
+                        note = "Populate AWS Secrets Manager tradepro/ibkr (set mode=paper|live) + restart.",
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                rows.Add(new { broker = "IBKR", label = "IBKR (equities)",
+                    status = "down", error = ex.Message });
+            }
 
             // Persist today's account value per broker (equity-curve history).
             // Upsert keeps the LATEST value per day, so by EOD the row holds the
