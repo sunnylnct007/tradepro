@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .catalysts_fetcher import CatalystFetcher
 from .llm_gate import LLMGateConfig, LLMSignalGate
 from .overrides import OverrideRegistry
 from .strategy_config import StrategyConfigRegistry
@@ -63,11 +64,27 @@ class StrategyRunner:
         override_registry: OverrideRegistry,
         broker: str = "t212",
         broker_kwargs: dict[str, Any] | None = None,
+        # Phase C-3.3 — automatic catalyst overlay injection.
+        # When ``api_base`` is set, every built strategy receives a
+        # shared CatalystFetcher whose lookups feed the C-3.1 LLM-gate
+        # overlay (divergence / alignment scale adjustments). Leaving
+        # both None preserves the legacy no-overlay behaviour exactly
+        # — strategies still build the same way, just without
+        # _catalyst_fetcher set.
+        catalysts_api_base: str | None = None,
+        catalysts_api_token: str | None = None,
     ) -> None:
         self.config_registry = config_registry
         self.override_registry = override_registry
         self.broker = broker
         self.broker_kwargs = dict(broker_kwargs or {})
+        self._catalysts_api_base = catalysts_api_base
+        self._catalysts_api_token = catalysts_api_token
+        # Lazily constructed on first build_strategy; shared across
+        # every built strategy so all strategies hit the same TTL
+        # cache (one /api/catalysts/ request per symbol per 5min
+        # across the daemon, not per strategy).
+        self._shared_fetcher: CatalystFetcher | None = None
 
     # ------------------------------------------------------------------ #
     # Selection                                                            #
@@ -101,7 +118,13 @@ class StrategyRunner:
         registry. Returns None for unknown strategy names — the runner
         treats "not registered" as "skip", not as an error, so a stale
         config row for a removed strategy doesn't crash the whole session.
-        """
+
+        Phase C-3.3 — when the runner was constructed with
+        ``catalysts_api_base`` set, the built strategy receives a
+        shared ``_catalyst_fetcher`` via params so the C-3.1 LLM-gate
+        overlay fires in production. Operator-supplied ``params`` win
+        — passing a per-strategy fetcher overrides the runner's
+        default (useful for tests + ad-hoc instrumented runs)."""
         from .registry import get as registry_get
 
         try:
@@ -109,10 +132,31 @@ class StrategyRunner:
         except KeyError:
             return None
         cfg = self.config_registry.get(name)
+        params = dict(cfg.params or {})
+        # Only inject when the operator didn't already set one — never
+        # overwrite an explicit per-strategy injection.
+        if "_catalyst_fetcher" not in params:
+            fetcher = self.build_catalyst_fetcher()
+            if fetcher is not None:
+                params["_catalyst_fetcher"] = fetcher
         try:
-            return spec.build(strategy_id=name, params=cfg.params or {})
+            return spec.build(strategy_id=name, params=params)
         except Exception:  # noqa: BLE001
             return None
+
+    def build_catalyst_fetcher(self) -> CatalystFetcher | None:
+        """Lazy singleton for the shared CatalystFetcher. Returns
+        None when the runner has no ``catalysts_api_base`` — the
+        legacy no-overlay path. Same instance is handed to every
+        strategy so they share the TTL cache."""
+        if self._catalysts_api_base is None:
+            return None
+        if self._shared_fetcher is None:
+            self._shared_fetcher = CatalystFetcher(
+                api_base=self._catalysts_api_base,
+                token=self._catalysts_api_token,
+            )
+        return self._shared_fetcher
 
     def build_llm_gate(self, name: str) -> LLMSignalGate | None:
         """Build the LLM gate for a strategy. None if gate disabled in
