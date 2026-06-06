@@ -136,6 +136,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Override Phase E hard-block. Preflight still captures the "
              "data_state_hash but partial coverage no longer refuses the run.",
     )
+    p.add_argument(
+        "--legacy-cache", action="store_true",
+        help="Opt-out of BarStore preflight and use the legacy cache.py path. "
+             "Preserved for parity testing + emergency rollback; every "
+             "production caller should leave this off.",
+    )
     return p.parse_args(argv)
 
 
@@ -179,27 +185,35 @@ def _run_preflight(
     start: datetime,
     end: datetime,
     *,
-    asset_class: str,
+    asset_class: str | None = None,
     resolution: str,
     api_base: str | None,
     allow_incomplete: bool,
 ) -> dict[str, Any]:
     """Run `preflight_data_state` for every symbol in the backtest.
 
-    Returns a dict to merge into the result_summary's `data_state`
-    block. On any symbol's incomplete coverage (and require_complete),
-    re-raises ``IncompleteDataError`` with the list of missing
-    sessions so the caller can stop the run with a structured exit.
+    ``asset_class`` is a per-RUN override applied to every symbol; when
+    None (the default), each symbol is auto-resolved via
+    ``asset_class_resolver``. Mixed universes ("AAPL,SPY,EURUSD=X")
+    therefore resolve correctly with no operator intervention.
 
-    The combined `data_state_hash` is the SHA256 of sorted
-    'symbol:hash' lines so the D-2 cockpit chip indexes one hash per
-    backtest. Each per-symbol detail is preserved under
-    `per_symbol_states` for drill-in."""
+    Returns a dict to merge into the result_summary's `data_state`
+    block, including a ``resolved_classes`` map so the cockpit can
+    show "AAPL → us_equity, SPY → us_etf, EURUSD=X → fx_spot" rather
+    than leaving the operator guessing.
+
+    On any symbol's incomplete coverage (and require_complete),
+    re-raises ``IncompleteDataError`` with the list of missing
+    sessions so the caller can stop the run with a structured exit."""
     from datetime import timezone as _tz
     from ..bar_cache import IncompleteDataError, preflight_data_state
+    from ..bar_cache.asset_class_resolver import (
+        ASSET_CLASS_UNKNOWN, resolve_asset_class,
+    )
 
     per_symbol_states: dict[str, dict[str, Any]] = {}
     per_symbol_hashes: dict[str, str] = {}
+    resolved_classes: dict[str, str] = {}
     coverage_complete = True
 
     start_utc = (
@@ -208,16 +222,24 @@ def _run_preflight(
     end_utc = end.replace(tzinfo=_tz.utc) if end.tzinfo is None else end
 
     for sym in symbols:
+        # Resolve per-symbol when no run-level override was supplied.
+        ac = asset_class or resolve_asset_class(sym)
+        if ac == ASSET_CLASS_UNKNOWN:
+            raise ValueError(
+                f"asset_class could not be auto-resolved for symbol {sym!r}; "
+                f"pass `asset_class=` on the run or `--legacy-cache` to skip."
+            )
+        resolved_classes[sym] = ac
         try:
             pf = preflight_data_state(
                 canonical=sym,
-                asset_class=asset_class,
+                asset_class=ac,
                 resolution=resolution,
                 start=start_utc,
                 end=end_utc,
                 require_complete=not allow_incomplete,
                 api_base=api_base,
-                fetched_by=f"quant-backtest:{asset_class}",
+                fetched_by=f"quant-backtest:{ac}",
             )
         except IncompleteDataError:
             # Bubble up — caller wraps as exit 3 with the structured
@@ -234,9 +256,14 @@ def _run_preflight(
         "data_state": {
             "hash": combined_hash,
             "coverage_complete": coverage_complete,
+            # `asset_class` here is the run-level override (None when
+            # we auto-resolved per symbol). The per-symbol map below is
+            # the source of truth for "what got hashed".
             "asset_class": asset_class,
             "resolution": resolution,
             "per_symbol_states": per_symbol_states,
+            "resolved_classes": resolved_classes,
+            "resolved_by": "explicit" if asset_class else "auto-resolver",
         },
     }
 
@@ -320,21 +347,21 @@ def _run_backtest(
     end = datetime.fromisoformat(str(payload.get("end", "2024-12-31")))
     initial_capital = float(payload.get("initial_capital", 100_000.0))
 
-    # Phase D-3 / E for the quant backtest path. When `data_asset` is
-    # set on the payload, run the BarStore preflight BEFORE the
-    # `load_candles` fetch. The preflight populates the cache, stamps
-    # a combined hash, and refuses the run on incomplete coverage
-    # (unless `allow_incomplete_data=true` overrides).
+    # Phase E preflight runs by DEFAULT. Per-symbol auto-resolution
+    # picks the right asset_class (us_equity / us_etf / fx_spot /
+    # uk_equity / crypto) for each ticker. payload.data_asset can
+    # override the resolver per-run; payload.legacy_cache=true opts
+    # out entirely (parity testing / emergency rollback).
     preflight_payload: dict[str, Any] | None = None
-    data_asset = payload.get("data_asset")
-    if data_asset:
+    if not bool(payload.get("legacy_cache", False)):
         from ..bar_cache import IncompleteDataError
+        data_asset = payload.get("data_asset")  # None ⇒ auto-resolve
         try:
             preflight_payload = _run_preflight(
                 symbols=symbols,
                 start=start,
                 end=end,
-                asset_class=str(data_asset),
+                asset_class=str(data_asset) if data_asset else None,
                 resolution=str(payload.get("data_resolution", "1d")),
                 api_base=payload.get("data_api_base"),
                 allow_incomplete=bool(payload.get("allow_incomplete_data", False)),
@@ -351,6 +378,24 @@ def _run_backtest(
             sys.stdout.write(f"\n{RESULT_END}\n")
             sys.stdout.flush()
             raise SystemExit(3) from exc
+        except ValueError as exc:
+            # Auto-resolver couldn't classify a symbol — surface the
+            # actionable error rather than crashing inside BarStore.
+            sys.stdout.write(f"\n{RESULT_BEGIN}\n")
+            sys.stdout.write(json.dumps({
+                "kind": "backtest",
+                "error": {
+                    "kind": "unresolved_asset_class",
+                    "message": str(exc),
+                    "remediation": (
+                        "Pass `data_asset` on the payload to force a class, "
+                        "or `legacy_cache=true` to skip preflight."
+                    ),
+                },
+            }, default=str))
+            sys.stdout.write(f"\n{RESULT_END}\n")
+            sys.stdout.flush()
+            raise SystemExit(4) from exc
 
     log.info(
         "loading bars for %d symbols from %s to %s",
@@ -497,6 +542,8 @@ def main(argv: list[str] | None = None) -> int:
         payload["data_api_base"] = args.data_api_base
     if args.allow_incomplete_data:
         payload["allow_incomplete_data"] = True
+    if args.legacy_cache:
+        payload["legacy_cache"] = True
     summary = run_backtest_from_payload(payload, request_id=args.request_id)
 
     # Marker-delimited so the daemon can scoop the dict out of stdout

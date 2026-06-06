@@ -1282,6 +1282,21 @@ change between slices.
   every rule + the resolve_many batch path. Unblocks the
   "preflight defaults ON" PR — operator no longer has to pick a
   single `--data-asset` for multi-class universes.
+- **J-1.6 ✅ SHIPPED — Backtest preflight default-on.** Flipped
+  the four backtest CLIs (`tradepro-paper-backtest`,
+  `tradepro-quant-backtest`, `tradepro-equity-pipeline`,
+  `tradepro-slippage-sweep`) from preflight=OPT-IN to
+  preflight=DEFAULT. Asset class auto-resolves per-symbol via the
+  J-1.5 resolver, so a mixed universe ("AAPL,SPY,EURUSD=X")
+  resolves cleanly without operator intervention. `--legacy-cache`
+  (and payload `legacy_cache=true`) is the opt-out, preserved for
+  parity testing + emergency rollback. Every report from this PR
+  onward carries `data_state_hash`, `resolved_classes` map, and
+  `resolved_by` audit field; incomplete data hard-blocks the run.
+  2 new BDD scenarios pin the auto-resolve + explicit-override
+  paths through `_run_preflight`. Existing endpoint tests pass an
+  explicit `legacy_cache=True` so they exercise the legacy code
+  path unchanged.
   joins the roadmap).
 - **J-3** — Futures with contract rolling (when needed).
 - **J-4** — Binance / Coinbase Python providers for the `crypto`

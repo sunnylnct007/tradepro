@@ -88,10 +88,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     # guarantee). Without --data-asset, behaviour is unchanged (legacy
     # cache.py path).
     p.add_argument("--data-asset", default=None,
-                   help=("Asset class for the bar-cache preflight (e.g. "
-                         "'us_etf'). When set, the CLI auto-stamps "
-                         "data_state_hash on the report (Phase D-3) and "
-                         "refuses to run if coverage is incomplete (Phase E)."))
+                   help=("Asset class for the bar-cache preflight. When "
+                         "omitted, the CLI auto-resolves from --symbol via "
+                         "asset_class_resolver (AAPL→us_equity, SPY→us_etf, "
+                         "EURUSD=X→fx_spot, ...). Pass an explicit value "
+                         "to override the resolver."))
+    p.add_argument("--legacy-cache", action="store_true",
+                   help=("Opt-out of the BarStore preflight and use the "
+                         "legacy cache.py path. Preserved for parity testing "
+                         "and emergency rollback — every new caller should "
+                         "leave this off so reports carry data_state_hash + "
+                         "refuse on incomplete data."))
     p.add_argument("--data-resolution", default="1d",
                    help="Bar resolution for the preflight. Default 1d.")
     p.add_argument("--data-api-base", default=None,
@@ -183,20 +190,31 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
 
-    # Phase D-3 + E preflight. When --data-asset is set, call BarStore
-    # for the full range to (a) auto-stamp the data_state_hash on the
-    # report and (b) refuse the run on incomplete data unless the
-    # operator explicitly overrides. Skipped when --data-asset is omitted
-    # so legacy callers (paper_session that reads via cache.py) keep
-    # working unchanged.
+    # Phase E — preflight runs by DEFAULT. Asset class auto-resolves
+    # from the symbol when --data-asset isn't given (AAPL → us_equity,
+    # SPY → us_etf, EURUSD=X → fx_spot, ...). Operator can override
+    # the resolver with --data-asset, or skip preflight entirely with
+    # --legacy-cache for parity testing / emergency rollback.
     preflight_payload: dict | None = None
-    if args.data_asset:
+    if not args.legacy_cache:
         from datetime import datetime as _dt, timezone as _tz
         from ..bar_cache import IncompleteDataError, preflight_data_state
+        from ..bar_cache.asset_class_resolver import (
+            ASSET_CLASS_UNKNOWN, resolve_asset_class,
+        )
+        resolved_asset = args.data_asset or resolve_asset_class(args.symbol)
+        if resolved_asset == ASSET_CLASS_UNKNOWN:
+            print(
+                f"asset_class could not be resolved for symbol "
+                f"{args.symbol!r}; pass --data-asset explicitly or "
+                f"--legacy-cache to skip preflight.",
+                file=sys.stderr,
+            )
+            return 4
         try:
             pf = preflight_data_state(
                 canonical=args.symbol,
-                asset_class=args.data_asset,
+                asset_class=resolved_asset,
                 resolution=args.data_resolution,
                 start=_dt.combine(start, _dt.min.time()).replace(tzinfo=_tz.utc),
                 end=_dt.combine(end, _dt.min.time()).replace(tzinfo=_tz.utc),
@@ -208,6 +226,15 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(exc.to_dict(), indent=2), file=sys.stderr)
             return 3
         preflight_payload = pf.to_report_dict()
+        # Stamp the resolved asset class on the payload so the cockpit
+        # chip can show "auto-resolved as us_equity" rather than leaving
+        # the operator guessing.
+        preflight_payload.setdefault("data_state", {})["resolved_asset_class"] = (
+            resolved_asset
+        )
+        preflight_payload["data_state"]["resolved_by"] = (
+            "explicit" if args.data_asset else "auto-resolver"
+        )
 
     validator = WalkForwardValidator(
         strategy_factory=make_strategy,
