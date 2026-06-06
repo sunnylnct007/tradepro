@@ -77,9 +77,11 @@ public static class SecretsBundleLoader
     /// </summary>
     private static readonly Dictionary<string, string> IbkrKeyMap = new()
     {
-        ["client_id"]        = "IBKR:ClientId",
+        // ── SHARED across paper + live ──
+        // The RSA signing pair (kid + private/public key) and the cert are
+        // shared; only the OAuth client_id + brokerage credential + account
+        // differ per environment (see the per-env keys below).
         ["client_key_id"]    = "IBKR:ClientKeyId",
-        ["credential"]       = "IBKR:Credential",
         ["private_key"]      = "IBKR:PrivateKey",
         ["public_key"]       = "IBKR:PublicKey",
         // PEM X.509 cert IBKR's OAuth2 self-service issues against the RSA
@@ -89,9 +91,29 @@ public static class SecretsBundleLoader
         // no code change. Cert is public material but kept with the bundle.
         ["certificate"]      = "IBKR:Certificate",
         ["ip"]               = "IBKR:SourceIp",
-        ["account_id_live"]  = "IBKR:AccountIdLive",
-        ["account_id_paper"] = "IBKR:AccountIdPaper",
         ["mode"]             = "IBKR:Mode",
+
+        // ── PER-ENV (paper) ──
+        // IBKR issues a different client_id + brokerage login for paper vs
+        // live; the active triple is chosen by IBKR:Mode at runtime
+        // (IBKROptions.Active*).
+        ["client_id_paper"]  = "IBKR:ClientIdPaper",
+        ["credential_paper"] = "IBKR:CredentialPaper",
+        ["account_id_paper"] = "IBKR:AccountIdPaper",
+
+        // ── PER-ENV (live) ──
+        ["client_id_live"]   = "IBKR:ClientIdLive",
+        ["credential_live"]  = "IBKR:CredentialLive",
+        ["account_id_live"]  = "IBKR:AccountIdLive",
+
+        // ── BACKWARD-COMPAT (legacy single keys) ──
+        // Older tradepro/ibkr secrets carried one client_id + credential.
+        // Still mapped so they keep binding onto IBKROptions.ClientId /
+        // .Credential, which the Active* resolvers fall back to when the
+        // per-env key is absent. Per-env keys WIN when both are present
+        // (the loader injects both config keys; IBKROptions prefers per-env).
+        ["client_id"]        = "IBKR:ClientId",
+        ["credential"]       = "IBKR:Credential",
     };
 
     public static void LoadInto(IConfigurationBuilder builder, IConfiguration existing, ILogger? log = null)

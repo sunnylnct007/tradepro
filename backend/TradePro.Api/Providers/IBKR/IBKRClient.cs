@@ -89,7 +89,9 @@ public sealed class IBKRClient
             {
                 assertion = IBKRClientAssertion.Build(
                     rsa,
-                    clientId: _options.ClientId,
+                    // ACTIVE (mode-resolved) client_id — paper vs live use
+                    // different ids; the kid/private_key signing pair is shared.
+                    clientId: _options.ActiveClientId,
                     clientKeyId: _options.ClientKeyId,
                     audience: tokenEndpoint,
                     scope: IBKRClientAssertion.SsoSessionsWriteScope,
@@ -132,7 +134,8 @@ public sealed class IBKRClient
                 ssoReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _session.AccessToken);
                 ssoReq.Content = JsonContent.Create(new
                 {
-                    credential = _options.Credential,
+                    // ACTIVE (mode-resolved) credential — paper vs live login.
+                    credential = _options.ActiveCredential,
                     ip = _options.SourceIp,
                 });
                 using var ssoResp = await _http.SendAsync(ssoReq, ct);
