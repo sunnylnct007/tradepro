@@ -23,6 +23,7 @@ import { EquityCurveCard } from "../components/cockpit/EquityCurveCard";
 import { useHiddenWidgets, type WidgetMeta } from "../components/cockpit/useHiddenWidgets";
 import { HiddenWidgetsBar } from "../components/cockpit/HiddenWidgetsBar";
 import { BrokerCashStrip } from "../components/cockpit/BrokerCashStrip";
+import { KpiStrip } from "../components/cockpit/KpiStrip";
 import { AlertBanner } from "../components/cockpit/AlertBanner";
 import { SystemCaveatsBanner } from "../components/cockpit/SystemCaveatsBanner";
 import { api, OmsOrderRow } from "../api/client";
@@ -368,6 +369,7 @@ export function TraderCockpit() {
   // click × on the card → moves to HiddenWidgetsBar; click the pill
   // → restored.
   const WIDGETS: WidgetMeta[] = [
+    { id: "kpi-strip",    title: "KPI strip" },
     { id: "pnl-summary",  title: "P&L — bottom line" },
     { id: "strategy-pnl", title: "P&L by strategy × symbol" },
     { id: "strategy-compare", title: "Strategy P&L comparison" },
@@ -533,10 +535,12 @@ export function TraderCockpit() {
           + the warnings panel still raises here when something's
           actually wrong with a broker / daemon. */}
 
-      {/* KPI strip removed — it was T212-only + mislabeled ("Today's P&L"
-          was actually total T212 unrealised; "Open orders" counted stale
-          mis-routed orders). The Strategy-desks portfolio strip is the
-          accurate, multi-broker summary now. */}
+      {/* ── KPI strip — IBKR-Desktop-style top-of-cockpit status bar.
+           Per-broker tiles (value / open / realised today / LTD) in each
+           broker's native currency; never blends USD + GBP. Self-fetches
+           cash-summary + pnl-by-strategy on a 60s poll. Full-width strip
+           above the panel grid; hide/restore via the widget toolbar. */}
+      {v("kpi-strip") && <KpiStrip onHide={() => widgets.hide("kpi-strip")} />}
 
       {/* TODAY card removed — its status line is now inline with the
           title (todayHeadline) and its P&L / carry-drag live on the
