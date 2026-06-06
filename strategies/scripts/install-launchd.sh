@@ -29,6 +29,7 @@ WITH_INTRADAY=0
 WITH_EPS_SNAPSHOT=0
 WITH_ALGO=0
 WITH_DATA_WORKER=0
+WITH_CATALYSTS_SWEEP=0
 for arg in "$@"; do
   case "$arg" in
     --refresh|--cron) MODE="refresh" ;;
@@ -43,6 +44,10 @@ for arg in "$@"; do
     # (Phase C). Off by default; ops operators opt in to enable
     # UI-triggered validate / backfill / reload jobs.
     --data-worker|--with-data-worker) WITH_DATA_WORKER=1 ;;
+    # --catalysts-sweep installs the daily catalyst-extractor cron
+    # (06:00 UTC). Off by default — opt-in because populating the
+    # registry across the trader's universe touches yfinance hard.
+    --catalysts-sweep|--with-catalysts-sweep) WITH_CATALYSTS_SWEEP=1 ;;
     -h|--help)
       sed -n '1,/^set -eu/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -117,6 +122,11 @@ if [[ "$MODE" == "worker" ]]; then
   else
     uninstall_one "com.tradepro.eps-snapshot"
   fi
+  if [[ "$WITH_CATALYSTS_SWEEP" == "1" ]]; then
+    install_one "com.tradepro.catalysts-daily-sweep"
+  else
+    uninstall_one "com.tradepro.catalysts-daily-sweep"
+  fi
   if [[ "$WITH_ALGO" == "1" ]]; then
     install_one "com.tradepro.live-portfolio"
     install_one "com.tradepro.algo-digest"
@@ -178,6 +188,11 @@ else
     install_one "com.tradepro.eps-snapshot"
   else
     uninstall_one "com.tradepro.eps-snapshot"
+  fi
+  if [[ "$WITH_CATALYSTS_SWEEP" == "1" ]]; then
+    install_one "com.tradepro.catalysts-daily-sweep"
+  else
+    uninstall_one "com.tradepro.catalysts-daily-sweep"
   fi
   cat <<EOF
 
