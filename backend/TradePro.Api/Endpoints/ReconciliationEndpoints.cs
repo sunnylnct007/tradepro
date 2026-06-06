@@ -104,23 +104,20 @@ public static class ReconciliationEndpoints
             else
             {
                 // Per-position unrealised: prefer the broker's OWN Ppl per row
-                // (the golden number that sums to account Ppl); only the rows
-                // that carry it are summable, so if some omit it we can't prove
-                // the invariant and skip rather than false-fail.
-                var withPpl = t212Pos.Positions.Where(p => p.Ppl is not null).ToList();
-                if (withPpl.Count != t212Pos.Positions.Count)
-                {
-                    checks.Add(PnlReconciliation.ReconCheck.Skipped(
-                        "open_pnl_reconciles",
-                        $"{t212Pos.Positions.Count - withPpl.Count} of {t212Pos.Positions.Count} "
-                        + "T212 position(s) omit per-row Ppl — cannot sum marks to compare"));
-                }
-                else
-                {
-                    var sumPositions = withPpl.Sum(p => p.Ppl!.Value);
-                    var tol = PnlReconciliation.OpenPnlTolerance(accountPpl);
-                    checks.Add(PnlReconciliation.ReconcileOpenPnl(sumPositions, accountPpl, tol));
-                }
+                // (the golden number that sums to account Ppl); when a row omits
+                // it, fall back to (currentPrice − avg) × qty — the same guarded
+                // fallback IntegrationsEndpoints uses (commit 0d27e20) — instead
+                // of skipping the whole check. Rows with neither Ppl nor a usable
+                // quote are excluded with a note. If the computed Σ still doesn't
+                // reconcile to the account Ppl the check FAILS honestly (T212's
+                // account Ppl can carry fxPpl/pie effects our sum can't see).
+                var markRows = t212Pos.Positions.Select(p =>
+                    (Sym: p.Instrument?.Ticker ?? p.Ticker ?? "(null)",
+                     p.Quantity, p.AveragePricePaid, p.CurrentPrice, p.Ppl));
+                var sumPositions = PnlReconciliation.SumOpenPnlMarks(markRows, out var markNote);
+                var tol = PnlReconciliation.OpenPnlTolerance(accountPpl);
+                checks.Add(PnlReconciliation.ReconcileOpenPnl(
+                    sumPositions, accountPpl, tol, markNote));
             }
 
             // ── 2. oms_matches_broker ───────────────────────────────────────
@@ -146,10 +143,39 @@ public static class ReconciliationEndpoints
                     var omsPairs = omsRows.Select(p => (p.Symbol, p.Quantity));
                     var brokerPairs = t212Pos.Positions
                         .Select(p => (Sym: p.Instrument?.Ticker ?? p.Ticker ?? "", p.Quantity));
-                    // Bare-key both sides through the same reconciliation key the
-                    // sync path uses, so "AAPL_US_EQ" lines up with the OMS "AAPL".
+
+                    // Resolve each OMS source ticker through the broker_ticker_map
+                    // (source_ticker → broker_ticker) BEFORE bare-keying, so an
+                    // OMS "JEF" maps to the broker's stale "LUK_US_EQ" → bare
+                    // "LUK" and reconciles instead of reporting phantom drift.
+                    // No hardcoded map: read it from broker_ticker_map for this
+                    // broker; missing rows fall through to plain bare-keying.
+                    Dictionary<string, string> srcToBroker = new(StringComparer.OrdinalIgnoreCase);
+                    try
+                    {
+                        await using var conn = await db.OpenConnectionAsync(ct);
+                        var rows = await conn.QueryAsync<(string source_ticker, string broker_ticker)>(@"
+                            SELECT source_ticker, broker_ticker FROM broker_ticker_map
+                            WHERE broker = @broker
+                              AND source_ticker IS NOT NULL AND broker_ticker IS NOT NULL;",
+                            new { broker = t212Label });
+                        foreach (var (src, bt) in rows)
+                            if (!string.IsNullOrWhiteSpace(src) && !string.IsNullOrWhiteSpace(bt))
+                                srcToBroker[src.Trim()] = bt.Trim();
+                    }
+                    catch
+                    {
+                        // Fail open: no map → plain bare-keying (genuine drift
+                        // still caught; JEF/LUK simply won't auto-resolve).
+                    }
+
+                    string ResolveBrokerTicker(string oms) =>
+                        srcToBroker.TryGetValue((oms ?? "").Trim(), out var bt) ? bt : (oms ?? "");
+
                     checks.Add(PnlReconciliation.ReconcileOmsVsBroker(
-                        omsPairs, brokerPairs, epsilon: 0.0001m, bareKey: ReconcileMath.Bare));
+                        omsPairs, brokerPairs, epsilon: 0.0001m,
+                        bareKey: ReconcileMath.Bare,
+                        resolveBrokerTicker: ResolveBrokerTicker));
                 }
             }
 

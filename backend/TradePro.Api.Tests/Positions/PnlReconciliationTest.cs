@@ -59,6 +59,76 @@ public class PnlReconciliationTest
         Assert.Equal(25m, PnlReconciliation.OpenPnlTolerance(100m));
     }
 
+    [Fact]
+    public void SumOpenPnlMarks_prefers_broker_ppl_and_falls_back_on_omit()
+    {
+        // Row 1 carries the broker's own Ppl (+50, golden); row 2 omits it so
+        // we recompute (cur−avg)×qty = (110−100)×3 = +30. Σ = 80.
+        var pos = new (string, decimal, decimal?, decimal?, decimal?)[]
+        {
+            ("AAPL", 2m, 180m, 200m, 50m),     // Ppl present → use 50
+            ("MSFT", 3m, 100m, 110m, (decimal?)null),  // omit → fallback 30
+        };
+        var sum = PnlReconciliation.SumOpenPnlMarks(pos, out var note);
+        Assert.Equal(80m, sum);
+        Assert.Contains("1 row(s) via broker Ppl", note);
+        Assert.Contains("1 via", note);
+    }
+
+    [Fact]
+    public void SumOpenPnlMarks_excludes_rows_with_no_ppl_and_no_usable_quote()
+    {
+        // GHOST has no Ppl, a zero avg (can't recompute), no current price →
+        // excluded (marking it to $0 would fabricate a phantom loss), named.
+        var pos = new (string, decimal, decimal?, decimal?, decimal?)[]
+        {
+            ("AAPL", 1m, 100m, 130m, (decimal?)null),       // fallback = 30
+            ("GHOST", 5m, 0m, (decimal?)null, (decimal?)null),  // excluded
+        };
+        var sum = PnlReconciliation.SumOpenPnlMarks(pos, out var note);
+        Assert.Equal(30m, sum);
+        Assert.Contains("excluded", note);
+        Assert.Contains("GHOST", note);
+    }
+
+    [Fact]
+    public void OpenPnl_with_fallback_marks_reconciles_to_account_then_passes()
+    {
+        // 88-position book where rows omit per-row Ppl: we compute marks via
+        // the fallback and they DO reconcile to the account Ppl → PASS (no
+        // longer skipped). avg=100, cur=110, qty=10 → +100 mark; account=100.
+        var pos = new (string, decimal, decimal?, decimal?, decimal?)[]
+        {
+            ("AAPL", 10m, 100m, 110m, (decimal?)null),
+        };
+        var sum = PnlReconciliation.SumOpenPnlMarks(pos, out var note);
+        var c = PnlReconciliation.ReconcileOpenPnl(
+            sum, accountPpl: 100m, tolerance: PnlReconciliation.OpenPnlTolerance(100m), note: note);
+        Assert.True(c.Ok);
+        Assert.Equal(PnlReconciliation.SeverityInfo, c.Severity);
+        Assert.Contains("fallback", c.Detail);
+    }
+
+    [Fact]
+    public void OpenPnl_with_fallback_fails_with_diff_when_it_does_not_reconcile()
+    {
+        // The honest-gap case: our per-position Σ (fallback) can't see T212's
+        // fxPpl / pie effects, so it does NOT reconcile to the account Ppl.
+        // The check must FAIL with both numbers + the diff — NOT forced green.
+        var pos = new (string, decimal, decimal?, decimal?, decimal?)[]
+        {
+            ("AAPL", 10m, 100m, 110m, (decimal?)null),   // computed Σ = +100
+        };
+        var sum = PnlReconciliation.SumOpenPnlMarks(pos, out var note);
+        var c = PnlReconciliation.ReconcileOpenPnl(
+            sum, accountPpl: 860m, tolerance: PnlReconciliation.OpenPnlTolerance(860m), note: note);
+        Assert.False(c.Ok);
+        Assert.Equal(PnlReconciliation.SeverityError, c.Severity);
+        Assert.Contains("100", c.Detail);
+        Assert.Contains("860", c.Detail);
+        Assert.Contains("diff=-760", c.Detail);
+    }
+
     // ── 2. oms_matches_broker ────────────────────────────────────────────
     [Fact]
     public void OmsVsBroker_passes_when_every_symbol_reconciles()
@@ -115,6 +185,54 @@ public class PnlReconciliationTest
             .ReconcileOmsVsBroker(oms, broker, 0.0001m, ReconcileMath.Bare).Ok);
     }
 
+    [Fact]
+    public void OmsVsBroker_resolves_renamed_ticker_through_map_no_false_drift()
+    {
+        // The live failure: OMS recorded the position as "JEF" (what the
+        // strategy ordered); the broker holds it as the stale "LUK_US_EQ"
+        // (Leucadia → Jefferies rename). Resolving OMS "JEF" through the
+        // broker_ticker_map → "LUK_US_EQ" → bare "LUK" lines it up with the
+        // broker's LUK → NO drift. Without the map this would report the
+        // phantom JEF oms=17/broker=0 + LUK oms=0/broker=17 pair.
+        var oms = new[] { ("JEF", 17m) };
+        var broker = new[] { ("LUK_US_EQ", 17m) };
+        string Resolve(string s) => s == "JEF" ? "LUK_US_EQ" : s;
+
+        var c = PnlReconciliation.ReconcileOmsVsBroker(
+            oms, broker, 0.0001m, ReconcileMath.Bare, Resolve);
+        Assert.True(c.Ok);
+        Assert.DoesNotContain("JEF", c.Detail);
+        Assert.DoesNotContain("drift", c.Detail);
+    }
+
+    [Fact]
+    public void OmsVsBroker_still_catches_genuine_drift_after_map_resolution()
+    {
+        // The map resolves JEF→LUK so the qty must still MATCH; here the OMS
+        // says 17 but the broker holds 10 → genuine drift on LUK, still caught.
+        var oms = new[] { ("JEF", 17m) };
+        var broker = new[] { ("LUK_US_EQ", 10m) };
+        string Resolve(string s) => s == "JEF" ? "LUK_US_EQ" : s;
+
+        var c = PnlReconciliation.ReconcileOmsVsBroker(
+            oms, broker, 0.0001m, ReconcileMath.Bare, Resolve);
+        Assert.False(c.Ok);
+        Assert.Contains("LUK", c.Detail);
+        Assert.Contains("diff=7", c.Detail);
+    }
+
+    [Fact]
+    public void OmsVsBroker_unmapped_symbol_falls_back_to_bare_keying()
+    {
+        // No map row for AAPL → resolver returns it unchanged → plain bare-key
+        // still lines OMS "AAPL" up with the broker's "AAPL_US_EQ".
+        var oms = new[] { ("AAPL", 5m) };
+        var broker = new[] { ("AAPL_US_EQ", 5m) };
+        string Resolve(string s) => s;   // empty map: identity
+        Assert.True(PnlReconciliation
+            .ReconcileOmsVsBroker(oms, broker, 0.0001m, ReconcileMath.Bare, Resolve).Ok);
+    }
+
     // ── 3. realised_trading_types_only ───────────────────────────────────
     [Fact]
     public void RealisedTypes_passes_when_total_is_trading_only()
@@ -150,17 +268,36 @@ public class PnlReconciliationTest
     }
 
     [Fact]
-    public void RealisedTypes_flags_latent_non_trading_pnl_even_when_total_is_clean()
+    public void RealisedTypes_passes_when_DEPO_present_but_correctly_excluded()
     {
-        // Reported total correctly excludes the DEPO (= 90), but a DEPO with
-        // P&L is present → flag the latent leak so it can't silently start
-        // corrupting the figure later.
+        // The live failure: a DEPO:6.36 funding row EXISTS, but realised
+        // correctly excludes it (reported = Σ(DEAL+WITH) = 90). Presence of a
+        // funding row is fine/expected — this must PASS, not FAIL, with the
+        // excluded row surfaced as an informational note in the detail.
         var txns = new (string?, decimal)[]
         {
-            ("DEAL", 100m), ("WITH", -10m), ("DEPO", 5000m),
+            ("DEAL", 100m), ("WITH", -10m), ("DEPO", 6.36m),
         };
         var c = PnlReconciliation.ReconcileRealisedTradingTypes(txns, 90m);
+        Assert.True(c.Ok);
+        Assert.Equal(PnlReconciliation.SeverityInfo, c.Severity);
+        Assert.Contains("DEPO", c.Detail);        // surfaced …
+        Assert.Contains("EXCLUDED", c.Detail);    // … as a note, not a leak
+    }
+
+    [Fact]
+    public void RealisedTypes_fails_only_when_a_non_trading_type_leaks_in()
+    {
+        // Same DEPO present, but this time it LEAKED into the reported total
+        // (96.36 instead of 90) → FAIL, naming the leak.
+        var txns = new (string?, decimal)[]
+        {
+            ("DEAL", 100m), ("WITH", -10m), ("DEPO", 6.36m),
+        };
+        var c = PnlReconciliation.ReconcileRealisedTradingTypes(txns, 96.36m);
         Assert.False(c.Ok);
+        Assert.Equal(PnlReconciliation.SeverityError, c.Severity);
+        Assert.Contains("leaked in", c.Detail);
         Assert.Contains("DEPO", c.Detail);
     }
 
