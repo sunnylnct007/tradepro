@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily catalyst extractor sweep — fires every day at 06:00 UTC,
+  populating the C-1 catalyst registry from yfinance news headlines
+  across the trader's effective universe.
+
+  What it does: calls tradepro-catalysts-daily-sweep which assembles
+  the universe (positions + watchlists + trader large_50 + baseline
+  ETFs/FX) and runs the C-2 extractor + POST chain on every symbol.
+  Registry UPSERTs idempotently — same-day re-runs never duplicate.
+
+  Install:
+    bash strategies/scripts/install-launchd.sh --catalysts-daily-sweep
+
+  Manual trigger:
+    launchctl start com.tradepro.catalysts-daily-sweep
+
+  Check last run:
+    tail -100 ~/.tradepro/logs/catalysts-daily-sweep-$(date -u +%Y-%m-%d).log
+
+  Stop / unload:
+    launchctl bootout "gui/$UID" \
+      ~/Library/LaunchAgents/com.tradepro.catalysts-daily-sweep.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.catalysts-daily-sweep</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{PROJECT_DIR}}/scripts/catalysts-daily-sweep.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+    <!--
+      Seed the trader's IBKR live positions here. Until the .NET
+      /api/positions/all endpoint aggregates IBKR + T212 + IG into
+      one source, keep this list in sync with your live book. The
+      universe assembler will still produce a usable sweep with this
+      empty — the trader large_50 + baselines cover the regular targets.
+    -->
+    <key>POSITIONS</key>
+    <string>APLD,BABA,EC,MRVL,SWDA.L,VWRL.L</string>
+  </dict>
+
+  <!--
+    Fire every day at 06:00 UTC. That's before US pre-market opens
+    (4 AM ET in winter / 5 AM ET in DST) so the catalyst registry is
+    populated for any signal that fires off the pre-market warmup bars.
+
+    If the Mac is asleep at 06:00 UTC, launchd fires the job when it
+    next wakes up (within the same calendar day).
+  -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>6</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/catalysts-daily-sweep-launchd-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/catalysts-daily-sweep-launchd-stderr.log</string>
+
+  <!-- Cron-style — only fires on schedule, not at load. -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
