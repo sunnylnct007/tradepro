@@ -24,6 +24,8 @@ type Row = {
   broker: string;
   currency: string;
   openPnl: number | null;
+  realisedToday: number | null;
+  realisedLtd: number | null;
   realisedPnl: number | null;
   totalPnl: number | null;
   trades: number;
@@ -70,13 +72,13 @@ export function StrategyComparePanel({ onHide }: { onHide?: () => void }) {
     {
       strategy: (r) => sLabel(r.strategyId),
       broker: (r) => r.broker,
+      realisedToday: (r) => r.realisedToday,
+      realisedLtd: (r) => r.realisedLtd,
       open: (r) => r.openPnl,
-      realised: (r) => r.realisedPnl,
-      total: (r) => r.totalPnl,
       trades: (r) => r.trades,
       win: (r) => r.winRatePct,
     },
-    { key: "total", dir: "desc" },
+    { key: "realisedToday", dir: "desc" },
   );
 
   useEffect(() => {
@@ -108,8 +110,8 @@ export function StrategyComparePanel({ onHide }: { onHide?: () => void }) {
   return (
     <CockpitCard id="strategy-compare" title="Strategy P&L comparison" fullWidth onHide={onHide}>
       <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginBottom: 8 }}>
-        Rank the sleeves side-by-side. Per native currency (not blended). <em>n/a</em> = the broker can't supply that
-        component — hover it for why.
+        Realised = banked (closed trades). Open = unrealized mark-to-market, now. Per native currency — not blended.{" "}
+        <em>n/a</em> = the broker can't supply that component — hover it for why.
       </div>
 
       {err && <div style={{ fontSize: 12, color: DOWN, padding: "6px 0" }}>Comparison unavailable: {err}</div>}
@@ -123,9 +125,9 @@ export function StrategyComparePanel({ onHide }: { onHide?: () => void }) {
             <tr style={{ color: "var(--text-muted)", textAlign: "right" }}>
               <SortTh label="Strategy" col="strategy" sortKey={sortKey} dir={dir} onSort={toggle} style={{ textAlign: "left" }} />
               <SortTh label="Broker" col="broker" sortKey={sortKey} dir={dir} onSort={toggle} style={{ textAlign: "left" }} />
-              <SortTh label="Open" col="open" sortKey={sortKey} dir={dir} onSort={toggle} />
-              <SortTh label="Realised" col="realised" sortKey={sortKey} dir={dir} onSort={toggle} />
-              <SortTh label="Total" col="total" sortKey={sortKey} dir={dir} onSort={toggle} />
+              <SortTh label="Realised today" col="realisedToday" sortKey={sortKey} dir={dir} onSort={toggle} />
+              <SortTh label="Realised LTD" col="realisedLtd" sortKey={sortKey} dir={dir} onSort={toggle} />
+              <SortTh label="Open (now)" col="open" sortKey={sortKey} dir={dir} onSort={toggle} />
               <SortTh label="Trades" col="trades" sortKey={sortKey} dir={dir} onSort={toggle} />
               <SortTh label="Win%" col="win" sortKey={sortKey} dir={dir} onSort={toggle} />
             </tr>
@@ -137,9 +139,9 @@ export function StrategyComparePanel({ onHide }: { onHide?: () => void }) {
                 <td style={{ textAlign: "left", color: "var(--text-muted)", fontFamily: "monospace" }}>
                   {r.broker} <span style={{ fontSize: 10 }}>({r.currency})</span>
                 </td>
+                <td><Money v={r.realisedToday} c={r.currency} note={r.notes} bold /></td>
+                <td><Money v={r.realisedLtd} c={r.currency} note={r.notes} /></td>
                 <td><Money v={r.openPnl} c={r.currency} note={r.notes} /></td>
-                <td><Money v={r.realisedPnl} c={r.currency} note={r.notes} /></td>
-                <td><Money v={r.totalPnl} c={r.currency} note={r.notes} bold /></td>
                 <td style={{ fontFamily: "monospace" }}>{r.trades > 0 ? r.trades : <span style={{ color: "var(--text-muted)" }}>0</span>}</td>
                 <td style={{ fontFamily: "monospace" }}>
                   {r.winRatePct != null ? (
@@ -156,10 +158,11 @@ export function StrategyComparePanel({ onHide }: { onHide?: () => void }) {
 
       {rows.length > 0 && (
         <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
-          <strong>Open</strong> = unrealised mark-to-market from the broker's own price.{" "}
-          <strong>Realised</strong> = banked: IG = closed-deal history (golden); T212 = replayed from the OMS fill ledger
-          (FIFO — T212 has no realised feed). <strong>Total</strong> = open + realised, shown only when both are known.{" "}
-          <strong>Win%</strong> is over closed trades. Hover any <em>n/a</em> for the per-strategy reason.
+          <strong>Realised today</strong> = banked on today's (UTC) closed trades.{" "}
+          <strong>Realised LTD</strong> = banked life-to-date: IG = closed-deal history (golden); T212 = replayed from the
+          OMS fill ledger (FIFO — T212 has no realised feed). <strong>Open (now)</strong> = unrealised mark-to-market from
+          the broker's own price. <strong>Win%</strong> is over closed trades. Hover any <em>n/a</em> for the per-strategy
+          reason.
           {basis && <div style={{ marginTop: 3, opacity: 0.8 }}>{basis}</div>}
         </div>
       )}

@@ -134,7 +134,11 @@ public static class PnlByStrategyEndpoints
 
             // IG realised history, attributed per strategy (asset-class basis).
             // Reuse the exact attribution + trading-type filter ig/history uses.
-            var igRealisedByStrategy = new Dictionary<string, (decimal Realised, int Trades, int Winning)>(
+            // Per strategy: (realisedLtd over the window, realisedToday for the
+            // UTC-today byDay slice, trades, winning). "Today" is attributed to
+            // the transaction's own UTC date, exactly the basis ig/history's
+            // byDay uses, so the two surfaces agree.
+            var igRealisedByStrategy = new Dictionary<string, (decimal Ltd, decimal Today, int Trades, int Winning)>(
                 StringComparer.OrdinalIgnoreCase);
             string? igHistError = null;
             try
@@ -144,6 +148,7 @@ public static class PnlByStrategyEndpoints
                 {
                     var to = DateOnly.FromDateTime(DateTime.UtcNow);
                     var from = to.AddDays(-window);
+                    var todayKey = to.ToString("yyyy-MM-dd");
                     var hist = await ig.GetTransactionHistoryAsync(from, to, ct);
                     if (hist.Error is not null) igHistError = $"IG history error: {hist.Error}";
                     else
@@ -153,6 +158,9 @@ public static class PnlByStrategyEndpoints
                         bool IsTrading(string? t) =>
                             string.Equals(t, "DEAL", StringComparison.OrdinalIgnoreCase)
                             || string.Equals(t, "WITH", StringComparison.OrdinalIgnoreCase);
+                        // Same date-key derivation ig/history's byDay uses.
+                        static string DayKey(string? d) =>
+                            d is null ? "" : (d.Length >= 10 ? d[..10] : d);
                         foreach (var tx in hist.Transactions.Where(t => IsTrading(t.Type)))
                         {
                             var cls = IntegrationsEndpoints.AssetClassOf(tx.Instrument);
@@ -162,8 +170,10 @@ public static class PnlByStrategyEndpoints
                             // "trade" + "win" are counted on DEAL rows only (a WITH
                             // financing/commission row isn't a round-trip).
                             var isDeal = string.Equals(tx.Type, "DEAL", StringComparison.OrdinalIgnoreCase);
+                            var isToday = DayKey(tx.Date) == todayKey;
                             igRealisedByStrategy[sid] = (
-                                cur.Realised + tx.ProfitAndLoss,
+                                cur.Ltd + tx.ProfitAndLoss,
+                                cur.Today + (isToday ? tx.ProfitAndLoss : 0m),
                                 cur.Trades + (isDeal ? 1 : 0),
                                 cur.Winning + (isDeal && tx.ProfitAndLoss > 0m ? 1 : 0));
                         }
@@ -178,7 +188,7 @@ public static class PnlByStrategyEndpoints
             {
                 var ccy = CurrencyFor(broker);
                 var isIg = broker.StartsWith("IG", StringComparison.OrdinalIgnoreCase);
-                decimal? open = null, realised = null;
+                decimal? open = null, realisedToday = null, realisedLtd = null;
                 int trades = 0;
                 double? winRate = null;
                 var noteParts = new List<string?>();
@@ -196,11 +206,12 @@ public static class PnlByStrategyEndpoints
                         if (igUnmarkable > 0)
                             noteParts.Add($"{igUnmarkable} IG position(s) had no broker mark and were excluded from open");
                     }
-                    // REALISED — IG closed-deal history (golden).
+                    // REALISED — IG closed-deal history (golden), split today / LTD.
                     if (igHistError is not null) noteParts.Add($"realised: {igHistError}");
                     else if (igRealisedByStrategy.TryGetValue(strategyId, out var r))
                     {
-                        realised = r.Realised;
+                        realisedLtd = r.Ltd;
+                        realisedToday = r.Today;   // today's byDay slice (may be 0)
                         trades = r.Trades;
                         winRate = r.Trades > 0 ? 100.0 * r.Winning / r.Trades : null;
                     }
@@ -208,34 +219,40 @@ public static class PnlByStrategyEndpoints
                 }
                 else
                 {
-                    // T212 strategy. OPEN — Σ the broker's own Ppl for the symbols
-                    // the OMS attributes to this strategy.
+                    // T212 strategy. OPEN — Σ the broker's own Ppl (golden) for the
+                    // symbols the OMS attributes to this strategy, falling back to
+                    // (CurrentPrice − avg) × qty using T212's OWN price when ppl is
+                    // absent (the demo /positions feed omits per-row ppl).
                     if (t212Error is not null) noteParts.Add($"open: {t212Error}");
                     else if (omsError is not null) noteParts.Add($"open: {omsError}");
                     else
                     {
-                        var (o, missing) = T212OpenForStrategy(strategyId, broker, omsPos!, t212!);
+                        var (o, missing, usedFallback) = T212OpenForStrategy(strategyId, broker, omsPos!, t212!);
                         open = o;
+                        if (usedFallback > 0)
+                            noteParts.Add($"{usedFallback} held symbol(s) used T212's (currentPrice − avg) × qty for open (broker omitted per-position ppl)");
                         if (missing > 0)
-                            noteParts.Add($"{missing} held symbol(s) had no T212 per-position Ppl and were excluded from open");
+                            noteParts.Add($"{missing} held symbol(s) had neither T212 ppl nor a usable price+avg and were excluded from open");
                     }
-                    // REALISED — FIFO replay of this strategy's OMS fills. T212
-                    // has no realised feed; the ledger is the only provable source.
+                    // REALISED — FIFO replay of this strategy's OMS fills, split
+                    // today vs LTD by the SELL fill's date. T212 has no realised
+                    // feed; the ledger is the only provable source.
                     if (omsError is not null) noteParts.Add($"realised: {omsError}");
                     else
                     {
                         try
                         {
-                            var fills = await LoadFillsAsync(db, strategyId, broker, ct);
+                            var fills = await LoadDatedFillsAsync(db, strategyId, broker, ct);
                             if (fills.Count == 0)
                                 noteParts.Add("realised: no OMS fills for this strategy yet");
                             else
                             {
-                                var rr = PnlByStrategy.FifoRealised(fills);
-                                realised = rr.Realised;
+                                var rr = PnlByStrategy.FifoRealisedSplit(fills);
+                                realisedLtd = rr.RealisedLtd;
+                                realisedToday = rr.RealisedToday;
                                 trades = rr.ClosedTrades;
                                 winRate = rr.WinRatePct;
-                                noteParts.Add("realised derived from OMS fills (FIFO; T212 has no realised feed)");
+                                noteParts.Add("realised derived from OMS fills (FIFO; T212 has no realised feed); today = sells dated today (UTC)");
                                 if (rr.UnmatchedSellQty > 0m)
                                     noteParts.Add($"{rr.UnmatchedSellQty:0.##} sell qty had no matching buy lot in the ledger — realised may understate");
                             }
@@ -252,8 +269,10 @@ public static class PnlByStrategyEndpoints
                     Broker: broker,
                     Currency: ccy,
                     OpenPnl: open,
-                    RealisedPnl: realised,
-                    TotalPnl: PnlByStrategy.Total(open, realised),
+                    RealisedToday: realisedToday,
+                    RealisedLtd: realisedLtd,
+                    RealisedPnl: realisedLtd,
+                    TotalPnl: PnlByStrategy.Total(open, realisedLtd),
                     Trades: trades,
                     WinRatePct: winRate,
                     Notes: PnlByStrategy.JoinNotes(noteParts.ToArray())));
@@ -262,13 +281,15 @@ public static class PnlByStrategyEndpoints
             return Results.Ok(new
             {
                 utc = DateTime.UtcNow,
-                window = new { days = window, basis = "IG realised = closed deals in window; T212 realised = life-to-date FIFO over the OMS ledger" },
+                window = new { days = window, basis = "Realised today = banked on UTC-today's closed deals/sells; realised LTD = banked life-to-date (IG closed-deal history over the window; T212 FIFO over the OMS ledger). Open = unrealised mark-to-market now." },
                 rows = outRows.Select(r => new
                 {
                     strategyId = r.StrategyId,
                     broker = r.Broker,
                     currency = r.Currency,
                     openPnl = r.OpenPnl,
+                    realisedToday = r.RealisedToday,
+                    realisedLtd = r.RealisedLtd,
                     realisedPnl = r.RealisedPnl,
                     totalPnl = r.TotalPnl,
                     trades = r.Trades,
@@ -283,23 +304,29 @@ public static class PnlByStrategyEndpoints
 
     // ── helpers ──────────────────────────────────────────────────────────
 
-    /// <summary>Σ T212 per-position Ppl for the symbols this strategy holds in
-    /// the OMS. Returns (open, missingCount) where missingCount is held symbols
-    /// the broker didn't price (excluded rather than marked to $0).</summary>
-    private static (decimal Open, int Missing) T212OpenForStrategy(
+    /// <summary>Open P&amp;L for the symbols this strategy holds in the OMS,
+    /// marked from T212's OWN data. Prefer the broker's per-position Ppl (golden
+    /// — sums to the account-level Ppl); when the feed omits ppl for a symbol
+    /// (the demo /positions feed does), FALL BACK to T212's own
+    /// (CurrentPrice − AveragePricePaid) × Quantity — guarded on avg &gt; 0 and a
+    /// present CurrentPrice (which IS populated, even for delisted names like
+    /// LUK). A symbol with neither is EXCLUDED (never marked to $0), mirroring
+    /// the trading212/positions fix in IntegrationsEndpoints (commit 0d27e20).
+    /// Returns (open, excludedCount, fallbackCount).</summary>
+    private static (decimal Open, int Missing, int UsedFallback) T212OpenForStrategy(
         string strategyId, string broker, List<OmsPosition> omsPos, Trading212PositionsResult t212)
     {
-        // Bare-key T212's per-position Ppl by ticker (e.g. "AAPL_US_EQ" → "AAPL").
-        var ppl = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        // Bare-key the FULL T212 position by ticker so we can reach both its ppl
+        // AND its currentPrice/avg/qty for the fallback (e.g. "AAPL_US_EQ" → "AAPL").
+        var byKey = new Dictionary<string, Trading212Position>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in t212.Positions)
         {
-            if (p.Ppl is not decimal v) continue;
             var t = p.Instrument?.Ticker ?? p.Ticker;
             var key = ReconcileMath.Bare(t ?? "");
-            if (!string.IsNullOrWhiteSpace(key)) ppl[key] = v;
+            if (!string.IsNullOrWhiteSpace(key)) byKey[key] = p;
         }
         decimal open = 0m;
-        int missing = 0;
+        int missing = 0, usedFallback = 0;
         var held = omsPos.Where(p =>
             string.Equals(p.StrategyId, strategyId, StringComparison.OrdinalIgnoreCase)
             && p.Broker.StartsWith("T212", StringComparison.OrdinalIgnoreCase)
@@ -307,27 +334,41 @@ public static class PnlByStrategyEndpoints
         foreach (var p in held)
         {
             var key = ReconcileMath.Bare(p.Symbol);
-            if (ppl.TryGetValue(key, out var v)) open += v;
+            if (!byKey.TryGetValue(key, out var pos)) { missing++; continue; }
+            if (pos.Ppl is decimal v) { open += v; continue; }
+            // Fallback: T212's own (currentPrice − avg) × qty. Guard avg > 0 and
+            // a present currentPrice; otherwise exclude (don't mark to $0).
+            if (pos.AveragePricePaid is decimal avg && avg > 0m
+                && pos.CurrentPrice is decimal cur)
+            {
+                open += (cur - avg) * pos.Quantity;
+                usedFallback++;
+            }
             else missing++;
         }
-        return (open, missing);
+        return (open, missing, usedFallback);
     }
 
     /// <summary>Load this strategy's broker fills from the OMS ledger, oldest
-    /// first, as side/qty/price tuples for the FIFO matcher. Read-only query
-    /// against oms_orders ⋈ oms_fills — no PostgresOmsService change.</summary>
-    private static async Task<List<PnlByStrategy.Fill>> LoadFillsAsync(
+    /// first, as dated side/qty/price tuples for the today/LTD FIFO matcher. Each
+    /// fill is flagged IsToday when its UTC fill date == today, so realised can be
+    /// split into "banked today" vs life-to-date. Read-only query against
+    /// oms_orders ⋈ oms_fills — no PostgresOmsService change.</summary>
+    private static async Task<List<PnlByStrategy.DatedFill>> LoadDatedFillsAsync(
         NpgsqlDataSource db, string strategyId, string broker, CancellationToken ct)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
-        var rows = await conn.QueryAsync<(string side, decimal qty, decimal price)>(@"
-            SELECT o.side AS side, f.qty AS qty, f.price AS price
+        var rows = await conn.QueryAsync<(string side, decimal qty, decimal price, DateTime fill_at_utc)>(@"
+            SELECT o.side AS side, f.qty AS qty, f.price AS price, f.fill_at_utc AS fill_at_utc
             FROM oms_orders o
             JOIN oms_fills f ON f.order_id = o.id
             WHERE o.strategy_id = @sid AND o.broker = @broker
             ORDER BY f.fill_at_utc ASC, f.id ASC;",
             new { sid = strategyId, broker });
-        return rows.Select(r => new PnlByStrategy.Fill(r.side, r.qty, r.price)).ToList();
+        var today = DateTime.UtcNow.Date;
+        return rows.Select(r => new PnlByStrategy.DatedFill(
+            r.side, r.qty, r.price,
+            DateTime.SpecifyKind(r.fill_at_utc, DateTimeKind.Utc).ToUniversalTime().Date == today)).ToList();
     }
 
     /// <summary>Build the asset-class → owning-IG-strategy map exactly the way
