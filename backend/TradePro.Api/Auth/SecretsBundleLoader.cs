@@ -68,6 +68,26 @@ public static class SecretsBundleLoader
         ["account_id"] = "IG:AccountId",
     };
 
+    /// <summary>
+    /// Map for the standalone <c>tradepro/ibkr</c> secret (snake_case
+    /// inside the secret → IBKR:* config). Kept separate from KeyMap +
+    /// IgKeyMap so the IBKR creds rotate independently. The private/public
+    /// keys are the RSA pair that signs the OAuth2 client-assertion JWT;
+    /// they live in Secrets Manager only — never in git (repo is PUBLIC).
+    /// </summary>
+    private static readonly Dictionary<string, string> IbkrKeyMap = new()
+    {
+        ["client_id"]        = "IBKR:ClientId",
+        ["client_key_id"]    = "IBKR:ClientKeyId",
+        ["credential"]       = "IBKR:Credential",
+        ["private_key"]      = "IBKR:PrivateKey",
+        ["public_key"]       = "IBKR:PublicKey",
+        ["ip"]               = "IBKR:SourceIp",
+        ["account_id_live"]  = "IBKR:AccountIdLive",
+        ["account_id_paper"] = "IBKR:AccountIdPaper",
+        ["mode"]             = "IBKR:Mode",
+    };
+
     public static void LoadInto(IConfigurationBuilder builder, IConfiguration existing, ILogger? log = null)
     {
         var secretName = existing["Secrets:BundleName"] ?? DefaultSecretName;
@@ -127,6 +147,11 @@ public static class SecretsBundleLoader
         // the all-in-one bundle. Loads unconditionally — primary bundle
         // failure must not gate the secondaries.
         LoadSecondary(builder, existing, region, "tradepro/ig", IgKeyMap, log);
+
+        // Standalone IBKR secret (tradepro/ibkr) — OAuth2 Web API creds +
+        // RSA signing pair. Same independent-rotation pattern as IG. Loads
+        // unconditionally; absent secret just means IBKR stays disabled.
+        LoadSecondary(builder, existing, region, "tradepro/ibkr", IbkrKeyMap, log);
     }
 
     private static void LoadSecondary(

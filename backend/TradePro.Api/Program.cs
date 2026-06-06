@@ -150,6 +150,23 @@ builder.Services.AddHttpClient<TradePro.Api.Providers.IG.IGClient>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
 });
+
+// IBKR (Interactive Brokers) — OAuth2 Web API. Off by default; turns on
+// once the standalone tradepro/ibkr secret is populated with mode !=
+// "disabled" + the RSA signing material. Singleton session cache shared
+// across the transient IBKRClient so we run the OAuth2 + sso-sessions +
+// ssodh/init bring-up ONCE per token lifetime and keep it warm with
+// /tickle — never re-auth per request (IBKR blocks that). See
+// IBKRSessionCache (mirrors IGSessionCache).
+builder.Services
+    .AddOptions<TradePro.Api.Providers.IBKR.IBKROptions>()
+    .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKROptions.SectionName));
+builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRSessionCache>();
+builder.Services.AddHttpClient<TradePro.Api.Providers.IBKR.IBKRClient>(c =>
+{
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
+});
+
 builder.Services.AddScoped<TradePro.Api.Positions.PositionReconciler>();
 builder.Services.AddScoped<TradePro.Api.Positions.TradePlanService>();
 builder.Services.AddScoped<TradePro.Api.Risk.RiskGate>();
