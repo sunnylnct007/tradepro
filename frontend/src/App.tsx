@@ -29,8 +29,14 @@ import { IchimokuEquity } from "./pages/IchimokuEquity";
 import { IchimokuFx } from "./pages/IchimokuFx";
 import { AdminDataBrowser } from "./pages/AdminDataBrowser";
 import { RiskPage } from "./pages/RiskPage";
+import { Desk } from "./pages/Desk";
 
 const router = createBrowserRouter([
+  // /desk — the new IBKR-Desktop-style northstar cockpit. Mounted as a
+  // SIBLING of "/" (outside the legacy <Layout> nav) because it brings its
+  // own three-zone app shell. The existing /trader cockpit is untouched; we
+  // flip the default to /desk later.
+  { path: "/desk", element: <Desk /> },
   {
     path: "/",
     element: <Layout />,
