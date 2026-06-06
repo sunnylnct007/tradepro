@@ -76,15 +76,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--push", action="store_true",
                    help="POST the sweep JSON to the API as a paper-backtest "
                         "report (kind=slippage-sweep).")
-    # Phase D-3 / E preflight. When --data-asset is set, the sweep
-    # preflights the symbol's coverage through BarStore BEFORE the
-    # first rung runs, stamps the hash on the report, and refuses
-    # incomplete coverage. Sweep is single-symbol so the per-symbol
-    # hash IS the report hash — no combination needed.
+    # Phase E preflight runs by DEFAULT. Asset class auto-resolves
+    # from --symbol when --data-asset isn't given. The sweep is
+    # single-symbol so the per-symbol hash IS the report hash.
     p.add_argument("--data-asset", default=None,
-                   help="Asset class for the BarStore preflight (e.g. 'us_etf'). "
-                        "When set, stamps data_state_hash on the report and "
-                        "refuses to run on incomplete coverage.")
+                   help="Asset class for the BarStore preflight. When "
+                        "omitted, auto-resolves from --symbol "
+                        "(AAPL→us_equity, SPY→us_etf, EURUSD=X→fx_spot, ...).")
     p.add_argument("--data-resolution", default=None,
                    help="Resolution for the preflight. Defaults to --interval "
                         "(1m sweep → 1m preflight, etc.).")
@@ -93,6 +91,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--allow-incomplete-data", action="store_true",
                    help="Override the Phase E hard-block. The report carries "
                         "coverage_complete=false so consumers can discount.")
+    p.add_argument("--legacy-cache", action="store_true",
+                   help="Opt-out of BarStore preflight (parity testing only).")
     return p.parse_args(argv)
 
 
@@ -164,13 +164,25 @@ def main(argv: list[str] | None = None) -> int:
     # covers every rung's hash. Same exit-3 + structured-JSON
     # convention paper_backtest uses.
     preflight_payload: dict | None = None
-    if args.data_asset:
+    if not args.legacy_cache:
         from datetime import datetime as _dt, timezone as _tz
         from ..bar_cache import IncompleteDataError, preflight_data_state
+        from ..bar_cache.asset_class_resolver import (
+            ASSET_CLASS_UNKNOWN, resolve_asset_class,
+        )
+        resolved_asset = args.data_asset or resolve_asset_class(args.symbol)
+        if resolved_asset == ASSET_CLASS_UNKNOWN:
+            print(
+                f"asset_class could not be resolved for symbol "
+                f"{args.symbol!r}; pass --data-asset explicitly or "
+                f"--legacy-cache to skip preflight.",
+                file=sys.stderr,
+            )
+            return 4
         try:
             pf = preflight_data_state(
                 canonical=args.symbol,
-                asset_class=args.data_asset,
+                asset_class=resolved_asset,
                 resolution=args.data_resolution or args.interval,
                 start=_dt.combine(start, _dt.min.time()).replace(tzinfo=_tz.utc),
                 end=_dt.combine(end, _dt.min.time()).replace(tzinfo=_tz.utc),
@@ -182,6 +194,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(exc.to_dict(), indent=2), file=sys.stderr)
             return 3
         preflight_payload = pf.to_report_dict()
+        preflight_payload.setdefault("data_state", {})["resolved_asset_class"] = (
+            resolved_asset
+        )
+        preflight_payload["data_state"]["resolved_by"] = (
+            "explicit" if args.data_asset else "auto-resolver"
+        )
 
     print(
         f"Sweeping {args.symbol} {spec.name} {start}..{end} across "

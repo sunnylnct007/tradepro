@@ -80,6 +80,12 @@ def step_run_backtest(context, symbols, n_sims):
         "initial_capital": 100_000.0,
         "monte_carlo": {"n_sims": n_sims, "years": 2, "seed": 7},
         "label": "behave-test",
+        # Phase E preflight is default-on globally; this end-to-end
+        # test exercises the legacy cache.py + load_candles path
+        # explicitly so it doesn't depend on a real BarStore being
+        # populated. Dedicated preflight coverage lives in
+        # backtest_preflight_default.feature.
+        "legacy_cache": True,
     }
     try:
         context.result_summary = cli.run_backtest_from_payload(payload)

@@ -225,11 +225,14 @@ def run_pipeline(
     mc_years: int = 10,
     mc_initial: float = 10_000.0,
     mc_seed: int | None = 42,
-    # Phase D-3 / E migration. Opt-in by default so existing weekly
-    # runs don't break; when `preflight=True` + `data_asset` set, the
-    # CLI runs BarStore for SPY + large_50 + gold, stamps a combined
-    # hash, and (without allow_incomplete) refuses on partial cover.
-    preflight: bool = False,
+    # Phase E — preflight runs by DEFAULT (flipped from opt-in to
+    # opt-out so the weekly digest carries a hash + refuses on gaps
+    # without operator intervention). data_asset still defaults to
+    # us_etf because every symbol in the deterministic universes
+    # (benchmark + large_50 + gold) IS a US-listed ETF/equity; the
+    # cleaner per-symbol resolver path is a follow-up for the hibeta
+    # branch.
+    preflight: bool = True,
     data_asset: str = "us_etf",
     data_resolution: str = "1d",
     data_api_base: str | None = None,
@@ -578,15 +581,13 @@ def main(argv: list[str] | None = None) -> int:
         "--note", default=None,
         help="Free-text note stored with the artifact (e.g. 'weekly refresh').",
     )
-    # Phase D-3 / E preflight flags. Opt-in — the trader's weekly
-    # workflow keeps working unchanged. Enable to stamp a combined
-    # data_state_hash + hard-block on incomplete coverage of the
-    # deterministic universes (SPY + large_50 + gold).
+    # Phase E preflight runs by DEFAULT. --no-preflight is the
+    # opt-out (parity testing + emergency rollback only).
     p.add_argument(
-        "--preflight", action="store_true",
-        help="Run BarStore preflight against the deterministic universes "
-             "before fetching. Hard-blocks on incomplete coverage and "
-             "stamps a data_state_hash on the artifact.",
+        "--no-preflight", action="store_true",
+        help="Skip the BarStore preflight. Default behaviour runs preflight "
+             "+ stamps data_state_hash on the artifact + hard-blocks on "
+             "incomplete coverage of the deterministic universes.",
     )
     p.add_argument(
         "--data-asset", default="us_etf",
@@ -615,7 +616,7 @@ def main(argv: list[str] | None = None) -> int:
             run_mc=not args.no_mc,
             mc_n_sims=args.mc_sims,
             mc_years=args.mc_years,
-            preflight=args.preflight,
+            preflight=not args.no_preflight,
             data_asset=args.data_asset,
             data_resolution=args.data_resolution,
             data_api_base=args.data_api_base,
