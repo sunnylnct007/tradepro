@@ -268,4 +268,6 @@ public sealed record IBKRStatusResult(
     string? AccountIdInUse,             // the configured account this app routes to
     string Mode,                        // paper / live / disabled
     string BrokerLabel,                 // IBKR_PAPER / IBKR_LIVE
+    string? IpInUse,                    // ip sent in the sso-sessions claim (null until resolved)
+    string? IpSource,                   // "override" | "auto-detected" | null
     string? Error);                     // verbatim IBKR error body on failure, else null

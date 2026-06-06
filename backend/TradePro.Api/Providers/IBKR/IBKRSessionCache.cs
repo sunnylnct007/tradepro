@@ -37,6 +37,14 @@ public sealed class IBKRSessionCache
     /// have completed at least once this session — gates /iserver calls.</summary>
     public bool IserverReady { get; private set; }
 
+    /// <summary>Auto-detected public egress IP used for the sso-sessions
+    /// <c>ip</c> claim, cached here so we detect ONCE per process (it only
+    /// changes on restart / network change), not per request. Null until
+    /// detected; dropped on <see cref="Clear"/> so a re-auth after a failure
+    /// re-detects (the egress IP may have changed). Not set when an explicit
+    /// IBKR:SourceIp override is in play.</summary>
+    public string? DetectedEgressIp { get; private set; }
+
     private DateTime _establishedUtc = DateTime.MinValue;
     private TimeSpan _lifetime = DefaultLifetime;
     private DateTime _lastFailureUtc = DateTime.MinValue;
@@ -78,6 +86,10 @@ public sealed class IBKRSessionCache
     public void MarkIserverReady() => IserverReady = true;
     public void MarkTickled() => _lastTickleUtc = DateTime.UtcNow;
 
+    /// <summary>Cache the auto-detected egress IP for reuse across the
+    /// process / session lifetime.</summary>
+    public void SetDetectedEgressIp(string ip) => DetectedEgressIp = ip;
+
     /// <summary>Record a failed auth so we back off before retrying.</summary>
     public void RecordFailure() => _lastFailureUtc = DateTime.UtcNow;
 
@@ -87,6 +99,9 @@ public sealed class IBKRSessionCache
         AccessToken = null;
         SessionToken = null;
         IserverReady = false;
+        // Drop the cached egress IP so a re-auth (after a failure / restart)
+        // re-detects it — the host's public IP may have changed.
+        DetectedEgressIp = null;
         _establishedUtc = DateTime.MinValue;
         _lifetime = DefaultLifetime;
     }

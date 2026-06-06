@@ -813,6 +813,12 @@ public static class IntegrationsEndpoints
                 clientIdInUse = RedactClientId(o.ActiveClientId),
                 accounts = status.Accounts,
                 accountIdInUse = status.AccountIdInUse,
+                // Which IP went into the sso-sessions claim + whether it was
+                // the IBKR:SourceIp override or auto-detected from the egress
+                // probe — so the operator can confirm the right IP was sent
+                // (and that omitting `ip` from the secret worked).
+                ipInUse = status.IpInUse,
+                ipSource = status.IpSource,
                 useX5c = o.UseX5c,
                 certificatePresent = !string.IsNullOrWhiteSpace(o.Certificate),
                 error = status.Error,

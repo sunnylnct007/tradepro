@@ -498,6 +498,118 @@ public class IBKRAuthTest
         Assert.False(o.UseX5c);
     }
 
+    // ─── Egress-IP resolution (auto-detect / override) ──────────────
+
+    [Fact]
+    public void IsEnabled_does_not_require_SourceIp()
+    {
+        // The whole point of auto-detect: a fully-configured paper setup with
+        // an EMPTY SourceIp must still be enabled (the IP is auto-detected at
+        // bring-up, not required from the secret).
+        var o = new IBKROptions
+        {
+            Mode = "paper", ClientIdPaper = "c", ClientKeyId = "k",
+            CredentialPaper = "u", PrivateKey = "pem", AccountIdPaper = "DUP6",
+            SourceIp = string.Empty,
+        };
+        Assert.True(o.IsEnabled, "IsEnabled must not depend on SourceIp");
+        Assert.Equal(string.Empty, o.SourceIp);
+    }
+
+    [Theory]
+    [InlineData("1.2.3.4", true)]
+    [InlineData("255.255.255.255", true)]
+    [InlineData("0.0.0.0", true)]
+    [InlineData("  16.60.201.137  ", true)]     // trimmed
+    [InlineData("256.1.1.1", false)]            // octet out of range
+    [InlineData("1.2.3", false)]                // too few octets
+    [InlineData("1.2.3.4.5", false)]            // too many octets
+    [InlineData("1.2.3.4\n<html>", false)]      // junk / error page
+    [InlineData("not-an-ip", false)]
+    [InlineData("::1", false)]                  // IPv6 rejected
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsPlausibleIpv4_accepts_valid_rejects_junk(string? candidate, bool expected)
+    {
+        Assert.Equal(expected, IBKREgressIpResolver.IsPlausibleIpv4(candidate));
+    }
+
+    [Fact]
+    public void PickIp_override_wins_when_present_and_valid()
+    {
+        var (ip, source) = IBKREgressIpResolver.PickIp("9.9.9.9", "1.1.1.1");
+        Assert.Equal("9.9.9.9", ip);
+        Assert.Equal("override", source);
+    }
+
+    [Fact]
+    public void PickIp_uses_detected_when_no_override()
+    {
+        var (ip, source) = IBKREgressIpResolver.PickIp(null, "1.1.1.1");
+        Assert.Equal("1.1.1.1", ip);
+        Assert.Equal("auto-detected", source);
+
+        var (ip2, source2) = IBKREgressIpResolver.PickIp("   ", "1.1.1.1");
+        Assert.Equal("1.1.1.1", ip2);
+        Assert.Equal("auto-detected", source2);
+    }
+
+    [Fact]
+    public void PickIp_trims_chosen_value()
+    {
+        Assert.Equal(("9.9.9.9", "override"), IBKREgressIpResolver.PickIp("  9.9.9.9 ", null));
+        Assert.Equal(("1.1.1.1", "auto-detected"), IBKREgressIpResolver.PickIp(null, " 1.1.1.1 "));
+    }
+
+    [Fact]
+    public void PickIp_skips_invalid_override_and_falls_back_to_detected()
+    {
+        // A garbage override must not be sent — fall through to the detected IP.
+        var (ip, source) = IBKREgressIpResolver.PickIp("not-an-ip", "1.1.1.1");
+        Assert.Equal("1.1.1.1", ip);
+        Assert.Equal("auto-detected", source);
+    }
+
+    [Fact]
+    public void PickIp_returns_null_when_neither_usable()
+    {
+        // No override + detection failed (null/junk) → (null, null): the caller
+        // fails the bring-up with the clear "set IBKR:SourceIp" error rather
+        // than sending an empty ip.
+        var (ip, source) = IBKREgressIpResolver.PickIp(null, null);
+        Assert.Null(ip);
+        Assert.Null(source);
+
+        var (ip2, source2) = IBKREgressIpResolver.PickIp("", "garbage");
+        Assert.Null(ip2);
+        Assert.Null(source2);
+    }
+
+    [Fact]
+    public void SessionCache_caches_and_clears_detected_egress_ip()
+    {
+        var cache = new IBKRSessionCache();
+        Assert.Null(cache.DetectedEgressIp);
+        cache.SetDetectedEgressIp("16.60.201.137");
+        Assert.Equal("16.60.201.137", cache.DetectedEgressIp);
+        // Clear() (a re-auth after a failure) drops it so it re-detects.
+        cache.Clear();
+        Assert.Null(cache.DetectedEgressIp);
+    }
+
+    [Fact]
+    public void SecretsBundleLoader_ip_remains_optional_override_mapping()
+    {
+        // `ip` stays mapped (operators CAN still set it as an override) but is
+        // no longer required — IsEnabled coverage above proves the latter.
+        var map = (System.Collections.Generic.Dictionary<string, string>)
+            typeof(TradePro.Api.Auth.SecretsBundleLoader)
+                .GetField("IbkrKeyMap",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                .GetValue(null)!;
+        Assert.Equal("IBKR:SourceIp", map["ip"]);
+    }
+
     private static byte[] B64UrlDecode(string s)
     {
         var t = s.Replace('-', '+').Replace('_', '/');
