@@ -27,10 +27,24 @@ public sealed class IBKRSessionCache
 
     public SemaphoreSlim Lock { get; } = new(1, 1);
 
-    /// <summary>OAuth2 bearer from step 1 — sent on EVERY cpapi call.</summary>
+    /// <summary>STEP-1 OAuth2 token (TOKEN_ACCESS) from
+    /// POST {oauth2Url}/api/v1/token. Used ONLY as the Bearer for the step-2
+    /// POST /sso-sessions request — it is NOT the bearer for downstream
+    /// /v1/api calls (see <see cref="AccessToken"/>). Per the IBKR Postman
+    /// collection the two tokens are different.</summary>
+    public string? TokenAccess { get; private set; }
+
+    /// <summary>The WORKING bearer (SSO_ACCESS) returned by step-2
+    /// POST /sso-sessions — sent on EVERY downstream cpapi call (tickle,
+    /// ssodh/init, iserver/accounts, positions, ledger, orders). This is a
+    /// DIFFERENT token from <see cref="TokenAccess"/>; the Postman collection
+    /// is explicit that sso-sessions issues a new access_token that becomes
+    /// the bearer for all subsequent requests.</summary>
     public string? AccessToken { get; private set; }
 
-    /// <summary>Brokerage session token from step 2 / tickle session id.</summary>
+    /// <summary>Brokerage session id surfaced by /tickle (the <c>session</c>
+    /// field). Held for diagnostics; the bearer for calls is
+    /// <see cref="AccessToken"/> (SSO_ACCESS).</summary>
     public string? SessionToken { get; private set; }
 
     /// <summary>True once ssodh/init + the 3-5s settle + /iserver/accounts
@@ -50,10 +64,13 @@ public sealed class IBKRSessionCache
     private DateTime _lastFailureUtc = DateTime.MinValue;
     private DateTime _lastTickleUtc = DateTime.MinValue;
 
-    /// <summary>True when we hold a non-null bearer that hasn't aged out
-    /// (refresh at 80% of the server-supplied lifetime).</summary>
+    /// <summary>True when we hold the WORKING bearer (SSO_ACCESS) AND the
+    /// step-1 token clock hasn't aged out (refresh at 80% of the
+    /// server-supplied lifetime). Requires BOTH tokens so a half-completed
+    /// bring-up (token but no sso-session) is treated as invalid.</summary>
     public bool IsValid =>
         AccessToken is not null
+        && TokenAccess is not null
         && (DateTime.UtcNow - _establishedUtc) < (_lifetime * 0.8);
 
     /// <summary>False during the post-failure cooldown — caller should fail
@@ -66,14 +83,24 @@ public sealed class IBKRSessionCache
     public bool NeedsTickle =>
         IsValid && (DateTime.UtcNow - _lastTickleUtc) >= TimeSpan.FromSeconds(75);
 
-    public void SetAuth(string accessToken, int? expiresInSeconds)
+    /// <summary>Record the STEP-1 token (TOKEN_ACCESS) + start the lifetime
+    /// clock from the server-supplied expires_in. This token is only the
+    /// bearer for the step-2 sso-sessions call, not for downstream calls.</summary>
+    public void SetTokenAccess(string tokenAccess, int? expiresInSeconds)
     {
-        AccessToken = accessToken;
+        TokenAccess = tokenAccess;
         _establishedUtc = DateTime.UtcNow;
         _lifetime = expiresInSeconds is > 0
             ? TimeSpan.FromSeconds(expiresInSeconds.Value)
             : DefaultLifetime;
         _lastFailureUtc = DateTime.MinValue;
+    }
+
+    /// <summary>Record the STEP-2 working bearer (SSO_ACCESS) returned by
+    /// /sso-sessions — the token used for ALL downstream cpapi calls.</summary>
+    public void SetSsoAccess(string ssoAccess)
+    {
+        AccessToken = ssoAccess;
     }
 
     public void SetSession(string? sessionToken)
@@ -96,6 +123,7 @@ public sealed class IBKRSessionCache
     /// <summary>Drop everything (on a 401 — force a full re-auth next call).</summary>
     public void Clear()
     {
+        TokenAccess = null;
         AccessToken = null;
         SessionToken = null;
         IserverReady = false;

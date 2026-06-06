@@ -16,9 +16,13 @@ namespace TradePro.Api.Providers.IBKR;
 ///      RSA private key; JWT header carries <see cref="ClientKeyId"/> as
 ///      the kid, claims carry <see cref="ClientId"/> as iss/sub. Returns
 ///      an OAuth2 access token (bearer).
-///   2. POST {OAuthBase}/gw/api/v1/sso-sessions — body carries
-///      <see cref="Credential"/> (IBKR username) + <see cref="SourceIp"/>;
-///      Bearer the access token. Returns a brokerage session.
+///   2. POST {OAuthBase}/gw/api/v1/sso-sessions — body is a SIGNED JWT
+///      (Content-Type: application/jwt) whose claims carry
+///      <see cref="Credential"/> (IBKR username) + the resolved egress IP;
+///      Bearer the step-1 token. Returns a DIFFERENT access_token
+///      (SSO_ACCESS) that is the bearer for all subsequent /v1/api calls.
+///      (Per the IBKR Postman collection — a plain JSON body is rejected
+///      with 400 "Invalid payload for security policy: SIGNED_JWT".)
 ///   3. POST {ApiBase}/v1/api/tickle — retrieve session / sessionToken.
 ///   4. POST {ApiBase}/v1/api/iserver/auth/ssodh/init — required before
 ///      any /iserver endpoint.

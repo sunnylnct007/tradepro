@@ -6,14 +6,30 @@ using System.Text.Json;
 namespace TradePro.Api.Providers.IBKR;
 
 /// <summary>
-/// Pure, dependency-free builder for the IBKR OAuth2 CLIENT-ASSERTION JWT.
+/// Pure, dependency-free builder for the IBKR OAuth2 signed JWTs.
 ///
-/// Step 1 of the IBKR OAuth2 flow authenticates the token request with a
-/// JWT signed (RS256) by the client's RSA private key instead of a shared
-/// secret. IBKR support specified:
-///   - header: alg=RS256, typ=JWT, kid={ClientKeyId}
-///   - claims: iss=sub={ClientId}, aud={token endpoint}, iat/exp,
-///             a random jti, and scope=sso-sessions.write.
+/// SOURCE OF TRUTH for every claim set below: IBKR's official Postman
+/// collection "IB Public APIs (Trading API)" — the requests are ported
+/// VERBATIM (no paraphrase). Two distinct JWTs are produced:
+///
+///   1. <see cref="Build"/> — the STEP-1 CLIENT-ASSERTION JWT that
+///      authenticates POST {oauth2Url}/api/v1/token. Per the collection's
+///      "Create OAuth 2.0 Access Token" pre-request script:
+///        - header: { "typ":"JWT", "alg":"RS256", "kid": clientKeyId }
+///        - claims: { "iss": clientId, "sub": clientId, "aud": "/token",
+///                    "exp": now+20, "iat": now-10 }
+///        ── NOTE aud is the LITERAL string "/token" (NOT the full URL),
+///           and there is NO jti / NO scope claim in the JWT (scope rides
+///           in the form-urlencoded body, not the assertion).
+///
+///   2. <see cref="BuildSsoSession"/> — the STEP-2 SSO-SESSION JWT that is
+///      itself the BODY of POST {gatewayUrl}/api/v1/sso-sessions (sent with
+///      Content-Type: application/jwt, NOT JSON). Per the collection's
+///      "Create SSO Session" pre-request script:
+///        - header: { "typ":"JWT", "alg":"RS256", "kid": clientKeyId }
+///        - claims: { "ip": egressIp, "credential": username,
+///                    "iss": clientId, "exp": now+86400, "iat": now }
+///        ── NOTE: NO aud and NO sub claim here (differs from step 1).
 ///
 /// Built by hand (Base64Url(header) . Base64Url(claims) . Base64Url(sig))
 /// so it has ZERO package dependency and is trivially unit-testable: a
@@ -26,20 +42,33 @@ namespace TradePro.Api.Providers.IBKR;
 public static class IBKRClientAssertion
 {
     /// <summary>The OAuth2 scope IBKR support specified for the
-    /// sso-sessions token request.</summary>
+    /// sso-sessions token request. Sent in the STEP-1 form-urlencoded body
+    /// (NOT inside the client-assertion JWT — per the Postman collection).</summary>
     public const string SsoSessionsWriteScope = "sso-sessions.write";
 
+    /// <summary>STEP-1 literal aud claim from the Postman collection — the
+    /// client-assertion JWT's <c>aud</c> is the constant string "/token",
+    /// not the token endpoint URL.</summary>
+    public const string TokenAudience = "/token";
+
     /// <summary>
-    /// Build + sign the client-assertion JWT.
+    /// STEP 1 — build + sign the CLIENT-ASSERTION JWT for
+    /// POST {oauth2Url}/api/v1/token.
+    ///
+    /// VERBATIM from the IBKR Postman collection ("Create OAuth 2.0 Access
+    /// Token" pre-request script):
+    ///   header: { "typ":"JWT", "alg":"RS256", "kid": clientKeyId }
+    ///   claims: { "iss": clientId, "sub": clientId, "aud": "/token",
+    ///             "exp": now+20, "iat": now-10 }
+    /// No jti, no scope in the JWT — scope rides in the form body.
     /// </summary>
     /// <param name="rsa">RSA key holding the PRIVATE key (signing).</param>
     /// <param name="clientId">OAuth2 client_id → iss + sub.</param>
     /// <param name="clientKeyId">→ JWT header kid.</param>
-    /// <param name="audience">token endpoint URL → aud.</param>
-    /// <param name="scope">OAuth2 scope claim.</param>
-    /// <param name="now">issued-at instant (UTC). Injected for testability.</param>
-    /// <param name="lifetime">token validity window. IBKR assertions are
-    /// short-lived; default 5 min.</param>
+    /// <param name="audience">aud claim. Defaults to the collection's literal
+    /// "/token" (<see cref="TokenAudience"/>); overridable for tests.</param>
+    /// <param name="now">"now" instant (UTC). Injected for testability. The
+    /// collection sets iat = now-10 and exp = now+20 around this instant.</param>
     /// <param name="certificatePem">OPTIONAL PEM X.509 cert. When supplied
     /// (and <paramref name="includeX5c"/> is true) the cert's base64-DER is
     /// added as a single-entry <c>x5c</c> header alongside <c>kid</c>. The
@@ -52,10 +81,8 @@ public static class IBKRClientAssertion
         RSA rsa,
         string clientId,
         string clientKeyId,
-        string audience,
-        string scope = SsoSessionsWriteScope,
+        string audience = TokenAudience,
         DateTimeOffset? now = null,
-        TimeSpan? lifetime = null,
         string? certificatePem = null,
         bool includeX5c = false)
     {
@@ -63,13 +90,93 @@ public static class IBKRClientAssertion
         if (string.IsNullOrWhiteSpace(clientId)) throw new ArgumentException("clientId required", nameof(clientId));
         if (string.IsNullOrWhiteSpace(clientKeyId)) throw new ArgumentException("clientKeyId required", nameof(clientKeyId));
 
-        var issuedAt = now ?? DateTimeOffset.UtcNow;
-        var exp = issuedAt.Add(lifetime ?? TimeSpan.FromMinutes(5));
+        var nowInstant = now ?? DateTimeOffset.UtcNow;
+        // Postman collection: exp = now+20s, iat = now-10s (small skew window).
+        var iat = nowInstant.AddSeconds(-10).ToUnixTimeSeconds();
+        var exp = nowInstant.AddSeconds(20).ToUnixTimeSeconds();
 
+        var header = BuildHeader(clientKeyId, certificatePem, includeX5c);
+
+        // Claim ORDER + SET are verbatim per the Postman collection.
+        var claims = new Dictionary<string, object>
+        {
+            ["iss"] = clientId,
+            ["sub"] = clientId,
+            ["aud"] = audience,
+            ["exp"] = exp,
+            ["iat"] = iat,
+        };
+
+        return Sign(rsa, header, claims);
+    }
+
+    /// <summary>
+    /// STEP 2 — build + sign the SSO-SESSION JWT that is itself the request
+    /// BODY of POST {gatewayUrl}/api/v1/sso-sessions (Content-Type:
+    /// application/jwt). THIS is the fix for the
+    /// <c>400 "Invalid payload for security policy: SIGNED_JWT"</c> error:
+    /// IBKR's gateway requires a signed JWT here, not a JSON body.
+    ///
+    /// VERBATIM from the IBKR Postman collection ("Create SSO Session"
+    /// pre-request script):
+    ///   header: { "typ":"JWT", "alg":"RS256", "kid": clientKeyId }
+    ///   claims: { "ip": ip, "credential": credential, "iss": clientId,
+    ///             "exp": now+86400, "iat": now }
+    /// IMPORTANT: NO aud, NO sub claim (differs from step 1). The optional
+    /// alternativeIps array is omitted.
+    /// </summary>
+    /// <param name="rsa">RSA key holding the PRIVATE key (signing) — the SAME
+    /// signing pair / kid as the step-1 assertion.</param>
+    /// <param name="clientId">OAuth2 client_id → iss.</param>
+    /// <param name="clientKeyId">→ JWT header kid.</param>
+    /// <param name="credential">IBKR brokerage username → credential claim.</param>
+    /// <param name="ip">Resolved egress IP → ip claim.</param>
+    /// <param name="now">"now" instant (UTC). Injected for testability:
+    /// iat = now, exp = now+86400 (24h).</param>
+    public static string BuildSsoSession(
+        RSA rsa,
+        string clientId,
+        string clientKeyId,
+        string credential,
+        string ip,
+        DateTimeOffset? now = null)
+    {
+        if (rsa is null) throw new ArgumentNullException(nameof(rsa));
+        if (string.IsNullOrWhiteSpace(clientId)) throw new ArgumentException("clientId required", nameof(clientId));
+        if (string.IsNullOrWhiteSpace(clientKeyId)) throw new ArgumentException("clientKeyId required", nameof(clientKeyId));
+        if (string.IsNullOrWhiteSpace(credential)) throw new ArgumentException("credential required", nameof(credential));
+        if (string.IsNullOrWhiteSpace(ip)) throw new ArgumentException("ip required", nameof(ip));
+
+        var nowInstant = now ?? DateTimeOffset.UtcNow;
+        // Postman collection: exp = now+86400s (24h), iat = now.
+        var iat = nowInstant.ToUnixTimeSeconds();
+        var exp = nowInstant.AddSeconds(86400).ToUnixTimeSeconds();
+
+        // step 2 reuses the SAME header shape (typ/alg/kid) as the assertion.
+        var header = BuildHeader(clientKeyId, certificatePem: null, includeX5c: false);
+
+        // Claim SET is verbatim per the Postman collection — note NO aud, NO sub.
+        var claims = new Dictionary<string, object>
+        {
+            ["ip"] = ip,
+            ["credential"] = credential,
+            ["iss"] = clientId,
+            ["exp"] = exp,
+            ["iat"] = iat,
+        };
+
+        return Sign(rsa, header, claims);
+    }
+
+    /// <summary>Shared header builder: { typ, alg, kid } with the optional,
+    /// config-gated x5c entry (kid-only by default).</summary>
+    private static Dictionary<string, object> BuildHeader(
+        string clientKeyId, string? certificatePem, bool includeX5c)
+    {
         var header = new Dictionary<string, object>
         {
-            ["alg"] = "RS256",
             ["typ"] = "JWT",
+            ["alg"] = "RS256",
             ["kid"] = clientKeyId,
         };
 
@@ -83,18 +190,14 @@ public static class IBKRClientAssertion
             if (der is not null)
                 header["x5c"] = new[] { der };
         }
+        return header;
+    }
 
-        var claims = new Dictionary<string, object>
-        {
-            ["iss"] = clientId,
-            ["sub"] = clientId,
-            ["aud"] = audience,
-            ["iat"] = issuedAt.ToUnixTimeSeconds(),
-            ["exp"] = exp.ToUnixTimeSeconds(),
-            ["jti"] = Guid.NewGuid().ToString("N"),
-            ["scope"] = scope,
-        };
-
+    /// <summary>RS256-sign the header + claims into a compact JWS
+    /// (Base64Url(header) . Base64Url(claims) . Base64Url(sig)).</summary>
+    private static string Sign(
+        RSA rsa, Dictionary<string, object> header, Dictionary<string, object> claims)
+    {
         var headerSeg = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(header));
         var claimsSeg = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(claims));
         var signingInput = $"{headerSeg}.{claimsSeg}";

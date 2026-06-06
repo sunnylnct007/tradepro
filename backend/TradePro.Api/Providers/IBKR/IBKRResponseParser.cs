@@ -25,9 +25,11 @@ public static class IBKRResponseParser
             Scope: Str(root, "scope"));
     }
 
-    /// <summary>Parse the step-2 sso-sessions response. IBKR returns a
-    /// session token (<c>access_token</c> or <c>session_token</c>
-    /// depending on gateway version) — accept either.</summary>
+    /// <summary>Parse the step-2 sso-sessions response. Per the IBKR Postman
+    /// collection the response carries <c>access_token</c> (this is SSO_ACCESS,
+    /// the DIFFERENT token that becomes the bearer for all downstream /v1/api
+    /// calls). Some gateway versions name it <c>session_token</c> — accept
+    /// either. The chosen value is stored as the working bearer (SSO_ACCESS).</summary>
     public static IBKRSsoSessionResponse ParseSsoSession(string json)
     {
         using var doc = JsonDocument.Parse(json);

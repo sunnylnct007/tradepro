@@ -46,8 +46,18 @@ public sealed class IBKRClient
         if (_options.IsEnabled)
         {
             _http.BaseAddress = new Uri(_options.ApiBaseUrl.TrimEnd('/') + "/");
-            _http.DefaultRequestHeaders.Accept.Add(
-                new MediaTypeWithQualityHeaderValue("application/json"));
+            // Headers IBKR's Web API requires on EVERY request (it rejects the
+            // call otherwise) — verbatim from the IBKR Postman collection's
+            // common request headers. Host is set automatically by HttpClient.
+            var h = _http.DefaultRequestHeaders;
+            h.Accept.Clear();
+            h.Accept.ParseAdd("*/*");
+            h.AcceptEncoding.Clear();
+            h.AcceptEncoding.ParseAdd("gzip, deflate");
+            h.Connection.Clear();
+            h.Connection.ParseAdd("keep-alive");
+            h.UserAgent.Clear();
+            h.UserAgent.ParseAdd("tradepro/1.0");
         }
     }
 
@@ -96,6 +106,9 @@ public sealed class IBKRClient
                     "IBKR auth backing off after a recent failure (cooldown) — not re-authing yet");
 
             // ── 1. OAuth2 token via client-assertion JWT ──
+            // Endpoint per the Postman collection: {oauth2Url}/api/v1/token,
+            // i.e. https://api.ibkr.com/oauth2/api/v1/token. The assertion's
+            // aud claim is the LITERAL "/token" (TokenAudience), NOT this URL.
             var tokenEndpoint = _options.OAuthBaseUrl.TrimEnd('/') + "/oauth2/api/v1/token";
             string assertion;
             using (var rsa = IBKRClientAssertion.ImportPem(_options.PrivateKey))
@@ -106,8 +119,8 @@ public sealed class IBKRClient
                     // different ids; the kid/private_key signing pair is shared.
                     clientId: _options.ActiveClientId,
                     clientKeyId: _options.ClientKeyId,
-                    audience: tokenEndpoint,
-                    scope: IBKRClientAssertion.SsoSessionsWriteScope,
+                    // aud = "/token" (literal) per the IBKR Postman collection.
+                    audience: IBKRClientAssertion.TokenAudience,
                     // kid stays the default selector; x5c is only embedded
                     // when the operator flips IBKR:UseX5c on (config-driven,
                     // no code change) and the cert parses.
@@ -137,7 +150,8 @@ public sealed class IBKRClient
                     _session.RecordFailure();
                     throw new InvalidOperationException("IBKR /oauth2/token returned no access_token");
                 }
-                _session.SetAuth(token.AccessToken, token.ExpiresInSeconds);
+                // TOKEN_ACCESS — bearer ONLY for the step-2 sso-sessions call.
+                _session.SetTokenAccess(token.AccessToken, token.ExpiresInSeconds);
             }
 
             // ── 2. sso-sessions (credential + ip) ──
@@ -161,16 +175,34 @@ public sealed class IBKRClient
             LastResolvedIp = resolvedIp;
             LastResolvedIpSource = ipSource;
 
+            // THE FIX: IBKR's gateway rejects a JSON body here with
+            // 400 "Invalid payload for security policy: SIGNED_JWT". Per the
+            // IBKR Postman collection ("Create SSO Session"), the body must be
+            // a RAW signed JWT (JWS) — Content-Type: application/jwt — whose
+            // claims are { ip, credential, iss, exp=now+86400, iat=now } with
+            // NO aud / NO sub. We sign it with the SAME RS256 key + kid as the
+            // step-1 assertion, and Bearer it with TOKEN_ACCESS (step-1 token).
             var ssoEndpoint = _options.OAuthBaseUrl.TrimEnd('/') + "/gw/api/v1/sso-sessions";
+            string ssoJwt;
+            using (var rsa = IBKRClientAssertion.ImportPem(_options.PrivateKey))
+            {
+                ssoJwt = IBKRClientAssertion.BuildSsoSession(
+                    rsa,
+                    clientId: _options.ActiveClientId,
+                    clientKeyId: _options.ClientKeyId,
+                    // ACTIVE (mode-resolved) credential — paper vs live login.
+                    credential: _options.ActiveCredential,
+                    ip: resolvedIp);
+            }
             using (var ssoReq = new HttpRequestMessage(HttpMethod.Post, ssoEndpoint))
             {
-                ssoReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _session.AccessToken);
-                ssoReq.Content = JsonContent.Create(new
-                {
-                    // ACTIVE (mode-resolved) credential — paper vs live login.
-                    credential = _options.ActiveCredential,
-                    ip = resolvedIp,
-                });
+                // Bearer the STEP-1 token (TOKEN_ACCESS) for the sso-sessions call.
+                ssoReq.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", _session.TokenAccess);
+                // Raw signed-JWT body with Content-Type: application/jwt.
+                ssoReq.Content = new StringContent(ssoJwt);
+                ssoReq.Content.Headers.ContentType =
+                    new MediaTypeHeaderValue("application/jwt");
                 using var ssoResp = await _http.SendAsync(ssoReq, ct);
                 var ssoText = await ssoResp.Content.ReadAsStringAsync(ct);
                 if (!ssoResp.IsSuccessStatusCode)
@@ -180,7 +212,14 @@ public sealed class IBKRClient
                         $"IBKR /sso-sessions failed {(int)ssoResp.StatusCode}: {ssoText}");
                 }
                 var sso = IBKRResponseParser.ParseSsoSession(ssoText);
-                _session.SetSession(sso.SessionToken);
+                if (string.IsNullOrEmpty(sso.SessionToken))
+                {
+                    _session.RecordFailure();
+                    throw new InvalidOperationException("IBKR /sso-sessions returned no access_token");
+                }
+                // SSO_ACCESS — the DIFFERENT token that is the bearer for ALL
+                // downstream /v1/api calls (tickle, ssodh/init, accounts, ...).
+                _session.SetSsoAccess(sso.SessionToken);
             }
 
             // ── 3. tickle (retrieve session id) ──
