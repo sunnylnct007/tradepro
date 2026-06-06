@@ -753,6 +753,63 @@ public static class IntegrationsEndpoints
             }
         });
 
+        // GET /api/integrations/ibkr/status — IBKR broker connectivity
+        // check. READ-ONLY: runs the full OAuth bring-up (token →
+        // sso-sessions → tickle → ssodh/init → iserver/accounts) the moment
+        // the tradepro/ibkr secret lands, and returns the visible accounts —
+        // WITHOUT placing any order. Reuses the cached session (no per-call
+        // re-auth; IBKR rate-limits that). When disabled it does NO network
+        // call and reports {enabled:false, reason} so the operator can
+        // confirm the dormant guard is intact before secrets are added.
+        // On failure the verbatim IBKR error body (e.g. a 401/403 with the
+        // IP/credential complaint) is surfaced so the operator can debug
+        // against IBKR's error guide.
+        app.MapGet("/integrations/ibkr/status", async (
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
+            CancellationToken ct) =>
+        {
+            var o = opts.Value;
+            if (!ibkr.IsEnabled)
+            {
+                // Disambiguate WHY it's disabled so the operator knows which
+                // secret field is missing — mirror the IG status pattern.
+                var missing = new List<string>();
+                if (string.Equals(o.Mode, "disabled", StringComparison.OrdinalIgnoreCase)
+                    || string.IsNullOrWhiteSpace(o.Mode)) missing.Add("Mode");
+                if (string.IsNullOrWhiteSpace(o.ClientId))    missing.Add("ClientId");
+                if (string.IsNullOrWhiteSpace(o.ClientKeyId)) missing.Add("ClientKeyId");
+                if (string.IsNullOrWhiteSpace(o.Credential))  missing.Add("Credential");
+                if (string.IsNullOrWhiteSpace(o.PrivateKey))  missing.Add("PrivateKey");
+                return Results.Ok(new
+                {
+                    enabled = false,
+                    authenticated = false,
+                    mode = string.IsNullOrWhiteSpace(o.Mode) ? "disabled" : o.Mode,
+                    accounts = Array.Empty<string>(),
+                    accountIdInUse = (string?)null,
+                    missingConfig = missing,
+                    reason = missing.Count > 0
+                        ? $"IBKR disabled — missing config: {string.Join(", ", missing)}. "
+                          + "Populate AWS Secrets Manager `tradepro/ibkr` (set mode=paper|live) + restart the api."
+                        : "IBKR disabled — populate AWS Secrets Manager `tradepro/ibkr` and restart.",
+                });
+            }
+            var status = await ibkr.GetStatusAsync(ct);
+            return Results.Ok(new
+            {
+                enabled = status.Enabled,
+                authenticated = status.Authenticated,
+                mode = status.Mode,
+                brokerLabel = status.BrokerLabel,
+                accounts = status.Accounts,
+                accountIdInUse = status.AccountIdInUse,
+                useX5c = o.UseX5c,
+                certificatePresent = !string.IsNullOrWhiteSpace(o.Certificate),
+                error = status.Error,
+            });
+        });
+
         app.MapGet("/integrations/trading212/cash",
             async (
                 string? account,

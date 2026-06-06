@@ -82,6 +82,12 @@ public static class SecretsBundleLoader
         ["credential"]       = "IBKR:Credential",
         ["private_key"]      = "IBKR:PrivateKey",
         ["public_key"]       = "IBKR:PublicKey",
+        // PEM X.509 cert IBKR's OAuth2 self-service issues against the RSA
+        // pair. Optional: the runtime default signs the assertion kid-based
+        // (private_key + client_key_id), but if IBKR's setup needs the cert
+        // inline we can flip IBKR:UseX5c on and embed it as an x5c header —
+        // no code change. Cert is public material but kept with the bundle.
+        ["certificate"]      = "IBKR:Certificate",
         ["ip"]               = "IBKR:SourceIp",
         ["account_id_live"]  = "IBKR:AccountIdLive",
         ["account_id_paper"] = "IBKR:AccountIdPaper",

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 
@@ -39,6 +40,14 @@ public static class IBKRClientAssertion
     /// <param name="now">issued-at instant (UTC). Injected for testability.</param>
     /// <param name="lifetime">token validity window. IBKR assertions are
     /// short-lived; default 5 min.</param>
+    /// <param name="certificatePem">OPTIONAL PEM X.509 cert. When supplied
+    /// (and <paramref name="includeX5c"/> is true) the cert's base64-DER is
+    /// added as a single-entry <c>x5c</c> header alongside <c>kid</c>. The
+    /// kid stays the default selector (IBKR private_key_jwt). Parsed
+    /// defensively: an absent / malformed cert is silently skipped (kid-only
+    /// JWT) — it never throws, so a bad cert can't break auth.</param>
+    /// <param name="includeX5c">Gate for the x5c header (maps to
+    /// <see cref="IBKROptions.UseX5c"/>). Default false → kid-only.</param>
     public static string Build(
         RSA rsa,
         string clientId,
@@ -46,7 +55,9 @@ public static class IBKRClientAssertion
         string audience,
         string scope = SsoSessionsWriteScope,
         DateTimeOffset? now = null,
-        TimeSpan? lifetime = null)
+        TimeSpan? lifetime = null,
+        string? certificatePem = null,
+        bool includeX5c = false)
     {
         if (rsa is null) throw new ArgumentNullException(nameof(rsa));
         if (string.IsNullOrWhiteSpace(clientId)) throw new ArgumentException("clientId required", nameof(clientId));
@@ -61,6 +72,17 @@ public static class IBKRClientAssertion
             ["typ"] = "JWT",
             ["kid"] = clientKeyId,
         };
+
+        // Optional x5c: only when explicitly requested AND the cert parses.
+        // RFC 7515 x5c is an array of base64 (NOT base64url) DER certs,
+        // leaf-first. We add a single entry. Defensive: a missing/garbage
+        // cert degrades to kid-only rather than throwing.
+        if (includeX5c)
+        {
+            var der = TryGetCertificateDerBase64(certificatePem);
+            if (der is not null)
+                header["x5c"] = new[] { der };
+        }
 
         var claims = new Dictionary<string, object>
         {
@@ -101,6 +123,28 @@ public static class IBKRClientAssertion
         // variants transparently in .NET.
         rsa.ImportFromPem(pem);
         return rsa;
+    }
+
+    /// <summary>
+    /// Parse a PEM X.509 cert and return its DER as STANDARD base64 (the
+    /// encoding RFC 7515 x5c requires — NOT base64url). Returns null on any
+    /// problem (empty, not a cert, malformed PEM) so the caller falls back
+    /// to a kid-only header. Never throws.
+    /// </summary>
+    public static string? TryGetCertificateDerBase64(string? pem)
+    {
+        if (string.IsNullOrWhiteSpace(pem)) return null;
+        try
+        {
+            using var cert = X509Certificate2.CreateFromPem(pem);
+            return Convert.ToBase64String(cert.RawData);
+        }
+        catch
+        {
+            // Malformed / non-cert PEM → skip x5c, keep kid-only. Auth must
+            // not break because the optional cert is bad.
+            return null;
+        }
     }
 
     // RFC 7515 Base64Url: '+' → '-', '/' → '_', strip '=' padding.

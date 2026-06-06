@@ -92,7 +92,12 @@ public sealed class IBKRClient
                     clientId: _options.ClientId,
                     clientKeyId: _options.ClientKeyId,
                     audience: tokenEndpoint,
-                    scope: IBKRClientAssertion.SsoSessionsWriteScope);
+                    scope: IBKRClientAssertion.SsoSessionsWriteScope,
+                    // kid stays the default selector; x5c is only embedded
+                    // when the operator flips IBKR:UseX5c on (config-driven,
+                    // no code change) and the cert parses.
+                    certificatePem: _options.Certificate,
+                    includeX5c: _options.UseX5c);
             }
             using (var tokenReq = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint))
             {
@@ -265,6 +270,59 @@ public sealed class IBKRClient
             resp = await SendOnce();
         }
         return resp;
+    }
+
+    // ─── Connectivity check (read-only) ─────────────────────────────
+
+    /// <summary>
+    /// Read-only connectivity probe: runs the OAuth bring-up (token →
+    /// sso-sessions → tickle → ssodh/init → iserver/accounts) IF a session
+    /// isn't already cached, then returns the broker accounts visible to the
+    /// authenticated session. Places NO order. Reuses the cached session —
+    /// does NOT re-auth per call (IBKR rate-limits that). When disabled it's
+    /// a no-op that reports <c>Enabled=false</c> so the operator can confirm
+    /// the dormant guard. On failure the IBKR error body is surfaced verbatim
+    /// in <see cref="IBKRStatusResult.Error"/> for IP / credential debugging.
+    /// </summary>
+    public async Task<IBKRStatusResult> GetStatusAsync(CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled)
+            return new IBKRStatusResult(
+                Enabled: false, Authenticated: false,
+                Accounts: Array.Empty<string>(), AccountIdInUse: null,
+                Mode: _options.Mode, BrokerLabel: _options.BrokerLabel,
+                Error: null);
+        try
+        {
+            // Establishes (or reuses) the session; throws on auth failure
+            // carrying the IBKR status code + body in the message.
+            await EnsureSessionAsync(ct);
+
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get, "v1/api/iserver/accounts", null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IBKRStatusResult(
+                    Enabled: true, Authenticated: false,
+                    Accounts: Array.Empty<string>(), AccountIdInUse: _options.AccountId,
+                    Mode: _options.Mode, BrokerLabel: _options.BrokerLabel,
+                    Error: $"iserver/accounts {(int)resp.StatusCode}: {text}");
+
+            var accounts = IBKRResponseParser.ParseAccounts(text);
+            return new IBKRStatusResult(
+                Enabled: true, Authenticated: true,
+                Accounts: accounts, AccountIdInUse: _options.AccountId,
+                Mode: _options.Mode, BrokerLabel: _options.BrokerLabel,
+                Error: null);
+        }
+        catch (Exception ex)
+        {
+            return new IBKRStatusResult(
+                Enabled: true, Authenticated: false,
+                Accounts: Array.Empty<string>(), AccountIdInUse: _options.AccountId,
+                Mode: _options.Mode, BrokerLabel: _options.BrokerLabel,
+                Error: ex.Message);
+        }
     }
 
     // ─── Positions ──────────────────────────────────────────────────

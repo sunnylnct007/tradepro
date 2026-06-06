@@ -61,6 +61,22 @@ public sealed class IBKROptions
     /// tooling; not required for signing.</summary>
     public string PublicKey { get; set; } = string.Empty;
 
+    /// <summary>PEM X.509 certificate IBKR's OAuth2 self-service issues for
+    /// the RSA signing pair (you upload it to their portal to obtain the
+    /// client_id + client_key_id). Optional at runtime: signing stays
+    /// kid-based (the correct default for IBKR private_key_jwt). Held here
+    /// so that, if IBKR's setup later requires the cert inline, we can flip
+    /// <see cref="UseX5c"/> on and embed it as an x5c JWT header WITHOUT a
+    /// code change. From Secrets Manager only.</summary>
+    public string Certificate { get; set; } = string.Empty;
+
+    /// <summary>When true (and a parseable <see cref="Certificate"/> is
+    /// present), include the cert as a base64-DER <c>x5c</c> entry in the
+    /// client-assertion JWT header IN ADDITION to <c>kid</c>. Default false:
+    /// IBKR's documented private_key_jwt flow keys off the kid, so we ship
+    /// kid-only and leave x5c as a config-flippable escape hatch.</summary>
+    public bool UseX5c { get; set; } = false;
+
     /// <summary>Source IP IBKR expects the SSO session to originate from
     /// (step 2 body). Config-driven — never hardcoded.</summary>
     public string SourceIp { get; set; } = string.Empty;

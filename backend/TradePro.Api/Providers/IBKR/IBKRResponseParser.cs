@@ -258,3 +258,14 @@ public sealed record IBKROrderResult(
     string Status,           // ACCEPTED / REJECTED / NEEDS_CONFIRM / PARSE_ERROR
     string? StatusReason,
     int HttpStatus);
+
+/// <summary>Read-only connectivity probe result (see
+/// <c>IBKRClient.GetStatusAsync</c>). No order is placed to produce this.</summary>
+public sealed record IBKRStatusResult(
+    bool Enabled,                       // IBKROptions.IsEnabled (secret present + mode set)
+    bool Authenticated,                 // full OAuth bring-up + iserver/accounts succeeded
+    IReadOnlyList<string> Accounts,     // account ids the session can see
+    string? AccountIdInUse,             // the configured account this app routes to
+    string Mode,                        // paper / live / disabled
+    string BrokerLabel,                 // IBKR_PAPER / IBKR_LIVE
+    string? Error);                     // verbatim IBKR error body on failure, else null
