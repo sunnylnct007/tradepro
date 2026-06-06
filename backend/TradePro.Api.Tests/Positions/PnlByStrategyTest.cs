@@ -89,6 +89,73 @@ public class PnlByStrategyTest
         Assert.Equal(1, r.ClosedTrades);
     }
 
+    // ── FIFO realised SPLIT (today vs life-to-date) ───────────────────────
+    private static PnlByStrategy.DatedFill BuyD(decimal q, decimal p, bool today) => new("BUY", q, p, today);
+    private static PnlByStrategy.DatedFill SellD(decimal q, decimal p, bool today) => new("SELL", q, p, today);
+
+    [Fact]
+    public void Split_attributes_realised_to_the_day_of_the_closing_sell()
+    {
+        // Buy long ago, sell today → all +100 is banked TODAY, and also LTD.
+        var r = PnlByStrategy.FifoRealisedSplit(new[]
+        {
+            BuyD(10, 100m, today: false),
+            SellD(10, 110m, today: true),
+        });
+        Assert.Equal(100m, r.RealisedLtd);
+        Assert.Equal(100m, r.RealisedToday);
+        Assert.Equal(1, r.ClosedTrades);
+    }
+
+    [Fact]
+    public void Split_only_today_sells_count_toward_realised_today()
+    {
+        // A prior sell (+100, not today) + a sell today (−50). LTD = +50,
+        // today = −50. The matched BUY lot's date is irrelevant — only the
+        // SELL's day decides attribution.
+        var r = PnlByStrategy.FifoRealisedSplit(new[]
+        {
+            BuyD(10, 100m, today: false), SellD(10, 110m, today: false),  // +100, banked earlier
+            BuyD(10, 100m, today: false), SellD(10, 95m, today: true),    // −50, banked today
+        });
+        Assert.Equal(50m, r.RealisedLtd);
+        Assert.Equal(-50m, r.RealisedToday);
+        Assert.Equal(2, r.ClosedTrades);
+        Assert.Equal(1, r.WinningTrades);
+        Assert.Equal(50.0, r.WinRatePct);
+    }
+
+    [Fact]
+    public void Split_with_no_today_sells_banks_zero_today_but_full_ltd()
+    {
+        var r = PnlByStrategy.FifoRealisedSplit(new[]
+        {
+            BuyD(10, 100m, today: false), SellD(10, 130m, today: false),
+        });
+        Assert.Equal(300m, r.RealisedLtd);
+        Assert.Equal(0m, r.RealisedToday);   // banked, but not today
+    }
+
+    [Fact]
+    public void Split_reports_unmatched_sell_qty_without_fabricating_a_basis()
+    {
+        // Sell 5 today with only 3 bought → 3 matched (+30, today), 2 unmatched.
+        var r = PnlByStrategy.FifoRealisedSplit(new[] { BuyD(3, 100m, false), SellD(5, 110m, true) });
+        Assert.Equal(30m, r.RealisedLtd);
+        Assert.Equal(30m, r.RealisedToday);
+        Assert.Equal(2m, r.UnmatchedSellQty);
+    }
+
+    [Fact]
+    public void Split_with_no_sells_realises_nothing_and_winrate_is_null()
+    {
+        var r = PnlByStrategy.FifoRealisedSplit(new[] { BuyD(10, 100m, true), BuyD(5, 90m, true) });
+        Assert.Equal(0m, r.RealisedLtd);
+        Assert.Equal(0m, r.RealisedToday);
+        Assert.Equal(0, r.ClosedTrades);
+        Assert.Null(r.WinRatePct);
+    }
+
     // ── Total (null-safe, same-currency only) ─────────────────────────────
     [Fact]
     public void Total_is_open_plus_realised_only_when_both_present()

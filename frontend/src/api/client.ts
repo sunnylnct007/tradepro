@@ -386,6 +386,8 @@ export const api = {
         broker: string;
         currency: string;
         openPnl: number | null;
+        realisedToday: number | null;
+        realisedLtd: number | null;
         realisedPnl: number | null;
         totalPnl: number | null;
         trades: number;

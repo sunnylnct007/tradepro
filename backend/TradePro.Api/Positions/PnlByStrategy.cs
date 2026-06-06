@@ -24,6 +24,13 @@ public static class PnlByStrategy
     /// (case-insensitive); <paramref name="Qty"/> is always positive.</summary>
     public readonly record struct Fill(string Side, decimal Qty, decimal Price);
 
+    /// <summary>A fill carrying the day it was attributed to, so the matcher can
+    /// split realised P&amp;L into "banked today" vs "life-to-date". A realised
+    /// amount is attributed to the day of the SELL that closed it (the moment
+    /// the P&amp;L was banked), regardless of when the matched BUY lot opened.
+    /// </summary>
+    public readonly record struct DatedFill(string Side, decimal Qty, decimal Price, bool IsToday);
+
     /// <summary>Outcome of replaying a (strategy, symbol) fill stream.</summary>
     public readonly record struct RealisedResult(
         decimal Realised,         // banked P&L from matched round-trips
@@ -35,6 +42,71 @@ public static class PnlByStrategy
         /// (so the caller shows "n/a", never 0% on an empty set).</summary>
         public double? WinRatePct =>
             ClosedTrades > 0 ? 100.0 * WinningTrades / ClosedTrades : null;
+    }
+
+    /// <summary>FIFO outcome split by window: the same banked P&amp;L, but with
+    /// the slice attributable to SELLs dated "today" broken out. <see
+    /// cref="RealisedLtd"/> is the full life-to-date figure (== the plain
+    /// <see cref="RealisedResult.Realised"/>); <see cref="RealisedToday"/> is
+    /// the Σ of P&amp;L on SELL fills flagged today.</summary>
+    public readonly record struct RealisedSplit(
+        decimal RealisedLtd,      // life-to-date banked P&L
+        decimal RealisedToday,    // banked by SELL fills dated today (UTC)
+        int ClosedTrades,
+        int WinningTrades,
+        decimal UnmatchedSellQty)
+    {
+        public double? WinRatePct =>
+            ClosedTrades > 0 ? 100.0 * WinningTrades / ClosedTrades : null;
+    }
+
+    /// <summary>
+    /// Long-only FIFO realised P&amp;L for ONE (strategy, symbol) fill stream,
+    /// SPLIT into today vs life-to-date. Identical lot-matching to
+    /// <see cref="FifoRealised"/> — the only addition is that each SELL's
+    /// realised slice is added to <see cref="RealisedSplit.RealisedToday"/> as
+    /// well as the LTD total when that SELL is flagged <c>IsToday</c>. We never
+    /// fabricate a basis: an unmatched SELL remainder is reported, not realised.
+    /// </summary>
+    public static RealisedSplit FifoRealisedSplit(IEnumerable<DatedFill> fillsInOrder)
+    {
+        var lots = new LinkedList<(decimal Qty, decimal Price)>();
+        decimal ltd = 0m, today = 0m, unmatchedSell = 0m;
+        int closed = 0, won = 0;
+
+        foreach (var f in fillsInOrder)
+        {
+            if (f.Qty <= 0m) continue;
+            var isBuy = string.Equals(f.Side, "BUY", StringComparison.OrdinalIgnoreCase);
+            if (isBuy)
+            {
+                lots.AddLast((f.Qty, f.Price));
+                continue;
+            }
+            var remaining = f.Qty;
+            decimal sellRealised = 0m;
+            bool matchedAny = false;
+            while (remaining > 0m && lots.First is { } head)
+            {
+                var (lotQty, lotPrice) = head.Value;
+                var take = Math.Min(remaining, lotQty);
+                sellRealised += (f.Price - lotPrice) * take;
+                remaining -= take;
+                matchedAny = true;
+                if (take >= lotQty) lots.RemoveFirst();
+                else head.Value = (lotQty - take, lotPrice);
+            }
+            if (remaining > 0m) unmatchedSell += remaining;
+            if (matchedAny)
+            {
+                ltd += sellRealised;
+                if (f.IsToday) today += sellRealised;
+                closed++;
+                if (sellRealised > 0m) won++;
+            }
+        }
+
+        return new RealisedSplit(ltd, today, closed, won, unmatchedSell);
     }
 
     /// <summary>
@@ -99,8 +171,10 @@ public static class PnlByStrategy
         string Broker,
         string Currency,
         decimal? OpenPnl,
-        decimal? RealisedPnl,
-        decimal? TotalPnl,
+        decimal? RealisedToday,   // banked TODAY (UTC) — null when not derivable
+        decimal? RealisedLtd,     // banked life-to-date — null when not derivable
+        decimal? RealisedPnl,     // == RealisedLtd; retained for back-compat
+        decimal? TotalPnl,        // open + realisedLtd, only when both present
         int Trades,
         double? WinRatePct,
         string Notes);
