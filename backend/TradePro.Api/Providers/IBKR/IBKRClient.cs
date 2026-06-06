@@ -28,17 +28,20 @@ public sealed class IBKRClient
     private readonly HttpClient _http;
     private readonly IBKROptions _options;
     private readonly IBKRSessionCache _session;
+    private readonly IBKREgressIpResolver _ipResolver;
     private readonly ILogger<IBKRClient> _log;
 
     public IBKRClient(
         HttpClient http,
         IOptions<IBKROptions> options,
         IBKRSessionCache session,
+        IBKREgressIpResolver ipResolver,
         ILogger<IBKRClient> log)
     {
         _http = http;
         _options = options.Value;
         _session = session;
+        _ipResolver = ipResolver;
         _log = log;
         if (_options.IsEnabled)
         {
@@ -51,6 +54,16 @@ public sealed class IBKRClient
     public bool IsEnabled => _options.IsEnabled;
     public string BrokerLabel => _options.BrokerLabel;
     public string AccountId => _options.AccountId;
+
+    /// <summary>The IP that actually went into the last sso-sessions claim,
+    /// for operator visibility (surfaced by /integrations/ibkr/status). Null
+    /// until a bring-up has resolved one.</summary>
+    public string? LastResolvedIp { get; private set; }
+
+    /// <summary>How <see cref="LastResolvedIp"/> was obtained: "override"
+    /// (IBKR:SourceIp set) or "auto-detected" (egress probe). Null until
+    /// resolved.</summary>
+    public string? LastResolvedIpSource { get; private set; }
 
     // ─── Auth (steps 1-6) ───────────────────────────────────────────
 
@@ -128,6 +141,26 @@ public sealed class IBKRClient
             }
 
             // ── 2. sso-sessions (credential + ip) ──
+            // Resolve the ip claim: explicit IBKR:SourceIp override wins;
+            // otherwise auto-detect the backend's public egress IP (cached on
+            // the session). Throws a clear error if neither is available so we
+            // never send an empty ip. Records what was used for /status.
+            string resolvedIp, ipSource;
+            try
+            {
+                (resolvedIp, ipSource) =
+                    await _ipResolver.ResolveAsync(_options.SourceIp, _session, ct);
+            }
+            catch (InvalidOperationException)
+            {
+                // Egress IP unresolvable + no override — back off, then rethrow
+                // so GetStatusAsync surfaces the clear "set IBKR:SourceIp" hint.
+                _session.RecordFailure();
+                throw;
+            }
+            LastResolvedIp = resolvedIp;
+            LastResolvedIpSource = ipSource;
+
             var ssoEndpoint = _options.OAuthBaseUrl.TrimEnd('/') + "/gw/api/v1/sso-sessions";
             using (var ssoReq = new HttpRequestMessage(HttpMethod.Post, ssoEndpoint))
             {
@@ -136,7 +169,7 @@ public sealed class IBKRClient
                 {
                     // ACTIVE (mode-resolved) credential — paper vs live login.
                     credential = _options.ActiveCredential,
-                    ip = _options.SourceIp,
+                    ip = resolvedIp,
                 });
                 using var ssoResp = await _http.SendAsync(ssoReq, ct);
                 var ssoText = await ssoResp.Content.ReadAsStringAsync(ct);
@@ -294,6 +327,7 @@ public sealed class IBKRClient
                 Enabled: false, Authenticated: false,
                 Accounts: Array.Empty<string>(), AccountIdInUse: null,
                 Mode: _options.Mode, BrokerLabel: _options.BrokerLabel,
+                IpInUse: null, IpSource: null,
                 Error: null);
         try
         {
@@ -309,6 +343,7 @@ public sealed class IBKRClient
                     Enabled: true, Authenticated: false,
                     Accounts: Array.Empty<string>(), AccountIdInUse: _options.AccountId,
                     Mode: _options.Mode, BrokerLabel: _options.BrokerLabel,
+                    IpInUse: LastResolvedIp, IpSource: LastResolvedIpSource,
                     Error: $"iserver/accounts {(int)resp.StatusCode}: {text}");
 
             var accounts = IBKRResponseParser.ParseAccounts(text);
@@ -316,6 +351,7 @@ public sealed class IBKRClient
                 Enabled: true, Authenticated: true,
                 Accounts: accounts, AccountIdInUse: _options.AccountId,
                 Mode: _options.Mode, BrokerLabel: _options.BrokerLabel,
+                IpInUse: LastResolvedIp, IpSource: LastResolvedIpSource,
                 Error: null);
         }
         catch (Exception ex)
@@ -324,6 +360,7 @@ public sealed class IBKRClient
                 Enabled: true, Authenticated: false,
                 Accounts: Array.Empty<string>(), AccountIdInUse: _options.AccountId,
                 Mode: _options.Mode, BrokerLabel: _options.BrokerLabel,
+                IpInUse: LastResolvedIp, IpSource: LastResolvedIpSource,
                 Error: ex.Message);
         }
     }

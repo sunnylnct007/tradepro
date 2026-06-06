@@ -103,8 +103,13 @@ public sealed class IBKROptions
     /// kid-only and leave x5c as a config-flippable escape hatch.</summary>
     public bool UseX5c { get; set; } = false;
 
-    /// <summary>Source IP IBKR expects the SSO session to originate from
-    /// (step 2 body). Config-driven — never hardcoded.</summary>
+    /// <summary>OPTIONAL override for the source IP IBKR expects the SSO
+    /// session to originate from (step 2 body). When EMPTY (the recommended
+    /// default), the backend AUTO-DETECTS its public egress IP at bring-up via
+    /// <see cref="IBKREgressIpResolver"/> — so the operator can omit <c>ip</c>
+    /// from the <c>tradepro/ibkr</c> secret and survive EC2 restarts that
+    /// change the IP. Set it ONLY to pin a specific IP (override). Config-driven
+    /// — never hardcoded. NOT required by <see cref="IsEnabled"/>.</summary>
     public string SourceIp { get; set; } = string.Empty;
 
     // ─── Account routing (config-driven, never hardcoded) ────────────

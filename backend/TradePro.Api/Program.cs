@@ -162,6 +162,17 @@ builder.Services
     .AddOptions<TradePro.Api.Providers.IBKR.IBKROptions>()
     .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKROptions.SectionName));
 builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRSessionCache>();
+// Egress-IP resolver: auto-detects the backend's public IP for the IBKR
+// sso-sessions `ip` claim (so the secret can omit `ip`); IBKR:SourceIp, if
+// set, overrides. Uses a NAMED HttpClient via IHttpClientFactory (short
+// timeout — the resolver also wraps each probe in a 3s linked CTS).
+builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKREgressIpResolver>();
+builder.Services.AddHttpClient(
+    TradePro.Api.Providers.IBKR.IBKREgressIpResolver.HttpClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(5);
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
+});
 builder.Services.AddHttpClient<TradePro.Api.Providers.IBKR.IBKRClient>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
