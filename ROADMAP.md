@@ -1272,7 +1272,16 @@ change between slices.
   intraday rungs for the existing classes. 14 BDD scenarios pin
   registration, resolution ladders, calendar exclusions, bar
   counts, and schema nullability.
-- **J-2** — Options chains EOD snapshots (when an options strategy
+- **J-1.5 ✅ SHIPPED** — Symbol → asset_class resolver.
+  `bar_cache.asset_class_resolver.resolve_asset_class("AAPL")
+  → "us_equity"` (and `SPY → us_etf`, `EURUSD=X → fx_spot`,
+  `BARC.L → uk_equity`, `BTC-USD → crypto`). Pure-function
+  ticker-suffix rules + a small curated ETF override list — no DB
+  call on the hot path. Default fallback is `us_equity`, unknowns
+  surface as `unknown` rather than guess. 26 BDD scenarios pin
+  every rule + the resolve_many batch path. Unblocks the
+  "preflight defaults ON" PR — operator no longer has to pick a
+  single `--data-asset` for multi-class universes.
   joins the roadmap).
 - **J-3** — Futures with contract rolling (when needed).
 - **J-4** — Binance / Coinbase Python providers for the `crypto`
