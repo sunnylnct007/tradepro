@@ -1241,9 +1241,15 @@ change between slices.
   exception fail-open, TTL cache hit, invalidate, blank symbol
   short-circuit). Full Python BDD unchanged from baseline (3 pre-
   existing FX failures, no regressions).
-- **C-3.3 (next)** — `StrategyRunner` injects the production fetcher
-  into every paper strategy by default. Operator only sees changed
-  cockpit reasons + sizing — no per-strategy config.
+- **C-3.3 ✅ SHIPPED** — `StrategyRunner` accepts
+  `catalysts_api_base` + `catalysts_api_token` at construction.
+  When set, the runner lazily builds one shared CatalystFetcher
+  (process-wide TTL cache) and auto-injects it into every built
+  strategy's params. Daemons restart → `paper-*` agents start
+  consuming the catalyst overlay automatically, no per-strategy
+  config change needed. Without an api_base the legacy no-overlay
+  path is preserved exactly. 5 BDD scenarios pin shared-instance,
+  no-injection-without-api-base, factory return type.
 
 **Phase J — Additional asset classes**
 - **J-1 ✅ SHIPPED** — Asset-class breadth expansion. Four new
