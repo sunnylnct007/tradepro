@@ -327,14 +327,126 @@ public class IBKRAuthTest
         Assert.False(new IBKROptions().IsEnabled); // disabled default
         Assert.False(new IBKROptions
         {
-            Mode = "paper", ClientId = "c", ClientKeyId = "k", Credential = "u"
+            Mode = "paper", ClientIdPaper = "c", ClientKeyId = "k",
+            CredentialPaper = "u", AccountIdPaper = "DUP6"
             // missing PrivateKey
+        }.IsEnabled);
+        Assert.False(new IBKROptions
+        {
+            // missing the active (paper) account id
+            Mode = "paper", ClientIdPaper = "c", ClientKeyId = "k",
+            CredentialPaper = "u", PrivateKey = "pem"
         }.IsEnabled);
         Assert.True(new IBKROptions
         {
-            Mode = "paper", ClientId = "c", ClientKeyId = "k",
-            Credential = "u", PrivateKey = "pem"
+            Mode = "paper", ClientIdPaper = "c", ClientKeyId = "k",
+            CredentialPaper = "u", PrivateKey = "pem", AccountIdPaper = "DUP6"
         }.IsEnabled);
+        // Backward-compat: legacy single ClientId/Credential still enables.
+        Assert.True(new IBKROptions
+        {
+            Mode = "paper", ClientId = "c", ClientKeyId = "k",
+            Credential = "u", PrivateKey = "pem", AccountIdPaper = "DUP6"
+        }.IsEnabled);
+    }
+
+    // ─── Per-env (paper|live) credential resolution ─────────────────
+
+    [Fact]
+    public void Mode_paper_resolves_paper_clientId_credential_account()
+    {
+        var o = new IBKROptions
+        {
+            Mode = "paper",
+            ClientIdPaper = "cid-paper",   ClientIdLive = "cid-live",
+            CredentialPaper = "user-paper", CredentialLive = "user-live",
+            AccountIdPaper = "DUP600001",   AccountIdLive = "U2512345",
+        };
+        Assert.Equal("cid-paper", o.ActiveClientId);
+        Assert.Equal("user-paper", o.ActiveCredential);
+        Assert.Equal("DUP600001", o.ActiveAccountId);
+        Assert.Equal("DUP600001", o.AccountId);
+        Assert.Equal("IBKR_PAPER", o.BrokerLabel);
+    }
+
+    [Fact]
+    public void Mode_live_resolves_live_clientId_credential_account()
+    {
+        var o = new IBKROptions
+        {
+            Mode = "live",
+            ClientIdPaper = "cid-paper",   ClientIdLive = "cid-live",
+            CredentialPaper = "user-paper", CredentialLive = "user-live",
+            AccountIdPaper = "DUP600001",   AccountIdLive = "U2512345",
+        };
+        Assert.Equal("cid-live", o.ActiveClientId);
+        Assert.Equal("user-live", o.ActiveCredential);
+        Assert.Equal("U2512345", o.ActiveAccountId);
+        Assert.Equal("U2512345", o.AccountId);
+        Assert.Equal("IBKR_LIVE", o.BrokerLabel);
+    }
+
+    [Fact]
+    public void OldSingleKey_fallback_when_perEnv_absent()
+    {
+        // Only the legacy single ClientId/Credential are set — the Active*
+        // resolvers must fall back to them for BOTH modes.
+        var paper = new IBKROptions
+        {
+            Mode = "paper", ClientId = "legacy-cid", Credential = "legacy-user",
+            AccountIdPaper = "DUP6",
+        };
+        Assert.Equal("legacy-cid", paper.ActiveClientId);
+        Assert.Equal("legacy-user", paper.ActiveCredential);
+
+        var live = new IBKROptions
+        {
+            Mode = "live", ClientId = "legacy-cid", Credential = "legacy-user",
+            AccountIdLive = "U25",
+        };
+        Assert.Equal("legacy-cid", live.ActiveClientId);
+        Assert.Equal("legacy-user", live.ActiveCredential);
+    }
+
+    [Fact]
+    public void PerEnv_wins_over_legacy_single_key_when_both_present()
+    {
+        var o = new IBKROptions
+        {
+            Mode = "live",
+            ClientId = "legacy-cid",   Credential = "legacy-user",
+            ClientIdLive = "live-cid", CredentialLive = "live-user",
+            AccountIdLive = "U25",
+        };
+        Assert.Equal("live-cid", o.ActiveClientId);
+        Assert.Equal("live-user", o.ActiveCredential);
+    }
+
+    [Fact]
+    public void ClientAssertion_carries_the_ACTIVE_clientId_as_iss_sub()
+    {
+        // The JWT iss/sub must be the active (mode-resolved) client id, not
+        // the legacy single one — paper and live sign with different iss.
+        var paper = new IBKROptions
+        {
+            Mode = "paper", ClientIdPaper = "cid-paper", ClientIdLive = "cid-live",
+        };
+        var live = new IBKROptions
+        {
+            Mode = "live", ClientIdPaper = "cid-paper", ClientIdLive = "cid-live",
+        };
+
+        using var rsa = RSA.Create(2048);
+        var jwtPaper = IBKRClientAssertion.Build(rsa, paper.ActiveClientId, "kid", Aud);
+        var jwtLive = IBKRClientAssertion.Build(rsa, live.ActiveClientId, "kid", Aud);
+
+        using var pDoc = JsonDocument.Parse(B64UrlDecode(jwtPaper.Split('.')[1]));
+        Assert.Equal("cid-paper", pDoc.RootElement.GetProperty("iss").GetString());
+        Assert.Equal("cid-paper", pDoc.RootElement.GetProperty("sub").GetString());
+
+        using var lDoc = JsonDocument.Parse(B64UrlDecode(jwtLive.Split('.')[1]));
+        Assert.Equal("cid-live", lDoc.RootElement.GetProperty("iss").GetString());
+        Assert.Equal("cid-live", lDoc.RootElement.GetProperty("sub").GetString());
     }
 
     // ─── SecretsBundleLoader IBKR key map ───────────────────────────
@@ -356,9 +468,26 @@ public class IBKRAuthTest
         Assert.True(map.ContainsKey("certificate"), "IBKR key map must carry `certificate`");
         Assert.Equal("IBKR:Certificate", map["certificate"]);
 
-        // Sanity: the pre-existing signing-material keys are still mapped.
+        // Sanity: the shared signing-material keys are still mapped.
         Assert.Equal("IBKR:PrivateKey", map["private_key"]);
         Assert.Equal("IBKR:ClientKeyId", map["client_key_id"]);
+        Assert.Equal("IBKR:PublicKey", map["public_key"]);
+        Assert.Equal("IBKR:SourceIp", map["ip"]);
+        Assert.Equal("IBKR:Mode", map["mode"]);
+
+        // Per-env (paper) keys → Active* resolvers select these in paper mode.
+        Assert.Equal("IBKR:ClientIdPaper", map["client_id_paper"]);
+        Assert.Equal("IBKR:CredentialPaper", map["credential_paper"]);
+        Assert.Equal("IBKR:AccountIdPaper", map["account_id_paper"]);
+
+        // Per-env (live) keys.
+        Assert.Equal("IBKR:ClientIdLive", map["client_id_live"]);
+        Assert.Equal("IBKR:CredentialLive", map["credential_live"]);
+        Assert.Equal("IBKR:AccountIdLive", map["account_id_live"]);
+
+        // Backward-compat legacy single keys remain mapped (fallback).
+        Assert.Equal("IBKR:ClientId", map["client_id"]);
+        Assert.Equal("IBKR:Credential", map["credential"]);
     }
 
     [Fact]

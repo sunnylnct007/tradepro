@@ -39,19 +39,45 @@ public sealed class IBKROptions
     public string Mode { get; set; } = "disabled";
 
     // ─── OAuth 2.0 client-credentials (client-assertion JWT) ─────────
+    //
+    // IBKR issues a DIFFERENT client_id AND credential (brokerage login)
+    // for paper vs live, while the RSA signing pair (private_key /
+    // certificate / kid / public_key) and SourceIp are SHARED across both.
+    // The active (clientId, credential, accountId) triple is selected by
+    // <see cref="Mode"/> via the Active* resolvers below.
 
-    /// <summary>OAuth2 client_id — also used as the iss + sub claim in the
-    /// client-assertion JWT.</summary>
+    /// <summary>BACKWARD-COMPAT single client_id. Used as a fallback by
+    /// <see cref="ActiveClientId"/> when the per-env id for the active mode
+    /// is empty. Prefer the per-env <see cref="ClientIdPaper"/> /
+    /// <see cref="ClientIdLive"/> — those win when present.</summary>
     public string ClientId { get; set; } = string.Empty;
+
+    /// <summary>Paper-env OAuth2 client_id. Selected (as iss/sub of the
+    /// client-assertion JWT) when <see cref="Mode"/> != "live".</summary>
+    public string ClientIdPaper { get; set; } = string.Empty;
+
+    /// <summary>Live-env OAuth2 client_id. Selected when
+    /// <see cref="Mode"/> == "live".</summary>
+    public string ClientIdLive { get; set; } = string.Empty;
 
     /// <summary>Key id for the RSA signing key — emitted as the <c>kid</c>
     /// header of the client-assertion JWT so IBKR can pick the matching
-    /// public key.</summary>
+    /// public key. SHARED across paper + live.</summary>
     public string ClientKeyId { get; set; } = string.Empty;
 
-    /// <summary>IBKR username (the brokerage login) — sent when opening the
-    /// SSO brokerage session (step 2).</summary>
+    /// <summary>BACKWARD-COMPAT single credential (IBKR username). Used as a
+    /// fallback by <see cref="ActiveCredential"/> when the per-env
+    /// credential for the active mode is empty. Prefer the per-env
+    /// <see cref="CredentialPaper"/> / <see cref="CredentialLive"/>.</summary>
     public string Credential { get; set; } = string.Empty;
+
+    /// <summary>Paper-env IBKR username (the brokerage login) — sent when
+    /// opening the SSO brokerage session (step 2) in paper mode.</summary>
+    public string CredentialPaper { get; set; } = string.Empty;
+
+    /// <summary>Live-env IBKR username (the brokerage login) — sent when
+    /// opening the SSO brokerage session (step 2) in live mode.</summary>
+    public string CredentialLive { get; set; } = string.Empty;
 
     /// <summary>RSA private key (PEM) used to RS256-sign the client
     /// assertion. NEVER logged. From Secrets Manager only.</summary>
@@ -99,23 +125,68 @@ public sealed class IBKROptions
     /// <summary>Client Portal (cpapi) host. Steps 3-9 hit this.</summary>
     public string ApiBaseUrl { get; set; } = "https://api.ibkr.com";
 
+    /// <summary>True when <see cref="Mode"/> == "live" (case-insensitive).
+    /// Drives which per-env triple the Active* resolvers select.</summary>
+    private bool IsLive =>
+        string.Equals(Mode, "live", StringComparison.OrdinalIgnoreCase);
+
+    // ─── Active (mode-resolved) credentials ──────────────────────────
+    //
+    // Pure resolvers: live → *Live, anything else (paper/disabled) →
+    // *Paper, with the legacy single value as a fallback when the per-env
+    // one is empty. The IBKRClient + status endpoint read ONLY these so
+    // there is exactly one place that knows which environment is active.
+
+    /// <summary>Client_id for the active mode: live → <see cref="ClientIdLive"/>,
+    /// else <see cref="ClientIdPaper"/>; falls back to the legacy single
+    /// <see cref="ClientId"/> when the per-env value is empty. Used as the
+    /// iss/sub claim of the client-assertion JWT.</summary>
+    public string ActiveClientId
+    {
+        get
+        {
+            var perEnv = IsLive ? ClientIdLive : ClientIdPaper;
+            return string.IsNullOrWhiteSpace(perEnv) ? ClientId : perEnv;
+        }
+    }
+
+    /// <summary>Credential (IBKR username) for the active mode: live →
+    /// <see cref="CredentialLive"/>, else <see cref="CredentialPaper"/>;
+    /// falls back to the legacy single <see cref="Credential"/> when the
+    /// per-env value is empty. Sent when opening the SSO session.</summary>
+    public string ActiveCredential
+    {
+        get
+        {
+            var perEnv = IsLive ? CredentialLive : CredentialPaper;
+            return string.IsNullOrWhiteSpace(perEnv) ? Credential : perEnv;
+        }
+    }
+
+    /// <summary>Brokerage account id for the active mode: live →
+    /// <see cref="AccountIdLive"/>, else <see cref="AccountIdPaper"/>.
+    /// (Account ids were already per-env; no legacy single key exists.)</summary>
+    public string ActiveAccountId => IsLive ? AccountIdLive : AccountIdPaper;
+
     /// <summary>True only when a real (non-disabled) mode is set AND the
-    /// minimum signing material is present. Until <c>tradepro/ibkr</c> is
-    /// populated this is false, so every IBKR method is a no-op and the
-    /// OMS dispatch branch / health row report "disabled".</summary>
+    /// minimum signing material for the ACTIVE environment is present
+    /// (active clientId + active credential + private key + an active
+    /// account id). Until <c>tradepro/ibkr</c> is populated this is false,
+    /// so every IBKR method is a no-op and the OMS dispatch branch / health
+    /// row report "disabled".</summary>
     public bool IsEnabled =>
         !string.Equals(Mode, "disabled", StringComparison.OrdinalIgnoreCase)
-        && !string.IsNullOrWhiteSpace(ClientId)
+        && !string.IsNullOrWhiteSpace(Mode)
+        && !string.IsNullOrWhiteSpace(ActiveClientId)
         && !string.IsNullOrWhiteSpace(ClientKeyId)
-        && !string.IsNullOrWhiteSpace(Credential)
-        && !string.IsNullOrWhiteSpace(PrivateKey);
+        && !string.IsNullOrWhiteSpace(ActiveCredential)
+        && !string.IsNullOrWhiteSpace(PrivateKey)
+        && !string.IsNullOrWhiteSpace(ActiveAccountId);
 
     /// <summary>Account id selected by <see cref="Mode"/>. live → live id,
-    /// anything else (paper/disabled) → paper id. Pure + unit-tested.</summary>
-    public string AccountId =>
-        string.Equals(Mode, "live", StringComparison.OrdinalIgnoreCase)
-            ? AccountIdLive
-            : AccountIdPaper;
+    /// anything else (paper/disabled) → paper id. Alias of
+    /// <see cref="ActiveAccountId"/>, kept for existing call sites.</summary>
+    public string AccountId => ActiveAccountId;
 
     /// <summary>Broker label stamped into oms_orders.broker so the OMS
     /// event log shows whether a fill came from IBKR paper vs live.

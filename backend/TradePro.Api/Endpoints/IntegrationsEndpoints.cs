@@ -777,17 +777,22 @@ public static class IntegrationsEndpoints
                 var missing = new List<string>();
                 if (string.Equals(o.Mode, "disabled", StringComparison.OrdinalIgnoreCase)
                     || string.IsNullOrWhiteSpace(o.Mode)) missing.Add("Mode");
-                if (string.IsNullOrWhiteSpace(o.ClientId))    missing.Add("ClientId");
-                if (string.IsNullOrWhiteSpace(o.ClientKeyId)) missing.Add("ClientKeyId");
-                if (string.IsNullOrWhiteSpace(o.Credential))  missing.Add("Credential");
-                if (string.IsNullOrWhiteSpace(o.PrivateKey))  missing.Add("PrivateKey");
+                // Report on the ACTIVE (mode-resolved) triple so the operator
+                // sees which environment's field is missing, not the legacy one.
+                if (string.IsNullOrWhiteSpace(o.ActiveClientId))   missing.Add("ClientId");
+                if (string.IsNullOrWhiteSpace(o.ClientKeyId))      missing.Add("ClientKeyId");
+                if (string.IsNullOrWhiteSpace(o.ActiveCredential)) missing.Add("Credential");
+                if (string.IsNullOrWhiteSpace(o.PrivateKey))       missing.Add("PrivateKey");
+                if (string.IsNullOrWhiteSpace(o.ActiveAccountId))  missing.Add("AccountId");
                 return Results.Ok(new
                 {
                     enabled = false,
                     authenticated = false,
                     mode = string.IsNullOrWhiteSpace(o.Mode) ? "disabled" : o.Mode,
+                    clientIdInUse = RedactClientId(o.ActiveClientId),
                     accounts = Array.Empty<string>(),
-                    accountIdInUse = (string?)null,
+                    accountIdInUse = string.IsNullOrWhiteSpace(o.ActiveAccountId)
+                        ? (string?)null : o.ActiveAccountId,
                     missingConfig = missing,
                     reason = missing.Count > 0
                         ? $"IBKR disabled — missing config: {string.Join(", ", missing)}. "
@@ -802,6 +807,10 @@ public static class IntegrationsEndpoints
                 authenticated = status.Authenticated,
                 mode = status.Mode,
                 brokerLabel = status.BrokerLabel,
+                // Active (mode-resolved) client id, redacted to a hint so the
+                // operator can confirm WHICH environment is live without the
+                // raw id leaking into logs / the public dashboard.
+                clientIdInUse = RedactClientId(o.ActiveClientId),
                 accounts = status.Accounts,
                 accountIdInUse = status.AccountIdInUse,
                 useX5c = o.UseX5c,
@@ -1136,6 +1145,21 @@ public static class IntegrationsEndpoints
     /// the older format. Returns null for unrecognised venues so the
     /// caller skips the lookup rather than fabricating a wrong symbol.
     /// </summary>
+    /// <summary>
+    /// Redact an IBKR OAuth client_id down to a short hint so the operator
+    /// can confirm WHICH per-env credential is active (paper vs live) from
+    /// the /ibkr/status endpoint, WITHOUT the raw id leaking into the public
+    /// dashboard or logs (repo is public). Shows the first 4 chars + a
+    /// length-masked tail; null/empty in → null out.
+    /// </summary>
+    private static string? RedactClientId(string? clientId)
+    {
+        if (string.IsNullOrWhiteSpace(clientId)) return null;
+        var id = clientId.Trim();
+        if (id.Length <= 4) return new string('*', id.Length);
+        return id.Substring(0, 4) + new string('*', Math.Min(id.Length - 4, 8));
+    }
+
     private static string? DeriveYahooSymbol(string? t212Ticker)
     {
         if (string.IsNullOrWhiteSpace(t212Ticker)) return null;
