@@ -65,6 +65,13 @@ public sealed class IBKRClient
     public string BrokerLabel => _options.BrokerLabel;
     public string AccountId => _options.AccountId;
 
+    /// <summary>HARD kill-switch state (reflects <see cref="IBKROptions.AllowOrders"/>).
+    /// FALSE by default — order placement is disabled. Both the OMS dispatch
+    /// guard and the /integrations/ibkr/status endpoint read this so the
+    /// read-only guarantee is visible + auditable. Only an explicit
+    /// IBKR:AllowOrders=true flips it.</summary>
+    public bool AllowOrders => _options.AllowOrders;
+
     /// <summary>The IP that actually went into the last sso-sessions claim,
     /// for operator visibility (surfaced by /integrations/ibkr/status). Null
     /// until a bring-up has resolved one.</summary>
@@ -470,6 +477,23 @@ public sealed class IBKRClient
     public async Task<IBKROrderResult> PlaceMarketOrderAsync(
         long conid, string side, decimal quantity, CancellationToken ct = default)
     {
+        // ── HARD kill-switch (Layer 1 — primary guarantee) ──
+        // We run IBKR READ-ONLY against a LIVE account. Unless an operator has
+        // EXPLICITLY set IBKR:AllowOrders=true (which we will NOT set; it is
+        // absent from the secret and so binds to false), NO order may ever hit
+        // IBKR. Return a rejected result immediately, BEFORE building or sending
+        // ANY HTTP request — even a direct caller cannot place an order.
+        if (!_options.AllowOrders)
+        {
+            _log.LogWarning(
+                "IBKR order BLOCKED by kill-switch (read-only mode): conid={Conid} side={Side} qty={Qty}. "
+                + "Set IBKR:AllowOrders=true to enable.",
+                conid, side, quantity);
+            return new IBKROrderResult(
+                null, "REJECTED",
+                "IBKR order placement is disabled (read-only mode) — set IBKR:AllowOrders=true to enable",
+                0);
+        }
         if (!_options.IsEnabled)
             return new IBKROrderResult(null, "REJECTED", "IBKR disabled", 0);
         try
