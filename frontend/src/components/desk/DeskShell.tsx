@@ -63,6 +63,16 @@ const NAV: NavEntry[] = [
   { key: "news",      label: "News",      icon: "📰",  view: "news",      title: "News & Daily Overview" },
 ];
 
+// Escape hatch out of the standalone /desk shell into the full app (rendered
+// inside the normal <Layout>). The /desk rail only covers the cockpit views;
+// without this a user could get stuck unable to reach Backtests / OMS / Risk /
+// Universes / Health / Admin / Help / etc. Lands on /compare (the app index /
+// "Decide" surface) which mounts the full Layout nav. Pinned at the bottom of
+// the rail next to Settings, and included in the mobile bottom bar.
+const MORE_APP: NavEntry = {
+  key: "more", label: "More", icon: "▥", to: "/compare", title: "More — full app (Backtests, OMS, Risk, …)",
+};
+
 const SETTINGS: NavEntry = {
   key: "settings", label: "Settings", icon: "⚙", to: "/settings", title: "Settings",
 };
@@ -292,6 +302,7 @@ function LeftRail({ active, onSelect }: { active: DeskView; onSelect: (v: DeskVi
         <RailItem key={n.key} entry={n} active={active} onSelect={onSelect} />
       ))}
       <div style={{ marginTop: "auto", paddingBottom: 8 }}>
+        <RailItem entry={MORE_APP} active={active} onSelect={onSelect} />
         <RailItem entry={SETTINGS} active={active} onSelect={onSelect} />
       </div>
     </nav>
@@ -349,7 +360,7 @@ function RailItem({
 
 /** Bottom tab bar (mobile). Same items, horizontal, fixed to viewport. */
 function BottomTabBar({ active, onSelect }: { active: DeskView; onSelect: (v: DeskView) => void }) {
-  const items = [...NAV, SETTINGS];
+  const items = [...NAV, MORE_APP, SETTINGS];
   return (
     <nav
       style={{
