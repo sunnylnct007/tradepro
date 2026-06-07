@@ -16,8 +16,12 @@
  * chart symbol calls onSelectSymbol(chartSymbol), never navigating away.
  *
  * Also exports the PositionRow type (re-used by SymbolPositionCard).
+ *
+ * Collapsible sections: each section header is a toggle button. Collapsed state
+ * is persisted in localStorage keyed as "desk-section-collapsed:<sectionKey>"
+ * so it survives page refresh. Default: expanded.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api } from "../../api/client";
 import { SortTh } from "../SortTh";
 import { useSort } from "../../util/useSort";
@@ -34,6 +38,7 @@ export type { PositionRow };
 
 const IBKR_UNATTR = "IBKR LIVE · account holdings (unattributed)";
 const UNATTRIBUTED = "Unattributed / Account holdings";
+const LS_PREFIX    = "desk-section-collapsed:";
 
 type Section = { key: string; title: string; rows: InternalRow[] };
 
@@ -196,6 +201,22 @@ export function PositionsByStrategy({
     return () => { live = false; };
   }, [rows, series]);
 
+  // Generation counter to force PositionSection re-mount (re-reads localStorage) after toggleAll.
+  const [collapseGen, setCollapseGen] = useState(0);
+
+  // Collapse-all / expand-all: derives sections inline so it can be declared before early returns.
+  const toggleAll = useCallback(() => {
+    const secs = buildSections(rows, grouping);
+    const allCollapsed = secs.every(
+      (sec) => localStorage.getItem(`${LS_PREFIX}${sec.key}`) === "1",
+    );
+    for (const sec of secs) {
+      if (allCollapsed) localStorage.removeItem(`${LS_PREFIX}${sec.key}`);
+      else localStorage.setItem(`${LS_PREFIX}${sec.key}`, "1");
+    }
+    setCollapseGen((g) => g + 1);
+  }, [rows, grouping]);
+
   if (loading && rows.length === 0) return <Empty>Loading positions…</Empty>;
   if (err)                           return <Empty tone="down">Positions unavailable: {err}</Empty>;
 
@@ -204,10 +225,24 @@ export function PositionsByStrategy({
   return (
     <div>
       {sections.length === 0 && <Empty>No open positions.</Empty>}
+      {sections.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <button
+            onClick={toggleAll}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              fontSize: 10, color: "var(--text-muted)", padding: "2px 4px",
+              textDecoration: "underline", textUnderlineOffset: 2,
+            }}
+          >
+            collapse / expand all
+          </button>
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {sections.map((sec) => (
           <PositionSection
-            key={sec.key}
+            key={`${sec.key}:${collapseGen}`}
             section={sec}
             series={series}
             onSelectSymbol={onSelectSymbol}
@@ -265,6 +300,21 @@ function PositionSection({
   series: Record<string, number[] | null>;
   onSelectSymbol?: (sym: string) => void;
 }) {
+  // Collapsed state: initialise from localStorage (default = expanded).
+  const lsKey = `${LS_PREFIX}${section.key}`;
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => localStorage.getItem(lsKey) === "1",
+  );
+
+  const handleToggle = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (next) localStorage.setItem(lsKey, "1");
+      else localStorage.removeItem(lsKey);
+      return next;
+    });
+  }, [lsKey]);
+
   const { sorted, sortKey, dir, toggle } = useSort<InternalRow>(
     section.rows,
     {
@@ -289,8 +339,36 @@ function PositionSection({
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 12, fontWeight: 700 }}>
-        <span style={{ fontFamily: "monospace", color: "var(--text)" }}>{section.title}</span>
+      {/* Clickable section header — acts as a toggle button */}
+      <button
+        onClick={handleToggle}
+        aria-expanded={!collapsed}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          width: "100%", background: "none", border: "none",
+          padding: "4px 0", marginBottom: collapsed ? 0 : 6,
+          cursor: "pointer", textAlign: "left",
+          borderRadius: 4,
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.8"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+      >
+        {/* Chevron indicator */}
+        <span
+          aria-hidden="true"
+          style={{
+            fontSize: 10, color: "var(--text-muted)", lineHeight: 1,
+            transition: "transform 0.15s",
+            display: "inline-block",
+            transform: collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+            userSelect: "none",
+          }}
+        >
+          ▾
+        </span>
+        <span style={{ fontFamily: "monospace", color: "var(--text)", fontSize: 12, fontWeight: 700 }}>
+          {section.title}
+        </span>
         <ModeBadge mode={sectionMode} />
         <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>
           {section.rows.length} holding{section.rows.length === 1 ? "" : "s"}
@@ -300,64 +378,66 @@ function PositionSection({
             Σ P&amp;L {fmtMoney(subtotal, oneCcy, true)}
           </span>
         )}
-      </div>
+      </button>
 
-      <div style={{ overflowX: "auto", maxWidth: "100%" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 720 }}>
-          <thead>
-            <tr style={{ color: "var(--text-dim)", borderBottom: "1px solid #1b2233" }}>
-              <SortTh label="Instrument"  col="ticker"  sortKey={sortKey} dir={dir} onSort={toggle} style={TH} />
-              <SortTh label="Company"     col="company" sortKey={sortKey} dir={dir} onSort={toggle} style={TH} />
-              <SortTh label="Position"    col="qty"     sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
-              <SortTh label="Last"        col="last"    sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
-              <SortTh label="Change%"     col="change"  sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
-              <th style={TH_C}>Trend</th>
-              <SortTh label="P&amp;L"     col="pnl"     sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
-              <SortTh label="P&amp;L%"    col="pnlPct"  sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r, i) => {
-              const clickable = !!onSelectSymbol && !!r.chartSymbol;
-              return (
-                <tr
-                  key={`${r.broker}:${r.ticker}:${i}`}
-                  onClick={clickable ? () => onSelectSymbol!(r.chartSymbol!) : undefined}
-                  title={clickable ? `Open ${r.chartSymbol} detail` : undefined}
-                  style={{ borderBottom: "1px solid #141b2b", cursor: clickable ? "pointer" : "default" }}
-                  className={clickable ? "desk-row-clickable" : undefined}
-                >
-                  <td style={TD}>
-                    <span
-                      style={{
-                        fontWeight: 700,
-                        color: clickable ? "var(--accent, #4f8cff)" : "var(--text)",
-                        textDecoration: clickable ? "underline" : undefined,
-                        textUnderlineOffset: 2,
-                        textDecorationColor: clickable ? "rgba(79,140,255,0.35)" : undefined,
-                      }}
-                    >
-                      {r.ticker}
-                    </span>
-                    <BrokerTag broker={r.broker} />
-                  </td>
-                  <td style={{ ...TD, color: "var(--text-muted)" }}>{r.company ?? "—"}</td>
-                  <td style={TD_R}>{fmtNum(r.qty)}</td>
-                  <td style={{ ...TD_R, color: "var(--text)" }}>{fmtMoney(r.last, r.ccy)}</td>
-                  <td style={{ ...TD_R, color: signColour(r.changePct) }}>{fmtPct(r.changePct)}</td>
-                  <td style={{ ...TD, textAlign: "center" }}>
-                    <span style={{ display: "inline-flex", justifyContent: "center", width: "100%" }}>
-                      <Sparkline data={r.chartSymbol ? (series[r.chartSymbol] ?? r.series) : r.series} />
-                    </span>
-                  </td>
-                  <td style={{ ...TD_R, color: signColour(r.pnl) }}>{fmtMoney(r.pnl, r.ccy, true)}</td>
-                  <td style={{ ...TD_R, color: signColour(r.pnlPct) }}>{fmtPct(r.pnlPct)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {!collapsed && (
+        <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 720 }}>
+            <thead>
+              <tr style={{ color: "var(--text-dim)", borderBottom: "1px solid #1b2233" }}>
+                <SortTh label="Instrument"  col="ticker"  sortKey={sortKey} dir={dir} onSort={toggle} style={TH} />
+                <SortTh label="Company"     col="company" sortKey={sortKey} dir={dir} onSort={toggle} style={TH} />
+                <SortTh label="Position"    col="qty"     sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
+                <SortTh label="Last"        col="last"    sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
+                <SortTh label="Change%"     col="change"  sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
+                <th style={TH_C}>Trend</th>
+                <SortTh label="P&amp;L"     col="pnl"     sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
+                <SortTh label="P&amp;L%"    col="pnlPct"  sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r, i) => {
+                const clickable = !!onSelectSymbol && !!r.chartSymbol;
+                return (
+                  <tr
+                    key={`${r.broker}:${r.ticker}:${i}`}
+                    onClick={clickable ? () => onSelectSymbol!(r.chartSymbol!) : undefined}
+                    title={clickable ? `Open ${r.chartSymbol} detail` : undefined}
+                    style={{ borderBottom: "1px solid #141b2b", cursor: clickable ? "pointer" : "default" }}
+                    className={clickable ? "desk-row-clickable" : undefined}
+                  >
+                    <td style={TD}>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color: clickable ? "var(--accent, #4f8cff)" : "var(--text)",
+                          textDecoration: clickable ? "underline" : undefined,
+                          textUnderlineOffset: 2,
+                          textDecorationColor: clickable ? "rgba(79,140,255,0.35)" : undefined,
+                        }}
+                      >
+                        {r.ticker}
+                      </span>
+                      <BrokerTag broker={r.broker} />
+                    </td>
+                    <td style={{ ...TD, color: "var(--text-muted)" }}>{r.company ?? "—"}</td>
+                    <td style={TD_R}>{fmtNum(r.qty)}</td>
+                    <td style={{ ...TD_R, color: "var(--text)" }}>{fmtMoney(r.last, r.ccy)}</td>
+                    <td style={{ ...TD_R, color: signColour(r.changePct) }}>{fmtPct(r.changePct)}</td>
+                    <td style={{ ...TD, textAlign: "center" }}>
+                      <span style={{ display: "inline-flex", justifyContent: "center", width: "100%" }}>
+                        <Sparkline data={r.chartSymbol ? (series[r.chartSymbol] ?? r.series) : r.series} />
+                      </span>
+                    </td>
+                    <td style={{ ...TD_R, color: signColour(r.pnl) }}>{fmtMoney(r.pnl, r.ccy, true)}</td>
+                    <td style={{ ...TD_R, color: signColour(r.pnlPct) }}>{fmtPct(r.pnlPct)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
