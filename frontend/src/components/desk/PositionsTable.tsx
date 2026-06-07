@@ -9,13 +9,12 @@
  * Columns: Instrument · Company · Position (qty) · Last · Change% · Trend ·
  * P&L · P&L%. Last/Change/P&L coloured green/red by sign.
  *
- * Trend sparkline: there is no light per-symbol recent-price-series endpoint
- * available to the frontend (the only per-symbol series are heavy Plotly
- * figures embedded in paper snapshots, not a clean numeric array). Rather than
- * fabricate a series, every row passes `null` to <Sparkline/>, which renders a
- * subtle "—". The column + component are wired so that the moment a numeric
- * series source exists, passing it lights up real sparklines with no other
- * change. (User rule: never invent a number/series.)
+ * Trend sparkline: each row's ~30 most-recent daily closes come from
+ * `api.candles(symbol, 1d, ~45d→today)` via `loadSparkline`, which
+ * concurrency-limits the fetches (a fixed-size pool — never dozens of parallel
+ * requests) and memoises per symbol for the session. Empty/failed candles
+ * degrade to `null`, so <Sparkline/> renders a subtle "—" rather than a
+ * fabricated line (user rule: never invent a series).
  *
  * Mobile: the table lives in an overflow-x:auto container with a min-width, so
  * it scrolls horizontally inside its card instead of pushing the page wide.
@@ -26,6 +25,7 @@ import { SortTh } from "../SortTh";
 import { useSort } from "../../util/useSort";
 import { fmtQty } from "../../util/numbers";
 import { Sparkline } from "./Sparkline";
+import { loadSparkline } from "./sparklineCache";
 import { fmtMoney, fmtNum, fmtPct, signColour } from "./deskFormat";
 
 type Row = {
@@ -38,7 +38,8 @@ type Row = {
   pnl: number | null;
   pnlPct: number | null;
   ccy: string | null;
-  series: number[] | null;      // null today — no honest series source
+  chartSymbol: string | null;   // Yahoo symbol to fetch candles for (null = no honest source, e.g. IG FX)
+  series: number[] | null;      // ~30 daily closes; null until loaded / when unavailable
 };
 
 export function PositionsTable() {
@@ -46,6 +47,9 @@ export function PositionsTable() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
+  // Per-symbol close series for the Trend sparkline, loaded lazily +
+  // concurrency-limited after positions arrive (see sparklineCache).
+  const [series, setSeries] = useState<Record<string, number[] | null>>({});
 
   useEffect(() => {
     let live = true;
@@ -70,6 +74,7 @@ export function PositionsTable() {
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: p.currency,
+            chartSymbol: p.yahooSymbol ?? null,
             series: null,
           });
         }
@@ -93,6 +98,9 @@ export function PositionsTable() {
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: null, // IG positions endpoint doesn't return per-position ccy
+            // IG FX/CFD epics have no honest Yahoo candle symbol — leave the
+            // sparkline as "—" rather than guessing a mapping.
+            chartSymbol: null,
             series: null,
           });
         }
@@ -112,6 +120,22 @@ export function PositionsTable() {
     const t = setInterval(() => { void load(); }, 60_000);
     return () => { live = false; clearInterval(t); };
   }, []);
+
+  // Load each position's recent-close series for the Trend sparkline. The
+  // loader pools requests (max ~5 in flight) and caches per symbol for the
+  // session, so the 60s refresh tick re-renders without re-hitting the
+  // network. Symbols with no honest chart symbol (IG FX) are skipped.
+  useEffect(() => {
+    let live = true;
+    const symbols = [...new Set(rows.map((r) => r.chartSymbol).filter((s): s is string => !!s))];
+    for (const sym of symbols) {
+      if (sym in series) continue; // already loaded / loading this session
+      void loadSparkline(sym).then((data) => {
+        if (live) setSeries((prev) => ({ ...prev, [sym]: data }));
+      });
+    }
+    return () => { live = false; };
+  }, [rows, series]);
 
   const { sorted, sortKey, dir, toggle } = useSort<Row>(
     rows,
@@ -178,7 +202,7 @@ export function PositionsTable() {
                 <td style={{ ...TD_R, color: signColour(r.changePct) }}>{fmtPct(r.changePct)}</td>
                 <td style={{ ...TD, textAlign: "center" }}>
                   <span style={{ display: "inline-flex", justifyContent: "center", width: "100%" }}>
-                    <Sparkline data={r.series} />
+                    <Sparkline data={r.chartSymbol ? (series[r.chartSymbol] ?? r.series) : r.series} />
                   </span>
                 </td>
                 <td style={{ ...TD_R, color: signColour(r.pnl) }}>{fmtMoney(r.pnl, r.ccy, true)}</td>
@@ -194,7 +218,7 @@ export function PositionsTable() {
         </div>
       )}
       <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
-        Per broker · native currency, never blended · Trend shows "—" until a recent price series is available (not fabricated).
+        Per broker · native currency, never blended · Trend = ~30 daily closes (green up / red down); "—" when no series is available (not fabricated).
       </div>
     </div>
   );

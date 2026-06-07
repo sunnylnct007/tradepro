@@ -14,9 +14,12 @@
  * new northstar look and is mounted as a sibling route — the legacy /trader
  * cockpit and its nav stay completely untouched.
  *
- * Nav links only point at routes that actually exist in App.tsx; anything we
- * don't have yet (Watchlist / Quote / News / Layouts) is a disabled "coming
- * soon" item rather than a 404.
+ * View switching: Portfolio / Screeners / News / Watchlist are IN-PAGE views
+ * (the page owns an `active` view-id + `onSelect` callback that this shell
+ * drives), NOT routes — so /desk is a single composite cockpit you stay on.
+ * Settings is the one real route link (/settings exists). Quote stays a
+ * disabled "coming soon" stub (no live bid/ask quote endpoint), as does
+ * Layouts. Nothing 404s.
  *
  * Responsiveness is driven by a width observer (no browser-only media-query
  * reasoning needed for tsc): below MOBILE_BREAKPOINT the layout switches to a
@@ -35,24 +38,28 @@ const BAR_BG = "#0d1117";
 const RAIL_BG = "#0d1117";
 const SEP = "#1b2233";
 
+/** The in-page work-area views the rail can switch between. */
+export type DeskView = "portfolio" | "screeners" | "news" | "watchlist";
+
 type NavEntry = {
   key: string;
   label: string;
-  icon: string;      // emoji glyph — no icon-font dependency
-  to?: string;       // present → real link; absent → disabled stub
-  title: string;     // tooltip (route or "coming soon")
+  icon: string;        // emoji glyph — no icon-font dependency
+  view?: DeskView;     // present → switches the in-page work-area view
+  to?: string;         // present → real route link (Settings only)
+  title: string;       // tooltip
 };
 
-// Map each rail item to a REAL route or a disabled stub. Verified against
-// App.tsx: /desk (this build), /scan (Screeners), /settings exist; there is
-// no /watchlist, /quote, /news or /layouts route, so those are stubs.
+// Rail items. Portfolio / Screeners / News / Watchlist are in-page views;
+// Settings is a route (/settings exists). Quote + Layouts are disabled stubs
+// (no live quote endpoint / no layout system yet) — never a 404.
 const NAV: NavEntry[] = [
-  { key: "portfolio", label: "Portfolio", icon: "📊", to: "/desk",     title: "Portfolio" },
-  { key: "watchlist", label: "Watchlist", icon: "👁",  title: "Watchlist — coming soon" },
+  { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", title: "Portfolio" },
+  { key: "watchlist", label: "Watchlist", icon: "👁",  view: "watchlist", title: "Watchlist" },
   { key: "quote",     label: "Quote",     icon: "💲",  title: "Quote — coming soon" },
-  { key: "screeners", label: "Screeners", icon: "🔎", to: "/scan",     title: "Universe scan" },
+  { key: "screeners", label: "Screeners", icon: "🔎", view: "screeners", title: "Screeners" },
   { key: "layouts",   label: "Layouts",   icon: "▦",   title: "Layouts — coming soon" },
-  { key: "news",      label: "News",      icon: "📰",  title: "News — coming soon" },
+  { key: "news",      label: "News",      icon: "📰",  view: "news",      title: "News & Daily Overview" },
 ];
 
 const SETTINGS: NavEntry = {
@@ -72,7 +79,15 @@ function useIsMobile(): boolean {
   return mobile;
 }
 
-export function DeskShell({ children }: { children: ReactNode }) {
+export function DeskShell({
+  children,
+  active,
+  onSelect,
+}: {
+  children: ReactNode;
+  active: DeskView;
+  onSelect: (view: DeskView) => void;
+}) {
   const mobile = useIsMobile();
 
   return (
@@ -92,7 +107,7 @@ export function DeskShell({ children }: { children: ReactNode }) {
       }}
     >
       <TopBar />
-      {!mobile && <LeftRail />}
+      {!mobile && <LeftRail active={active} onSelect={onSelect} />}
       <main
         style={{
           gridArea: "main",
@@ -102,7 +117,7 @@ export function DeskShell({ children }: { children: ReactNode }) {
       >
         {children}
       </main>
-      {mobile && <BottomTabBar />}
+      {mobile && <BottomTabBar active={active} onSelect={onSelect} />}
     </div>
   );
 }
@@ -259,7 +274,7 @@ function AccountChip() {
 }
 
 /** Left icon-nav rail (desktop). Active item: blue + left accent bar. */
-function LeftRail() {
+function LeftRail({ active, onSelect }: { active: DeskView; onSelect: (v: DeskView) => void }) {
   return (
     <nav
       style={{
@@ -273,48 +288,66 @@ function LeftRail() {
       }}
     >
       {NAV.map((n) => (
-        <RailItem key={n.key} entry={n} />
+        <RailItem key={n.key} entry={n} active={active} onSelect={onSelect} />
       ))}
       <div style={{ marginTop: "auto", paddingBottom: 8 }}>
-        <RailItem entry={SETTINGS} />
+        <RailItem entry={SETTINGS} active={active} onSelect={onSelect} />
       </div>
     </nav>
   );
 }
 
-function RailItem({ entry }: { entry: NavEntry }) {
-  const inner = (active: boolean) => (
+/** Shared visual for a rail/tab item; `accent` draws the desktop left bar. */
+function navInner(entry: NavEntry, on: boolean, accent: boolean) {
+  return (
     <div
       title={entry.title}
       style={{
         display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-        padding: "10px 4px",
-        borderLeft: `3px solid ${active ? "var(--accent, #4f8cff)" : "transparent"}`,
-        color: active ? "var(--accent, #4f8cff)" : "var(--text-muted)",
-        opacity: entry.to ? 1 : 0.45,
-        cursor: entry.to ? "pointer" : "default",
+        padding: accent ? "10px 4px" : "8px 4px",
+        flex: accent ? undefined : 1,
+        borderLeft: accent ? `3px solid ${on ? "var(--accent, #4f8cff)" : "transparent"}` : undefined,
+        color: on ? "var(--accent, #4f8cff)" : "var(--text-muted)",
+        opacity: entry.view || entry.to ? 1 : 0.45,
+        cursor: entry.view || entry.to ? "pointer" : "default",
+        minWidth: 0,
       }}
     >
-      <span style={{ fontSize: 18, lineHeight: 1 }}>{entry.icon}</span>
-      <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+      <span style={{ fontSize: accent ? 18 : 17, lineHeight: 1 }}>{entry.icon}</span>
+      <span style={{ fontSize: accent ? 9 : 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>
         {entry.label}
       </span>
     </div>
   );
+}
 
-  if (!entry.to) {
-    // Disabled stub — render but don't navigate (no 404).
-    return <div>{inner(false)}</div>;
+function RailItem({
+  entry, active, onSelect,
+}: { entry: NavEntry; active: DeskView; onSelect: (v: DeskView) => void }) {
+  if (entry.view) {
+    const on = entry.view === active;
+    return (
+      <button
+        onClick={() => onSelect(entry.view!)}
+        style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
+      >
+        {navInner(entry, on, true)}
+      </button>
+    );
   }
-  return (
-    <NavLink to={entry.to} style={{ textDecoration: "none" }}>
-      {({ isActive }) => inner(isActive)}
-    </NavLink>
-  );
+  if (entry.to) {
+    return (
+      <NavLink to={entry.to} style={{ textDecoration: "none" }}>
+        {({ isActive }) => navInner(entry, isActive, true)}
+      </NavLink>
+    );
+  }
+  // Disabled stub — render but don't navigate (no 404).
+  return <div>{navInner(entry, false, true)}</div>;
 }
 
 /** Bottom tab bar (mobile). Same items, horizontal, fixed to viewport. */
-function BottomTabBar() {
+function BottomTabBar({ active, onSelect }: { active: DeskView; onSelect: (v: DeskView) => void }) {
   const items = [...NAV, SETTINGS];
   return (
     <nav
@@ -326,34 +359,32 @@ function BottomTabBar() {
       }}
     >
       {items.map((n) => (
-        <TabItem key={n.key} entry={n} />
+        <TabItem key={n.key} entry={n} active={active} onSelect={onSelect} />
       ))}
     </nav>
   );
 }
 
-function TabItem({ entry }: { entry: NavEntry }) {
-  const inner = (active: boolean) => (
-    <div
-      title={entry.title}
-      style={{
-        display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-        padding: "8px 4px", flex: 1,
-        color: active ? "var(--accent, #4f8cff)" : "var(--text-muted)",
-        opacity: entry.to ? 1 : 0.45,
-        minWidth: 0,
-      }}
-    >
-      <span style={{ fontSize: 17, lineHeight: 1 }}>{entry.icon}</span>
-      <span style={{ fontSize: 8, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-        {entry.label}
-      </span>
-    </div>
-  );
-  if (!entry.to) return <div style={{ flex: 1 }}>{inner(false)}</div>;
-  return (
-    <NavLink to={entry.to} style={{ textDecoration: "none", flex: 1 }}>
-      {({ isActive }) => inner(isActive)}
-    </NavLink>
-  );
+function TabItem({
+  entry, active, onSelect,
+}: { entry: NavEntry; active: DeskView; onSelect: (v: DeskView) => void }) {
+  if (entry.view) {
+    const on = entry.view === active;
+    return (
+      <button
+        onClick={() => onSelect(entry.view!)}
+        style={{ background: "transparent", border: "none", padding: 0, flex: 1, cursor: "pointer" }}
+      >
+        {navInner(entry, on, false)}
+      </button>
+    );
+  }
+  if (entry.to) {
+    return (
+      <NavLink to={entry.to} style={{ textDecoration: "none", flex: 1 }}>
+        {({ isActive }) => navInner(entry, isActive, false)}
+      </NavLink>
+    );
+  }
+  return <div style={{ flex: 1 }}>{navInner(entry, false, false)}</div>;
 }
