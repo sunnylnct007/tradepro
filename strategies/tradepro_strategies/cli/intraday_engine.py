@@ -649,6 +649,35 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
         dws = getattr(bus, "data_window_start", None)
         data_source = getattr(bus, "data_source", "") or "unknown"
         data_error = getattr(bus, "data_error", "") or None
+
+        # Thread data_source into every decision's detail dict so the
+        # cockpit scan grid can show a provenance badge (ibkr / ig /
+        # yfinance) next to each signal without changing the snapshot
+        # schema. Uses an underscore-prefixed key so it's clearly
+        # engine-injected metadata, not strategy output.
+        for st_entry in per_strategy:
+            for dec in st_entry.get("decisions") or []:
+                if isinstance(dec, dict):
+                    detail = dec.get("detail")
+                    if not isinstance(detail, dict):
+                        dec["detail"] = {"_data_source": data_source}
+                    else:
+                        detail["_data_source"] = data_source
+
+        # When data was completely unavailable, inject a sentinel decision
+        # so the scan grid shows a visible "DATA ERROR" card for this symbol
+        # rather than the symbol silently disappearing from the grid.
+        if data_error:
+            sentinel = {
+                "bar_ts": None,
+                "symbol": symbol,
+                "action": "data_error",
+                "reason": data_error,
+                "detail": {"_data_source": "none", "_data_error": data_error},
+            }
+            for st_entry in per_strategy:
+                st_entry.setdefault("decisions", []).insert(0, sentinel)
+
         return {
             "symbol": symbol,
             "ok": True,
