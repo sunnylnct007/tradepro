@@ -90,12 +90,17 @@ function useIsMobile(): boolean {
   return mobile;
 }
 
-export function QuoteView() {
+/** `initialSymbol` (optional): when /desk drills in from a clicked position or
+ * order row, the candle symbol to default-select. Matched against an
+ * instrument's `symbol`, else its broker ticker `label`; if it isn't in the
+ * list yet (e.g. a watchlist-less name) we still seed `selected` with it so the
+ * chart attempts candles for it. Falls back to the first holding when absent. */
+export function QuoteView({ initialSymbol }: { initialSymbol?: string | null }) {
   const mobile = useIsMobile();
   const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialSymbol ?? null);
   const [tf, setTf] = useState<string>("1Y");
 
   // Build the instrument list: held positions (T212+IG+IBKR) ∪ watchlist.
@@ -234,10 +239,18 @@ export function QuoteView() {
       setInstruments(list);
       setNotes(msgs);
       setLoading(false);
-      // Default-select the first holding (with an honest chart symbol if any),
-      // else the first instrument.
+      // Default-select: keep the current selection if it resolves to a listed
+      // instrument (by candle symbol OR broker ticker — a drill-in from a
+      // position row may pass either); otherwise the first holding with an
+      // honest chart symbol, else the first instrument.
       setSelected((cur) => {
-        if (cur && list.some((i) => i.symbol === cur)) return cur;
+        if (cur) {
+          const match = list.find((i) => i.symbol === cur || i.label === cur);
+          if (match) return match.symbol;
+          // Not in the list (e.g. a name with no position/watchlist row): still
+          // honour it so the chart attempts candles for it.
+          return cur;
+        }
         const firstChartable = list.find((i) => i.held && hasChart(i));
         return (firstChartable ?? list[0])?.symbol ?? null;
       });
@@ -248,10 +261,18 @@ export function QuoteView() {
     return () => { live = false; };
   }, []);
 
-  const selectedInstrument = useMemo(
-    () => instruments.find((i) => i.symbol === selected) ?? null,
-    [instruments, selected],
-  );
+  const selectedInstrument = useMemo(() => {
+    if (!selected) return null;
+    const found = instruments.find((i) => i.symbol === selected || i.label === selected);
+    if (found) return found;
+    // A drilled-in symbol that isn't a held/watchlist row: synthesise a
+    // minimal instrument so the chart still attempts candles for it rather
+    // than showing "Select an instrument".
+    return {
+      symbol: selected, label: selected, company: null,
+      held: null, fromWatchlist: false,
+    } satisfies Instrument;
+  }, [instruments, selected]);
 
   if (loading && instruments.length === 0) {
     return <Panel><Note>Loading instruments…</Note></Panel>;

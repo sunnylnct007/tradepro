@@ -161,6 +161,10 @@ table.trade-table td {
 }
 table.trade-table tr:hover td { background: rgba(79, 140, 255, 0.05); }
 
+/* /desk clickable rows (position rows that open the Quote/Chart view). */
+tr.desk-row-clickable:hover { background: rgba(79, 140, 255, 0.06); }
+tr.desk-row-clickable:hover td { background: rgba(79, 140, 255, 0.06); }
+
 /* Recharts dark overrides */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {

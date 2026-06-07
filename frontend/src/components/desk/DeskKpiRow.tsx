@@ -16,7 +16,8 @@
  */
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
-import { fmtMoney, fmtPct, signColour } from "./deskFormat";
+import { fmtMoney, fmtPct, signColour, accountMode, type AccountMode } from "./deskFormat";
+import { ModeBadge } from "./ModeBadge";
 
 type Group = {
   broker: string;
@@ -24,6 +25,7 @@ type Group = {
   label: string;
   ccy: string;
   status: "ok" | "degraded" | "down" | "disabled";
+  mode: AccountMode;
   netLiq: number | null;
   available: number | null;
   openPnl: number | null;   // unrealized now
@@ -98,6 +100,7 @@ function BrokerKpis({ g }: { g: Group }) {
           }}
         />
         {g.label} · {g.ccy || "—"}
+        <ModeBadge mode={g.mode} />
       </div>
       <div
         style={{
@@ -180,6 +183,7 @@ function merge(cash: CashBroker[], pnl: PnlRow[]): Group[] {
         label: c.label || c.broker,
         ccy: c.currency ?? "",
         status: c.status,
+        mode: accountMode(c.label, c.broker, c.mode),
         netLiq: c.total ?? c.balance ?? null,
         available: c.available ?? c.free ?? null,
         openPnl: c.openPnl ?? null,
