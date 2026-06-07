@@ -647,6 +647,8 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
         # data_window_start = earliest date that contributed bars (from the
         # holiday-aware lookback). None when lookback_days=0 or pre-market.
         dws = getattr(bus, "data_window_start", None)
+        data_source = getattr(bus, "data_source", "") or "unknown"
+        data_error = getattr(bus, "data_error", "") or None
         return {
             "symbol": symbol,
             "ok": True,
@@ -655,6 +657,8 @@ def _run_one_symbol(symbol: str, cfg: dict) -> dict:
             "strategies": per_strategy,
             "register_errors": register_errors,
             "data_window_start": dws.date().isoformat() if dws else None,
+            "data_source": data_source,
+            "data_error": data_error,
         }
     except Exception as e:  # noqa: BLE001
         log.exception("symbol %s failed", symbol)

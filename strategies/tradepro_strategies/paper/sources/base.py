@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 from ..bar_bus import BarBus, ReplayBarBus
 from ..strategy import Bar
+from .errors import DataUnavailableError
 
 _log = logging.getLogger("tradepro.paper.sources")
 
@@ -120,6 +121,25 @@ async def _fetch_window(
             data_window_start = d
         merged.extend(bars)
     merged.extend(session_bars)
+
+    if not merged:
+        # No bars at all from any source or any day — this is not a
+        # holiday-silence (those produce partial lookbacks), it's a
+        # total failure. The strategy cannot run without at least some
+        # bars. Surface as DataUnavailableError so the engine marks
+        # this symbol as errored rather than completing as a no-op.
+        _log.warning(
+            "%s: NO bars from any source for any of %d candidate date(s) "
+            "at %s. Symbol may be delisted, invalid, or all providers "
+            "are down. Raising DataUnavailableError.",
+            symbol, len(candidates), interval,
+        )
+        raise DataUnavailableError(
+            symbol=symbol,
+            session_date=session_date,
+            interval=interval,
+        )
+
     return merged, data_window_start
 
 
@@ -167,6 +187,8 @@ class SourceBackedBus(BarBus):
     lookback_days: int = 0
     name: str = "source_backed_bus"
     data_window_start: datetime | None = field(default=None, init=False)
+    data_source: str = field(default="", init=False)   # which provider served bars
+    data_error: str = field(default="", init=False)    # error msg if data unavailable
 
     async def run(
         self,
@@ -177,10 +199,19 @@ class SourceBackedBus(BarBus):
             raise ValueError(
                 "SourceBackedBus requires source + symbol + session_date"
             )
-        bars, self.data_window_start = await _fetch_window(
-            self.source, self.symbol, self.session_date, self.interval,
-            self.lookback_days,
-        )
+        try:
+            bars, self.data_window_start = await _fetch_window(
+                self.source, self.symbol, self.session_date, self.interval,
+                self.lookback_days,
+            )
+        except DataUnavailableError as e:
+            self.data_error = str(e)
+            bars = []
+            self.data_window_start = None
+        else:
+            self.data_source = (
+                getattr(self.source, "last_source", "") or "unknown"
+            )
         replay = ReplayBarBus(
             bars=bars, pace_seconds=self.pace_seconds, name=self.name,
         )
@@ -213,6 +244,8 @@ class MultiSymbolSourceBackedBus(BarBus):
     lookback_days: int = 0
     name: str = "multi_symbol_source_backed_bus"
     data_window_start: datetime | None = field(default=None, init=False)
+    data_sources: dict[str, str] = field(default_factory=dict, init=False)  # sym → provider name
+    data_errors: dict[str, str] = field(default_factory=dict, init=False)   # sym → error msg
 
     async def run(
         self,
@@ -232,10 +265,18 @@ class MultiSymbolSourceBackedBus(BarBus):
 
         async def _bounded(sym: str) -> tuple[list[Bar], datetime | None]:
             async with sem:
-                return await _fetch_window(
-                    self.source, sym, self.session_date, self.interval,
-                    self.lookback_days,
-                )
+                try:
+                    result = await _fetch_window(
+                        self.source, sym, self.session_date, self.interval,
+                        self.lookback_days,
+                    )
+                    self.data_sources[sym] = (
+                        getattr(self.source, "last_source", "") or "unknown"
+                    )
+                    return result
+                except DataUnavailableError as e:
+                    self.data_errors[sym] = str(e)
+                    return [], None
 
         results = await asyncio.gather(*[_bounded(sym) for sym in self.symbols])
         per_symbol_bars = [bars for bars, _ in results]
