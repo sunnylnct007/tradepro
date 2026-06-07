@@ -17,7 +17,7 @@
  *   onClose    — called when the user hits the back/close button
  *   positions  — current merged broker positions (for SymbolPositionCard)
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { OmsOrderRow } from "../../api/client";
 import { SymbolChartCard } from "./SymbolChartCard";
@@ -39,6 +39,9 @@ export function SymbolDetailRail({
   const [orders, setOrders]     = useState<OmsOrderRow[]>([]);
   const [ordersLoading, setOL] = useState(true);
 
+  // Ref used to scroll the rail into view when a symbol is selected.
+  const railRef = useRef<HTMLElement>(null);
+
   // Fetch orders once on mount (symbol change resets the component via key).
   useEffect(() => {
     let live = true;
@@ -49,8 +52,17 @@ export function SymbolDetailRail({
     return () => { live = false; };
   }, []);
 
+  // Scroll the rail into view when the component mounts (i.e. when a symbol is
+  // selected). This handles the case where the user clicks a row that is low on
+  // the page and the rail (which is in a sticky right column) would otherwise
+  // be above the current scroll position or off-screen on mobile.
+  useEffect(() => {
+    railRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   return (
     <aside
+      ref={railRef}
       style={{
         border: "1px solid #1b2233",
         borderRadius: 8,
@@ -59,9 +71,17 @@ export function SymbolDetailRail({
         display: "flex",
         flexDirection: "column",
         gap: 10,
-        minWidth: 0,
-        overflowY: "auto",
+        minWidth: 280,
+        // Allow the user to drag the right edge to resize the rail width.
+        resize: "horizontal",
+        overflow: "auto",
         maxHeight: "calc(100vh - 120px)",
+        // Stick to the top of the scrolling work-area so the chart stays
+        // visible even when the positions list is long. `top: 0` works because
+        // DeskShell's <main> is the scroll container (overflow:auto), not the
+        // browser viewport.
+        position: "sticky",
+        top: 0,
       }}
     >
       {/* Header: symbol + close button */}
@@ -93,8 +113,8 @@ export function SymbolDetailRail({
         </button>
       </div>
 
-      {/* 1. Chart */}
-      <SymbolChartCard symbol={symbol} height={240} />
+      {/* 1. Chart — taller so candles are readable in the wider rail. */}
+      <SymbolChartCard symbol={symbol} height={300} />
 
       {/* 2. Position */}
       <SymbolPositionCard symbol={symbol} positions={positions} />

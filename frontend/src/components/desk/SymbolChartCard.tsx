@@ -17,7 +17,7 @@ type TF = (typeof TIMEFRAMES)[number];
 
 export function SymbolChartCard({
   symbol,
-  height = 260,
+  height = 300,
 }: {
   symbol: string;
   height?: number;
@@ -31,7 +31,12 @@ export function SymbolChartCard({
         borderRadius: 6,
         background: "rgba(255,255,255,0.015)",
         padding: 10,
+        // Stretch to fill the rail's width (width:100% + minWidth:0 lets the
+        // flex/grid parent constrain it). minWidth:0 prevents chart overflow
+        // when the rail is narrower than the chart's natural width.
+        width: "100%",
         minWidth: 0,
+        boxSizing: "border-box",
       }}
     >
       {/* Timeframe pills — no dropdown, state always visible. */}

@@ -90,11 +90,18 @@ export function Desk() {
           {/* Compact per-broker account summary table */}
           <AccountSummaryGrid />
 
-          {/* Two-column: work-area | right-rail */}
+          {/* Two-column: work-area | right-rail.
+              When a symbol is selected the rail widens (420px vs 320px) so the
+              candlestick chart has comfortable room. On narrow viewports it
+              stacks below the work-area. */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: wide ? "minmax(0, 1fr) 320px" : "1fr",
+              gridTemplateColumns: wide
+                ? selectedSymbol
+                  ? "minmax(0, 1fr) 420px"
+                  : "minmax(0, 1fr) 320px"
+                : "1fr",
               gap: 14,
               alignItems: "start",
             }}
