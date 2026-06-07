@@ -1190,6 +1190,34 @@ change between slices.
 - Bootstrap restore CLI ("rehydrate cache from S3").
 - EC2 same-region read for full-universe backtests.
 
+**Data lake — continuous capture (new stream)**
+
+The "rely less on Yahoo" + "backtest the platform at any historical
+moment" piece. We own the time series instead of leasing it from
+providers that revise, rate-limit, or disappear.
+
+- **P2 — IG L1 snapshot harvester ✅ SHIPPED (infrastructure)**:
+  Migration 044 `ig_l1_snapshots` (per-poll bid/ask/mid + generated
+  spread_bps + market_status + error column for honest gap labelling).
+  `.NET IGSnapshotHarvester` BackgroundService polls /markets/{epic}
+  on a configurable cadence (default 5 min, clamped [60, 3600]s),
+  writes rows sequentially through the shared IGSessionCache. OFF by
+  default — `IG:Harvester:Enabled=true` flips it on once the universe
+  list is reviewed. Endpoint `GET /api/admin/data-trust/ig-snapshots/
+  recent` surfaces recent rows + per-symbol spread aggregates.
+  12 backend tests cover the SYMBOL:EPIC parser + the generated
+  mid/spread_bps + market-closed null-quote handling.
+- **P2.1** — Cockpit "IG snapshot harvest activity" panel: rows per
+  symbol per day, fill rate, avg spread. Reads the endpoint above.
+- **P3** — IBKR snapshot harvester (same shape, separate table).
+  Drops in cleanly once IBKR auth is live.
+- **P4** — Big-move detector reads the snapshot stream + escalates
+  to tick-fidelity capture for the next N minutes when |return| > 2σ.
+- **P5** — Replay engine: given (date_range, universe) emits a
+  deterministic sequence of bars + snapshots through any strategy.
+- **P6** — A/B comparison cockpit: two strategy configs on same
+  captured tape, side-by-side decision trace + P&L.
+
 **Catalyst overlay — north-star gap #1 (new stream)**
 - **C-1 ✅ SHIPPED** — Migration 038 `catalysts` registry with idempotent
   UNIQUE on (symbol, kind, occurs_on, source). `CatalystsEndpoints.cs`

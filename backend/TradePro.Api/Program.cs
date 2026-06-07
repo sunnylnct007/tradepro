@@ -150,6 +150,14 @@ builder.Services.AddHttpClient<TradePro.Api.Providers.IG.IGClient>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
 });
+// Phase P2 — continuous IG L1 snapshot harvester.
+// OFF by default; flip `IG:Harvester:Enabled=true` once the universe
+// list is reviewed. Singleton-session-correct (shares IGSessionCache
+// with the rest of the IG client surface).
+builder.Services
+    .AddOptions<TradePro.Api.Providers.IG.IGHarvesterOptions>()
+    .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IG.IGHarvesterOptions.SectionName));
+builder.Services.AddHostedService<TradePro.Api.Providers.IG.IGSnapshotHarvester>();
 
 // IBKR (Interactive Brokers) — OAuth2 Web API. Off by default; turns on
 // once the standalone tradepro/ibkr secret is populated with mode !=
