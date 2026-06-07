@@ -902,6 +902,30 @@ export const api = {
       }>;
     }>("/api/integrations/ig/positions"),
 
+  // IBKR open positions (equities). READ-ONLY. Surfaced in the desk +
+  // cockpit position tables with an IBKR broker tag, the same way T212
+  // live positions render. When the tradepro/ibkr secret is absent the
+  // backend returns { enabled:false, note } and the UI renders nothing.
+  ibkrPositions: () =>
+    get<{
+      enabled: boolean;
+      broker?: string;
+      mode?: string;
+      count?: number;
+      note?: string;
+      error?: string | null;
+      positions: Array<{
+        ticker: string | null;
+        instrumentName: string | null;
+        quantity: number;
+        averagePricePaid: number | null;
+        currentPrice: number | null;
+        unrealisedAbs: number | null;
+        unrealisedPct: number | null;
+        currency: string | null;
+      }>;
+    }>("/api/integrations/ibkr/positions"),
+
   omsPositions: (strategyId?: string) =>
     get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string }> }>(
       "/api/oms/positions", strategyId ? { strategyId } : undefined,
