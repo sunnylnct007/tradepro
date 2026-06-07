@@ -1,36 +1,42 @@
 /**
- * Desk — the new IBKR-Desktop-style northstar cockpit, mounted at /desk.
+ * Desk — IBKR-Desktop-style northstar cockpit, mounted at /desk.
  *
- * Standalone from the legacy /trader cockpit and the app-wide <Layout> nav:
- * it brings its own three-zone shell (DeskShell) so we can switch the default
- * to it later without disturbing anything that exists today.
+ * Portfolio layout is a master-detail two-column grid on wide screens:
  *
- * The left icon-nav switches the work-area between IN-PAGE views (state here,
- * not routes — /desk is one composite cockpit):
- *   - Portfolio  → DeskKpiRow + DeskTabs (Positions/Orders/Trades/Balances)
- *                  with DeskRightRail (account-value chart) on wide screens
- *   - Quote      → QuoteView (read-only Quote/Chart: instrument list ·
- *                  candlestick chart w/ timeframe pills · instrument-detail +
- *                  position rail, all from real candles + broker positions)
- *   - Screeners  → ScreenersView (compareLatest, sortable IBKR-style table)
- *   - News       → NewsView (market context · earnings · headlines · catalysts)
- *   - Watchlist  → WatchlistView (curated UK list)
+ *   [work-area]  |  [right rail]
  *
- * Layout (Portfolio): a 2-column grid [work-area | right-rail] on wide screens
- * that collapses to a single column (rail stacked BELOW) under WIDE_BREAKPOINT
- * — a `minmax(0, …)` first column lets the dense tables shrink/scroll instead
- * of forcing page-level horizontal overflow. The other views use the full
- * width (no right rail).
+ *   Work-area: AccountSummaryGrid (compact per-broker table) +
+ *              DeskTabs (Positions/Orders/Trades/Balances — Positions tab
+ *              now renders PositionsByStrategy grouped by strategy desk)
+ *
+ *   Right rail:
+ *     - Nothing selected → DeskRightRail (account-value % chart)
+ *     - Symbol selected  → SymbolDetailRail (chart + position + WHY + orders)
+ *       The selection is lifted here as `selectedSymbol: string|null`.
+ *       Position rows and order rows call `onSelectSymbol(chartSymbol)` which
+ *       sets selectedSymbol WITHOUT navigating — /desk is a single composite
+ *       cockpit, never a new page.
+ *
+ * The `DeskTabs` component's Positions tab has been replaced by
+ * `PositionsByStrategy` (strategy-grouped positions with per-strategy subtotals).
+ * The existing Orders/Trades/Balances tabs are unchanged.
+ *
+ * Mobile: grid collapses to single column; the rail stacks below the work-area.
+ * Detail rail caps at 100vh - 120px with its own overflow:auto.
+ *
+ * Other views (Quote/Screeners/News/Watchlist) use full width.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DeskShell, type DeskView } from "../components/desk/DeskShell";
-import { DeskKpiRow } from "../components/desk/DeskKpiRow";
+import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { DeskTabs } from "../components/desk/DeskTabs";
 import { DeskRightRail } from "../components/desk/DeskRightRail";
+import { SymbolDetailRail } from "../components/desk/SymbolDetailRail";
 import { ScreenersView } from "../components/desk/ScreenersView";
 import { NewsView } from "../components/desk/NewsView";
 import { WatchlistView } from "../components/desk/WatchlistView";
 import { QuoteView } from "../components/desk/QuoteView";
+import type { PositionRow } from "../components/desk/PositionsByStrategy";
 
 const WIDE_BREAKPOINT = 1024;
 
@@ -49,20 +55,42 @@ function useWide(): boolean {
 export function Desk() {
   const wide = useWide();
   const [view, setView] = useState<DeskView>("portfolio");
-  // Lifted "drill into this symbol" state: a Positions/Orders row can call
-  // openSymbol(sym) to jump to the Quote/Chart view with that symbol selected.
+
+  // Master-detail: the symbol currently "drilled into" in the right rail.
+  // null → account-value chart (DeskRightRail).
+  // string → SymbolDetailRail for that Yahoo symbol.
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
-  const openSymbol = (symbol: string) => {
-    setSelectedSymbol(symbol);
-    setView("quote");
-  };
+  // Positions from PositionsByStrategy — fed into SymbolPositionCard via the
+  // rail so the rail doesn't need its own fetch.
+  const [positions, setPositions] = useState<PositionRow[]>([]);
+
+  // When the user clicks a symbol in positions or orders:
+  //   - stay on "portfolio" (no view change)
+  //   - open the right rail for that symbol
+  const onSelectSymbol = useCallback((sym: string) => {
+    setSelectedSymbol(sym);
+  }, []);
+
+  // Navigating to another view clears the symbol selection so the rail
+  // resets to the account-value chart on return.
+  const onSelectView = useCallback((v: DeskView) => {
+    setView(v);
+    if (v !== "portfolio") setSelectedSymbol(null);
+  }, []);
+
+  const handleRowsChange = useCallback((rows: PositionRow[]) => {
+    setPositions(rows);
+  }, []);
 
   return (
-    <DeskShell active={view} onSelect={setView}>
+    <DeskShell active={view} onSelect={onSelectView}>
       {view === "portfolio" && (
         <>
-          <DeskKpiRow />
+          {/* Compact per-broker account summary table */}
+          <AccountSummaryGrid />
+
+          {/* Two-column: work-area | right-rail */}
           <div
             style={{
               display: "grid",
@@ -71,15 +99,36 @@ export function Desk() {
               alignItems: "start",
             }}
           >
-            <DeskTabs onOpenSymbol={openSymbol} />
-            <DeskRightRail />
+            {/* Work area: tabbed Positions/Orders/Trades/Balances */}
+            <DeskTabs
+              onOpenSymbol={onSelectSymbol}
+              onPositionsRowsChange={handleRowsChange}
+            />
+
+            {/* Right rail: account chart or symbol detail */}
+            {selectedSymbol ? (
+              <SymbolDetailRail
+                key={selectedSymbol}
+                symbol={selectedSymbol}
+                onClose={() => setSelectedSymbol(null)}
+                positions={positions}
+              />
+            ) : (
+              <DeskRightRail />
+            )}
           </div>
         </>
       )}
-      {view === "quote" && <QuoteView initialSymbol={selectedSymbol} />}
+
+      {view === "quote" && (
+        <QuoteView initialSymbol={selectedSymbol} />
+      )}
       {view === "screeners" && <ScreenersView />}
-      {view === "news" && <NewsView wide={wide} />}
+      {view === "news"      && <NewsView wide={wide} />}
       {view === "watchlist" && <WatchlistView />}
     </DeskShell>
   );
 }
+
+// Keep legacy export for any import that uses the named export.
+export default Desk;

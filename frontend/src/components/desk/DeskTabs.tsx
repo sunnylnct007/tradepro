@@ -17,7 +17,7 @@ import { api, type OmsOrderRow } from "../../api/client";
 import { prettySymbol, bareSymbol, productOf } from "../../util/brokerSymbols";
 import { fmtWhenDate } from "../../util/time";
 import { fmtQty } from "../../util/numbers";
-import { PositionsTable } from "./PositionsTable";
+import { PositionsByStrategy, type PositionRow } from "./PositionsByStrategy";
 import { fmtMoney, fmtNum, signColour } from "./deskFormat";
 
 type Tab = "positions" | "orders" | "trades" | "balances";
@@ -37,7 +37,15 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "balances", label: "Balances" },
 ];
 
-export function DeskTabs({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }) {
+export function DeskTabs({
+  onOpenSymbol,
+  onPositionsRowsChange,
+}: {
+  onOpenSymbol?: (symbol: string) => void;
+  /** Forwarded from PositionsByStrategy so Desk.tsx can keep a copy of rows
+   * for the SymbolPositionCard in the right rail (avoids a second fetch). */
+  onPositionsRowsChange?: (rows: PositionRow[]) => void;
+}) {
   const [tab, setTab] = useState<Tab>("positions");
 
   return (
@@ -68,7 +76,12 @@ export function DeskTabs({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => 
         })}
       </div>
       <div style={{ padding: 10 }}>
-        {tab === "positions" && <PositionsTable onOpenSymbol={onOpenSymbol} />}
+        {tab === "positions" && (
+          <PositionsByStrategy
+            onSelectSymbol={onOpenSymbol}
+            onRowsChange={onPositionsRowsChange}
+          />
+        )}
         {tab === "orders" && <OrdersTab onOpenSymbol={onOpenSymbol} />}
         {tab === "trades" && <TradesTab onOpenSymbol={onOpenSymbol} />}
         {tab === "balances" && <BalancesTab />}
