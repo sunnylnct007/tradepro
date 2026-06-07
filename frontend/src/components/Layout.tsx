@@ -40,7 +40,9 @@ type NavItem = { to: string; label: string; end?: boolean };
 // else is one click away inside the "More" overflow menu so the
 // header doesn't sprawl across the page.
 const marketNav: NavItem[] = [
-  { to: "/trader",       label: "Cockpit"    },
+  // Cockpit now points at the new IBKR-style /desk surface. The legacy
+  // TraderCockpit is still reachable via "Cockpit (legacy)" in More → System.
+  { to: "/desk",         label: "Cockpit"    },
   // Decide — long-term / multi-strategy comparison view. Lives in
   // the primary row because traders use it daily; was previously
   // demoted into "More" which made it hard to find.
@@ -73,6 +75,8 @@ const moreSections: { label: string; items: NavItem[] }[] = [
     { to: "/intraday/leaderboard",  label: "Intraday board"  },
   ]},
   { label: "System", items: [
+    // Legacy trader cockpit — kept reachable during the /desk transition.
+    { to: "/trader-legacy",      label: "Cockpit (legacy)" },
     { to: "/risk",               label: "Risk"      },
     { to: "/universes",          label: "Universes" },
     { to: "/settings",           label: "Settings"  },

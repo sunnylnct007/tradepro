@@ -1,4 +1,4 @@
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
 import { Layout } from "./components/Layout";
 import { TradingModeProvider } from "./contexts/TradingMode";
@@ -71,7 +71,12 @@ const router = createBrowserRouter([
       // worker once the run completes.
       { path: "backtests", element: <Backtests /> },
       { path: "oms", element: <OmsOrders /> },
-      { path: "trader", element: <TraderCockpit /> },
+      // Cockpit promotion: /trader is now the IBKR-style /desk cockpit.
+      // The old TraderCockpit is preserved (not deleted) at /trader-legacy
+      // as a reversible fallback during the transition. Reverting = restore
+      // `{ path: "trader", element: <TraderCockpit /> }` here.
+      { path: "trader", element: <Navigate to="/desk" replace /> },
+      { path: "trader-legacy", element: <TraderCockpit /> },
       // Intraday strategy leaderboard — per-(symbol, strategy)
       // cumulative P&L rolled up from completed session_requests.
       // Powers the "did this strategy actually make money on this
