@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.tradepro.catalyst-finnhub — fetch Finnhub news + earnings calendar
+  every 2 hours and POST detected catalysts to the registry.
+
+  Install:
+    cp com.tradepro.catalyst-finnhub.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.tradepro.catalyst-finnhub.plist
+
+  Requires TRADEPRO_FINNHUB_API_KEY to be set below (never commit the key
+  to the public repo — fill it in after copying to ~/Library/LaunchAgents/).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.catalyst-finnhub</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies/.venv/bin/tradepro-catalysts-finnhub</string>
+    <string>--days-back</string><string>7</string>
+    <string>--days-ahead</string><string>90</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/skumar</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies</string>
+    <!-- REQUIRED: paste your Finnhub API key here after copying to ~/Library/LaunchAgents/ -->
+    <key>TRADEPRO_FINNHUB_API_KEY</key>
+    <string>REPLACE_WITH_KEY</string>
+    <!-- API base for the .NET registry -->
+    <key>TRADEPRO_API_BASE</key>
+    <string>http://16.60.201.137</string>
+  </dict>
+
+  <!-- Every 2 hours: 06, 08, 10, 12, 14, 16, 18, 20 UTC -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/Users/skumar/.tradepro/logs/catalyst-finnhub-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/skumar/.tradepro/logs/catalyst-finnhub-stderr.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
