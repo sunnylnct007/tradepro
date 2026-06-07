@@ -664,6 +664,78 @@ public static class DataTrustEndpoints
             });
         });
 
+        // Phase P2 — IG L1 snapshot lake. The harvester writes one
+        // row per epic per poll into ig_l1_snapshots; this surface
+        // backs the cockpit panel + the future replay engine.
+        //
+        // Two views in one endpoint:
+        //   * `recent_snapshots` — last N rows for a symbol filter,
+        //     newest first. Drives the "harvester activity" panel.
+        //   * `per_symbol_aggregates` — count + min/max/avg spread
+        //     over the window, ordered by lowest avg spread first
+        //     (that's the cleanest book). Drives the "where is our
+        //     IG quote quality best" panel.
+        g.MapGet("/ig-snapshots/recent", async (
+            NpgsqlDataSource db,
+            string? symbol,
+            int? limit,
+            int? sinceHours) =>
+        {
+            int row_limit = Math.Clamp(limit ?? 100, 1, 1000);
+            int hours = Math.Clamp(sinceHours ?? 24, 1, 24 * 30);
+            await using var conn = await db.OpenConnectionAsync();
+
+            var recent = (await conn.QueryAsync<(
+                long id, string symbol, string epic,
+                decimal? bid, decimal? ask, decimal? mid, decimal? spread_bps,
+                string? market_status, string? update_time,
+                DateTime captured_at_utc, string source, string? error)>(@"
+                SELECT id, symbol, epic, bid, ask, mid, spread_bps,
+                       market_status, update_time, captured_at_utc, source, error
+                FROM ig_l1_snapshots
+                WHERE captured_at_utc >= NOW() - (@hours || ' hours')::INTERVAL
+                  AND (@symbol IS NULL OR symbol = @symbol)
+                ORDER BY captured_at_utc DESC
+                LIMIT @row_limit;",
+                new { row_limit, hours = hours.ToString(), symbol })).ToList();
+
+            // Per-symbol aggregate over the same window. Min/max/avg
+            // spread_bps + count of polls vs count with usable quote
+            // (bid AND ask non-null). The "fill rate" tells you how
+            // well IG actually served us — a symbol with 100 polls but
+            // 30% empty bid/ask is information.
+            var per_symbol = (await conn.QueryAsync<(
+                string symbol, int n_polls, int n_quotes,
+                decimal? avg_spread_bps, decimal? min_spread_bps,
+                decimal? max_spread_bps,
+                DateTime? last_seen_utc)>(@"
+                SELECT
+                    symbol,
+                    COUNT(*)::int                                        AS n_polls,
+                    SUM(CASE WHEN bid IS NOT NULL AND ask IS NOT NULL THEN 1 ELSE 0 END)::int
+                                                                          AS n_quotes,
+                    AVG(spread_bps)                                       AS avg_spread_bps,
+                    MIN(spread_bps)                                       AS min_spread_bps,
+                    MAX(spread_bps)                                       AS max_spread_bps,
+                    MAX(captured_at_utc)                                  AS last_seen_utc
+                FROM ig_l1_snapshots
+                WHERE captured_at_utc >= NOW() - (@hours || ' hours')::INTERVAL
+                  AND (@symbol IS NULL OR symbol = @symbol)
+                GROUP BY symbol
+                ORDER BY AVG(spread_bps) NULLS LAST, symbol
+                LIMIT 200;",
+                new { hours = hours.ToString(), symbol })).ToList();
+
+            return Results.Ok(new
+            {
+                window_hours = hours,
+                symbol_filter = symbol,
+                recent_snapshots = recent,
+                per_symbol_aggregates = per_symbol,
+                empty_state = recent.Count == 0,
+            });
+        });
+
         return app;
     }
 
