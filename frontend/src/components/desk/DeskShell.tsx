@@ -3,7 +3,9 @@
  *
  * Three zones, mounted as a CSS grid:
  *   1. Top bar (full width): search placeholder · TradePro wordmark ·
- *      compact NET LIQ + DAILY P&L summary + account chip.
+ *      account chip. (No single NET LIQ / DAILY P&L: it can only ever be one
+ *      broker's value in one currency, so a lone number reads like a blended
+ *      portfolio total and misleads — the per-broker KPI strip owns that.)
  *   2. Left icon-nav rail (desktop): Portfolio · Watchlist · Quote ·
  *      Screeners · Layouts · News, Settings pinned at the bottom. On narrow
  *      screens the rail is hidden and the same items render as a bottom tab
@@ -29,8 +31,6 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { api } from "../../api/client";
-import { fmtMoney, signColour } from "./deskFormat";
 
 const MOBILE_BREAKPOINT = 760;
 
@@ -104,7 +104,12 @@ export function DeskShell({
   return (
     <div
       style={{
-        minHeight: "100vh",
+        // Fixed-height viewport shell: the whole desk never page-scrolls.
+        // Instead ONLY the <main> work-area scrolls (overflow:auto below), so
+        // the left rail — including the bottom-pinned Settings / More — stays
+        // fully visible at all times without scrolling the page. On mobile we
+        // keep height:100vh too (the bottom tab bar is fixed to the viewport).
+        height: "100vh",
         background: SHELL_BG,
         color: "var(--text)",
         display: "grid",
@@ -123,6 +128,8 @@ export function DeskShell({
         style={{
           gridArea: "main",
           minWidth: 0, // let inner tables/charts shrink instead of overflowing
+          minHeight: 0, // allow the grid row to constrain height so main scrolls
+          overflowY: "auto", // ONLY the work-area scrolls; rail stays pinned
           padding: mobile ? "12px 12px 76px" : "16px 20px", // bottom pad clears the tab bar
         }}
       >
@@ -133,7 +140,7 @@ export function DeskShell({
   );
 }
 
-/** Top bar: search · wordmark · NET LIQ + DAILY P&L summary · account chip. */
+/** Top bar: search · wordmark · account chip. */
 function TopBar() {
   return (
     <header
@@ -175,88 +182,13 @@ function TopBar() {
       </div>
 
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
-        <TopSummary />
+        {/* No single NET LIQ / DAILY P&L here: it could only ever be ONE
+            broker's value (different currencies can't be blended), so a lone
+            top-bar number reads like a portfolio total and misleads. The
+            per-broker KPI strip in the work-area shows each account honestly. */}
         <AccountChip />
       </div>
     </header>
-  );
-}
-
-/**
- * TopSummary — compact NET LIQ + DAILY P&L read pulled from the same
- * endpoints KpiStrip uses (cashSummary + pnlByStrategy). Per broker, native
- * currency: we never blend USD + GBP into one number, so when more than one
- * broker is connected we show the primary (first ok) broker here and leave
- * the full per-broker breakdown to the KPI row in the work-area.
- */
-function TopSummary() {
-  const [netLiq, setNetLiq] = useState<{ v: number | null; ccy: string } | null>(null);
-  const [daily, setDaily] = useState<{ v: number | null; ccy: string } | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    const load = async () => {
-      try {
-        const [cash, pnl] = await Promise.all([
-          api.cashSummary(),
-          api.pnlByStrategy().catch(() => null),
-        ]);
-        if (!live) return;
-        const primary = cash.brokers.find((b) => b.status === "ok") ?? cash.brokers[0];
-        if (primary) {
-          setNetLiq({ v: primary.total ?? primary.balance ?? null, ccy: primary.currency ?? "" });
-          // Daily P&L = open + realised-today for the primary broker, summed
-          // across its strategies (same broker/currency only — never blended).
-          const rows = (pnl?.rows ?? []).filter(
-            (r) => (r.broker || "").toLowerCase() === (primary.broker || "").toLowerCase(),
-          );
-          let d: number | null = primary.openPnl ?? null;
-          for (const r of rows) {
-            if (r.realisedToday != null) d = (d ?? 0) + r.realisedToday;
-          }
-          setDaily({ v: d, ccy: primary.currency ?? "" });
-        }
-      } catch {
-        /* top summary degrades silently; KPI row shows the detail/error */
-      }
-    };
-    void load();
-    const t = setInterval(load, 60_000);
-    return () => { live = false; clearInterval(t); };
-  }, []);
-
-  return (
-    <div style={{ display: "flex", gap: 16, minWidth: 0 }}>
-      <SummaryItem label="NET LIQ" value={fmtMoney(netLiq?.v, netLiq?.ccy)} colour="var(--text)" />
-      <SummaryItem
-        label="DAILY P&L"
-        value={fmtMoney(daily?.v, daily?.ccy, true)}
-        colour={signColour(daily?.v)}
-      />
-    </div>
-  );
-}
-
-function SummaryItem({ label, value, colour }: { label: string; value: string; colour: string }) {
-  return (
-    <div style={{ textAlign: "right", minWidth: 0 }}>
-      <div
-        style={{
-          fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase",
-          letterSpacing: "0.06em", whiteSpace: "nowrap",
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 14, fontWeight: 700, fontFamily: "monospace", color: colour,
-          whiteSpace: "nowrap",
-        }}
-      >
-        {value}
-      </div>
-    </div>
   );
 }
 

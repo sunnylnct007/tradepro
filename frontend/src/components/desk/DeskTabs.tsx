@@ -22,6 +22,14 @@ import { fmtMoney, fmtNum, signColour } from "./deskFormat";
 
 type Tab = "positions" | "orders" | "trades" | "balances";
 
+// api.omsOrders(undefined, ORDER_FETCH_LIMIT) returns the most-recent orders
+// across ALL dates, newest-first, capped at this count (backend:
+// PostgresOmsService.ListAsync → ORDER BY created_at_utc DESC LIMIT n). There
+// is NO day window — so the honest label is "most recent N", not "today" or
+// "last N days". Surfaced as a subheader on Orders & Trades so the user can
+// tell at a glance exactly what period/scope they're looking at.
+const ORDER_FETCH_LIMIT = 100;
+
 const TABS: { key: Tab; label: string }[] = [
   { key: "positions", label: "Positions" },
   { key: "orders", label: "Orders" },
@@ -69,17 +77,45 @@ export function DeskTabs({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => 
   );
 }
 
-/** Orders — all live OMS orders. */
+/** Orders — all live OMS orders, newest-first, capped (no day window). */
 function OrdersTab({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }) {
   const orders = useOrders();
-  return <OrderTable rows={orders.rows} loading={orders.loading} err={orders.err} empty="No orders." onOpenSymbol={onOpenSymbol} />;
+  return (
+    <>
+      <WindowLabel
+        text={`Most recent ${ORDER_FETCH_LIMIT} orders · all states · newest first`}
+        sub="Across all dates (not today-only) — capped, not a time window."
+      />
+      <OrderTable rows={orders.rows} loading={orders.loading} err={orders.err} empty="No orders." onOpenSymbol={onOpenSymbol} />
+    </>
+  );
 }
 
 /** Trades — terminal FILLED orders (the executed fills we can show). */
 function TradesTab({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }) {
   const orders = useOrders();
   const filled = orders.rows.filter((o) => o.state === "FILLED" || o.state === "PARTIALLY_FILLED");
-  return <OrderTable rows={filled} loading={orders.loading} err={orders.err} empty="No fills yet." showFill onOpenSymbol={onOpenSymbol} />;
+  return (
+    <>
+      <WindowLabel
+        text={`Fills from the most recent ${ORDER_FETCH_LIMIT} orders · newest first`}
+        sub="Across all dates (not today-only) — capped, not a time window."
+      />
+      <OrderTable rows={filled} loading={orders.loading} err={orders.err} empty="No fills yet." showFill onOpenSymbol={onOpenSymbol} />
+    </>
+  );
+}
+
+/** Small subheader that states the scope/window a table covers, so the user
+ * can tell at a glance what period they're looking at (the user dislikes
+ * unlabelled numbers — every surface must be self-explanatory). */
+function WindowLabel({ text, sub }: { text: string; sub: string }) {
+  return (
+    <div style={{ padding: "2px 4px 10px", lineHeight: 1.4 }} title={sub}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)" }}>{text}</span>
+      <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: 8 }}>{sub}</span>
+    </div>
+  );
 }
 
 /** Chart symbol for an OMS order row, or null when there's no honest Yahoo
@@ -96,7 +132,7 @@ function useOrders() {
   useEffect(() => {
     let live = true;
     const load = () => {
-      api.omsOrders(undefined, 100)
+      api.omsOrders(undefined, ORDER_FETCH_LIMIT)
         .then((r) => { if (live) { setRows(r.orders); setErr(null); } })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })
         .finally(() => { if (live) setLoading(false); });
@@ -123,11 +159,12 @@ function OrderTable({
   if (rows.length === 0) return <Note>{empty}</Note>;
   return (
     <div style={{ overflowX: "auto", maxWidth: "100%" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 640 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 720 }}>
         <thead>
           <tr style={{ color: "var(--text-dim)", borderBottom: "1px solid #1b2233" }}>
             <th style={TH}>Date / Time</th>
             <th style={TH}>Symbol</th>
+            <th style={TH}>Strategy</th>
             <th style={TH}>Side</th>
             <th style={TH_R}>Qty</th>
             <th style={TH_R}>{showFill ? "Fill Px" : "Limit"}</th>
@@ -146,6 +183,9 @@ function OrderTable({
               </td>
               <td style={{ ...TD, fontWeight: 700 }}>
                 <SymbolCell raw={o.symbol} onOpenSymbol={onOpenSymbol} />
+              </td>
+              <td style={{ ...TD, color: "var(--text-muted)" }}>
+                <StrategyCell id={o.strategyId} />
               </td>
               <td style={{ ...TD, color: o.side === "BUY" ? "var(--up, #1fc16b)" : "var(--down, #ef4444)", fontWeight: 700 }}>
                 {o.side}
@@ -242,6 +282,25 @@ function SymbolCell({ raw, onOpenSymbol }: { raw: string; onOpenSymbol?: (symbol
     >
       {prettySymbol(raw)}
     </button>
+  );
+}
+
+/** Strategy id cell. OMS orders carry the originating strategy in
+ * OmsOrderRow.strategyId (null for ad-hoc/manual orders). Compact: truncate
+ * long ids with an ellipsis and expose the full value via the title tooltip;
+ * render "—" when the row has no strategy. */
+function StrategyCell({ id }: { id: string | null }) {
+  if (!id) return <span style={{ color: "var(--text-dim)" }}>—</span>;
+  return (
+    <span
+      title={id}
+      style={{
+        display: "inline-block", maxWidth: 140, overflow: "hidden",
+        textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom",
+      }}
+    >
+      {id}
+    </span>
   );
 }
 
