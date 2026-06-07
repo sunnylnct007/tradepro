@@ -58,6 +58,7 @@ export function DataHealthSection() {
       <RoadmapNote />
       <AssumptionsPanel />
       <PreferencesPanel />
+      <IbkrHarvesterPanel />
       <BarCacheActivityPanel />
       <CoverageMatrixPanel />
       <FillQualityPanel />
@@ -449,6 +450,460 @@ const RESULT_COLORS: Record<string, string> = {
   rate_limited: "#ea580c",
   no_provider: "#dc2626",
 };
+
+// ─── IBKR Harvester Panel ──────────────────────────────────────────────────────
+//
+// Shows IBKR bar-cache fetch history (filtered to provider_used='ibkr') plus
+// a "Fetch Bars" form so the operator can harvest historical bars on demand
+// without leaving the Settings page.
+//
+// Key UX choices (per project memory):
+//   • Visible "what does IBKR give us" explainer — depth table so newcomers
+//     understand WHY this panel exists (context for the numbers)
+//   • Pills / badge for connection status, no dropdowns
+//   • Trigger is a confirm-gated form — real-money context; can't be undone
+
+type IbkrStatus = Awaited<ReturnType<typeof api.ibkrBarStatus>>;
+type IbkrEvent  = IbkrStatus["events"][number];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HarvestReadinessGate — prominent, actionable "NOT STARTED" state shown until
+// the first IBKR bar fetch succeeds. Replaces the old tiny dashed box.
+//
+// State machine:
+//   A: endpointErr set         → backend not deployed (404/network)
+//   B: status null (no err)    → endpoint up but status is null somehow
+//   C: status.event_count === 0 → endpoint up, migration done, no fetches yet
+//
+// All states show a checklist so the operator knows exactly what's blocking.
+// ─────────────────────────────────────────────────────────────────────────────
+function HarvestReadinessGate({
+  endpointErr,
+  status,
+  onRefresh,
+}: {
+  endpointErr: string | null;
+  status: IbkrStatus | null;
+  onRefresh: () => void;
+}) {
+  const endpointDeployed = !endpointErr;
+  const migrationApplied = !!(status && status.valid_resolutions && status.valid_resolutions.length > 0);
+  const twsConnected     = !!(status && status.connection_status === "ok");
+  const fetchDone        = !!(status && status.event_count > 0);
+
+  // Deduce overall state for the banner colour
+  const blocking = !endpointDeployed;
+  const tone = blocking ? "#ef4444" : "#f59e0b";
+  const label = blocking ? "DEPLOY REQUIRED" : "HARVEST NOT STARTED";
+  const emoji = blocking ? "⛔" : "🟡";
+
+  const checkRow = (
+    done: boolean,
+    title: string,
+    detail: string,
+    actionLink?: { href: string; text: string },
+  ) => (
+    <div style={{
+      display: "flex", gap: 8, padding: "5px 0",
+      borderBottom: "1px solid var(--border-faint, #2a2d35)",
+      alignItems: "flex-start",
+    }}>
+      <span style={{
+        fontSize: 13, flexShrink: 0, marginTop: 1,
+        color: done ? "#1fc16b" : tone,
+      }}>
+        {done ? "✓" : "✗"}
+      </span>
+      <div>
+        <span style={{ fontSize: 11, fontWeight: 600, color: done ? "var(--text-dim)" : "var(--text)" }}>
+          {title}
+        </span>
+        {!done && (
+          <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+            {detail}
+            {actionLink && (
+              <> — <a href={actionLink.href} style={{ color: "#63b3ed" }}>{actionLink.text}</a></>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{
+      border: `1px solid ${tone}`,
+      borderLeft: `4px solid ${tone}`,
+      borderRadius: 6,
+      background: blocking ? "rgba(239,68,68,0.06)" : "rgba(245,158,11,0.06)",
+      padding: "12px 14px",
+      marginBottom: 14,
+    }}>
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 15 }}>{emoji}</span>
+        <strong style={{ fontSize: 13, color: tone }}>
+          IBKR BAR CACHE — {label}
+        </strong>
+        <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: "auto" }}>
+          0 symbols cached · 0 fetches recorded
+        </span>
+        <button
+          onClick={onRefresh}
+          style={{
+            padding: "2px 8px", fontSize: 10, fontWeight: 600,
+            border: "1px solid var(--border)", borderRadius: 3,
+            background: "transparent", color: "var(--text-dim)", cursor: "pointer",
+          }}
+        >
+          Refresh
+        </button>
+      </div>
+
+      {/* ── Readiness checklist ─────────────────────────────────────── */}
+      <div style={{ marginBottom: 8 }}>
+        {checkRow(
+          true,
+          "IBKRProvider loaded in Python worker",
+          "Already done — ib_insync provider is registered in the Mac data worker.",
+        )}
+        {checkRow(
+          endpointDeployed,
+          "Backend redeployed (DataTrustEndpoints.cs + /ibkr/* routes)",
+          endpointErr
+            ? `Endpoint returned: ${endpointErr.slice(0, 80)}. ` +
+              "The backend on AWS (http://16.60.201.137/) needs to be rebuilt " +
+              "and redeployed to pick up the new /ibkr/status + /ibkr/fetch-bars routes."
+            : "",
+        )}
+        {checkRow(
+          migrationApplied,
+          "Migration 045 applied (CHECK constraint + ibkr chain seeding)",
+          "Run 045_data_source_preferences_add_ibkr.sql on the live Postgres DB. " +
+          "This adds 'ibkr' to the provider_chain CHECK constraint and prepends " +
+          "ibkr to the us_equity/us_etf 1m chains.",
+        )}
+        {checkRow(
+          twsConnected,
+          "TWS / IB Gateway online and accepting connections",
+          status
+            ? `Current: connection_status=${status.connection_status}. ${status.connection_hint}`
+            : "Status unknown until backend is deployed. Start TWS on the Mac, ensure " +
+              "API is enabled (File › Global Configuration › API › Settings), " +
+              "and that TRADEPRO_IBKR_HOST/PORT env vars match.",
+        )}
+        {checkRow(
+          fetchDone,
+          "First IBKR bar fetch triggered and recorded",
+          "Use the Fetch Bars form below, or trigger via MCP: ibkr_fetch_bars(). " +
+          "Start with AAPL at 1m for the last year to validate the pipeline end-to-end.",
+        )}
+      </div>
+
+      {/* ── Why this matters ────────────────────────────────────────── */}
+      <div style={{
+        fontSize: 10, color: "var(--text-muted)",
+        lineHeight: 1.55, marginTop: 4,
+        borderTop: "1px solid var(--border-faint, #2a2d35)", paddingTop: 6,
+      }}>
+        Until at least one IBKR fetch completes, the strategy universe runs on
+        yfinance's 7-day 1m depth limit — backtests, the capital gate, and
+        any walk-forward tests will see at most one week of intraday history.
+        IBKR provides ≈1 year at 1m, ≈3 years at 5m/15m/30m, and decades at 1d.
+      </div>
+    </div>
+  );
+}
+
+const IBKR_RESULT_COLORS: Record<string, string> = {
+  complete:           "#1fc16b",
+  fetched_complete:   "#1fc16b",
+  fetched_partial:    "#ca8a04",
+  provider_error:     "#dc2626",
+  rate_limited:       "#ea580c",
+  no_provider:        "#dc2626",
+  manifest_violation: "#dc2626",
+};
+
+function IbkrHarvesterPanel() {
+  const [status, setStatus]     = useState<IbkrStatus | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [fetchErr, setFetchErr] = useState<string | null>(null);
+
+  // Fetch-bars form state
+  const [sym, setSym]         = useState("AAPL");
+  const [ac, setAc]           = useState("us_equity");
+  const [res, setRes]         = useState("1m");
+  const [fromDate, setFrom]   = useState(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [toDate, setTo]       = useState(() =>
+    new Date().toISOString().slice(0, 10));
+  const [busy, setBusy]       = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+
+  const load = () => {
+    setLoading(true);
+    setFetchErr(null);
+    api.ibkrBarStatus({ limit: 30 })
+      .then(setStatus)
+      .catch((e: unknown) => setFetchErr(String(e)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const onFetch = async () => {
+    const confirmed = window.confirm(
+      `Enqueue an IBKR bar fetch?\n\n` +
+      `  ${sym.trim()} (${ac}) @ ${res}\n` +
+      `  ${fromDate} → ${toDate}\n\n` +
+      `TWS / IB Gateway must be running at the configured host:port. ` +
+      `The Mac data-worker will call IBKRProvider.fetch() through the ` +
+      `configured provider chain. Bars are written to the local bar cache ` +
+      `(~/.tradepro/bar_cache). This is additive — existing partitions ` +
+      `are not overwritten.`
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setActionFeedback(null);
+    try {
+      const res2 = await api.ibkrFetchBars({
+        canonical:  sym.trim(),
+        asset_class: ac,
+        resolution: res,
+        from:       fromDate,
+        to:         toDate,
+      });
+      if ((res2 as any).error)
+        setActionFeedback(`✗ ${(res2 as any).error}`);
+      else
+        setActionFeedback(`✓ queued — job ${String((res2 as any).request_id ?? "").slice(0, 8)}…`);
+      load(); // refresh event list
+    } catch (e) {
+      setActionFeedback(`✗ ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const depthRows = status
+    ? Object.entries(status.depth_summary)
+    : [["1m","≈1 year"],["5m","≈3 years"],["15m","≈3.5 years"],["1h","≈3.5 years"],["1d","decades"]];
+
+  return (
+    <Subsection title="IBKR Bar Harvester">
+      {/* ── Explainer ─────────────────────────────────────────────── */}
+      <div style={{
+        padding: "8px 12px",
+        background: "rgba(99,179,237,0.07)",
+        borderLeft: "3px solid #63b3ed",
+        borderRadius: 4,
+        fontSize: 11,
+        color: "var(--text-dim)",
+        lineHeight: 1.55,
+        marginBottom: 12,
+      }}>
+        <strong style={{ color: "var(--text)" }}>
+          Why IBKR? — it closes the yfinance 7-day 1m cap.
+        </strong>{" "}
+        IBKRProvider fetches historical bars via <code>ib_insync</code> (TWS
+        or IB Gateway). Depth per resolution:
+        <span style={{ display: "inline-flex", gap: 8, flexWrap: "wrap", marginLeft: 8 }}>
+          {depthRows.map(([r, d]) => (
+            <span key={String(r)} style={{ fontFamily: "monospace" }}>
+              <strong>{r}</strong> → {d}
+            </span>
+          ))}
+        </span>
+        . Chain falls through to IG → yfinance on connection failure.
+      </div>
+
+      {/* ── Harvest readiness gate ─────────────────────────────────── */}
+      {/*  Shows whenever the cache is empty or the endpoint isn't live  */}
+      {!loading && (fetchErr || !status || status.event_count === 0) && (
+        <HarvestReadinessGate
+          endpointErr={fetchErr}
+          status={status}
+          onRefresh={load}
+        />
+      )}
+
+      {/* ── Connection status badge (only once harvest has started) ── */}
+      {!loading && !fetchErr && status && status.event_count > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)" }}>
+            IBKR
+          </span>
+          <Pill color={
+            status.connection_status === "ok" ? "#1fc16b" :
+            status.connection_status === "degraded" ? "#ca8a04" : "#dc2626"
+          }>
+            {status.connection_status}
+          </Pill>
+          {status.connection_hint && (
+            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+              {status.connection_hint}
+            </span>
+          )}
+          {status.last_fetch_at_utc && (
+            <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 4 }}>
+              · last fetch {status.last_fetch_at_utc.slice(0, 19).replace("T"," ")} UTC
+            </span>
+          )}
+          <button
+            onClick={load}
+            disabled={loading}
+            style={{
+              marginLeft: "auto",
+              padding: "2px 8px", fontSize: 10, fontWeight: 600,
+              border: "1px solid var(--border)", borderRadius: 3,
+              background: "transparent", color: "var(--text-dim)",
+              cursor: loading ? "default" : "pointer",
+            }}
+          >
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+      )}
+      {loading && (
+        <div style={{ marginBottom: 12 }}>
+          <Pill color="#6b7280">loading…</Pill>
+        </div>
+      )}
+
+      {/* ── Fetch-bars form ────────────────────────────────────────── */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "100px 110px 70px 120px 120px 1fr",
+        gap: 6, alignItems: "end",
+        marginBottom: 10,
+      }}>
+        {[
+          { label: "Symbol", value: sym, setter: setSym, placeholder: "AAPL" },
+          { label: "Asset class", value: ac, setter: setAc, placeholder: "us_equity" },
+          { label: "Resolution", value: res, setter: setRes, placeholder: "1m" },
+          { label: "From", value: fromDate, setter: setFrom, placeholder: "YYYY-MM-DD" },
+          { label: "To", value: toDate, setter: setTo, placeholder: "YYYY-MM-DD" },
+        ].map(({ label, value, setter, placeholder }) => (
+          <div key={label} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <label style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 600 }}>
+              {label}
+            </label>
+            <input
+              value={value}
+              onChange={e => setter(e.target.value)}
+              placeholder={placeholder}
+              style={{
+                padding: "4px 6px", fontSize: 11,
+                background: "var(--bg-alt, #1a1d23)",
+                border: "1px solid var(--border)",
+                borderRadius: 3, color: "var(--text)",
+                fontFamily: "monospace",
+              }}
+            />
+          </div>
+        ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <label style={{ fontSize: 10, color: "transparent" }}>·</label>
+          <button
+            onClick={onFetch}
+            disabled={busy}
+            style={{
+              padding: "5px 12px", fontSize: 11, fontWeight: 700,
+              border: "1px solid #63b3ed", borderRadius: 3,
+              background: busy ? "transparent" : "rgba(99,179,237,0.12)",
+              color: busy ? "var(--text-muted)" : "#63b3ed",
+              cursor: busy ? "default" : "pointer",
+            }}
+            title="Enqueue an IBKR bar fetch (additive; does not overwrite)"
+          >
+            {busy ? "Queuing…" : "Fetch Bars"}
+          </button>
+        </div>
+      </div>
+      {actionFeedback && (
+        <div style={{
+          fontSize: 11, marginBottom: 8,
+          color: actionFeedback.startsWith("✓") ? "#1fc16b" : "var(--down)",
+        }}>
+          {actionFeedback}
+        </div>
+      )}
+
+      {/* ── Recent IBKR fetch events ───────────────────────────────── */}
+      <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6 }}>
+        Recent IBKR fetches
+        {status && status.event_count > 0 && (
+          <span style={{ marginLeft: 6, fontFamily: "monospace", color: "var(--text-muted)" }}>
+            ({status.event_count} total · {status.success_count_last_n} successful)
+          </span>
+        )}
+      </div>
+
+      {status && status.event_count > 0 ? (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{
+            width: "100%", borderCollapse: "collapse",
+            fontSize: 10, fontFamily: "monospace",
+          }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left" }}>
+                {["Time (UTC)","Symbol","AC","Res","Range","Result","Rows","ms"].map(h => (
+                  <th key={h} style={{ padding: "3px 8px", color: "var(--text-dim)", fontWeight: 600 }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(status?.events ?? []).map(ev => (
+                <IbkrEventRow key={ev.id} ev={ev} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Subsection>
+  );
+}
+
+function IbkrEventRow({ ev }: { ev: IbkrEvent }) {
+  const color = IBKR_RESULT_COLORS[ev.result] ?? "#6b7280";
+  const rangeStr = ev.range_start_utc
+    ? `${ev.range_start_utc.slice(0,10)} → ${ev.range_end_utc.slice(0,10)}`
+    : "—";
+  return (
+    <tr
+      style={{ borderBottom: "1px solid var(--border-faint, #2a2d35)" }}
+      title={ev.error_message ?? undefined}
+    >
+      <td style={{ padding: "3px 8px", color: "var(--text-dim)" }}>
+        {ev.occurred_at_utc.slice(0, 19).replace("T", " ")}
+      </td>
+      <td style={{ padding: "3px 8px", fontWeight: 600 }}>{ev.canonical}</td>
+      <td style={{ padding: "3px 8px", color: "var(--text-dim)" }}>{ev.asset_class}</td>
+      <td style={{ padding: "3px 8px" }}>{ev.resolution}</td>
+      <td style={{ padding: "3px 8px", color: "var(--text-dim)" }}>{rangeStr}</td>
+      <td style={{ padding: "3px 8px" }}>
+        <Pill color={color}>{ev.result}</Pill>
+        {ev.error_class && (
+          <span style={{ marginLeft: 4, color: "var(--down)", fontSize: 9 }}>
+            ({ev.error_class})
+          </span>
+        )}
+      </td>
+      <td style={{ padding: "3px 8px", textAlign: "right" }}>
+        {ev.rows_returned != null ? ev.rows_returned.toLocaleString() : "—"}
+      </td>
+      <td style={{ padding: "3px 8px", textAlign: "right", color: "var(--text-dim)" }}>
+        {ev.latency_ms != null ? ev.latency_ms.toLocaleString() : "—"}
+      </td>
+    </tr>
+  );
+}
 
 function BarCacheActivityPanel() {
   const [events, setEvents] = useState<BarEvent[]>([]);

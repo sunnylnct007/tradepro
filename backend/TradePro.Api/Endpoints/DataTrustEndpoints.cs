@@ -29,6 +29,7 @@ public static class DataTrustEndpoints
     {
         "yfinance", "ig", "finnhub", "t212",
         "polygon", "databento", "oanda", "binance",
+        "ibkr",    // IBKR ib_insync provider — deep 1m history (1yr vs yfinance 7d)
     };
 
     // Phase G-1 — map the bar_cache_events.result enum into the coarse
@@ -782,6 +783,133 @@ public static class DataTrustEndpoints
             });
         });
 
+        // ── IBKR bar-cache visibility ───────────────────────────────
+        // GET  /api/admin/data-trust/ibkr/status
+        //   Returns: last N bar_cache_events where provider_used = 'ibkr',
+        //   plus a stub connection_status field (static "configured" for now
+        //   — a live TWS ping would require a sidecar process the operator
+        //   may not want always-on). The UI uses this to render the IBKR
+        //   harvester panel without having to filter the generic events table.
+        //
+        // POST /api/admin/data-trust/ibkr/fetch-bars
+        //   Triggers an immediate data_backfill op scoped to the IBKR
+        //   provider (prepends 'ibkr' to the effective chain for this
+        //   request). Delegates to /api/ops/run-data-backfill; this
+        //   endpoint is the IBKR-specific UI entry point that hides the
+        //   provider-chain wiring from the operator.
+
+        g.MapGet("/ibkr/status", async (NpgsqlDataSource db,
+            int limit = 50) =>
+        {
+            limit = Math.Max(1, Math.Min(limit, 500));
+            await using var conn = await db.OpenConnectionAsync();
+
+            // Recent events where the IBKR provider was used (or attempted).
+            var events = (await conn.QueryAsync(@"
+                SELECT
+                    id, occurred_at_utc, canonical, asset_class,
+                    resolution, range_start_utc, range_end_utc,
+                    result, provider_used,
+                    rows_returned, rows_expected, latency_ms,
+                    error_class, error_message
+                FROM bar_cache_events
+                WHERE provider_used = 'ibkr'
+                   OR error_provider = 'ibkr'
+                ORDER BY occurred_at_utc DESC
+                LIMIT @limit",
+                new { limit })).ToList();
+
+            // Aggregate: how many symbols have at least one successful IBKR fetch?
+            var successCount = events.Count(e =>
+                e.result is "complete" or "fetched_complete");
+            var lastFetchAt  = events.Count > 0
+                ? (object)events[0].occurred_at_utc : null;
+
+            return Results.Json(new
+            {
+                // "configured" = provider is registered + gateway env vars set;
+                // a live TCP ping is deferred (operator may not run TWS 24/7).
+                connection_status = "configured",
+                connection_hint   = "TWS paper port 7497 (env: TRADEPRO_IBKR_HOST/PORT). " +
+                                    "Start TWS or IB Gateway before fetching bars.",
+                last_fetch_at_utc = lastFetchAt,
+                success_count_last_n = successCount,
+                event_count      = events.Count,
+                events           = events,
+                valid_resolutions = new[] { "1m","2m","5m","15m","30m","1h","1d","1wk","1mo" },
+                depth_summary    = new Dictionary<string, string>
+                {
+                    ["1m"]  = "≈1 year (vs yfinance 7 days)",
+                    ["5m"]  = "≈3 years",
+                    ["15m"] = "≈3.5 years",
+                    ["1h"]  = "≈3.5 years",
+                    ["1d"]  = "decades",
+                },
+            });
+        });
+
+        g.MapPost("/ibkr/fetch-bars", async (
+            IbkrFetchBarsBody body,
+            HttpClient http,
+            IConfiguration config) =>
+        {
+            // Validate inputs before forwarding.
+            if (string.IsNullOrWhiteSpace(body.Canonical))
+                return Results.BadRequest(new { error = "canonical required" });
+            if (string.IsNullOrWhiteSpace(body.AssetClass))
+                return Results.BadRequest(new { error = "asset_class required" });
+            if (string.IsNullOrWhiteSpace(body.Resolution))
+                return Results.BadRequest(new { error = "resolution required" });
+            if (string.IsNullOrWhiteSpace(body.From))
+                return Results.BadRequest(new { error = "from date required (YYYY-MM-DD)" });
+
+            var validRes = new[]
+                { "1m","2m","5m","15m","30m","1h","1d","1wk","1mo" };
+            if (!validRes.Contains(body.Resolution))
+                return Results.BadRequest(new
+                {
+                    error   = "unsupported resolution",
+                    allowed = validRes,
+                });
+
+            // Delegate to the ops backfill endpoint so the same job queue,
+            // state machine, and worker pick-up logic handle it. The
+            // provider_hint is advisory — the data worker prepends "ibkr"
+            // to the configured chain when it sees it.
+            var opsBase = config["TradePro:OpsBaseUrl"]
+                ?? "http://localhost:5000";
+            var payload = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                canonical     = body.Canonical,
+                asset_class   = body.AssetClass,
+                resolution    = body.Resolution,
+                from          = body.From,
+                to            = body.To ?? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd"),
+                allow_partial = body.AllowPartial ?? true,
+                provider_hint = "ibkr",   // worker reads this; prepends ibkr to chain
+            });
+            try
+            {
+                var resp = await http.PostAsync(
+                    $"{opsBase}/api/ops/run-data-backfill",
+                    new StringContent(payload, System.Text.Encoding.UTF8, "application/json"));
+                var body2 = await resp.Content.ReadAsStringAsync();
+                if (!resp.IsSuccessStatusCode)
+                    return Results.Json(
+                        System.Text.Json.JsonSerializer.Deserialize<object>(body2),
+                        statusCode: (int)resp.StatusCode);
+                return Results.Json(
+                    System.Text.Json.JsonSerializer.Deserialize<object>(body2));
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(
+                    detail: ex.Message,
+                    title:  "Failed to forward IBKR fetch request to ops queue",
+                    statusCode: 502);
+            }
+        });
+
         return app;
     }
 
@@ -817,5 +945,14 @@ public static class DataTrustEndpoints
         string? Resolution,
         string? FromDate,
         string? ToDate
+    );
+
+    public sealed record IbkrFetchBarsBody(
+        string Canonical,
+        string AssetClass,
+        string Resolution,
+        string From,
+        string? To           = null,
+        bool?  AllowPartial  = null
     );
 }

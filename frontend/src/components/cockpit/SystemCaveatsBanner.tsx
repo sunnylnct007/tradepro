@@ -211,6 +211,30 @@ export function SystemCaveatsBanner() {
       /* snapshots unreachable — non-fatal, the other caveats still render */
     }
 
+    // ── Bar-cache harvest readiness ────────────────────────────────
+    // An empty bar cache means strategy backtests + the capital gate are
+    // running on yfinance's 7-day 1m cap. Not a blocking live-money risk
+    // but we want it visible at all times until the first IBKR harvest
+    // completes. Uses bar-cache/health (already deployed, zero auth) so
+    // no dependency on the new /ibkr/* endpoints.
+    try {
+      const { health } = await api.barCacheHealth();
+      if (health.length === 0) {
+        found.push({
+          sev: "amber",
+          title: "Bar cache empty — IBKR harvest not started",
+          detail:
+            "No historical bars have been written yet. Strategies using 1m resolution " +
+            "fall back to yfinance's 7-day window, which severely limits backtests and " +
+            "the capital gate. Go to Settings › Data Health › IBKR Bar Harvester to " +
+            "trigger the initial harvest (TWS must be running; migration 045 + backend " +
+            "redeploy are prerequisites).",
+        });
+      }
+    } catch {
+      /* non-fatal — /bar-cache/health unreachable; skip */
+    }
+
     setCaveats(found);
   }, []);
 

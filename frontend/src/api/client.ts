@@ -1291,6 +1291,59 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/ig-snapshots/recent", qp);
   },
+  // IBKR bar-cache harvester status + trigger.
+  // GET  /ibkr/status — recent bar_cache_events where provider=ibkr,
+  //   connection hint, depth summary. Feeds the IBKR panel in Settings.
+  // POST /ibkr/fetch-bars — enqueue an immediate IBKR backfill op for a
+  //   specific (canonical, asset_class, resolution, from, to) tuple.
+  ibkrBarStatus: (params?: { limit?: number }) => {
+    const qp: Record<string, string | undefined> = {};
+    if (params?.limit !== undefined) qp.limit = String(params.limit);
+    return get<{
+      connection_status: string;
+      connection_hint: string;
+      last_fetch_at_utc: string | null;
+      success_count_last_n: number;
+      event_count: number;
+      valid_resolutions: string[];
+      depth_summary: Record<string, string>;
+      events: Array<{
+        id: number;
+        occurred_at_utc: string;
+        canonical: string;
+        asset_class: string;
+        resolution: string;
+        range_start_utc: string;
+        range_end_utc: string;
+        result: string;
+        provider_used: string | null;
+        rows_returned: number | null;
+        rows_expected: number | null;
+        latency_ms: number;
+        error_class: string | null;
+        error_message: string | null;
+      }>;
+    }>("/api/admin/data-trust/ibkr/status", qp);
+  },
+
+  ibkrFetchBars: (payload: {
+    canonical: string;
+    asset_class: string;
+    resolution: string;
+    from: string;    // YYYY-MM-DD
+    to?: string;     // YYYY-MM-DD; defaults to today server-side
+    allow_partial?: boolean;
+  }) =>
+    post<{
+      request_id: string;
+      kind: string;
+      state: string;
+      params: Record<string, unknown>;
+      requested_at_utc: string;
+      result_summary: unknown;
+      error: string | null;
+    }, typeof payload>("/api/admin/data-trust/ibkr/fetch-bars", payload),
+
   // Catalyst registry (Phase C-1). North-star item from project memory
   // — pure-technical signals miss event-driven trades. C-1 is the
   // persistence + visibility surface; the news extractor sink + signal
