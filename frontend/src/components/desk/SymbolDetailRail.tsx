@@ -113,8 +113,10 @@ export function SymbolDetailRail({
         </button>
       </div>
 
-      {/* 1. Chart — taller so candles are readable in the wider rail. */}
-      <SymbolChartCard symbol={symbol} height={300} />
+      {/* 1. Chart — 400px tall so candles + axis labels are readable in the
+              wider rail. The rail itself has resize:horizontal so the trader
+              can drag the right edge for even more room. */}
+      <SymbolChartCard symbol={symbol} height={400} />
 
       {/* 2. Position */}
       <SymbolPositionCard symbol={symbol} positions={positions} />

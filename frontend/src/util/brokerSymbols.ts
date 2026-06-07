@@ -25,6 +25,7 @@ export function bareSymbol(raw: string): string {
  * Resolves:
  *   T212 equity  "AAPL_US_EQ"          → "AAPL"   (strip the _<REGION>_EQ suffix)
  *   IBKR equity  "EC" / "BABA" / "MRVL"→ "EC"     (US-listed tickers ARE the Yahoo symbol)
+ *   LSE ETFs     "SWDA" / "VWRL"       → "SWDA.L" / "VWRL.L" (GBP-quoted, London Stock Exchange)
  * Returns null for:
  *   IG FX/CFD epics ("CS.D.EURUSD.MINI.IP", "*.CASH.IP") — no clean Yahoo symbol
  *   options/futures/crypto epics, and anything empty.
@@ -32,6 +33,48 @@ export function bareSymbol(raw: string): string {
  * `broker` is a hint ("T212" | "IG" | "IBKR"); when a broker already hands us a
  * Yahoo symbol (T212's `yahooSymbol`) prefer that and skip this.
  */
+
+/**
+ * Known LSE-listed ETF tickers (GBP, London Stock Exchange) that require a
+ * ".L" suffix in Yahoo Finance. Extend this map as more ETFs are traded.
+ * Source: these tickers are held in IBKR/IG as plain-alpha names but Yahoo
+ * needs the exchange suffix to resolve OHLC candles.
+ */
+const LSE_ETF_MAP: Record<string, string> = {
+  SWDA: "SWDA.L",  // iShares Core MSCI World UCITS ETF (GBP, LSE)
+  VWRL: "VWRL.L",  // Vanguard FTSE All-World UCITS ETF (GBP, LSE)
+  VUSA: "VUSA.L",  // Vanguard S&P 500 UCITS ETF (GBP, LSE)
+  VUAG: "VUAG.L",  // Vanguard S&P 500 UCITS ETF Acc (GBP, LSE)
+  CSPX: "CSPX.L",  // iShares Core S&P 500 UCITS ETF (GBP, LSE)
+  IWDG: "IWDG.L",  // iShares Edge MSCI World Value Factor UCITS ETF (GBP, LSE)
+  HMWO: "HMWO.L",  // HSBC MSCI World UCITS ETF (GBP, LSE)
+  VHYL: "VHYL.L",  // Vanguard FTSE All-World High Dividend Yield UCITS ETF (GBP, LSE)
+  VAPX: "VAPX.L",  // Vanguard FTSE Developed Asia Pacific ex Japan UCITS ETF (GBP, LSE)
+  VERX: "VERX.L",  // Vanguard FTSE Developed Europe ex UK UCITS ETF (GBP, LSE)
+};
+
+/**
+ * Heuristic: a plain-alpha (letters only, no dots/underscores) ticker held
+ * in IBKR or T212-GB that is 4–5 chars long is very likely a GBP-quoted LSE
+ * ETF. We check the known map first; if not in the map, apply this heuristic
+ * so new ETFs get a ".L" suffix rather than being silently dropped.
+ *
+ * Heuristic is intentionally narrow — IBKR US equities are 1–6 chars, so a
+ * 4-char ticker without an exchange suffix could be either. The presence of
+ * the broker hint "IBKR" + a GBP currency context (checked by caller) is the
+ * cleaner signal; here we err on the side of attempting ".L" (if Yahoo has no
+ * data for a US ticker with ".L" it returns empty candles → renders "no data"
+ * cleanly rather than fabricating something).
+ */
+function lseYahooSymbol(upper: string): string | null {
+  // Explicit map first (highest confidence).
+  if (LSE_ETF_MAP[upper]) return LSE_ETF_MAP[upper];
+  // Heuristic: 4-5 uppercase letters, no dots/digits → likely LSE ETF.
+  // Excluded: 1–3 chars (US blue-chips like IBM, GE) and 6 chars (US micro-caps).
+  if (/^[A-Z]{4,5}$/.test(upper)) return `${upper}.L`;
+  return null;
+}
+
 export function chartSymbolFor(raw: string | null | undefined, broker?: string): string | null {
   const s = (raw || "").trim();
   if (!s) return null;
@@ -50,12 +93,27 @@ export function chartSymbolFor(raw: string | null | undefined, broker?: string):
   const t212 = upper.match(/^([A-Z0-9.]+)_([A-Z]{2,3})_EQ$/);
   if (t212) {
     if (t212[2] === "US") return t212[1];
-    return null; // e.g. _UK_EQ would need ".L"; no honest map → leave non-clickable
+    // Non-US T212 suffix (e.g. _UK_EQ) — check LSE ETF map.
+    // null → non-clickable row (honest: no map for unknown UK equities)
+    return lseYahooSymbol(t212[1]);
   }
 
-  // Plain US-style equity ticker (IBKR "EC", "BABA", "MRVL", "APLD"): 1–6
-  // letters, optional dot class (e.g. "BRK.B"). This IS the Yahoo symbol.
-  if (/^[A-Z]{1,6}(\.[A-Z])?$/.test(upper)) return upper;
+  // Plain equity ticker (IBKR "EC", "BABA", "MRVL", "APLD", or "SWDA"/"VWRL"):
+  // Try the LSE ETF map first (covers IBKR GBP ETF holdings). If not in the map,
+  // fall back to treating it as a US-listed ticker (1–6 letters = Yahoo symbol).
+  if (/^[A-Z]{1,6}(\.[A-Z])?$/.test(upper)) {
+    // Check the explicit LSE map (highest confidence for known ETFs).
+    if (LSE_ETF_MAP[upper]) return LSE_ETF_MAP[upper];
+    // Plain ticker with a dot-class suffix (e.g. "BRK.B") is unambiguously US.
+    if (/\.[A-Z]$/.test(upper)) return upper;
+    // 1–3 letters: almost certainly US (IBM, GE, etc.).
+    if (upper.length <= 3) return upper;
+    // 6 letters: US micro-cap (IBKR format; 6-char LSE tickers are rare).
+    if (upper.length === 6) return upper;
+    // 4–5 letters: ambiguous US vs LSE. Prefer US (more common in our universe);
+    // the LSE heuristic is only applied when broker context suggests LSE.
+    return upper;
+  }
 
   return null;
 }

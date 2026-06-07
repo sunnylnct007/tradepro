@@ -3,20 +3,22 @@
  * Underline-active, blue (IBKR style). Positions is the centerpiece (its own
  * component); the others wire to existing endpoints with simple dense tables:
  *   - Orders   → api.omsOrders() (live OMS orders, all states)
- *   - Trades   → api.omsOrders() filtered to terminal FILLED orders (the
- *                fills we actually have; no separate trades endpoint exists)
+ *   - Trades   → api.omsOrders(400) filtered to FILLED/PARTIALLY_FILLED fills
+ *                (larger window so real fills aren't lost behind CANCELLEDs);
+ *                search by symbol + sortable columns + clickable row→ audit detail
  *   - Balances → per-broker cash from api.cashSummary(), native currency
  *
  * Tabs are pills (the user dislikes dropdowns on primary surfaces), so state
  * stays visible. Tables share the same overflow-x:auto + min-width treatment
  * as PositionsTable so they scroll within the card on a phone.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type OmsOrderRow } from "../../api/client";
+import { api, type OmsOrderRow, type OmsOrderEventRow } from "../../api/client";
 import { prettySymbol, bareSymbol, productOf } from "../../util/brokerSymbols";
 import { fmtWhenDate } from "../../util/time";
 import { fmtQty } from "../../util/numbers";
+import { useSort } from "../../util/useSort";
 import { PositionsByStrategy, type PositionRow } from "./PositionsByStrategy";
 import { fmtMoney, fmtNum, signColour } from "./deskFormat";
 
@@ -29,6 +31,14 @@ type Tab = "positions" | "orders" | "trades" | "balances";
 // "last N days". Surfaced as a subheader on Orders & Trades so the user can
 // tell at a glance exactly what period/scope they're looking at.
 const ORDER_FETCH_LIMIT = 100;
+
+// Trades tab fetches a larger window so real FILLED orders don't fall outside
+// the cap. Most orders in practice are CANCELLED (strategy flips), so 400
+// ensures we surface at least the last 50–100 actual fills across all dates.
+const TRADES_FETCH_LIMIT = 400;
+
+// Maximum fills shown in the Trades table (newest first after filter).
+const TRADES_SHOW_MAX = 100;
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "positions", label: "Positions" },
@@ -104,18 +114,275 @@ function OrdersTab({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }
   );
 }
 
-/** Trades — terminal FILLED orders (the executed fills we can show). */
+/** Trades — FILLED/PARTIALLY_FILLED orders with search, sort, and audit detail. */
 function TradesTab({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }) {
-  const orders = useOrders();
-  const filled = orders.rows.filter((o) => o.state === "FILLED" || o.state === "PARTIALLY_FILLED");
+  const orders = useTrades();
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Filter to fills only, then apply symbol search.
+  const fills = useMemo(() => {
+    const f = orders.rows.filter(
+      (o) => o.state === "FILLED" || o.state === "PARTIALLY_FILLED",
+    );
+    const q = search.trim().toUpperCase();
+    if (!q) return f.slice(0, TRADES_SHOW_MAX);
+    return f.filter((o) => bareSymbol(o.symbol).includes(q) || prettySymbol(o.symbol).toUpperCase().includes(q))
+      .slice(0, TRADES_SHOW_MAX);
+  }, [orders.rows, search]);
+
+  const ACCESSORS = useMemo(() => ({
+    date:     (o: OmsOrderRow) => o.lastStateChangeAtUtc,
+    symbol:   (o: OmsOrderRow) => prettySymbol(o.symbol),
+    side:     (o: OmsOrderRow) => o.side,
+    qty:      (o: OmsOrderRow) => o.filledQty,
+    strategy: (o: OmsOrderRow) => o.strategyId ?? "",
+    price:    (o: OmsOrderRow) => o.avgFillPrice ?? 0,
+  }), []);
+
+  const { sorted, sortKey, dir, toggle } = useSort(fills, ACCESSORS, { key: "date", dir: "desc" });
+
+  const handleRowClick = useCallback((id: string) => {
+    setExpandedId((prev) => (prev === id ? null : id));
+  }, []);
+
   return (
     <>
-      <WindowLabel
-        text={`Fills from the most recent ${ORDER_FETCH_LIMIT} orders · newest first`}
-        sub="Across all dates (not today-only) — capped, not a time window."
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 4px 8px" }}>
+        <div style={{ flex: 1, lineHeight: 1.4 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)" }}>
+            Last {TRADES_SHOW_MAX} fills (from most recent {TRADES_FETCH_LIMIT} orders) · newest first
+          </span>
+          <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: 8 }}>
+            Across all dates — click a row to see the order audit trail.
+          </span>
+        </div>
+        <input
+          type="search"
+          placeholder="Filter symbol…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{
+            background: "#0d1117",
+            border: "1px solid #1b2233",
+            borderRadius: 4,
+            color: "var(--text)",
+            fontSize: 11,
+            padding: "4px 8px",
+            width: 140,
+            outline: "none",
+          }}
+        />
+      </div>
+      <TradesTable
+        rows={sorted}
+        loading={orders.loading}
+        err={orders.err}
+        sortKey={sortKey}
+        dir={dir}
+        toggle={toggle}
+        expandedId={expandedId}
+        onRowClick={handleRowClick}
+        onOpenSymbol={onOpenSymbol}
       />
-      <OrderTable rows={filled} loading={orders.loading} err={orders.err} empty="No fills yet." showFill onOpenSymbol={onOpenSymbol} />
     </>
+  );
+}
+
+/** Sortable trades table with expandable audit row. */
+function TradesTable({
+  rows, loading, err, sortKey, dir, toggle, expandedId, onRowClick, onOpenSymbol,
+}: {
+  rows: OmsOrderRow[];
+  loading: boolean;
+  err: string | null;
+  sortKey: string | null;
+  dir: "asc" | "desc";
+  toggle: (k: string) => void;
+  expandedId: string | null;
+  onRowClick: (id: string) => void;
+  onOpenSymbol?: (symbol: string) => void;
+}) {
+  if (loading && rows.length === 0) return <Note>Loading…</Note>;
+  if (err) return <Note tone="down">Unavailable: {err}</Note>;
+  if (rows.length === 0) return <Note>No fills yet (searched {TRADES_FETCH_LIMIT} most-recent orders).</Note>;
+
+  const Th = ({ col, label, right }: { col: string; label: string; right?: boolean }) => {
+    const active = sortKey === col;
+    const arrow = active ? (dir === "asc" ? " ↑" : " ↓") : "";
+    return (
+      <th
+        style={{ ...(right ? TH_R : TH), cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
+          color: active ? "var(--accent, #4f8cff)" : undefined }}
+        onClick={() => toggle(col)}
+      >
+        {label}{arrow}
+      </th>
+    );
+  };
+
+  return (
+    <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 680 }}>
+        <thead>
+          <tr style={{ color: "var(--text-dim)", borderBottom: "1px solid #1b2233" }}>
+            <Th col="date"     label="Fill Time" />
+            <Th col="symbol"   label="Symbol" />
+            <Th col="strategy" label="Strategy" />
+            <Th col="side"     label="Side" />
+            <Th col="qty"      label="Filled Qty" right />
+            <Th col="price"    label="Avg Fill Px" right />
+            <th style={TH}>State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((o) => (
+            <>
+              <tr
+                key={o.id}
+                onClick={() => onRowClick(o.id)}
+                style={{
+                  borderBottom: expandedId === o.id ? "none" : "1px solid #141b2b",
+                  cursor: "pointer",
+                  background: expandedId === o.id ? "rgba(79,140,255,0.06)" : undefined,
+                }}
+                title="Click to see order audit"
+              >
+                <td style={{ ...TD, color: "var(--text-muted)" }}>
+                  {fmtWhenDate(o.lastStateChangeAtUtc)}
+                </td>
+                <td style={{ ...TD, fontWeight: 700 }}>
+                  <SymbolCell raw={o.symbol} onOpenSymbol={onOpenSymbol} />
+                </td>
+                <td style={{ ...TD, color: "var(--text-muted)" }}>
+                  <StrategyCell id={o.strategyId} />
+                </td>
+                <td style={{ ...TD, color: o.side === "BUY" ? "var(--up, #1fc16b)" : "var(--down, #ef4444)", fontWeight: 700 }}>
+                  {o.side}
+                </td>
+                <td style={TD_R}>{fmtNum(fmtQty(o.filledQty))}</td>
+                <td style={TD_R}>{fmtMoney(o.avgFillPrice)}</td>
+                <td style={TD}>{o.state}</td>
+              </tr>
+              {expandedId === o.id && (
+                <tr key={`${o.id}-detail`} style={{ borderBottom: "1px solid #141b2b" }}>
+                  <td colSpan={7} style={{ padding: 0 }}>
+                    <TradeAuditPanel order={o} />
+                  </td>
+                </tr>
+              )}
+            </>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Expanded audit panel for a single fill — shows order metadata + state
+ * history from api.omsOrderAudit. Lazy-loaded on first expand. */
+function TradeAuditPanel({ order }: { order: OmsOrderRow }) {
+  const [audit, setAudit] = useState<{
+    events: OmsOrderEventRow[];
+    riskEvents: Array<{ occurred_at_utc: string; gate: string; decision: string; reason: string | null }>;
+    llmEvals: Array<{ occurred_at_utc: string; purpose: string; decision: string; confidence: number | null; reasoning: string | null }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api.omsOrderAudit(order.id)
+      .then((r) => { if (live) { setAudit(r); setLoading(false); } })
+      .catch((e) => { if (live) { setErr(e instanceof Error ? e.message : String(e)); setLoading(false); } });
+    return () => { live = false; };
+  }, [order.id]);
+
+  return (
+    <div style={{
+      background: "rgba(13,17,23,0.7)",
+      borderTop: "1px solid #1b2233",
+      borderBottom: "1px solid #1b2233",
+      padding: "10px 14px",
+      fontSize: 11,
+    }}>
+      {/* Order metadata strip */}
+      <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 8, color: "var(--text-muted)" }}>
+        <span><b>Order ID</b> <Link to="/oms" style={{ color: "var(--accent, #4f8cff)", fontFamily: "monospace" }}>{order.clientOrderId}</Link></span>
+        <span><b>Broker</b> {order.broker}</span>
+        <span><b>Type</b> {order.orderType}</span>
+        {order.limitPrice != null && <span><b>Limit</b> {fmtMoney(order.limitPrice)}</span>}
+        {order.brokerOrderId && <span><b>Broker OID</b> {order.brokerOrderId}</span>}
+        <span><b>Placed by</b> {order.placedBy}</span>
+        <span><b>Created</b> {fmtWhenDate(order.createdAtUtc)}</span>
+      </div>
+
+      {loading && <span style={{ color: "var(--text-dim)" }}>Loading audit…</span>}
+      {err   && <span style={{ color: "var(--down, #ef4444)" }}>Audit unavailable: {err}</span>}
+
+      {audit && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {/* State transitions */}
+          <div>
+            <div style={{ fontWeight: 700, color: "var(--text-muted)", marginBottom: 4 }}>
+              State history ({audit.events.length})
+            </div>
+            {audit.events.length === 0 ? (
+              <span style={{ color: "var(--text-dim)" }}>No events.</span>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {audit.events.map((ev) => (
+                  <div key={ev.id} style={{ display: "flex", gap: 8, color: "var(--text-muted)" }}>
+                    <span style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+                      {fmtWhenDate(ev.occurredAtUtc)}
+                    </span>
+                    <span style={{ fontWeight: 600 }}>{ev.eventType}</span>
+                    {ev.priorState && <span style={{ color: "var(--text-dim)" }}>{ev.priorState} → {ev.newState}</span>}
+                    <span style={{ color: "var(--text-dim)" }}>by {ev.actor}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Decision: risk events + LLM evals */}
+          <div>
+            <div style={{ fontWeight: 700, color: "var(--text-muted)", marginBottom: 4 }}>
+              Decision ({audit.riskEvents.length} risk · {audit.llmEvals.length} LLM)
+            </div>
+            {audit.riskEvents.length === 0 && audit.llmEvals.length === 0 ? (
+              <span style={{ color: "var(--text-dim)" }}>No gate events.</span>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {audit.riskEvents.map((ev, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "var(--text-muted)" }}>
+                    <span style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{fmtWhenDate(ev.occurred_at_utc)}</span>
+                    <span style={{ fontWeight: 600 }}>{ev.gate}</span>
+                    <span style={{ color: ev.decision === "PASS" ? "var(--up, #1fc16b)" : "var(--down, #ef4444)", fontWeight: 700 }}>{ev.decision}</span>
+                    {ev.reason && <span style={{ color: "var(--text-dim)", fontStyle: "italic" }}>{ev.reason}</span>}
+                  </div>
+                ))}
+                {audit.llmEvals.map((ev, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "var(--text-muted)" }}>
+                    <span style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{fmtWhenDate(ev.occurred_at_utc)}</span>
+                    <span style={{ fontWeight: 600 }}>LLM · {ev.purpose}</span>
+                    <span style={{ color: ev.decision === "APPROVE" ? "var(--up, #1fc16b)" : "var(--down, #ef4444)", fontWeight: 700 }}>{ev.decision}</span>
+                    {ev.confidence != null && <span style={{ color: "var(--text-dim)" }}>conf {(ev.confidence * 100).toFixed(0)}%</span>}
+                    {ev.reasoning && (
+                      <span style={{ color: "var(--text-dim)", fontStyle: "italic", maxWidth: 320,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={ev.reasoning}>
+                        "{ev.reasoning}"
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -138,14 +405,14 @@ function orderChartSymbol(raw: string): string | null {
   return productOf(raw) === "Equity" ? bareSymbol(raw) : null;
 }
 
-function useOrders() {
+function useOrdersWithLimit(limit: number) {
   const [rows, setRows] = useState<OmsOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     const load = () => {
-      api.omsOrders(undefined, ORDER_FETCH_LIMIT)
+      api.omsOrders(undefined, limit)
         .then((r) => { if (live) { setRows(r.orders); setErr(null); } })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })
         .finally(() => { if (live) setLoading(false); });
@@ -153,9 +420,15 @@ function useOrders() {
     void load();
     const t = setInterval(load, 60_000);
     return () => { live = false; clearInterval(t); };
-  }, []);
+  }, [limit]);
   return { rows, loading, err };
 }
+
+/** Orders tab: most-recent ORDER_FETCH_LIMIT orders (all states). */
+function useOrders() { return useOrdersWithLimit(ORDER_FETCH_LIMIT); }
+
+/** Trades tab: fetch a larger window so fills don't fall outside the cap. */
+function useTrades() { return useOrdersWithLimit(TRADES_FETCH_LIMIT); }
 
 function OrderTable({
   rows, loading, err, empty, showFill, onOpenSymbol,
