@@ -14,8 +14,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type OmsOrderRow } from "../../api/client";
-import { prettySymbol } from "../../util/brokerSymbols";
-import { fmtWhen } from "../../util/time";
+import { prettySymbol, bareSymbol, productOf } from "../../util/brokerSymbols";
+import { fmtWhenDate } from "../../util/time";
 import { fmtQty } from "../../util/numbers";
 import { PositionsTable } from "./PositionsTable";
 import { fmtMoney, fmtNum, signColour } from "./deskFormat";
@@ -29,7 +29,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "balances", label: "Balances" },
 ];
 
-export function DeskTabs() {
+export function DeskTabs({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }) {
   const [tab, setTab] = useState<Tab>("positions");
 
   return (
@@ -60,9 +60,9 @@ export function DeskTabs() {
         })}
       </div>
       <div style={{ padding: 10 }}>
-        {tab === "positions" && <PositionsTable />}
-        {tab === "orders" && <OrdersTab />}
-        {tab === "trades" && <TradesTab />}
+        {tab === "positions" && <PositionsTable onOpenSymbol={onOpenSymbol} />}
+        {tab === "orders" && <OrdersTab onOpenSymbol={onOpenSymbol} />}
+        {tab === "trades" && <TradesTab onOpenSymbol={onOpenSymbol} />}
         {tab === "balances" && <BalancesTab />}
       </div>
     </div>
@@ -70,16 +70,23 @@ export function DeskTabs() {
 }
 
 /** Orders — all live OMS orders. */
-function OrdersTab() {
+function OrdersTab({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }) {
   const orders = useOrders();
-  return <OrderTable rows={orders.rows} loading={orders.loading} err={orders.err} empty="No orders." />;
+  return <OrderTable rows={orders.rows} loading={orders.loading} err={orders.err} empty="No orders." onOpenSymbol={onOpenSymbol} />;
 }
 
 /** Trades — terminal FILLED orders (the executed fills we can show). */
-function TradesTab() {
+function TradesTab({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }) {
   const orders = useOrders();
   const filled = orders.rows.filter((o) => o.state === "FILLED" || o.state === "PARTIALLY_FILLED");
-  return <OrderTable rows={filled} loading={orders.loading} err={orders.err} empty="No fills yet." showFill />;
+  return <OrderTable rows={filled} loading={orders.loading} err={orders.err} empty="No fills yet." showFill onOpenSymbol={onOpenSymbol} />;
+}
+
+/** Chart symbol for an OMS order row, or null when there's no honest Yahoo
+ * candle symbol (IG FX/CFD epics, options, futures). Equity tickers reduce to
+ * the bare symbol which Yahoo accepts. */
+function orderChartSymbol(raw: string): string | null {
+  return productOf(raw) === "Equity" ? bareSymbol(raw) : null;
 }
 
 function useOrders() {
@@ -102,13 +109,14 @@ function useOrders() {
 }
 
 function OrderTable({
-  rows, loading, err, empty, showFill,
+  rows, loading, err, empty, showFill, onOpenSymbol,
 }: {
   rows: OmsOrderRow[];
   loading: boolean;
   err: string | null;
   empty: string;
   showFill?: boolean;
+  onOpenSymbol?: (symbol: string) => void;
 }) {
   if (loading && rows.length === 0) return <Note>Loading…</Note>;
   if (err) return <Note tone="down">Unavailable: {err}</Note>;
@@ -118,7 +126,7 @@ function OrderTable({
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 640 }}>
         <thead>
           <tr style={{ color: "var(--text-dim)", borderBottom: "1px solid #1b2233" }}>
-            <th style={TH}>Time</th>
+            <th style={TH}>Date / Time</th>
             <th style={TH}>Symbol</th>
             <th style={TH}>Side</th>
             <th style={TH_R}>Qty</th>
@@ -130,8 +138,15 @@ function OrderTable({
         <tbody>
           {rows.map((o) => (
             <tr key={o.id} style={{ borderBottom: "1px solid #141b2b" }}>
-              <td style={{ ...TD, color: "var(--text-muted)" }}>{fmtWhen(o.lastStateChangeAtUtc)}</td>
-              <td style={{ ...TD, fontWeight: 700 }}>{prettySymbol(o.symbol)}</td>
+              {/* Date + time (not just HH:MM:SS). Orders show when the order was
+                  created; the Trades tab (showFill) shows the fill / terminal
+                  state-change time. */}
+              <td style={{ ...TD, color: "var(--text-muted)" }}>
+                {fmtWhenDate(showFill ? o.lastStateChangeAtUtc : (o.createdAtUtc || o.lastStateChangeAtUtc))}
+              </td>
+              <td style={{ ...TD, fontWeight: 700 }}>
+                <SymbolCell raw={o.symbol} onOpenSymbol={onOpenSymbol} />
+              </td>
               <td style={{ ...TD, color: o.side === "BUY" ? "var(--up, #1fc16b)" : "var(--down, #ef4444)", fontWeight: 700 }}>
                 {o.side}
               </td>
@@ -203,6 +218,30 @@ function BalancesTab() {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Symbol cell that opens the Quote/Chart view when the symbol has an honest
+ * chart symbol (equity). FX/options/futures and rows with no callback render
+ * as plain, non-clickable text (don't open an empty chart). */
+function SymbolCell({ raw, onOpenSymbol }: { raw: string; onOpenSymbol?: (symbol: string) => void }) {
+  const chart = orderChartSymbol(raw);
+  const clickable = !!onOpenSymbol && !!chart;
+  if (!clickable) return <>{prettySymbol(raw)}</>;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenSymbol!(chart!)}
+      title={`Open ${chart} chart`}
+      style={{
+        background: "transparent", border: "none", padding: 0, cursor: "pointer",
+        font: "inherit", color: "var(--text)", fontWeight: 700, textAlign: "left",
+        textDecoration: "underline", textDecorationColor: "rgba(79,140,255,0.35)",
+        textUnderlineOffset: 2,
+      }}
+    >
+      {prettySymbol(raw)}
+    </button>
   );
 }
 

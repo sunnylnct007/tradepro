@@ -49,6 +49,15 @@ function useWide(): boolean {
 export function Desk() {
   const wide = useWide();
   const [view, setView] = useState<DeskView>("portfolio");
+  // Lifted "drill into this symbol" state: a Positions/Orders row can call
+  // openSymbol(sym) to jump to the Quote/Chart view with that symbol selected.
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+
+  const openSymbol = (symbol: string) => {
+    setSelectedSymbol(symbol);
+    setView("quote");
+  };
+
   return (
     <DeskShell active={view} onSelect={setView}>
       {view === "portfolio" && (
@@ -62,12 +71,12 @@ export function Desk() {
               alignItems: "start",
             }}
           >
-            <DeskTabs />
+            <DeskTabs onOpenSymbol={openSymbol} />
             <DeskRightRail />
           </div>
         </>
       )}
-      {view === "quote" && <QuoteView />}
+      {view === "quote" && <QuoteView initialSymbol={selectedSymbol} />}
       {view === "screeners" && <ScreenersView />}
       {view === "news" && <NewsView wide={wide} />}
       {view === "watchlist" && <WatchlistView />}

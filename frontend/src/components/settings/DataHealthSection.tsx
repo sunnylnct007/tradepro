@@ -1418,9 +1418,9 @@ function FillQualityTables({ data }: { data: FillQuality }) {
             <span style={{ color: row.side === "BUY" ? "#16a34a" : "#dc2626" }}>
               {row.side}
             </span>
-            <span style={{ textAlign: "right" }}>{row.price.toFixed(4)}</span>
+            <span style={{ textAlign: "right" }}>{fmtPrice4(row.price)}</span>
             <span style={{ textAlign: "right" }}>
-              {row.mid_at_fill?.toFixed(4) ?? "—"}
+              {fmtPrice4(row.mid_at_fill)}
             </span>
             <span style={{ textAlign: "right", color: "var(--text-dim)" }}>
               {formatBps(spreadBps)}
@@ -1442,6 +1442,14 @@ function formatBps(v: number | null): string {
   if (v === null || v === undefined) return "—";
   const sign = v > 0 ? "+" : "";
   return `${sign}${v.toFixed(2)}`;
+}
+
+/** Guarded price formatter. The fillQuality endpoint types `price` as a
+ * required number, but real rows can arrive with a null/missing price (e.g.
+ * pre-2026-06-02 IG fills booked without a price). Calling `.toFixed` on that
+ * undefined crashed the whole Settings page, so format defensively. */
+function fmtPrice4(v: number | null | undefined): string {
+  return Number.isFinite(v as number) ? (v as number).toFixed(4) : "—";
 }
 
 function bpsColor(v: number | null): string {

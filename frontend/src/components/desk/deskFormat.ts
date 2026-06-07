@@ -49,3 +49,24 @@ export function fmtNum(n: number | null | undefined, maxFrac = 4): string {
   if (n == null) return "n/a";
   return n.toLocaleString(undefined, { maximumFractionDigits: maxFrac });
 }
+
+/** Real-money vs paper. Derived from the broker label / id / mode already
+ * present on the API rows (never a hardcoded broker list): a row is LIVE only
+ * when something explicitly says so ("live"); anything that says "demo"/"paper"
+ * or is silent stays DEMO. Intent: a glance must tell you IBKR LIVE is real
+ * money while T212 DEMO / IG DEMO are paper. */
+export type AccountMode = "LIVE" | "DEMO";
+
+export function accountMode(...labels: (string | null | undefined)[]): AccountMode {
+  const hay = labels.filter(Boolean).join(" ").toLowerCase();
+  if (/\b(demo|paper)\b/.test(hay)) return "DEMO";
+  if (/\blive\b/.test(hay)) return "LIVE";
+  if (/(_live|-live)/.test(hay)) return "LIVE";
+  return "DEMO"; // safest default — only badge LIVE when explicitly stated
+}
+
+/** Badge colour for the LIVE / DEMO chip. LIVE = amber (real money,
+ * read-only); DEMO = muted grey. */
+export function modeColour(mode: AccountMode): string {
+  return mode === "LIVE" ? "#d4793b" : "var(--text-muted)";
+}
