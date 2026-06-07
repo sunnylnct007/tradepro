@@ -14,10 +14,12 @@ Each provider:
 from __future__ import annotations
 
 from .base import Provider, register_provider, get_provider, list_providers
+from .ibkr_provider import IBKRProvider
 from .ig_provider import IGProvider
 from .yfinance_provider import YFinanceProvider
 
 __all__ = [
+    "IBKRProvider",
     "IGProvider",
     "Provider",
     "register_provider",

@@ -317,11 +317,10 @@ def build_server():
         return _json(t.list_paper_strategies())
 
     # ---- Bar cache (Phase B-1/B-2/B-3 trustworthy data layer) ----------
-    # Read-side surface only; the write path (BarStore.get) is exposed
-    # via bar_cache_get_bars but rate-limited by the cache itself
-    # (second call hits cache). No backfill tool yet — that lands when
-    # Phase C ships the data-worker queue and the right shape is
-    # enqueue_backfill, not direct trigger.
+    # Bar cache — read surface, provider visibility, and IBKR trigger.
+    # bar_cache_get_bars is the generic fetch path (any provider chain).
+    # ibkr_bar_status / ibkr_fetch_bars are the IBKR-specific tools
+    # now that the auth pipeline is live and TWS is accessible.
 
     @mcp.tool()
     @instrumented("bar_cache_health")
@@ -396,13 +395,13 @@ def build_server():
     @mcp.tool()
     @instrumented("bar_cache_list_providers")
     def bar_cache_list_providers() -> str:
-        """Provider plugins registered in the local Python process —
-        the set of names that can appear in a chain in the preferences
-        table. Each row includes the documented max history per
-        resolution (e.g. yfinance 1m → 7 days, 1h → 730 days, daily →
-        unlimited). Use this to explain "why doesn't the chain editor
-        list IG?" or to verify a chain edit only references registered
-        providers.
+        """Provider plugins registered in the local Python process:
+        **yfinance**, **ig** (IG /prices), and **ibkr** (Interactive
+        Brokers via ib_insync). Each row includes the documented max
+        history per resolution — ibkr gives ≈1 year of 1m bars vs
+        yfinance's 7-day cap. Use this to explain what providers are
+        available or to validate a chain edit before suggesting it to
+        the operator.
 
         Cite as `tradepro://bar-cache/providers`."""
         return _json(t.bar_cache_list_providers())
@@ -448,6 +447,77 @@ def build_server():
             to_date=to_date,
             allow_partial=allow_partial,
             summary_only=summary_only,
+        ))
+
+    @mcp.tool()
+    @instrumented("ibkr_bar_status")
+    def ibkr_bar_status(limit: int = 30) -> str:
+        """IBKR bar-cache harvester status — the single call that answers
+        "is IBKR harvesting bars?" from Claude Desktop.
+
+        Returns:
+          * connection_status  — "configured" (registered; live ping
+            requires TWS running — see connection_hint for the URL)
+          * depth_summary      — per-resolution ceiling (1m → ≈1 year,
+            5m → ≈3 years, 1d → decades)
+          * event_count        — total IBKR fetches ever recorded
+          * success_count_last_n — completed fetches in the last `limit`
+          * events             — the `limit` most-recent IBKR events
+            (canonical, resolution, result, rows_returned, latency_ms)
+
+        Use this when asked "when did we last harvest AAPL 1m bars from
+        IBKR?", "how many rows did the last IBKR fetch return?", or
+        "is IBKR the provider being used for us_equity 1m?".
+
+        To trigger a fresh fetch: ibkr_fetch_bars().
+        Cite as `tradepro://bar-cache/ibkr/status`."""
+        return _json(t.ibkr_bar_status(limit))
+
+    @mcp.tool()
+    @instrumented("ibkr_fetch_bars")
+    def ibkr_fetch_bars(
+        canonical: str,
+        asset_class: str,
+        resolution: str,
+        from_date: str,
+        to_date: str | None = None,
+        allow_partial: bool = True,
+    ) -> str:
+        """Trigger an IBKR historical bar harvest for one symbol/resolution/
+        date-range. The Mac data-worker picks up the queued job and calls
+        IBKRProvider.fetch() — TWS or IB Gateway must be running at the
+        configured host:port (default 127.0.0.1:7497; override via
+        TRADEPRO_IBKR_HOST / TRADEPRO_IBKR_PORT env vars).
+
+        The fetch is ADDITIVE — existing cached partitions are NOT
+        overwritten. A 1-year 1m backfill takes ~13 chunks × 0.6s ≈
+        10–20s of real fetch time at the worker.
+
+        Parameters
+        ----------
+        canonical    Bare ticker symbol: "AAPL", "SPY", "NVDA", etc.
+        asset_class  "us_equity" or "us_etf" (ibkr supports both).
+        resolution   "1m", "5m", "15m", "30m", "1h", "1d", "1wk".
+        from_date    YYYY-MM-DD — start of the range to harvest.
+        to_date      YYYY-MM-DD — end (defaults to today).
+        allow_partial True → accept gaps in coverage (default for harvests).
+
+        IBKR depth ceilings vs yfinance:
+          1m  → ≈1 year   (yfinance: 7 days)
+          5m  → ≈3 years  (yfinance: 60 days)
+          1h  → ≈3.5 years
+          1d  → decades
+
+        Returns a request_id. Track completion with
+        bar_cache_events(canonical=<sym>, result='fetched_complete').
+        Cite the job as `tradepro://bar-cache/ibkr/fetch/<request_id>`."""
+        return _json(t.ibkr_fetch_bars(
+            canonical=canonical,
+            asset_class=asset_class,
+            resolution=resolution,
+            from_date=from_date,
+            to_date=to_date,
+            allow_partial=allow_partial,
         ))
 
     # ---- Track-record validation: hitrate, scan, evaluate one signal ----
