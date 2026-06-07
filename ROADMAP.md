@@ -3389,3 +3389,11 @@ orders, snapshots, settings, and watchlists. Tracked in
   for local dev. The Mac fallback `~/.tradepro/credentials` is kept
   as a tertiary path for backwards compatibility but new secrets go
   to SM, not to that file.
+
+---
+
+## Pre-live execution quality & correctness (added 2026-06-07)
+
+- **Order type / slippage (user-raised):** all brokers place **MARKET** orders today (IG `"MARKET"`, IBKR `"MKT"`, T212 market) — the **broker sets the fill price**, we have no price control. For real money, consider **LIMIT orders** or a **slippage cap/guard** so fills can't slip badly. Ties into the intraday **stop/target** framework, which needs limit/stop order types.
+- **ichimoku_equity over-allocation:** holds **~90 positions** vs the trader's design **~51** (`sleeve_large=20 + sleeve_hibeta=30 + sleeve_gold=1`, `docs/config 4.py`). Live engine likely isn't capping each sleeve to its top-N. Fix: replicate the trader's `Sleeve(…, sleeve_size, …)` (rank + hold top-N per sleeve) with a parity test. (File in `strategies/` — coordinate with the harvest session.)
+- **Server-side EOD-flat:** `intraday_flat` EOD-flat runs on the Mac daemon; it missed Friday's close (laptop asleep) → 3 IG equity CFDs held over the weekend. Move EOD-flat to an **always-on server trigger** (EC2 cron) so overnight exposure can't be left open.
