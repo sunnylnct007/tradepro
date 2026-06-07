@@ -30,6 +30,7 @@ the network.
 """
 from .base import BarSource, MultiSymbolSourceBackedBus, SourceBackedBus
 from .cache import CachedSource, ParquetBarStore
+from .errors import DataUnavailableError
 from .fallback import FallbackSource
 from .finnhub import FinnhubSource
 from .yfinance import YfinanceSource
@@ -40,6 +41,7 @@ __all__ = [
     "MultiSymbolSourceBackedBus",
     "CachedSource",
     "ParquetBarStore",
+    "DataUnavailableError",
     "FallbackSource",
     "FinnhubSource",
     "YfinanceSource",

@@ -32,10 +32,17 @@ log = logging.getLogger("tradepro.paper.sources.fallback")
 class FallbackSource(BarSource):
     """List of sources, tried in order. Each source is given the
     same (symbol, session_date, interval) tuple. The FIRST one that
-    returns a non-empty list wins."""
+    returns a non-empty list wins.
+
+    After a successful fetch, ``last_source`` holds the name of the
+    provider that actually served the bars (e.g. "ibkr", "yfinance",
+    "finnhub"). It is updated on every ``fetch()`` call that returns
+    non-empty bars so callers can surface data-provenance to the UI.
+    """
 
     sources: list[BarSource] = field(default_factory=list)
     name: str = "fallback_source"
+    last_source: str = field(default="", init=False)
 
     async def fetch(
         self,
@@ -54,10 +61,12 @@ class FallbackSource(BarSource):
                 )
                 continue
             if bars:
+                source_name = getattr(source, "name", type(source).__name__)
+                self.last_source = source_name
                 if source is not self.sources[0]:
                     log.info(
                         "fallback %s served %s %s %s (%d bars)",
-                        getattr(source, "name", "?"),
+                        source_name,
                         symbol, session_date.date(), interval, len(bars),
                     )
                 return bars
