@@ -42,6 +42,15 @@ public sealed class IBKROptions
     /// configured. Defaults to disabled until <c>tradepro/ibkr</c> lands.</summary>
     public string Mode { get; set; } = "disabled";
 
+    /// <summary>HARD kill-switch for order placement. Default FALSE
+    /// (fail-safe): while we run IBKR READ-ONLY against a LIVE account, NO
+    /// order may ever hit IBKR. When false, <see cref="IBKRClient.PlaceMarketOrderAsync"/>
+    /// returns a rejected result WITHOUT building or sending any HTTP request,
+    /// and the OMS IBKR dispatch branch skips placement entirely. It is absent
+    /// from the <c>tradepro/ibkr</c> secret, so it binds to false — only an
+    /// explicit <c>IBKR:AllowOrders=true</c> could ever enable order placement.</summary>
+    public bool AllowOrders { get; set; } = false;
+
     // ─── OAuth 2.0 client-credentials (client-assertion JWT) ─────────
     //
     // IBKR issues a DIFFERENT client_id AND credential (brokerage login)

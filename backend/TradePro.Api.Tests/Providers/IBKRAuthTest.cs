@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -696,6 +697,97 @@ public class IBKRAuthTest
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
                 .GetValue(null)!;
         Assert.Equal("IBKR:SourceIp", map["ip"]);
+    }
+
+    // ─── HARD kill-switch (read-only on live account) ───────────────
+
+    [Fact]
+    public void IBKROptions_allowOrders_defaults_false_when_absent_from_config()
+    {
+        // Fail-safe: absent config → no orders. The tradepro/ibkr secret does
+        // NOT carry allow_orders, so it binds to false; only an explicit
+        // IBKR:AllowOrders=true could ever enable placement.
+        Assert.False(new IBKROptions().AllowOrders);
+    }
+
+    [Fact]
+    public async Task PlaceMarketOrder_blocked_and_sends_NO_http_when_AllowOrders_false()
+    {
+        // Even a fully-enabled LIVE client must NOT place an order while the
+        // kill-switch is off: PlaceMarketOrderAsync returns a rejected result
+        // with the disabled error AND makes ZERO HTTP calls (asserted via the
+        // counting handler — the early return happens before any request is
+        // built or sent).
+        var handler = new CountingHandler();
+        var options = new IBKROptions
+        {
+            Mode = "live",
+            ClientIdLive = "cid-live", ClientKeyId = "kid",
+            CredentialLive = "user-live", PrivateKey = "pem",
+            AccountIdLive = "U25124456",
+            AllowOrders = false, // the kill-switch (default)
+        };
+        var client = NewClient(handler, options);
+
+        Assert.True(options.IsEnabled, "client is otherwise fully enabled");
+        Assert.False(client.AllowOrders);
+
+        var result = await client.PlaceMarketOrderAsync(
+            conid: 265598, side: "BUY", quantity: 10m);
+
+        Assert.Equal("REJECTED", result.Status);
+        Assert.Equal(
+            "IBKR order placement is disabled (read-only mode) — set IBKR:AllowOrders=true to enable",
+            result.StatusReason);
+        Assert.Null(result.OrderId);
+        // THE GUARANTEE: not a single HTTP request left the client.
+        Assert.Equal(0, handler.SendCount);
+    }
+
+    [Fact]
+    public void AllowOrders_property_reflects_option()
+    {
+        Assert.False(NewClient(new CountingHandler(), new IBKROptions { AllowOrders = false }).AllowOrders);
+        Assert.True(NewClient(new CountingHandler(), new IBKROptions { AllowOrders = true }).AllowOrders);
+    }
+
+    /// <summary>Construct a real IBKRClient over a mocked HttpMessageHandler so
+    /// we can assert on the wire (zero sends when the kill-switch is off).</summary>
+    private static IBKRClient NewClient(HttpMessageHandler handler, IBKROptions options)
+    {
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.ibkr.test/") };
+        var ipResolver = new IBKREgressIpResolver(
+            new SingleClientFactory(new HttpClient(new CountingHandler())),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<IBKREgressIpResolver>.Instance);
+        return new IBKRClient(
+            http,
+            Microsoft.Extensions.Options.Options.Create(options),
+            new IBKRSessionCache(),
+            ipResolver,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<IBKRClient>.Instance);
+    }
+
+    /// <summary>HttpMessageHandler that counts every send — used to prove the
+    /// kill-switch returns BEFORE any request reaches the wire.</summary>
+    private sealed class CountingHandler : HttpMessageHandler
+    {
+        public int SendCount { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            SendCount++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}"),
+            });
+        }
+    }
+
+    private sealed class SingleClientFactory : IHttpClientFactory
+    {
+        private readonly HttpClient _client;
+        public SingleClientFactory(HttpClient client) => _client = client;
+        public HttpClient CreateClient(string name) => _client;
     }
 
     private static byte[] B64UrlDecode(string s)

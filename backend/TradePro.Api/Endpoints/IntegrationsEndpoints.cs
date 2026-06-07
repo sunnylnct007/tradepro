@@ -788,6 +788,10 @@ public static class IntegrationsEndpoints
                 {
                     enabled = false,
                     authenticated = false,
+                    // HARD kill-switch state (default false): order placement is
+                    // disabled unless IBKR:AllowOrders=true. Surfaced so the
+                    // read-only guarantee is visible/auditable.
+                    allowOrders = ibkr.AllowOrders,
                     mode = string.IsNullOrWhiteSpace(o.Mode) ? "disabled" : o.Mode,
                     clientIdInUse = RedactClientId(o.ActiveClientId),
                     accounts = Array.Empty<string>(),
@@ -805,6 +809,10 @@ public static class IntegrationsEndpoints
             {
                 enabled = status.Enabled,
                 authenticated = status.Authenticated,
+                // HARD kill-switch state (default false): order placement is
+                // disabled unless IBKR:AllowOrders=true. Surfaced so the
+                // read-only guarantee on the live account is visible/auditable.
+                allowOrders = ibkr.AllowOrders,
                 mode = status.Mode,
                 brokerLabel = status.BrokerLabel,
                 // Active (mode-resolved) client id, redacted to a hint so the

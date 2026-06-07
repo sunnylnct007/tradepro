@@ -444,6 +444,19 @@ public sealed class PostgresOmsService : IOmsService
             var ibkr = ResolveIBKR();
             if (ibkr is not null && ibkr.IsEnabled)
             {
+                // ── HARD kill-switch (Layer 2 — defense in depth) ──
+                // IBKR runs READ-ONLY against a LIVE account. Unless
+                // IBKR:AllowOrders=true (which we will NOT set), skip placement
+                // entirely — never call PlaceMarketOrderAsync. Leave the order
+                // as-is (do NOT error it), mirroring the existing dormant
+                // behaviour so nothing breaks.
+                if (!ibkr.AllowOrders)
+                {
+                    _log.LogWarning(
+                        "IBKR placement skipped — read-only kill-switch (OMS order {OrderId} {Sym} {Side} {Qty}, broker {Broker})",
+                        approved.Id, approved.Symbol, approved.Side, approved.Qty, approved.Broker);
+                    return approved;
+                }
                 try
                 {
                     // IBKR places by numeric contract id (conid). Resolve the
