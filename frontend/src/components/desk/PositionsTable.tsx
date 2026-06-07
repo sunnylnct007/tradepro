@@ -4,6 +4,7 @@
  * One dense, dark, sortable table merging open positions from every broker:
  *   - T212 equity  (api.t212Positions — ticker, qty, currentPrice, unrealised)
  *   - IG FX/CFD     (api.igPositions   — ticker, qty, currentPrice, unrealised)
+ *   - IBKR equity   (api.ibkrPositions — ticker, qty, currentPrice, unrealised)
  * Each row carries a small broker tag so the merged view stays unambiguous.
  *
  * Columns: Instrument · Company · Position (qty) · Last · Change% · Trend ·
@@ -29,7 +30,7 @@ import { loadSparkline } from "./sparklineCache";
 import { fmtMoney, fmtNum, fmtPct, signColour } from "./deskFormat";
 
 type Row = {
-  broker: string;        // "T212" | "IG"
+  broker: string;        // "T212" | "IG" | "IBKR"
   ticker: string;
   company: string | null;
   qty: number;
@@ -106,6 +107,37 @@ export function PositionsTable() {
         }
       } else if (ig && !ig.enabled) {
         msgs.push("IG disabled");
+      }
+
+      // IBKR equity (read-only). Same uniform shape as T212/IG. When the
+      // tradepro/ibkr secret is absent the backend reports enabled:false and
+      // we add nothing (graceful degrade) — no fabricated rows.
+      const ibkr = await api.ibkrPositions().catch((e) => {
+        msgs.push(`IBKR positions: ${e instanceof Error ? e.message : e}`);
+        return null;
+      });
+      if (ibkr?.enabled && ibkr.positions && !ibkr.error) {
+        for (const p of ibkr.positions) {
+          out.push({
+            broker: "IBKR",
+            ticker: p.ticker ?? "—",
+            company: p.instrumentName ?? null,
+            qty: fmtQty(p.quantity),
+            last: p.currentPrice,
+            changePct: p.unrealisedPct,
+            pnl: p.unrealisedAbs,
+            pnlPct: p.unrealisedPct,
+            ccy: p.currency,
+            // IBKR equity tickers may not map cleanly to a Yahoo candle
+            // symbol — leave the sparkline as "—" rather than guess.
+            chartSymbol: null,
+            series: null,
+          });
+        }
+      } else if (ibkr && !ibkr.enabled) {
+        msgs.push("IBKR disabled");
+      } else if (ibkr?.error) {
+        msgs.push(`IBKR: ${ibkr.error}`);
       }
 
       if (!live) return;
@@ -225,7 +257,7 @@ export function PositionsTable() {
 }
 
 function BrokerTag({ broker }: { broker: string }) {
-  const colour = broker === "IG" ? "#4f8cff" : "#1fc16b";
+  const colour = broker === "IG" ? "#4f8cff" : broker === "IBKR" ? "#d4793b" : "#1fc16b";
   return (
     <span
       title={broker}

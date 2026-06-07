@@ -36,6 +36,7 @@ import { useSort } from "../../util/useSort";
 import { SortTh } from "../SortTh";
 
 type IGPosResp = Awaited<ReturnType<typeof api.igPositions>>;
+type IBKRPosResp = Awaited<ReturnType<typeof api.ibkrPositions>>;
 type OmsPositions = Awaited<ReturnType<typeof api.omsPositions>>;
 
 const UP = "#1fc16b";
@@ -78,6 +79,10 @@ export function PositionsPanel({
 }) {
   const [ig, setIg] = useState<IGPosResp | null>(null);
   const [igErr, setIgErr] = useState<string | null>(null);
+  // IBKR equity positions (READ-ONLY). Rendered alongside T212/IG in the
+  // Equity card with an IBKR account label; degrades silently when disabled.
+  const [ibkr, setIbkr] = useState<IBKRPosResp | null>(null);
+  const [ibkrErr, setIbkrErr] = useState<string | null>(null);
   const [oms, setOms] = useState<OmsPositions | null>(null);
   const [flattening, setFlattening] = useState(false);
   const [flattenMsg, setFlattenMsg] = useState<string | null>(null);
@@ -166,6 +171,15 @@ export function PositionsPanel({
     } catch (e) {
       setIgErr(String(e));
     }
+    // IBKR equity — independent read so one broker failing doesn't blank
+    // the others. READ-ONLY; never placed against.
+    try {
+      const d = await api.ibkrPositions();
+      setIbkr(d);
+      setIbkrErr(null);
+    } catch (e) {
+      setIbkrErr(String(e));
+    }
     try {
       setOms(await api.omsPositions());
     } catch {
@@ -250,6 +264,11 @@ export function PositionsPanel({
   // — the options strategy will post here once it executes on IG. Anything
   // else non-FX/non-equity/non-option (futures/crypto) falls to igMisc.
   const igOptions = (ig?.positions ?? []).filter((p) => productOf(p.ticker) === "Option");
+
+  // IBKR equity holdings (read-only). Only when the broker is enabled and the
+  // fetch returned cleanly — otherwise the account block is skipped entirely.
+  const ibkrEq = (ibkr?.enabled && !ibkr.error ? ibkr.positions ?? [] : [])
+    .filter((p) => Math.abs(p.quantity) > 1e-9);
 
   const equityCount = positions?.enabled ? positions.positionCount : 0;
 
@@ -338,7 +357,7 @@ export function PositionsPanel({
       <CockpitCard
         id="positions-equity"
         title="Equity positions"
-        badge={(equityCount + igEq.length) || undefined}
+        badge={(equityCount + igEq.length + ibkrEq.length) || undefined}
         onHide={() => onHide("positions-equity")}
       >
         <Account
@@ -421,6 +440,48 @@ export function PositionsPanel({
             </ProductSection>
           </Account>
         )}
+        {/* IBKR equity (read-only). No OMS reconcile — IBKR is display-only;
+            no strategy posts to it, so there's no system view to compare. */}
+        {ibkrEq.length > 0 && (
+          <Account label={`IBKR · ${ibkr?.broker ?? "equities"}`} reconciled={null}>
+            <ProductSection title="Equity" loading={false} error={null} connected empty={false} notConnected="" emptyText="">
+              <table style={tableStyle}>
+                <thead>
+                  <tr style={{ color: "var(--text-dim)" }}>
+                    <th style={th}>Instrument</th><th style={rTh}>Qty</th><th style={rTh}>Avg</th>
+                    <th style={rTh}>Now</th><th style={rTh}>P&L %</th><th style={rTh}>P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ibkrEq.map((p, i) => (
+                    <tr key={`${p.ticker ?? "?"}-${i}`}
+                      onClick={() => p.ticker && openChart(p.ticker, {
+                        quantity: p.quantity,
+                        averagePricePaid: p.averagePricePaid,
+                        currentPrice: p.currentPrice,
+                        unrealisedAbs: p.unrealisedAbs,
+                        unrealisedPct: p.unrealisedPct,
+                      })}
+                      title="Show chart"
+                      style={{ borderTop: "1px solid var(--border)", cursor: p.ticker ? "pointer" : "default" }}>
+                      <td style={td} title={p.instrumentName ?? p.ticker ?? ""}>{p.ticker ?? "—"}</td>
+                      <td style={numTd}>{fmtQty(p.quantity)}</td>
+                      <td style={numTd}>{p.averagePricePaid?.toFixed(2) ?? "—"}</td>
+                      <td style={numTd}>{p.currentPrice?.toFixed(2) ?? "—"}</td>
+                      <td style={{ ...numTd, color: (p.unrealisedPct ?? 0) >= 0 ? UP : DOWN }}>
+                        {p.unrealisedPct != null ? `${p.unrealisedPct >= 0 ? "+" : ""}${p.unrealisedPct.toFixed(2)}%` : "—"}
+                      </td>
+                      <td style={{ ...numTd, color: (p.unrealisedAbs ?? 0) >= 0 ? UP : DOWN }}>
+                        {p.unrealisedAbs != null ? `${p.unrealisedAbs >= 0 ? "+" : ""}${p.unrealisedAbs.toFixed(2)}` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ProductSection>
+          </Account>
+        )}
+        {ibkrErr && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>IBKR positions unavailable</div>}
         {syncMsg && <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 8 }}>{syncMsg}</div>}
         <ReconNote />
       </CockpitCard>

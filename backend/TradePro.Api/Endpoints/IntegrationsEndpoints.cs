@@ -825,6 +825,72 @@ public static class IntegrationsEndpoints
             });
         });
 
+        // GET /api/integrations/ibkr/positions — IBKR open equity
+        // positions, READ-ONLY. Mirrors the IG/T212 positions shape so the
+        // desk + cockpit can render IBKR holdings with a per-row broker tag,
+        // exactly like T212 live positions. Reuses the same cached session as
+        // /ibkr/status (no per-call re-auth; IBKR rate-limits that) and
+        // places NO order. When the tradepro/ibkr secret is absent the client
+        // is disabled and we report {enabled:false, note} so the UI degrades
+        // gracefully (renders nothing) rather than erroring the panel.
+        app.MapGet("/integrations/ibkr/positions", async (
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            CancellationToken ct) =>
+        {
+            if (!ibkr.IsEnabled)
+            {
+                // Mirror the /status disabled branch — no network call.
+                return Results.Ok(new
+                {
+                    enabled = false,
+                    note = "Populate tradepro/ibkr secret + restart",
+                    positions = Array.Empty<object>(),
+                });
+            }
+            var result = await ibkr.GetPositionsAsync(ct);
+            if (result.Error is not null)
+            {
+                // Surface the verbatim IBKR error like the other broker
+                // endpoints so the UI shows the real failure, not "0 positions".
+                return Results.Ok(new
+                {
+                    enabled = true,
+                    broker = ibkr.BrokerLabel,
+                    error = result.Error,
+                    positions = Array.Empty<object>(),
+                });
+            }
+            var rows = result.Positions.Select(p =>
+            {
+                // Compute unrealised % from (mktPrice − avgCost); IBKR carries
+                // unrealizedPnl directly (golden) for the absolute. Guard the %
+                // against a missing/zero avgCost so we never fabricate a phantom
+                // move. Same uniform shape the desk reads for T212/IG.
+                decimal? unrealisedPct = null;
+                if (p.AvgCost is decimal avg && avg > 0 && p.MarketPrice is decimal cur)
+                    unrealisedPct = (cur - avg) / avg * 100m;
+                return new
+                {
+                    ticker = p.Symbol,                 // IBKR ticker / contractDesc
+                    instrumentName = p.Symbol,         // IBKR positions carry no separate long name
+                    quantity = p.Quantity,
+                    averagePricePaid = p.AvgCost,
+                    currentPrice = p.MarketPrice,
+                    unrealisedAbs = p.UnrealizedPnl,
+                    unrealisedPct,
+                    currency = p.Currency,
+                };
+            }).ToArray();
+            return Results.Ok(new
+            {
+                enabled = true,
+                broker = ibkr.BrokerLabel,
+                mode = ibkr.BrokerLabel,
+                count = rows.Length,
+                positions = rows,
+            });
+        });
+
         app.MapGet("/integrations/trading212/cash",
             async (
                 string? account,
