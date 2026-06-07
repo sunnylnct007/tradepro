@@ -36,7 +36,7 @@ import { api } from "../../api/client";
 import { SortTh } from "../SortTh";
 import { useSort } from "../../util/useSort";
 import { fmtQty } from "../../util/numbers";
-import { bareSymbol } from "../../util/brokerSymbols";
+import { bareSymbol, chartSymbolFor } from "../../util/brokerSymbols";
 import { Sparkline } from "./Sparkline";
 import { loadSparkline } from "./sparklineCache";
 import { fmtMoney, fmtNum, fmtPct, signColour, accountMode, type AccountMode } from "./deskFormat";
@@ -117,7 +117,7 @@ export function PositionsTable({ onOpenSymbol }: { onOpenSymbol?: (symbol: strin
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: p.currency,
-            chartSymbol: p.yahooSymbol ?? null,
+            chartSymbol: p.yahooSymbol ?? chartSymbolFor(p.ticker, "T212"),
             series: null,
             mode: accountMode("T212", "demo"),
             strategyId: attribution.get(attrKey("T212", p.ticker)) ?? null,
@@ -174,9 +174,10 @@ export function PositionsTable({ onOpenSymbol }: { onOpenSymbol?: (symbol: strin
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: p.currency,
-            // IBKR equity tickers may not map cleanly to a Yahoo candle symbol —
-            // leave the sparkline as "—" rather than guess.
-            chartSymbol: null,
+            // IBKR equity tickers (e.g. "EC", "BABA", "MRVL", "APLD") ARE the
+            // Yahoo symbol for US listings → resolve so the row is chartable;
+            // anything non-equity/unmappable stays null ("—", not fabricated).
+            chartSymbol: chartSymbolFor(ticker, "IBKR"),
             series: null,
             mode: accountMode("IBKR", "live"), // IBKR is the real-money account
             strategyId: attribution.get(attrKey("IBKR", ticker)) ?? null,

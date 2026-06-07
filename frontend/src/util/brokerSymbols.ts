@@ -17,6 +17,49 @@ export function bareSymbol(raw: string): string {
   return s;
 }
 
+/**
+ * Yahoo-style candle symbol for a broker holding, or `null` when there is no
+ * honest mapping (so the caller renders "No data" / a non-clickable row rather
+ * than fetching candles for a symbol that can't resolve).
+ *
+ * Resolves:
+ *   T212 equity  "AAPL_US_EQ"          → "AAPL"   (strip the _<REGION>_EQ suffix)
+ *   IBKR equity  "EC" / "BABA" / "MRVL"→ "EC"     (US-listed tickers ARE the Yahoo symbol)
+ * Returns null for:
+ *   IG FX/CFD epics ("CS.D.EURUSD.MINI.IP", "*.CASH.IP") — no clean Yahoo symbol
+ *   options/futures/crypto epics, and anything empty.
+ *
+ * `broker` is a hint ("T212" | "IG" | "IBKR"); when a broker already hands us a
+ * Yahoo symbol (T212's `yahooSymbol`) prefer that and skip this.
+ */
+export function chartSymbolFor(raw: string | null | undefined, broker?: string): string | null {
+  const s = (raw || "").trim();
+  if (!s) return null;
+  const upper = s.toUpperCase();
+
+  // IG epics + FX pairs + non-equity products have no honest Yahoo candle symbol.
+  if (broker === "IG") return null;
+  const product = productOf(upper);
+  if (product !== "Equity") return null;
+  if (upper.startsWith("CS.D.") || upper.startsWith("IX.D.") || upper.startsWith("OD.D.")) return null;
+  if (upper.endsWith(".CASH.IP") || upper.endsWith(".IP")) return null;
+
+  // T212 "AAPL_US_EQ" → bare ticker (US listings map 1:1 to the Yahoo symbol;
+  // non-US suffixes would need an exchange-suffix map we don't have, so only
+  // accept US/unsuffixed here to stay honest).
+  const t212 = upper.match(/^([A-Z0-9.]+)_([A-Z]{2,3})_EQ$/);
+  if (t212) {
+    if (t212[2] === "US") return t212[1];
+    return null; // e.g. _UK_EQ would need ".L"; no honest map → leave non-clickable
+  }
+
+  // Plain US-style equity ticker (IBKR "EC", "BABA", "MRVL", "APLD"): 1–6
+  // letters, optional dot class (e.g. "BRK.B"). This IS the Yahoo symbol.
+  if (/^[A-Z]{1,6}(\.[A-Z])?$/.test(upper)) return upper;
+
+  return null;
+}
+
 /** Human-readable label for a UI cell (FX pairs get a slash). */
 export function prettySymbol(raw: string): string {
   const bare = bareSymbol(raw);
