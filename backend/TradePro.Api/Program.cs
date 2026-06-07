@@ -157,6 +157,9 @@ builder.Services.AddHttpClient<TradePro.Api.Providers.IG.IGClient>(c =>
 builder.Services
     .AddOptions<TradePro.Api.Providers.IG.IGHarvesterOptions>()
     .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IG.IGHarvesterOptions.SectionName));
+// Singleton status holder — the cockpit panel reads from this with
+// zero DB churn (operational support visibility, sub-ms latency).
+builder.Services.AddSingleton<TradePro.Api.Providers.IG.IGHarvesterStatus>();
 builder.Services.AddHostedService<TradePro.Api.Providers.IG.IGSnapshotHarvester>();
 
 // IBKR (Interactive Brokers) — OAuth2 Web API. Off by default; turns on

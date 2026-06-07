@@ -1207,6 +1207,66 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/fill-quality", qp);
   },
+  // Phase P2.1 — IG snapshot harvester status. In-process singleton
+  // read so the cockpit's "is the lake filling up" panel renders
+  // sub-ms latency. Verdict + ETA fields are what support eyeballs.
+  igHarvesterStatus: () =>
+    get<{
+      verdict: "healthy" | "stale" | "error" | "disabled" | "never_ticked";
+      enabled: boolean;
+      interval_seconds: number;
+      configured_epic_count: number;
+      last_tick_at_utc: string | null;
+      next_tick_eta_utc: string | null;
+      seconds_since_last_tick: number | null;
+      seconds_until_next_tick: number | null;
+      last_tick_captured: number;
+      last_tick_failed: number;
+      started_at_utc: string;
+      last_error: string | null;
+      server_time_utc: string;
+    }>("/api/admin/data-trust/ig-snapshots/status"),
+  // Phase P2 — recent snapshots + per-symbol aggregates from the
+  // ig_l1_snapshots lake. Reads the time-window-filtered view the
+  // cockpit panel renders. Empty until the harvester runs at least once.
+  igSnapshotsRecent: (params?: {
+    symbol?: string;
+    limit?: number;
+    sinceHours?: number;
+  }) => {
+    const qp: Record<string, string | undefined> = {};
+    if (params?.symbol) qp.symbol = params.symbol;
+    if (params?.limit !== undefined) qp.limit = String(params.limit);
+    if (params?.sinceHours !== undefined) qp.sinceHours = String(params.sinceHours);
+    return get<{
+      window_hours: number;
+      symbol_filter: string | null;
+      empty_state: boolean;
+      recent_snapshots: Array<{
+        id: number;
+        symbol: string;
+        epic: string;
+        bid: number | null;
+        ask: number | null;
+        mid: number | null;
+        spread_bps: number | null;
+        market_status: string | null;
+        update_time: string | null;
+        captured_at_utc: string;
+        source: string;
+        error: string | null;
+      }>;
+      per_symbol_aggregates: Array<{
+        symbol: string;
+        n_polls: number;
+        n_quotes: number;
+        avg_spread_bps: number | null;
+        min_spread_bps: number | null;
+        max_spread_bps: number | null;
+        last_seen_utc: string | null;
+      }>;
+    }>("/api/admin/data-trust/ig-snapshots/recent", qp);
+  },
   // Catalyst registry (Phase C-1). North-star item from project memory
   // — pure-technical signals miss event-driven trades. C-1 is the
   // persistence + visibility surface; the news extractor sink + signal

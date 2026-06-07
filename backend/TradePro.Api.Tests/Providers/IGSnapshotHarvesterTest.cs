@@ -127,6 +127,27 @@ public sealed class IGSnapshotHarvesterTest
         Assert.Equal(380.10m, rows[2].bid);
     }
 
+    // ── Status holder defaults — Phase P2.1 ──────────────────────
+
+    [Fact]
+    public void Status_holder_defaults_to_disabled_never_ticked()
+    {
+        // What the cockpit shows BEFORE the harvester ticks for the
+        // first time. The verdict computation lives in the endpoint
+        // lambda (pure on these fields); we pin the holder defaults
+        // here so a refactor that drops a field trips this test.
+        var status = new IGHarvesterStatus();
+        Assert.False(status.Enabled);
+        Assert.Null(status.LastTickAtUtc);
+        Assert.Null(status.NextTickEtaUtc);
+        Assert.Equal(0, status.LastTickCaptured);
+        Assert.Equal(0, status.LastTickFailed);
+        Assert.Equal(0, status.ConfiguredEpicCount);
+        Assert.Null(status.LastError);
+        // StartedAtUtc is set at construction.
+        Assert.True(status.StartedAtUtc > DateTime.UtcNow.AddMinutes(-1));
+    }
+
     [Fact]
     public async Task Aggregate_query_excludes_null_quote_rows_from_spread_stats()
     {
