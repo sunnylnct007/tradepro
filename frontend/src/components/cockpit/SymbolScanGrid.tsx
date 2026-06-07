@@ -419,13 +419,57 @@ function FilterPill({
 }
 
 function SymbolCard({ card }: { card: Card }) {
+  const isDataError = card.action === "data_error";
   const isFire = card.action.startsWith("fire-");
   const isSkip = card.action.startsWith("skip-");
-  const tone = isFire ? FIRE_TONE : isSkip ? SKIP_TONE : NEUTRAL_TONE;
+  const tone = isDataError ? ERROR_TONE : isFire ? FIRE_TONE : isSkip ? SKIP_TONE : NEUTRAL_TONE;
   const cloudPos = (card.detail.cloud_position as string | undefined) ?? null;
   const signal = (card.detail.signal as number | undefined);
   const vol = (card.detail.vol as number | undefined);
+  const dataSource = (card.detail._data_source as string | undefined) ?? "";
+  const dataErrorMsg = (card.detail._data_error as string | undefined) ?? card.reason ?? "";
 
+  // ── Data-error card: all providers failed — make this impossible to miss ──
+  if (isDataError) {
+    return (
+      <Link
+        to="/settings#data-health"
+        style={{
+          display: "block", textDecoration: "none",
+          padding: "6px 8px",
+          border: `1px solid ${ERROR_TONE.border}`,
+          borderLeft: `3px solid ${ERROR_TONE.fg}`,
+          borderRadius: 4,
+          background: ERROR_TONE.bg,
+          color: "var(--text)",
+        }}
+        title={dataErrorMsg || "No bars available — click to go to Data Health settings"}
+      >
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+          <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>
+            {card.symbol}
+          </span>
+          <span style={{
+            marginLeft: "auto",
+            fontSize: 9, color: ERROR_TONE.fg, fontFamily: "monospace", fontWeight: 700,
+            letterSpacing: "0.04em",
+          }}>
+            DATA ERR
+          </span>
+        </div>
+        <div style={{ fontSize: 10, color: ERROR_TONE.fg, marginTop: 2, opacity: 0.85, lineHeight: 1.35 }}>
+          {dataErrorMsg
+            ? dataErrorMsg.slice(0, 90) + (dataErrorMsg.length > 90 ? "…" : "")
+            : "No bars — all providers in chain returned empty"}
+        </div>
+        <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 3, fontStyle: "italic" }}>
+          → Settings › Data Health
+        </div>
+      </Link>
+    );
+  }
+
+  // ── Normal signal card ─────────────────────────────────────────────────────
   return (
     <Link
       to={`/paper-live/session/${encodeURIComponent(card.sessionId)}`}
@@ -465,6 +509,24 @@ function SymbolCard({ card }: { card: Card }) {
           <span style={{ fontStyle: "italic" }}>{card.reason || "—"}</span>
         )}
       </div>
+      {dataSource && (
+        <div style={{ marginTop: 3 }}>
+          <span
+            title={`Data served by: ${dataSource}`}
+            style={{
+              fontSize: 8, fontFamily: "monospace", fontWeight: 600,
+              color: providerColor(dataSource),
+              padding: "1px 4px",
+              border: `1px solid ${providerColor(dataSource)}55`,
+              borderRadius: 3,
+              letterSpacing: "0.03em",
+              opacity: 0.9,
+            }}
+          >
+            {dataSource}
+          </span>
+        </div>
+      )}
     </Link>
   );
 }
@@ -472,6 +534,7 @@ function SymbolCard({ card }: { card: Card }) {
 // Action labels are verbose (e.g. "fire-moo-entry", "skip-flat-no-signal");
 // the card's a tile so we shorten to the salient bit.
 function shortAction(action: string): string {
+  if (action === "data_error") return "DATA ERR";
   if (action === "fire-moo-entry") return "BUY";
   if (action === "fire-moo-exit") return "SELL";
   if (action.startsWith("fire-")) return action.replace("fire-", "").toUpperCase();
@@ -490,3 +553,15 @@ const SKIP_TONE = {
 const NEUTRAL_TONE = {
   fg: "var(--text-dim)", bg: "transparent", border: "var(--border)",
 };
+const ERROR_TONE = {
+  fg: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.35)",
+};
+
+/** Per-provider badge colour — matches the source names injected by intraday_engine.py */
+function providerColor(src: string): string {
+  if (src === "ibkr")     return "#3b82f6"; // blue
+  if (src === "ig")       return "#8b5cf6"; // purple
+  if (src === "yfinance") return "#6b7280"; // gray
+  if (src === "finnhub")  return "#14b8a6"; // teal
+  return "var(--text-muted)";
+}
