@@ -37,7 +37,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import { config } from "../../config";
 import type { Candle, CandleSeries, Watchlist } from "../../api/types";
-import { PriceHistoryChart } from "../PriceHistoryChart";
+import { CandleIchimokuChart } from "./CandleIchimokuChart";
+import { chartSymbolFor } from "../../util/brokerSymbols";
 import { fmtMoney, fmtNum, fmtPct, signColour } from "./deskFormat";
 
 const MOBILE_BREAKPOINT = 760;
@@ -48,9 +49,9 @@ const SEP = "#1b2233";
  * the app — PriceHistoryChart, sparklineCache — so we don't risk an empty
  * intraday response); the window is what each pill changes. */
 const TIMEFRAMES: { label: string; days: number }[] = [
-  { label: "1W", days: 7 },
   { label: "1M", days: 31 },
   { label: "3M", days: 93 },
+  { label: "6M", days: 186 },
   { label: "1Y", days: 365 },
   { label: "5Y", days: 365 * 5 },
 ];
@@ -119,7 +120,7 @@ export function QuoteView({ initialSymbol }: { initialSymbol?: string | null }) 
           held.push({
             broker: "T212",
             ticker: p.ticker,
-            chartSymbol: p.yahooSymbol ?? null,
+            chartSymbol: p.yahooSymbol ?? chartSymbolFor(p.ticker, "T212"),
             qty: p.quantity,
             avg: p.averagePricePaid,
             currentPrice: p.currentPrice,
@@ -166,8 +167,9 @@ export function QuoteView({ initialSymbol }: { initialSymbol?: string | null }) 
           held.push({
             broker: "IBKR",
             ticker: p.ticker ?? "—",
-            // IBKR equity tickers may not map cleanly to a Yahoo symbol — no chart.
-            chartSymbol: null,
+            // IBKR US-equity tickers ARE the Yahoo symbol (EC/BABA/MRVL/APLD) →
+            // resolve so the chart loads; unmappable names stay null.
+            chartSymbol: chartSymbolFor(p.ticker, "IBKR"),
             qty: p.quantity,
             avg: p.averagePricePaid,
             currentPrice: p.currentPrice,
@@ -490,7 +492,6 @@ function ChartZone({
   if (!instrument) {
     return <Panel><Note>Select an instrument.</Note></Panel>;
   }
-  const days = TIMEFRAMES.find((t) => t.label === tf)?.days ?? 365;
   return (
     <div style={{ border: `1px solid ${SEP}`, borderRadius: 8, background: "rgba(255,255,255,0.015)", padding: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
@@ -521,15 +522,15 @@ function ChartZone({
           ))}
         </div>
       </div>
-      {/* Reuse the existing PriceHistoryChart (it fetches api.candles itself).
-          The timeframe pill drives its lookback window; its own preset/brush
-          row still works for finer zoom. `key` forces a remount per
-          symbol+timeframe so the window snaps cleanly. */}
-      <PriceHistoryChart
-        key={`${instrument.symbol}:${tf}`}
+      {/* Professional candlestick + Ichimoku-cloud chart (lightweight-charts).
+          It fetches api.candles itself, padding the lookback so the cloud is
+          computed across the WHOLE visible window. The timeframe pill above
+          drives the displayed window. */}
+      <CandleIchimokuChart
         symbol={instrument.symbol}
-        lookbackDays={days}
-        height={320}
+        timeframe={tf}
+        height={360}
+        ccy={instrument.held?.ccy ?? null}
       />
     </div>
   );
