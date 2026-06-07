@@ -27,7 +27,7 @@ namespace TradePro.Api.Providers.Trading212;
 /// secret which T212 silently 401'd — masquerading as "no positions"
 /// in the UI.
 /// </summary>
-public sealed class Trading212Client
+public class Trading212Client
 {
     private readonly HttpClient _http;
     private readonly Trading212Options _options;
@@ -251,6 +251,82 @@ public sealed class Trading212Client
         {
             _log.LogWarning(ex, "Trading212 instruments fetch failed");
             return Array.Empty<Trading212Instrument>();
+        }
+    }
+
+    /// <summary>Fetch account cash from /equity/account/cash for the LIVE
+    /// T212 Invest account (stocks / ETFs). Mirrors the demo client's
+    /// GetCashAsync — same endpoint, same parse logic, different base URL.
+    /// Callers should go through <see cref="Trading212LiveCashCache"/>
+    /// rather than calling this directly so repeated cockpit polls collapse
+    /// to one upstream T212 request within the TTL window.</summary>
+    public virtual async Task<Trading212CashResult> GetCashAsync(CancellationToken ct)
+    {
+        if (!_options.IsEnabled)
+        {
+            return new Trading212CashResult(
+                Free: null, Invested: null, Total: null, Blocked: null,
+                Ppl: null, Currency: null,
+                Error: "live integration disabled", HttpStatus: 0);
+        }
+        try
+        {
+            using var resp = await _http.GetAsync("equity/account/cash", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = Snip(await SafeReadFullBody(resp, ct));
+                _log.LogWarning(
+                    "T212 live /account/cash HTTP {Status}: {Body}",
+                    (int)resp.StatusCode, body);
+                return new Trading212CashResult(
+                    Free: null, Invested: null, Total: null, Blocked: null,
+                    Ppl: null, Currency: null,
+                    Error: $"HTTP {(int)resp.StatusCode}: {body}",
+                    HttpStatus: (int)resp.StatusCode);
+            }
+            var fullBody = await SafeReadFullBody(resp, ct);
+            decimal? Pick(System.Text.Json.JsonElement root, string name)
+            {
+                if (root.TryGetProperty(name, out var el)
+                    && el.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && el.TryGetDecimal(out var v))
+                    return v;
+                return null;
+            }
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(fullBody);
+                var r = doc.RootElement;
+                return new Trading212CashResult(
+                    Free: Pick(r, "free"),
+                    Invested: Pick(r, "invested"),
+                    Total: Pick(r, "total"),
+                    Blocked: Pick(r, "blocked"),
+                    Ppl: Pick(r, "ppl"),
+                    Currency: r.TryGetProperty("currency", out var cur)
+                        ? cur.GetString() : null,
+                    Error: null,
+                    HttpStatus: (int)resp.StatusCode);
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                _log.LogWarning(ex,
+                    "T212 live /account/cash body unparseable: {Body}",
+                    Snip(fullBody));
+                return new Trading212CashResult(
+                    Free: null, Invested: null, Total: null, Blocked: null,
+                    Ppl: null, Currency: null,
+                    Error: ex.Message,
+                    HttpStatus: (int)resp.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "T212 live /account/cash threw");
+            return new Trading212CashResult(
+                Free: null, Invested: null, Total: null, Blocked: null,
+                Ppl: null, Currency: null,
+                Error: ex.Message, HttpStatus: 0);
         }
     }
 

@@ -336,6 +336,7 @@ public static class IntegrationsEndpoints
         app.MapGet("/integrations/cash-summary", async (
             Trading212Client t212Live,
             Trading212DemoClient t212Demo,
+            Trading212LiveCashCache t212LiveCache,
             Trading212DemoCashCache t212DemoCache,
             TradePro.Api.Providers.IG.IGClient ig,
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
@@ -346,22 +347,40 @@ public static class IntegrationsEndpoints
             // Captured for the daily account-value snapshot (equity curve).
             var snap = new List<(string Broker, string? Ccy, decimal Value)>();
 
-            // T212 LIVE — cash isn't exposed via Trading212Client yet;
-            // surface as "read-only mode" with status known + a note.
-            // The actual /equity/account/cash endpoint is wired on the
-            // demo client; live is the same shape and follows soon.
-            if (t212Live.IsEnabled)
+            // T212 LIVE — cash fetched via the live cache (TTL 30s) so the
+            // cockpit's poll loop doesn't hammer T212's /account/cash bucket.
+            // On 429 the cache serves the last good snapshot; on first call
+            // it fetches fresh. When the live client is disabled we surface
+            // the disabled slot so the UI knows it's wired and waiting.
+            try
             {
-                rows.Add(new { broker = "T212_LIVE", label = "Trading 212 LIVE",
-                    status = "degraded",
-                    note = "Live read-only mode — cash fetch wires up next iteration. Connection is up.",
-                    mode = t212Live.Mode });
+                if (t212Live.IsEnabled)
+                {
+                    var liveCash = await t212LiveCache.GetAsync(ct);
+                    rows.Add(new
+                    {
+                        broker = "T212_LIVE", label = "Trading 212 LIVE",
+                        status = liveCash.Error is null ? "ok" : "down",
+                        currency = liveCash.Currency ?? "GBP",
+                        free = liveCash.Free, invested = liveCash.Invested,
+                        total = liveCash.Total, openPnl = liveCash.Ppl,
+                        mode = t212Live.Mode,
+                        error = liveCash.Error,
+                    });
+                    if (liveCash.Error is null && liveCash.Total is { } liveTotal)
+                        snap.Add(("T212_LIVE", liveCash.Currency ?? "GBP", liveTotal));
+                }
+                else
+                {
+                    rows.Add(new { broker = "T212_LIVE", label = "Trading 212 LIVE",
+                        status = "disabled",
+                        note = "Set TRADEPRO_T212_MODE=live + TRADEPRO_T212_API_KEY to enable." });
+                }
             }
-            else
+            catch (Exception ex)
             {
                 rows.Add(new { broker = "T212_LIVE", label = "Trading 212 LIVE",
-                    status = "disabled",
-                    note = "Set TRADEPRO_T212_MODE=live + TRADEPRO_T212_API_KEY to enable." });
+                    status = "down", error = ex.Message });
             }
 
             // T212 DEMO — algo's primary equity broker.
@@ -902,20 +921,48 @@ public static class IntegrationsEndpoints
         app.MapGet("/integrations/trading212/cash",
             async (
                 string? account,
+                Trading212Client liveClient,
                 Trading212DemoClient demoClient,
+                Trading212LiveCashCache liveCashCache,
                 Trading212DemoCashCache demoCashCache,
                 CancellationToken ct) =>
             {
                 var useDemo = !string.Equals(account, "live", StringComparison.OrdinalIgnoreCase);
                 if (!useDemo)
                 {
-                    // Live cash via Trading212Client is a separate plug;
-                    // for now operators using live should curl directly.
+                    // Live cash — go through the cache so cockpit polls
+                    // don't each hit T212's /account/cash rate-limit
+                    // bucket (1 req/1s observed). TTL 30s (configurable
+                    // via Trading212:CashCacheSeconds); on 429 the cache
+                    // serves the last good snapshot + age footer instead
+                    // of surfacing a red error to the user.
+                    if (!liveClient.IsEnabled)
+                    {
+                        return Results.Ok(new
+                        {
+                            enabled = false,
+                            mode = "live",
+                            message = "Set Trading212:Mode=live + Trading212:ApiKey to enable.",
+                        });
+                    }
+                    var liveCash = await liveCashCache.GetAsync(ct);
+                    var liveCachedAt = liveCashCache.CachedAtUtc ?? DateTime.UtcNow;
+                    var liveAge = (DateTime.UtcNow - liveCachedAt).TotalSeconds;
                     return Results.Ok(new
                     {
-                        enabled = false,
+                        enabled = true,
                         mode = "live",
-                        message = "Live cash fetch not wired yet; use demo.",
+                        fetchedAtUtc = liveCachedAt,
+                        ageSeconds = liveAge,
+                        fromCache = liveAge > 1.0,
+                        free = liveCash.Free,
+                        invested = liveCash.Invested,
+                        total = liveCash.Total,
+                        blocked = liveCash.Blocked,
+                        ppl = liveCash.Ppl,
+                        currency = liveCash.Currency,
+                        error = liveCash.Error,
+                        httpStatus = liveCash.HttpStatus,
                     });
                 }
                 if (!demoClient.IsEnabled)

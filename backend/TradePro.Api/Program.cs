@@ -136,6 +136,11 @@ builder.Services.AddSingleton<TradePro.Api.Instruments.IInstrumentResolver,
 builder.Services.AddSingleton<Trading212PositionsCache>();
 builder.Services.AddSingleton<Trading212DemoPositionsCache>();
 builder.Services.AddSingleton<Trading212DemoCashCache>();
+// Caches /equity/account/cash for the LIVE account (TTL 30s default,
+// Trading212:CashCacheSeconds to override). Mirrors the demo cash cache
+// — separate instance because live and demo have independent T212 rate-
+// limit buckets. On 429 serves the last good snapshot with an age footer.
+builder.Services.AddSingleton<Trading212LiveCashCache>();
 
 // IG broker client — equities + FX/CFD. Off by default; turns on
 // once tradepro/ig secret is populated with mode != "disabled".
