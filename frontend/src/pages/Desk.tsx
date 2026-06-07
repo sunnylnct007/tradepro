@@ -9,6 +9,9 @@
  * not routes — /desk is one composite cockpit):
  *   - Portfolio  → DeskKpiRow + DeskTabs (Positions/Orders/Trades/Balances)
  *                  with DeskRightRail (account-value chart) on wide screens
+ *   - Quote      → QuoteView (read-only Quote/Chart: instrument list ·
+ *                  candlestick chart w/ timeframe pills · instrument-detail +
+ *                  position rail, all from real candles + broker positions)
  *   - Screeners  → ScreenersView (compareLatest, sortable IBKR-style table)
  *   - News       → NewsView (market context · earnings · headlines · catalysts)
  *   - Watchlist  → WatchlistView (curated UK list)
@@ -27,6 +30,7 @@ import { DeskRightRail } from "../components/desk/DeskRightRail";
 import { ScreenersView } from "../components/desk/ScreenersView";
 import { NewsView } from "../components/desk/NewsView";
 import { WatchlistView } from "../components/desk/WatchlistView";
+import { QuoteView } from "../components/desk/QuoteView";
 
 const WIDE_BREAKPOINT = 1024;
 
@@ -63,6 +67,7 @@ export function Desk() {
           </div>
         </>
       )}
+      {view === "quote" && <QuoteView />}
       {view === "screeners" && <ScreenersView />}
       {view === "news" && <NewsView wide={wide} />}
       {view === "watchlist" && <WatchlistView />}

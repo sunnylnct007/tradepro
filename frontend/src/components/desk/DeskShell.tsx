@@ -14,12 +14,13 @@
  * new northstar look and is mounted as a sibling route — the legacy /trader
  * cockpit and its nav stay completely untouched.
  *
- * View switching: Portfolio / Screeners / News / Watchlist are IN-PAGE views
- * (the page owns an `active` view-id + `onSelect` callback that this shell
- * drives), NOT routes — so /desk is a single composite cockpit you stay on.
- * Settings is the one real route link (/settings exists). Quote stays a
- * disabled "coming soon" stub (no live bid/ask quote endpoint), as does
- * Layouts. Nothing 404s.
+ * View switching: Portfolio / Watchlist / Quote / Screeners / News are IN-PAGE
+ * views (the page owns an `active` view-id + `onSelect` callback that this
+ * shell drives), NOT routes — so /desk is a single composite cockpit you stay
+ * on. Settings is the one real route link (/settings exists). Layouts stays a
+ * disabled "coming soon" stub (no layout system yet). Nothing 404s. Quote is a
+ * read-only Quote/Chart view (real candles + positions + watchlist; no live
+ * bid/ask, so bid/ask are omitted rather than faked).
  *
  * Responsiveness is driven by a width observer (no browser-only media-query
  * reasoning needed for tsc): below MOBILE_BREAKPOINT the layout switches to a
@@ -39,7 +40,7 @@ const RAIL_BG = "#0d1117";
 const SEP = "#1b2233";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "screeners" | "news" | "watchlist";
+export type DeskView = "portfolio" | "screeners" | "news" | "watchlist" | "quote";
 
 type NavEntry = {
   key: string;
@@ -50,13 +51,13 @@ type NavEntry = {
   title: string;       // tooltip
 };
 
-// Rail items. Portfolio / Screeners / News / Watchlist are in-page views;
-// Settings is a route (/settings exists). Quote + Layouts are disabled stubs
-// (no live quote endpoint / no layout system yet) — never a 404.
+// Rail items. Portfolio / Watchlist / Quote / Screeners / News are in-page
+// views; Settings is a route (/settings exists). Layouts is a disabled stub
+// (no layout system yet) — never a 404.
 const NAV: NavEntry[] = [
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", title: "Portfolio" },
   { key: "watchlist", label: "Watchlist", icon: "👁",  view: "watchlist", title: "Watchlist" },
-  { key: "quote",     label: "Quote",     icon: "💲",  title: "Quote — coming soon" },
+  { key: "quote",     label: "Quote",     icon: "💲",  view: "quote",     title: "Quote / Chart" },
   { key: "screeners", label: "Screeners", icon: "🔎", view: "screeners", title: "Screeners" },
   { key: "layouts",   label: "Layouts",   icon: "▦",   title: "Layouts — coming soon" },
   { key: "news",      label: "News",      icon: "📰",  view: "news",      title: "News & Daily Overview" },
