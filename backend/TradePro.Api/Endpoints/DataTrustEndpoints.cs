@@ -664,6 +664,52 @@ public static class DataTrustEndpoints
             });
         });
 
+        // Phase P2.1 — Harvester runtime status for operational
+        // visibility. Reads from the in-process singleton (no DB
+        // hit) so the cockpit panel renders sub-ms. Support team's
+        // "is the harvester alive + how stale is the last tick"
+        // question answers here.
+        g.MapGet("/ig-snapshots/status", (
+            TradePro.Api.Providers.IG.IGHarvesterStatus status) =>
+        {
+            var now = DateTime.UtcNow;
+            int? secondsSinceLastTick = status.LastTickAtUtc is DateTime t
+                ? (int)Math.Max(0, (now - t).TotalSeconds)
+                : null;
+            int? secondsUntilNextTick = status.NextTickEtaUtc is DateTime n
+                ? (int)Math.Max(0, (n - now).TotalSeconds)
+                : null;
+            // Health verdict — what colour the cockpit chip lights.
+            //   disabled — config off (yellow)
+            //   never_ticked — running but no tick landed yet (yellow)
+            //   healthy — tick recent + no error (green)
+            //   stale — last tick > 3 intervals ago (red)
+            //   error — last tick threw + LastError populated (red)
+            string verdict;
+            if (!status.Enabled) verdict = "disabled";
+            else if (status.LastTickAtUtc is null) verdict = "never_ticked";
+            else if (!string.IsNullOrEmpty(status.LastError)) verdict = "error";
+            else if (secondsSinceLastTick > status.IntervalSeconds * 3) verdict = "stale";
+            else verdict = "healthy";
+
+            return Results.Ok(new
+            {
+                verdict,
+                enabled = status.Enabled,
+                interval_seconds = status.IntervalSeconds,
+                configured_epic_count = status.ConfiguredEpicCount,
+                last_tick_at_utc = status.LastTickAtUtc,
+                next_tick_eta_utc = status.NextTickEtaUtc,
+                seconds_since_last_tick = secondsSinceLastTick,
+                seconds_until_next_tick = secondsUntilNextTick,
+                last_tick_captured = status.LastTickCaptured,
+                last_tick_failed = status.LastTickFailed,
+                started_at_utc = status.StartedAtUtc,
+                last_error = status.LastError,
+                server_time_utc = now,
+            });
+        });
+
         // Phase P2 — IG L1 snapshot lake. The harvester writes one
         // row per epic per poll into ig_l1_snapshots; this surface
         // backs the cockpit panel + the future replay engine.

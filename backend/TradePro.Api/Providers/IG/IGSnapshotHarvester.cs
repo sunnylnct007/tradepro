@@ -44,6 +44,7 @@ public sealed class IGSnapshotHarvester : BackgroundService
 {
     private readonly IServiceScopeFactory _scopes;
     private readonly IGHarvesterOptions _options;
+    private readonly IGHarvesterStatus _status;
     private readonly ILogger<IGSnapshotHarvester> _log;
     private readonly TimeSpan _interval;
     private readonly TimeSpan _perEpicDelay;
@@ -52,10 +53,12 @@ public sealed class IGSnapshotHarvester : BackgroundService
     public IGSnapshotHarvester(
         IServiceScopeFactory scopes,
         IOptions<IGHarvesterOptions> options,
+        IGHarvesterStatus status,
         ILogger<IGSnapshotHarvester> log)
     {
         _scopes = scopes;
         _options = options.Value;
+        _status = status;
         _log = log;
         // Clamp so a misconfig can't either spam IG (too low) or
         // produce an effectively-dead harvester (too high).
@@ -64,6 +67,12 @@ public sealed class IGSnapshotHarvester : BackgroundService
         _perEpicDelay = TimeSpan.FromMilliseconds(
             Math.Clamp(_options.PerEpicDelayMs, 0, 10_000));
         _disabled = !_options.Enabled;
+
+        // Seed status holder with config-time facts so the cockpit
+        // panel shows real values even before the first tick lands.
+        _status.Enabled = _options.Enabled;
+        _status.IntervalSeconds = sec;
+        _status.ConfiguredEpicCount = _options.Epics?.Count ?? 0;
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -89,12 +98,19 @@ public sealed class IGSnapshotHarvester : BackgroundService
 
         while (!ct.IsCancellationRequested)
         {
-            try { await OneTickAsync(ct); }
+            try
+            {
+                await OneTickAsync(ct);
+                _status.LastError = null; // clear on a successful tick
+            }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
                 _log.LogError(ex, "IGSnapshotHarvester tick threw — continuing");
+                _status.LastError = ex.Message;
             }
+            _status.LastTickAtUtc = DateTime.UtcNow;
+            _status.NextTickEtaUtc = DateTime.UtcNow + _interval;
             try { await Task.Delay(_interval, ct); }
             catch (OperationCanceledException) { break; }
         }
@@ -191,6 +207,8 @@ public sealed class IGSnapshotHarvester : BackgroundService
         _log.LogInformation(
             "IGSnapshotHarvester tick complete: captured={Captured} failed={Failed} of {Total}",
             captured, failed, _options.Epics.Count);
+        _status.LastTickCaptured = captured;
+        _status.LastTickFailed = failed;
     }
 
     /// <summary>Parse a "SYMBOL:EPIC" entry. Tolerant of whitespace

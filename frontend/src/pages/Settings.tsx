@@ -5,6 +5,7 @@ import { SettingsKvSection } from "../components/settings/SettingsKvSection";
 import { StrategyBrokerMapSection } from "../components/settings/StrategyBrokerMapSection";
 import { CatalystsSection } from "../components/settings/CatalystsSection";
 import { DataHealthSection } from "../components/settings/DataHealthSection";
+import { IGHarvesterSection } from "../components/settings/IGHarvesterSection";
 
 /** UI-editable runtime config.
  *
@@ -242,6 +243,13 @@ export function Settings() {
           (asset_class × resolution), and the Phase-A placeholder
           for backfill. See CURRENT_BACKTEST_LIMITATIONS.md. */}
       <DataHealthSection />
+
+      {/* IG L1 snapshot harvester (Phase P2 + P2.1) — operational
+          visibility for the data lake. Support team's "is the
+          harvester alive, last tick fresh, fill rate by symbol"
+          surface. Reads sub-ms because it hits an in-process
+          singleton, not the DB. Auto-refreshes every 15s. */}
+      <IGHarvesterSection />
 
       {/* Catalyst overlay (Phase C-1) — dated events the trader
           needs visible BEFORE the technical signal verdict. North-star
