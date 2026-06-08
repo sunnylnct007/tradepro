@@ -36,6 +36,7 @@ import { ScreenersView } from "../components/desk/ScreenersView";
 import { NewsView } from "../components/desk/NewsView";
 import { WatchlistView } from "../components/desk/WatchlistView";
 import { QuoteView } from "../components/desk/QuoteView";
+import { SimulationView } from "../components/desk/SimulationView";
 import type { PositionRow } from "../components/desk/PositionsByStrategy";
 
 const WIDE_BREAKPOINT = 1024;
@@ -131,9 +132,10 @@ export function Desk() {
       {view === "quote" && (
         <QuoteView initialSymbol={selectedSymbol} />
       )}
-      {view === "screeners" && <ScreenersView />}
-      {view === "news"      && <NewsView wide={wide} />}
-      {view === "watchlist" && <WatchlistView />}
+      {view === "screeners"  && <ScreenersView />}
+      {view === "news"       && <NewsView wide={wide} />}
+      {view === "watchlist"  && <WatchlistView />}
+      {view === "simulation" && <SimulationView />}
     </DeskShell>
   );
 }

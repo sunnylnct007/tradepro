@@ -8,7 +8,6 @@
  * a newcomer can't decode from the UI alone) — the "What am I looking at?"
  * details block spells out the method + each chip.
  */
-import { useState } from "react";
 import { PlotlyChart } from "../PlotlyChart";
 import type { MonteCarloData } from "../../util/monteCarlo";
 

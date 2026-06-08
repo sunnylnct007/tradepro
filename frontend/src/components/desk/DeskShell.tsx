@@ -40,7 +40,7 @@ const RAIL_BG = "#0d1117";
 const SEP = "#1b2233";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "screeners" | "news" | "watchlist" | "quote";
+export type DeskView = "portfolio" | "screeners" | "news" | "watchlist" | "quote" | "simulation";
 
 type NavEntry = {
   key: string;
@@ -59,6 +59,7 @@ const NAV: NavEntry[] = [
   { key: "watchlist", label: "Watchlist", icon: "👁",  view: "watchlist", title: "Watchlist" },
   { key: "quote",     label: "Quote",     icon: "💲",  view: "quote",     title: "Quote / Chart" },
   { key: "screeners", label: "Screeners", icon: "🔎", view: "screeners", title: "Screeners" },
+  { key: "simulate",  label: "Simulate",  icon: "🎲", view: "simulation", title: "Monte Carlo simulation" },
   { key: "layouts",   label: "Layouts",   icon: "▦",   title: "Layouts — coming soon" },
   { key: "news",      label: "News",      icon: "📰",  view: "news",      title: "News & Daily Overview" },
 ];
