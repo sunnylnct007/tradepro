@@ -101,8 +101,50 @@ Or via MCP: `mcp__tradepro__list_orders`
 
 ---
 
+## Backtest commands (run from tradepro/strategies/ with .venv active)
+
+### ICH Equity (5 large-caps, 2yr)
+```bash
+.venv/bin/tradepro-quant-backtest --legacy-cache --payload '{
+  "strategy": "ichimoku_equity",
+  "symbols": ["AAPL","MSFT","NVDA","AMZN","GOOGL"],
+  "start": "2024-01-01", "end": "2026-06-05",
+  "initial_capital": 100000, "benchmark": "SPY",
+  "monte_carlo": {"n_sims": 200, "years": 3, "seed": 42}
+}'
+# Result: CAGR 18.5% | Sharpe 1.39 | Max DD -10.6% | beats SPY on risk-adj
+```
+
+### ICH FX Mean-Reversion (5 pairs, 2yr)
+```bash
+.venv/bin/tradepro-quant-backtest --legacy-cache --payload '{
+  "strategy": "ichimoku_fx_mr",
+  "symbols": ["EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X"],
+  "start": "2024-01-01", "end": "2026-06-05",
+  "initial_capital": 100000, "benchmark": "SPY",
+  "monte_carlo": {"n_sims": 200, "years": 3, "seed": 42}
+}'
+# Result: CAGR 2.1% | Sharpe 0.53 | Max DD -3.1% | low edge on FX
+```
+
+### Friday fill attribution (when EC2 up)
+```bash
+.venv/bin/tradepro-fill-attribution --date 2026-06-06
+```
+
+### Simulation replay (yfinance, last 5 trading days only)
+```bash
+.venv/bin/tradepro-replay-session --date 2026-06-05 --strategy intraday_flat
+```
+
+## Key data constraint
+- yfinance 1m bars: **last 7 calendar days only** — can't replay last Friday
+- yfinance daily: unlimited — all backtests above use daily bars
+- **IBKR bar cache** (empty until TWS connects): unlocks unlimited 1m history
+  → connect TWS + trigger harvest in Settings › Data Health → Friday replay works
+
 ## To start a new session
 1. Read this file
 2. `git log --oneline -5` in `tradepro-laneB/`
 3. Check daemon: `launchctl list | grep tradepro`
-4. Pick up Friday replay (current priority) or C-5 catalyst badge
+4. Next: connect TWS → trigger IBKR harvest → Friday fill-attribution
