@@ -162,10 +162,16 @@ export function productOf(raw: string): ProductType {
   // falling through to the Equity default and showing on the equity desk.
   if (s.startsWith("OD.D.")) return "Option";
   if (/\b(CALL|PUT)\b/.test(s)) return "Option";
-  if (/(BTC|ETH|USDT|USDC)/.test(bare)) return "Crypto";
+  // A 6-letter all-alpha bare symbol is an FX pair (EURUSD, USDCAD, USDCHF…)
+  // UNLESS it's a 6-char crypto pair (BTCUSD/ETHUSD). This MUST come before the
+  // crypto substring check below, otherwise "USDCAD"/"USDCHF" match the "USDC"
+  // substring and get mis-typed as Crypto → no chart symbol → unclickable.
+  if (/^[A-Z]{6}$/.test(bare)) {
+    return /^(BTC|ETH|XRP|SOL|ADA|DOGE|LTC|BCH|DOT)/.test(bare) ? "Crypto" : "FX";
+  }
+  // Other crypto forms: dashed ("BTC-USD") or bare crypto/stablecoin tickers.
+  if (/(BTC|ETH|USDT|USDC|SOL|XRP|DOGE)/.test(bare)) return "Crypto";
   if (s.startsWith("IX.D.") || s.includes("FUT")) return "Future";
-  // IG spot-FX epics ("CS.D.EURUSD.MINI.IP") reduce to a 6-letter pair.
-  if (/^[A-Z]{6}$/.test(bare)) return "FX";
   return "Equity";
 }
 
