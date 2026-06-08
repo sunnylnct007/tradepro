@@ -1020,7 +1020,7 @@ function DecisionsTab({ rows, sessionId }: { rows: DecisionRow[]; sessionId: str
         kind="decisions"
         empty="No decisions match the current filter. Try ALL or clear the symbol search."
         rows={filtered}
-        headers={["bar_ts", "strategy_id", "symbol", "action", "reason", "detail", "→"]}
+        headers={["bar_ts", "strategy_id", "symbol", "action", "reason", "catalyst", "detail", "→"]}
         render={(d) => (
           <>
             <td style={{ ...td, fontFamily: "monospace", color: "var(--text-muted)" }}>
@@ -1032,8 +1032,15 @@ function DecisionsTab({ rows, sessionId }: { rows: DecisionRow[]; sessionId: str
               <ActionPill action={d.action} />
             </td>
             <td style={td}>{d.reason}</td>
+            <td style={{ ...td, whiteSpace: "nowrap" }}>
+              <CatalystDetailChip detail={d.detail} />
+            </td>
             <td style={{ ...td, fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>
-              {Object.keys(d.detail || {}).length ? JSON.stringify(d.detail) : ""}
+              {(() => {
+                const filtered2 = Object.entries(d.detail || {})
+                  .filter(([k]) => !k.startsWith("catalyst_") && !k.startsWith("_"));
+                return filtered2.length ? JSON.stringify(Object.fromEntries(filtered2)) : "";
+              })()}
             </td>
             <td style={{ ...td, whiteSpace: "nowrap" }}>
               {d.action.startsWith("fire-") && d.strategy_id ? (
@@ -1108,6 +1115,100 @@ function PositionsTab({ rows, sessionId }: { rows: PositionRow[]; sessionId: str
         </>
       )}
     />
+  );
+}
+
+/**
+ * CatalystDetailChip — C-6.
+ *
+ * Shown in the Decisions tab for any decision that has catalyst metadata
+ * injected by the C-3.2 + C-5 pipeline. Renders:
+ *   ⚡ ALIGN  · earnings · Jun 15  (7d)   — green when tech_event_alignment
+ *   ⚠  DIVG   · earnings · Jun 15  (7d)   — amber when tech_event_divergence
+ *
+ * The "days until" count gives the trader an immediate sense of whether
+ * the catalyst is imminent (≤3d = high urgency) or a lookahead event.
+ * Hovering shows the full catalyst title from the registry.
+ *
+ * Renders nothing when detail has no catalyst_flag — backward-compatible
+ * with older sessions recorded before C-5/C-6 data feed was live.
+ */
+function CatalystDetailChip({ detail }: { detail: Record<string, unknown> }) {
+  const flag = (detail?.catalyst_flag as string | undefined) ?? "";
+  if (!flag) return null;
+
+  const occursOn   = (detail.catalyst_occurs_on  as string | undefined) ?? "";
+  const kind       = (detail.catalyst_kind        as string | undefined) ?? "";
+  const title      = (detail.catalyst_title       as string | undefined) ?? "";
+  const daysUntil  = (detail.catalyst_days_until  as number | undefined) ?? null;
+
+  const isAlign    = flag === "tech_event_alignment";
+  const isDivg     = flag === "tech_event_divergence";
+  const color      = isAlign ? "#1fc16b" : isDivg ? "#f59e0b" : "var(--text-muted)";
+  const bgColor    = isAlign ? "rgba(31,193,107,0.10)"
+                  : isDivg  ? "rgba(245,158,11,0.10)"
+                  :            "rgba(255,255,255,0.04)";
+  const border     = isAlign ? "rgba(31,193,107,0.40)"
+                  : isDivg  ? "rgba(245,158,11,0.40)"
+                  :            "var(--border)";
+
+  const icon       = isAlign ? "⚡" : isDivg ? "⚠" : "⚑";
+  const label      = isAlign ? "ALIGN" : isDivg ? "DIVG" : flag;
+
+  // Human-readable date: "2026-06-15" → "Jun 15"
+  const dateLabel  = occursOn
+    ? new Date(occursOn + "T12:00:00Z").toLocaleDateString("en-GB", { month: "short", day: "numeric" })
+    : "";
+
+  const daysLabel  = daysUntil != null
+    ? daysUntil === 0 ? "today"
+    : daysUntil === 1 ? "tmrw"
+    : `${daysUntil}d`
+    : "";
+
+  const tooltipLines = [
+    title ? `"${title}"` : null,
+    kind   ? `type: ${kind}` : null,
+    occursOn ? `date: ${occursOn}${daysLabel ? ` (${daysLabel})` : ""}` : null,
+    isAlign
+      ? "Catalyst + technical signal agree — higher conviction setup."
+      : isDivg
+      ? "Catalyst and technical signal disagree — review before acting."
+      : null,
+  ].filter(Boolean).join("\n");
+
+  return (
+    <span
+      title={tooltipLines}
+      style={{
+        display: "inline-flex", gap: 4, alignItems: "center",
+        padding: "2px 6px",
+        fontSize: 9, fontFamily: "monospace", fontWeight: 700,
+        color, background: bgColor,
+        border: `1px solid ${border}`,
+        borderRadius: 4,
+        cursor: "help",
+        letterSpacing: "0.03em",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {icon} {label}
+      {kind && (
+        <span style={{ fontWeight: 400, opacity: 0.8 }}>·{kind}</span>
+      )}
+      {dateLabel && (
+        <span style={{ fontWeight: 400, opacity: 0.8 }}>·{dateLabel}</span>
+      )}
+      {daysLabel && (
+        <span style={{
+          color: daysUntil != null && daysUntil <= 3 ? "#ef4444" : color,
+          fontWeight: daysUntil != null && daysUntil <= 3 ? 800 : 400,
+          opacity: 0.9,
+        }}>
+          ({daysLabel})
+        </span>
+      )}
+    </span>
   );
 }
 
