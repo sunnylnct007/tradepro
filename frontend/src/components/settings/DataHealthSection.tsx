@@ -843,7 +843,7 @@ function IbkrHarvesterPanel() {
         )}
       </div>
 
-      {status && status.event_count > 0 ? (
+      {status && status.event_count > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table style={{
             width: "100%", borderCollapse: "collapse",

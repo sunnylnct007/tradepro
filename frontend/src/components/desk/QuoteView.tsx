@@ -143,8 +143,9 @@ export function QuoteView({ initialSymbol }: { initialSymbol?: string | null }) 
           held.push({
             broker: "IG",
             ticker: p.ticker,
-            // IG FX/CFD epics have no honest Yahoo candle symbol — no chart.
-            chartSymbol: null,
+            // IG FX/CFD epics resolve to the underlying Yahoo series (FX pair →
+            // "<PAIR>=X", share CFD → underlying ticker) so the chart loads.
+            chartSymbol: chartSymbolFor(p.ticker, "IG"),
             qty: p.quantity,
             avg: p.averagePricePaid,
             currentPrice: p.currentPrice,

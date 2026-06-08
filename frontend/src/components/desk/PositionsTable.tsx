@@ -143,9 +143,9 @@ export function PositionsTable({ onOpenSymbol }: { onOpenSymbol?: (symbol: strin
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: null, // IG positions endpoint doesn't return per-position ccy
-            // IG FX/CFD epics have no honest Yahoo candle symbol — leave the
-            // sparkline as "—" rather than guessing a mapping.
-            chartSymbol: null,
+            // IG FX/CFD epics resolve to the underlying Yahoo series (FX pair →
+            // "<PAIR>=X", share CFD → underlying ticker) so the row is chartable.
+            chartSymbol: chartSymbolFor(p.ticker, "IG"),
             series: null,
             mode: accountMode("IG", "demo"),
             strategyId: attribution.get(attrKey("IG", p.ticker)) ?? null,

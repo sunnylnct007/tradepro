@@ -23,34 +23,57 @@ export function bareSymbol(raw: string): string {
  * than fetching candles for a symbol that can't resolve).
  *
  * Resolves:
- *   T212 equity  "AAPL_US_EQ"          → "AAPL"   (strip the _<REGION>_EQ suffix)
- *   IBKR equity  "EC" / "BABA" / "MRVL"→ "EC"     (US-listed tickers ARE the Yahoo symbol)
+ *   T212 equity  "AAPL_US_EQ"          → "AAPL"     (strip the _US_EQ suffix)
+ *   T212 UK eq.  "VOD_UK_EQ"           → "VOD.L"    (LSE Yahoo suffix)
+ *   IBKR equity  "EC" / "BABA" / "MRVL"→ "EC"       (US tickers ARE the Yahoo symbol)
+ *   IG spot FX   "CS.D.GBPUSD.MINI.IP" → "GBPUSD=X" (Yahoo FX pair)
+ *   IG share CFD "UA.D.AAPL.CASH.IP"   → "AAPL"     (underlying US listing)
  * Returns null for:
- *   IG FX/CFD epics ("CS.D.EURUSD.MINI.IP", "*.CASH.IP") — no clean Yahoo symbol
- *   options/futures/crypto epics, and anything empty.
+ *   options / futures / index epics ("OD.D.*", "IX.D.*") — no honest free
+ *   daily-candle source — and anything empty / unmappable.
  *
- * `broker` is a hint ("T212" | "IG" | "IBKR"); when a broker already hands us a
- * Yahoo symbol (T212's `yahooSymbol`) prefer that and skip this.
+ * Charts for FX/CFD rows use Yahoo's series for the SAME underlying pair/name —
+ * an honest reference (the cloud math is identical), not the broker's own tape.
+ *
+ * `broker` is a hint ("T212" | "IG" | "IBKR") for context only; resolution is
+ * driven by the symbol's shape. When a broker already hands us a Yahoo symbol
+ * (T212's `yahooSymbol`) prefer that and skip this.
  */
-export function chartSymbolFor(raw: string | null | undefined, broker?: string): string | null {
+export function chartSymbolFor(raw: string | null | undefined, _broker?: string): string | null {
   const s = (raw || "").trim();
   if (!s) return null;
   const upper = s.toUpperCase();
 
-  // IG epics + FX pairs + non-equity products have no honest Yahoo candle symbol.
-  if (broker === "IG") return null;
   const product = productOf(upper);
-  if (product !== "Equity") return null;
-  if (upper.startsWith("CS.D.") || upper.startsWith("IX.D.") || upper.startsWith("OD.D.")) return null;
-  if (upper.endsWith(".CASH.IP") || upper.endsWith(".IP")) return null;
 
-  // T212 "AAPL_US_EQ" → bare ticker (US listings map 1:1 to the Yahoo symbol;
-  // non-US suffixes would need an exchange-suffix map we don't have, so only
-  // accept US/unsuffixed here to stay honest).
+  // Spot FX (T212 bare "EURUSD" or IG epic "CS.D.EURUSD.MINI.IP") → Yahoo "EURUSD=X".
+  if (product === "FX") {
+    const pair = bareSymbol(upper);
+    return /^[A-Z]{6}$/.test(pair) ? `${pair}=X` : null;
+  }
+
+  // Options / Futures / index epics: no honest free daily-candle source.
+  if (product === "Option" || product === "Future") return null;
+
+  // ---- Equity (and IG share CFDs, which chart against the underlying) ----
+
+  // IG share-CFD epic "UA.D.AAPL.CASH.IP" / "SA.D.AMD.CASH.IP" → underlying US
+  // ticker (IG prefixes a 2-letter venue code + ".D."). US listings = Yahoo symbol.
+  const igCash = upper.match(/^[A-Z]{2}\.D\.([A-Z0-9]+)\.CASH\.IP$/);
+  if (igCash) {
+    return /^[A-Z]{1,6}$/.test(igCash[1]) ? igCash[1] : null;
+  }
+  // Other dotted IG/index/option epics we can't honestly map.
+  if (upper.startsWith("CS.D.") || upper.startsWith("IX.D.") || upper.startsWith("OD.D.")) return null;
+  if (upper.endsWith(".IP")) return null;
+
+  // T212 "AAPL_US_EQ" → "AAPL"; "VOD_UK_EQ" → "VOD.L" (LSE). Other regions would
+  // need an exchange-suffix map we don't have → leave non-clickable.
   const t212 = upper.match(/^([A-Z0-9.]+)_([A-Z]{2,3})_EQ$/);
   if (t212) {
     if (t212[2] === "US") return t212[1];
-    return null; // e.g. _UK_EQ would need ".L"; no honest map → leave non-clickable
+    if (t212[2] === "UK") return `${t212[1]}.L`;
+    return null;
   }
 
   // Plain US-style equity ticker (IBKR "EC", "BABA", "MRVL", "APLD"): 1–6
