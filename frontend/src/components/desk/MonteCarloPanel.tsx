@@ -78,11 +78,26 @@ export function MonteCarloPanel({
         ))}
       </div>
 
+      {/* Always-visible one-line reading guide so the chart is never bare. */}
+      <div style={{
+        fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.5,
+        background: "rgba(79,140,255,0.06)", border: "1px solid var(--border)",
+        borderRadius: 6, padding: "8px 10px",
+      }}>
+        <strong style={{ color: "var(--text)" }}>How to read:</strong> each line is one
+        possible {mc.years}-year future built from {mc.source === "server" ? "the strategy's" : "this symbol's"} own
+        past daily moves. The <strong>solid line</strong> is the typical (median) outcome; the
+        <strong> shaded band</strong> is the realistic spread — wide outer (5%–95%, the lucky/unlucky
+        edges) and tighter inner (25%–75%). The chips below turn that into numbers: where you'd
+        likely end up, and the odds of doubling vs. losing money. It's a <em>range of outcomes from
+        history, not a prediction</em>.
+      </div>
+
       <PlotlyChart figure={buildFanFigure(mc, ccy)} />
 
-      <details style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+      <details open style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
         <summary style={{ cursor: "pointer", color: "var(--text-dim)", fontWeight: 600 }}>
-          What am I looking at?
+          More detail — the method &amp; every metric
         </summary>
         <div style={{ marginTop: 6 }}>
           <p style={{ margin: "4px 0" }}>

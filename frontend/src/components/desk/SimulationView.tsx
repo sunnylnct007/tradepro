@@ -48,6 +48,20 @@ export function SimulationView() {
         </div>
       </div>
 
+      {/* Plain-English intro so the screen explains itself. */}
+      <div style={{
+        fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6,
+        background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)",
+        borderRadius: 8, padding: "10px 12px",
+      }}>
+        This asks: <strong style={{ color: "var(--text)" }}>“given how this has behaved in the past,
+        where might it end up?”</strong> It replays history thousands of times in random order to build a
+        cone of possible outcomes — a realistic <em>range</em>, not a prediction.{" "}
+        <strong>Strategy</strong> projects a quant desk's whole book;{" "}
+        <strong>Symbol</strong> projects any single ticker you type. Read the cone + the chips below it;
+        full definitions sit under each chart.
+      </div>
+
       {mode === "strategy" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
