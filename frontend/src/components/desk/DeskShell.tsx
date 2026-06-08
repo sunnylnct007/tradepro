@@ -29,15 +29,9 @@
  * single column with a bottom tab bar; the right rail (passed by the page)
  * stacks below the main area via the page's own grid.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-
-const MOBILE_BREAKPOINT = 760;
-
-const SHELL_BG = "#0a0e17";
-const BAR_BG = "#0d1117";
-const RAIL_BG = "#0d1117";
-const SEP = "#1b2233";
+import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 
 /** The in-page work-area views the rail can switch between. */
 export type DeskView = "portfolio" | "screeners" | "news" | "watchlist" | "quote" | "simulation";
@@ -77,19 +71,6 @@ const MORE_APP: NavEntry = {
 const SETTINGS: NavEntry = {
   key: "settings", label: "Settings", icon: "⚙", to: "/settings", title: "Settings",
 };
-
-/** Hook: true when the viewport is at/below the mobile breakpoint. */
-function useIsMobile(): boolean {
-  const [mobile, setMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth <= MOBILE_BREAKPOINT : false,
-  );
-  useEffect(() => {
-    const onResize = () => setMobile(window.innerWidth <= MOBILE_BREAKPOINT);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return mobile;
-}
 
 export function DeskShell({
   children,

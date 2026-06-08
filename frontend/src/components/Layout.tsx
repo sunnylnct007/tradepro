@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { SystemBanners } from "./SystemBanners";
 import { WorkerStatusBadge } from "./WorkerStatusBadge";
@@ -6,56 +6,52 @@ import { useAuth } from "../auth/AuthProvider";
 import { ModePill } from "./ModePill";
 import { OmsModeBadge } from "./OmsModeBadge";
 import { ConnectivityBadge } from "./ConnectivityBadge";
+import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./desk/shellTheme";
 
-// Two personas drive the nav layout:
+// App-wide shell for every non-/desk route. Re-skinned to the IBKR-Desktop
+// admin look the /desk cockpit uses (DeskShell): dark chrome, a persistent
+// LEFT SIDEBAR (no dropdown), a top bar carrying the status badges, and a
+// fixed-viewport grid where ONLY the work-area scrolls.
 //
-//   Trader        — opens MARKET / RESEARCH / PAPER all day. These
-//                   sit on the left, get the primary-link styling, and
-//                   are scanned in workflow order: decide → research →
+// Two personas drive the nav grouping:
+//
+//   Trader        — opens MARKET / RESEARCH / PAPER all day. These sit at the
+//                   top of the sidebar in workflow order: decide → research →
 //                   sim → paper-trade.
 //   IT analyst    — opens SYSTEM when something looks wrong (broker
-//                   disconnected, scheduled job missed, deploy issue)
-//                   or when triaging via Support / IT Guide runbooks.
-//                   Sits on the right with muted utility-link styling.
+//                   disconnected, scheduled job missed, deploy issue) or when
+//                   triaging via Support / IT Guide runbooks.
 //
-//  MARKET   — daily decision surface. Decide is the index; Portfolio
-//             shows live positions; Strategies runs ad-hoc; Scanner
-//             explores a single strategy across the universe.
-//  RESEARCH — analysis tools. Research (signals) is the COMPASS
-//             explorer; Backtest is historical simulation; Charts is
-//             the data dashboard; Docs is the ETF reference library.
-//  PAPER    — paper-trading lifecycle. Paper is the live session
-//             monitor (Session Detail page deep-links from here);
-//             PA Reports + Intraday roll up history.
-//  SYSTEM   — diagnostics + config + runbooks. Health is the live API
-//             status; Settings owns brokers + flags; Support is the
-//             trader-facing help; IT Guide is the ops runbook.
+//  MARKET   — daily decision surface. Decide is the index; Portfolio shows
+//             live positions; Scan explores a single strategy; OMS is orders.
+//  STRATEGY — strategy catalog + per-strategy pages + backtests.
+//  RESEARCH — analysis tools (signals explorer, backtest, scanner, charts, docs).
+//  PAPER    — paper-trading lifecycle (live sessions, PA reports, intraday board).
+//  SYSTEM   — diagnostics + config + runbooks.
 //
-// Routes haven't changed — only labels and grouping — so bookmarks
-// and the deployed CI URL maps still resolve correctly.
+// Routes haven't changed — only the chrome — so bookmarks + CI URL maps still
+// resolve. NO dropdown: the user explicitly dislikes dropdowns on primary
+// surfaces, so every link is always visible in a labeled, grouped sidebar.
 
 type NavItem = { to: string; label: string; end?: boolean };
+type NavSection = { label: string; items: NavItem[] };
 
-// Trader's daily surfaces — kept terse + at the top. Everything
-// else is one click away inside the "More" overflow menu so the
-// header doesn't sprawl across the page.
+// Trader's daily surfaces — the top, ungrouped block of the sidebar.
 const marketNav: NavItem[] = [
-  // Cockpit now points at the new IBKR-style /desk surface. The legacy
-  // TraderCockpit is still reachable via "Cockpit (legacy)" in More → System.
+  // Cockpit points at the new IBKR-style /desk surface. The legacy
+  // TraderCockpit is still reachable via "Cockpit (legacy)" in System.
   { to: "/desk",         label: "Cockpit"    },
-  // Decide — long-term / multi-strategy comparison view. Lives in
-  // the primary row because traders use it daily; was previously
-  // demoted into "More" which made it hard to find.
+  // Decide — long-term / multi-strategy comparison view. Daily-use.
   { to: "/compare",      label: "Decide"     },
   { to: "/scan",         label: "Scan"       },
   { to: "/oms",          label: "OMS"        },
   { to: "/portfolio",    label: "Portfolio"  },
 ];
 
-// "More" overflow — grouped sub-menu surfaces secondary pages
-// without taking up nav space. Sections double as section headers
-// inside the dropdown.
-const moreSections: { label: string; items: NavItem[] }[] = [
+// Grouped secondary surfaces. Previously hidden behind a "More ▾" dropdown;
+// now rendered inline as labeled sidebar sections (the section labels double
+// as group headers).
+const moreSections: NavSection[] = [
   { label: "Strategy", items: [
     { to: "/strategies",                  label: "Strategies catalog" },
     { to: "/strategies/ichimoku-equity",  label: "Ichimoku Equity"    },
@@ -87,265 +83,291 @@ const moreSections: { label: string; items: NavItem[] }[] = [
   ]},
 ];
 
+const SIDEBAR_WIDTH = 210;
 
-const primaryLinkStyle = ({ isActive }: { isActive: boolean }) => ({
-  padding: "6px 12px",
-  borderRadius: 8,
+const sidebarLinkStyle = ({ isActive }: { isActive: boolean }) => ({
+  display: "block",
+  padding: "7px 14px",
   textDecoration: "none",
   color: isActive ? "var(--text)" : "var(--text-dim)",
   background: isActive ? "var(--bg-hover)" : "transparent",
   fontWeight: isActive ? 600 : 500,
   fontSize: 13,
+  borderLeft: `3px solid ${isActive ? "var(--accent, #4f8cff)" : "transparent"}`,
   transition: "background 0.15s ease, color 0.15s ease",
 });
 
-/**
- * MoreMenu — dropdown that hides secondary nav links so the header
- * stays single-line + scannable. Click toggles open; clicks outside
- * close it. Sections inside are grouped (Strategy / Research /
- * Paper / System) so the trader still has visual structure even
- * once it's collapsed.
- */
-function MoreMenu({
-  sections,
-}: {
-  sections: { label: string; items: NavItem[] }[];
-}) {
-  const [open, setOpen] = useState(false);
-  // Close-on-outside-click is done via a transparent full-viewport
-  // backdrop that sits BELOW the menu (zIndex 50 vs 51). Any click
-  // outside the menu lands on the backdrop and closes it. Clicks on
-  // the menu items hit the higher z-index layer and work normally.
-  //
-  // Previous attempts used document.addEventListener — that ran into
-  // the React-synthetic-vs-native event ordering and felt glitchy
-  // (menu sometimes opened then immediately closed on the same
-  // click). The backdrop approach has none of those edge cases.
+const sectionLabelStyle: CSSProperties = {
+  fontSize: 9,
+  color: "var(--text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  padding: "14px 14px 4px",
+};
+
+/** The grouped, labeled, no-dropdown sidebar nav. Shared desktop + drawer. */
+function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div style={{ position: "relative" }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
+    <nav style={{ display: "flex", flexDirection: "column", paddingBottom: 16 }}>
+      {/* Primary market block — ungrouped, at the top. */}
+      <div style={{ paddingTop: 8 }}>
+        {marketNav.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            onClick={onNavigate}
+            style={sidebarLinkStyle}
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </div>
+      {moreSections.map((s) => (
+        <div key={s.label}>
+          <div style={sectionLabelStyle}>{s.label}</div>
+          {s.items.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              onClick={onNavigate}
+              style={sidebarLinkStyle}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+/** Wordmark — matches DeskShell's "Trade<accent>Pro</accent>" style. */
+function Wordmark() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        fontWeight: 800,
+        fontSize: 16,
+        letterSpacing: "0.02em",
+        color: "var(--text)",
+        flexShrink: 0,
+      }}
+    >
+      <span
         style={{
-          padding: "6px 12px", borderRadius: 8,
-          background: open ? "var(--bg-hover)" : "transparent",
-          border: "none", color: "var(--text-dim)",
-          fontSize: 13, fontWeight: 500, cursor: "pointer",
+          width: 24,
+          height: 24,
+          borderRadius: 7,
+          background: "linear-gradient(135deg, #4f8cff, #1fc16b)",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "white",
+          fontSize: 13,
+          fontWeight: 800,
         }}
       >
-        More ▾
-      </button>
-      {open && (
-        <>
-          <div
-            onClick={() => setOpen(false)}
-            style={{
-              position: "fixed", inset: 0, zIndex: 50,
-              background: "transparent",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute", top: "calc(100% + 4px)", left: 0,
-              minWidth: 220,
-              background: "var(--surface-1, #0b1220)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-              padding: 8,
-              zIndex: 51,
-              display: "flex", flexDirection: "column", gap: 4,
-            }}
-          >
-            {sections.map((s) => (
-              <div key={s.label}>
-                <div style={{
-                  fontSize: 9, color: "var(--text-muted)",
-                  textTransform: "uppercase", letterSpacing: "0.08em",
-                  padding: "6px 10px 2px",
-                }}>
-                  {s.label}
-                </div>
-                {s.items.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    onClick={() => setOpen(false)}
-                    style={({ isActive }) => ({
-                      display: "block",
-                      padding: "5px 10px",
-                      fontSize: 12, borderRadius: 4,
-                      color: isActive ? "var(--text)" : "var(--text-dim)",
-                      background: isActive ? "var(--bg-hover)" : "transparent",
-                      textDecoration: "none",
-                    })}
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+        T
+      </span>
+      Trade<span style={{ color: "var(--accent, #4f8cff)" }}>Pro</span>
     </div>
   );
 }
 
-
 export function Layout() {
   const { user, firebaseAvailable, error, signIn, signOut } = useAuth();
+  const mobile = useIsMobile();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Status group lives in the top bar on every page (was the right side of
+  // the old header). Order + components preserved from the legacy layout.
+  const statusGroup = (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+      {/* Intraday / Long-term mode switch — persisted to localStorage. */}
+      <ModePill />
+      {/* System connectivity traffic light — click for per-service detail. */}
+      <ConnectivityBadge />
+      {/* Worker status — visible on every page so the user can tell at a
+          glance whether the Mac worker is mid-refresh, idle, or stale. */}
+      <WorkerStatusBadge />
+      {/* OMS placement mode (auto/manual). */}
+      <OmsModeBadge />
+      <span
+        className="num"
+        style={{
+          fontSize: 11,
+          color: "var(--text-muted)",
+          padding: "4px 8px",
+          border: `1px solid ${SEP}`,
+          borderRadius: 6,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+        }}
+      >
+        UK · GBP
+      </span>
+      {firebaseAvailable ? (
+        user ? (
+          <div style={{
+            display: "flex", gap: 8, alignItems: "center",
+            padding: "3px 4px 3px 10px", borderRadius: 999,
+            border: `1px solid ${SEP}`,
+          }}>
+            <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              {user.displayName ?? user.email}
+            </span>
+            <button onClick={signOut} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 999 }}>
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <button className="primary" onClick={signIn} style={{ fontSize: 12, padding: "6px 12px" }}>
+            Sign in with Google
+          </button>
+        )
+      ) : (
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>(local mode)</span>
+      )}
+    </div>
+  );
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
+    <div
+      style={{
+        // Fixed-viewport shell: the page never scrolls; only <main> does.
+        height: "100vh",
+        background: SHELL_BG,
+        color: "var(--text)",
+        display: "grid",
+        gridTemplateColumns: mobile ? "1fr" : `${SIDEBAR_WIDTH}px 1fr`,
+        gridTemplateRows: "52px 1fr",
+        gridTemplateAreas: mobile
+          ? `"topbar" "main"`
+          : `"topbar topbar" "sidebar main"`,
+        overflow: "hidden",
+      }}
+    >
+      {/* Top bar — wordmark + (mobile) hamburger on the left, status badges
+          on the right; mirrors DeskShell's TopBar chrome. */}
       <header
         style={{
+          gridArea: "topbar",
+          background: BAR_BG,
+          borderBottom: `1px solid ${SEP}`,
           display: "flex",
           alignItems: "center",
-          // Wrap to a second line on narrow widths instead of letting the
-          // right-side status group overlap the nav's "More ▾" button
-          // (the header is crowded: nav + mode pill + worker badge +
-          // broker chips + user). rowGap keeps the wrapped line readable.
-          flexWrap: "wrap",
-          rowGap: 8,
-          gap: 14,
-          padding: "6px 20px",
-          borderBottom: "1px solid var(--border)",
-          background: "rgba(11, 18, 32, 0.85)",
-          backdropFilter: "blur(8px)",
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
-          // overflow: visible so the More ▾ dropdown can spill below the
-          // header.
-          overflow: "visible",
+          gap: 16,
+          padding: "0 14px",
           minWidth: 0,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            fontWeight: 700,
-            fontSize: 16,
-            letterSpacing: "0.02em",
-          }}
-        >
-          <span
+        {mobile && (
+          <button
+            type="button"
+            aria-label="Toggle navigation"
+            onClick={() => setDrawerOpen((v) => !v)}
             style={{
-              width: 26,
-              height: 26,
-              borderRadius: 7,
-              background: "linear-gradient(135deg, #4f8cff, #1fc16b)",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "white",
-              fontSize: 13,
-              fontWeight: 800,
-            }}
-          >
-            T
-          </span>
-          TradePro
-        </div>
-        <nav style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
-          {marketNav.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} style={primaryLinkStyle}>
-              {item.label}
-            </NavLink>
-          ))}
-          <MoreMenu sections={moreSections} />
-        </nav>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          {/* Top-level Intraday / Long-term switch. Persisted to
-           * localStorage; pages read it via useTradingMode() to
-           * adjust copy, default tabs, and (later) strategy
-           * defaults / backtest windows. See DATA_ROADMAP §14. */}
-          <ModePill />
-          {/* System connectivity — minimal traffic light in the bar
-              (was a big in-cockpit card). Click for per-service detail. */}
-          <ConnectivityBadge />
-          {/* Worker status — visible on every page so the user can
-           * tell at-a-glance whether the Mac is mid-refresh, idle,
-           * or hasn't pinged in a while. Was previously only on the
-           * Decide page; moved here so a user on Portfolio / Research
-           * / Backtest never has to wonder "is the worker alive?"
-           * after a long gap. */}
-          <WorkerStatusBadge />
-          {/* OMS placement mode (auto/manual). The misleading T212·LIVE
-           * chip was removed — it reflected the read-only live VIEW
-           * connection, but the algo trades DEMO, so a red "LIVE" alarmed
-           * for no reason. The cockpit's own DEMO/LIVE account toggle is
-           * the source of truth for which book you're viewing. */}
-          <OmsModeBadge />
-          <span
-            className="num"
-            style={{
-              fontSize: 11,
-              color: "var(--text-muted)",
-              padding: "4px 8px",
-              border: "1px solid var(--border)",
+              background: "transparent",
+              border: `1px solid ${SEP}`,
               borderRadius: 6,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
+              color: "var(--text)",
+              fontSize: 16,
+              lineHeight: 1,
+              padding: "5px 9px",
+              cursor: "pointer",
+              flexShrink: 0,
             }}
           >
-            UK · GBP
-          </span>
-          {firebaseAvailable ? (
-            user ? (
-              // Name + Sign out as one grouped pill.
-              <div style={{
-                display: "flex", gap: 8, alignItems: "center",
-                padding: "3px 4px 3px 10px", borderRadius: 999,
-                border: "1px solid var(--border)",
-              }}>
-                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
-                  {user.displayName ?? user.email}
-                </span>
-                <button onClick={signOut} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 999 }}>
-                  Sign out
-                </button>
-              </div>
-            ) : (
-              <button className="primary" onClick={signIn} style={{ fontSize: 12, padding: "6px 12px" }}>
-                Sign in with Google
-              </button>
-            )
-          ) : (
-            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>(local mode)</span>
-          )}
+            ☰
+          </button>
+        )}
+        <Wordmark />
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" }}>
+          {statusGroup}
         </div>
       </header>
-      <SystemBanners />
-      <main
-        style={{
-          padding: "28px",
-          width: "100%",
-          maxWidth: 1280,
-          margin: "0 auto",
-          flex: 1,
-        }}
-      >
-        {error && (
+
+      {/* Desktop persistent sidebar. */}
+      {!mobile && (
+        <aside
+          style={{
+            gridArea: "sidebar",
+            background: RAIL_BG,
+            borderRight: `1px solid ${SEP}`,
+            overflowY: "auto",
+            minHeight: 0,
+          }}
+        >
+          <SidebarNav />
+        </aside>
+      )}
+
+      {/* Mobile drawer — hamburger-toggled overlay sidebar. */}
+      {mobile && drawerOpen && (
+        <>
           <div
+            onClick={() => setDrawerOpen(false)}
             style={{
-              padding: "10px 14px",
-              marginBottom: 16,
-              borderRadius: 8,
-              border: "1px solid var(--down)",
-              background: "var(--down-soft)",
-              color: "var(--down)",
-              fontSize: 13,
+              position: "fixed",
+              inset: 0,
+              top: 52,
+              zIndex: 40,
+              background: "rgba(0,0,0,0.5)",
+            }}
+          />
+          <aside
+            style={{
+              position: "fixed",
+              top: 52,
+              bottom: 0,
+              left: 0,
+              width: SIDEBAR_WIDTH,
+              zIndex: 41,
+              background: RAIL_BG,
+              borderRight: `1px solid ${SEP}`,
+              overflowY: "auto",
             }}
           >
-            Sign-in failed: {error}
-          </div>
-        )}
-        <Outlet />
+            <SidebarNav onNavigate={() => setDrawerOpen(false)} />
+          </aside>
+        </>
+      )}
+
+      {/* Work-area — the ONLY scrolling region. Full width (no centered
+          max-width column); generous inner cap so wide tables breathe but
+          prose-width pages stay readable. */}
+      <main
+        style={{
+          gridArea: "main",
+          minWidth: 0,
+          minHeight: 0,
+          overflowY: "auto",
+        }}
+      >
+        <SystemBanners />
+        <div style={{ padding: mobile ? "16px 16px" : "24px 28px", maxWidth: 1600, margin: "0 auto", width: "100%" }}>
+          {error && (
+            <div
+              style={{
+                padding: "10px 14px",
+                marginBottom: 16,
+                borderRadius: 8,
+                border: "1px solid var(--down)",
+                background: "var(--down-soft)",
+                color: "var(--down)",
+                fontSize: 13,
+              }}
+            >
+              Sign-in failed: {error}
+            </div>
+          )}
+          <Outlet />
+        </div>
       </main>
     </div>
   );
