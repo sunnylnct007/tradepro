@@ -825,9 +825,8 @@ export const api = {
         label: string;
         status: "healthy" | "idle" | "blocked" | "stale" | "unknown";
         reason: string;
-        lastRunUtc: string | null;
-        minutesSinceRun: number | null;
-        cadenceMin: number;
+        lastOrderUtc: string | null;
+        minutesSinceOrder: number | null;
         today: { fills: number; cancels: number; pending: number; total: number };
       }>;
     }>("/api/strategies/health"),

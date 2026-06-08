@@ -194,7 +194,7 @@ export function HealthPage() {
       {/* Per-strategy run-timing + outcome — the layer the worker-level
           liveness above CAN'T see: one strategy can silently die (skip every
           order) while the Mac daemon keeps pinging "alive". */}
-      <StrategyHealthPanel />
+      <StrategyHealthPanel defaultOpen />
 
       {integrations && <IntegrationsPanel data={integrations} />}
     </div>
