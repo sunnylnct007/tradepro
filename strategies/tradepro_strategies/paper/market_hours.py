@@ -71,6 +71,14 @@ def is_fx_open(ts: datetime) -> bool:
     return True            # Mon–Thu
 
 
+def is_us_cfd_24h_open(ts: datetime) -> bool:
+    """IG "24-hour" US-share CFDs (what intraday_flat trades): tradeable ~24/5
+    — outside NYSE regular hours but CLOSED on weekends. Same shape as spot FX,
+    so the NYSE-RTH gate would be WRONG here (it would block legit overnight CFD
+    trading); the right guard is the 24/5 weekend closure."""
+    return is_fx_open(ts)
+
+
 def is_open(asset_class: str, ts: datetime) -> bool:
     """Dispatch by asset class. Unknown classes default OPEN (never block)."""
     ac = (asset_class or "").lower()

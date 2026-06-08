@@ -534,6 +534,23 @@ class IntradayFlatStrategy(Strategy):
         if not bar.is_live:
             return []
 
+        # ── B¾. Market-hours gate — don't emit into a CLOSED venue ──
+        # intraday_flat trades IG 24-HOUR US-share CFDs: tradeable ~24/5
+        # (outside NYSE RTH) but CLOSED on weekends. When closed the broker
+        # rejects the order and the 5-min daemon regenerates + re-cancels it
+        # every run. Skip emission when the venue is shut. (NYSE-RTH would be
+        # wrong here — these CFDs DO trade overnight; only the weekend closure
+        # matters.) Long-only/never-short is already enforced below.
+        from .. import market_hours
+        if not market_hours.is_us_cfd_24h_open(bar.timestamp):
+            self.log_decision(
+                symbol=bar.symbol, bar_ts=bar.timestamp,
+                action="skip-market-closed",
+                reason="IG 24h CFD venue closed (weekend) — not emitting "
+                       "(broker would reject + re-cancel each run)",
+            )
+            return []
+
         # ── C. EOD flatten window (HIGHEST priority) ───────────────
         # Even if the position management or entry would fire below,
         # the EOD gate wins. Exits are NEVER LLM-gated; the close is
