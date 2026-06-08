@@ -61,32 +61,33 @@ export function StrategyHealthPanel({ defaultOpen = false }: { defaultOpen?: boo
       border: `1px solid ${anyBad ? "#f85149" : "var(--border)"}`,
       borderRadius: 8, background: "rgba(255,255,255,0.02)", overflow: "hidden",
     }}>
-      {/* Collapsed traffic-light bar — click to expand */}
+      {/* Collapsed traffic-light strip — minimal footprint, click to expand */}
       <div
         onClick={() => setOpen((o) => !o)}
-        title="Click for per-strategy detail"
+        title="Strategy health — click for detail"
         style={{
-          display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
-          padding: "6px 10px", fontSize: 11.5, userSelect: "none",
+          display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+          padding: "3px 8px", fontSize: 10.5, userSelect: "none",
+          color: "var(--text-muted)",
         }}
       >
-        <span style={{ fontWeight: 700 }}>Strategy health</span>
+        <span style={{ fontWeight: 600 }}>Strategies</span>
         {/* one dot per strategy — the traffic light */}
-        <span style={{ display: "flex", gap: 6 }}>
+        <span style={{ display: "flex", gap: 4, fontSize: 9 }}>
           {rows?.map((r) => (
             <span key={r.strategy} title={`${r.label}: ${STATUS[r.status].label} — ${r.reason}`}>
               {STATUS[r.status].dot}
             </span>
           ))}
-          {!rows && !err && <span style={{ color: "var(--text-muted)" }}>…</span>}
-          {err && <span style={{ color: "#f85149" }}>⚠ unavailable</span>}
+          {!rows && !err && <span>…</span>}
+          {err && <span style={{ color: "#f85149" }}>⚠</span>}
         </span>
         {anyBad
           ? <span style={{ color: "#f85149", fontWeight: 700 }}>⚠ needs attention</span>
           : anyWarn
             ? <span style={{ color: "#d29922" }}>some idle</span>
-            : rows && <span style={{ color: "#3fb950" }}>all trading</span>}
-        <span style={{ marginLeft: "auto", color: "var(--text-muted)" }}>{open ? "▲" : "▼"}</span>
+            : null}
+        <span style={{ marginLeft: "auto", fontSize: 8 }}>{open ? "▲" : "▼"}</span>
       </div>
 
       {/* Expanded detail */}
