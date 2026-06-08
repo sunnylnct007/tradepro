@@ -1,0 +1,37 @@
+# Phase 1 of the Mac→AWS move: the catalyst sweeps (Finnhub + GDELT + SEC EDGAR)
+# run here on a scheduled GitHub-hosted runner instead of the Mac. They're
+# stateless, hit public APIs, and need the Finnhub key + API token — all read
+# from AWS Secrets Manager (tradepro/all) via the deploy role, so NO secrets are
+# duplicated as GitHub secrets. Populates the catalyst registry that feeds the
+# order-placement gate. Manual run: Actions → catalyst-sweep → Run workflow.
+name: catalyst-sweep
+
+on:
+  schedule:
+    - cron: "45 7 * * 1-5"   # 07:45 UTC, weekdays (after the universe refresh)
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write            # OIDC → assume the AWS role
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (read tradepro/all secrets)
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: astral-sh/setup-uv@v5
+      - name: Catalyst sweep (Finnhub earnings + GDELT macro + SEC EDGAR filings)
+        working-directory: strategies
+        env:
+          AWS_REGION: eu-west-2
+        run: uv run tradepro-catalysts-daily-sweep --push
