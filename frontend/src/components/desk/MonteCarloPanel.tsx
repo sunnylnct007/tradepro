@@ -66,6 +66,25 @@ export function MonteCarloPanel({
         </div>
       </div>
 
+      {/* Plain-English verdict — the one sentence that says what this means. */}
+      <div style={{
+        fontSize: 13, lineHeight: 1.6, color: "var(--text)",
+        background: "rgba(6,167,125,0.06)", border: "1px solid var(--border)",
+        borderRadius: 8, padding: "10px 12px",
+      }}>
+        Replaying its history {mc.n_sims.toLocaleString()}× over {mc.years} years from{" "}
+        {fmtMoney(mc.initial, ccy)}: the <strong>typical outcome is {fmtMoney(p50.final_value, ccy)}</strong>{" "}
+        (≈<strong style={{ color: p50.cagr_pct >= 0 ? "#1fc16b" : "#ef4444" }}>{p50.cagr_pct.toFixed(1)}%/yr</strong>).
+        A bad run (worst 5%) ends near <strong>{fmtMoney(p5.final_value, ccy)}</strong>;{" "}
+        <strong style={{ color: s.p_lose_money > 0.2 ? "#ef4444" : "var(--text)" }}>
+          {(s.p_lose_money * 100).toFixed(0)}% of runs lose money
+        </strong>{" "}
+        and <strong style={{ color: "#1fc16b" }}>{(s.p_double * 100).toFixed(0)}% at least double</strong>.
+        The deepest dip along a typical path is about{" "}
+        <strong style={{ color: ddMedian < -20 ? "#ef4444" : "var(--text)" }}>{ddMedian.toFixed(0)}%</strong>.
+        {" "}<span style={{ color: "var(--text-muted)" }}>(A range from history — not a prediction.)</span>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
         {chips.map((c) => (
           <div key={c.label} style={{

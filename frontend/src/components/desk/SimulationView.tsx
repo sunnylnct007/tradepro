@@ -32,7 +32,9 @@ const YEARS = [3, 5, 10];
 const SIMS = [500, 2000];
 
 export function SimulationView() {
-  const [mode, setMode] = useState<Mode>("strategy");
+  // Default to Symbol mode: it always produces a concrete, meaningful per-symbol
+  // projection (Strategy mode is empty until a strategy's pipeline has been run).
+  const [mode, setMode] = useState<Mode>("symbol");
   const [strategy, setStrategy] = useState(STRATEGIES[0]);
 
   return (
