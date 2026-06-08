@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { config } from "../config";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
+import { StrategyDecisionsView } from "../components/desk/StrategyDecisionsView";
 
 /** 'Is the system OK?' single screen.
  *
@@ -195,6 +196,9 @@ export function HealthPage() {
           liveness above CAN'T see: one strategy can silently die (skip every
           order) while the Mac daemon keeps pinging "alive". */}
       <StrategyHealthPanel defaultOpen />
+
+      {/* Per-run decision log — WHY each strategy traded or stayed flat. */}
+      <StrategyDecisionsView />
 
       {integrations && <IntegrationsPanel data={integrations} />}
     </div>
