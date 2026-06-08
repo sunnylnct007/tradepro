@@ -432,14 +432,14 @@ public static class IntegrationsEndpoints
                         broker = ig.BrokerLabel,
                         label = $"IG {(ig.BrokerLabel.EndsWith("LIVE") ? "LIVE" : "DEMO")} (FX + equities)",
                         status = cash.Error is null ? "ok" : "down",
-                        currency = cash.Currency,
+                        currency = TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, ig.BrokerLabel, cash.Currency),
                         available = cash.Available,
                         balance = cash.Balance,
                         openPnl = cash.ProfitLoss,
                         error = cash.Error,
                     });
                     if (cash.Error is null && cash.Balance is { } igBal)
-                        snap.Add((ig.BrokerLabel, cash.Currency, igBal));
+                        snap.Add((ig.BrokerLabel, TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, ig.BrokerLabel, cash.Currency), igBal));
                 }
                 else
                 {
@@ -469,14 +469,14 @@ public static class IntegrationsEndpoints
                         broker = ibkr.BrokerLabel,
                         label = $"IBKR {(ibkr.BrokerLabel.EndsWith("LIVE") ? "LIVE" : "PAPER")} (equities)",
                         status = cash.Error is null ? "ok" : "down",
-                        currency = cash.Currency,
+                        currency = TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, ibkr.BrokerLabel, cash.Currency),
                         free = cash.Cash,
                         total = cash.NetLiquidation,
                         openPnl = cash.UnrealizedPnl,
                         error = cash.Error,
                     });
                     if (cash.Error is null && cash.NetLiquidation is { } ibkrNlv)
-                        snap.Add((ibkr.BrokerLabel, cash.Currency, ibkrNlv));
+                        snap.Add((ibkr.BrokerLabel, TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, ibkr.BrokerLabel, cash.Currency), ibkrNlv));
                 }
                 else
                 {
