@@ -692,6 +692,7 @@ class IntradayFlatStrategy(Strategy):
         # intraday tick.
         llm_scale = 1.0
         gate_decision: GateDecision | None = None
+        _catalysts: list = []   # Phase C-3.2 — populated when fetcher present
         strength = self._basket_strength.get(bar.symbol, 0.0)
         if self._gate is not None:
             try:
@@ -730,6 +731,7 @@ class IntradayFlatStrategy(Strategy):
                         sentiment_score=gate_decision.sentiment_score,
                         headlines_checked=gate_decision.headlines_checked,
                         provider=gate_decision.provider_used,
+                        catalyst_flag=gate_decision.catalyst_flag,
                     )
                     return []
                 llm_scale = float(gate_decision.scale_factor or 1.0)
@@ -816,6 +818,19 @@ class IntradayFlatStrategy(Strategy):
             instrument_id=epic_entry.epic,
         )
 
+        # Phase C-5/C-6: surface catalyst flag + top upcoming catalyst
+        # metadata in the decision detail so the scan-grid badge + the
+        # session-detail expiry chip have real data to render.
+        _cat_flag = gate_decision.catalyst_flag if gate_decision else None
+        _top_cat = None
+        if _catalysts:
+            upcoming = [
+                c for c in _catalysts
+                if c.days_until is not None and c.days_until >= 0
+            ]
+            if upcoming:
+                _top_cat = min(upcoming, key=lambda c: c.days_until)
+
         self.log_decision(
             symbol=bar.symbol, bar_ts=bar.timestamp,
             action="fire-buy",
@@ -832,6 +847,12 @@ class IntradayFlatStrategy(Strategy):
             atr=atr_val,
             llm_scale=llm_scale,
             epic=epic_entry.epic,
+            # Catalyst overlay (C-5 scan-grid badge / C-6 expiry chip)
+            catalyst_flag=_cat_flag,
+            catalyst_occurs_on=_top_cat.occurs_on if _top_cat else None,
+            catalyst_kind=_top_cat.kind if _top_cat else None,
+            catalyst_title=_top_cat.title if _top_cat else None,
+            catalyst_days_until=_top_cat.days_until if _top_cat else None,
         )
         self.mark_order_in_flight(bar.symbol)
         self._entries_today.add(bar.symbol)
