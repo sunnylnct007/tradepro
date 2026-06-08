@@ -814,6 +814,24 @@ export const api = {
       }>;
     }>("/api/integrations/cash-summary"),
 
+  // Per-strategy run-timing + outcome health, so a silently-stopped strategy is
+  // visible on the cockpit instead of buried in logs. status: healthy | idle |
+  // blocked | stale | unknown.
+  strategiesHealth: () =>
+    get<{
+      generatedAtUtc: string;
+      strategies: Array<{
+        strategy: string;
+        label: string;
+        status: "healthy" | "idle" | "blocked" | "stale" | "unknown";
+        reason: string;
+        lastRunUtc: string | null;
+        minutesSinceRun: number | null;
+        cadenceMin: number;
+        today: { fills: number; cancels: number; pending: number; total: number };
+      }>;
+    }>("/api/strategies/health"),
+
   bulkCancelPending: (body: { strategyPrefix?: string; broker?: string; reason?: string }) =>
     post<{ cancelled: number; ids: string[]; strategyPrefix: string | null; broker: string | null; actor: string; reason: string }, typeof body>(
       "/api/admin/oms/bulk-cancel-pending", body),

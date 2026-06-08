@@ -29,6 +29,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
+import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { DeskTabs } from "../components/desk/DeskTabs";
 import { DeskRightRail } from "../components/desk/DeskRightRail";
 import { SymbolDetailRail } from "../components/desk/SymbolDetailRail";
@@ -92,6 +93,10 @@ export function Desk() {
     <DeskShell active={view} onSelect={onSelectView}>
       {view === "portfolio" && (
         <>
+          {/* Per-strategy healthcheck — run timing + fills so a silently-stopped
+              strategy is visible (not buried in logs). */}
+          <StrategyHealthPanel />
+
           {/* Compact per-broker account summary table */}
           <AccountSummaryGrid />
 

@@ -334,6 +334,7 @@ api.MapSignalEndpoints();
 api.MapWatchlistEndpoints();
 api.MapCompareEndpoints();
 api.MapWorkerHealthEndpoints();
+api.MapStrategyHealthEndpoints();
 api.MapSettingsEndpoints();
 api.MapDocumentEndpoints();
 api.MapSymbolAnalysisEndpoints();
