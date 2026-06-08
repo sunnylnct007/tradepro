@@ -92,7 +92,7 @@ Or via MCP: `mcp__tradepro__list_orders`
 ## Infrastructure state
 | Thing | Status |
 |---|---|
-| Bar cache | ❌ Empty — TWS not connected |
+| Bar cache | ⚡ `ib_insync 0.9.86` installed; **TWS API not enabled yet** — see TWS setup section below |
 | Data source badge on scan grid | ✅ Live (ibkr=blue, ig=purple, yfinance=gray) |
 | DATA ERR sentinel card | ✅ Live — red card when all providers fail |
 | Migration 045 | ✅ Deployed — ibkr first in provider chains |
@@ -143,8 +143,44 @@ Or via MCP: `mcp__tradepro__list_orders`
 - **IBKR bar cache** (empty until TWS connects): unlocks unlimited 1m history
   → connect TWS + trigger harvest in Settings › Data Health → Friday replay works
 
+---
+
+## TWS setup (one-time — unblocks Friday replay)
+
+`ib_insync 0.9.86` is installed. The bar provider connects to TWS at localhost:7497.
+
+### Steps to enable
+
+1. Open **IBKR Trader Workstation** (the desktop app)
+2. Menu: **Edit → Global Configuration → API → Settings**
+3. Tick: ☑ **Enable ActiveX and Socket Clients**
+4. Port: **7497** (TWS paper default — leave as is)
+5. Trusted IPs: add `127.0.0.1` or leave blank (localhost is always allowed)
+6. Uncheck **Read-Only API** is optional — we connect `readonly=True` anyway
+7. Click **OK / Apply** — TWS restarts the socket listener immediately
+
+### Verify
+```bash
+cd /Users/skumar/sourcecode/tradepro/tradepro/strategies
+.venv/bin/tradepro-verify-tws --date 2026-06-05
+# Expected: ✓ SUCCESS — NNN bars  provider_used=ibkr
+```
+
+### Then trigger Friday replay
+```bash
+# Once ✓ SUCCESS above, fetch the bars into cache:
+.venv/bin/tradepro-bar-cache-get \
+    --canonical SPY --asset us_etf --resolution 1m \
+    --from 2026-06-06 --to 2026-06-06 -v
+
+# Then replay that session with the real data:
+.venv/bin/tradepro-replay-session --date 2026-06-06 --strategy intraday_flat
+```
+
+---
+
 ## To start a new session
 1. Read this file
 2. `git log --oneline -5` in `tradepro-laneB/`
 3. Check daemon: `launchctl list | grep tradepro`
-4. Next: connect TWS → trigger IBKR harvest → Friday fill-attribution
+4. **Next:** Enable TWS API → run `tradepro-verify-tws` → Friday replay
