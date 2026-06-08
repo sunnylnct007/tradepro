@@ -81,6 +81,7 @@ export function AccountSummaryGrid() {
   const [strat, setStrat]   = useState<PnlRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr]       = useState<string | null>(null);
+  const [open, setOpen]     = useState(false); // collapsed by default to save space (like the strategy strip)
 
   useEffect(() => {
     let live = true;
@@ -121,8 +122,32 @@ export function AccountSummaryGrid() {
     );
   }
 
+  const desks = strat.filter((r) => r.strategyId).length;
   return (
-    <>
+    <div style={{ marginBottom: 14 }}>
+      {/* Collapsible header — click to expand the account + per-desk P&L tables
+          (saves space on the dense portfolio view, like the strategy strip). */}
+      <div
+        onClick={() => setOpen((o) => !o)}
+        title="Account P&L — click to expand"
+        style={{
+          display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+          padding: "5px 10px", fontSize: 11, userSelect: "none",
+          border: "1px solid #1b2233", borderRadius: 6,
+          background: "rgba(255,255,255,0.015)",
+        }}
+      >
+        <span style={{ fontWeight: 700 }}>Account P&amp;L</span>
+        <span style={{ color: "var(--text-muted)", fontSize: 10.5 }}>
+          {rows.length} account{rows.length !== 1 ? "s" : ""}{desks ? ` · ${desks} desks` : ""} · native ccy
+        </span>
+        <span style={{ marginLeft: "auto", fontSize: 9, color: "var(--text-muted)" }}>
+          {open ? "▲ hide" : "▼ show"}
+        </span>
+      </div>
+
+      {open && (
+      <div style={{ marginTop: 8 }}>
     <div
       style={{
         border: "1px solid #1b2233",
@@ -193,7 +218,9 @@ export function AccountSummaryGrid() {
       </div>
     </div>
     <StrategyPnlTable rows={strat} />
-    </>
+      </div>
+      )}
+    </div>
   );
 }
 
