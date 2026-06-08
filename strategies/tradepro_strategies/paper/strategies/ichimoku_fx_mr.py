@@ -472,7 +472,19 @@ class IchimokuFXMeanReversionStrategy(Strategy):
             target = 0
 
         current = self._fx_positions.get(pair, 0)
-        delta = target - current
+        # Deal-mode IG netting guard. The broker seeds `current` as only the
+        # SIGN (+/-1) of the net per pair — IG mini-lots can't be round-tripped
+        # to the strategy's 1-3 "units" without the per-pair contract size, and
+        # IG opens a NEW deal per order (never nets). So once we already hold a
+        # pair in the TARGET DIRECTION we HOLD it, rather than re-adding every
+        # run: otherwise a multi-unit target (e.g. -3) against a +/-1 seed yields
+        # a non-zero delta forever and stacks duplicate deals. We act only on
+        # flat->enter or a direction FLIP. (Full 1-3 unit magnitude fidelity
+        # needs mini-lot-native sizing + close-on-reduce — tracked follow-up.)
+        if current != 0 and target != 0 and (current > 0) == (target > 0):
+            delta = 0
+        else:
+            delta = target - current
         if vetoed:
             self.log_decision(
                 symbol=pair, bar_ts=bar.timestamp,
