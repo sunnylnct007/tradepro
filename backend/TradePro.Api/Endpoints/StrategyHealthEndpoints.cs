@@ -67,7 +67,11 @@ public static class StrategyHealthEndpoints
 
             // Aggregate by group (main strategies = themselves; per-symbol ids collapsed).
             var groups = raw.GroupBy(r => GroupOf(r.Id)).ToDictionary(g => g.Key, g => g);
-            var ids = Known.Select(k => k.Id).Union(groups.Keys).Distinct();
+            // Only the CONFIGURED strategies (the ones actually wired to run). The
+            // intraday-engine per-symbol groups + reconcile_from_broker aren't set up
+            // to trade yet, so they'd show a permanent misleading "not running" —
+            // exclude until configured (add to Known when they go live).
+            var ids = Known.Select(k => k.Id);
 
             var strategies = ids.Select(id =>
             {
