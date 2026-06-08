@@ -39,6 +39,8 @@ import { QuoteView } from "../components/desk/QuoteView";
 import { SimulationView } from "../components/desk/SimulationView";
 import { OmsOrders } from "./OmsOrders";
 import { RiskPage } from "./RiskPage";
+import { Compare } from "./Compare";
+import { UniverseScan } from "./UniverseScan";
 import type { PositionRow } from "../components/desk/PositionsByStrategy";
 
 const WIDE_BREAKPOINT = 1024;
@@ -140,6 +142,8 @@ export function Desk() {
       {view === "simulation" && <SimulationView />}
       {view === "oms"        && <OmsOrders />}
       {view === "risk"       && <RiskPage />}
+      {view === "decide"     && <Compare />}
+      {view === "scan"       && <UniverseScan />}
     </DeskShell>
   );
 }

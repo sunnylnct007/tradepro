@@ -34,7 +34,7 @@ import { NavLink } from "react-router-dom";
 import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk";
+export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk";
 
 type NavEntry = {
   key: string;
@@ -50,6 +50,8 @@ type NavEntry = {
 // (no layout system yet) — never a 404.
 const NAV: NavEntry[] = [
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", title: "Portfolio" },
+  { key: "decide",    label: "Decide",    icon: "⚖",  view: "decide",    title: "Decide — should I invest today?" },
+  { key: "scan",      label: "Scan",      icon: "🔭", view: "scan",      title: "Universe scan" },
   { key: "watchlist", label: "Watchlist", icon: "👁",  view: "watchlist", title: "Watchlist" },
   { key: "quote",     label: "Quote",     icon: "💲",  view: "quote",     title: "Quote / Chart" },
   { key: "screeners", label: "Screeners", icon: "🔎", view: "screeners", title: "Screeners" },
