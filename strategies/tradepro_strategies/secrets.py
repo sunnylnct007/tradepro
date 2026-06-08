@@ -47,7 +47,14 @@ _CACHE: dict[str, Optional[str]] = {}
 _CRED_PATH = Path.home() / ".tradepro" / "credentials"
 _SM_PREFIX = "/tradepro/"
 _SM_BUNDLE_NAME = "tradepro/all"
-_SM_DEFAULT_REGION = "eu-north-1"
+# The deployment + the `tradepro/all` bundle live in eu-west-2 (eu-north-1 was
+# stale and is EMPTY — Python secret resolution silently returned nothing, so
+# the Finnhub catalyst key never resolved). Respect AWS_REGION, default eu-west-2.
+_SM_DEFAULT_REGION = (
+    os.environ.get("AWS_REGION")
+    or os.environ.get("TRADEPRO_AWS_REGION")
+    or "eu-west-2"
+)
 
 # Populated lazily on first successful bundle fetch. `None` = not yet
 # fetched; empty dict = fetched but unavailable (don't retry).
