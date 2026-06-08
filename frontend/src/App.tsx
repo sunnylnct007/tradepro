@@ -41,12 +41,11 @@ const router = createBrowserRouter([
     path: "/",
     element: <Layout />,
     children: [
-      // Index lands on the Decide page (Compare). Running strategies
-      // one-by-one via /scanner isn't realistic for the daily workflow
-      // — Compare already aggregates the 5-strategy vote per symbol
-      // and the worker refreshes it on a schedule. /scanner stays
-      // available for single-strategy exploration but isn't the entry.
-      { index: true, element: <Compare /> },
+      // Index now lands on the /desk cockpit (the IBKR-style northstar
+      // surface) — that's the default home. Legacy pages stay reachable at
+      // their paths and get migrated INTO the cockpit one-by-one. The old
+      // Decide page is still at /compare.
+      { index: true, element: <Navigate to="/desk" replace /> },
       { path: "compare", element: <Compare /> },
       { path: "scanner", element: <Scanner /> },
       { path: "portfolio", element: <Portfolio /> },
