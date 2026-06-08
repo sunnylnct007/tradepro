@@ -13,6 +13,78 @@ those assumptions change.
 
 ---
 
+## SESSION STATE — 2026-06-08 (Monday — cockpit-as-default, data-quality bugs, catalyst pipeline)
+
+Theme: make `/desk` the real product surface, kill silent correctness bugs in
+the decide path, and finally wire the catalyst overlay to real data.
+
+### ✅ Shipped + verified today (all on `main`, auto-deployed)
+- **`/desk` cockpit is now the default home** (root → `/desk`). Daily-driver
+  pages migrated INTO the cockpit as rail views — **Orders (OMS), Risk, Decide,
+  Scan** — alongside Portfolio/Watchlist/Quote/Screeners/Simulate/News. Admin
+  pages (Health/Universes/Docs/Backtests) stay under "More" (don't clutter the
+  rail). Legacy pages get folded in one-by-one, not maintained as a parallel
+  shell. **Admin theme** (DeskShell-style left sidebar, no "More ▾" dropdown)
+  applied to all legacy screens; **Decide page revamped** to cockpit density.
+- **Monte Carlo "Simulate" view** — portfolio (server ensemble) + **per-symbol**
+  (client-side block-bootstrap, mirrors `quant_engine/monte_carlo.py`). Plain-
+  English verdict + "how to read" + expanded explainer (was graph-only).
+- **Charts** — IG/FX/UK symbols now resolve to honest Yahoo series
+  (`CS.D.GBPUSD.MINI.IP`→`GBPUSD=X`, IG share-CFD→underlying, `_UK_EQ`→`.L`);
+  **USD/CAD + USD/CHF were mis-typed as Crypto** (the `productOf` crypto regex
+  matched the "USDC" substring) → fixed; chart **zoom + drag-resize**.
+- **🔴 Garbage-bar FALSE BUY (the big one).** VLUE showed BUY/"91.7% off 52w
+  high/4th-pctile dip" while the chart said ~6% off near its highs. Root: Yahoo
+  emits phantom bars on **US market holidays** (VLUE 2026-02-16 close 2313 vol
+  217; 2026-01-19 close 2239 vol 19) which our cache ingested unchecked →
+  `market_state.max()` took ~2313 as the 52w high → dip-buy rules fired a false
+  BUY (also poisons backtests). Fixed at **two layers**: `cache.py` drops
+  isolated spike bars at ingestion (self-heals), `market_state.py` spike-guards
+  the 52w-high/range/drawdown. Swept all 1049 cached symbols (only VLUE/CL=F/HYG
+  had garbage). Verified VLUE: off-high 91.7%→5.78%, entry BUY→WAIT. See
+  [[project_garbage_bar_false_buy]].
+- **Per-strategy P&L table** on `/desk` (intraday-equity realised now visible;
+  `flat` instead of blank when a desk holds nothing).
+- **FX deal-stacking** root cause = IG deal-mode + `forceOpen=true` (now
+  `forceOpen=false` so IG nets) + unit↔mini-lot mismatch. Added a hold-on-same-
+  direction guard in `ichimoku_fx_mr`; flattened the stacked book; verified it
+  converges to 1 deal/pair and stays there across runs.
+- **Market-hours gates** — `paper/market_hours.py` (DST-correct, NYSE holidays):
+  `ichimoku_equity` gated to NYSE RTH (was firing MOO pre-market → cancel-loop),
+  `intraday_flat` gated 24/5 (IG 24h CFDs, closed weekends). `intraday_flat` is
+  already long-only/never-short (over-sell-into-short guard) — no change needed.
+- **Infra** — EC2 (`ccit-dev-tradepro-host`) was stopped → started (caused the
+  404s/stale data); refresh-universes moved 07:00→07:30. Secrets-Manager Python
+  default region fixed `eu-north-1`→`eu-west-2` (eu-north-1 was empty, so
+  `get_secret` silently returned None — Finnhub key never resolved). See
+  [[project_deploy_daemon_topology]].
+
+### Catalyst overlay — finally wired to real data (north-star gap #1)
+The overlay (C-1..C-3.3, already feeds the LLM order-gate) had **never had
+data** — a chain of compounding bugs, all fixed today:
+- **Route** `MapGroup("/api/catalysts")` registered on the `/api` group →
+  `/api/api/catalysts/` → 404 on both GET (panel) and POST (population). Fixed
+  to `/catalysts`.
+- **Secrets region** (above) — Finnhub key lives in `tradepro/all` (eu-west-2);
+  Python looked in eu-north-1. Key + a `finnhub-webhook-secret` added to the
+  bundle.
+- **`NewsItem.thumbnail`** required arg missing in `catalysts_finnhub` → crash.
+- **`DateOnly` Dapper/Npgsql param** in the POST upsert → 500. Cast
+  `@OccursOn::date` from an ISO string.
+- **NEW `catalysts_gdelt.py`** — free, key-less GDELT 2.0 macro/event source
+  (FOMC/CPI/ECB/OPEC/gold/elections/geopolitics → SPY/XLE/GLD/EFA proxies),
+  wired into `catalysts_daily_sweep` (`--gdelt`, default on); 7/7 + 32/32 BDD.
+- **Still to do:** schedule the daily sweep durably (Mac needs durable AWS creds
+  for the secret, or run server-side on EC2's IAM role); confirm catalysts
+  populate end-to-end post-redeploy and light up the panel + gate.
+
+### Open / next
+- Catalyst sweep scheduling (Mac-with-creds vs EC2-side) + verify gate impact.
+- More news sources (NewsAPI/EU) per DATA_ROADMAP §17 once catalysts proven.
+- A persistent system-health monitor pattern (API down / FX re-stack / daemon).
+
+---
+
 ## SESSION STATE — 2026-06-03 (Wednesday — realised-P&L "show it" + per-desk attribution + help)
 
 Theme: make the app HONESTLY say whether it's making money, per desk, from
