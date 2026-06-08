@@ -42,6 +42,7 @@ public static class PnlByStrategyEndpoints
             Trading212DemoPositionsCache t212DemoPositions,
             TradePro.Api.Providers.IG.IGClient ig,
             IOmsService oms,
+            IConfiguration config,
             NpgsqlDataSource db,
             CancellationToken ct) =>
         {
@@ -71,8 +72,11 @@ public static class PnlByStrategyEndpoints
             // Native currency per broker. IG demo/live account is denominated in
             // GBP; T212's algo equity account in USD. (Used only to LABEL the
             // row's numbers — we never convert/blend across currencies.)
-            static string CurrencyFor(string broker) =>
-                broker.StartsWith("IG", StringComparison.OrdinalIgnoreCase) ? "GBP" : "USD";
+            // Config-driven (BrokerCurrencies in appsettings) — was a hardcoded
+            // "IG ? GBP : USD" that rendered T212 (Ichimoku Equity) P&L in $ on a
+            // GBP account. Update the currency centrally in config, not here.
+            string CurrencyFor(string broker) =>
+                TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, broker);
 
             // ── 2. shared fetches (each failure → dependent fields null) ────
             // OMS positions — the only ledger tagged with which strategy holds a

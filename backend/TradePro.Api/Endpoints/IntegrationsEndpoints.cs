@@ -340,6 +340,7 @@ public static class IntegrationsEndpoints
             Trading212DemoCashCache t212DemoCache,
             TradePro.Api.Providers.IG.IGClient ig,
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            IConfiguration config,
             NpgsqlDataSource db,
             CancellationToken ct) =>
         {
@@ -361,14 +362,14 @@ public static class IntegrationsEndpoints
                     {
                         broker = "T212_LIVE", label = "Trading 212 LIVE",
                         status = liveCash.Error is null ? "ok" : "down",
-                        currency = liveCash.Currency ?? "GBP",
+                        currency = TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, "T212_LIVE", liveCash.Currency),
                         free = liveCash.Free, invested = liveCash.Invested,
                         total = liveCash.Total, openPnl = liveCash.Ppl,
                         mode = t212Live.Mode,
                         error = liveCash.Error,
                     });
                     if (liveCash.Error is null && liveCash.Total is { } liveTotal)
-                        snap.Add(("T212_LIVE", liveCash.Currency ?? "GBP", liveTotal));
+                        snap.Add(("T212_LIVE", TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, "T212_LIVE", liveCash.Currency), liveTotal));
                 }
                 else
                 {
@@ -393,13 +394,13 @@ public static class IntegrationsEndpoints
                     {
                         broker = "T212_DEMO", label = "Trading 212 DEMO (algo equity)",
                         status = cash.Error is null ? "ok" : "down",
-                        currency = cash.Currency ?? "GBP",
+                        currency = TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, "T212_DEMO", cash.Currency),
                         free = cash.Free, invested = cash.Invested,
                         total = cash.Total, openPnl = cash.Ppl,
                         error = cash.Error,
                     });
                     if (cash.Error is null && cash.Total is { } t212Total)
-                        snap.Add(("T212_DEMO", cash.Currency ?? "GBP", t212Total));
+                        snap.Add(("T212_DEMO", TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, "T212_DEMO", cash.Currency), t212Total));
                 }
                 else
                 {
