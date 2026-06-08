@@ -294,6 +294,24 @@ class IchimokuEquityStrategy(Strategy):
             )
             return []
 
+        # Market-hours gate — don't emit into a CLOSED venue. ichimoku_equity
+        # trades T212 US CASH equities, tradeable only during NYSE RTH. Outside
+        # RTH (pre-market MOO, after-hours, weekends, holidays) the broker
+        # rejects the order, and since the daemon re-runs every 15 min the same
+        # order is regenerated + re-rejected on a loop. Skip when the symbol's
+        # exchange calendar is closed. Operator force-close (above) is exempt.
+        from .. import market_hours
+        from ...bar_cache.asset_class_resolver import resolve_asset_class
+        _ac = resolve_asset_class(sym)
+        if not market_hours.is_open(_ac, bar.timestamp):
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp,
+                action="skip-market-closed",
+                reason=f"{_ac} venue closed at {bar.timestamp.isoformat()} — "
+                       f"not emitting (broker would reject + re-cancel each run)",
+            )
+            return []
+
         # MOO model: at most one decision per symbol per session.
         if sym in self._moo_fired:
             return []
