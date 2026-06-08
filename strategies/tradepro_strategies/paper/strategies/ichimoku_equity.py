@@ -300,14 +300,22 @@ class IchimokuEquityStrategy(Strategy):
         # rejects the order, and since the daemon re-runs every 15 min the same
         # order is regenerated + re-rejected on a loop. Skip when the symbol's
         # exchange calendar is closed. Operator force-close (above) is exempt.
+        from datetime import datetime as _dt, timezone as _tz
         from .. import market_hours
         from ...bar_cache.asset_class_resolver import resolve_asset_class
         _ac = resolve_asset_class(sym)
-        if not market_hours.is_open(_ac, bar.timestamp):
+        # Gate on the LIVE wall-clock, NOT bar.timestamp. This is a DAILY
+        # strategy: its latest bar is stamped at the prior session's date
+        # (midnight UTC), so is_open(bar.timestamp) is ALWAYS False and the
+        # strategy would NEVER trade. The order is submitted NOW, so "is the
+        # venue open" must be evaluated at now(). Only applies live
+        # (bar.is_live); backtests (is_live=False) are unaffected so the
+        # vectorised parity holds.
+        if bar.is_live and not market_hours.is_open(_ac, _dt.now(_tz.utc)):
             self.log_decision(
                 symbol=sym, bar_ts=bar.timestamp,
                 action="skip-market-closed",
-                reason=f"{_ac} venue closed at {bar.timestamp.isoformat()} — "
+                reason=f"{_ac} venue closed now ({_dt.now(_tz.utc).isoformat()}) — "
                        f"not emitting (broker would reject + re-cancel each run)",
             )
             return []
