@@ -38,6 +38,7 @@ import { WatchlistView } from "../components/desk/WatchlistView";
 import { QuoteView } from "../components/desk/QuoteView";
 import { SimulationView } from "../components/desk/SimulationView";
 import { OmsOrders } from "./OmsOrders";
+import { RiskPage } from "./RiskPage";
 import type { PositionRow } from "../components/desk/PositionsByStrategy";
 
 const WIDE_BREAKPOINT = 1024;
@@ -138,6 +139,7 @@ export function Desk() {
       {view === "watchlist"  && <WatchlistView />}
       {view === "simulation" && <SimulationView />}
       {view === "oms"        && <OmsOrders />}
+      {view === "risk"       && <RiskPage />}
     </DeskShell>
   );
 }
