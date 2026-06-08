@@ -75,22 +75,41 @@ function lseYahooSymbol(upper: string): string | null {
   return null;
 }
 
-export function chartSymbolFor(raw: string | null | undefined, broker?: string): string | null {
+export function chartSymbolFor(raw: string | null | undefined, _broker?: string): string | null {
   const s = (raw || "").trim();
   if (!s) return null;
   const upper = s.toUpperCase();
 
-  // IG epics + FX pairs + non-equity products have no honest Yahoo candle symbol.
-  if (broker === "IG") return null;
   const product = productOf(upper);
-  if (product !== "Equity") return null;
-  if (upper.startsWith("CS.D.") || upper.startsWith("IX.D.") || upper.startsWith("OD.D.")) return null;
-  if (upper.endsWith(".CASH.IP") || upper.endsWith(".IP")) return null;
+
+  // Spot FX (IG epic "CS.D.GBPUSD.MINI.IP" or bare "EURUSD") → Yahoo "<PAIR>=X".
+  // Yahoo's series for the same pair is an honest reference chart (identical
+  // cloud math) — not the broker's own tape.
+  if (product === "FX") {
+    const pair = bareSymbol(upper);
+    return /^[A-Z]{6}$/.test(pair) ? `${pair}=X` : null;
+  }
+  // Options / Futures: no honest free daily-candle source → no chart.
+  if (product === "Option" || product === "Future") return null;
+
+  // Normalise IG share-CFD epics ("UA.D.AAPL.CASH.IP", "SA.D.AMD.CASH.IP") to
+  // the underlying ticker so they flow through the equity resolver below.
+  let eq = upper;
+  const igCash = upper.match(/^[A-Z]{2}\.D\.([A-Z0-9]+)\.CASH\.IP$/);
+  if (igCash) {
+    eq = igCash[1];
+  } else if (
+    upper.startsWith("CS.D.") || upper.startsWith("IX.D.") ||
+    upper.startsWith("OD.D.") || upper.endsWith(".IP")
+  ) {
+    // Other dotted IG / index / option epics we can't honestly map.
+    return null;
+  }
 
   // T212 "AAPL_US_EQ" → bare ticker (US listings map 1:1 to the Yahoo symbol;
   // non-US suffixes would need an exchange-suffix map we don't have, so only
   // accept US/unsuffixed here to stay honest).
-  const t212 = upper.match(/^([A-Z0-9.]+)_([A-Z]{2,3})_EQ$/);
+  const t212 = eq.match(/^([A-Z0-9.]+)_([A-Z]{2,3})_EQ$/);
   if (t212) {
     if (t212[2] === "US") return t212[1];
     // Non-US T212 suffix (e.g. _UK_EQ) — check LSE ETF map.
@@ -98,21 +117,20 @@ export function chartSymbolFor(raw: string | null | undefined, broker?: string):
     return lseYahooSymbol(t212[1]);
   }
 
-  // Plain equity ticker (IBKR "EC", "BABA", "MRVL", "APLD", or "SWDA"/"VWRL"):
-  // Try the LSE ETF map first (covers IBKR GBP ETF holdings). If not in the map,
-  // fall back to treating it as a US-listed ticker (1–6 letters = Yahoo symbol).
-  if (/^[A-Z]{1,6}(\.[A-Z])?$/.test(upper)) {
+  // Plain equity ticker (IBKR "EC", "BABA", "MRVL", "APLD", "SWDA"/"VWRL", or an
+  // IG-CFD underlying resolved above): LSE ETF map first, then US fallback.
+  if (/^[A-Z]{1,6}(\.[A-Z])?$/.test(eq)) {
     // Check the explicit LSE map (highest confidence for known ETFs).
-    if (LSE_ETF_MAP[upper]) return LSE_ETF_MAP[upper];
+    if (LSE_ETF_MAP[eq]) return LSE_ETF_MAP[eq];
     // Plain ticker with a dot-class suffix (e.g. "BRK.B") is unambiguously US.
-    if (/\.[A-Z]$/.test(upper)) return upper;
+    if (/\.[A-Z]$/.test(eq)) return eq;
     // 1–3 letters: almost certainly US (IBM, GE, etc.).
-    if (upper.length <= 3) return upper;
+    if (eq.length <= 3) return eq;
     // 6 letters: US micro-cap (IBKR format; 6-char LSE tickers are rare).
-    if (upper.length === 6) return upper;
+    if (eq.length === 6) return eq;
     // 4–5 letters: ambiguous US vs LSE. Prefer US (more common in our universe);
     // the LSE heuristic is only applied when broker context suggests LSE.
-    return upper;
+    return eq;
   }
 
   return null;

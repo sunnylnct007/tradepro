@@ -158,6 +158,16 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy }: Pr
       },
       rightPriceScale: { borderColor: "#1b2233" },
       timeScale: { borderColor: "#1b2233", rightOffset: SHIFT, fixLeftEdge: false },
+      // Zoom + pan: wheel/pinch to zoom, drag to pan, drag an axis to scale it,
+      // double-click an axis to reset. Set explicitly so the chart stays
+      // interactive regardless of library defaults.
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: { time: true, price: true },
+      },
     });
     chartRef.current = chart;
 

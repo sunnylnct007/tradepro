@@ -131,7 +131,9 @@ export function PositionsByStrategy({
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: null,
-            chartSymbol: null, // IG FX has no honest Yahoo symbol
+            // IG FX/CFD epics resolve to the underlying Yahoo series (FX pair →
+            // "<PAIR>=X", share CFD → underlying ticker) so the row is chartable.
+            chartSymbol: chartSymbolFor(p.ticker, "IG"),
             mode: accountMode("IG", "demo") as AccountMode,
             strategyId: attribution.get(attrKey("IG", p.ticker)) ?? null,
             series: null,
