@@ -69,6 +69,28 @@ def load_meta(provider: str, symbol: str, interval: str = "1d") -> CacheMeta | N
     return CacheMeta(**json.loads(mp.read_text()))
 
 
+def _drop_garbage_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop isolated garbage bars before caching.
+
+    Providers (Yahoo) occasionally emit phantom bars on US market HOLIDAYS — an
+    absurd price (~10-15x real) with tiny volume (e.g. VLUE 2026-02-16 close
+    2313, vol 217; 2026-01-19 close 2239, vol 19). Cached unchecked, these
+    become the 52w high → corrupt range/drawdown → a FALSE dip-buy BUY, and they
+    poison backtests + charts too. A bar whose close is >4x or <1/4x BOTH
+    neighbours is not a real price for a listed instrument (real splits are
+    handled via adj_close) — drop the whole row. Only ISOLATED spikes are
+    removed, so genuine rallies/gaps are untouched.
+    """
+    if df is None or len(df) < 3 or "close" not in df.columns:
+        return df
+    c = df["close"]
+    prev, nxt = c.shift(1), c.shift(-1)
+    bad = (((c > prev * 4) & (c > nxt * 4)) | ((c < prev * 0.25) & (c < nxt * 0.25))).fillna(False)
+    if bool(bad.any()):
+        df = df.loc[~bad]
+    return df
+
+
 def refresh_symbol(
     provider: str,
     symbol: str,
@@ -95,6 +117,11 @@ def refresh_symbol(
     else:
         merged = pd.concat([existing, fresh])
         merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+
+    # Strip provider garbage (holiday/glitch spike bars) so the cache stays
+    # clean for every consumer (signals, backtests, charts). Self-heals any
+    # already-cached bad bars on the next refresh.
+    merged = _drop_garbage_bars(merged)
 
     merged.to_parquet(p)
 
