@@ -33,8 +33,17 @@ function ago(mins: number | null): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
+type Perf = Awaited<ReturnType<typeof api.pnlByStrategy>>["rows"][number];
+
+function money(n: number | null | undefined, ccy: string): string {
+  if (n == null) return "—";
+  const sym = ccy === "GBP" ? "£" : ccy === "USD" ? "$" : "";
+  return `${n < 0 ? "-" : ""}${sym}${Math.abs(n).toFixed(0)}`;
+}
+
 export function StrategyHealthPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const [rows, setRows] = useState<Health[] | null>(null);
+  const [perf, setPerf] = useState<Record<string, Perf>>({});
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(defaultOpen);
 
@@ -47,6 +56,12 @@ export function StrategyHealthPanel({ defaultOpen = false }: { defaultOpen?: boo
       } catch (e) {
         if (!cancel) setErr(e instanceof Error ? e.message : "failed to load");
       }
+      // Performance (win-rate / realised / trades) is optional context — never
+      // let it break the health read.
+      try {
+        const p = await api.pnlByStrategy();
+        if (!cancel) setPerf(Object.fromEntries(p.rows.map((r) => [r.strategyId, r])));
+      } catch { /* perf optional */ }
     };
     load();
     const t = setInterval(load, 30_000);
@@ -95,25 +110,49 @@ export function StrategyHealthPanel({ defaultOpen = false }: { defaultOpen?: boo
         <div style={{ padding: "2px 10px 8px" }}>
           {rows.map((r) => {
             const s = STATUS[r.status];
+            const p = perf[r.strategy];
+            const avg = p && p.trades && p.realisedLtd != null ? p.realisedLtd / p.trades : null;
             return (
-              <div key={r.strategy} style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(150px,1.3fr) 120px 1fr auto",
-                alignItems: "center", gap: 8, fontSize: 11.5,
-                padding: "5px 4px", borderTop: `1px solid ${SEP}`,
-              }}>
-                <span style={{ fontWeight: 600 }}>{r.label}</span>
-                <span style={{ color: s.color, fontWeight: 700 }}>{s.dot} {s.label}</span>
-                <span style={{ color: "var(--text-dim)" }}>{r.reason}</span>
-                <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                  last order {ago(r.minutesSinceOrder)} · {r.today.fills}F/{r.today.cancels}C
-                  {r.today.pending ? `/${r.today.pending}P` : ""}
-                </span>
+              <div key={r.strategy} style={{ padding: "5px 4px", borderTop: `1px solid ${SEP}` }}>
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(150px,1.3fr) 120px 1fr auto",
+                  alignItems: "center", gap: 8, fontSize: 11.5,
+                }}>
+                  <span style={{ fontWeight: 600 }}>{r.label}</span>
+                  <span style={{ color: s.color, fontWeight: 700 }}>{s.dot} {s.label}</span>
+                  <span style={{ color: "var(--text-dim)" }}>{r.reason}</span>
+                  <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                    last order {ago(r.minutesSinceOrder)} · {r.today.fills}F/{r.today.cancels}C
+                    {r.today.pending ? `/${r.today.pending}P` : ""}
+                  </span>
+                </div>
+                {/* Track record — so "selective and right" is visible vs "selective and losing". */}
+                {p && (
+                  <div style={{ display: "flex", gap: 12, fontSize: 10.5, marginTop: 3, paddingLeft: 2, flexWrap: "wrap" }}>
+                    <PerfStat label="win" v={p.winRatePct != null ? `${p.winRatePct.toFixed(0)}%` : "—"} good={p.winRatePct != null ? p.winRatePct >= 50 : undefined} />
+                    <PerfStat label="trades" v={`${p.trades}`} />
+                    <PerfStat label="realised" v={money(p.realisedLtd, p.currency)} good={p.realisedLtd != null ? p.realisedLtd >= 0 : undefined} />
+                    <PerfStat label="open" v={money(p.openPnl, p.currency)} good={p.openPnl != null ? p.openPnl >= 0 : undefined} />
+                    <PerfStat label="avg/trade" v={money(avg, p.currency)} good={avg != null ? avg >= 0 : undefined} />
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
     </div>
+  );
+}
+
+/** One compact "label value" perf stat; green when good, red when bad. */
+function PerfStat({ label, v, good }: { label: string; v: string; good?: boolean }) {
+  const color = good === undefined ? "var(--text-dim)" : good ? "#3fb950" : "#f85149";
+  return (
+    <span>
+      <span style={{ opacity: 0.6 }}>{label} </span>
+      <span style={{ color, fontWeight: 600 }}>{v}</span>
+    </span>
   );
 }
