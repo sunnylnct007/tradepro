@@ -109,6 +109,7 @@ def fetch_company_news(
             publisher=row.get("source"),
             link=row.get("url"),
             published_at=published,
+            thumbnail=None,  # Finnhub company-news has no thumbnail; field is required
         ))
     return items
 

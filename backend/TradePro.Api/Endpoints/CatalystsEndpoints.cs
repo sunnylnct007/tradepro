@@ -126,7 +126,7 @@ public static class CatalystsEndpoints
                   (symbol, kind, occurs_on, title, source,
                    severity, status, payload, note)
                 VALUES
-                  (@Symbol, @Kind, @OccursOn, @Title, @Source,
+                  (@Symbol, @Kind, @OccursOn::date, @Title, @Source,
                    @Severity, COALESCE(@Status, 'active'),
                    @PayloadText::jsonb, @Note)
                 ON CONFLICT (symbol, kind, occurs_on, source)
@@ -139,7 +139,11 @@ public static class CatalystsEndpoints
                   updated_at_utc = NOW()
                 RETURNING id;",
                 new {
-                    body.Symbol, body.Kind, body.OccursOn, body.Title,
+                    body.Symbol, body.Kind,
+                    // DateOnly can't bind as an Npgsql/Dapper param — pass an
+                    // ISO date string and cast @OccursOn::date in SQL (NULL ok).
+                    OccursOn = body.OccursOn?.ToString("yyyy-MM-dd"),
+                    body.Title,
                     body.Source, Severity = severity, body.Status,
                     PayloadText = payloadText, body.Note,
                 });
