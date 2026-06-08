@@ -43,6 +43,7 @@ from typing import Any
 
 from . import push_to_api
 from ..catalysts_gdelt import fetch_all_catalysts as fetch_gdelt_catalysts
+from ..catalysts_sec_edgar import fetch_all_catalysts as fetch_sec_catalysts
 from ..catalysts_sink import (
     catalyst_to_upsert_body,
     extract_and_post,
@@ -56,6 +57,7 @@ from ..catalysts_universe import (
 from ..news import fetch_news
 
 GDELT_SOURCE = "gdelt"
+SEC_SOURCE = "sec_edgar"
 
 _log = logging.getLogger("tradepro.cli.catalysts_daily_sweep")
 
@@ -116,6 +118,21 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument(
         "--no-gdelt", dest="gdelt", action="store_false",
         help="Skip the GDELT macro/event source.",
+    )
+    p.add_argument(
+        "--sec", dest="sec", action="store_true", default=True,
+        help="Include the free, key-less SEC EDGAR filing source "
+             "(default ON). Resolves each US-listed symbol to its CIK and "
+             "posts 8-K material-event + 10-Q/10-K earnings filings within "
+             "the lookback window on that symbol.",
+    )
+    p.add_argument(
+        "--no-sec", dest="sec", action="store_false",
+        help="Skip the SEC EDGAR filing source.",
+    )
+    p.add_argument(
+        "--sec-days-back", type=int, default=30,
+        help="SEC EDGAR filing lookback window in days (default 30).",
     )
     p.add_argument(
         "--push", action="store_true",
@@ -198,6 +215,31 @@ def main(argv: list[str] | None = None) -> int:
             _log.warning("GDELT source failed — continuing without it: %s", exc)
             gdelt_by_symbol = {}
 
+    # SEC EDGAR filing catalysts are per-symbol (8-K material events +
+    # 10-Q/10-K earnings) and land on the symbol that filed. Fetched across
+    # the whole universe; symbols with no CIK (ETFs / FX / non-US filers)
+    # are skipped silently. Best-effort: a SEC failure yields an empty map
+    # and never blocks the rest of the sweep.
+    sec_by_symbol: dict[str, list] = {}
+    if args.sec:
+        try:
+            sec_reports = fetch_sec_catalysts(
+                list(report.symbols), days_back=args.sec_days_back,
+            )
+            sec_by_symbol = {
+                sym: rep.all_catalysts
+                for sym, rep in sec_reports.items()
+                if rep.all_catalysts
+            }
+            total = sum(len(v) for v in sec_by_symbol.values())
+            _log.info(
+                "SEC EDGAR source: %d catalysts across %d symbols",
+                total, len(sec_by_symbol),
+            )
+        except Exception as exc:  # noqa: BLE001 — fail-open, never break the sweep
+            _log.warning("SEC EDGAR source failed — continuing without it: %s", exc)
+            sec_by_symbol = {}
+
     if args.dry_run:
         gdelt_dry = {
             sym: [
@@ -206,12 +248,21 @@ def main(argv: list[str] | None = None) -> int:
             ]
             for sym, cats in gdelt_by_symbol.items()
         }
+        sec_dry = {
+            sym: [
+                catalyst_to_upsert_body(c, symbol=sym, source=SEC_SOURCE)
+                for c in cats
+            ]
+            for sym, cats in sec_by_symbol.items()
+        }
         print(json.dumps({
             "kind": "catalysts-daily-sweep",
             "dry_run": True,
             "universe": report.to_dict(),
             "gdelt_would_post": gdelt_dry,
             "gdelt_count": sum(len(v) for v in gdelt_dry.values()),
+            "sec_would_post": sec_dry,
+            "sec_count": sum(len(v) for v in sec_dry.values()),
         }, indent=2, default=str))
         return 0
 
@@ -264,6 +315,30 @@ def main(argv: list[str] | None = None) -> int:
                 gdelt_failed += 1
                 failed_total += 1
 
+    # ── SEC EDGAR filing catalysts → registry ────────────────────────────
+    sec_rows: list[dict[str, Any]] = []
+    sec_posted = 0
+    sec_failed = 0
+    for sym, cats in sec_by_symbol.items():
+        for c in cats:
+            ok = post_catalyst(
+                c, symbol=sym, api_base=base, token=token, source=SEC_SOURCE,
+            )
+            sec_rows.append({
+                "symbol": sym,
+                "kind": c.kind,
+                "title": c.title,
+                "occurs_on": c.occurs_on,
+                "ok": ok,
+            })
+            extracted_total += 1
+            if ok:
+                sec_posted += 1
+                posted_total += 1
+            else:
+                sec_failed += 1
+                failed_total += 1
+
     summary = {
         "kind": "catalysts-daily-sweep",
         "universe": report.to_dict(),
@@ -273,6 +348,12 @@ def main(argv: list[str] | None = None) -> int:
             "catalysts_posted": gdelt_posted,
             "catalysts_failed": gdelt_failed,
             "rows": gdelt_rows,
+        },
+        "sec": {
+            "enabled": args.sec,
+            "catalysts_posted": sec_posted,
+            "catalysts_failed": sec_failed,
+            "rows": sec_rows,
         },
         "totals": {
             "symbols_swept": report.total,
