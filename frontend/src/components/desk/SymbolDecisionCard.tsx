@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import type { CompareRow } from "../../api/types";
+import type { PositionRow } from "./SymbolPositionCard";
 
 type Status = "idle" | "loading" | "ok" | "error" | "nodata";
 
@@ -39,7 +40,10 @@ function fmt2(n: number | null | undefined, suffix = ""): string {
   return `${n.toFixed(2)}${suffix}`;
 }
 
-export function SymbolDecisionCard({ symbol }: { symbol: string }) {
+export function SymbolDecisionCard({ symbol, positions }: { symbol: string; positions?: PositionRow[] }) {
+  const held = (positions ?? []).find(
+    (r) => r.chartSymbol === symbol || r.ticker === symbol,
+  ) ?? null;
   const [status, setStatus] = useState<Status>("idle");
   const [row, setRow] = useState<CompareRow | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -121,12 +125,12 @@ export function SymbolDecisionCard({ symbol }: { symbol: string }) {
           No signal data for {symbol} in compare universe.
         </div>
       )}
-      {status === "ok" && row && <DecisionDetail row={row} />}
+      {status === "ok" && row && <DecisionDetail row={row} held={held} />}
     </div>
   );
 }
 
-function DecisionDetail({ row }: { row: CompareRow }) {
+function DecisionDetail({ row, held }: { row: CompareRow; held: PositionRow | null }) {
   const ms = row.market_state;
   const cv = row.combined_verdict;
 
@@ -166,6 +170,11 @@ function DecisionDetail({ row }: { row: CompareRow }) {
         <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
           {row.bucket_reason}
         </div>
+      )}
+
+      {/* Your position vs the verdict — reconciles "trend up but I'm down". */}
+      {held && held.qty != null && held.qty !== 0 && (
+        <PositionRead row={row} held={held} />
       )}
 
       {/* Market-state indicators */}
@@ -267,6 +276,68 @@ function DecisionDetail({ row }: { row: CompareRow }) {
       <div style={{ fontSize: 9, color: "var(--text-dim)", marginTop: 2 }}>
         From compare universe · signal as of last run
       </div>
+    </div>
+  );
+}
+
+/** Reconciles the held position against the verdict so "30-day trend is up but
+ *  I'm at a loss" explains itself: entry→now, an ATR-based reference stop, and a
+ *  plain-English read of P&L vs trend vs the strategy's current call. */
+function PositionRead({ row, held }: { row: CompareRow; held: PositionRow }) {
+  const ms = row.market_state;
+  const entry = held.avgPrice ?? null;
+  const now = held.last ?? ms?.last_price ?? null;
+  const pnlPct = held.pnlPct ??
+    (entry != null && now != null && entry > 0 ? ((now - entry) / entry) * 100 : null);
+  const action = row.current_action;          // BUY / HOLD / SELL
+  const trendUp = ms?.above_sma_200 ?? null;  // long-term trend
+  const atr = ms?.atr_14 ?? null;
+  // Reference protective stop: 2×ATR below the current price (long book). This is
+  // a generic reference, NOT the strategy's own stop (that isn't in compare yet).
+  const stop = now != null && atr != null ? now - 2 * atr : null;
+  const stopPct = stop != null && now != null && now > 0 ? ((now - stop) / now) * 100 : null;
+
+  const down = pnlPct != null && pnlPct < 0;
+  const absPnl = pnlPct != null ? Math.abs(pnlPct).toFixed(1) : "?";
+  let tone: string, msg: string;
+  if (down && (action === "BUY" || action === "HOLD") && trendUp !== false) {
+    tone = "#f59e0b";
+    msg = `Down ${absPnl}% but the trend is up and the strategy still says ${action} — you entered into strength, so this is a normal pullback, not a broken thesis. Hold unless price loses the stop.`;
+  } else if (down && (action === "SELL" || trendUp === false)) {
+    tone = "#ef4444";
+    msg = `Down ${absPnl}% AND ${action === "SELL" ? "the strategy now says SELL" : "price is below its long-term trend"} — the thesis is weakening. The stop is your line in the sand.`;
+  } else if (!down && pnlPct != null) {
+    tone = "#1fc16b";
+    msg = `In profit (+${absPnl}%) and the strategy says ${action} — riding the trend.`;
+  } else {
+    tone = "var(--text-muted)";
+    msg = `Strategy currently says ${action}.`;
+  }
+
+  return (
+    <div style={{ borderTop: "1px solid #1b2233", paddingTop: 7, display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+        Your position vs verdict
+      </div>
+      {entry != null && now != null && (
+        <MiniStat label="Entry → now">
+          <span>
+            {entry.toFixed(2)} → {now.toFixed(2)}{" "}
+            <span style={{ color: (pnlPct ?? 0) >= 0 ? "#1fc16b" : "#ef4444" }}>
+              ({(pnlPct ?? 0) >= 0 ? "+" : ""}{(pnlPct ?? 0).toFixed(1)}%)
+            </span>
+          </span>
+        </MiniStat>
+      )}
+      {stop != null && (
+        <MiniStat label="Ref stop (2×ATR)">
+          <span>
+            {stop.toFixed(2)}{" "}
+            <span style={{ color: "var(--text-muted)" }}>({stopPct?.toFixed(1)}% below)</span>
+          </span>
+        </MiniStat>
+      )}
+      <div style={{ fontSize: 11, color: tone, lineHeight: 1.45, marginTop: 2 }}>{msg}</div>
     </div>
   );
 }

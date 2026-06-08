@@ -121,8 +121,9 @@ export function SymbolDetailRail({
       {/* 2. Position */}
       <SymbolPositionCard symbol={symbol} positions={positions} />
 
-      {/* 3. Signal / Why held */}
-      <SymbolDecisionCard symbol={symbol} />
+      {/* 3. Signal / Why held — pass positions so it can reconcile the
+          verdict against your entry (explains "trend up but I'm down"). */}
+      <SymbolDecisionCard symbol={symbol} positions={positions} />
 
       {/* 4. Orders */}
       <SymbolOrdersCard symbol={symbol} orders={orders} loading={ordersLoading} />
