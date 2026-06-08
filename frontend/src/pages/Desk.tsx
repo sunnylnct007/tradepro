@@ -27,6 +27,7 @@
  * Other views (Quote/Screeners/News/Watchlist) use full width.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
@@ -58,9 +59,17 @@ function useWide(): boolean {
   return wide;
 }
 
+const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk"];
+
 export function Desk() {
   const wide = useWide();
-  const [view, setView] = useState<DeskView>("portfolio");
+  // Deep-link support: /desk?view=oms lands directly on that cockpit view, so the
+  // legacy routes (/oms, /risk, /scan, /compare) can redirect INTO the cockpit
+  // instead of rendering the old Layout shell (consistent admin theme everywhere).
+  const [searchParams] = useSearchParams();
+  const paramView = searchParams.get("view") as DeskView | null;
+  const initialView: DeskView = paramView && DESK_VIEWS.includes(paramView) ? paramView : "portfolio";
+  const [view, setView] = useState<DeskView>(initialView);
 
   // Master-detail: the symbol currently "drilled into" in the right rail.
   // null → account-value chart (DeskRightRail).
