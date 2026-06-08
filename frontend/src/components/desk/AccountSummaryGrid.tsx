@@ -78,6 +78,7 @@ function statusDot(s: AccountRow["status"]) {
 
 export function AccountSummaryGrid() {
   const [rows, setRows]     = useState<AccountRow[]>([]);
+  const [strat, setStrat]   = useState<PnlRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr]       = useState<string | null>(null);
 
@@ -91,6 +92,7 @@ export function AccountSummaryGrid() {
         ]);
         if (live) {
           setRows(buildRows(cash.brokers, pnl?.rows ?? []));
+          setStrat(pnl?.rows ?? []);
           setErr(null);
         }
       } catch (e) {
@@ -120,6 +122,7 @@ export function AccountSummaryGrid() {
   }
 
   return (
+    <>
     <div
       style={{
         border: "1px solid #1b2233",
@@ -187,6 +190,68 @@ export function AccountSummaryGrid() {
       <div style={{ padding: "4px 10px 5px", fontSize: 9, color: "var(--text-dim)" }}>
         Native currency per broker · never blended · Daily P&amp;L = Unrealized + Realised today ·
         refreshes every 60 s
+      </div>
+    </div>
+    <StrategyPnlTable rows={strat} />
+    </>
+  );
+}
+
+/**
+ * Per-strategy P&L — breaks the per-broker totals down to each desk so e.g.
+ * intraday_flat's IG-equity result is visible separately from the IG FX desk
+ * (they share the IG account). Unrealized shows "flat" (not blank) when the
+ * desk holds nothing right now but has traded — so a £0 open book reads as
+ * intentional, not missing data.
+ */
+function StrategyPnlTable({ rows }: { rows: PnlRow[] }) {
+  const active = rows.filter((r) => r.strategyId);
+  if (active.length === 0) return null;
+  return (
+    <div
+      style={{
+        border: "1px solid #1b2233", borderRadius: 6,
+        background: "rgba(255,255,255,0.015)", marginBottom: 14, overflowX: "auto",
+      }}
+    >
+      <div style={{ padding: "7px 10px 2px", fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>
+        By strategy / desk
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 640 }}>
+        <thead>
+          <tr style={{ color: "var(--text-dim)", borderBottom: "1px solid #1b2233" }}>
+            <th style={TH}>Strategy</th>
+            <th style={TH}>Broker</th>
+            <th style={TH_R}>Unrealized</th>
+            <th style={TH_R}>Realised (today)</th>
+            <th style={TH_R}>Realised (LTD)</th>
+            <th style={TH_R}>Trades</th>
+          </tr>
+        </thead>
+        <tbody>
+          {active.map((r) => {
+            // open=null but the desk has traded → it's flat right now, not "no data".
+            const openCell = r.openPnl == null
+              ? (r.trades > 0
+                  ? <span style={{ color: "var(--text-muted)" }}>flat</span>
+                  : <span style={{ color: "var(--text-muted)" }}>—</span>)
+              : <span style={{ color: signColour(r.openPnl) }}>{fmtMoney(r.openPnl, r.currency, true)}</span>;
+            return (
+              <tr key={r.strategyId} style={{ borderBottom: "1px solid #141b2b" }}>
+                <td style={{ ...TD, fontWeight: 700 }}>{r.strategyId}</td>
+                <td style={{ ...TD, color: "var(--text-muted)", fontSize: 10 }}>{r.broker}</td>
+                <td style={TD_R}>{openCell}</td>
+                <td style={{ ...TD_R, color: signColour(r.realisedToday) }}>{fmtMoney(r.realisedToday, r.currency, true)}</td>
+                <td style={{ ...TD_R, color: signColour(r.realisedLtd) }}>{fmtMoney(r.realisedLtd, r.currency, true)}</td>
+                <td style={{ ...TD_R, color: "var(--text-muted)" }}>{r.trades}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ padding: "4px 10px 5px", fontSize: 9, color: "var(--text-dim)" }}>
+        Per-strategy realised from oms fills (golden source) · "flat" = desk holds nothing now ·
+        IG FX + intraday equity share the IG account but are shown separately here
       </div>
     </div>
   );
