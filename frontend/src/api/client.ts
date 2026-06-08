@@ -1129,6 +1129,36 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/bar-cache/events", qp);
   },
+  fillAttribution: (params: { date?: string; days?: number; strategy?: string }) => {
+    const qp: Record<string, string | undefined> = {};
+    if (params.date) qp.date = params.date;
+    if (params.days) qp.days = String(params.days);
+    if (params.strategy) qp.strategy = params.strategy;
+    return get<{
+      kind: string;
+      from_date: string;
+      to_date: string;
+      total_realised_pnl: number;
+      total_fills: number;
+      symbols_traded: number;
+      worst_symbol: string | null;
+      worst_pnl: number | null;
+      best_symbol: string | null;
+      best_pnl: number | null;
+      per_symbol: Array<{
+        symbol: string;
+        realised_pnl: number;
+        fills: number;
+        closed_trades: number;
+        winning_trades: number;
+        win_rate_pct: number | null;
+        buys: number;
+        sells: number;
+      }>;
+      note: string;
+    }>("/api/fills/attribution", qp);
+  },
+
   barCacheHealth: (params?: { canonical?: string; assetClass?: string }) => {
     const qp: Record<string, string | undefined> = {};
     if (params?.canonical) qp.canonical = params.canonical;

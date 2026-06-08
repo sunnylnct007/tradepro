@@ -349,6 +349,8 @@ api.MapReconciliationEndpoints();
 // side-by-side; open/realised per native currency, null + note where a broker
 // genuinely can't supply a component (never a fabricated number).
 api.MapPnlByStrategyEndpoints();
+// Per-symbol fill attribution — "what caused the loss on date X?"
+api.MapFillAttributionEndpoints();
 // User-facing ops queue (run-intraday + list / cancel). Mac worker
 // routes mount on the ingest group below — same store, different
 // trust boundary.
