@@ -567,6 +567,23 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
 
     series = prices["adj_close"] if "adj_close" in prices.columns else prices["close"]
 
+    # Robustness: providers occasionally emit a single GARBAGE bar (e.g. a ~10x
+    # spike) that would corrupt the 52w high / range-position / drawdown and, via
+    # the dip-buy rules, fire a FALSE BUY. (VLUE showed "91.7% off 52w high / 4th
+    # percentile" off a phantom ~2300 bar while it was really ~6% off its high.)
+    # Drop ISOLATED spikes — a bar that is >4x (or <1/4x) BOTH neighbours is not
+    # a real price for a listed instrument (adj_close already handles real
+    # splits, so legitimate moves are never this large). Only isolated bars are
+    # removed, so a genuine rally/gap is untouched.
+    if len(series) >= 3:
+        prev_s = series.shift(1)
+        next_s = series.shift(-1)
+        hi_spike = (series > prev_s * 4.0) & (series > next_s * 4.0)
+        lo_spike = (series < prev_s * 0.25) & (series < next_s * 0.25)
+        bad = (hi_spike | lo_spike).fillna(False)
+        if bool(bad.any()):
+            series = series[~bad]
+
     last_price = _safe_float(series.iloc[-1])
     as_of = prices.index[-1].isoformat()
 
