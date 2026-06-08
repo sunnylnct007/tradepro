@@ -40,6 +40,32 @@ import { WorkerStatusBadge } from "../components/WorkerStatusBadge";
 
 const PRICE_VERDICTS: EntrySignal[] = ["BUY", "HOLD", "WAIT", "AVOID"];
 
+// --------------------------------------------------------------------------
+// Cockpit visual language — shared with the /desk IBKR-style shell
+// (see components/desk/AccountSummaryGrid.tsx + DeskTabs.tsx). Dense, dark,
+// 1px-bordered panels with uppercase small-caps section headers and
+// monospace numbers. Centralised here so this page reads as a cockpit view
+// and never drifts visually from the other desk surfaces.
+// --------------------------------------------------------------------------
+const COCKPIT_SEP = "#1b2233";     // panel border / header separator (SEP)
+const COCKPIT_ROW = "#141b2b";     // in-table row separator
+
+/** Bordered dark panel — the cockpit's primary content surface. */
+const cockpitPanel: React.CSSProperties = {
+  border: `1px solid ${COCKPIT_SEP}`,
+  borderRadius: 8,
+  background: "rgba(255,255,255,0.015)",
+};
+
+/** Uppercase small-caps section header used above / inside cockpit panels. */
+const cockpitHeader: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  color: "var(--text-muted)",
+};
+
 interface SymbolView {
   symbol: string;
   rows: CompareRow[];           // sorted by rank ascending (best first)
@@ -133,10 +159,12 @@ export function Compare() {
   const rankMetric = data?.rankMetric ?? data?.payload?.rank_metric ?? "sharpe";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <h1 style={{ margin: 0, fontSize: 24 }}>Should I invest today?</h1>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "0.01em" }}>
+            Should I invest today?
+          </h1>
           {/* Explicit horizon pill so a newcomer can't mistake these
               verdicts for intraday calls. The engine reasons on daily
               bars with SMA200 / 12m momentum / 5y drawdown — that's a
@@ -200,16 +228,17 @@ export function Compare() {
       {data?.payload?.llm && <LlmStatusBar llm={data.payload.llm} />}
 
       <section
-        className="card"
         style={{
+          ...cockpitPanel,
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
           gap: 14,
           alignItems: "end",
+          padding: 14,
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 6, gridColumn: "1 / -1" }}>
-          <span className="stat-label">Universe</span>
+          <span style={cockpitHeader}>Universe</span>
           {universes.length === 0 ? (
             <div style={{ color: "var(--text-muted)", fontSize: 12 }}>(none yet)</div>
           ) : (
@@ -558,14 +587,14 @@ function ProvenanceBar({
 
   return (
     <div
-      className="card"
       style={{
+        ...cockpitPanel,
         display: "flex",
         gap: 14,
         flexWrap: "wrap",
         alignItems: "center",
         borderLeft: `3px solid ${colour}`,
-        padding: "10px 14px",
+        padding: "9px 14px",
       }}
     >
       <span
@@ -633,10 +662,10 @@ function VerdictHeadline({
       : `${buys.length} BUY · ${waits.length} WAIT · ${avoids.length} AVOID`;
   return (
     <section
-      className="card"
       style={{
+        ...cockpitPanel,
         borderTop: `3px solid var(--up)`,
-        paddingTop: 14,
+        padding: 14,
         display: "flex",
         gap: 18,
         flexWrap: "wrap",
@@ -644,8 +673,8 @@ function VerdictHeadline({
       }}
     >
       <div style={{ minWidth: 220 }}>
-        <div className="stat-label">Today's verdict</div>
-        <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{verdict}</div>
+        <div style={cockpitHeader}>Today's verdict</div>
+        <div className="num" style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{verdict}</div>
       </div>
       {top && (
         <div
@@ -715,8 +744,8 @@ function LlmStatusBar({ llm }: { llm: CompareLlmInfo }) {
   const colour = llm.healthy ? "var(--up)" : "var(--down)";
   return (
     <section
-      className="card"
       style={{
+        ...cockpitPanel,
         padding: "8px 12px",
         borderLeft: `3px solid ${colour}`,
         fontSize: 12,
@@ -783,8 +812,8 @@ function LlmStatusBar({ llm }: { llm: CompareLlmInfo }) {
 function CurrencyMixWarning({ currencies }: { currencies: string[] }) {
   return (
     <div
-      className="card"
       style={{
+        ...cockpitPanel,
         borderLeft: "3px solid var(--neutral)",
         padding: "8px 12px",
         fontSize: 12,
@@ -827,8 +856,7 @@ function DataIssuesPanel({ errors }: { errors: CompareError[] }) {
   const tone = hasHardFailure ? "var(--down)" : "var(--neutral)";
   return (
     <details
-      className="card"
-      style={{ borderLeft: `3px solid ${tone}`, padding: "8px 12px" }}
+      style={{ ...cockpitPanel, borderLeft: `3px solid ${tone}`, padding: "8px 12px" }}
     >
       <summary style={{ cursor: "pointer", color: tone, fontWeight: 600, fontSize: 12 }}>
         Data quality issues — {headline}
@@ -886,18 +914,18 @@ function StrategyMatrix({
   };
 
   return (
-    <section className="card" style={{ padding: 0, overflow: "hidden" }}>
+    <section style={{ ...cockpitPanel, padding: 0, overflow: "hidden" }}>
       <div
         style={{
           padding: "10px 14px",
-          borderBottom: "1px solid var(--border)",
+          borderBottom: `1px solid ${COCKPIT_SEP}`,
           display: "flex",
           gap: 12,
           alignItems: "baseline",
           flexWrap: "wrap",
         }}
       >
-        <strong style={{ fontSize: 13 }}>Strategies vote on each asset</strong>
+        <strong style={{ ...cockpitHeader, fontSize: 11 }}>Strategies vote on each asset</strong>
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           Cell = is the strategy currently long this asset (last fired BUY newer than its last SELL)?
           Click a row to see why and the regime history.
@@ -909,7 +937,7 @@ function StrategyMatrix({
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
-            <tr style={{ background: "var(--bg-hover)", color: "var(--text-dim)", textAlign: "left" }}>
+            <tr style={{ background: "rgba(255,255,255,0.02)", color: "var(--text-dim)", textAlign: "left", borderBottom: `1px solid ${COCKPIT_SEP}` }}>
               <Th>Symbol</Th>
               {showCurrency && <Th align="center">Ccy</Th>}
               {strategies.map((s) => (
@@ -980,7 +1008,8 @@ function MatrixRow({
   return (
     <>
       <tr
-        style={{ cursor: "pointer", borderTop: "1px solid var(--border)" }}
+        className="desk-row-clickable"
+        style={{ cursor: "pointer", borderTop: `1px solid ${COCKPIT_ROW}` }}
         onClick={onToggle}
       >
         <Td>
@@ -1130,7 +1159,7 @@ function MatrixRow({
         </Td>
       </tr>
       {open && (
-        <tr style={{ background: "var(--bg-hover)" }}>
+        <tr style={{ background: "rgba(13,17,23,0.6)", borderTop: `1px solid ${COCKPIT_SEP}` }}>
           <td colSpan={strategies.length + 5 + (showCurrency ? 1 : 0)} style={{ padding: 12 }}>
             <ExpandedDetail view={view} />
           </td>
@@ -2358,8 +2387,8 @@ function MarketContextBar({ ctx }: { ctx: CompareMarketContext }) {
       : "var(--neutral)";
   return (
     <section
-      className="card"
       style={{
+        ...cockpitPanel,
         display: "flex",
         gap: 18,
         flexWrap: "wrap",
@@ -2369,7 +2398,7 @@ function MarketContextBar({ ctx }: { ctx: CompareMarketContext }) {
       }}
     >
       <div style={{ minWidth: 120 }}>
-        <div className="stat-label">Market context</div>
+        <div style={cockpitHeader}>Market context</div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
           fear / rates / S&P drawdown
         </div>
@@ -2448,8 +2477,8 @@ function ContextStat({
 
 function EmptyState({ error }: { error: string }) {
   return (
-    <div className="card" style={{ borderColor: "var(--down)", color: "var(--text-dim)" }}>
-      <div style={{ color: "var(--down)", marginBottom: 6, fontWeight: 600 }}>
+    <div style={{ ...cockpitPanel, padding: 14, borderColor: "var(--down)", color: "var(--text-dim)" }}>
+      <div style={{ ...cockpitHeader, color: "var(--down)", marginBottom: 6 }}>
         No comparison data yet
       </div>
       <div style={{ fontSize: 13 }}>
@@ -2498,12 +2527,13 @@ function Th({
     <th
       title={title}
       style={{
-        padding: "10px 12px",
-        fontWeight: 500,
+        padding: "8px 10px",
+        fontWeight: 600,
         fontSize: 11,
         letterSpacing: "0.06em",
         textTransform: "uppercase",
         textAlign: align ?? "left",
+        whiteSpace: "nowrap",
       }}
     >
       {children}
@@ -2526,7 +2556,7 @@ function Td({
   return (
     <td
       className={className}
-      style={{ padding: "8px 12px", textAlign: align ?? "left", ...style }}
+      style={{ padding: "7px 10px", textAlign: align ?? "left", ...style }}
     >
       {children}
     </td>
