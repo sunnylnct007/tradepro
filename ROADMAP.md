@@ -78,6 +78,26 @@ data** — a chain of compounding bugs, all fixed today:
   for the secret, or run server-side on EC2's IAM role); confirm catalysts
   populate end-to-end post-redeploy and light up the panel + gate.
 
+### ▶ NEXT SESSION — pick up fresh (handoff 2026-06-08 15:30)
+Top of the queue, in order:
+1. **Evidence on the verdict (north-star GAP 2)** — on the symbol detail panel
+   (`SymbolDetailRail` / `SymbolPositionCard`, which already shows Avg Price),
+   add **entry→now delta + the strategy's CURRENT verdict (BUY/HOLD/SELL) + the
+   stop level**, so "positive 30-day trend but a loss" is self-explaining (the
+   sparkline is 30-day direction; P&L is vs your entry — a trend-follower buys
+   strength near highs, so a pullback = normal drawdown vs a thesis break). User
+   green-lit this ("yes please"). Start here.
+2. **Stress this book (north-star GAP 1)** — WIP parked on branch
+   `feat/stress-book` (`frontend/src/util/stressScenarios.ts` already written:
+   transparent factor-shock model + live-position loader plan). Resume the panel
+   + wire into the Simulate view.
+
+State as of handoff (all deployed on main): strategy-health surface live
+(accurate oms-based, only configured strategies, minimal collapsed strip on
+cockpit + /health); equity gate regression fixed (trading); catalysts populating;
+T212 demo ccy GBP; daemon Finnhub key wired into plists. IBKR paper creds stored
+but mode-switch parked (selector not in secret/.env — likely appsettings/code).
+
 ### Open / next
 - Catalyst sweep scheduling (Mac-with-creds vs EC2-side) + verify gate impact.
 - More news sources per DATA_ROADMAP §17 once catalysts proven — **IBKR news**
