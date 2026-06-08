@@ -57,9 +57,12 @@ public static class CatalystsEndpoints
                 WHERE status = @effectiveStatus
                   AND (@symbol IS NULL OR symbol ILIKE @symbol)
                   AND (@kind   IS NULL OR kind   = @kind)
-                  AND (occurs_on IS NULL
-                       OR (occurs_on >= CURRENT_DATE - (@back || ' days')::INTERVAL
-                           AND occurs_on <= CURRENT_DATE + (@ahead || ' days')::INTERVAL))
+                  -- A catalyst is a DATED event. Undated (occurs_on IS NULL)
+                  -- news-derived items are noise in the active list, so require
+                  -- a date within the window (they stay in the registry).
+                  AND occurs_on IS NOT NULL
+                  AND occurs_on >= CURRENT_DATE - (@back || ' days')::INTERVAL
+                  AND occurs_on <= CURRENT_DATE + (@ahead || ' days')::INTERVAL
                 ORDER BY
                     CASE severity
                         WHEN 'high' THEN 0
