@@ -362,11 +362,25 @@ function HeatmapCell({ card }: { card: Card }) {
   : isFire ? { bg: "rgba(31,193,107,0.35)",  fg: "#fff",    border: "rgba(31,193,107,0.7)" }
   : isSkip ? { bg: "rgba(245,158,11,0.10)",  fg: "var(--text-dim)", border: "rgba(245,158,11,0.30)" }
            : { bg: "rgba(255,255,255,0.04)", fg: "var(--text-muted)", border: "var(--border)" };
+  const catalystHint =
+    (card.detail.catalyst_flag as string | undefined) === "tech_event_alignment"
+      ? "⚡ catalyst aligns"
+      : (card.detail.catalyst_flag as string | undefined) === "tech_event_divergence"
+      ? "⚠ catalyst diverges"
+      : "";
   const tip = [
     card.symbol,
     card.action,
     card.reason || "",
+    catalystHint,
   ].filter(Boolean).join(" · ");
+  const catalystDot =
+    (card.detail.catalyst_flag as string | undefined) === "tech_event_alignment"
+      ? "#1fc16b"
+      : (card.detail.catalyst_flag as string | undefined) === "tech_event_divergence"
+      ? "#f59e0b"
+      : null;
+
   return (
     <Link
       to={`/paper-live/session/${encodeURIComponent(card.sessionId)}`}
@@ -376,7 +390,7 @@ function HeatmapCell({ card }: { card: Card }) {
         height: 30,
         background: tone.bg,
         color: tone.fg,
-        border: `1px solid ${tone.border}`,
+        border: `1px solid ${catalystDot ?? tone.border}`,
         borderRadius: 3,
         fontFamily: "monospace",
         fontSize: 10,
@@ -384,10 +398,20 @@ function HeatmapCell({ card }: { card: Card }) {
         textDecoration: "none",
         textAlign: "center",
         overflow: "hidden",
+        position: "relative",
+        boxShadow: catalystDot ? `inset 0 0 0 1px ${catalystDot}55` : "none",
       }}
       title={tip}
     >
       {card.symbol}
+      {catalystDot && (
+        <span style={{
+          position: "absolute", top: 2, right: 2,
+          width: 4, height: 4,
+          borderRadius: "50%",
+          background: catalystDot,
+        }} />
+      )}
     </Link>
   );
 }
@@ -428,6 +452,7 @@ function SymbolCard({ card }: { card: Card }) {
   const vol = (card.detail.vol as number | undefined);
   const dataSource = (card.detail._data_source as string | undefined) ?? "";
   const dataErrorMsg = (card.detail._data_error as string | undefined) ?? card.reason ?? "";
+  const catalystFlag = (card.detail.catalyst_flag as string | undefined) ?? "";
 
   // ── Data-error card: all providers failed — make this impossible to miss ──
   if (isDataError) {
@@ -509,22 +534,27 @@ function SymbolCard({ card }: { card: Card }) {
           <span style={{ fontStyle: "italic" }}>{card.reason || "—"}</span>
         )}
       </div>
-      {dataSource && (
-        <div style={{ marginTop: 3 }}>
-          <span
-            title={`Data served by: ${dataSource}`}
-            style={{
-              fontSize: 8, fontFamily: "monospace", fontWeight: 600,
-              color: providerColor(dataSource),
-              padding: "1px 4px",
-              border: `1px solid ${providerColor(dataSource)}55`,
-              borderRadius: 3,
-              letterSpacing: "0.03em",
-              opacity: 0.9,
-            }}
-          >
-            {dataSource}
-          </span>
+      {(dataSource || catalystFlag) && (
+        <div style={{ marginTop: 3, display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {dataSource && (
+            <span
+              title={`Data served by: ${dataSource}`}
+              style={{
+                fontSize: 8, fontFamily: "monospace", fontWeight: 600,
+                color: providerColor(dataSource),
+                padding: "1px 4px",
+                border: `1px solid ${providerColor(dataSource)}55`,
+                borderRadius: 3,
+                letterSpacing: "0.03em",
+                opacity: 0.9,
+              }}
+            >
+              {dataSource}
+            </span>
+          )}
+          {catalystFlag && (
+            <CatalystBadge flag={catalystFlag} />
+          )}
         </div>
       )}
     </Link>
@@ -556,6 +586,85 @@ const NEUTRAL_TONE = {
 const ERROR_TONE = {
   fg: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.35)",
 };
+
+/**
+ * CatalystBadge — inline pill that signals whether a catalyst was found
+ * and whether it aligns with or diverges from the technical signal.
+ *
+ * Catalyst flags are injected by the CatalystFetcher → StrategyRunner
+ * pipeline (C-3) and can be one of:
+ *   "tech_event_alignment"  — catalyst + technical signal point the SAME way
+ *                             (e.g. earnings beat + bullish cloud cross) →
+ *                             higher conviction. Green ⚡.
+ *   "tech_event_divergence" — catalyst and technical signal DISAGREE
+ *                             (e.g. bad earnings BUT bullish cloud) → review
+ *                             carefully before acting. Amber ⚠.
+ *   anything else           — not rendered (flag not recognised yet).
+ */
+function CatalystBadge({ flag }: { flag: string }) {
+  if (flag === "tech_event_alignment") {
+    return (
+      <span
+        title={
+          "⚡ Catalyst ALIGNS with technical signal — the news/event and " +
+          "the price pattern agree. Higher-conviction setup than signal alone. " +
+          "Injected by the catalyst overlay (Finnhub + Yahoo news pipeline)."
+        }
+        style={{
+          fontSize: 8, fontFamily: "monospace", fontWeight: 700,
+          color: "#1fc16b",
+          padding: "1px 4px",
+          border: "1px solid rgba(31,193,107,0.45)",
+          borderRadius: 3,
+          letterSpacing: "0.03em",
+          background: "rgba(31,193,107,0.10)",
+          cursor: "help",
+        }}
+      >
+        ⚡ ALIGN
+      </span>
+    );
+  }
+  if (flag === "tech_event_divergence") {
+    return (
+      <span
+        title={
+          "⚠ Catalyst DIVERGES from technical signal — the news/event and " +
+          "the price pattern disagree. Review both before acting; the catalyst " +
+          "may override the technical signal (or vice versa). " +
+          "Injected by the catalyst overlay (Finnhub + Yahoo news pipeline)."
+        }
+        style={{
+          fontSize: 8, fontFamily: "monospace", fontWeight: 700,
+          color: "#f59e0b",
+          padding: "1px 4px",
+          border: "1px solid rgba(245,158,11,0.45)",
+          borderRadius: 3,
+          letterSpacing: "0.03em",
+          background: "rgba(245,158,11,0.10)",
+          cursor: "help",
+        }}
+      >
+        ⚠ DIVG
+      </span>
+    );
+  }
+  // Unknown flag — render a neutral chip so we don't silently swallow it.
+  return (
+    <span
+      title={`Catalyst flag: ${flag}`}
+      style={{
+        fontSize: 8, fontFamily: "monospace",
+        color: "var(--text-muted)",
+        padding: "1px 4px",
+        border: "1px solid var(--border)",
+        borderRadius: 3,
+      }}
+    >
+      ⚑ {flag}
+    </span>
+  );
+}
 
 /** Per-provider badge colour — matches the source names injected by intraday_engine.py */
 function providerColor(src: string): string {
