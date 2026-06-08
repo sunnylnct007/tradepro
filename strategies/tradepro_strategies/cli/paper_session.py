@@ -557,14 +557,23 @@ def _parse_broker_position_rows(
     only this strategy's universe.
 
     IG FX MINI positions report in MINI-LOTS (|qty| typically < 1.0, e.g.
-    -0.7). int()-truncating those to 0 made the seed report a FLAT book, so
-    ichimoku_fx_mr re-sent its full delta every run and stacked duplicate
-    deals on IG. We keep the SIGN (+/-1 unit) for minis — enough for the
-    delta math to read delta=0 on the dominant +/-1 target. Exact multi-unit
-    mini-lot<->unit conversion still needs the per-pair IG contract size
-    (backend follow-up)."""
-    positions: dict[str, int] = {}
-    avg_prices: dict[str, float] = {}
+    -0.7) and IG returns ONE ROW PER OPEN DEAL — a pair can have several. We
+    therefore NET all rows for a pair FIRST (sum the signed mini-lots), then
+    keep the SIGN (+/-1 unit). This fixes two bugs in the old "collapse each
+    deal to +/-1, then sum" approach:
+      • OVERCOUNT — 3 short deals (-1.1,-0.7,-0.4) summed to -3 instead of the
+        intended one signed unit, so the strategy mis-read `current` and
+        churned / stacked deals.
+      • WRONG CANCEL — opposing deals (-0.7 and +0.4) cancelled to 0 ("flat")
+        even though the true net is short.
+    Exact multi-unit magnitude still needs the per-pair IG contract size to
+    convert mini-lots → units (backend follow-up); the SIGN is enough for the
+    delta math to read delta=0 on the dominant +/-1 target."""
+    # ── Pass 1: net the raw quantity per bare symbol (across all deals) ──
+    net_raw: dict[str, float] = {}
+    is_mini: dict[str, bool] = {}
+    avg_num: dict[str, float] = {}  # Σ(avg × |raw|) — |raw|-weighted cost basis
+    avg_den: dict[str, float] = {}  # Σ|raw| over rows that reported an avg > 0
     for r in rows:
         t = (r.get("ticker") or r.get("epic") or "").upper()
         if not t:
@@ -588,26 +597,44 @@ def _parse_broker_position_rows(
             raw = float(r.get("quantity") or 0)
         except (TypeError, ValueError):
             continue
-        if ".MINI." in t:
-            qty = 0 if raw == 0 else (1 if raw > 0 else -1)
+        if raw == 0:
+            continue
+        net_raw[bare] = net_raw.get(bare, 0.0) + raw
+        # A pair is "mini" if ANY of its rows is a MINI epic (rows are
+        # homogeneous per pair in practice).
+        is_mini[bare] = is_mini.get(bare, False) or (".MINI." in t)
+        # Broker cost basis for honest unrealised P&L. T212 + IG both report
+        # it as averagePricePaid (IG can be null → skip). |raw|-weight so a
+        # netted multi-deal position carries a sensible blended entry.
+        avg_raw = (r.get("averagePricePaid")
+                   if r.get("averagePricePaid") is not None
+                   else r.get("avgPrice"))
+        try:
+            avg = float(avg_raw) if avg_raw is not None else 0.0
+        except (TypeError, ValueError):
+            avg = 0.0
+        if avg > 0:
+            w = abs(raw)
+            avg_num[bare] = avg_num.get(bare, 0.0) + avg * w
+            avg_den[bare] = avg_den.get(bare, 0.0) + w
+
+    # ── Pass 2: convert each pair's NET to a seedable signed quantity ──
+    positions: dict[str, int] = {}
+    avg_prices: dict[str, float] = {}
+    for bare, net in net_raw.items():
+        if is_mini.get(bare):
+            # IG FX MINI: net the mini-lots, then keep the SIGN (+/-1 unit).
+            qty = 0 if abs(net) < 1e-9 else (1 if net > 0 else -1)
         else:
-            # Truncate toward zero so we never overstate the held quantity —
-            # T212 fractional shares (6.7022 NVDA) / IG equity CFDs are whole
-            # units; rounding up would trigger "selling more than owned".
-            qty = int(raw)
+            # Whole-unit equities/CFDs: truncate the NET toward zero so we
+            # never overstate the held quantity (T212 fractional shares /
+            # IG equity CFDs are whole units; rounding up would trigger
+            # "selling more than owned").
+            qty = int(net)
         if qty != 0:
-            positions[bare] = positions.get(bare, 0) + qty
-            # Broker cost basis for honest unrealised P&L. T212 + IG both
-            # report it as averagePricePaid (IG can be null → skip).
-            avg_raw = (r.get("averagePricePaid")
-                       if r.get("averagePricePaid") is not None
-                       else r.get("avgPrice"))
-            try:
-                avg = float(avg_raw) if avg_raw is not None else 0.0
-            except (TypeError, ValueError):
-                avg = 0.0
-            if avg > 0:
-                avg_prices[bare] = avg
+            positions[bare] = qty
+            if avg_den.get(bare, 0.0) > 0:
+                avg_prices[bare] = avg_num[bare] / avg_den[bare]
     return positions, avg_prices
 
 

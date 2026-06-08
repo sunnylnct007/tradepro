@@ -39,6 +39,23 @@ Feature: Strategy.seed_positions — initialise position state from external sna
     When I parse the broker rows for universe "EURUSD,AUDUSD,USDCHF,USDJPY"
     Then the parsed seed is {"EURUSD": -1, "AUDUSD": -1, "USDCHF": 1}
 
+  # IG returns ONE ROW PER OPEN DEAL, so a pair can appear several times. We
+  # NET the mini-lots first, then take the sign — so 3 short deals read as one
+  # signed unit (not -3), and opposing deals net to the true side (not flat /
+  # exact-offset → flat).
+  Scenario: multiple IG FX deals on one pair net to a single signed unit
+    Given broker rows:
+      | ticker               | quantity |
+      | CS.D.GBPUSD.MINI.IP  | -1.1     |
+      | CS.D.GBPUSD.MINI.IP  | -0.7     |
+      | CS.D.GBPUSD.MINI.IP  | -0.4     |
+      | CS.D.EURGBP.MINI.IP  | 0.6      |
+      | CS.D.EURGBP.MINI.IP  | -0.9     |
+      | CS.D.USDCHF.MINI.IP  | 0.5      |
+      | CS.D.USDCHF.MINI.IP  | -0.5     |
+    When I parse the broker rows for universe "GBPUSD,EURGBP,USDCHF"
+    Then the parsed seed is {"GBPUSD": -1, "EURGBP": -1}
+
   Scenario: equity CFD / T212 share quantities keep whole-unit truncation
     Given broker rows:
       | ticker            | quantity |
