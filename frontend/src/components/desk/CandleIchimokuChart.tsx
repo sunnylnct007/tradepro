@@ -158,6 +158,16 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy }: Pr
       },
       rightPriceScale: { borderColor: "#1b2233" },
       timeScale: { borderColor: "#1b2233", rightOffset: SHIFT, fixLeftEdge: false },
+      // Zoom + pan: wheel/pinch to zoom, drag to pan, drag an axis to scale it.
+      // (Defaults are on, but we set them explicitly so the chart stays
+      // interactive even if a future option flip would disable them.)
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: { time: true, price: true },
+      },
     });
     chartRef.current = chart;
 
@@ -329,7 +339,21 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy }: Pr
         )}
       </div>
 
-      <div style={{ position: "relative", width: "100%", height }}>
+      {/* Drag the bottom-right handle to resize the chart taller/shorter.
+          `resize: vertical` + the component's ResizeObserver keep the chart
+          (autoSize) and the cloud overlay in sync at any height. `height` is
+          the initial size; min/max keep it sane. */}
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          height,
+          minHeight: 180,
+          maxHeight: "80vh",
+          resize: "vertical",
+          overflow: "hidden",
+        }}
+      >
         {/* The chart mounts here; the canvas overlay paints the cloud band on
             top, pointer-events:none so it never blocks the crosshair. */}
         <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
