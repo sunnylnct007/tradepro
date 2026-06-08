@@ -93,7 +93,7 @@ export function StrategyDecisionsView() {
       {loading && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Loading decisions…</div>}
       {err && <div style={{ fontSize: 11, color: "#f85149" }}>Decisions unavailable: {err}</div>}
       {KNOWN.filter((k) => data[k]).map((k) => (
-        <StrategyDecisionCard key={k} strategy={k} label={LABEL[k] ?? k} frame={data[k]} />
+        <StrategyDecisionCard key={k} label={LABEL[k] ?? k} frame={data[k]} />
       ))}
       {!loading && !err && KNOWN.every((k) => !data[k]) && (
         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>No snapshots posted yet.</div>
@@ -102,7 +102,7 @@ export function StrategyDecisionsView() {
   );
 }
 
-function StrategyDecisionCard({ strategy, label, frame }: { strategy: string; label: string; frame: Frame }) {
+function StrategyDecisionCard({ label, frame }: { label: string; frame: Frame }) {
   const [showAll, setShowAll] = useState(false);
   // Split the synthetic _session summary row out from per-symbol decisions.
   const summary = frame.decisions.find((d) => d.symbol === "_session");
