@@ -42,13 +42,20 @@ import sys
 from typing import Any
 
 from . import push_to_api
-from ..catalysts_sink import extract_and_post
+from ..catalysts_gdelt import fetch_all_catalysts as fetch_gdelt_catalysts
+from ..catalysts_sink import (
+    catalyst_to_upsert_body,
+    extract_and_post,
+    post_catalyst,
+)
 from ..catalysts_universe import (
     UniverseReport,
     assemble_universe,
     trader_large_50,
 )
 from ..news import fetch_news
+
+GDELT_SOURCE = "gdelt"
 
 _log = logging.getLogger("tradepro.cli.catalysts_daily_sweep")
 
@@ -100,8 +107,27 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Drop headlines older than N days (default 14).",
     )
     p.add_argument(
+        "--gdelt", dest="gdelt", action="store_true", default=True,
+        help="Include the free GDELT macro/event source (default ON). "
+             "Fetches FOMC / CPI / OPEC / election / geopolitical "
+             "catalysts and posts them on the relevant market proxy "
+             "(SPY/XLE/GLD/...).",
+    )
+    p.add_argument(
+        "--no-gdelt", dest="gdelt", action="store_false",
+        help="Skip the GDELT macro/event source.",
+    )
+    p.add_argument(
+        "--push", action="store_true",
+        help="Explicitly POST catalysts to the registry. This is the "
+             "default behaviour unless --dry-run is set; the flag exists "
+             "so the launchd command reads intentionally. No-op alongside "
+             "the default; ignored when --dry-run is set.",
+    )
+    p.add_argument(
         "--dry-run", action="store_true",
-        help="Print the assembled universe and exit without POSTing.",
+        help="Print the assembled universe + the catalyst bodies that "
+             "WOULD be POSTed (incl. GDELT) and exit without POSTing.",
     )
     p.add_argument(
         "--log-level", default="INFO",
@@ -150,11 +176,42 @@ def main(argv: list[str] | None = None) -> int:
                   source, len(syms),
                   ", ".join(syms[:8]) + ("..." if len(syms) > 8 else ""))
 
+    # GDELT macro/event catalysts are market-wide, not per-ticker — fetch
+    # them ONCE (not per universe symbol) and key by the proxy symbol the
+    # event hits (SPY/XLE/GLD/...). Best-effort: a GDELT failure yields an
+    # empty map and never blocks the per-symbol news sweep.
+    gdelt_by_symbol: dict[str, list] = {}
+    if args.gdelt:
+        try:
+            reports = fetch_gdelt_catalysts()
+            gdelt_by_symbol = {
+                sym: rep.all_catalysts
+                for sym, rep in reports.items()
+                if rep.all_catalysts
+            }
+            total = sum(len(v) for v in gdelt_by_symbol.values())
+            _log.info(
+                "GDELT macro source: %d catalysts across %d proxy symbols",
+                total, len(gdelt_by_symbol),
+            )
+        except Exception as exc:  # noqa: BLE001 — fail-open, never break the sweep
+            _log.warning("GDELT source failed — continuing without it: %s", exc)
+            gdelt_by_symbol = {}
+
     if args.dry_run:
+        gdelt_dry = {
+            sym: [
+                catalyst_to_upsert_body(c, symbol=sym, source=GDELT_SOURCE)
+                for c in cats
+            ]
+            for sym, cats in gdelt_by_symbol.items()
+        }
         print(json.dumps({
             "kind": "catalysts-daily-sweep",
             "dry_run": True,
             "universe": report.to_dict(),
+            "gdelt_would_post": gdelt_dry,
+            "gdelt_count": sum(len(v) for v in gdelt_dry.values()),
         }, indent=2, default=str))
         return 0
 
@@ -183,10 +240,40 @@ def main(argv: list[str] | None = None) -> int:
         extracted_total += result.get("catalysts_extracted", 0)
         failed_total += result.get("catalysts_failed", 0)
 
+    # ── GDELT macro/event catalysts → registry ───────────────────────────
+    gdelt_rows: list[dict[str, Any]] = []
+    gdelt_posted = 0
+    gdelt_failed = 0
+    for sym, cats in gdelt_by_symbol.items():
+        for c in cats:
+            ok = post_catalyst(
+                c, symbol=sym, api_base=base, token=token, source=GDELT_SOURCE,
+            )
+            gdelt_rows.append({
+                "symbol": sym,
+                "kind": c.kind,
+                "title": c.title,
+                "occurs_on": c.occurs_on,
+                "ok": ok,
+            })
+            extracted_total += 1
+            if ok:
+                gdelt_posted += 1
+                posted_total += 1
+            else:
+                gdelt_failed += 1
+                failed_total += 1
+
     summary = {
         "kind": "catalysts-daily-sweep",
         "universe": report.to_dict(),
         "per_symbol": per_symbol_reports,
+        "gdelt": {
+            "enabled": args.gdelt,
+            "catalysts_posted": gdelt_posted,
+            "catalysts_failed": gdelt_failed,
+            "rows": gdelt_rows,
+        },
         "totals": {
             "symbols_swept": report.total,
             "catalysts_extracted": extracted_total,

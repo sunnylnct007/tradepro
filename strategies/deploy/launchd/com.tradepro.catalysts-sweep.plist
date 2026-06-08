@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.tradepro.catalysts-sweep — daily catalyst sweep across the
+  trader's effective universe + the free GDELT macro/event source.
+
+  Fires once a day at 07:45 UTC. For every symbol in the assembled
+  universe (positions + watchlists + trader large_50 + baseline
+  ETFs/FX) it fetches Yahoo headlines, runs the keyword extractor, and
+  POSTs detected catalysts to /api/catalysts/ with source="extractor.news".
+  It ALSO runs the GDELT 2.0 DOC API macro/event source (key-less,
+  free) and POSTs market-wide catalysts (FOMC / CPI / OPEC / elections /
+  geopolitics) on the relevant market proxy (SPY/XLE/GLD/...) with
+  source="gdelt". The registry UPSERTs idempotently — re-runs never
+  duplicate.
+
+  NOTE: this plist is checked into the repo as a TEMPLATE. It is NOT
+  installed by default. To install:
+
+    cp strategies/deploy/launchd/com.tradepro.catalysts-sweep.plist \
+       ~/Library/LaunchAgents/
+    # edit the paths/POSITIONS below to match your machine, then:
+    launchctl bootstrap "gui/$UID" \
+      ~/Library/LaunchAgents/com.tradepro.catalysts-sweep.plist
+
+  Manual trigger:
+    launchctl start com.tradepro.catalysts-sweep
+
+  Check last run:
+    tail -100 /tmp/tradepro-catalysts-sweep.log
+
+  Stop / unload:
+    launchctl bootout "gui/$UID" \
+      ~/Library/LaunchAgents/com.tradepro.catalysts-sweep.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.catalysts-sweep</string>
+
+  <!--
+    Run from the strategies/ project dir so `uv run` resolves the
+    project venv + entry points. `cd ... && uv run` keeps the working
+    directory stable regardless of how launchd invokes the shell.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-catalysts-daily-sweep --push</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/skumar</string>
+    <key>PATH</key>
+    <string>/Users/skumar/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies</string>
+    <!--
+      Seed the trader's live positions here so the sweep prioritises
+      held names. Empty is fine — the trader large_50 + baselines still
+      produce a usable universe.
+    -->
+    <key>POSITIONS</key>
+    <string>APLD,BABA,EC,MRVL,SWDA.L,VWRL.L</string>
+  </dict>
+
+  <!--
+    Fire daily at 07:45 UTC — after the 06:00 news sweep window and
+    before EU/US cash opens, so the macro overlay is fresh for the day.
+    If the Mac is asleep at 07:45 UTC, launchd fires the job on next wake
+    within the same calendar day.
+  -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>7</integer>
+      <key>Minute</key>
+      <integer>45</integer>
+    </dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/tradepro-catalysts-sweep.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/tradepro-catalysts-sweep.log</string>
+
+  <!-- Cron-style — only fires on schedule, not at load. -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
