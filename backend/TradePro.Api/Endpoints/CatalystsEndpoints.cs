@@ -22,7 +22,10 @@ public static class CatalystsEndpoints
 {
     public static IEndpointRouteBuilder MapCatalystsEndpoints(this IEndpointRouteBuilder app)
     {
-        var g = app.MapGroup("/api/catalysts").WithTags("Catalysts");
+        // Registered on the `api` group (already "/api"), so map "/catalysts"
+        // here — NOT "/api/catalysts", which double-prefixed to /api/api/catalysts
+        // and 404'd the cockpit's GET /api/catalysts/ (Active Catalysts panel).
+        var g = app.MapGroup("/catalysts").WithTags("Catalysts");
 
         // ── GET /api/catalysts ─────────────────────────────────────
         // Default: every active catalyst whose occurs_on is between
