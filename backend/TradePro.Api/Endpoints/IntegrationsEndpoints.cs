@@ -393,13 +393,13 @@ public static class IntegrationsEndpoints
                     {
                         broker = "T212_DEMO", label = "Trading 212 DEMO (algo equity)",
                         status = cash.Error is null ? "ok" : "down",
-                        currency = cash.Currency ?? "USD",
+                        currency = cash.Currency ?? "GBP",
                         free = cash.Free, invested = cash.Invested,
                         total = cash.Total, openPnl = cash.Ppl,
                         error = cash.Error,
                     });
                     if (cash.Error is null && cash.Total is { } t212Total)
-                        snap.Add(("T212_DEMO", cash.Currency ?? "USD", t212Total));
+                        snap.Add(("T212_DEMO", cash.Currency ?? "GBP", t212Total));
                 }
                 else
                 {
