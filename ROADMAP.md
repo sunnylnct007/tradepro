@@ -80,8 +80,31 @@ data** — a chain of compounding bugs, all fixed today:
 
 ### Open / next
 - Catalyst sweep scheduling (Mac-with-creds vs EC2-side) + verify gate impact.
-- More news sources (NewsAPI/EU) per DATA_ROADMAP §17 once catalysts proven.
+- More news sources per DATA_ROADMAP §17 once catalysts proven — **IBKR news**
+  (we have the IBKR MCP/integration) alongside Yahoo/Finnhub/GDELT; all feed the
+  order-placement gate.
 - A persistent system-health monitor pattern (API down / FX re-stack / daemon).
+
+### Backlog — Risk module per-order detail (raised 2026-06-08)
+Reviewing a *particular order* in the Risk view shows too little. Tighten +
+add rules, and surface, per order: which gates ran + pass/fail + WHY (the
+existing capital / short / market-hours / conviction gates), the sizing
+rationale (sleeve weight, stop-distance sizing), stop/target/time-exit, the
+position's contribution to portfolio exposure/concentration, and any
+catalyst/blackout overlay hit. Make it the per-order "decision trace" analogue
+of the Decide card. Candidate NEW rules: per-name + per-sector concentration
+cap, earnings-blackout (now that catalysts populate), correlation-to-book check.
+
+### North-star progress notes (recommendation evidenced by backtest + stress)
+- ✅ today on Decide (Compare.tsx): per-symbol BUY/SELL/HOLD verdict; expand a
+  card → per-strategy backtest stats (cagr/sharpe/maxDD) + per-regime stress
+  breakdown + one-line `evidence` rationales (compass_scorer).
+- ▢ GAP 1 — **"stress this book"**: forward-sim the *live broker positions*
+  under named scenarios (2008-style, rate shock, oil/FX shock), per-position +
+  portfolio impact, plain-English read. The parked
+  [[project_scenario_sim_current_book]] item; buildable at daily-bar resolution.
+- ▢ GAP 2 — surface backtest + stress evidence at the *recommendation* level
+  (not only on expand) so a BUY is self-justifying at a glance → trust.
 
 ---
 
