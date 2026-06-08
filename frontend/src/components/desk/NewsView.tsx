@@ -92,7 +92,11 @@ export function NewsView({ wide }: { wide: boolean }) {
     .sort((a, b) => a.days_until - b.days_until)
     .slice(0, 10);
 
-  // Headlines, newest first, top 15.
+  // Headlines, newest first, top 15. DE-DUPED: a market-wide story is attached
+  // to every symbol in the universe, so the raw flat list is ~50× duplicated
+  // (826 rows → 56 unique on etf_uk_core). Collapse by title+publisher, keeping
+  // the most-recent copy (sort first, first-seen wins).
+  const seenHeadline = new Set<string>();
   const headlines: Headline[] = rows
     .flatMap((r) => (r.news ?? []).map((n) => ({
       symbol: r.symbol,
@@ -103,6 +107,12 @@ export function NewsView({ wide }: { wide: boolean }) {
       sentiment: n.sentiment ?? null,
     })))
     .sort((a, b) => tsOf(b.published_at) - tsOf(a.published_at))
+    .filter((h) => {
+      const key = `${(h.title ?? "").trim().toLowerCase()}|${(h.publisher ?? "").toLowerCase()}`;
+      if (!h.title || seenHeadline.has(key)) return false;
+      seenHeadline.add(key);
+      return true;
+    })
     .slice(0, 15);
 
   return (
