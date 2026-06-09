@@ -308,6 +308,13 @@ class IntradayFlatStrategy(Strategy):
         self._seeded_today.clear()
         self._flatten_emitted.clear()
 
+        # Restore "entered this name today" from the persisted state so
+        # ONE-ENTRY-PER-DAY survives the 5-min daemon reruns — including STOPPED
+        # names (now flat, no managed position to restore) that would otherwise be
+        # re-entered on the still-bullish daily signal (the stop→re-buy whipsaw).
+        # Resets automatically when session_date rolls to a new day.
+        self._restore_entries_today(session_date)
+
         # Pre-load positions from params.initial_positions if the daemon
         # provided them. For an EOD-flat strategy any seeded position is
         # an OVERNIGHT LEFTOVER — the prior session's flatten did not
@@ -911,6 +918,13 @@ class IntradayFlatStrategy(Strategy):
             path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "session_date": session_date.date().isoformat(),
+                # Persist the "entered this name today" set so ONE-ENTRY-PER-DAY
+                # survives across the 5-min daemon reruns. Without this, a STOPPED
+                # name (now flat, so no managed position to restore) is forgotten
+                # next run and RE-ENTERED on the still-bullish daily signal — the
+                # stop→re-buy whipsaw (QQQ 2026-06-09). A name that was entered &
+                # stopped stays "done for the day".
+                "entries_today": sorted(self._entries_today),
                 "positions": {
                     sym: {
                         "stop": self._position_stop.get(sym),
@@ -949,6 +963,24 @@ class IntradayFlatStrategy(Strategy):
         except Exception:  # noqa: BLE001
             _log.exception("intraday_flat: failed to restore position state")
             return False
+
+    def _restore_entries_today(self, session_date: datetime) -> None:
+        """Restore the set of names already entered THIS session_date from the
+        persisted state file, so one-entry-per-day survives the daemon reruns.
+        A STOPPED name (now flat, no managed position) stays 'done for the day'
+        instead of being re-entered on the still-bullish signal. New day → the
+        session_date won't match, so we start fresh."""
+        try:
+            path = self._state_file()
+            if not path.exists():
+                return
+            data = json.loads(path.read_text())
+            if data.get("session_date") != session_date.date().isoformat():
+                return  # stale → new trading day, start fresh
+            for sym in (data.get("entries_today") or []):
+                self._entries_today.add(str(sym))
+        except Exception:  # noqa: BLE001
+            _log.exception("intraday_flat: failed to restore entries_today")
 
     def _seed_overnight_leftover(
         self, sym: str, qty: int, ts: datetime,
