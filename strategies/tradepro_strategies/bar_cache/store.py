@@ -484,6 +484,15 @@ class BarStore:
                 chain_log.append(f"{provider_name}_parse")
                 continue
 
+            # Treat 0-row response as a soft provider failure.
+            # Providers with range limits (e.g. yfinance: 7-day 1m cap)
+            # return an empty DataFrame when asked for a wider partition
+            # window.  Don't write an empty parquet over good cached data;
+            # fall through to the next provider instead.
+            if df.empty:
+                chain_log.append(f"{provider_name}_empty")
+                continue
+
             # Atomic write.
             self._write_partition(
                 df=df,
@@ -536,6 +545,22 @@ class BarStore:
         # have over-fetched slightly at the edges.
         if not df.empty:
             df = df[(df.index >= partition_start) & (df.index < partition_end)]
+
+        # Safety net: never overwrite non-empty cached data with an empty
+        # frame. _fetch_and_write should have caught this already (empty
+        # result = soft failure → try next provider), but defence in depth.
+        if df.empty and partition_path.exists():
+            try:
+                existing_rows = len(pq.read_table(partition_path))
+            except Exception:  # noqa: BLE001
+                existing_rows = 0
+            if existing_rows > 0:
+                _log.warning(
+                    "bar_cache: skipping empty write for %s — existing "
+                    "parquet has %d rows; keeping cached data",
+                    partition_path.name, existing_rows,
+                )
+                return
 
         # Write parquet to tmp + atomic rename.
         tmp_parquet = partition_path.with_suffix(partition_path.suffix + ".tmp")
