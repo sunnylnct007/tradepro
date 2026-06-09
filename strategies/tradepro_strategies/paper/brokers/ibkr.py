@@ -151,10 +151,10 @@ class IBKRBarBus(BarBus):
         watcher = asyncio.create_task(self._shutdown_watcher(shutdown_queue))
         try:
             while not self._stop.is_set():
-                # Drain ib_insync's event loop a slice at a time. Run
-                # ib.sleep(0.1) under to_thread so we don't block the
-                # async loop the engine is on.
-                await asyncio.to_thread(ib.sleep, 0.1)
+                # Yield to the engine loop (ib_insync is on it) so its real-time
+                # bar events process. (Was asyncio.to_thread(ib.sleep,…) → ran in
+                # a loopless worker thread → "no current event loop" crash.)
+                await asyncio.sleep(0.1)
                 for sym, rtbars in bar_lists.items():
                     if not rtbars:
                         continue
@@ -302,13 +302,42 @@ class IBKRRouter(OrderRouter):
         ib_action = "BUY" if order.side == OrderSide.BUY else "SELL"
         ib_order = ib_insync.MarketOrder(ib_action, order.quantity)
         ib_order.account = account
+        # MOO placement: if the US equity venue is CLOSED (pre-market), submit as
+        # an opening-auction order (TIF=OPG) so it queues for the open instead of
+        # a plain DAY market that the Gateway flaps via its preset. During RTH,
+        # leave the default (immediate market). This is the native-MOO placement
+        # that supports_moo("ibkr")=True promises. (If a Gateway order preset
+        # forces TIF=DAY it still goes PreSubmitted and fills at the open.)
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            from .. import market_hours
+            from ...bar_cache.asset_class_resolver import resolve_asset_class
+            if not market_hours.is_open(resolve_asset_class(order.symbol), _dt.now(_tz.utc)):
+                ib_order.tif = "OPG"
+        except Exception:
+            pass
         trade = ib.placeOrder(contract, ib_order)
 
-        # Wait for the trade to reach a terminal status, then coalesce
-        # all fills into a single Fill event for the rest of the engine.
-        # ib_insync exposes `trade.isDone()` and `trade.fills`.
-        while not trade.isDone():
-            await asyncio.to_thread(ib.sleep, 0.5)
+        # A MOO/OPG order queues until the opening auction (PreSubmitted) — it must
+        # NOT block the router for hours. Wait briefly for a PROMPT fill (the RTH
+        # case); if it's still working/queued, record it as submitted and return —
+        # the opening-auction fill is reconciled from the IBKR book (broker =
+        # golden source), not by blocking here.
+        waited = 0.0
+        while not trade.isDone() and waited < 8.0:
+            # ib_insync is on the engine loop (connectAsync awaited here), so its
+            # socket events process when we yield. (Was to_thread(ib.sleep,…) →
+            # loopless worker thread → "no current event loop" crash.)
+            await asyncio.sleep(0.5)
+            waited += 0.5
+        if not trade.isDone():
+            log.info(
+                "IBKR order QUEUED · %s %s qty=%s status=%s tif=%s — will fill at "
+                "the open; not blocking (reconcile fill from the IBKR book).",
+                order.side.value, order.symbol, order.quantity,
+                trade.orderStatus.status, getattr(ib_order, "tif", ""),
+            )
+            return
 
         if not trade.fills:
             log.warning(

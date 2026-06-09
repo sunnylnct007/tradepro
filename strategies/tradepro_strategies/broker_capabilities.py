@@ -22,7 +22,7 @@ from __future__ import annotations
 
 # broker key (matches --broker) → supports native MOO/opening-auction order
 _SUPPORTS_MOO: dict[str, bool] = {
-    "ibkr": False,      # capable (MOO/OPG) — flip to True once the IBKR adapter places MOO
+    "ibkr": True,       # native MOO/OPG: adapter places TIF=OPG pre-market → PreSubmitted → fills in the opening auction
     "alpaca": False,    # capable (OPG) — same caveat
     "t212": False,      # market orders, RTH only — needs the gate fallback
     "ig": False,        # CFD/24h, no US opening auction

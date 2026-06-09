@@ -112,11 +112,12 @@ def build_session(
 
     if broker == "ibkr":
         conn = ibkr_connection or IBKRConnection()
-        bus = IBKRBarBus(
-            symbols=symbols,
-            connection=conn,
-            timeframe_seconds=ibkr_timeframe_seconds,
-        )
+        # DAILY strategies (ichimoku_equity) read their signal from cached daily
+        # history and just need a trigger bar — so use Yahoo daily bars (exactly
+        # like the t212 profile) and IBKR ONLY for order routing. The real-time
+        # IBKRBarBus is for intraday and is driven by the intraday engine, not
+        # this daily paper path (and pre-market it yields no real-time bars).
+        bus = _yfinance_bus(symbols, session_date, interval, pace_seconds, lookback_days)
         router = IBKRRouter(
             connection=conn,
             default_account=ibkr_default_account,
