@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  tradepro bar-cache daily harvest
+  Runs Mon–Fri at 21:15 UTC (5:15 PM ET) — 75 min after 4 PM market close.
+  Fetches today's 1m bars for the full intraday_flat universe via IBKR TWS.
+
+  Install:
+    cp scripts/com.tradepro.bar-cache-harvest.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.tradepro.bar-cache-harvest.plist
+
+  Unload:
+    launchctl unload ~/Library/LaunchAgents/com.tradepro.bar-cache-harvest.plist
+
+  Run immediately (test):
+    launchctl kickstart -k gui/$(id -u)/com.tradepro.bar-cache-harvest
+
+  Logs:
+    ~/.tradepro/logs/bar-cache-harvest.log
+    ~/.tradepro/logs/bar-cache-harvest.err
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tradepro.bar-cache-harvest</string>
+
+    <!--
+      Daily cron — yfinance fallback is ACCEPTABLE here because this only
+      harvests TODAY's session and TWS may briefly lag behind the cron.
+      For historical backfill use --ibkr-only explicitly.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies/.venv/bin/tradepro-bar-cache-harvest</string>
+        <string>--resolution</string>
+        <string>1m</string>
+        <string>--asset</string>
+        <string>us_etf</string>
+        <string>--allow-partial</string>
+        <string>--verbose</string>
+        <!-- No --ibkr-only here: yfinance is a same-day fallback if TWS lags -->
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TRADEPRO_IBKR_PORT</key>
+        <string>7497</string>
+        <key>HOME</key>
+        <string>/Users/skumar</string>
+    </dict>
+
+    <!--
+      Run at 21:15 UTC Monday–Friday.
+      Weekday: 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri
+    -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Weekday</key><integer>1</integer>
+            <key>Hour</key><integer>21</integer>
+            <key>Minute</key><integer>15</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>2</integer>
+            <key>Hour</key><integer>21</integer>
+            <key>Minute</key><integer>15</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>3</integer>
+            <key>Hour</key><integer>21</integer>
+            <key>Minute</key><integer>15</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>4</integer>
+            <key>Hour</key><integer>21</integer>
+            <key>Minute</key><integer>15</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>5</integer>
+            <key>Hour</key><integer>21</integer>
+            <key>Minute</key><integer>15</integer>
+        </dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/Users/skumar/.tradepro/logs/bar-cache-harvest.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/skumar/.tradepro/logs/bar-cache-harvest.err</string>
+
+    <!-- Don't harvest on load — wait for the scheduled time -->
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
