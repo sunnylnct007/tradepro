@@ -347,16 +347,23 @@ class IchimokuEquityStrategy(Strategy):
         # feeds the latest close) as live. A historical replay's bars are old,
         # so they're never gated. (The vectorised backtest doesn't use on_bar.)
         _now = _dt.now(_tz.utc)
-        _bar_ts = bar.timestamp if bar.timestamp.tzinfo else bar.timestamp.replace(tzinfo=_tz.utc)
-        _live_ctx = bar.is_live or (_now - _bar_ts).total_seconds() <= 7 * 86400
+        # LIVE context = a REAL broker (not a sim/backtest), keyed off the broker
+        # NOT bar recency. The old heuristic (bar.is_live or bar within 7d)
+        # bypassed the gate whenever the live data feed went stale (yfinance
+        # rate-limit) → the latest bar looked "old" → pre-market cancel-loop
+        # returned (155 cancelled 2026-06-09). Broker-keying is robust: real
+        # brokers always gate when their venue is closed; sims (replay/yfinance)
+        # never gate, so the vectorised backtest/replay isn't wall-clock gated.
+        _broker = (self._p().get("broker") or "").strip().lower()
+        _live = _broker not in ("", "replay", "yfinance", "paper", "stub_live")
         # Broker-capability gate: brokers with a NATIVE MOO/opening-auction order
-        # (IBKR/Alpaca) can accept the order pre-market — it queues for the open —
-        # so we DON'T gate them. Brokers without it (T212) must hold until the
-        # venue opens, else the pre-market market order is rejected + re-emitted
-        # (the cancel-loop). Config-driven per broker (broker_capabilities).
+        # (IBKR/Alpaca) accept the order pre-market — it queues for the open — so
+        # we DON'T gate them. Brokers without it (T212) must hold until the venue
+        # opens, else the pre-market market order is rejected + re-emitted (the
+        # cancel-loop). Config-driven per broker (broker_capabilities).
         from ... import broker_capabilities
-        _moo = broker_capabilities.supports_moo(self._p().get("broker"))
-        if (not _moo) and _live_ctx and not market_hours.is_open(_ac, _now):
+        _moo = broker_capabilities.supports_moo(_broker)
+        if _live and (not _moo) and not market_hours.is_open(_ac, _now):
             self.log_decision(
                 symbol=sym, bar_ts=bar.timestamp,
                 action="skip-market-closed",
