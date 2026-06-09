@@ -29,19 +29,24 @@ namespace TradePro.Api.Endpoints;
 /// </summary>
 public static class StrategyHealthEndpoints
 {
-    private static readonly (string Id, string Label)[] Known =
+    // Optional nice display names. The strategy LIST is NOT hardcoded — it's
+    // loaded from strategy_broker_map (the single source of truth) at request
+    // time, so onboarding a new strategy/broker is a config row, not a code edit
+    // here. This map only prettifies labels; unknown ids fall back to "id (broker)".
+    private static readonly Dictionary<string, string> LabelOverrides = new()
     {
-        ("ichimoku_equity", "Ichimoku Equity (T212 cash)"),
-        ("intraday_flat",   "Intraday Flat (IG 24h CFD)"),
-        ("ichimoku_fx_mr",  "Ichimoku FX MR (IG FX)"),
+        ["ichimoku_equity"]      = "Ichimoku Equity (T212 cash)",
+        ["ichimoku_equity_ibkr"] = "Ichimoku Equity (IBKR paper · protected)",
+        ["intraday_flat"]        = "Intraday Flat (IG 24h CFD)",
+        ["ichimoku_fx_mr"]       = "Ichimoku FX MR (IG FX)",
     };
 
     // Per-symbol engine id → base, e.g. "intraday-ichimoku_equity-AAPL" → "intraday-ichimoku_equity".
     private static readonly Regex PerSymbol = new(@"^(.*)-[A-Z0-9.]{1,6}$", RegexOptions.Compiled);
 
-    private static string GroupOf(string id)
+    private static string GroupOf(string id, HashSet<string> configured)
     {
-        if (Known.Any(k => k.Id == id)) return id;        // main strategies keep their id
+        if (configured.Contains(id)) return id;           // configured strategies keep their id
         var m = PerSymbol.Match(id);
         return m.Success ? m.Groups[1].Value : id;        // collapse per-symbol ids to their base
     }
@@ -65,22 +70,32 @@ public static class StrategyHealthEndpoints
 
             var nowUtc = DateTime.UtcNow;
 
-            // Aggregate by group (main strategies = themselves; per-symbol ids collapsed).
-            var groups = raw.GroupBy(r => GroupOf(r.Id)).ToDictionary(g => g.Key, g => g);
+            // CONFIG-DRIVEN strategy list — the single source of truth is
+            // strategy_broker_map, NOT a hardcoded array. Add a row there and this
+            // panel (+ pnl-by-strategy, which reads the same table) pick the
+            // strategy up automatically — onboarding is a config row, not a code edit.
+            var configured = (await conn.QueryAsync<(string Id, string Broker)>(
+                "SELECT strategy_id AS Id, broker AS Broker FROM strategy_broker_map ORDER BY strategy_id")).ToList();
+            var configuredIds = configured.Select(c => c.Id).ToHashSet();
+
+            // Aggregate by group (configured strategies = themselves; per-symbol ids collapsed).
+            var groups = raw.GroupBy(r => GroupOf(r.Id, configuredIds)).ToDictionary(g => g.Key, g => g);
             // Only the CONFIGURED strategies (the ones actually wired to run). The
             // intraday-engine per-symbol groups + reconcile_from_broker aren't set up
             // to trade yet, so they'd show a permanent misleading "not running" —
             // exclude until configured (add to Known when they go live).
-            var ids = Known.Select(k => k.Id);
+            var ids = configured.Select(c => c.Id);
 
             var strategies = ids.Select(id =>
             {
                 groups.TryGetValue(id, out var g);
                 var members = g?.ToList() ?? new();
                 int symbolCount = members.Count;
-                bool isMain = Known.Any(k => k.Id == id);
-                string label = Known.FirstOrDefault(k => k.Id == id).Label
-                               ?? (symbolCount > 1 ? $"{id} ({symbolCount} symbols)" : id);
+                bool isMain = configuredIds.Contains(id);
+                var broker = configured.FirstOrDefault(c => c.Id == id).Broker ?? "";
+                string label = LabelOverrides.TryGetValue(id, out var lbl)
+                               ? lbl
+                               : (broker.Length > 0 ? $"{id} ({broker})" : id);
 
                 DateTime? last = members.Where(m => m.LastOrder.HasValue).Select(m => m.LastOrder!.Value)
                                         .DefaultIfEmpty().Max();
