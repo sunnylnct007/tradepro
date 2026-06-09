@@ -463,13 +463,35 @@ class BarStore:
                 chain_log.append(f"{provider_name}_unsupported")
                 continue
             attempted.append(provider_name)
+
+            # Clip the fetch window to the provider's max_history.
+            # yfinance caps 1m at 7 days back; IBKR caps 1m at ~1 year.
+            # If the partition window *starts* before the provider can
+            # reach, clamp fetch_start forward so we request the
+            # sub-window the provider can actually serve.  If the whole
+            # window is out of range, skip this provider for this partition.
+            max_hist = provider.max_history(resolution)
+            fetch_start = partition_start
+            fetch_end = partition_end
+            if max_hist is not None:
+                from datetime import timezone as _tz
+                now_utc = datetime.now(_tz.utc).replace(
+                    hour=0, minute=0, second=0, microsecond=0,
+                )
+                earliest_allowed = now_utc - max_hist
+                if fetch_start < earliest_allowed:
+                    fetch_start = earliest_allowed
+                if fetch_start >= fetch_end:
+                    chain_log.append(f"{provider_name}_out_of_range")
+                    continue
+
             try:
                 df, meta = provider.fetch(
                     canonical=canonical,
                     asset_class=asset_class,
                     resolution=resolution,
-                    start=partition_start,
-                    end=partition_end,
+                    start=fetch_start,
+                    end=fetch_end,
                 )
             except BarFetchError as exc:
                 last_exc = exc
