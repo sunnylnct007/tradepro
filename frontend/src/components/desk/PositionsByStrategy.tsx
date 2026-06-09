@@ -114,6 +114,30 @@ export function PositionsByStrategy({
         }
       } else if (t212 && !t212.enabled) msgs.push("T212 disabled");
 
+      // T212 LIVE — the user's personal live account (separate from the algo
+      // DEMO book above). Shown so the cockpit reflects every account.
+      const t212live = await api.t212Positions("live").catch(() => null);
+      if (t212live?.enabled && t212live.positions) {
+        for (const p of t212live.positions) {
+          out.push({
+            broker: "T212",
+            ticker: p.ticker,
+            company: p.yahooSymbol ?? null,
+            qty: fmtQty(p.quantity),
+            last: p.currentPrice,
+            changePct: p.unrealisedPct,
+            pnl: p.unrealisedAbs,
+            pnlPct: p.unrealisedPct,
+            ccy: p.currency,
+            chartSymbol: p.yahooSymbol ?? chartSymbolFor(p.ticker, "T212"),
+            mode: accountMode("T212", "live") as AccountMode,
+            strategyId: attribution.get(attrKey("T212", p.ticker)) ?? null,
+            series: null,
+            avgPrice: null,
+          });
+        }
+      }
+
       // IG
       const ig = await api.igPositions().catch((e) => {
         msgs.push(`IG: ${e instanceof Error ? e.message : e}`);
@@ -170,6 +194,30 @@ export function PositionsByStrategy({
         }
       } else if (ibkr && !ibkr.enabled) msgs.push("IBKR disabled");
       else if (ibkr?.error)             msgs.push(`IBKR: ${ibkr.error}`);
+
+      // IBKR DEMO (paper clone): no live broker endpoint reads the paper account
+      // (DUP656969 — the .NET IBKR client is the live harvesting session), so
+      // source the clone's book from the OMS (broker IBKR_PAPER). Qty + cost
+      // basis only; live mark/P&L arrives once the clone pushes account state.
+      for (const p of oms?.positions ?? []) {
+        if ((p.broker || "") !== "IBKR_PAPER" || !p.quantity) continue;
+        out.push({
+          broker: "IBKR",
+          ticker: p.symbol,
+          company: null,
+          qty: fmtQty(p.quantity),
+          last: null,
+          changePct: null,
+          pnl: null,
+          pnlPct: null,
+          ccy: "USD",
+          chartSymbol: chartSymbolFor(p.symbol, "IBKR"),
+          mode: accountMode("IBKR", "demo") as AccountMode,
+          strategyId: p.strategyId ?? "ichimoku_equity_ibkr",
+          series: null,
+          avgPrice: (p as { avgPrice?: number }).avgPrice ?? null,
+        });
+      }
 
       if (!live) return;
       setGrouping(out.some((r) => r.strategyId) ? "strategy" : "broker");
