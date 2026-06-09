@@ -712,6 +712,57 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[st
             f"strategy {getattr(strategy, 'strategy_id', '?')!r} has no "
             f"seed_positions hook — cannot confirm position from {b!r}"
         )
+    # IBKR: read OUR PAPER account straight from the Gateway via ib_insync
+    # (TRADEPRO_IBKR_PORT/ACCOUNT). NOT /api/integrations/ibkr — that endpoint
+    # reads the LIVE harvesting account (IBKR_LIVE), the WRONG book. Self-
+    # contained (returns early) so the t212/ig HTTP seed path is untouched.
+    # Fail-closed: any connection error raises (never trade on an unconfirmed book).
+    if b == "ibkr":
+        log = logging.getLogger("tradepro.cli")
+        import asyncio as _aio
+        import os as _os
+        from ib_insync import IB as _IB
+        _host = _os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
+        _port = int(_os.environ.get("TRADEPRO_IBKR_PORT", "7497"))
+        _want = (_os.environ.get("TRADEPRO_IBKR_ACCOUNT") or "").strip()
+        # Distinct clientId from the engine's so this short-lived seed
+        # connection never clashes with the router/bus session.
+        _cid = int(_os.environ.get("TRADEPRO_IBKR_CLIENT_ID", "17")) + 100
+
+        async def _fetch_ibkr_rows() -> list[dict]:
+            ib = _IB()
+            await ib.connectAsync(_host, _port, clientId=_cid, timeout=15)
+            try:
+                await _aio.sleep(1.0)  # let position snapshots arrive
+                return [
+                    {"ticker": pp.contract.symbol, "quantity": pp.position,
+                     "averagePricePaid": pp.avgCost}
+                    for pp in ib.positions()
+                    if not _want or (pp.account or "").strip() == _want
+                ]
+            finally:
+                ib.disconnect()
+
+        try:
+            rows = _aio.run(_fetch_ibkr_rows())
+        except Exception as exc:  # noqa: BLE001
+            raise PositionSeedError(
+                f"could not read ibkr paper positions (golden source) via the "
+                f"Gateway on :{_port}: {exc}"
+            ) from exc
+        pp = getattr(strategy, "params", {}) or {}
+        universe: set[str] = set()
+        for key in ("pairs", "symbols", "candidates"):
+            universe.update(str(x).strip().upper() for x in (pp.get(key) or []) if str(x).strip())
+        positions, avg_prices = _parse_broker_position_rows(rows, universe)
+        if positions:
+            log.info("POSITION SEED (ibkr-broker): %s starting with %s",
+                     strategy.strategy_id, positions)
+            strategy.seed_positions(positions)
+        else:
+            log.info("POSITION SEED (ibkr-broker): %s — paper account confirms a flat book",
+                     strategy.strategy_id)
+        return positions, avg_prices
     path = _REAL_BROKER_POSITION_PATHS.get(b)
     if path is None:
         raise PositionSeedError(
