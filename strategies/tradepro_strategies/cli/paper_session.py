@@ -158,6 +158,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[ichimoku_equity] Max leverage scalar (default 1.5).")
     p.add_argument("--no-regime-filter", action="store_true",
                    help="[ichimoku_equity] Disable the SPY 200-SMA regime gate.")
+    # ── Ichimoku equity RISK controls (default OFF → T212 control unchanged;
+    #    switch ON for the protected IBKR-paper clone) ─────────────────────
+    p.add_argument("--stop-loss-pct", type=float, default=None,
+                   help="[ichimoku_equity] Hard stop: flatten a held long down ≥ this %% (e.g. 8). Off by default.")
+    p.add_argument("--take-profit-pct", type=float, default=None,
+                   help="[ichimoku_equity] Take-profit: flatten a held long up ≥ this %%. Off by default.")
+    p.add_argument("--max-per-sector", type=int, default=None,
+                   help="[ichimoku_equity] Concentration cap: max NEW entries per sector. Off by default.")
     # ── Ichimoku FX knobs ────────────────────────────────────────────────
     p.add_argument("--warmup-bars", type=int, default=200,
                    help="[ichimoku_fx_mr] Bars of history before signals fire.")
@@ -449,6 +457,12 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "target_vol": args.target_vol,
                 "max_leverage": args.max_leverage,
                 "use_regime_filter": not args.no_regime_filter,
+                # Risk controls — None by default (T212 control unchanged);
+                # set via --stop-loss-pct/--take-profit-pct/--max-per-sector
+                # for the protected IBKR-paper clone.
+                "stop_loss_pct": getattr(args, "stop_loss_pct", None),
+                "take_profit_pct": getattr(args, "take_profit_pct", None),
+                "max_per_sector": getattr(args, "max_per_sector", None),
             },
         )
 
