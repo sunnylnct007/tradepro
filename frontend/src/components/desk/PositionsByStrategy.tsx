@@ -51,7 +51,12 @@ type InternalRow = PositionRow & {
 };
 
 function attrKey(broker: string, symbol: string): string {
-  return `${broker.toLowerCase()}:${bareSymbol(symbol)}`;
+  // Normalise the broker to its FAMILY prefix so the OMS attribution (which
+  // stores full labels: T212_DEMO / IG_DEMO / IBKR_PAPER) joins the broker
+  // position rows (which use T212 / IG / IBKR). Without this the join missed and
+  // every T212/IG position showed as "Unattributed".
+  const fam = broker.toLowerCase().split("_")[0];
+  return `${fam}:${bareSymbol(symbol)}`;
 }
 
 export function PositionsByStrategy({
