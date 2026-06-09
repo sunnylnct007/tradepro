@@ -64,9 +64,13 @@ class IBKRConnection:
     order router don't open two gateway sockets to the same TWS / Client
     Portal Gateway. Construct once, pass to both."""
 
-    host: str = "127.0.0.1"
-    port: int = 7497          # TWS paper port; 7496 live, 4001/4002 for IB Gateway
-    client_id: int = 17       # arbitrary; must be unique per concurrent connection
+    # Env-overridable so the daemon can target our paper Gateway on 7500
+    # (Docker holds 4001/4002; TWS uses 7496/7497 — 7500 keeps us clear).
+    host: str = field(default_factory=lambda: os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1"))
+    port: int = field(default_factory=lambda: int(os.environ.get("TRADEPRO_IBKR_PORT", "7497")))
+    # Unique per concurrent connection (so we don't clash with the live
+    # data-harvesting session's client id).
+    client_id: int = field(default_factory=lambda: int(os.environ.get("TRADEPRO_IBKR_CLIENT_ID", "17")))
     timeout_seconds: float = 10.0
     _ib: object | None = None  # ib_insync.IB instance
 
