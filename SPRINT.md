@@ -34,7 +34,7 @@ or tenkan/kijun not stacked, or chikou behind".
 **Bar cache is now fully operational:**
 - 390 RTH bars for June 5 in cache; `bar_cache_get --from 2026-06-05 --to 2026-06-05` → 390/390 COMPLETE via cache_hit_range
 - Two bugs fixed (commit 942253d): partial-partition cache hit + `--to` date off-by-one
-- TWS connected on port 7496 (live account U25124456)
+- TWS connected on port 7497 (live account U25124456)
 
 **Next scenario-sim goal:** forward-sim seeded with LIVE IBKR positions (APLD, BABA, EC, MRVL, SWDA, VWRL)
 — stress these ACTUAL positions, not the paper candidates. Gate: data platform dependency (see memory).
@@ -81,7 +81,7 @@ or tenkan/kijun not stacked, or chikou behind".
 ## Infrastructure state
 | Thing | Status |
 |---|---|
-| Bar cache | ✅ TWS connected port 7496 (live U25124456); 390 RTH bars Jun 5 in cache; `cache_hit_range` working |
+| Bar cache | ✅ TWS connected port 7497 (live U25124456); 390 RTH bars Jun 5 in cache; `cache_hit_range` working |
 | Bar cache bugs | ✅ Fixed (942253d): partial-partition cache hit + `--to` off-by-one |
 | Data source badge on scan grid | ✅ Live (ibkr=blue, ig=purple, yfinance=gray) |
 | DATA ERR sentinel card | ✅ Live — red card when all providers fail |
@@ -133,33 +133,33 @@ or tenkan/kijun not stacked, or chikou behind".
 - yfinance 1m bars: **last 7 calendar days only** — sufficient for current week only
 - yfinance daily: unlimited — all backtests above use daily bars
 - **IBKR bar cache** ✅ TWS connected, data flowing — unlimited 1m history now available
-  → use `TRADEPRO_IBKR_PORT=7496 tradepro-bar-cache-get` to harvest any symbol/date
+  → use `TRADEPRO_IBKR_PORT=7497 tradepro-bar-cache-get` to harvest any symbol/date
 
 ---
 
 ## TWS setup (one-time — unblocks Friday replay)
 
-`ib_insync 0.9.86` is installed. **TWS is already connected** on port **7496** (live account U25124456).
+`ib_insync 0.9.86` is installed. **TWS is already connected** on port **7497** (live account U25124456).
 
 ### One-time setup (already done — for reference)
 
 1. Open **IBKR Trader Workstation** (Classic TWS, NOT IBKR Desktop)
 2. Menu: **Edit → Global Configuration → API → Settings**
 3. Tick: ☑ **Enable ActiveX and Socket Clients**
-4. Port: **7496** (TWS live account port — NOT 7497 which is paper)
+4. Port: **7497** (confirmed working)
 5. Trusted IPs: blank (localhost always allowed)
 6. Click **OK / Apply**
 
 ### Verify TWS is still connected
 ```bash
 cd /Users/skumar/sourcecode/tradepro/tradepro/strategies
-TRADEPRO_IBKR_PORT=7496 .venv/bin/tradepro-verify-tws --date 2026-06-05
+TRADEPRO_IBKR_PORT=7497 .venv/bin/tradepro-verify-tws --date 2026-06-05
 # Expected: ✓ SUCCESS — NNN bars  provider_used=ibkr
 ```
 
 ### Fetch any date into cache
 ```bash
-TRADEPRO_IBKR_PORT=7496 .venv/bin/tradepro-bar-cache-get \
+TRADEPRO_IBKR_PORT=7497 .venv/bin/tradepro-bar-cache-get \
     --canonical SPY --asset us_etf --resolution 1m \
     --from 2026-06-05 --to 2026-06-05 -v
 # → 390/390 COMPLETE via cache_hit_range (instant, no network call)
