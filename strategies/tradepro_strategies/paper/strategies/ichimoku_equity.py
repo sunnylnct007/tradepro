@@ -308,10 +308,18 @@ class IchimokuEquityStrategy(Strategy):
         # strategy: its latest bar is stamped at the prior session's date
         # (midnight UTC), so is_open(bar.timestamp) is ALWAYS False and the
         # strategy would NEVER trade. The order is submitted NOW, so "is the
-        # venue open" must be evaluated at now(). Only applies live
-        # (bar.is_live); backtests (is_live=False) are unaffected so the
-        # vectorised parity holds.
-        if bar.is_live and not market_hours.is_open(_ac, _dt.now(_tz.utc)):
+        # venue open" must be evaluated at now().
+        #
+        # We must apply this ONLY in a LIVE context, never in a historical
+        # backtest/replay (which would skip every bar based on wall-clock).
+        # The live t212 feed does NOT reliably set bar.is_live, so we ALSO
+        # treat a RECENT bar (within a week of now — the live daemon always
+        # feeds the latest close) as live. A historical replay's bars are old,
+        # so they're never gated. (The vectorised backtest doesn't use on_bar.)
+        _now = _dt.now(_tz.utc)
+        _bar_ts = bar.timestamp if bar.timestamp.tzinfo else bar.timestamp.replace(tzinfo=_tz.utc)
+        _live_ctx = bar.is_live or (_now - _bar_ts).total_seconds() <= 7 * 86400
+        if _live_ctx and not market_hours.is_open(_ac, _now):
             self.log_decision(
                 symbol=sym, bar_ts=bar.timestamp,
                 action="skip-market-closed",
