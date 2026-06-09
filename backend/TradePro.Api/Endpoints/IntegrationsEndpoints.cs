@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Security.Claims;
 using System.Text.RegularExpressions;
 using Dapper;
 using Npgsql;
+using TradePro.Api.Auth;
 using TradePro.Api.Providers.Finnhub;
 using TradePro.Api.Providers.Trading212;
 
@@ -159,9 +161,21 @@ public static class IntegrationsEndpoints
         // counts, not the OMS-derived projection (which can drift).
         app.MapGet("/integrations/ig/positions", async (
             TradePro.Api.Providers.IG.IGClient ig,
+            IConfiguration config,
+            ClaimsPrincipal user,
             CancellationToken ct) =>
         {
             if (!ig.IsEnabled)
+            {
+                return Results.Ok(new
+                {
+                    enabled = false,
+                    mode = "disabled",
+                    positions = Array.Empty<object>(),
+                });
+            }
+            // Live-data gate: don't leak IG LIVE holdings to non-allow-listed users.
+            if (LiveDataAccess.IsLiveBroker(ig.BrokerLabel) && !LiveDataAccess.CanSeeLive(user, config))
             {
                 return Results.Ok(new
                 {
@@ -341,18 +355,23 @@ public static class IntegrationsEndpoints
             TradePro.Api.Providers.IG.IGClient ig,
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             IConfiguration config,
+            ClaimsPrincipal user,
             NpgsqlDataSource db,
             CancellationToken ct) =>
         {
             var rows = new List<object>();
             // Captured for the daily account-value snapshot (equity curve).
             var snap = new List<(string Broker, string? Ccy, decimal Value)>();
+            // Live-data gate: non-allow-listed signed-in users see DEMO/paper only.
+            var canLive = LiveDataAccess.CanSeeLive(user, config);
 
             // T212 LIVE — cash fetched via the live cache (TTL 30s) so the
             // cockpit's poll loop doesn't hammer T212's /account/cash bucket.
             // On 429 the cache serves the last good snapshot; on first call
             // it fetches fresh. When the live client is disabled we surface
             // the disabled slot so the UI knows it's wired and waiting.
+            // Live-data gate: only allow-listed users get the LIVE row at all.
+            if (canLive)
             try
             {
                 if (t212Live.IsEnabled)
@@ -418,7 +437,8 @@ public static class IntegrationsEndpoints
             // IG DEMO/LIVE — FX + equities + CFD. Sleeve for FX strategy.
             try
             {
-                if (ig.IsEnabled)
+                // Live-data gate: hide the IG LIVE row from non-allow-listed users.
+                if (ig.IsEnabled && !(LiveDataAccess.IsLiveBroker(ig.BrokerLabel) && !canLive))
                 {
                     var cash = await ig.GetCashAsync(ct);
                     // "Are we making money" for IG = openPnl (IG's OWN running P&L
@@ -441,7 +461,7 @@ public static class IntegrationsEndpoints
                     if (cash.Error is null && cash.Balance is { } igBal)
                         snap.Add((ig.BrokerLabel, TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, ig.BrokerLabel, cash.Currency), igBal));
                 }
-                else
+                else if (!ig.IsEnabled)
                 {
                     rows.Add(new { broker = "IG", label = "IG (FX + equities)",
                         status = "disabled",
@@ -461,7 +481,8 @@ public static class IntegrationsEndpoints
             // expectation that it's wired + waiting on secrets.
             try
             {
-                if (ibkr.IsEnabled)
+                // Live-data gate: hide the IBKR LIVE row from non-allow-listed users.
+                if (ibkr.IsEnabled && !(LiveDataAccess.IsLiveBroker(ibkr.BrokerLabel) && !canLive))
                 {
                     var cash = await ibkr.GetCashAsync(ct);
                     rows.Add(new
@@ -478,7 +499,7 @@ public static class IntegrationsEndpoints
                     if (cash.Error is null && cash.NetLiquidation is { } ibkrNlv)
                         snap.Add((ibkr.BrokerLabel, TradePro.Api.Configuration.BrokerCurrencies.Resolve(config, ibkr.BrokerLabel, cash.Currency), ibkrNlv));
                 }
-                else
+                else if (!ibkr.IsEnabled)
                 {
                     rows.Add(new
                     {
@@ -863,6 +884,8 @@ public static class IntegrationsEndpoints
         // gracefully (renders nothing) rather than erroring the panel.
         app.MapGet("/integrations/ibkr/positions", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            IConfiguration config,
+            ClaimsPrincipal user,
             CancellationToken ct) =>
         {
             if (!ibkr.IsEnabled)
@@ -872,6 +895,16 @@ public static class IntegrationsEndpoints
                 {
                     enabled = false,
                     note = "Populate tradepro/ibkr secret + restart",
+                    positions = Array.Empty<object>(),
+                });
+            }
+            // Live-data gate: don't leak IBKR LIVE holdings to non-allow-listed users.
+            if (LiveDataAccess.IsLiveBroker(ibkr.BrokerLabel) && !LiveDataAccess.CanSeeLive(user, config))
+            {
+                return Results.Ok(new
+                {
+                    enabled = false,
+                    note = "Live data hidden for this user",
                     positions = Array.Empty<object>(),
                 });
             }
@@ -1009,6 +1042,8 @@ public static class IntegrationsEndpoints
                 Trading212DemoClient demoClient,
                 Trading212PositionsCache liveCache,
                 Trading212DemoPositionsCache demoCache,
+                IConfiguration config,
+                ClaimsPrincipal user,
                 CancellationToken ct) =>
             {
                 // ?account=live|demo. Demo is the default because that's
@@ -1017,6 +1052,19 @@ public static class IntegrationsEndpoints
                 // Portfolio page showing real-money positions by accident
                 // when only the demo account has trades in it.
                 var useDemo = !string.Equals(account, "live", StringComparison.OrdinalIgnoreCase);
+
+                // Live-data gate: hide live T212 holdings from non-allow-listed users.
+                if (!useDemo && !LiveDataAccess.CanSeeLive(user, config))
+                {
+                    return Results.Ok(new
+                    {
+                        enabled = false,
+                        mode = "live",
+                        message = "Live data hidden for this user",
+                        positions = Array.Empty<object>(),
+                    });
+                }
+
                 var isEnabled = useDemo ? demoClient.IsEnabled : liveClient.IsEnabled;
                 var modeLabel = useDemo ? demoClient.Mode : liveClient.Mode;
 

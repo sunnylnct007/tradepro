@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using Dapper;
 using Npgsql;
+using TradePro.Api.Auth;
 using TradePro.Api.Oms;
 using TradePro.Api.Positions;
 using TradePro.Api.Providers.Trading212;
@@ -43,9 +45,13 @@ public static class PnlByStrategyEndpoints
             TradePro.Api.Providers.IG.IGClient ig,
             IOmsService oms,
             IConfiguration config,
+            ClaimsPrincipal user,
             NpgsqlDataSource db,
             CancellationToken ct) =>
         {
+            // Live-data gate: drop live-broker strategy rows for non-allow-listed users.
+            var canLive = LiveDataAccess.CanSeeLive(user, config);
+
             // Realised window for IG (closed-deal history). T212 realised is
             // life-to-date from the full ledger and ignores this.
             var window = Math.Clamp(days ?? 3650, 1, 3650);
@@ -190,6 +196,8 @@ public static class PnlByStrategyEndpoints
             var outRows = new List<PnlByStrategy.StrategyPnlRow>();
             foreach (var (strategyId, broker) in map)
             {
+                // Live-data gate: skip real-money broker rows for non-allow-listed users.
+                if (LiveDataAccess.IsLiveBroker(broker) && !canLive) continue;
                 var ccy = CurrencyFor(broker);
                 var isIg = broker.StartsWith("IG", StringComparison.OrdinalIgnoreCase);
                 decimal? open = null, realisedToday = null, realisedLtd = null;
