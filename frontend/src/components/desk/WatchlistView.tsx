@@ -52,7 +52,15 @@ export function WatchlistView() {
         }
         for (const p of ibkr?.positions ?? []) {
           if (!p.quantity || !p.ticker) continue;
-          out.push({ symbol: p.ticker, name: p.instrumentName ?? "", broker: "IBKR", qty: p.quantity, strategy: attr.get(`IBKR:${p.ticker}`.toUpperCase()) ?? "—" });
+          out.push({ symbol: p.ticker, name: p.instrumentName ?? "", broker: "IBKR live", qty: p.quantity, strategy: attr.get(`IBKR:${p.ticker}`.toUpperCase()) ?? "—" });
+        }
+        // IBKR PAPER (demo) clone book: no live broker endpoint reads the paper
+        // account (DUP656969 — the .NET IBKR client is the live harvesting
+        // session), so source it from the OMS, where the clone records its fills
+        // (broker IBKR_PAPER, strategy ichimoku_equity_ibkr).
+        for (const p of oms?.positions ?? []) {
+          if (p.broker !== "IBKR_PAPER" || !p.quantity) continue;
+          out.push({ symbol: p.symbol, name: "", broker: "IBKR demo", qty: p.quantity, strategy: p.strategyId ?? "ichimoku_equity_ibkr" });
         }
         if (live) { setRows(out); setErr(null); }
       } catch (e) {
