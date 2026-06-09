@@ -42,6 +42,7 @@ from ..messages import (
 )
 from ..router import OrderRouter
 from ..strategy import Bar, Fill, OrderSide, OrderType
+from ...secrets import get_secret
 
 
 log = logging.getLogger("tradepro.paper.ibkr")
@@ -267,6 +268,65 @@ class IBKRRouter(OrderRouter):
             if isinstance(msg, ShutdownEvent):
                 return
 
+    async def _record_in_oms(self, order, ib_order) -> None:
+        """Mirror an already-placed IBKR paper order into the OMS for VISIBILITY.
+
+        IBKR is placed by THIS Python router (ib_insync); the .NET IBKR placement
+        is kill-switched off (IBKR:AllowOrders=false), so posting here records the
+        order SUBMITTED and the backend NEVER re-places it — the OMS is a mirror,
+        not the placer. Idempotent via a deterministic ClientOrderId. Best-effort:
+        any failure is swallowed so it can't disturb the real placement.
+        """
+        try:
+            import hashlib
+            import uuid as _uuid
+            from datetime import datetime as _dt, timezone as _tz
+            try:
+                import httpx
+            except ImportError:
+                return
+            api_base = get_secret("api-base-url")
+            api_token = get_secret("api-token")
+            if not api_base or not api_token:
+                return
+            # Deterministic id from (strategy, symbol, side, qty, session date) so
+            # a 15-min rerun that re-records the same MOO order dedups (OMS unique
+            # index → 409) instead of duplicating.
+            day = _dt.now(_tz.utc).date().isoformat()
+            seed = (f"{order.strategy_id}:{order.symbol}:{order.side.value}:"
+                    f"{int(order.quantity)}:{day}")
+            client_id = str(_uuid.UUID(hashlib.md5(seed.encode()).hexdigest()))
+            intent = {
+                "ClientOrderId": client_id,
+                "Broker": "IBKR_PAPER",
+                "Symbol": order.symbol,
+                "Side": order.side.value,
+                "Qty": float(order.quantity),
+                "OrderType": "MKT",
+                "StrategyId": order.strategy_id,
+                "PlacedBy": "STRATEGY_AUTO",
+                "TimeInForce": getattr(ib_order, "tif", "DAY") or "DAY",
+            }
+            url = f"{api_base.rstrip('/')}/api/oms/orders"
+            headers = {"Authorization": f"Bearer {api_token}"}
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(url, json=intent, headers=headers)
+                if resp.status_code == 409:
+                    return  # already recorded this session — idempotent
+                if resp.status_code not in (200, 201):
+                    log.warning("OMS record (IBKR) %s for %s: %s",
+                                resp.status_code, order.symbol, resp.text[:160])
+                    return
+                oid = (resp.json() or {}).get("id")
+                # Approve → ApproveAsync hits the IBKR kill-switch and leaves the
+                # order SUBMITTED WITHOUT placing (safe mirror of our OPG queue).
+                if oid:
+                    await client.post(f"{url}/{oid}/approve", json={}, headers=headers)
+        except Exception:
+            log.exception(
+                "OMS record (IBKR) failed for %s — not on /oms (placement unaffected)",
+                getattr(order, "symbol", "?"))
+
     async def _handle_approval(
         self,
         ib,
@@ -317,6 +377,12 @@ class IBKRRouter(OrderRouter):
         except Exception:
             pass
         trade = ib.placeOrder(contract, ib_order)
+
+        # Mirror into the OMS for VISIBILITY (record-only — the .NET IBKR
+        # placement is kill-switched off via IBKR:AllowOrders=false, so the OMS
+        # records it SUBMITTED and NEVER re-places). Best-effort: never disturbs
+        # the real ib_insync placement above.
+        await self._record_in_oms(order, ib_order)
 
         # An OPG (market-on-open) order can only fill in the auction — there's
         # NOTHING to wait for, so record + return immediately. (Waiting 8s/order
