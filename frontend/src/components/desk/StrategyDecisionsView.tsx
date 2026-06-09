@@ -13,12 +13,18 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 
 const SEP = "#1b2233";
-const KNOWN = ["ichimoku_equity", "ichimoku_fx_mr", "intraday_flat"];
+// Display names for known strategies; ANY other discovered strategy_id falls
+// back to its raw id (config-driven — strategies are auto-discovered from the
+// posted snapshots, not a hardcoded allow-list, so a new clone appears on its own).
 const LABEL: Record<string, string> = {
   ichimoku_equity: "Ichimoku Equity (T212)",
+  ichimoku_equity_ibkr: "Ichimoku Equity (IBKR paper · protected)",
   ichimoku_fx_mr: "Ichimoku FX MR (IG)",
   intraday_flat: "Intraday Flat (IG 24h)",
 };
+// strategy_id = sessionLabel with its trailing -YYYY-MM-DD date stripped.
+const stratId = (label: string) => (label || "").replace(/-\d{4}-\d{2}-\d{2}$/, "");
+const humanize = (id: string) => LABEL[id] ?? id;
 
 type Decision = { symbol: string; action: string; reason: string };
 type Frame = { asOf: string | null; decisions: Decision[] };
@@ -52,7 +58,7 @@ export function StrategyDecisionsView() {
         const snaps = await api.paperSnapshots();
         const byStrat: Record<string, { label: string; recv: string }> = {};
         for (const s of snaps) {
-          const sid = KNOWN.find((k) => s.sessionLabel.startsWith(k + "-"));
+          const sid = stratId(s.sessionLabel);
           if (!sid) continue;
           if (!byStrat[sid] || s.receivedAtUtc > byStrat[sid].recv) {
             byStrat[sid] = { label: s.sessionLabel, recv: s.receivedAtUtc };
@@ -60,7 +66,7 @@ export function StrategyDecisionsView() {
         }
         const out: Record<string, Frame> = {};
         await Promise.all(
-          KNOWN.filter((k) => byStrat[k]).map(async (k) => {
+          Object.keys(byStrat).map(async (k) => {
             try {
               const snap = (await api.paperSnapshot(byStrat[k].label)) as Record<string, unknown>;
               const frames = (snap.strategies as Array<Record<string, unknown>>) ?? [];
@@ -92,10 +98,10 @@ export function StrategyDecisionsView() {
       </div>
       {loading && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Loading decisions…</div>}
       {err && <div style={{ fontSize: 11, color: "#f85149" }}>Decisions unavailable: {err}</div>}
-      {KNOWN.filter((k) => data[k]).map((k) => (
-        <StrategyDecisionCard key={k} label={LABEL[k] ?? k} frame={data[k]} />
+      {Object.keys(data).sort().map((k) => (
+        <StrategyDecisionCard key={k} label={humanize(k)} frame={data[k]} />
       ))}
-      {!loading && !err && KNOWN.every((k) => !data[k]) && (
+      {!loading && !err && Object.keys(data).length === 0 && (
         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>No snapshots posted yet.</div>
       )}
     </div>
