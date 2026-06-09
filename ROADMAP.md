@@ -105,6 +105,19 @@ but mode-switch parked (selector not in secret/.env — likely appsettings/code)
   order-placement gate.
 - A persistent system-health monitor pattern (API down / FX re-stack / daemon).
 
+### Backlog — Native MOO order placement per broker (raised 2026-06-09)
+The equity market-hours gate is now config-driven via
+`broker_capabilities.supports_moo(broker)`: brokers WITHOUT native MOO (T212)
+hold emission until the open + place a market order ("gate-at-open" fallback);
+MOO-capable brokers can emit pre-market to queue for the opening auction. The
+config map is in place but **IBKR/Alpaca are kept `False`** because their
+adapters don't yet place a real MOO/OPG order. Follow-up: when equities route
+through IBKR, (1) place a native `MOO`/`OPG` order in the IBKR adapter, then
+(2) flip `IBKR → True` — giving cleaner opening-auction fills with no pre-market
+churn. (Context: T212 has no MOO, so pre-market market orders were rejected +
+re-emitted = the cancel-loop; root-caused to the live t212 feed not setting
+`bar.is_live`, gate now also keys off bar-recency.)
+
 ### Backlog — Risk module per-order detail (raised 2026-06-08)
 Reviewing a *particular order* in the Risk view shows too little. Tighten +
 add rules, and surface, per order: which gates ran + pass/fail + WHY (the
