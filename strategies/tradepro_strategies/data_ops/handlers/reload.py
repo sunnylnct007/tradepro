@@ -109,6 +109,12 @@ class ReloadHandler(DataOpHandler):
         reason = str(params.get("reason") or "").strip()
         allow_partial_raw = params.get("allow_partial", True)
         api_base = str(params.get("api_base") or "").strip() or None
+        # ibkr_only: IBKR as sole provider — no yfinance fallback.
+        # For a Reload (force_refresh=True) you almost always want
+        # IBKR-quality data replacing what was there; otherwise you
+        # risk overwriting good IBKR partitions with yfinance stubs.
+        # Default True for reload (unlike backfill where it defaults False).
+        ibkr_only = _truthy(params.get("ibkr_only", True))
 
         # Reason is the safety rail for the destructive op. We require
         # non-empty text — not a checkbox, not "yes" — so the audit
@@ -188,10 +194,16 @@ class ReloadHandler(DataOpHandler):
             telemetry = TelemetrySink(base_dir=base_dir)
             preferences_loader = None
 
+        # Provider chain: reload defaults to ibkr_only=True so we
+        # always replace with high-quality data and never overwrite
+        # good IBKR partitions with yfinance stubs.
+        provider_chain = ["ibkr"] if ibkr_only else None  # None → use preferences
+
         store = BarStore(
             base_dir=base_dir,
             telemetry=telemetry,
             preferences_loader=preferences_loader,
+            provider_chain=provider_chain,
         )
 
         try:
