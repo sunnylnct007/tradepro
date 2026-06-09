@@ -557,6 +557,7 @@ public static class AdminEndpoints
             await using var conn = await db.OpenConnectionAsync();
             var rows = await conn.QueryAsync(@"
                 SELECT strategy_id, broker, account_id, note,
+                       runtime_config::text AS runtime_config,
                        updated_at_utc, updated_by
                 FROM strategy_broker_map
                 ORDER BY strategy_id;");
@@ -603,15 +604,18 @@ public static class AdminEndpoints
             // new strategy. Both paths produce the same final state.
             await conn.ExecuteAsync(@"
                 INSERT INTO strategy_broker_map
-                    (strategy_id, broker, account_id, note,
+                    (strategy_id, broker, account_id, note, runtime_config,
                      updated_at_utc, updated_by)
                 VALUES
-                    (@strategy_id, @broker, @account_id, @note,
+                    (@strategy_id, @broker, @account_id, @note, @runtime_config::jsonb,
                      NOW(), @actor)
                 ON CONFLICT (strategy_id) DO UPDATE
                 SET broker         = EXCLUDED.broker,
                     account_id     = EXCLUDED.account_id,
                     note           = EXCLUDED.note,
+                    -- COALESCE so a PUT that omits runtime_config keeps the
+                    -- existing config instead of wiping it.
+                    runtime_config = COALESCE(EXCLUDED.runtime_config, strategy_broker_map.runtime_config),
                     updated_at_utc = NOW(),
                     updated_by     = EXCLUDED.updated_by;",
                 new
@@ -622,6 +626,8 @@ public static class AdminEndpoints
                         ? null : body.AccountId,
                     note = string.IsNullOrWhiteSpace(body.Note)
                         ? null : body.Note,
+                    runtime_config = body.RuntimeConfig.HasValue
+                        ? body.RuntimeConfig.Value.GetRawText() : null,
                     actor,
                 });
 
@@ -736,7 +742,11 @@ public static class AdminEndpoints
     public sealed record StrategyBrokerMapPutBody(
         string Broker,
         string? AccountId,
-        string? Note
+        string? Note,
+        // Per-strategy RUNTIME config (risk params + connection + venue/schedule)
+        // so daemons run `--from-config` instead of hardcoded plist/YAML args.
+        // Opaque JSON the daemon interprets; null leaves the existing value intact.
+        System.Text.Json.JsonElement? RuntimeConfig
     );
 
     public sealed record T212SmokeOrderBody(

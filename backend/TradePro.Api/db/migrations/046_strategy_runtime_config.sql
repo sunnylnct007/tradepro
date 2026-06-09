@@ -1,0 +1,21 @@
+-- 046_strategy_runtime_config.sql
+-- Per-strategy RUNTIME config so the paper/live daemons are driven ENTIRELY from
+-- this table (single source of truth) instead of hardcoded launchd plists or CI
+-- YAML. The daemon runs `tradepro-paper --strategy-id <id> --from-config` and
+-- reads broker + account_id (existing columns) PLUS these params. The SAME
+-- command then works on the Mac, on AWS, and in prod — onboarding a new
+-- strategy/broker is a config row here, with NO code or workflow edit.
+--
+-- runtime_config JSON shape (all optional; the daemon falls back to CLI defaults):
+--   { "strategy": "ichimoku_equity",        -- strategy NAME (registry key)
+--     "sleeves": "large_50:20,high_beta:30,GLD:1",
+--     "symbols": "AAPL,MSFT,...",            -- alt to sleeves
+--     "capital_usd": 50000, "lookback_days": 5, "interval": "1d",
+--     "placement_mode": "auto",
+--     "stop_loss_pct": 8, "take_profit_pct": null, "max_per_sector": 5,
+--     "warmup_bars": 800, "max_position_value_usd": 100000,
+--     "ibkr_port": 7500, "ibkr_client_id": 21,  -- broker connection
+--     "schedule": "*/15 13-21 * * 1-5",      -- when the AWS workflow runs it
+--     "venue": "mac" | "aws" }               -- where it runs (mac=Gateway-pinned)
+ALTER TABLE strategy_broker_map
+    ADD COLUMN IF NOT EXISTS runtime_config JSONB;
