@@ -246,9 +246,14 @@ public static class PnlByStrategyEndpoints
                     {
                         try
                         {
-                            var fills = await LoadDatedFillsAsync(db, strategyId, broker, ct);
-                            if (fills.Count == 0)
+                            var (fills, unpriced) = await LoadDatedFillsAsync(db, strategyId, broker, ct);
+                            if (fills.Count == 0 && unpriced == 0)
                                 noteParts.Add("realised: no OMS fills for this strategy yet");
+                            else if (fills.Count == 0)
+                                // Every fill is unpriced (aged-out MOO orders T212 dropped
+                                // before the poller read a price). Leave realised/win BLANK
+                                // (null) — NOT £0/0%, which falsely reads as break-even.
+                                noteParts.Add($"realised NOT captured: {unpriced} fill(s) recorded with no broker price (T212 ages MOO orders out of /orders before the poller reads the price); position tracking stays correct, realised left blank rather than a false £0/0% win");
                             else
                             {
                                 var rr = PnlByStrategy.FifoRealisedSplit(fills);
@@ -257,6 +262,8 @@ public static class PnlByStrategyEndpoints
                                 trades = rr.ClosedTrades;
                                 winRate = rr.WinRatePct;
                                 noteParts.Add("realised derived from OMS fills (FIFO; T212 has no realised feed); today = sells dated today (UTC)");
+                                if (unpriced > 0)
+                                    noteParts.Add($"{unpriced} unpriced fill(s) excluded from realised (no broker price)");
                                 if (rr.UnmatchedSellQty > 0m)
                                     noteParts.Add($"{rr.UnmatchedSellQty:0.##} sell qty had no matching buy lot in the ledger — realised may understate");
                             }
@@ -358,7 +365,13 @@ public static class PnlByStrategyEndpoints
     /// fill is flagged IsToday when its UTC fill date == today, so realised can be
     /// split into "banked today" vs life-to-date. Read-only query against
     /// oms_orders ⋈ oms_fills — no PostgresOmsService change.</summary>
-    private static async Task<List<PnlByStrategy.DatedFill>> LoadDatedFillsAsync(
+    /// Returns (priced fills for the FIFO, count of UNPRICED fills). Unpriced
+    /// fills (price ≤ 0) come from aged-out MOO orders: T212 drops them from
+    /// /orders before the poller captures a price, so it records the fill at 0
+    /// to keep POSITION tracking correct (broker = golden source) — but those
+    /// 0s must NOT feed realised P&L (they'd fake £0 / 0% win). We exclude them
+    /// and surface the count so the row can report "realised not captured".
+    private static async Task<(List<PnlByStrategy.DatedFill> Priced, int Unpriced)> LoadDatedFillsAsync(
         NpgsqlDataSource db, string strategyId, string broker, CancellationToken ct)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -370,9 +383,16 @@ public static class PnlByStrategyEndpoints
             ORDER BY f.fill_at_utc ASC, f.id ASC;",
             new { sid = strategyId, broker });
         var today = DateTime.UtcNow.Date;
-        return rows.Select(r => new PnlByStrategy.DatedFill(
-            r.side, r.qty, r.price,
-            DateTime.SpecifyKind(r.fill_at_utc, DateTimeKind.Utc).ToUniversalTime().Date == today)).ToList();
+        var priced = new List<PnlByStrategy.DatedFill>();
+        int unpriced = 0;
+        foreach (var r in rows)
+        {
+            if (r.price <= 0m) { unpriced++; continue; }
+            priced.Add(new PnlByStrategy.DatedFill(
+                r.side, r.qty, r.price,
+                DateTime.SpecifyKind(r.fill_at_utc, DateTimeKind.Utc).ToUniversalTime().Date == today));
+        }
+        return (priced, unpriced);
     }
 
     /// <summary>Build the asset-class → owning-IG-strategy map exactly the way
