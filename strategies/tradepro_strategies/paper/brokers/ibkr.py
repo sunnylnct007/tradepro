@@ -318,24 +318,31 @@ class IBKRRouter(OrderRouter):
             pass
         trade = ib.placeOrder(contract, ib_order)
 
-        # A MOO/OPG order queues until the opening auction (PreSubmitted) — it must
-        # NOT block the router for hours. Wait briefly for a PROMPT fill (the RTH
-        # case); if it's still working/queued, record it as submitted and return —
-        # the opening-auction fill is reconciled from the IBKR book (broker =
-        # golden source), not by blocking here.
+        # An OPG (market-on-open) order can only fill in the auction — there's
+        # NOTHING to wait for, so record + return immediately. (Waiting 8s/order
+        # made a 50-name session take minutes and the snapshot never posted.)
+        if getattr(ib_order, "tif", "") == "OPG":
+            await asyncio.sleep(0.2)  # let it reach PendingSubmit/PreSubmitted
+            log.info(
+                "IBKR OPG order QUEUED · %s %s qty=%s status=%s — fills at the "
+                "opening auction (reconcile from the IBKR book).",
+                order.side.value, order.symbol, order.quantity,
+                trade.orderStatus.status,
+            )
+            return
+        # RTH market order — fills promptly. Bounded wait (ib_insync is on the
+        # engine loop, so yielding processes its socket events); if still working,
+        # record + return rather than block the engine.
         waited = 0.0
         while not trade.isDone() and waited < 8.0:
-            # ib_insync is on the engine loop (connectAsync awaited here), so its
-            # socket events process when we yield. (Was to_thread(ib.sleep,…) →
-            # loopless worker thread → "no current event loop" crash.)
             await asyncio.sleep(0.5)
             waited += 0.5
         if not trade.isDone():
             log.info(
-                "IBKR order QUEUED · %s %s qty=%s status=%s tif=%s — will fill at "
-                "the open; not blocking (reconcile fill from the IBKR book).",
+                "IBKR order QUEUED · %s %s qty=%s status=%s — not blocking "
+                "(reconcile fill from the IBKR book).",
                 order.side.value, order.symbol, order.quantity,
-                trade.orderStatus.status, getattr(ib_order, "tif", ""),
+                trade.orderStatus.status,
             )
             return
 

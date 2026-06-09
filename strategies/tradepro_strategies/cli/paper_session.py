@@ -734,11 +734,39 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[st
             await ib.connectAsync(_host, _port, clientId=_cid, timeout=15)
             try:
                 await _aio.sleep(1.0)  # let position snapshots arrive
+                # EFFECTIVE book = filled positions + PENDING orders (OPG/working).
+                # MOO orders queue for the auction, so between the pre-market run
+                # and the open the positions read FLAT while OPG orders sit
+                # PreSubmitted — seeding flat would re-place every 15-min run and
+                # STACK duplicates. Counting pending orders as committed makes the
+                # strategy see target==current → no re-emit. Golden source = the
+                # broker's own positions + open orders.
+                eff: dict[str, float] = {}
+                avg: dict[str, float] = {}
+                for pp in ib.positions():
+                    if _want and (pp.account or "").strip() != _want:
+                        continue
+                    s = pp.contract.symbol
+                    eff[s] = eff.get(s, 0.0) + pp.position
+                    if pp.avgCost:
+                        avg[s] = pp.avgCost
+                try:
+                    await _aio.wait_for(ib.reqAllOpenOrdersAsync(), 6)
+                except Exception:
+                    pass
+                await _aio.sleep(0.5)
+                for t in ib.openTrades():
+                    if t.orderStatus.status in (
+                        "Cancelled", "Filled", "Inactive", "ApiCancelled"):
+                        continue
+                    if _want and (t.order.account or "").strip() != _want:
+                        continue
+                    s = t.contract.symbol
+                    eff[s] = eff.get(s, 0.0) + t.order.totalQuantity * (
+                        1 if t.order.action == "BUY" else -1)
                 return [
-                    {"ticker": pp.contract.symbol, "quantity": pp.position,
-                     "averagePricePaid": pp.avgCost}
-                    for pp in ib.positions()
-                    if not _want or (pp.account or "").strip() == _want
+                    {"ticker": s, "quantity": q, "averagePricePaid": avg.get(s, 0.0)}
+                    for s, q in eff.items() if q != 0
                 ]
             finally:
                 ib.disconnect()
@@ -1100,8 +1128,12 @@ def main(argv: list[str] | None = None) -> int:
     engine.attach_charts(snapshot)
     engine.attach_rejections(snapshot)
     snapshot["kind"] = "paper-snapshot"
+    # Use strategy_id (not the strategy NAME) so a clone with a distinct
+    # --strategy-id (e.g. ichimoku_equity_ibkr) gets its OWN snapshot label
+    # instead of colliding with / clobbering the base strategy's. For the base
+    # strategies strategy_id == name, so their labels are unchanged.
     snapshot["session_label"] = (
-        f"{args.strategy}-{(session_date or datetime.utcnow()).date().isoformat()}"
+        f"{args.strategy_id or args.strategy}-{(session_date or datetime.utcnow()).date().isoformat()}"
     )
     snapshot["broker"] = args.broker
     snapshot["symbols"] = symbols
