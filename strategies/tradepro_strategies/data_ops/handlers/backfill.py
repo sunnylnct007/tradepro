@@ -107,6 +107,12 @@ class BackfillHandler(DataOpHandler):
         to_str = str(params.get("to") or "").strip()
         allow_partial_raw = params.get("allow_partial", True)
         api_base = str(params.get("api_base") or "").strip() or None
+        # ibkr_only: when True, removes IG/yfinance from the provider chain so
+        # gaps stay explicit rather than being papered over with low-quality
+        # yfinance stubs. Strongly recommended for historical backfill
+        # (any --from older than 7 days). Set via UI "Backfill" advanced params
+        # or pass ibkr_only=true directly in the op payload.
+        ibkr_only = _truthy(params.get("ibkr_only", False))
 
         missing = [
             k for k, v in (
@@ -177,10 +183,18 @@ class BackfillHandler(DataOpHandler):
             telemetry = TelemetrySink(base_dir=base_dir)
             preferences_loader = None
 
+        # Provider chain: ibkr_only removes IG/yfinance so historical
+        # gaps stay visible rather than being silently covered by
+        # yfinance's 7-day 1m stub. When ibkr_only is False (default),
+        # the full chain (ibkr → ig → yfinance) is used — yfinance is
+        # a valid same-day fallback for today's session.
+        provider_chain = ["ibkr"] if ibkr_only else None  # None → use preferences
+
         store = BarStore(
             base_dir=base_dir,
             telemetry=telemetry,
             preferences_loader=preferences_loader,
+            provider_chain=provider_chain,
         )
 
         try:
