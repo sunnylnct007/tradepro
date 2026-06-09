@@ -70,6 +70,9 @@ from ..signal_bridge import realised_vol_from_closes
 # The long/flat SIGNAL is a verbatim port of the trader's spec (docs/strategy.py),
 # kept in _equity_trader_signal so it can't drift. Parity-tested.
 from ._equity_trader_signal import latest_signal_and_meta, sleeve_weight
+# Coarse, auditable sector buckets for the optional concentration cap
+# (max_per_sector). Static table — see _equity_sectors for the rationale.
+from ._equity_sectors import sector_for as _sector_for
 from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 
 
@@ -184,6 +187,29 @@ class IchimokuEquityStrategy(Strategy):
             # None ⇒ no catalyst overlay (legacy behaviour preserved).
             # Production wiring lives in StrategyRunner.
             "_catalyst_fetcher": None,
+            # ── Optional risk controls (ALL OFF BY DEFAULT) ──────────────
+            # These are switched ON only for a protected clone on a broker
+            # that supports them. With every one left at its OFF default
+            # (None), on_bar output is BYTE-FOR-BYTE identical to the legacy
+            # T212 behaviour — proven by tests/test_equity_risk_controls.py.
+            #
+            # stop_loss_pct (float|None): if a HELD long's unrealised return
+            #   is ≤ −stop_loss_pct (e.g. 0.08 ⇒ −8%), emit a SELL to FLATTEN
+            #   that name ("stop"). Long-only: only SELL to close, never below
+            #   zero. None ⇒ no stop. Requires a known cost basis
+            #   (avg_entry_price > 0); a broker-seeded position with unknown
+            #   entry is never stopped (can't compute a real % loss).
+            "stop_loss_pct": None,
+            # take_profit_pct (float|None): symmetric profit exit — if a held
+            #   long's unrealised return is ≥ take_profit_pct, emit a SELL to
+            #   flatten ("take-profit"). None ⇒ no take-profit. Same cost-
+            #   basis requirement as the stop.
+            "take_profit_pct": None,
+            # max_per_sector (int|None): concentration cap on NEW entries —
+            #   do not OPEN a name if its coarse sector (see _equity_sectors)
+            #   already holds `max_per_sector` positions. Existing holdings
+            #   are never touched. None ⇒ no cap.
+            "max_per_sector": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -362,6 +388,21 @@ class IchimokuEquityStrategy(Strategy):
         position = self._positions.get(sym, 0)
         cloud_pos = meta.get("cloud_position", "?") if meta else "?"
 
+        # ── Risk-control exits: stop-loss / take-profit (OPT-IN) ─────────
+        # OFF by default (both params None) ⇒ this block is a no-op and
+        # on_bar behaves exactly as before. When enabled (protected clone),
+        # a held long that breaches its stop or take-profit is FLATTENED
+        # here, BEFORE the signal-based entry/exit logic — a hard risk
+        # exit always wins over the Ichimoku signal. Long-only: we only
+        # ever SELL to close, never below zero (position > 0 guard).
+        #
+        # Subject to the SAME market-hours gate above (it precedes this) —
+        # we never emit a risk exit into a closed venue. Subject to the
+        # SAME once-per-session MOO model (one decision per symbol/session).
+        risk_exit = self._risk_exit_order(sym, bar, p, position)
+        if risk_exit is not None:
+            return [risk_exit]
+
         # Long entry.
         if signal >= 1.0 and position == 0:
             # Top-N-by-conviction gate: when sleeves are configured, only the
@@ -380,6 +421,29 @@ class IchimokuEquityStrategy(Strategy):
                     signal=signal, cloud_position=cloud_pos,
                 )
                 return []
+            # ── Sector concentration cap (OPT-IN) ───────────────────────
+            # OFF by default (max_per_sector=None) ⇒ no-op. When set, do NOT
+            # open a NEW name if its coarse sector already holds the cap.
+            # Applies ONLY to new entries — never touches existing holdings,
+            # never forces an exit. Skip-with-reason so a 0-fill on a
+            # signalling name is explainable in the decision trace.
+            cap = p.get("max_per_sector")
+            if cap is not None:
+                sec = _sector_for(sym)
+                held = self._sector_held_count(sec, exclude=sym)
+                if held >= int(cap):
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp,
+                        action="skip-sector-cap",
+                        reason=(
+                            f"sector '{sec}' already holds {held} position(s) "
+                            f"(max_per_sector={int(cap)}) — new entry skipped to "
+                            f"cap concentration; existing holdings untouched"
+                        ),
+                        signal=signal, cloud_position=cloud_pos,
+                        sector=sec, sector_held=held, max_per_sector=int(cap),
+                    )
+                    return []
             # ── LLM signal gate ─────────────────────────────────────────
             # Runs BEFORE sizing so BOOSTED decisions can scale the qty.
             # The gate is advisory (fail_open=True default): an LLM error
@@ -594,6 +658,89 @@ class IchimokuEquityStrategy(Strategy):
 
     def _p(self) -> dict[str, Any]:
         return {**self.default_params(), **(self.params or {})}
+
+    def _sector_held_count(self, sector: str, *, exclude: str | None = None) -> int:
+        """Number of CURRENTLY-HELD long positions in `sector`.
+
+        Reads the strategy's own position state (`_positions`); only long
+        (qty > 0) names count toward the concentration cap. `exclude` drops
+        the candidate symbol itself so it never counts against its own
+        entry. Pure read — never mutates state."""
+        count = 0
+        for sym, qty in self._positions.items():
+            if qty <= 0 or sym == exclude:
+                continue
+            if _sector_for(sym) == sector:
+                count += 1
+        return count
+
+    def _risk_exit_order(
+        self, sym: str, bar: Bar, p: dict[str, Any], position: int,
+    ) -> Order | None:
+        """Stop-loss / take-profit exit for a held long (OPT-IN).
+
+        Returns a SELL Order to FLATTEN the position when an enabled risk
+        threshold is breached, else None. Both params None (the default) ⇒
+        always None ⇒ ZERO behaviour change. Long-only: only fires for a
+        long (position > 0) and only ever SELLs to close — never short.
+
+        Needs a real cost basis: unrealised % is computed against
+        `position_for(sym).avg_entry_price` (maintained by the engine on
+        every fill). A broker-seeded position with unknown entry
+        (avg_entry_price <= 0) is NEVER stopped/taken — we can't compute a
+        genuine loss/gain and won't act on a fabricated one."""
+        stop_pct = p.get("stop_loss_pct")
+        tp_pct = p.get("take_profit_pct")
+        if stop_pct is None and tp_pct is None:
+            return None  # both controls OFF — legacy behaviour, no-op.
+        if position <= 0:
+            return None  # long-only: nothing to stop/take on a flat/short book.
+
+        entry = float(self.position_for(sym).avg_entry_price or 0.0)
+        if entry <= 0:
+            # Unknown cost basis (e.g. broker-seeded leftover) — cannot
+            # compute a real unrealised %, so we do NOT risk-exit on a
+            # fabricated number. Signal logic still applies downstream.
+            return None
+        mark = float(bar.close)
+        if mark <= 0:
+            return None
+        unreal_pct = (mark - entry) / entry
+
+        kind: str | None = None
+        if stop_pct is not None and unreal_pct <= -abs(float(stop_pct)):
+            kind = "stop"
+        elif tp_pct is not None and unreal_pct >= abs(float(tp_pct)):
+            kind = "take-profit"
+        if kind is None:
+            return None
+
+        reason = (
+            f"{kind}: unrealised {unreal_pct:+.2%} vs entry {entry:,.2f} "
+            f"(mark {mark:,.2f}) breached "
+            + (f"stop −{abs(float(stop_pct)):.2%}" if kind == "stop"
+               else f"target +{abs(float(tp_pct)):.2%}")
+            + " — flattening long (sell-to-close only, never short)"
+        )
+        self.log_decision(
+            symbol=sym, bar_ts=bar.timestamp,
+            action=f"fire-{kind}",
+            reason=reason,
+            qty=position, side="SELL", prior_position=position,
+            entry_price=entry, mark=mark, unrealised_pct=unreal_pct,
+            stop_loss_pct=stop_pct, take_profit_pct=tp_pct,
+        )
+        return Order(
+            strategy_id=self.strategy_id,
+            symbol=sym,
+            side=OrderSide.SELL,
+            quantity=position,
+            type=OrderType.MARKET,
+            tag=(
+                f"IchimokuEquity {kind.upper()} {sym} "
+                f"unreal={unreal_pct:+.2%} qty={position}"
+            ),
+        )
 
     def _capital_per_slot(self, sym: str, p: dict[str, Any]) -> float:
         """Capital allocated to one position before vol-scaling.
