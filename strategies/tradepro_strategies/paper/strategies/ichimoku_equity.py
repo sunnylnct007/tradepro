@@ -142,6 +142,10 @@ class IchimokuEquityStrategy(Strategy):
     def default_params() -> dict[str, Any]:
         return {
             "symbols": [],
+            # Broker this strategy places through — drives broker-capability
+            # gating (e.g. native MOO vs gate-at-open). None → treated as no
+            # MOO support (gate applies), the safe default.
+            "broker": None,
             "sleeve_size": 20,
             "capital_usd": 100_000.0,
             # Per-sleeve sizing: {symbol: capital_per_slot}. When set (by the
@@ -319,7 +323,14 @@ class IchimokuEquityStrategy(Strategy):
         _now = _dt.now(_tz.utc)
         _bar_ts = bar.timestamp if bar.timestamp.tzinfo else bar.timestamp.replace(tzinfo=_tz.utc)
         _live_ctx = bar.is_live or (_now - _bar_ts).total_seconds() <= 7 * 86400
-        if _live_ctx and not market_hours.is_open(_ac, _now):
+        # Broker-capability gate: brokers with a NATIVE MOO/opening-auction order
+        # (IBKR/Alpaca) can accept the order pre-market — it queues for the open —
+        # so we DON'T gate them. Brokers without it (T212) must hold until the
+        # venue opens, else the pre-market market order is rejected + re-emitted
+        # (the cancel-loop). Config-driven per broker (broker_capabilities).
+        from ... import broker_capabilities
+        _moo = broker_capabilities.supports_moo(self._p().get("broker"))
+        if (not _moo) and _live_ctx and not market_hours.is_open(_ac, _now):
             self.log_decision(
                 symbol=sym, bar_ts=bar.timestamp,
                 action="skip-market-closed",

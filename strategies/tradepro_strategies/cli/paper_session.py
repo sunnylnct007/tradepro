@@ -438,6 +438,7 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
             strategy_id=strategy_id,
             params={
                 "symbols": symbols,
+                "broker": args.broker,   # drives broker-capability gating (MOO vs gate-at-open)
                 "capital_usd": args.capital_usd,
                 "sleeve_size": args.sleeve_size,
                 # Per-sleeve capital map from --sleeves (None → flat sizing).
