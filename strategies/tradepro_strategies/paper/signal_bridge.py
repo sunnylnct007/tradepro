@@ -142,16 +142,24 @@ def ichimoku_daily_signal(
     else:
         cloud_position = "in"
 
-    signal = 0.0
-    if (
-        not pd.isna(cloud_top)
-        and not pd.isna(tenkan_val)
-        and not pd.isna(kijun_val)
-        and last_close > cloud_top
-        and tenkan_val > kijun_val
-        and last_close > tenkan_val
-    ):
-        signal = 1.0
+    # PARITY: the long/flat signal MUST come from the verbatim trader port
+    # (_equity_trader_signal — the single source of truth), NOT a re-derived rule
+    # here. The old inline rule had an extra `close > tenkan` condition AND was
+    # stateless, so it disagreed with the equity strategy — it returned FLAT for
+    # genuinely-bullish names (NVDA/AAPL/TSLA/AMD all EQ=1.0 vs IB=0.0), which is
+    # the 2026-06-09 intraday "no orders" bug. The trader's rule: ENTRY
+    # Close>cloud_top AND tenkan>kijun, held STATEFULLY through the cloud (exit
+    # only below cloud_bottom OR tenkan<kijun). Long/flat, never short.
+    from .strategies._equity_trader_signal import latest_signal_and_meta
+    try:
+        signal, _ = latest_signal_and_meta(
+            close.to_numpy(dtype=float),
+            high.to_numpy(dtype=float),
+            low.to_numpy(dtype=float),
+        )
+        signal = float(signal)
+    except Exception:
+        signal = 0.0
 
     metadata = {
         "cloud_top": float(cloud_top) if not pd.isna(cloud_top) else None,
