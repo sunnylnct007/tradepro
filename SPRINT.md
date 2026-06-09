@@ -33,8 +33,9 @@ or tenkan/kijun not stacked, or chikou behind".
 
 **Bar cache is now fully operational:**
 - 390 RTH bars for June 5 in cache; `bar_cache_get --from 2026-06-05 --to 2026-06-05` → 390/390 COMPLETE via cache_hit_range
-- Two bugs fixed (commit 942253d): partial-partition cache hit + `--to` date off-by-one
-- TWS connected on port 7497 (live account U25124456)
+- Three bugs fixed: partial-partition cache hit + `--to` date off-by-one + empty-write wipeout protection
+- Daily harvest cron installed: `com.tradepro.bar-cache-harvest` runs Mon–Fri 21:15 UTC via launchd
+- Historical backfill: run with TWS open (`--from 2025-07-01`) to get 1yr of 1m bars
 
 **Next scenario-sim goal:** forward-sim seeded with LIVE IBKR positions (APLD, BABA, EC, MRVL, SWDA, VWRL)
 — stress these ACTUAL positions, not the paper candidates. Gate: data platform dependency (see memory).
@@ -81,8 +82,9 @@ or tenkan/kijun not stacked, or chikou behind".
 ## Infrastructure state
 | Thing | Status |
 |---|---|
-| Bar cache | ✅ TWS connected port 7497 (live U25124456); 390 RTH bars Jun 5 in cache; `cache_hit_range` working |
-| Bar cache bugs | ✅ Fixed (942253d): partial-partition cache hit + `--to` off-by-one |
+| Bar cache | ✅ ~1950 bars/symbol for Jun 2–9 (5 sessions, yfinance); awaiting TWS for 1yr backfill |
+| Bar cache bugs | ✅ Fixed (live-main): partial hit + off-by-one + empty-write wipeout guard + max_history clipping |
+| Bar cache harvest cron | ✅ `com.tradepro.bar-cache-harvest` launchd loaded — runs Mon–Fri 21:15 UTC |
 | Data source badge on scan grid | ✅ Live (ibkr=blue, ig=purple, yfinance=gray) |
 | DATA ERR sentinel card | ✅ Live — red card when all providers fail |
 | Migration 045 | ✅ Deployed — ibkr first in provider chains |
@@ -130,10 +132,17 @@ or tenkan/kijun not stacked, or chikou behind".
 ```
 
 ## Key data constraint
-- yfinance 1m bars: **last 7 calendar days only** — sufficient for current week only
+- yfinance 1m bars: **last 7 calendar days only** — sufficient for recent sessions
 - yfinance daily: unlimited — all backtests above use daily bars
-- **IBKR bar cache** ✅ TWS connected, data flowing — unlimited 1m history now available
-  → use `TRADEPRO_IBKR_PORT=7497 tradepro-bar-cache-get` to harvest any symbol/date
+- **IBKR bar cache** (daily harvest running): ~1950 bars/symbol for Jun 2–9 via yfinance
+  - **Historical backfill** (requires TWS on port 7497):
+    ```bash
+    cd strategies && TRADEPRO_IBKR_PORT=7497 \
+    .venv/bin/tradepro-bar-cache-harvest \
+      --from 2025-07-01 --to 2026-06-09 \
+      --resolution 1m --asset us_etf --allow-partial --verbose
+    ```
+  - ~1 year × 12 symbols = ~168 month-partitions; IBKR does 30-day chunks → ~10 min
 
 ---
 
