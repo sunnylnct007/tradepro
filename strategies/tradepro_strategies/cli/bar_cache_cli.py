@@ -33,6 +33,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+
 from tradepro_strategies.bar_cache import (
     BarFetchError,
     BarStore,
@@ -40,6 +41,7 @@ from tradepro_strategies.bar_cache import (
 )
 from tradepro_strategies.bar_cache.asset_classes import UsEtfPlugin  # noqa: F401 — registers
 from tradepro_strategies.bar_cache.providers import YFinanceProvider  # noqa: F401 — registers
+from tradepro_strategies.bar_cache.providers.ibkr_provider import IBKRProvider  # noqa: F401 — registers IBKR in chain
 from tradepro_strategies.bar_cache.telemetry import (
     BackendTelemetrySink,
     TelemetrySink,
@@ -100,7 +102,10 @@ def main() -> int:
 
     try:
         start = _parse_date(args.from_date)
-        end = _parse_date(args.to_date)
+        # --to is an *inclusive* calendar date.  The store uses half-open
+        # intervals [start, end), so advance end by one day so the full
+        # trading session of the --to date is included in the slice.
+        end = _parse_date(args.to_date) + timedelta(days=1)
     except ValueError as exc:
         print(f"date parse error: {exc}", file=sys.stderr)
         return 2
@@ -128,10 +133,14 @@ def main() -> int:
         telemetry = TelemetrySink(base_dir=base_dir)
         preferences_loader = None
 
+    # Offline mode (no --api-base): use ibkr-first chain so the TWS
+    # connection is tried before yfinance's 7-day 1m limit kicks in.
+    # ibkr→ig→yfinance mirrors migration 045 ordering.
     store = BarStore(
         base_dir=base_dir,
         telemetry=telemetry,
         preferences_loader=preferences_loader,
+        provider_chain=["ibkr", "ig", "yfinance"],
     )
 
     try:

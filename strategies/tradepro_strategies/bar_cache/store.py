@@ -260,6 +260,21 @@ class BarStore:
                     chain_log.append("cache_hit")
                     continue   # this partition is fine; move on
                 else:
+                    # Partition isn't fully complete for the month (e.g. it's
+                    # a live month with future sessions uncached). But if
+                    # every session the CALLER asked for is already in
+                    # actual_session_dates, treat it as a range cache hit —
+                    # no re-fetch needed.
+                    if not force_refresh:
+                        requested = plugin.expected_session_dates(
+                            start_utc, end_utc,
+                        )
+                        actual_set = set(manifest.actual_session_dates)
+                        if requested and all(
+                            d.isoformat() in actual_set for d in requested
+                        ):
+                            chain_log.append("cache_hit_range")
+                            continue
                     need_fetch = True
                     chain_log.append("cache_incomplete")
             else:
