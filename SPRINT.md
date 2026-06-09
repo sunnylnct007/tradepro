@@ -1,5 +1,5 @@
 # TradePro Sprint Tracker
-_Updated: 2026-06-08. Read this first in every new session — takes < 2 min._
+_Updated: 2026-06-09. Read this first in every new session — takes < 2 min._
 
 ---
 
@@ -18,38 +18,26 @@ launchctl kickstart -k gui/$(id -u)/com.tradepro.intraday-engine
 
 ---
 
-## 🔴 CURRENT PRIORITY — Friday replay backtest
+## ✅ Friday replay backtest — COMPLETED (2026-06-09)
 
-**User goal:** understand the ~£2K loss on Friday (2026-06-06). Simulate what happened, see worst-case exposure, and use this as the template for "stress this book" forward sim.
+**Finding:** `intraday_flat` correctly produced **0 fills on June 5** because daily Ichimoku
+signals were flat for all candidates (AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, QQQ, AMD, NFLX, AVGO).
+The scanner log showed `scanner-drop-no-signal` for every symbol — "price not above cloud,
+or tenkan/kijun not stacked, or chikou behind".
 
-**Context:**
-- The loss came from `intraday_flat` EQUITY strategy (294 trades over 7 days → −£1,859.94 verified from IG history)
-- The whole point of bar/orderbook harvesting (IBKR + bar_cache) is to enable this simulation
-- Need: replay Friday's session with the live positions as seed, surface P&L attribution per symbol + per strategy
+**What this means for the £2K loss investigation:**
+- The paper-engine OMS confirms 0 fills across ALL `intraday_flat` IG sessions in June 1–9.
+- The £1,859.94 IG history loss was from a **prior active period** (before June) when Ichimoku WAS aligned.
+- The current running strategy is correctly sitting flat — no false positives.
+- The IBKR positions (APLD, BABA, EC, MRVL, SWDA, VWRL) are **long-term holds**, not intraday_flat trades.
 
-### What exists already
-- `tradepro-paper-backtest` CLI — runs historical paper sessions
-- `tradepro-quant-backtest` CLI — quant walk-forward backtest
-- `tradepro-equity-pipeline` CLI — equity data pipeline with preflight
-- Bar cache is **empty** (IBKR TWS not connected yet) — Friday replay would use yfinance 7-day window which covers 2026-06-06 ✅
-- `oms_orders` table has Friday's actual orders (broker golden source)
-- Key files:
-  - `strategies/tradepro_strategies/cli/` — all CLI entry points
-  - `strategies/features/` — BDD specs
-  - `backend/TradePro.Api/Endpoints/` — backtest trigger endpoints
+**Bar cache is now fully operational:**
+- 390 RTH bars for June 5 in cache; `bar_cache_get --from 2026-06-05 --to 2026-06-05` → 390/390 COMPLETE via cache_hit_range
+- Two bugs fixed (commit 942253d): partial-partition cache hit + `--to` date off-by-one
+- TWS connected on port 7496 (live account U25124456)
 
-### What's needed for Friday replay
-1. **Replay session seeded with live positions** — `paper_session --broker yfinance --date 2026-06-06 --seed-positions-from-broker`
-2. **P&L attribution** — per symbol, per strategy, actual vs simulated
-3. **Worst-case exposure report** — max drawdown during the session, biggest losers
-4. **UI surface** — show the replay result on the cockpit (scenario sim panel)
-
-### Key question to answer first
-Run this to see what Friday's OMS orders look like:
-```
-curl http://16.60.201.137/api/admin/oms-orders?date=2026-06-06
-```
-Or via MCP: `mcp__tradepro__list_orders`
+**Next scenario-sim goal:** forward-sim seeded with LIVE IBKR positions (APLD, BABA, EC, MRVL, SWDA, VWRL)
+— stress these ACTUAL positions, not the paper candidates. Gate: data platform dependency (see memory).
 
 ---
 
@@ -64,9 +52,10 @@ Or via MCP: `mcp__tradepro__list_orders`
   - `scripts/com.tradepro.catalyst-finnhub.plist` — launchd every 2h
   - **ACTION NEEDED:** Copy plist to `~/Library/LaunchAgents/` and fill in `TRADEPRO_FINNHUB_API_KEY`
 
-### Remaining ❌
-- **C-5:** Catalyst badge on scan-grid `SymbolCard` — show ⚡ pill when `detail.catalyst_flag === "tech_event_alignment"` (green) or ⚠ when `"tech_event_divergence"` (amber). File: `frontend/src/components/cockpit/SymbolScanGrid.tsx`
-- **C-6:** Catalyst expiry chip on session detail page
+### Shipped ✅ (continued)
+- **C-5:** 2026-06-08 — Catalyst badge on SymbolCard (⚡ ALIGN green / ⚠ DIVG amber) + heatmap dot + rich tooltip. Commit 6661df4.
+- **C-6:** 2026-06-08 — Catalyst expiry chip on SessionDetail decisions tab. Days counter RED when ≤3d. Commit 403d4bb.
+- **Data feed fix (C-5/C-6):** 2026-06-08 — `intraday_flat` now injects `catalyst_flag/occurs_on/kind/title/days_until` into log_decision. Commit 53cea08.
 
 ---
 
@@ -92,12 +81,15 @@ Or via MCP: `mcp__tradepro__list_orders`
 ## Infrastructure state
 | Thing | Status |
 |---|---|
-| Bar cache | ⚡ `ib_insync 0.9.86` installed; **TWS API not enabled yet** — see TWS setup section below |
+| Bar cache | ✅ TWS connected port 7496 (live U25124456); 390 RTH bars Jun 5 in cache; `cache_hit_range` working |
+| Bar cache bugs | ✅ Fixed (942253d): partial-partition cache hit + `--to` off-by-one |
 | Data source badge on scan grid | ✅ Live (ibkr=blue, ig=purple, yfinance=gray) |
 | DATA ERR sentinel card | ✅ Live — red card when all providers fail |
 | Migration 045 | ✅ Deployed — ibkr first in provider chains |
-| Mac intraday-engine daemon | ✅ PID 24063 |
+| Mac intraday-engine daemon | ✅ Running (0 fills — Ichimoku flat) |
 | C-4 Finnhub CLI | ✅ Built — needs API key in plist |
+| C-5 Catalyst badge | ✅ Shipped 2026-06-08 (commit 6661df4) |
+| C-6 Catalyst expiry chip | ✅ Shipped 2026-06-08 (commit 403d4bb) |
 
 ---
 
@@ -138,43 +130,39 @@ Or via MCP: `mcp__tradepro__list_orders`
 ```
 
 ## Key data constraint
-- yfinance 1m bars: **last 7 calendar days only** — can't replay last Friday
+- yfinance 1m bars: **last 7 calendar days only** — sufficient for current week only
 - yfinance daily: unlimited — all backtests above use daily bars
-- **IBKR bar cache** (empty until TWS connects): unlocks unlimited 1m history
-  → connect TWS + trigger harvest in Settings › Data Health → Friday replay works
+- **IBKR bar cache** ✅ TWS connected, data flowing — unlimited 1m history now available
+  → use `TRADEPRO_IBKR_PORT=7496 tradepro-bar-cache-get` to harvest any symbol/date
 
 ---
 
 ## TWS setup (one-time — unblocks Friday replay)
 
-`ib_insync 0.9.86` is installed. The bar provider connects to TWS at localhost:7497.
+`ib_insync 0.9.86` is installed. **TWS is already connected** on port **7496** (live account U25124456).
 
-### Steps to enable
+### One-time setup (already done — for reference)
 
-1. Open **IBKR Trader Workstation** (the desktop app)
+1. Open **IBKR Trader Workstation** (Classic TWS, NOT IBKR Desktop)
 2. Menu: **Edit → Global Configuration → API → Settings**
 3. Tick: ☑ **Enable ActiveX and Socket Clients**
-4. Port: **7497** (TWS paper default — leave as is)
-5. Trusted IPs: add `127.0.0.1` or leave blank (localhost is always allowed)
-6. Uncheck **Read-Only API** is optional — we connect `readonly=True` anyway
-7. Click **OK / Apply** — TWS restarts the socket listener immediately
+4. Port: **7496** (TWS live account port — NOT 7497 which is paper)
+5. Trusted IPs: blank (localhost always allowed)
+6. Click **OK / Apply**
 
-### Verify
+### Verify TWS is still connected
 ```bash
 cd /Users/skumar/sourcecode/tradepro/tradepro/strategies
-.venv/bin/tradepro-verify-tws --date 2026-06-05
+TRADEPRO_IBKR_PORT=7496 .venv/bin/tradepro-verify-tws --date 2026-06-05
 # Expected: ✓ SUCCESS — NNN bars  provider_used=ibkr
 ```
 
-### Then trigger Friday replay
+### Fetch any date into cache
 ```bash
-# Once ✓ SUCCESS above, fetch the bars into cache:
-.venv/bin/tradepro-bar-cache-get \
+TRADEPRO_IBKR_PORT=7496 .venv/bin/tradepro-bar-cache-get \
     --canonical SPY --asset us_etf --resolution 1m \
-    --from 2026-06-06 --to 2026-06-06 -v
-
-# Then replay that session with the real data:
-.venv/bin/tradepro-replay-session --date 2026-06-06 --strategy intraday_flat
+    --from 2026-06-05 --to 2026-06-05 -v
+# → 390/390 COMPLETE via cache_hit_range (instant, no network call)
 ```
 
 ---
