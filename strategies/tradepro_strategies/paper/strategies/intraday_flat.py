@@ -981,6 +981,46 @@ class IntradayFlatStrategy(Strategy):
                 self._entries_today.add(str(sym))
         except Exception:  # noqa: BLE001
             _log.exception("intraday_flat: failed to restore entries_today")
+        finally:
+            # Also seed from the OMS — the GOLDEN SOURCE of orders/trades — so
+            # one-entry-per-day is robust even if the local state file is lost or
+            # the daemon moved host. The local file is just a fast cache.
+            self._seed_entries_today_from_oms(session_date)
+
+    def _seed_entries_today_from_oms(self, session_date: datetime) -> None:
+        """Add any name this strategy already has an order for TODAY (per the OMS)
+        to entries_today. The OMS is the durable, shared record of what we traded;
+        leveraging it means a stopped/entered name stays 'done for the day' even
+        without the local cache. Best-effort — failure never blocks trading."""
+        try:
+            import requests
+            from ...secrets import get_secret
+            base = get_secret("api-base-url")
+            token = get_secret("api-token")
+            if not base or not token:
+                return
+            day = session_date.date().isoformat()
+            r = requests.get(
+                f"{base.rstrip('/')}/api/oms/orders",
+                params={"limit": 400},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=8,
+            )
+            if r.status_code != 200:
+                return
+            for o in (r.json().get("orders") or []):
+                if (o.get("strategyId") or o.get("strategy")) != self.strategy_id:
+                    continue
+                if (o.get("createdAtUtc") or "")[:10] != day:
+                    continue
+                sym = o.get("symbol") or ""
+                # IG epics (UC.D.QQQ.CASH.IP / CS.D.EURUSD.MINI.IP) → bare symbol.
+                parts = sym.split(".")
+                bare = parts[2] if len(parts) >= 3 else sym
+                if bare:
+                    self._entries_today.add(bare)
+        except Exception:  # noqa: BLE001
+            _log.debug("intraday_flat: OMS entries_today seed skipped", exc_info=True)
 
     def _seed_overnight_leftover(
         self, sym: str, qty: int, ts: datetime,
