@@ -445,10 +445,10 @@ def _print_table(rows: list[dict[str, Any]], *, resolution: str) -> None:
 
     if total_gold + total_silver == 0:
         print(
-            "  1. Open TWS on port 7497 (IBKR → Edit → Global Config → API → port 7497)\n"
+            "  1. Open TWS on port 7500 (IB Gateway paper — already running on DUP656969)\n"
             "  2. Run historical backfill (IBKR-only — no yfinance stubs):\n"
             "       cd strategies\n"
-            f"       TRADEPRO_IBKR_PORT=7497 tradepro-bar-cache-harvest \\\n"
+            f"       TRADEPRO_IBKR_PORT=7500 tradepro-bar-cache-harvest \\\n"
             f"         --from {(datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')} \\\n"
             f"         --to {datetime.now(timezone.utc).strftime('%Y-%m-%d')} \\\n"
             f"         --resolution {resolution} --asset us_etf \\\n"
@@ -457,7 +457,7 @@ def _print_table(rows: list[dict[str, Any]], *, resolution: str) -> None:
     elif total_bronze > 0:
         print(
             "  ⚠  BRONZE partitions exist — yfinance stubs that should be upgraded:\n"
-            "       TRADEPRO_IBKR_PORT=7497 tradepro-bar-cache-harvest \\\n"
+            "       TRADEPRO_IBKR_PORT=7500 tradepro-bar-cache-harvest \\\n"
             "         --ibkr-only --allow-partial --verbose\n"
             "     (force-refresh is NOT needed — IBKR data will overwrite BRONZE on re-fetch)"
         )
