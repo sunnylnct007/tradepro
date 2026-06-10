@@ -140,6 +140,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--strategy-id", default=None,
                    help="strategy_id stamped onto orders + ledger book "
                         "(defaults to the strategy name).")
+    p.add_argument("--from-config", action="store_true",
+                   help="Load broker/account/strategy + risk params + IBKR "
+                        "connection from strategy_broker_map.runtime_config (the "
+                        "single source of truth) instead of CLI flags. Requires "
+                        "--strategy-id. Same command runs on Mac/AWS/prod.")
     p.add_argument("--capital-usd", type=float, default=100_000.0,
                    help="Sub-account capital (total) used by risk + sizing.")
     # ── ORB knobs ────────────────────────────────────────────────────────
@@ -941,6 +946,68 @@ def _fetch_oms_positions(url: str, params: dict, headers: dict) -> dict[str, int
         return {}
 
 
+# Broker LABEL (strategy_broker_map) → --broker arg value.
+_BROKER_LABEL_TO_ARG = {
+    "T212_DEMO": "t212", "T212_LIVE": "t212",
+    "IG_DEMO": "ig", "IG_LIVE": "ig",
+    "IBKR_PAPER": "ibkr", "IBKR_LIVE": "ibkr",
+    "PAPER": "yfinance",
+}
+
+
+def _apply_config_overrides(args, log) -> None:
+    """--from-config: load this strategy's broker/account/runtime params from
+    strategy_broker_map (the single source of truth) and apply them onto `args`,
+    so the SAME command runs on Mac, AWS and prod. Requires --strategy-id."""
+    import json as _json
+    import os as _os
+    import requests as _rq
+    from . import push_to_api
+    if not args.strategy_id:
+        raise SystemExit("--from-config requires --strategy-id")
+    base, token = push_to_api.load_credentials()
+    if not base or not token:
+        raise SystemExit("--from-config needs api-base-url + api-token (secrets)")
+    h = {"Authorization": f"Bearer {token}"}
+    resp = _rq.get(f"{base.rstrip('/')}/api/admin/strategy-broker-map",
+                   headers=h, timeout=20)
+    resp.raise_for_status()
+    body = resp.json()
+    rows = body.get("mappings") or body.get("rows") or []
+    row = next((m for m in rows if m.get("strategy_id") == args.strategy_id), None)
+    if row is None:
+        raise SystemExit(
+            f"--from-config: no strategy_broker_map row for {args.strategy_id!r}")
+    label = (row.get("broker") or "").upper()
+    args.broker = _BROKER_LABEL_TO_ARG.get(label, label.lower())
+    if row.get("account_id"):
+        args.account = row["account_id"]
+    cfg = row.get("runtime_config")
+    if isinstance(cfg, str):
+        cfg = _json.loads(cfg) if cfg.strip() else {}
+    cfg = cfg or {}
+    if cfg.get("strategy"):
+        args.strategy = cfg["strategy"]
+    # Apply param overrides ONLY when present in config (else keep CLI default).
+    for key in ("sleeves", "symbols", "universe", "capital_usd", "lookback_days",
+                "interval", "placement_mode", "stop_loss_pct", "take_profit_pct",
+                "max_per_sector", "warmup_bars", "max_position_value_usd",
+                "target_vol", "max_leverage", "sleeve_size"):
+        if key in cfg and cfg[key] is not None and hasattr(args, key):
+            setattr(args, key, cfg[key])
+    # IBKR connection → env (the adapter reads TRADEPRO_IBKR_*).
+    if cfg.get("ibkr_port"):
+        _os.environ["TRADEPRO_IBKR_PORT"] = str(cfg["ibkr_port"])
+    if cfg.get("ibkr_client_id"):
+        _os.environ["TRADEPRO_IBKR_CLIENT_ID"] = str(cfg["ibkr_client_id"])
+    if row.get("account_id"):
+        _os.environ["TRADEPRO_IBKR_ACCOUNT"] = row["account_id"]
+    log.info(
+        "--from-config applied for %s: broker=%s account=%s strategy=%s cfg=%s",
+        args.strategy_id, args.broker, args.account, args.strategy,
+        sorted(cfg.keys()))
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -948,6 +1015,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     log = logging.getLogger("tradepro.cli")
     args = _parse_args(argv if argv is not None else sys.argv[1:])
+    if getattr(args, "from_config", False):
+        _apply_config_overrides(args, log)
     session_date = _resolve_session_date(args.date)
     # Yahoo / T212 / IG profiles require a session_date — when omitted
     # default to today's UTC date so the schedule-fired daemons
