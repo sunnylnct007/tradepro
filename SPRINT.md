@@ -1,5 +1,5 @@
 # TradePro Sprint Tracker
-_Updated: 2026-06-09. Read this first in every new session — takes < 2 min._
+_Updated: 2026-06-10. Read this first in every new session — takes < 2 min._
 
 ---
 
@@ -7,14 +7,47 @@ _Updated: 2026-06-09. Read this first in every new session — takes < 2 min._
 | Worktree | Branch | Purpose |
 |---|---|---|
 | `tradepro-laneB/` | `main` | AWS deploy (API + frontend Docker via GitHub Actions) |
-| `tradepro/tradepro/` | `desk-fixes-2` | Mac strategies (Python). Cherry-pick to main to deploy. |
+| `tradepro/tradepro/` | `live-main` | Mac strategies (Python). Commits flow directly into `main`. |
 
-**Deploy flow:** commit to `desk-fixes-2` → cherry-pick to `tradepro-laneB/main` → `git push` → CI builds + redeploys automatically.
+**Deploy flow:** push to `tradepro-laneB/main` → CI builds + redeploys automatically.
 
 **Mac daemon restart after every deploy:**
 ```
 launchctl kickstart -k gui/$(id -u)/com.tradepro.intraday-engine
 ```
+
+---
+
+## 🤝 Two-stream coordination status (2026-06-10)
+
+### Stream A — Data quality / bar cache (this stream)
+Ships: IBKR-primary harvest, scorecard CLI, reload-from-UI, data-worker daemon.
+Commit: `e0cf05f` ✅ merged to main.
+
+### Stream B — IBKR paper execution (other dev)
+Ships: `ichimoku_equity_ibkr` running via IBKR OPG/MOO orders on account DUP656969,
+OMS order recording, position-seed from PAPER Gateway, intraday_flat whipsaw fix
+(persist + OMS-seed `entries_today`).
+Latest: `93407c3` ✅ on main.
+
+### Interface contracts — both streams must agree on these:
+| Contract | Stream A | Stream B | Status |
+|---|---|---|---|
+| `TRADEPRO_IBKR_PORT` default | 7497 (bar_cache harvest, data-worker) | 7500 (paper-equity-ibkr plist) | ⚠️ **MISALIGNED** — see note below |
+| IBKR client_id | 18 (IBKRProvider) | 21 (equity-ibkr plist), 17 (paper default) | ✅ no collision |
+| `api_base_url` credentials | http://16.60.201.137 (EC2) | same | ✅ fixed 2026-06-10 |
+| bar_cache 1m universe | 14 US ETFs (intraday_flat universe) | ichimoku_equity uses yfinance 1d (no bar_cache dep) | ✅ no overlap |
+| `bar_cache.asset_class_resolver` | owns the module | ibkr.py imports for market-hours gate | ✅ read-only dep |
+
+**⚠️ Port note:** `paper-equity-ibkr` plist has `TRADEPRO_IBKR_PORT=7500`.
+User confirmed TWS is on **7497**. If `ichimoku_equity_ibkr` is failing to connect,
+update the installed plist: `TRADEPRO_IBKR_PORT=7497` in `~/Library/LaunchAgents/com.tradepro.paper-equity-ibkr.plist`.
+
+### Fixes applied 2026-06-10
+- `~/.tradepro/credentials` `api_base_url` was pointing at `tradepro.showsoldprice.com` (dead Firebase domain)
+  → updated to `http://16.60.201.137`. This unblocks `paper-equity-ibkr` universe fetches.
+- `com.tradepro.paper-equity-ibkr` installed plist now has `TRADEPRO_API_BASE_URL=http://16.60.201.137` (belt-and-suspenders).
+- `tradepro-laneB/main` rebased on top of Stream B's latest 5 commits — no conflicts.
 
 ---
 
@@ -83,13 +116,16 @@ or tenkan/kijun not stacked, or chikou behind".
 | Thing | Status |
 |---|---|
 | Bar cache | ✅ ~1950 bars/symbol for Jun 2–9 (5 sessions, yfinance); awaiting TWS for 1yr backfill |
-| Bar cache bugs | ✅ Fixed (live-main): partial hit + off-by-one + empty-write wipeout guard + max_history clipping |
+| Bar cache bugs | ✅ Fixed: partial hit + off-by-one + empty-write wipeout guard + max_history clipping |
 | Bar cache harvest cron | ✅ `com.tradepro.bar-cache-harvest` launchd loaded — runs Mon–Fri 21:15 UTC |
+| Data worker daemon | ✅ Running PID 88291 — polls EC2 every 15s for backfill/reload/validate jobs |
 | Data source badge on scan grid | ✅ Live (ibkr=blue, ig=purple, yfinance=gray) |
 | DATA ERR sentinel card | ✅ Live — red card when all providers fail |
 | Migration 045 | ✅ Deployed — ibkr first in provider chains |
-| Mac intraday-engine daemon | ✅ Running (0 fills — Ichimoku flat) |
-| C-4 Finnhub CLI | ✅ Built — needs API key in plist |
+| Mac intraday-engine daemon | ⏸ Paused (`~/.tradepro/intraday-engine.pause` exists) |
+| paper-equity-ibkr daemon | ⚠️ Loaded, StartInterval=15min; was timing out on universe fetch (fixed) |
+| EC2 (16.60.201.137) | ⚠️ Appears unreachable as of 2026-06-10 07:24 — data-worker getting ConnectTimeout |
+| C-4 Finnhub CLI | ✅ Built — API key is in paper-equity-ibkr plist (`TRADEPRO_FINNHUB_API_KEY`) |
 | C-5 Catalyst badge | ✅ Shipped 2026-06-08 (commit 6661df4) |
 | C-6 Catalyst expiry chip | ✅ Shipped 2026-06-08 (commit 403d4bb) |
 
