@@ -420,7 +420,7 @@ def _print_table(rows: list[dict[str, Any]], *, resolution: str) -> None:
         if bronze:
             print(
                 f"\n  ⚠  {len(bronze)} partition(s) have BRONZE (yfinance) data only.\n"
-                f"     These cover the last ~7 days and are NOT suitable for backtesting.\n"
+                f"     These cover up to the last ~30 days and are NOT suitable for long backtesting.\n"
                 f"     Replace with IBKR data: tradepro-bar-cache-harvest "
                 f"--from {bronze[0]['partition']}-01 --ibkr-only --verbose"
             )
@@ -434,7 +434,7 @@ def _print_table(rows: list[dict[str, Any]], *, resolution: str) -> None:
         f"\n"
         f"  🥇 GOLD   {total_gold:4d}  (IBKR, ≥90% sessions — suitable for backtesting)\n"
         f"  🥈 SILVER {total_silver:4d}  (IBKR, <90% sessions — edge / partial month)\n"
-        f"  🥉 BRONZE {total_bronze:4d}  (yfinance/IG — last 7 days only, NOT for backtest)\n"
+        f"  🥉 BRONZE {total_bronze:4d}  (yfinance/IG — up to 30 days, adequate for signals, not long backtests)\n"
         f"  ✗  MISSING {total_missing:3d}  (no data — fetch with IBKR or flag as unavailable)\n"
     )
 
