@@ -39,6 +39,12 @@ public static class IntegrationsEndpoints
     {
         if (string.IsNullOrWhiteSpace(s)) return null;
         var u = s.ToUpperInvariant();
+        // Options / barriers (IG "Weekly EURUSD 11800 PUT", "Daily … CALL") are
+        // neither the equity-CFD desk (intraday_flat) nor the spot-FX desk
+        // (ichimoku_fx_mr). Without this they fall through to EQUITY →
+        // intraday_flat and inflate its loss (one EURUSD PUT was −£1,565).
+        // Return null = unattributed so they're excluded from per-strategy P&L.
+        if (Regex.IsMatch(u, @"\b(PUT|CALL)\b")) return null;
         if (Regex.IsMatch(u, @"\b[A-Z]{3}/[A-Z]{3}\b")) return "FX";
         var first = u.Split(' ', '\t', '-')[0];
         if (Regex.IsMatch(first, @"^[A-Z]{6}$")
