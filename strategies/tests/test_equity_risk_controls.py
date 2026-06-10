@@ -319,3 +319,44 @@ def test_sector_map_covers_large_50():
         assert tkr in SECTOR_MAP, f"large_50 name {tkr} missing from SECTOR_MAP"
     for tkr in cfg.gold_tickers:
         assert tkr in SECTOR_MAP, f"gold name {tkr} missing from SECTOR_MAP"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# (f) Regression: broker-seeded book must be stoppable (the IBKR-clone bug)
+# ─────────────────────────────────────────────────────────────────────────
+def test_seed_positions_sets_cost_basis_so_stop_fires_on_seeded_book():
+    """The bug behind the IBKR paper clone holding names 10-19% underwater past
+    its 8% stop: broker-seeded positions had avg_entry_price=0, so the stop's
+    cost-basis guard skipped the ENTIRE seeded book. seed_positions now takes
+    the broker avg cost, so a seeded long past the stop flattens — with NO
+    manual avg_entry_price set."""
+    df = {"AAPL": _uptrend_df()}
+    strat = _make_strategy(["AAPL"], df, stop_loss_pct=0.08)
+    # Seed straight from the broker golden source: qty + avg cost.
+    strat.seed_positions({"AAPL": 10}, {"AAPL": 300.0})
+    assert strat.position_for("AAPL").avg_entry_price == 300.0
+    orders = strat.on_bar(_bar("AAPL", 270.0))  # -10% < -8% stop ⇒ fire
+    assert len(orders) == 1
+    assert orders[0].side == OrderSide.SELL
+    assert orders[0].quantity == 10
+
+
+def test_seed_positions_without_avg_prices_is_backward_compatible():
+    """Omitting avg_prices keeps the legacy behaviour: quantity seeded, cost
+    basis unknown (0), so the stop stays inert (no fabricated exit)."""
+    df = {"AAPL": _uptrend_df()}
+    strat = _make_strategy(["AAPL"], df, stop_loss_pct=0.08)
+    strat.seed_positions({"AAPL": 10})
+    assert strat.position_for("AAPL").avg_entry_price == 0.0
+    assert strat.on_bar(_bar("AAPL", 50.0)) == []  # unknown cost ⇒ no stop
+
+
+def test_pct_to_fraction_normalises_whole_percents():
+    """CLI/config pass whole percents (8 = 8%); the strategy compares a
+    fraction. Without this the 8 was read as a −800% threshold and the stop
+    could never fire."""
+    from tradepro_strategies.cli.paper_session import _pct_to_fraction
+    assert _pct_to_fraction(8) == 0.08
+    assert _pct_to_fraction(12.5) == 0.125
+    assert _pct_to_fraction(0.08) == 0.08   # already a fraction ⇒ unchanged
+    assert _pct_to_fraction(None) is None    # control off

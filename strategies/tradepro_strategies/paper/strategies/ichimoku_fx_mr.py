@@ -304,17 +304,22 @@ class IchimokuFXMeanReversionStrategy(Strategy):
                     continue
         return None
 
-    def seed_positions(self, positions: dict[str, int]) -> None:  # type: ignore[override]
+    def seed_positions(self, positions: dict[str, int],  # type: ignore[override]
+                       avg_prices: dict[str, float] | None = None) -> None:
         """Seed signed unit positions per pair so reruns compute the
         right delta (target - current) instead of re-emitting full
         entries on every run. Wired into paper_session via
         /api/oms/positions. See task #28.
 
+        `avg_prices` forwarded to super() for cost-basis seeding (FX MR
+        has no stop-loss exit today, so it's a trading no-op, but keeps
+        the seed signature uniform across the call site).
+
         Calls super() so the base class also populates self.positions
         which the engine's risk gate reads — otherwise sell-to-flat
         on held longs gets rejected as 'short_disallowed' (#86).
         """
-        super().seed_positions(positions)
+        super().seed_positions(positions, avg_prices)
         for pair, qty in positions.items():
             self._fx_positions[pair] = int(qty)
 

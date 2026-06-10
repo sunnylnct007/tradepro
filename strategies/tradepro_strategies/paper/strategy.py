@@ -308,7 +308,8 @@ class Strategy(ABC):
     def clear_order_in_flight(self, symbol: str) -> None:
         self._in_flight_symbols.discard(symbol)
 
-    def seed_positions(self, positions: dict[str, int]) -> None:
+    def seed_positions(self, positions: dict[str, int],
+                       avg_prices: dict[str, float] | None = None) -> None:
         """Initialise the strategy's internal position state from an
         external snapshot (broker = golden source). Populates
         `self.positions[symbol].quantity` so the risk gate's projection
@@ -317,10 +318,17 @@ class Strategy(ABC):
         SELL N shares against position=0 → projected_qty = -N → rejected
         as "short_disallowed" even though we genuinely hold shares.
 
+        `avg_prices` (optional): the broker cost basis per symbol. When
+        provided, seeds `Position.avg_entry_price` so risk-control exits
+        (stop-loss / take-profit) can evaluate a held long against a REAL
+        entry. Without it a broker-seeded position has avg_entry_price=0
+        and is NEVER stopped — the gate only knows the quantity, not the
+        cost — which silently disables stops on the entire seeded book.
+
         Strategies that hold additional cross-bar state (e.g. signed
         unit counts for FX mean-reversion via `_fx_positions`) MUST
-        super().seed_positions(positions) so the base class wires
-        risk-gate-side as well.
+        super().seed_positions(positions, avg_prices) so the base class
+        wires risk-gate-side as well.
         """
         for sym, qty in positions.items():
             if qty == 0:
@@ -331,6 +339,10 @@ class Strategy(ABC):
                 continue
             pos = self.position_for(sym)
             pos.quantity = qty_int
+            if avg_prices:
+                ap = avg_prices.get(sym)
+                if ap is not None and float(ap) > 0:
+                    pos.avg_entry_price = float(ap)
 
     def position_for(self, symbol: str) -> Position:
         """Get or lazy-create the Position for a symbol. Strategies

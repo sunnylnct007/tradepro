@@ -257,19 +257,26 @@ class IchimokuEquityStrategy(Strategy):
         # counted against their slots. No-op when no sleeves are configured.
         self._select_entries(p, session_date)
 
-    def seed_positions(self, positions: dict[str, int]) -> None:
+    def seed_positions(self, positions: dict[str, int],
+                       avg_prices: dict[str, float] | None = None) -> None:
         """Called by paper_session._seed_strategy_positions_from_broker
         (Phase 2 of task #28). Pre-populates internal position state
         so the strategy doesn't re-emit entries for symbols it already
         holds. Symbols are bare tickers (AAPL); the daemon translates
         broker suffixes (AAPL_US_EQ) before calling.
 
+        `avg_prices` (broker cost basis) is forwarded to super() so a
+        seeded long gets a real avg_entry_price — without it the stop-
+        loss / take-profit exits can't evaluate the seeded book and
+        silently never fire (the bug behind the IBKR clone holding
+        positions 10-19% underwater past its 8% stop).
+
         Calls super() so the base class also populates self.positions
         which is what the engine's risk gate reads — otherwise the
         gate sees position=0 and rejects SELL orders on held longs
         as 'short_disallowed' (#86).
         """
-        super().seed_positions(positions)
+        super().seed_positions(positions, avg_prices)
         for sym, qty in positions.items():
             try:
                 self._positions[sym] = int(qty)

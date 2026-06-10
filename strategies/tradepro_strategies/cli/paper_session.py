@@ -430,6 +430,23 @@ def _resolve_pace(arg: str | None) -> float | str | None:
     return float(arg)
 
 
+def _pct_to_fraction(v):
+    """Normalise a risk-control percent to the fraction the strategy compares
+    against. CLI/config convention is WHOLE PERCENT (--stop-loss-pct 8 = 8%),
+    but ichimoku_equity's risk-exit compares against a fractional unrealised
+    return ((mark-entry)/entry), so 8 must become 0.08. A value > 1 is a
+    percent (÷100); a value already in (0, 1] is treated as a fraction; None
+    stays None (control off). Fixes stops never firing because 8 was read as
+    a −800% threshold."""
+    if v is None:
+        return None
+    try:
+        f = abs(float(v))
+    except (TypeError, ValueError):
+        return None
+    return f / 100.0 if f > 1.0 else f
+
+
 def _build_strategy(args: argparse.Namespace, symbols: list[str]):
     """Construct the chosen strategy object."""
     strategy_name = args.strategy
@@ -468,8 +485,10 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 # Risk controls — None by default (T212 control unchanged);
                 # set via --stop-loss-pct/--take-profit-pct/--max-per-sector
                 # for the protected IBKR-paper clone.
-                "stop_loss_pct": getattr(args, "stop_loss_pct", None),
-                "take_profit_pct": getattr(args, "take_profit_pct", None),
+                # Percent → fraction: CLI/config pass whole percents (8 = 8%)
+                # but the strategy compares against a fractional return.
+                "stop_loss_pct": _pct_to_fraction(getattr(args, "stop_loss_pct", None)),
+                "take_profit_pct": _pct_to_fraction(getattr(args, "take_profit_pct", None)),
                 "max_per_sector": getattr(args, "max_per_sector", None),
             },
         )
@@ -794,7 +813,10 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[st
         if positions:
             log.info("POSITION SEED (ibkr-broker): %s starting with %s",
                      strategy.strategy_id, positions)
-            strategy.seed_positions(positions)
+            # Pass the broker cost basis so risk-control exits (stop-loss /
+            # take-profit) evaluate against a real entry — without it the
+            # seeded book has avg_entry_price=0 and stops never fire.
+            strategy.seed_positions(positions, avg_prices)
         else:
             log.info("POSITION SEED (ibkr-broker): %s — paper account confirms a flat book",
                      strategy.strategy_id)
@@ -878,7 +900,8 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[st
             "POSITION SEED (%s-broker): %s starting with %s (cost basis for %d)",
             b, strategy.strategy_id, positions, len(avg_prices),
         )
-        strategy.seed_positions(positions)
+        # Cost basis → stop-loss / take-profit can evaluate the seeded book.
+        strategy.seed_positions(positions, avg_prices)
     else:
         log.info(
             "POSITION SEED (%s-broker): %s — broker confirms a flat book",

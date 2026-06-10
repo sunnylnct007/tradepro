@@ -863,10 +863,13 @@ class IntradayFlatStrategy(Strategy):
         self._persist_positions(bar.timestamp)
         return [order]
 
-    def seed_positions(self, positions: dict[str, int]) -> None:  # type: ignore[override]
+    def seed_positions(self, positions: dict[str, int],  # type: ignore[override]
+                       avg_prices: dict[str, float] | None = None) -> None:
         """Called by paper_session._seed_strategy_positions_from_broker
         with the broker's authoritative position state right after
-        on_session_start.
+        on_session_start. `avg_prices` (broker cost basis) is accepted to
+        keep the seed call site uniform; intraday-flat has no stop-loss
+        exit so it's unused here.
 
         For an EOD-flat strategy any seeded position is an OVERNIGHT
         LEFTOVER — the prior session's flatten failed to close it.
