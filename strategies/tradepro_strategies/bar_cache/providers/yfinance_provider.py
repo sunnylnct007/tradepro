@@ -9,7 +9,7 @@ by ``cache.py``) but normalises the output to the BarStore's column
 contract + raises typed errors.
 
 Known yfinance limits we encode in ``max_history``:
-  * 1m bars: 7 days back from now
+  * 1m bars: 30 days back from now (yfinance actual limit; was incorrectly coded as 7d)
   * 2m / 5m / 15m / 30m: 60 days
   * 1h: ~730 days
   * 1d / 1wk / 1mo: ~max (decades; treated as unlimited)
@@ -46,7 +46,7 @@ quiet_yfinance_delisted_noise()
 # Resolutions yfinance accepts mapped to its interval strings + the
 # documented depth limit. ``None`` = unlimited.
 _RESOLUTION_LIMITS: dict[str, tuple[str, timedelta | None]] = {
-    "1m":  ("1m",  timedelta(days=7)),
+    "1m":  ("1m",  timedelta(days=30)),
     "2m":  ("2m",  timedelta(days=60)),
     "5m":  ("5m",  timedelta(days=60)),
     "15m": ("15m", timedelta(days=60)),
@@ -117,6 +117,10 @@ class YFinanceProvider(Provider):
 
     # ── Internal helpers ────────────────────────────────────────────
 
+    # Yahoo only allows 7 days of 1m data per single request; chunk
+    # larger windows to get up to 30 days total.
+    _1M_CHUNK_DAYS: int = 7
+
     def _call_yfinance(
         self,
         symbol: str,
@@ -125,6 +129,12 @@ class YFinanceProvider(Provider):
         end: datetime,
     ) -> pd.DataFrame:
         """Dispatch to the injected fn (tests) or real yfinance.
+
+        For 1m resolution, Yahoo enforces a per-request limit of ~7
+        days.  Requests covering a wider window silently return an empty
+        DataFrame (no exception, just no data).  We automatically slice
+        the window into ≤7-day chunks and concatenate so callers don't
+        have to know about this quirk.
 
         Production yfinance raises a variety of exceptions on rate
         limit / network failure; we sniff them and re-raise as our
@@ -144,6 +154,39 @@ class YFinanceProvider(Provider):
                 self.name, symbol, "yfinance not installed",
             ) from exc
 
+        # For 1m, split into 7-day chunks so each request stays within
+        # Yahoo's per-request limit.  For other resolutions, make one call.
+        if interval == "1m":
+            return self._call_yfinance_chunked(yf, symbol, interval, start, end)
+        return self._call_yfinance_single(yf, symbol, interval, start, end)
+
+    def _call_yfinance_chunked(
+        self, yf: Any, symbol: str, interval: str, start: datetime, end: datetime
+    ) -> pd.DataFrame:
+        """Fetch 1m bars in ≤7-day slices and concatenate."""
+        from datetime import timezone as _tz
+
+        chunk = timedelta(days=self._1M_CHUNK_DAYS)
+        frames: list[pd.DataFrame] = []
+        cursor = start
+        while cursor < end:
+            chunk_end = min(cursor + chunk, end)
+            df_chunk = self._call_yfinance_single(yf, symbol, interval, cursor, chunk_end)
+            if not df_chunk.empty:
+                frames.append(df_chunk)
+            cursor = chunk_end
+
+        if not frames:
+            return pd.DataFrame()
+        result = pd.concat(frames)
+        # Drop duplicates that can appear at chunk boundaries.
+        result = result[~result.index.duplicated(keep="first")]
+        return result.sort_index()
+
+    @staticmethod
+    def _call_yfinance_single(
+        yf: Any, symbol: str, interval: str, start: datetime, end: datetime
+    ) -> pd.DataFrame:
         try:
             ticker = yf.Ticker(symbol)
             df = ticker.history(
