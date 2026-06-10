@@ -32,7 +32,8 @@
     -->
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies/.venv/bin/tradepro-bar-cache-harvest</string>
+        <string>/bin/bash</string>
+        <string>/Users/skumar/sourcecode/tradepro/tradepro-laneB/strategies/scripts/bar-cache-harvest.sh</string>
         <string>--resolution</string>
         <string>1m</string>
         <string>--asset</string>
@@ -48,6 +49,12 @@
         <string>7497</string>
         <key>HOME</key>
         <string>/Users/skumar</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>TRADEPRO_PROJECT_DIR</key>
+        <string>/Users/skumar/sourcecode/tradepro/tradepro-laneB/strategies</string>
+        <key>TRADEPRO_API_URL</key>
+        <string>http://16.60.201.137</string>
     </dict>
 
     <!--

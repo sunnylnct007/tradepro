@@ -13,6 +13,42 @@ those assumptions change.
 
 ---
 
+## SESSION STATE — 2026-06-10 (Tuesday — data quality wrap-up + two-stream coordination)
+
+Theme: close out the bar-cache/data-quality stream, align it with the IBKR paper-execution
+stream the other dev shipped, and harden EC2+harvest scheduling.
+
+### ✅ Shipped (all on `main`)
+
+**Bar-cache data quality (Stream A)**
+- IBKR-primary: `--ibkr-only` flag + empty-write guard + `max_history` clipping — no more yfinance stubs overwriting old partitions.
+- `tradepro-bar-cache-scorecard` CLI: 🥇/🥈/🥉/✗ quality tiers, IBKR structural limits (1m≈1yr, 5m≈3yr), gap analysis per partition.
+- `data-worker` daemon running on Mac — closes the reload-from-UI loop (`data_backfill`/`data_reload`/`data_validate` ops).
+
+**EC2 + harvest scheduling**
+- `aws-scheduled-start.yml` cron: EC2 auto-starts at 12:50 UTC Mon–Fri (before market open; stops 22:00 UTC via EventBridge).
+- `bar-cache-harvest.sh` wrapper: probes EC2 health; if up runs with telemetry; if down writes bars locally ("telemetry skipped").
+
+**IBKR paper-execution (Stream B — other dev)**
+- `ichimoku_equity_ibkr` via IBKR MOO/OPG on DUP656969 (paper).
+- `--from-config` for config-driven daemon args (strategy_broker_map.runtime_config).
+- `intraday_flat` whipsaw fix + OMS entries_today seeding.
+
+### 🔜 Next session
+
+1. Open TWS → `tradepro-bar-cache-harvest --from 2025-07-01 --ibkr-only` (180 GOLD partitions target).
+2. Migrate `paper-equity-ibkr` plist to `--from-config`.
+3. Fix oversized intraday sessions (50 symbols > 30-symbol cap hitting the queue).
+
+### 📍 Data health UI
+
+**Settings → Data Health** (`/settings` → scroll to "Data Health & Trustworthy-Data Roadmap"):
+- **IBKR Bar Harvester** panel — harvest readiness gate, depth table, on-demand fetch form.
+- **Bar cache activity** panel — per-symbol coverage + last-fetch telemetry events.
+- **Coverage Matrix** panel — per-(symbol × month) COMPLETE/PARTIAL/MISSING grid.
+
+---
+
 ## SESSION STATE — 2026-06-08 (Monday — cockpit-as-default, data-quality bugs, catalyst pipeline)
 
 Theme: make `/desk` the real product surface, kill silent correctness bugs in
