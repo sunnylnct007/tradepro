@@ -42,8 +42,10 @@ import {
   LineSeries,
   LineStyle,
   createChart,
+  createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
+  type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -80,11 +82,15 @@ type Props = {
    *  dashed horizontal reference line ("Entry") so the trader sees cost basis
    *  vs the live price at a glance. null/0/undefined ⇒ no line (flat name). */
   entryPrice?: number | null;
+  /** Filled trades for this symbol → buy (▲) / sell (▼) markers on the
+   *  timeline, each labelled with its fill price, so a closed round-trip
+   *  (entered here at X, exited here at Y) is visible directly on the chart. */
+  fills?: { side: "BUY" | "SELL"; price: number | null; atUtc: string }[];
 };
 
 type IchiPoint = { time: UTCTimestamp; value: number };
 
-export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entryPrice }: Props) {
+export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entryPrice, fills }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -207,6 +213,24 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
       });
     }
 
+    // Trade markers: buy (▲ below bar) / sell (▼ above bar) at each fill,
+    // labelled with the fill price, so a closed round-trip reads off the chart
+    // — "entered here at X, exited here at Y". Snapped to the daily bar via
+    // toTime; sorted ascending as lightweight-charts requires.
+    if (fills && fills.length) {
+      const markers: SeriesMarker<Time>[] = fills
+        .filter((f) => f.atUtc)
+        .map((f) => ({
+          time: toTime(f.atUtc),
+          position: f.side === "BUY" ? ("belowBar" as const) : ("aboveBar" as const),
+          color: f.side === "BUY" ? "#1fc16b" : "#ef4444",
+          shape: f.side === "BUY" ? ("arrowUp" as const) : ("arrowDown" as const),
+          text: `${f.side === "BUY" ? "B" : "S"}${f.price != null ? " @" + f.price.toFixed(2) : ""}`,
+        }))
+        .sort((a, b) => (a.time as number) - (b.time as number));
+      if (markers.length) createSeriesMarkers(candleSeries, markers);
+    }
+
     // Ichimoku, computed on the FULL padded series.
     const ich = computeIchimoku(candles);
 
@@ -319,7 +343,7 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
       chart.remove();
       chartRef.current = null;
     };
-  }, [series, height, windowDays, entryPrice]);
+  }, [series, height, windowDays, entryPrice, fills]);
 
   // ---- States ------------------------------------------------------------
   const noData = !loading && !err && (series?.candles?.length ?? 0) === 0;

@@ -67,6 +67,7 @@ export function SymbolOrdersCard({
                 <th style={TH}>Date / Time</th>
                 <th style={TH}>Side</th>
                 <th style={TH_R}>Qty</th>
+                <th style={TH_R}>Price</th>
                 <th style={TH}>State</th>
                 <th style={TH}>Strategy</th>
               </tr>
@@ -87,6 +88,13 @@ export function SymbolOrdersCard({
                     {o.side}
                   </td>
                   <td style={TD_R}>{fmtQty(o.filledQty || o.qty)}</td>
+                  <td style={TD_R}>
+                    {o.avgFillPrice != null
+                      ? o.avgFillPrice.toFixed(2)
+                      : o.limitPrice != null
+                        ? <span style={{ color: "var(--text-muted)" }}>{o.limitPrice.toFixed(2)}</span>
+                        : "—"}
+                  </td>
                   <td style={{ ...TD, fontSize: 10 }}>{o.state}</td>
                   <td style={{ ...TD, color: "var(--text-muted)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {o.strategyId ?? "—"}

@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { OmsOrderRow } from "../../api/client";
+import { bareSymbol } from "../../util/brokerSymbols";
 import { SymbolChartCard } from "./SymbolChartCard";
 import { SymbolPositionCard, type PositionRow } from "./SymbolPositionCard";
 import { SymbolDecisionCard } from "./SymbolDecisionCard";
@@ -45,6 +46,18 @@ export function SymbolDetailRail({
     (r) => r.chartSymbol === symbol || r.ticker === symbol,
   );
   const entryPrice = held?.avgPrice ?? null;
+
+  // Filled trades for this symbol → buy/sell markers on the chart so a trader
+  // can review a closed round-trip (entry/exit price + when) directly on the
+  // timeline. Only orders that actually filled (have an avg fill price).
+  const bare = bareSymbol(symbol).toUpperCase();
+  const fills = orders
+    .filter((o) => bareSymbol(o.symbol).toUpperCase() === bare && o.avgFillPrice != null)
+    .map((o) => ({
+      side: o.side,
+      price: o.avgFillPrice,
+      atUtc: o.lastStateChangeAtUtc || o.createdAtUtc,
+    }));
 
   // Ref used to scroll the rail into view when a symbol is selected.
   const railRef = useRef<HTMLElement>(null);
@@ -123,7 +136,7 @@ export function SymbolDetailRail({
       {/* 1. Chart — 400px tall so candles + axis labels are readable in the
               wider rail. The rail itself has resize:horizontal so the trader
               can drag the right edge for even more room. */}
-      <SymbolChartCard symbol={symbol} height={400} entryPrice={entryPrice} />
+      <SymbolChartCard symbol={symbol} height={400} entryPrice={entryPrice} fills={fills} />
 
       {/* 2. Position */}
       <SymbolPositionCard symbol={symbol} positions={positions} />
