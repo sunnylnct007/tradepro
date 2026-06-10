@@ -51,12 +51,12 @@ type InternalRow = PositionRow & {
 };
 
 function attrKey(broker: string, symbol: string): string {
-  // Normalise the broker to its FAMILY prefix so the OMS attribution (which
-  // stores full labels: T212_DEMO / IG_DEMO / IBKR_PAPER) joins the broker
-  // position rows (which use T212 / IG / IBKR). Without this the join missed and
-  // every T212/IG position showed as "Unattributed".
-  const fam = broker.toLowerCase().split("_")[0];
-  return `${fam}:${bareSymbol(symbol)}`;
+  // Exact broker label. (A family-prefix normalisation was tried to attribute
+  // T212/IG positions, but it over-collapsed IG — FX + intraday share IG_DEMO,
+  // so keys collided — and leaked per-symbol engine ids. Reverted: cleaner to
+  // show T212/IG as one Unattributed group than mis-attribute. Proper fix
+  // (mode-aware + IG-epic-aware + configured-strategy filter) is a follow-up.)
+  return `${broker.toLowerCase()}:${bareSymbol(symbol)}`;
 }
 
 export function PositionsByStrategy({
