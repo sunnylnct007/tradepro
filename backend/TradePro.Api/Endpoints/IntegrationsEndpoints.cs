@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Dapper;
 using Npgsql;
@@ -917,6 +918,43 @@ public static class IntegrationsEndpoints
                 count = rows.Length,
                 positions = rows,
             });
+        });
+
+        // GET /api/integrations/account-state — broker account snapshots the
+        // Mac daemons pushed into broker_account_state. This is how the cockpit
+        // sees an algo clone's OWN account (e.g. the IBKR PAPER clone DUP656969):
+        // net-liquidation, cash, unrealised/daily P&L + the position book. The
+        // live IBKRClient (/ibkr/positions) only sees the personal IBKR_LIVE
+        // account, so this read is the golden source for the clone's row.
+        app.MapGet("/integrations/account-state", async (
+            NpgsqlDataSource db, CancellationToken ct) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var rows = (await conn.QueryAsync(@"
+                SELECT broker, account_id, currency, net_liquidation, total_cash,
+                       unrealised_pnl, daily_pnl, positions::text AS positions_json,
+                       updated_at_utc
+                FROM broker_account_state
+                ORDER BY broker;")).ToList();
+            var accounts = rows.Select(r =>
+            {
+                string posJson = (string?)r.positions_json ?? "[]";
+                using var posDoc = JsonDocument.Parse(
+                    string.IsNullOrWhiteSpace(posJson) ? "[]" : posJson);
+                return new
+                {
+                    broker = (string)r.broker,
+                    accountId = (string?)r.account_id,
+                    currency = (string?)r.currency,
+                    netLiquidation = (decimal?)r.net_liquidation,
+                    totalCash = (decimal?)r.total_cash,
+                    unrealisedPnl = (decimal?)r.unrealised_pnl,
+                    dailyPnl = (decimal?)r.daily_pnl,
+                    positions = posDoc.RootElement.Clone(),
+                    updatedAtUtc = (DateTime)r.updated_at_utc,
+                };
+            }).ToList();
+            return Results.Ok(new { accounts });
         });
 
         app.MapGet("/integrations/trading212/cash",

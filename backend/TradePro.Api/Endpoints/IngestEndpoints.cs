@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Dapper;
+using Npgsql;
 using TradePro.Api.Alerts;
 using TradePro.Api.Auth;
 using TradePro.Api.Data.Stores;
@@ -164,6 +166,65 @@ public static class IngestEndpoints
                 totalFills = env.TotalFills,
                 receivedAtUtc = env.ReceivedAtUtc,
             });
+        });
+
+        // Broker account-state push from the Mac daemons (the IBKR PAPER
+        // clone DUP656969 first). Upserts net-liquidation / cash /
+        // unrealised+daily P&L + the full position book into
+        // broker_account_state so the cockpit can render the algo clone's
+        // OWN account row + per-position P&L. The live IBKRClient only sees
+        // the personal IBKR_LIVE account, so without this push the clone is
+        // invisible (£0/n.a). Keyed by broker — a re-push overwrites.
+        group.MapPost("/account-state", async (JsonElement payload, NpgsqlDataSource db) =>
+        {
+            if (payload.ValueKind != JsonValueKind.Object)
+                return Results.BadRequest(new { error = "payload must be a JSON object" });
+            if (!payload.TryGetProperty("broker", out var brokerEl)
+                || brokerEl.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(brokerEl.GetString()))
+                return Results.BadRequest(new { error = "broker is required" });
+
+            var broker = brokerEl.GetString()!.ToUpperInvariant();
+            string? Str(string k) =>
+                payload.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String
+                    ? v.GetString() : null;
+            decimal? Num(string k) =>
+                payload.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number
+                    ? v.GetDecimal() : (decimal?)null;
+            var positionsJson =
+                payload.TryGetProperty("positions", out var posEl)
+                && posEl.ValueKind == JsonValueKind.Array
+                    ? posEl.GetRawText() : "[]";
+
+            await using var conn = await db.OpenConnectionAsync();
+            await conn.ExecuteAsync(@"
+                INSERT INTO broker_account_state
+                    (broker, account_id, currency, net_liquidation, total_cash,
+                     unrealised_pnl, daily_pnl, positions, updated_at_utc)
+                VALUES
+                    (@broker, @account_id, @currency, @net_liquidation, @total_cash,
+                     @unrealised_pnl, @daily_pnl, @positions::jsonb, NOW())
+                ON CONFLICT (broker) DO UPDATE SET
+                    account_id      = EXCLUDED.account_id,
+                    currency        = EXCLUDED.currency,
+                    net_liquidation = EXCLUDED.net_liquidation,
+                    total_cash      = EXCLUDED.total_cash,
+                    unrealised_pnl  = EXCLUDED.unrealised_pnl,
+                    daily_pnl       = EXCLUDED.daily_pnl,
+                    positions       = EXCLUDED.positions,
+                    updated_at_utc  = NOW();",
+                new
+                {
+                    broker,
+                    account_id = Str("account_id"),
+                    currency = Str("currency"),
+                    net_liquidation = Num("net_liquidation"),
+                    total_cash = Num("total_cash"),
+                    unrealised_pnl = Num("unrealised_pnl"),
+                    daily_pnl = Num("daily_pnl"),
+                    positions = positionsJson,
+                });
+            return Results.Ok(new { accepted = true, broker });
         });
 
         // Paper-trading strategies catalog — Mac introspects its registry
