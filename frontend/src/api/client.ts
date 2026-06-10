@@ -943,6 +943,32 @@ export const api = {
       }>;
     }>("/api/integrations/ibkr/positions"),
 
+  // Broker account snapshots the Mac daemons pushed (broker_account_state).
+  // Surfaces an algo clone's OWN account — e.g. the IBKR PAPER clone DUP656969,
+  // which the live IBKRClient (ibkrPositions) can't see.
+  accountState: () =>
+    get<{
+      accounts: Array<{
+        broker: string;
+        accountId: string | null;
+        currency: string | null;
+        netLiquidation: number | null;
+        totalCash: number | null;
+        unrealisedPnl: number | null;
+        dailyPnl: number | null;
+        positions: Array<{
+          symbol: string;
+          qty: number;
+          mark: number | null;
+          marketValue: number | null;
+          avgCost: number | null;
+          unrealisedPnl: number | null;
+          currency: string | null;
+        }>;
+        updatedAtUtc: string;
+      }>;
+    }>("/api/integrations/account-state"),
+
   omsPositions: (strategyId?: string) =>
     get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string }> }>(
       "/api/oms/positions", strategyId ? { strategyId } : undefined,

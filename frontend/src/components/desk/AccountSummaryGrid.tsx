@@ -30,6 +30,28 @@ type AccountRow = {
 
 type CashBroker = Awaited<ReturnType<typeof api.cashSummary>>["brokers"][number];
 type PnlRow     = Awaited<ReturnType<typeof api.pnlByStrategy>>["rows"][number];
+type AcctState  = Awaited<ReturnType<typeof api.accountState>>["accounts"][number];
+
+/** Account rows for algo clones whose book the live broker client can't see —
+ *  e.g. the IBKR PAPER clone (DUP656969), pushed into broker_account_state by
+ *  the Mac daemon. Skips any broker already present from cashSummary. */
+function buildAccountStateRows(accounts: AcctState[], have: Set<string>): AccountRow[] {
+  const LABELS: Record<string, string> = { IBKR_PAPER: "IBKR Paper (algo clone)" };
+  return accounts
+    .filter((a) => !have.has((a.broker || "").toLowerCase()))
+    .map((a) => ({
+      broker:        a.broker,
+      label:         LABELS[a.broker] ?? a.broker,
+      ccy:           a.currency ?? "",
+      status:        "ok" as const,
+      mode:          accountMode(LABELS[a.broker] ?? a.broker, a.broker, "demo"),
+      netLiq:        a.netLiquidation,
+      available:     a.totalCash,
+      openPnl:       a.unrealisedPnl,
+      realisedToday: a.dailyPnl,
+      realisedLtd:   null,
+    }));
+}
 
 function buildRows(cash: CashBroker[], pnl: PnlRow[]): AccountRow[] {
   const realised = new Map<string, { today: number | null; ltd: number | null }>();
@@ -87,12 +109,16 @@ export function AccountSummaryGrid() {
     let live = true;
     const load = async () => {
       try {
-        const [cash, pnl] = await Promise.all([
+        const [cash, pnl, acct] = await Promise.all([
           api.cashSummary(),
           api.pnlByStrategy().catch(() => null),
+          api.accountState().catch(() => null),
         ]);
         if (live) {
-          setRows(buildRows(cash.brokers, pnl?.rows ?? []));
+          const cashRows = buildRows(cash.brokers, pnl?.rows ?? []);
+          const have = new Set(cashRows.map((r) => (r.broker || "").toLowerCase()));
+          const cloneRows = buildAccountStateRows(acct?.accounts ?? [], have);
+          setRows([...cashRows, ...cloneRows]);
           setStrat(pnl?.rows ?? []);
           setErr(null);
         }
