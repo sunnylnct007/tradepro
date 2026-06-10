@@ -1011,6 +1011,101 @@ def _apply_config_overrides(args, log) -> None:
         sorted(cfg.keys()))
 
 
+def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
+    """Push the IBKR PAPER account's NLV / cash / unrealised P&L + position book
+    to /api/ingest/account-state so the cockpit can render the algo clone's OWN
+    account row + per-position P&L. The live IBKRClient only sees the personal
+    IBKR_LIVE account, so the clone (DUP656969) is otherwise invisible (£0/n.a).
+
+    Best-effort: any error logs a warning and returns — it must never fail the
+    trading session. Uses a distinct clientId so it can't clash with the
+    router/bus or the position-seed connection sharing the same Gateway."""
+    import asyncio as _aio
+    import os as _os
+    try:
+        from ib_insync import IB as _IB
+    except Exception as exc:  # noqa: BLE001
+        log.warning("account-state: ib_insync unavailable (%s) — skip", exc)
+        return
+    _host = _os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
+    _port = int(_os.environ.get("TRADEPRO_IBKR_PORT", "7497"))
+    _want = (str(account_id) if account_id else
+             _os.environ.get("TRADEPRO_IBKR_ACCOUNT", "")).strip()
+    _cid = int(_os.environ.get("TRADEPRO_IBKR_CLIENT_ID", "17")) + 200
+
+    async def _read() -> dict:
+        ib = _IB()
+        await ib.connectAsync(_host, _port, clientId=_cid, timeout=15)
+        try:
+            await _aio.sleep(1.0)  # let portfolio + account snapshots arrive
+            positions = []
+            for it in ib.portfolio():
+                if _want and (it.account or "").strip() != _want:
+                    continue
+                positions.append({
+                    "symbol": it.contract.symbol,
+                    "qty": it.position,
+                    "mark": it.marketPrice,
+                    "marketValue": it.marketValue,
+                    "avgCost": it.averageCost,
+                    "unrealisedPnl": it.unrealizedPNL,
+                    "currency": getattr(it.contract, "currency", None),
+                })
+            vals = ib.accountValues(_want) if _want else ib.accountValues()
+
+            def _val(tag):
+                for v in vals:
+                    if v.tag == tag and (not _want or v.account == _want):
+                        try:
+                            return float(v.value)
+                        except (TypeError, ValueError):
+                            return None
+                return None
+
+            def _ccy(tag):
+                for v in vals:
+                    if v.tag == tag and (not _want or v.account == _want):
+                        return v.currency or None
+                return None
+
+            # Account-level UnrealizedPnL is often absent from accountValues;
+            # fall back to summing the position book so the row is never blank.
+            unrl = _val("UnrealizedPnL")
+            if unrl is None and positions:
+                unrl = sum(p["unrealisedPnl"] for p in positions
+                           if p.get("unrealisedPnl") is not None)
+            return {
+                "broker": "IBKR_PAPER",
+                "account_id": _want or None,
+                "currency": _ccy("NetLiquidation"),
+                "net_liquidation": _val("NetLiquidation"),
+                "total_cash": _val("TotalCashValue"),
+                "unrealised_pnl": unrl,
+                # daily_pnl needs the reqPnL subscription; left null until wired.
+                "daily_pnl": None,
+                "positions": positions,
+            }
+        finally:
+            ib.disconnect()
+
+    try:
+        payload = _aio.run(_read())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("account-state: could not read IBKR portfolio (%s) — skip", exc)
+        return
+    try:
+        import requests as _rq
+        resp = _rq.post(
+            f"{base.rstrip('/')}/api/ingest/account-state",
+            headers={"Authorization": f"Bearer {token}"},
+            json=payload, timeout=30)
+        log.info("account-state push: HTTP %s — %s positions, NLV=%s %s",
+                 resp.status_code, len(payload["positions"]),
+                 payload.get("net_liquidation"), payload.get("currency"))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("account-state push failed: %s", exc)
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -1220,6 +1315,12 @@ def main(argv: list[str] | None = None) -> int:
         from . import push_to_api
         base, token = push_to_api.load_credentials()
         push_to_api.push("paper-snapshot", snapshot, base, token)
+        # IBKR: also push the PAPER account's NLV / cash / P&L + position book
+        # so the cockpit renders the algo clone's OWN account row + per-position
+        # P&L. The live IBKRClient only sees IBKR_LIVE, so without this the clone
+        # is invisible (£0/n.a). Best-effort — never fails the session.
+        if args.broker.strip().lower() == "ibkr":
+            _push_ibkr_account_state(getattr(args, "account", None), base, token, log)
     return 0
 
 
