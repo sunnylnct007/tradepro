@@ -2100,7 +2100,9 @@ function NewsList({
       </div>
       <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex",
                    flexDirection: "column", gap: 4 }}>
-        {items.slice(0, 5).map((item, i) => (
+        {[...items]
+          .sort((a, b) => newsTs(b.published_at) - newsTs(a.published_at))
+          .slice(0, 5).map((item, i) => (
           <li key={i} style={{ fontSize: 12, lineHeight: 1.45 }}>
             <SentimentBadge item={item} />
             {item.link ? (
@@ -2223,6 +2225,14 @@ function fmtAum(usd: number): string {
   if (abs >= 1e9) return `$${(usd / 1e9).toFixed(1)}B`;
   if (abs >= 1e6) return `$${(usd / 1e6).toFixed(0)}M`;
   return `$${usd.toFixed(0)}`;
+}
+
+/** Parse a news item's published_at to epoch ms; null/unparseable → 0
+ *  so undated items sink to the bottom of a newest-first sort. */
+function newsTs(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : 0;
 }
 
 function fmtNewsAge(iso: string): string {

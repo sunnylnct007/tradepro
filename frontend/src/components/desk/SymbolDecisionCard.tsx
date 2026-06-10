@@ -256,7 +256,9 @@ function DecisionDetail({ row, held }: { row: CompareRow; held: PositionRow | nu
           <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, fontWeight: 600 }}>
             RECENT NEWS
           </div>
-          {row.news.slice(0, 2).map((n, i) => (
+          {[...row.news]
+            .sort((a, b) => newsTs(b.published_at) - newsTs(a.published_at))
+            .slice(0, 2).map((n, i) => (
             <div key={i} style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3, lineHeight: 1.4 }}>
               {n.link ? (
                 <a
@@ -340,6 +342,14 @@ function PositionRead({ row, held }: { row: CompareRow; held: PositionRow }) {
       <div style={{ fontSize: 11, color: tone, lineHeight: 1.45, marginTop: 2 }}>{msg}</div>
     </div>
   );
+}
+
+/** Parse a news item's published_at to epoch ms; null/unparseable → 0
+ *  so undated items sink to the bottom of a newest-first sort. */
+function newsTs(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : 0;
 }
 
 function MiniStat({ label, children }: { label: string; children: React.ReactNode }) {

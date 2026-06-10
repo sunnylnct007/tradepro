@@ -794,6 +794,14 @@ function ConflictHint(props: { text: string; tone?: "info" | "muted" }) {
 //   • click opens publisher link in new tab
 // ----------------------------------------------------------------------
 
+/** Parse a news item's published_at to epoch ms; null/unparseable → 0
+ *  so undated items sink to the bottom of a newest-first sort. */
+function newsTs(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
 function SectionNews(props: {
   items: CompareNewsItem[];
   summary?: CompareSentimentSummary;
@@ -848,7 +856,9 @@ function SectionNews(props: {
       )}
       <CatalystChips catalysts={catalysts} />
       <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
-        {items.map((item, i) => (
+        {[...items]
+          .sort((a, b) => newsTs(b.published_at) - newsTs(a.published_at))
+          .map((item, i) => (
           <NewsRow key={i} item={item} index={i} />
         ))}
       </div>
