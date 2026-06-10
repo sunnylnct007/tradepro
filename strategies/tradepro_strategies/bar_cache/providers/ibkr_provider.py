@@ -7,7 +7,7 @@ What IBKR gives us that other providers can't:
   * Institutional-quality adjusted OHLCV (split + dividend adjusted)
   * Sub-day resolution without the IG weekly-allowance constraint
 
-Wire protocol: ``ib_insync`` talking to TWS (paper port 7497) or IB
+Wire protocol: ``ib_insync`` talking to IB Gateway paper (port 7500 for DUP656969) or IB
 Gateway (paper port 4002). The auth pipeline must be running before
 this provider is called — connect() is lazy and cached per instance.
 
@@ -114,7 +114,7 @@ class _IBConnection:
     Reconnects automatically if the socket drops between fetches."""
 
     host: str = "127.0.0.1"
-    port: int = 7497       # TWS paper; 4002 for IB Gateway paper
+    port: int = 7500       # IB Gateway paper (DUP656969); override via TRADEPRO_IBKR_PORT
     client_id: int = 18    # offset from IBKRBarBus (17) to avoid collision
     timeout_seconds: float = 10.0
     _ib: Any = field(default=None, init=False, repr=False)
@@ -153,12 +153,12 @@ class IBKRProvider(Provider):
 
     Construction:
         IBKRProvider()                          # reads env vars
-        IBKRProvider(host="127.0.0.1", port=7497)
+        IBKRProvider(host="127.0.0.1", port=7500)
         IBKRProvider(_fetch_fn=my_mock)         # BDD / unit tests
 
     Environment variables (all optional):
         TRADEPRO_IBKR_HOST        default 127.0.0.1
-        TRADEPRO_IBKR_PORT        default 7497
+        TRADEPRO_IBKR_PORT        default 7500
         TRADEPRO_IBKR_CLIENT_ID   default 18
 
     For tests: pass ``_fetch_fn`` — a callable
@@ -181,7 +181,7 @@ class IBKRProvider(Provider):
         _fetch_fn=None,  # (symbol, bar_size, end_dt, duration, wts, rth) → list[dict]
     ) -> None:
         resolved_host = host or os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
-        resolved_port = port or int(os.environ.get("TRADEPRO_IBKR_PORT", "7497"))
+        resolved_port = port or int(os.environ.get("TRADEPRO_IBKR_PORT", "7500"))
         resolved_cid  = client_id or int(os.environ.get("TRADEPRO_IBKR_CLIENT_ID", "18"))
 
         self._conn = _IBConnection(

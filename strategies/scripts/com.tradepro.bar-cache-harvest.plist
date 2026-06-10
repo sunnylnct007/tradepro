@@ -46,7 +46,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>TRADEPRO_IBKR_PORT</key>
-        <string>7497</string>
+        <string>7500</string>
         <key>HOME</key>
         <string>/Users/skumar</string>
         <key>PATH</key>
