@@ -76,11 +76,15 @@ type Props = {
   timeframe: string; // one of WINDOW_DAYS keys
   height?: number;
   ccy?: string | null;
+  /** When the symbol is HELD, the position's average entry price — drawn as a
+   *  dashed horizontal reference line ("Entry") so the trader sees cost basis
+   *  vs the live price at a glance. null/0/undefined ⇒ no line (flat name). */
+  entryPrice?: number | null;
 };
 
 type IchiPoint = { time: UTCTimestamp; value: number };
 
-export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy }: Props) {
+export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entryPrice }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -190,6 +194,18 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy }: Pr
         close: c.close,
       })),
     );
+
+    // Entry-price reference line for a held symbol (cost basis at a glance).
+    if (entryPrice != null && Number.isFinite(entryPrice) && entryPrice > 0) {
+      candleSeries.createPriceLine({
+        price: entryPrice,
+        color: "#e0b341",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "Entry",
+      });
+    }
 
     // Ichimoku, computed on the FULL padded series.
     const ich = computeIchimoku(candles);
@@ -303,7 +319,7 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy }: Pr
       chart.remove();
       chartRef.current = null;
     };
-  }, [series, height, windowDays]);
+  }, [series, height, windowDays, entryPrice]);
 
   // ---- States ------------------------------------------------------------
   const noData = !loading && !err && (series?.candles?.length ?? 0) === 0;

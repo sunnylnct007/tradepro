@@ -18,9 +18,12 @@ type TF = (typeof TIMEFRAMES)[number];
 export function SymbolChartCard({
   symbol,
   height = 300,
+  entryPrice,
 }: {
   symbol: string;
   height?: number;
+  /** Held position's avg entry price → dashed "Entry" line on the chart. */
+  entryPrice?: number | null;
 }) {
   const [tf, setTf] = useState<TF>("3M");
 
@@ -64,7 +67,7 @@ export function SymbolChartCard({
         })}
       </div>
 
-      <CandleIchimokuChart symbol={symbol} timeframe={tf} height={height} />
+      <CandleIchimokuChart symbol={symbol} timeframe={tf} height={height} entryPrice={entryPrice} />
     </div>
   );
 }

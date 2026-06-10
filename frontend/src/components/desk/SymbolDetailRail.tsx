@@ -39,6 +39,13 @@ export function SymbolDetailRail({
   const [orders, setOrders]     = useState<OmsOrderRow[]>([]);
   const [ordersLoading, setOL] = useState(true);
 
+  // Entry price for the chart's "Entry" reference line — from the held
+  // position (matched like SymbolDecisionCard), null when the symbol is flat.
+  const held = positions.find(
+    (r) => r.chartSymbol === symbol || r.ticker === symbol,
+  );
+  const entryPrice = held?.avgPrice ?? null;
+
   // Ref used to scroll the rail into view when a symbol is selected.
   const railRef = useRef<HTMLElement>(null);
 
@@ -116,7 +123,7 @@ export function SymbolDetailRail({
       {/* 1. Chart — 400px tall so candles + axis labels are readable in the
               wider rail. The rail itself has resize:horizontal so the trader
               can drag the right edge for even more room. */}
-      <SymbolChartCard symbol={symbol} height={400} />
+      <SymbolChartCard symbol={symbol} height={400} entryPrice={entryPrice} />
 
       {/* 2. Position */}
       <SymbolPositionCard symbol={symbol} positions={positions} />
