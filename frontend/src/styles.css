@@ -1,13 +1,18 @@
 :root {
   color-scheme: dark;
 
-  /* Core palette — dark, quiet, charting-friendly. */
-  --bg:            #0b1220;
-  --bg-elevated:   #111a2e;
-  --bg-panel:      #151f38;
-  --bg-hover:      #1c284a;
-  --border:        #253256;
-  --border-strong: #324275;
+  /* Core palette — dark, quiet, charting-friendly. Surfaces + borders aligned
+   * to the IBKR-Desktop admin shell (shellTheme.ts: SHELL_BG #0a0e17, SEP
+   * #1b2233) so legacy work-area pages sit on the SAME near-black chrome as the
+   * /desk cockpit instead of brighter blue-navy cards that visually clash.
+   * (Cockpit panels are hardcoded #1b2233 / rgba-white, so they're unaffected;
+   * this only re-tones the legacy pages that consume these vars.) */
+  --bg:            #0a0e17;
+  --bg-elevated:   #0e1320;
+  --bg-panel:      #111722;
+  --bg-hover:      #161d2b;
+  --border:        #1b2233;
+  --border-strong: #28324c;
 
   --text:          #e6ecff;
   --text-dim:      #9aa6c8;
