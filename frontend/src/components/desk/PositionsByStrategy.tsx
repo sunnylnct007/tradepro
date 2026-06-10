@@ -50,13 +50,30 @@ type InternalRow = PositionRow & {
   avgPrice: number | null;
 };
 
-function attrKey(broker: string, symbol: string): string {
-  // Exact broker label. (A family-prefix normalisation was tried to attribute
-  // T212/IG positions, but it over-collapsed IG — FX + intraday share IG_DEMO,
-  // so keys collided — and leaked per-symbol engine ids. Reverted: cleaner to
-  // show T212/IG as one Unattributed group than mis-attribute. Proper fix
-  // (mode-aware + IG-epic-aware + configured-strategy filter) is a follow-up.)
-  return `${broker.toLowerCase()}:${bareSymbol(symbol)}`;
+/** Broker family from either an OMS label ("T212_DEMO") or a position-row
+ *  family ("T212"/"IG"/"IBKR"). */
+function brokerFamily(label: string): string {
+  const u = (label || "").toUpperCase();
+  if (u.startsWith("T212")) return "t212";
+  if (u.startsWith("IG"))   return "ig";
+  if (u.startsWith("IBKR")) return "ibkr";
+  return u.toLowerCase().split("_")[0];
+}
+
+/** DEMO unless the label explicitly says LIVE (PAPER counts as DEMO). Mode-aware
+ *  keys stop the personal T212 LIVE book (which has no OMS rows) from stealing
+ *  the algo T212 DEMO attribution — the bug behind the earlier family revert. */
+function brokerModeOf(label: string): AccountMode {
+  return /LIVE/i.test(label || "") ? "LIVE" : "DEMO";
+}
+
+// Attribution join key: family + mode + bare ticker. The OMS labels positions
+// T212_DEMO / IG_DEMO / IBKR_PAPER while the broker position rows are labelled
+// T212 / IG / IBKR; normalising both to family+mode lets them match across the
+// demo/live split. bareSymbol unifies the symbol formats (AAPL_US_EQ → AAPL,
+// CS.D.GBPUSD.MINI.IP → GBPUSD) — verified identical on both sources.
+function attrKey(family: string, mode: AccountMode, symbol: string): string {
+  return `${family}:${mode}:${bareSymbol(symbol)}`;
 }
 
 export function PositionsByStrategy({
@@ -80,7 +97,14 @@ export function PositionsByStrategy({
       const msgs: string[] = [];
       const out: InternalRow[] = [];
 
-      // Strategy attribution from OMS positions
+      // Configured desks (strategy_broker_map) — attribute ONLY to these so the
+      // intraday-engine's per-symbol shadow rows (intraday-<algo>-<SYM>) can't
+      // hijack a configured desk's symbol on the shared T212_DEMO account.
+      // Config-driven: no hardcoded strategy names.
+      const cfg = await api.strategyBrokerMap().catch(() => null);
+      const configured = new Set((cfg?.mappings ?? []).map((m) => m.strategy_id));
+
+      // Strategy attribution from OMS positions (family+mode keyed).
       const attribution = new Map<string, string>();
       const oms = await api.omsPositions().catch((e) => {
         msgs.push(`OMS: ${e instanceof Error ? e.message : e}`);
@@ -89,7 +113,10 @@ export function PositionsByStrategy({
       if (oms?.positions) {
         for (const p of oms.positions) {
           if (!p.strategyId || p.quantity === 0) continue;
-          attribution.set(attrKey(p.broker, p.symbol), p.strategyId);
+          if (configured.size > 0 && !configured.has(p.strategyId)) continue;
+          attribution.set(
+            attrKey(brokerFamily(p.broker), brokerModeOf(p.broker), p.symbol),
+            p.strategyId);
         }
       }
 
@@ -112,7 +139,7 @@ export function PositionsByStrategy({
             ccy: p.currency,
             chartSymbol: p.yahooSymbol ?? chartSymbolFor(p.ticker, "T212"),
             mode: accountMode("T212", "demo") as AccountMode,
-            strategyId: attribution.get(attrKey("T212", p.ticker)) ?? null,
+            strategyId: attribution.get(attrKey("t212", "DEMO", p.ticker)) ?? null,
             series: null,
             avgPrice: null,
           });
@@ -136,7 +163,7 @@ export function PositionsByStrategy({
             ccy: p.currency,
             chartSymbol: p.yahooSymbol ?? chartSymbolFor(p.ticker, "T212"),
             mode: accountMode("T212", "live") as AccountMode,
-            strategyId: attribution.get(attrKey("T212", p.ticker)) ?? null,
+            strategyId: attribution.get(attrKey("t212", "LIVE", p.ticker)) ?? null,
             series: null,
             avgPrice: null,
           });
@@ -164,7 +191,7 @@ export function PositionsByStrategy({
             // "<PAIR>=X", share CFD → underlying ticker) so the row is chartable.
             chartSymbol: chartSymbolFor(p.ticker, "IG"),
             mode: accountMode("IG", "demo") as AccountMode,
-            strategyId: attribution.get(attrKey("IG", p.ticker)) ?? null,
+            strategyId: attribution.get(attrKey("ig", "DEMO", p.ticker)) ?? null,
             series: null,
             avgPrice: p.averagePricePaid ?? null,
           });
@@ -179,7 +206,7 @@ export function PositionsByStrategy({
       if (ibkr?.enabled && ibkr.positions && !ibkr.error) {
         for (const p of ibkr.positions) {
           const ticker = p.ticker ?? "—";
-          const stratId = attribution.get(attrKey("IBKR", ticker)) ?? null;
+          const stratId = attribution.get(attrKey("ibkr", "LIVE", ticker)) ?? null;
           out.push({
             broker: "IBKR",
             ticker,
