@@ -227,28 +227,59 @@ export function PositionsByStrategy({
       } else if (ibkr && !ibkr.enabled) msgs.push("IBKR disabled");
       else if (ibkr?.error)             msgs.push(`IBKR: ${ibkr.error}`);
 
-      // IBKR DEMO (paper clone): no live broker endpoint reads the paper account
-      // (DUP656969 — the .NET IBKR client is the live harvesting session), so
-      // source the clone's book from the OMS (broker IBKR_PAPER). Qty + cost
-      // basis only; live mark/P&L arrives once the clone pushes account state.
-      for (const p of oms?.positions ?? []) {
-        if ((p.broker || "") !== "IBKR_PAPER" || !p.quantity) continue;
-        out.push({
-          broker: "IBKR",
-          ticker: p.symbol,
-          company: null,
-          qty: fmtQty(p.quantity),
-          last: null,
-          changePct: null,
-          pnl: null,
-          pnlPct: null,
-          ccy: "USD",
-          chartSymbol: chartSymbolFor(p.symbol, "IBKR"),
-          mode: accountMode("IBKR", "demo") as AccountMode,
-          strategyId: p.strategyId ?? "ichimoku_equity_ibkr",
-          series: null,
-          avgPrice: (p as { avgPrice?: number }).avgPrice ?? null,
-        });
+      // IBKR DEMO (paper clone, DUP656969): the live IBKRClient only sees the
+      // personal IBKR_LIVE account, so the clone's golden source is the account
+      // state its daemon pushes (broker_account_state) — real mark + unrealised
+      // P&L per position. Falls back to OMS qty-only if no push has landed yet.
+      const acctState = await api.accountState().catch(() => null);
+      const paper = acctState?.accounts.find((a) => a.broker === "IBKR_PAPER");
+      // The clone's desk id, from its OMS rows (config desk ichimoku_equity_ibkr).
+      const ibkrDemoStrat =
+        (oms?.positions ?? []).find((p) => (p.broker || "") === "IBKR_PAPER")?.strategyId
+        ?? "ichimoku_equity_ibkr";
+      if (paper?.positions?.length) {
+        for (const p of paper.positions) {
+          if (!p.qty) continue;
+          const pnlPct = p.avgCost != null && p.avgCost !== 0 && p.mark != null
+            ? ((p.mark - p.avgCost) / p.avgCost) * 100 : null;
+          out.push({
+            broker: "IBKR",
+            ticker: p.symbol,
+            company: null,
+            qty: fmtQty(p.qty),
+            last: p.mark,
+            changePct: null,
+            pnl: p.unrealisedPnl,
+            pnlPct,
+            ccy: p.currency ?? "USD",
+            chartSymbol: chartSymbolFor(p.symbol, "IBKR"),
+            mode: accountMode("IBKR", "demo") as AccountMode,
+            strategyId: ibkrDemoStrat,
+            series: null,
+            avgPrice: p.avgCost,
+          });
+        }
+      } else {
+        // No account-state push yet — OMS qty-only fallback (no live mark/P&L).
+        for (const p of oms?.positions ?? []) {
+          if ((p.broker || "") !== "IBKR_PAPER" || !p.quantity) continue;
+          out.push({
+            broker: "IBKR",
+            ticker: p.symbol,
+            company: null,
+            qty: fmtQty(p.quantity),
+            last: null,
+            changePct: null,
+            pnl: null,
+            pnlPct: null,
+            ccy: "USD",
+            chartSymbol: chartSymbolFor(p.symbol, "IBKR"),
+            mode: accountMode("IBKR", "demo") as AccountMode,
+            strategyId: p.strategyId ?? "ichimoku_equity_ibkr",
+            series: null,
+            avgPrice: (p as { avgPrice?: number }).avgPrice ?? null,
+          });
+        }
       }
 
       if (!live) return;
