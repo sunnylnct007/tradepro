@@ -24,20 +24,37 @@ from ..indicators import ichimoku as ichimoku_indicator
 from .regime_filter import RegimeFilter
 
 
+def _rsi(close: pd.Series, n: int = 14) -> pd.Series:
+    """Wilder-ish RSI(14) on close (simple-MA variant — enough for an entry gate)."""
+    d = close.diff()
+    up = d.clip(lower=0).rolling(n).mean()
+    dn = (-d.clip(upper=0)).rolling(n).mean()
+    return 100 - 100 / (1 + up / dn.replace(0, np.nan))
+
+
 def _default_compute_position(
     data: dict[str, pd.DataFrame],
     tenkan: int,
     kijun: int,
     senkou_b: int,
     displacement: int,
+    entry_max_ext_pct: float | None = None,
+    entry_rsi_max: float | None = None,
 ) -> pd.DataFrame:
     """Compute per-ticker long/flat signals using Ichimoku.
 
     Long when: Close > cloud_high AND tenkan > kijun
     Flat when: Close < cloud_low OR tenkan < kijun
 
+    Optional ENTRY-EXTENSION GATE (default OFF): when ``entry_max_ext_pct`` /
+    ``entry_rsi_max`` are set, a NEW long is BLOCKED if the name is already
+    over-extended (Close > entry_max_ext_pct% above its 200-SMA, or RSI(14) >
+    entry_rsi_max). The exit rule is untouched. With both None the function is
+    byte-identical to the legacy version (backtest parity).
+
     Returns a DataFrame of 0/1 values, shape (n_bars, n_tickers).
     """
+    gated = entry_max_ext_pct is not None or entry_rsi_max is not None
     positions = {}
     for ticker, df in data.items():
         if "Close" not in df.columns or len(df) < max(tenkan, kijun, senkou_b) + displacement + 1:
@@ -50,6 +67,11 @@ def _default_compute_position(
             tenkan=tenkan, kijun=kijun,
             senkou_b=senkou_b, displacement=displacement,
         )
+
+        # Extension series only computed when the gate is active (else None →
+        # zero overhead + exact legacy behaviour).
+        sma200 = df["Close"].rolling(200).mean() if (gated and entry_max_ext_pct is not None) else None
+        rsi14 = _rsi(df["Close"]) if (gated and entry_rsi_max is not None) else None
 
         pos = pd.Series(0.0, index=df.index)
         # Stateful: start flat, go long when entry conditions met, exit on reversal
@@ -68,7 +90,17 @@ def _default_compute_position(
             if current == 0.0:
                 # Entry: price above cloud AND tenkan above kijun
                 if c > ch and t > k:
-                    current = 1.0
+                    blocked = False
+                    if entry_max_ext_pct is not None and sma200 is not None:
+                        s = sma200.iloc[i]
+                        if pd.notna(s) and s > 0 and (c / s - 1) * 100 > entry_max_ext_pct:
+                            blocked = True  # too far above the mean — don't chase
+                    if not blocked and entry_rsi_max is not None and rsi14 is not None:
+                        r = rsi14.iloc[i]
+                        if pd.notna(r) and r > entry_rsi_max:
+                            blocked = True  # overbought — don't chase
+                    if not blocked:
+                        current = 1.0
             else:
                 # Exit: price below cloud OR tenkan below kijun
                 if c < cl or t < k:
@@ -136,9 +168,18 @@ class Sleeve:
         n = cfg.sleeve_large  # used as denominator; actual count = len(tickers)
         sleeve_size = max(len(tickers), 1)
 
-        # Compute raw positions (0/1 per ticker)
+        # Compute raw positions (0/1 per ticker). Pass the entry-extension gate
+        # kwargs ONLY when configured — so an injected custom compute_fn (tests)
+        # and the default both keep their legacy 5-arg behaviour when the gate
+        # is off (backtest parity).
+        gate_kw = {}
+        if getattr(cfg, "entry_max_ext_pct", None) is not None:
+            gate_kw["entry_max_ext_pct"] = cfg.entry_max_ext_pct
+        if getattr(cfg, "entry_rsi_max", None) is not None:
+            gate_kw["entry_rsi_max"] = cfg.entry_rsi_max
         raw_pos = self._compute_position_fn(
             self.data, cfg.tenkan, cfg.kijun, cfg.senkou_b, cfg.displacement,
+            **gate_kw,
         )
 
         if raw_pos.empty:

@@ -38,6 +38,16 @@ class QuantEngineConfig:
     regime_sma: int = 200
     use_regime_filter: bool = True
 
+    # Entry-extension gate (OPT-IN, default OFF → backtest unchanged). Blocks a
+    # NEW long when the name is already over-extended at entry — the diagnosed
+    # failure mode where ichimoku_equity bought blow-off tops (median loser
+    # entered +42% over its 200-SMA, at the 97.5th %ile of its 52w range).
+    #   entry_max_ext_pct: skip entry if Close is > this % above the 200-SMA
+    #   entry_rsi_max:     skip entry if RSI(14) is above this
+    # None = gate disabled (no behaviour change vs the legacy backtest).
+    entry_max_ext_pct: float | None = None
+    entry_rsi_max: float | None = None
+
     # Vol targeting (Hurst-Ooi-Pedersen 2017)
     target_vol: float = 0.12
     max_leverage: float = 1.5

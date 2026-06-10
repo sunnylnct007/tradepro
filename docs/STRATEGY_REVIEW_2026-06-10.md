@@ -110,3 +110,59 @@ HPE is the archetype: bought after a **+96% run in 20 days, RSI 92, at a 100th-%
 | 6 | **`intraday_flat` anti-churn** — trade-frequency cap / conviction threshold / cost-aware gate | −£2.50 expected/trade | Stops the bleed on the worst desk |
 
 **One-line takeaway:** *the signal is fine; the trader isn't in the loop yet.* Entry discipline + stops + clean data turn the existing book from a −£5k bleed into something tradeable — before any new strategies are added.
+
+---
+
+## 8. Quantified fix impact — simulated on the actual held book
+
+Applying the two equity fixes to the **current 81-name book** (£45,063 cost basis, −£2,826 open):
+
+| Scenario | Book P&L | vs actual | Effect |
+|---|---:|---:|---|
+| **Actual** | **−£2,826** | — | 21% win-rate |
+| 8% stop only | −£1,838 | **+£988** | caps the 42 names past −8% |
+| **Entry-filter only** | **−£15** | **+£2,811** | keeps 13/81 names; **win-rate 21% → 46%** |
+| Both (filter + stop) | +£1 | +£2,827 | ≈ breakeven |
+
+The **entry-extension filter is the dominant lever** (bigger than the stop): it would have skipped 68 names — **57 losers (−£3,047) but only 11 winners (+£236)** — shedding £3,047 of losses to forgo just £236 of gains, turning −£2,826 into ~flat. The stop is secondary: it limits damage *after* a bad entry; the filter avoids the bad entry entirely.
+
+**Caveats (this is a snapshot estimate, NOT yet a walk-forward backtest):**
+1. Scores the rule against names *currently held* — doesn't re-simulate which names would have been bought over time.
+2. **Tape-dependent** — semis are currently selling off, which flatters a "don't buy extended semis" filter; in a melt-up it would forgo more (trend-following's fat winners live in extended names).
+3. Optimistic stop fills (assumes exact −8% exit; real stops gap/slip).
+4. Small kept sample (13 names).
+
+**→ Confirmation step (in progress): walk-forward backtest** of `ichimoku_equity` with vs without the entry-extension gate over 1–2 years, comparing Sharpe / max-drawdown / return out-of-sample — to prove the gate generalizes and doesn't choke off the rare big trend winner. Results appended in §9 when complete.
+
+---
+
+## 9. Walk-forward backtest — the gate is sleeve-specific (and the strategy isn't broken)
+
+`ichimoku_equity` sleeve, 3yr (2023-06 → 2026-06), costs on, gate OFF vs ON:
+
+**LARGE_50 (mega-cap)**
+| Config | Return | Sharpe | maxDD |
+|---|---:|---:|---:|
+| baseline | +24.1% | 1.34 | −5.8% |
+| **25% + RSI≤70** | +24.2% | **1.46** | **−4.6%** |
+| 15% + RSI≤70 | +20.7% | 1.43 | −3.6% |
+
+**HIGH-BETA / semis (where the live losers are)**
+| Config | Return | Sharpe | maxDD |
+|---|---:|---:|---:|
+| **baseline** | **+121.3%** | 1.54 | −11.4% |
+| 25% over SMA | +83.3% | 1.57 | −10.7% |
+| 25% + RSI≤70 | +67.3% | 1.47 | −9.7% |
+| 15% + RSI≤70 | +44.9% | 1.28 | −6.3% |
+
+**Findings (these correct the §8 snapshot, which was fooled by the current down-tape):**
+1. **The strategy backtests well — it is NOT broken.** +24%/Sharpe 1.34 (mega-cap) and **+121%/Sharpe 1.54** (high-beta) over 3yr; maxDD only −11%. The live −£2.5k is a **normal drawdown** captured mid-pullback, not a broken signal.
+2. **The entry gate is sleeve-specific:** a *free* Sharpe/drawdown improvement on **large_50** (1.34→1.46), but it **destroys the high-beta edge** (return 121%→45–83% for ≤0 Sharpe gain) — on momentum names the *extended entries are the winners*.
+3. **Don't ship a blanket gate.** The on-book snapshot (§8) said "gate → flat"; the walk-forward says "gate craters high-beta." The snapshot dodged the names falling *now*; over 3yr those extended names mostly kept running.
+
+**Optimization conclusion:**
+- **large_50:** apply a mild gate (25% over 200-SMA + RSI≤70).
+- **high-beta:** NO gate; add the 8% **stop** for tail protection (caps the −11% without killing the +121%).
+- **The real gap is execution parity** — the backtest is idealized (clean cache, close-based). The live bleed vs this backtest is phantom-bar data + MOO timing + costs + missing stop. **Fix the live execution to match the backtest; don't change the signal.**
+
+> *Method note:* gate implemented as opt-in `entry_max_ext_pct` / `entry_rsi_max` in `quant_engine` (default OFF → backtest parity; 17/17 sleeve tests pass). Backtest run on the clean daily cache, regime filter off (isolates the gate effect), large_50 + a 33-name high-beta/semis set.
