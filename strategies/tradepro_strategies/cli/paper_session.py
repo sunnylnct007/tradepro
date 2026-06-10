@@ -71,11 +71,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         description="Run one paper-trading session against a chosen broker.",
     )
     p.add_argument(
-        "--broker", required=True,
+        # Optional at parse time so --from-config can supply it from the
+        # config row; main() enforces it after config is applied.
+        "--broker", required=False, default=None,
         help=(
             "Broker profile. Single: replay | yfinance | t212 | ibkr | "
             "stub_live. Multi: comma-separated list (e.g. 't212,ibkr') — "
-            "see --multi-mode and --bar-source."
+            "see --multi-mode and --bar-source. Required unless --from-config "
+            "supplies it."
         ),
     )
     p.add_argument(
@@ -1017,6 +1020,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     if getattr(args, "from_config", False):
         _apply_config_overrides(args, log)
+    # --broker is optional at parse time so --from-config can inject it from the
+    # config row; enforce it here, once config has been applied.
+    if not args.broker:
+        raise SystemExit(
+            "--broker is required (or use --from-config with a configured broker)")
     session_date = _resolve_session_date(args.date)
     # Yahoo / T212 / IG profiles require a session_date — when omitted
     # default to today's UTC date so the schedule-fired daemons
