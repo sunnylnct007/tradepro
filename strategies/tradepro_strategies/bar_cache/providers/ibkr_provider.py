@@ -157,9 +157,14 @@ class IBKRProvider(Provider):
         IBKRProvider(_fetch_fn=my_mock)         # BDD / unit tests
 
     Environment variables (all optional):
-        TRADEPRO_IBKR_HOST        default 127.0.0.1
-        TRADEPRO_IBKR_PORT        default 7500
-        TRADEPRO_IBKR_CLIENT_ID   default 18
+        TRADEPRO_IBKR_DATA_HOST       (preferred) dedicated data Gateway host
+        TRADEPRO_IBKR_DATA_PORT       (preferred) dedicated data Gateway port
+        TRADEPRO_IBKR_DATA_CLIENT_ID  (preferred) data-connection clientId
+        TRADEPRO_IBKR_HOST        fallback, default 127.0.0.1
+        TRADEPRO_IBKR_PORT        fallback, default 7500
+        TRADEPRO_IBKR_CLIENT_ID   fallback, default 18
+        Set the DATA_* trio to point harvesting at a SEPARATE IBKR user/Gateway
+        (isolated session + pacing). Unset → shares the trading Gateway (legacy).
 
     For tests: pass ``_fetch_fn`` — a callable
         (symbol, bar_size, end_dt, duration_str, what_to_show, use_rth)
@@ -180,9 +185,18 @@ class IBKRProvider(Provider):
         what_to_show: Optional[str] = None,
         _fetch_fn=None,  # (symbol, bar_size, end_dt, duration, wts, rth) → list[dict]
     ) -> None:
-        resolved_host = host or os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
-        resolved_port = port or int(os.environ.get("TRADEPRO_IBKR_PORT", "7500"))
-        resolved_cid  = client_id or int(os.environ.get("TRADEPRO_IBKR_CLIENT_ID", "18"))
+        # Prefer a DEDICATED data/harvest connection (TRADEPRO_IBKR_DATA_*) so
+        # bar harvesting can run on a SEPARATE IBKR user + Gateway, isolated
+        # from the trading account (own session + per-account pacing budget →
+        # heavy historical fetches can't pace-violate or lag live execution).
+        # Falls back to the shared TRADEPRO_IBKR_* vars → DEFAULT BEHAVIOUR
+        # UNCHANGED until the data Gateway exists; isolating is a one-env flip.
+        resolved_host = host or os.environ.get("TRADEPRO_IBKR_DATA_HOST") \
+            or os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
+        resolved_port = port or int(os.environ.get("TRADEPRO_IBKR_DATA_PORT")
+            or os.environ.get("TRADEPRO_IBKR_PORT", "7500"))
+        resolved_cid  = client_id or int(os.environ.get("TRADEPRO_IBKR_DATA_CLIENT_ID")
+            or os.environ.get("TRADEPRO_IBKR_CLIENT_ID", "18"))
 
         self._conn = _IBConnection(
             host=resolved_host,
