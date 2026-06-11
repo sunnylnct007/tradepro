@@ -1139,6 +1139,26 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
             if unrl is None and positions:
                 unrl = sum(p["unrealisedPnl"] for p in positions
                            if p.get("unrealisedPnl") is not None)
+
+            # Broker-golden daily P&L. The OMS-computed realised is unreliable
+            # for the clone (historical BUY fills are price 0 — ib.fills() clears
+            # daily, so the basis can't be reconstructed). IBKR DOES know the
+            # cost basis, so its reqPnL is the authoritative "today's P&L".
+            daily_pnl = None
+            try:
+                pnl = ib.reqPnL(_want) if _want else None
+                if pnl is not None:
+                    await _aio.sleep(2.0)  # let the PnL subscription deliver
+                    dp = getattr(pnl, "dailyPnL", None)
+                    if dp is not None and dp == dp:  # not None / not NaN
+                        daily_pnl = float(dp)
+                    try:
+                        ib.cancelPnL(_want)
+                    except Exception:
+                        pass
+            except Exception:
+                daily_pnl = None
+
             return {
                 "broker": "IBKR_PAPER",
                 "account_id": _want or None,
@@ -1146,8 +1166,7 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
                 "net_liquidation": _val("NetLiquidation"),
                 "total_cash": _val("TotalCashValue"),
                 "unrealised_pnl": unrl,
-                # daily_pnl needs the reqPnL subscription; left null until wired.
-                "daily_pnl": None,
+                "daily_pnl": daily_pnl,  # IBKR reqPnL — broker-golden today's P&L
                 "positions": positions,
                 "_fills": fills,
             }
