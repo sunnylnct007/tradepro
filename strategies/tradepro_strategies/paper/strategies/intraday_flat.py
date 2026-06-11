@@ -206,6 +206,20 @@ class IntradayFlatStrategy(Strategy):
                            "TSLA", "QQQ", "AMD", "NFLX", "AVGO"],
             "top_n": 6,
 
+            # Selectivity / cost-aware gates (OPT-IN — both None ⇒ off) ----
+            # The diagnosed −£2.87/trade failure is COST CHURN: too many
+            # marginal-conviction trades, each paying the round-trip spread
+            # (AMD alone traded 24× LTD). These two gates trade FEWER, STRONGER
+            # setups so the cumulative cost stops eating a thin directional edge.
+            # min_strength (float|None): absolute floor on the Ichimoku strength
+            #   score — a candidate that ranks top-N but scores below this is
+            #   STILL dropped (so a weak day trades nothing, not a forced 6).
+            "min_strength": None,
+            # min_atr_pct (float|None): cost floor — skip a name whose ATR(14)
+            #   is < this fraction of price (e.g. 0.012 = 1.2%); a daily range
+            #   too tight to clear the intraday round-trip cost is pure churn.
+            "min_atr_pct": None,
+
             # Regime -------------------------------------------------------
             # SPY 200-SMA is the BULL/BEAR switch. BEAR → no entries
             # at all (existing positions can still hit their exits).
@@ -449,6 +463,23 @@ class IntradayFlatStrategy(Strategy):
                 continue
 
             last_close = float(close.iloc[-1])
+
+            # Cost floor (OPT-IN): a daily range too tight to clear the
+            # intraday round-trip cost is churn — drop it before it trades.
+            min_atr_pct = p.get("min_atr_pct")
+            if min_atr_pct is not None and last_close > 0:
+                atr_pct = last_atr / last_close
+                if atr_pct < float(min_atr_pct):
+                    self.log_decision(
+                        symbol=sym, action="scanner-drop-low-atr-pct",
+                        reason=(
+                            f"ATR {atr_pct:.2%} of price < {float(min_atr_pct):.2%} "
+                            f"floor — range too tight to clear round-trip cost"
+                        ),
+                        atr=last_atr, last_close=last_close, **meta,
+                    )
+                    continue
+
             strength = ichimoku_strength_score(
                 last_close=last_close, metadata=meta, atr=last_atr,
             )
@@ -458,6 +489,21 @@ class IntradayFlatStrategy(Strategy):
                     reason=(
                         f"strength score = {strength!r}; long-only "
                         f"scanner requires positive distance above kijun"
+                    ),
+                    atr=last_atr, last_close=last_close, **meta,
+                )
+                continue
+
+            # Conviction floor (OPT-IN): top-N by itself forces 6 names even on
+            # a weak day; an absolute floor means we only trade genuinely strong
+            # setups (fewer trades = less cumulative spread on a thin edge).
+            min_strength = p.get("min_strength")
+            if min_strength is not None and strength < float(min_strength):
+                self.log_decision(
+                    symbol=sym, action="scanner-drop-low-strength",
+                    reason=(
+                        f"strength {strength:.3f} < {float(min_strength):.3f} "
+                        f"floor — below conviction bar; skip to avoid churn"
                     ),
                     atr=last_atr, last_close=last_close, **meta,
                 )

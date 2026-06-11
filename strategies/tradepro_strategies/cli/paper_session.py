@@ -155,6 +155,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[orb] Hard cap on |position_value| in dollars.")
     p.add_argument("--risk-per-trade-usd", type=float, default=100.0,
                    help="[orb] Dollars risked on the stop.")
+    p.add_argument("--top-n", type=int, default=None,
+                   help="[intraday_flat] Basket size (default 6). Lower = fewer, stronger trades.")
+    p.add_argument("--min-atr-pct", type=float, default=None,
+                   help="[intraday_flat] Cost floor: skip names with ATR(14)/price below this (e.g. 0.012).")
+    p.add_argument("--min-strength", type=float, default=None,
+                   help="[intraday_flat] Conviction floor: skip setups scoring below this strength.")
     p.add_argument("--range-minutes", type=int, default=15,
                    help="[orb] Opening-range window length (minutes).")
     # ── Ichimoku equity knobs ────────────────────────────────────────────
@@ -522,18 +528,25 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
 
     if strategy_name == "intraday_flat":
         from ..paper.strategies.intraday_flat import IntradayFlatStrategy
+        ix_params = {
+            # The scanner ranks `candidates` then intersects with the IG
+            # epic map; pass the daemon's --symbols as the candidate set.
+            "candidates": symbols,
+            "capital_usd": args.capital_usd,
+            "risk_per_trade_usd": args.risk_per_trade_usd,
+            # Route to IG (matches --broker ig). Orders carry this
+            # broker_label + the per-symbol epic from ig_epic_map.json.
+            "broker_label": "IG_DEMO",
+        }
+        # Selectivity / cost-aware overrides — only when set, so an unset
+        # value never clobbers default_params (e.g. top_n=None would break).
+        for _k in ("top_n", "min_atr_pct", "min_strength"):
+            _v = getattr(args, _k, None)
+            if _v is not None:
+                ix_params[_k] = _v
         return IntradayFlatStrategy(
             strategy_id=strategy_id,
-            params={
-                # The scanner ranks `candidates` then intersects with the IG
-                # epic map; pass the daemon's --symbols as the candidate set.
-                "candidates": symbols,
-                "capital_usd": args.capital_usd,
-                "risk_per_trade_usd": args.risk_per_trade_usd,
-                # Route to IG (matches --broker ig). Orders carry this
-                # broker_label + the per-symbol epic from ig_epic_map.json.
-                "broker_label": "IG_DEMO",
-            },
+            params=ix_params,
             # Long-only intraday by design — never short.
             risk=RiskLimits(
                 max_position_value_usd=args.max_position_value_usd,
@@ -1026,7 +1039,8 @@ def _apply_config_overrides(args, log) -> None:
                 "interval", "placement_mode", "stop_loss_pct", "take_profit_pct",
                 "max_per_sector", "warmup_bars", "max_position_value_usd",
                 "target_vol", "max_leverage", "sleeve_size",
-                "entry_max_ext_pct", "entry_rsi_max"):
+                "entry_max_ext_pct", "entry_rsi_max",
+                "top_n", "min_atr_pct", "min_strength"):
         if key in cfg and cfg[key] is not None and hasattr(args, key):
             setattr(args, key, cfg[key])
     # IBKR connection → env (the adapter reads TRADEPRO_IBKR_*).
