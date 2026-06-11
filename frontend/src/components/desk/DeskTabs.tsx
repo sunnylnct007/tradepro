@@ -500,8 +500,29 @@ function BalancesTab() {
   useEffect(() => {
     let live = true;
     const load = () => {
-      api.cashSummary()
-        .then((r) => { if (live) { setRows(r.brokers); setErr(null); } })
+      // cashSummary covers T212/IG/IBKR-LIVE. The IBKR PAPER clone (DUP656969)
+      // isn't there — the live IBKRClient only sees IBKR_LIVE — so pull it from
+      // broker_account_state (the daemon push) and append it.
+      Promise.all([api.cashSummary(), api.accountState().catch(() => null)])
+        .then(([cash, acct]) => {
+          if (!live) return;
+          const have = new Set(cash.brokers.map((b) => (b.broker || "").toLowerCase()));
+          const clones = (acct?.accounts ?? [])
+            .filter((a) => !have.has((a.broker || "").toLowerCase()))
+            .map((a) => ({
+              broker: a.broker,
+              label: a.broker === "IBKR_PAPER" ? "IBKR Paper (algo clone)" : a.broker,
+              currency: a.currency,
+              total: a.netLiquidation,
+              available: a.totalCash,
+              invested: a.netLiquidation != null && a.totalCash != null
+                ? a.netLiquidation - a.totalCash : null,
+              openPnl: a.unrealisedPnl,
+              status: "ok" as const,
+            } as Awaited<ReturnType<typeof api.cashSummary>>["brokers"][number]));
+          setRows([...cash.brokers, ...clones]);
+          setErr(null);
+        })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })
         .finally(() => { if (live) setLoading(false); });
     };
