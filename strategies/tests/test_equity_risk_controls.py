@@ -360,3 +360,32 @@ def test_pct_to_fraction_normalises_whole_percents():
     assert _pct_to_fraction(12.5) == 0.125
     assert _pct_to_fraction(0.08) == 0.08   # already a fraction ⇒ unchanged
     assert _pct_to_fraction(None) is None    # control off
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# (g) Entry-extension "don't chase" gate (OPT-IN)
+# ─────────────────────────────────────────────────────────────────────────
+def test_entry_extension_gate_blocks_extended_long():
+    """A long signal on a strongly-extended name (well above its 200-SMA) is
+    SKIPPED when entry_max_ext_pct is set — the 'don't chase blow-off tops'
+    gate. Without the gate the same name buys (see test_default_off_entry)."""
+    df = {"AAPL": _uptrend_df()}  # monotone uptrend → price far above 200-SMA
+    strat = _make_strategy(["AAPL"], df, entry_max_ext_pct=10.0)  # tight cap
+    orders = strat.on_bar(_bar("AAPL", 250.0))
+    assert orders == []  # blocked as too extended
+
+
+def test_entry_extension_gate_off_by_default_still_buys():
+    """Gate OFF (param unset) ⇒ the extended name still buys — opt-in only."""
+    df = {"AAPL": _uptrend_df()}
+    strat = _make_strategy(["AAPL"], df)  # no gate
+    orders = strat.on_bar(_bar("AAPL", 250.0))
+    assert len(orders) == 1 and orders[0].side == OrderSide.BUY
+
+
+def test_entry_rsi_gate_blocks_overbought():
+    """entry_rsi_max blocks a long when RSI(14) exceeds the cap."""
+    df = {"AAPL": _uptrend_df()}  # relentless uptrend → RSI very high
+    strat = _make_strategy(["AAPL"], df, entry_rsi_max=50.0)  # low cap → blocks
+    orders = strat.on_bar(_bar("AAPL", 250.0))
+    assert orders == []

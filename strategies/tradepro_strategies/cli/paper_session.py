@@ -174,6 +174,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[ichimoku_equity] Take-profit: flatten a held long up ≥ this %%. Off by default.")
     p.add_argument("--max-per-sector", type=int, default=None,
                    help="[ichimoku_equity] Concentration cap: max NEW entries per sector. Off by default.")
+    p.add_argument("--entry-max-ext-pct", type=float, default=None,
+                   help="[ichimoku_equity] Don't-chase gate: skip a NEW long >this %% above its 200-SMA (e.g. 50). Off by default.")
+    p.add_argument("--entry-rsi-max", type=float, default=None,
+                   help="[ichimoku_equity] Don't-chase gate: skip a NEW long with RSI(14) > this (e.g. 75). Off by default.")
     # ── Ichimoku FX knobs ────────────────────────────────────────────────
     p.add_argument("--warmup-bars", type=int, default=200,
                    help="[ichimoku_fx_mr] Bars of history before signals fire.")
@@ -490,6 +494,9 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "stop_loss_pct": _pct_to_fraction(getattr(args, "stop_loss_pct", None)),
                 "take_profit_pct": _pct_to_fraction(getattr(args, "take_profit_pct", None)),
                 "max_per_sector": getattr(args, "max_per_sector", None),
+                # Entry-extension "don't chase" gate (whole percent / RSI level).
+                "entry_max_ext_pct": getattr(args, "entry_max_ext_pct", None),
+                "entry_rsi_max": getattr(args, "entry_rsi_max", None),
             },
         )
 
@@ -1018,7 +1025,8 @@ def _apply_config_overrides(args, log) -> None:
     for key in ("sleeves", "symbols", "universe", "capital_usd", "lookback_days",
                 "interval", "placement_mode", "stop_loss_pct", "take_profit_pct",
                 "max_per_sector", "warmup_bars", "max_position_value_usd",
-                "target_vol", "max_leverage", "sleeve_size"):
+                "target_vol", "max_leverage", "sleeve_size",
+                "entry_max_ext_pct", "entry_rsi_max"):
         if key in cfg and cfg[key] is not None and hasattr(args, key):
             setattr(args, key, cfg[key])
     # IBKR connection → env (the adapter reads TRADEPRO_IBKR_*).

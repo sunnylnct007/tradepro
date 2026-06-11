@@ -210,6 +210,15 @@ class IchimokuEquityStrategy(Strategy):
             #   already holds `max_per_sector` positions. Existing holdings
             #   are never touched. None ⇒ no cap.
             "max_per_sector": None,
+            # entry_max_ext_pct (float|None): "don't chase" gate — SKIP a NEW
+            #   long if Close is more than this % above its 200-day SMA (e.g.
+            #   50 ⇒ block names >50% over the mean). Targets the blow-off-top
+            #   entries that became the deepest losers (HPE +128%, CIEN +114%).
+            #   None ⇒ no extension gate. Existing holdings/exits untouched.
+            "entry_max_ext_pct": None,
+            # entry_rsi_max (float|None): SKIP a NEW long if RSI(14) > this
+            #   (e.g. 75 ⇒ block overbought entries). None ⇒ no RSI gate.
+            "entry_rsi_max": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -419,6 +428,30 @@ class IchimokuEquityStrategy(Strategy):
 
         # Long entry.
         if signal >= 1.0 and position == 0:
+            # ── Entry-extension "don't chase" gate (OPT-IN) ─────────────────
+            # OFF by default (both None) ⇒ no-op. When set, SKIP a NEW long
+            # that is already over-extended at entry — the diagnosed failure
+            # mode where the book bought blow-off tops (median loser +42% over
+            # its 200-SMA; HPE entered RSI 92 / +128% over → −19%). Blocks the
+            # ENTRY only; never touches held positions or exits.
+            ext_max = p.get("entry_max_ext_pct")
+            rsi_max = p.get("entry_rsi_max")
+            if ext_max is not None or rsi_max is not None:
+                ext = meta.get("ext_pct") if meta else None
+                rsi = meta.get("rsi") if meta else None
+                why = None
+                if ext_max is not None and ext is not None and ext > float(ext_max):
+                    why = f"{ext:+.0f}% over 200-SMA > {ext_max}% cap — too extended"
+                elif rsi_max is not None and rsi is not None and rsi > float(rsi_max):
+                    why = f"RSI {rsi:.0f} > {rsi_max} cap — overbought"
+                if why is not None:
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp,
+                        action="skip-extended",
+                        reason=f"don't-chase gate: {why}",
+                        signal=signal, cloud_position=cloud_pos,
+                    )
+                    return []
             # Top-N-by-conviction gate: when sleeves are configured, only the
             # winners selected at session start may enter. A signalling name
             # that didn't make its sleeve's slot cut is dropped this session
@@ -967,6 +1000,22 @@ class IchimokuEquityStrategy(Strategy):
             last_close = float(close.iloc[-1])
             if cloud_top and cloud_top > 0:
                 meta = {**meta, "conviction": (last_close - float(cloud_top)) / float(cloud_top)}
+            # At-entry extension for the "don't chase" gate (consumed in on_bar).
+            # % above the 200-SMA + RSI(14) on the same history the signal uses.
+            try:
+                if len(close) >= 200:
+                    sma200 = float(close.tail(200).mean())
+                    if sma200 > 0:
+                        meta = {**meta, "ext_pct": (last_close / sma200 - 1.0) * 100.0}
+                d = close.diff()
+                up = d.clip(lower=0).tail(14).mean()
+                dn = (-d.clip(upper=0)).tail(14).mean()
+                if dn and dn > 0:
+                    meta = {**meta, "rsi": 100.0 - 100.0 / (1.0 + up / dn)}
+                elif up and up > 0:
+                    meta = {**meta, "rsi": 100.0}
+            except Exception:  # noqa: BLE001 — gate metadata is best-effort
+                pass
 
         # Vol for sizing.
         lookback = int(p.get("vol_lookback", 60))
