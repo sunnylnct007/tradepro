@@ -1099,6 +1099,26 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
                         return v.currency or None
                 return None
 
+            # Today's executions (real fill prices). The clone's OPG/MOO orders
+            # return BEFORE the auction fills, so the OMS otherwise has price=0;
+            # ib.fills() carries the session's executed prices to reconcile.
+            fills = []
+            for f in ib.fills():
+                ex = getattr(f, "execution", None)
+                if ex is None:
+                    continue
+                if _want and (getattr(ex, "acctNumber", "") or "").strip() != _want:
+                    continue
+                try:
+                    fills.append({
+                        "symbol": f.contract.symbol,
+                        "side": "BUY" if ex.side == "BOT" else "SELL",
+                        "qty": abs(float(ex.shares)),
+                        "price": float(ex.price),
+                    })
+                except (TypeError, ValueError, AttributeError):
+                    continue
+
             # Account-level UnrealizedPnL is often absent from accountValues;
             # fall back to summing the position book so the row is never blank.
             unrl = _val("UnrealizedPnL")
@@ -1115,6 +1135,7 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
                 # daily_pnl needs the reqPnL subscription; left null until wired.
                 "daily_pnl": None,
                 "positions": positions,
+                "_fills": fills,
             }
         finally:
             ib.disconnect()
@@ -1124,6 +1145,7 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("account-state: could not read IBKR portfolio (%s) — skip", exc)
         return
+    fills = payload.pop("_fills", [])
     try:
         import requests as _rq
         resp = _rq.post(
@@ -1135,6 +1157,56 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
                  payload.get("net_liquidation"), payload.get("currency"))
     except Exception as exc:  # noqa: BLE001
         log.warning("account-state push failed: %s", exc)
+
+    # Reconcile real IBKR fill prices into the OMS. The clone's OPG orders are
+    # recorded SUBMITTED with price 0 (placement returns before the auction); the
+    # /fill endpoint stamps the real avg price + marks FILLED, so the clone's
+    # Trades show real prices and per-trade P&L is no longer blind. Best-effort.
+    if fills:
+        try:
+            _reconcile_ibkr_fills(fills, base, token, log)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("ibkr fill-reconcile failed: %s", exc)
+
+
+def _reconcile_ibkr_fills(fills, base: str, token: str, log) -> None:
+    """Stamp real IBKR fill prices onto the clone's OMS orders. Matches each
+    execution to an unpriced SUBMITTED order for ichimoku_equity_ibkr by
+    (bare symbol, side); idempotent — orders already priced are skipped."""
+    import requests as _rq
+    H = {"Authorization": f"Bearer {token}"}
+    rows = (_rq.get(f"{base.rstrip('/')}/api/oms/orders", headers=H, timeout=20)
+            .json().get("orders", []))
+    # Unpriced clone orders, newest-first, keyed by (symbol, side) for matching.
+    open_by_key: dict[tuple, list] = {}
+    for o in rows:
+        if (o.get("strategyId") or "") != "ichimoku_equity_ibkr":
+            continue
+        if o.get("avgFillPrice"):  # already reconciled
+            continue
+        if (o.get("state") or "").upper() in ("CANCELLED", "REJECTED", "EXPIRED"):
+            continue
+        bare = str(o.get("symbol") or "").split(":")[-1].split(".")[0].upper()
+        open_by_key.setdefault((bare, (o.get("side") or "").upper()), []).append(o)
+    stamped = 0
+    for fl in fills:
+        bare = str(fl["symbol"]).split(":")[-1].split(".")[0].upper()
+        bucket = open_by_key.get((bare, fl["side"]))
+        if not bucket:
+            continue
+        o = bucket.pop(0)
+        r = _rq.post(
+            f"{base.rstrip('/')}/api/oms/orders/{o['id']}/fill", headers=H,
+            json={"Qty": fl["qty"], "Price": fl["price"], "Fee": 0.0,
+                  "Currency": "USD", "BrokerFillId": f"ibkr_recon:{bare}:{fl['side']}"},
+            timeout=20)
+        if r.status_code in (200, 201):
+            stamped += 1
+        elif r.status_code not in (409,):  # 409 = already filled, fine
+            log.warning("fill-reconcile %s %s: HTTP %s %s",
+                        bare, fl["side"], r.status_code, r.text[:120])
+    if stamped:
+        log.info("ibkr fill-reconcile: stamped %s real fill price(s) into OMS", stamped)
 
 
 def main(argv: list[str] | None = None) -> int:
