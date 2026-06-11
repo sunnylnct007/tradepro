@@ -107,6 +107,19 @@ Per-trade P&L needs the executed price on every fill. Today it's broker-uneven:
 - **Pattern:** each broker's poller must call `RecordFillAsync(orderId, qty, REAL price)`. Build
   order: T212 (the swing desk we must measure) → IBKR reconcile → keep IG.
 
+### 🏦 Partitioned IBKR desks — per-strategy sub-accounts (2026-06-11, strategic infra)
+Instead of every strategy commingling in DUP656969 (then reverse-engineering attribution
+via fill-reconcile), give **each strategy its OWN IBKR sub-account** (institutional/advisor
+master supports many; ONE Gateway serves all, addressed by account id). Then the **account-
+state push already built** = each sub-account's NLV/positions/P&L **IS** that strategy's clean
+book — **zero attribution logic**, and **A/B + parallel strategy testing is trivial** (clone in
+sub-acct A, control in B, idea-3 in C, each isolated + measured directly). Supersedes the
+per-strategy fill-reconcile need; the IBKR per-TRADE fill push (daemon already computes
+`avg_price` from `trade.fills`) remains a smaller follow-on for trade-level detail. Build:
+provision sub-accounts → put `account_id` per strategy in `strategy_broker_map` → point the
+daemon (`--from-config` already passes account) + account-state push at each. Note the single-
+session market-data caveat ([[project_ibkr_harvest_session_isolation]]) still applies per login.
+
 ### 🌟 North-star linkage
 Every item above feeds the goal — *"today, BUY/WAIT/AVOID, evidenced by backtest + stress"*
 ([[project_goal]]): trustworthy signals need (a) clean data + measurable per-trade P&L (fill-
