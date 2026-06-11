@@ -13,6 +13,59 @@ those assumptions change.
 
 ---
 
+## SESSION STATE — 2026-06-11 (Wednesday — strategy reality, optimization + the signal-gap diagnosis)
+
+Theme: stop adding surface; **diagnose why the book loses, optimize the one signal
+we have, and name the structural gaps.** Full write-up: `docs/STRATEGY_REVIEW_2026-06-10.md`.
+
+### ✅ Shipped (all on `main`)
+- **Stop-loss double-bug fixed** — seeded positions had no cost basis (entry=0 → stop
+  skipped) AND percent/fraction mismatch (8 read as −800%). 24/24 risk-control tests.
+- **Live entry-extension "don't-chase" gate** (opt-in) on `ichimoku_equity` + applied to
+  the **IBKR clone only** (50% over 200-SMA / RSI 80) → clean **A/B vs the ungated T212
+  control**. Walk-forward showed the gate is **sleeve-specific** (helps large_50 Sharpe
+  1.34→1.46; HURTS high-beta — extended entries ARE its winners), so kept conservative.
+- **Options-misattribution fix** (IG history dumped FX options on intraday_flat).
+- **Admin-theme palette** aligned to the near-black shell + **defined --surface-1/2/3**
+  (killed near-WHITE card leftovers app-wide).
+- **IBKR harvest data-connection** env-decoupled (`TRADEPRO_IBKR_DATA_*`); **single-Gateway
+  topology** decided (separate account NOT needed — one Gateway, distinct clientIds).
+- IBKR-clone account row in Balances + chart **entry/exit trade-review** markers.
+
+### 🔴 The diagnosis — the book loses on DISCIPLINE + DATA, not the signal
+- **Entry chases tops** — median equity loser entered at the **97.5th %ile of its 52w
+  range, +42% over its 200-SMA**; 90% of entries "extended" (HPE entered RSI 92 / +128%).
+- **No exit** — 39/81 names past −8% = 86% of the loss (now: stops fixed).
+- **Data**: live bus feed **unguarded** (phantom UNH 377 → false stop); yahoo↔IBKR
+  divergence; the strategy reads yahoo, the harvested IBKR cache is empty + unwired.
+- Backtest proves the strategy itself is **sound** (+24% / +121% over 3yr); the live bleed
+  is execution parity, not the signal.
+
+### 🧭 THE STRUCTURAL GAP (new — highest strategic priority)
+**Single data type (price) → single strategy family (trend) → sentiment computed but
+UNUSED.** That's why every desk correlates and bleeds together.
+- **Data gap:** price-only OHLCV; no fundamentals; sentiment data collected but off-signal.
+- **Strategy gap:** all 5+ strategies are ONE family (price-vs-MA). No valuation / factor /
+  event-driven / relative-value. → correlated book.
+- **Sentiment gap:** `news_sentiment` + `market_context` (VIX/stress) are computed, but only
+  feed the Decide verdict + an **optional, not-wired-to-live** order-gate — sentiment can
+  *veto*, never *initiate*, and in the live daemons it does **nothing**. Market-wide
+  sentiment is just the SPY-200SMA (price) regime filter.
+
+### 🔜 Prioritised next (off the "everything bleeds together" path)
+1. **Wire the sentiment/regime you already compute into the LIVE signal** — per-name news
+   sentiment as an entry brake + sizing input; market regime (VIX/stress) → scale exposure.
+   The missing brake AND the cheapest diversifier.
+2. **Add a non-price family** — Tier-1 **event-driven/catalyst** as a real signal (not a gate)
+   — [[project_catalyst_overlay_gap]], [[project_phase3_multifamily_signals]].
+3. **Data layer:** bus spike-guard (kill phantom-bar false trades) + IBKR-native data into
+   the strategy cache (makes the clone's stop/P&L correct, A/B measurable).
+4. **intraday_flat anti-churn** (−£2.50/trade, cost-dominated) + clone **P&L→OMS reconcile**.
+5. **IBKR harvest** — blocked on a stale-IP IBKR session (single-session market data); close
+   web/mobile sessions, restart Gateway clean (dynamic IP). Separate data USER is the durable fix.
+
+---
+
 ## SESSION STATE — 2026-06-10 (Tuesday — data quality wrap-up + two-stream coordination)
 
 Theme: close out the bar-cache/data-quality stream, align it with the IBKR paper-execution
