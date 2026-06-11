@@ -84,6 +84,29 @@ price never fetched. ⇒ `ichimoku_equity` realised = "n/a" and we're **blind to
 P&L**. Fix = a T212 fill-poller (mirror IGOmsFillPoller) + the clone's IBKR fill→OMS reconcile.
 Until then, per-trade analysis only works on the IG desks.
 
+### 🔬 WHY intraday bleeds — horizon mismatch, NOT "intraday is bad" (2026-06-11)
+`intraday_flat` is **not an intraday-edge strategy**. Its docstring: *"pick the day's best
+**Ichimoku longs**… extends IchimokuEquityStrategy's **DAILY signal**… ATR+cloud+regime use
+**daily bars**."* It runs the SAME daily/swing signal as `ichimoku_equity` but **flattens EOD**
+— giving a multi-day edge only hours, then paying spread+financing to exit before it develops.
+**Same signal, opposite results:** `ichimoku_equity` (holds → swing) +24%/+121% 3yr;
+`intraday_flat` (daily signal, EOD-flat) −£5.1k. ⇒ we're strangling a swing signal on an
+intraday leash. Real intraday would need an intraday-EDGE signal (microstructure/order-flow/
+news-reaction) + intraday data we don't have. Decision stands: **swing; drop the EOD-flat.**
+
+### 📐 Fill-price capture for ALL brokers (per-trade P&L enabler)
+Per-trade P&L needs the executed price on every fill. Today it's broker-uneven:
+- **IG ✅** — `IGOmsFillPoller` polls `/confirms/{dealRef}` → records the deal `Level`.
+- **T212 ✗** — `OmsFillPoller` computes `FilledValue/FilledQuantity`, but T212 **demo often
+  returns `FilledValue=null`**, and aged-out orders hit the **404 path → `price=0m` hardcoded**.
+  Fix: fallback price source (T212 `/history/orders` executed price, else the cache bar at
+  fill time) when FilledValue is absent.
+- **IBKR ✗** — clone places real paper orders but they're **never reconciled to the OMS**
+  (record-only) → no price at all. Fix: poll `ib.fills()`/`trades()` → `RecordFillAsync` at the
+  real IBKR fill price (this also fixes the clone's £0 P&L row + makes the A/B measurable).
+- **Pattern:** each broker's poller must call `RecordFillAsync(orderId, qty, REAL price)`. Build
+  order: T212 (the swing desk we must measure) → IBKR reconcile → keep IG.
+
 ### 🌟 North-star linkage
 Every item above feeds the goal — *"today, BUY/WAIT/AVOID, evidenced by backtest + stress"*
 ([[project_goal]]): trustworthy signals need (a) clean data + measurable per-trade P&L (fill-
