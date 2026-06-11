@@ -94,6 +94,19 @@ Until then, per-trade analysis only works on the IG desks.
 intraday leash. Real intraday would need an intraday-EDGE signal (microstructure/order-flow/
 news-reaction) + intraday data we don't have. Decision stands: **swing; drop the EOD-flat.**
 
+### ✅ CONCLUSION (2026-06-11, user-confirmed): a swing signal CANNOT fit intraday
+`intraday_flat` bolts the **DAILY Ichimoku (swing) signal** onto an intraday EOD-flat
+horizon — structurally wrong, no amount of tuning fixes it. The opt-in selectivity/cost
+gates shipped (`min_strength`/`min_atr_pct`/`top_n`, commit 9062845) are a **churn STOPGAP,
+not a fix**. The RIGHT intraday path **already exists** — four intraday-NATIVE strategies on
+intraday bars: **ORB** (opening-range breakout), **VWAP mean-reversion**, **Bollinger bounce**,
+**MA-crossover**. Decision:
+- **Retire / park `intraday_flat`** — the daily signal belongs to SWING (`ichimoku_equity`).
+- **If we want intraday, evaluate the intraday-NATIVE strategies** (the intraday-engine already
+  runs ORB/VWAP/etc.) — measure their per-trade expectancy the same way (need IG fill prices,
+  which we have). Don't patch the wrong-signal desk.
+- Net: **swing signal → swing desk; intraday horizon → intraday-native signal.** Never cross them.
+
 ### 📐 Fill-price capture for ALL brokers (per-trade P&L enabler)
 Per-trade P&L needs the executed price on every fill. Today it's broker-uneven:
 - **IG ✅** — `IGOmsFillPoller` polls `/confirms/{dealRef}` → records the deal `Level`.
