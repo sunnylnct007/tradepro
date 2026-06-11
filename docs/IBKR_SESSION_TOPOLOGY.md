@@ -1,65 +1,56 @@
-# IBKR session topology — trading vs. data isolation
+# IBKR session topology — one Gateway, multiple clients
 
-**Why:** the bar harvester and the trading daemon currently share **one IBKR
-Gateway / one account** (DUP656969, port 7500). IBKR pacing + market-data
-limits are **per login**, not per clientId or sub-account — so heavy historical
-harvesting contends with live execution on the same budget (pacing violations,
-single point of failure). Fix = run harvesting on a **separate IBKR user +
-Gateway**.
+**Decision (2026-06-11): ONE Gateway, shared by trading + harvesting.** A single
+IB Gateway accepts up to ~32 simultaneous API clients, each with a distinct
+`clientId`. So the harvester and the trading daemon both connect to the **one
+DUP656969 Gateway on port 7500** — which is how it already works. **No separate
+account needed.**
 
-> Key IBKR fact: a **sub-account** under the same master login does **not**
-> isolate the API session/pacing. You need a **separate USER login** (own
-> username) — which a company/institutional master can provision as an extra
-> user with role-based permissions.
+> Earlier this doc recommended a separate user + 2nd Gateway. That was
+> over-engineered. The "one session per account" limit applies to **logins**
+> (you can't run *two Gateways* on the same username — the 2nd kicks out the
+> 1st), NOT to API clients. Multiple clients on **one** Gateway is fine, so a
+> "session conflict" is almost always a **clientId collision** (two procs on the
+> same id, or a crashed proc holding one) — not an account problem. Also: port
+> **4002 is already taken** by the local `ecos-strategy` Docker container.
 
-## Target topology
+## Topology
 
-| Role | IBKR user/login | Gateway port | clientId(s) | Permissions |
-|---|---|---|---|---|
-| **Trading** | DUP656969 (current) | **7500** | 21 · seed +100 (121) · acct-state +200 (221) | full (orders) |
-| **Live bar bus** | DUP656969 | 7500 | 17 | read |
-| **Data / harvest** | **new read-only user** | **4002** (new Gateway) | 18 | market-data + **read-only** |
+| Role | clientId | Gateway | Notes |
+|---|---|---|---|
+| **Trading** | 21 · seed +100 (121) · acct-state +200 (221) | 7500 | full (orders) |
+| **Live bar bus** | 17 | 7500 | read |
+| **Harvester** | 18 | 7500 | readonly (`readonly=True`) — can't place orders |
 
-The data user being **read-only** is a safety guardrail — the harvester
-physically cannot place an order even if mis-configured.
+The harvester connects `readonly=True`, so it physically cannot trade even
+sharing the Gateway — that's the safety guardrail without a separate account.
 
 ## clientId map (keep non-colliding)
 `17` live bar bus · `18` harvester · `21` trade main · `+100` position seed ·
 `+200` account-state push. Distinct per family; never overlap.
 
-## Setup steps
+## Setup — nothing to provision
 
-**IBKR side (manual):**
-1. Under the company master, **add a user** scoped to market-data + read-only
-   (no trading).
-2. Confirm **historical/daily market-data entitlements** for that user
-   (daily bars usually serve without a real-time sub; real-time / 1-min may
-   need a subscription assigned).
-3. Run a **second IB Gateway** (IBC) logged into the data user, API on a
-   distinct port (e.g. **4002**).
+The harvester already defaults to clientId **18** and connects to **7500**
+(the trading Gateway), so it just works alongside the trader (21) and bus (17).
+Keep one IB Gateway running on 7500 logged into DUP656969.
 
-**Code side (done — one-env flip):**
-The harvester (`bar_cache/providers/ibkr_provider.py`) and the data-worker now
-prefer a dedicated data connection, falling back to the shared vars:
+## Avoiding the only real shared-Gateway risks
+1. **Distinct clientIds** (17 bus / 18 harvest / 21 trade / +100 seed / +200
+   acct-state) — never let two procs grab the same id. A "session conflict" is
+   almost always this.
+2. **Clean `disconnect()`** on every path (provider/seed/acct-state use `finally`
+   disconnects) so a crashed proc doesn't hold a clientId.
+3. **Pacing is per-account** — keep the *heavy* backfill **post-close**
+   (`com.tradepro.bar-cache-harvest`, 21:15 UTC ✔). 82 daily symbols is light;
+   no contention with live trading.
 
-```
-TRADEPRO_IBKR_DATA_HOST       # preferred (data Gateway host)
-TRADEPRO_IBKR_DATA_PORT       # preferred (e.g. 4002)
-TRADEPRO_IBKR_DATA_CLIENT_ID  # preferred (e.g. 18)
-# fallback (legacy / trading): TRADEPRO_IBKR_HOST / _PORT / _CLIENT_ID (7500)
-```
-
-To isolate, set on the harvest + data-worker launchd plists only:
-```
-TRADEPRO_IBKR_DATA_PORT=4002
-TRADEPRO_IBKR_DATA_CLIENT_ID=18
-```
-Unset → harvesting shares the trading Gateway (legacy behaviour, unchanged).
-
-## Belt-and-braces (regardless)
-- Keep the heavy scheduled harvest **post-close** (`com.tradepro.bar-cache-harvest`, 21:15 UTC). ✔
-- Route **on-demand** data-worker IBKR fetches to the data Gateway too (same env).
-- Ensure clean `disconnect()` on every IBKR path (provider/seed/acct-state use
-  `finally` disconnects) so a hung process doesn't hold a clientId.
+## Optional future isolation (NOT needed now)
+If you ever DO want a fully isolated data session (separate pacing budget),
+the code already supports it via `TRADEPRO_IBKR_DATA_HOST/PORT/CLIENT_ID` on the
+harvest + data-worker plists (falls back to the shared `TRADEPRO_IBKR_*` when
+unset). It needs a **separate IBKR *user* login** (not a sub-account — pacing is
+per login) on its **own** Gateway. Pick a free port (**not 4002** — taken by the
+`ecos-strategy` Docker container). Unset = shares 7500 (current, recommended).
 
 See memory `project_ibkr_harvest_session_isolation`, `project_ibkr_paper_clone`.
