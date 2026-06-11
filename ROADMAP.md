@@ -64,6 +64,34 @@ UNUSED.** That's why every desk correlates and bleeds together.
 5. **IBKR harvest** — blocked on a stale-IP IBKR session (single-session market data); close
    web/mobile sessions, restart Gateway clean (dynamic IP). Separate data USER is the durable fix.
 
+### 🎯 DECISION (2026-06-11): SWING is the strategic home — wind down intraday
+Trade-by-trade evidence (200 IG closed deals) is one-directional:
+- **Per-trade expectancy −£2.87** (win-rate **27%**, avg win £10.62 / avg loss £7.86, payoff
+  1.35:1 → need **43%** to break even). intraday_flat = **−£5.1k LTD**.
+- **Winners are TRENDS** (AUD/USD +75, GBP/USD +69); **losers are intraday churn + counter-
+  trend fades** (QQQ −78, AMD −75, NZD/USD −83 fighting a trend).
+- **Why intraday loses is STRUCTURAL** — spread+financing on every round-trip eats a marginal
+  edge; swing amortises cost over a real move. The daily swing backtests **+24%/+121% 3yr
+  (Sharpe 1.3–1.5)**; matches the trader's long/flat trend spec ([[reference_trader_quant_spec]]).
+- **Action:** pause `intraday_flat`; concentrate on daily SWING equity (entry-gate + stops +
+  sentiment); bias FX **trend not counter-trend**. Even FX's wins are trend-rides, losses are
+  mean-reversion getting run over.
+
+### 🔧 Measurement gap blocking swing per-trade analysis
+**T212 equity fills record `avg_fill_price = 0`** — the backend has an `IGOmsFillPoller`
+(captures IG fill price) but **NO T212 fill-poller**, so T212 orders are marked FILLED with the
+price never fetched. ⇒ `ichimoku_equity` realised = "n/a" and we're **blind to swing per-trade
+P&L**. Fix = a T212 fill-poller (mirror IGOmsFillPoller) + the clone's IBKR fill→OMS reconcile.
+Until then, per-trade analysis only works on the IG desks.
+
+### 🌟 North-star linkage
+Every item above feeds the goal — *"today, BUY/WAIT/AVOID, evidenced by backtest + stress"*
+([[project_goal]]): trustworthy signals need (a) clean data + measurable per-trade P&L (fill-
+poller, bus-guard), (b) a diversified, non-correlated signal set (sentiment-into-signal +
+catalyst family), (c) the right horizon (SWING, not intraday churn). Build order: **measure →
+de-risk the one good signal → diversify → then breadth.** Don't add surface before the core is
+trustworthy ([[feedback_build_trust_before_breadth]]).
+
 ---
 
 ## SESSION STATE — 2026-06-10 (Tuesday — data quality wrap-up + two-stream coordination)
