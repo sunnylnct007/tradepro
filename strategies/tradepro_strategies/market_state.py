@@ -46,7 +46,13 @@ MEANINGFUL_52W_DROP_PCT = 8.0      # ≥ 8% off the 52w high counts as a real re
 # range despite passing the other gates (RSI, SMA, drawdown). The
 # VUKE-class case: 5% off 52w high after a +24% YoY run is NOT a
 # dip — risk/reward is asymmetric (3p of upside, 8p of downside).
-RANGE_HIGH_PCTILE = 70.0           # ≥ 70th pctile of 52w range → downgrade BUY → HOLD
+RANGE_HIGH_PCTILE = 88.0           # ≥ 88th pctile of 52w range → downgrade BUY → HOLD
+# NOTE: was 70.0, which downgraded BUY→HOLD for ~everything in a bull market
+# (almost all uptrending names sit above the 70th %ile of their 52w range) — so
+# the Decide page effectively NEVER produced a BUY. Backtesting also showed
+# "extended = avoid" is wrong for trend-following (extended momentum names are
+# the winners). 88.0 only downgrades the genuinely parabolic top ~12%, so normal
+# uptrend names (incl. liquid ETFs) can surface a BUY again.
 RANGE_LOW_PCTILE = 40.0            # ≤ 40th pctile → confirms "dip" status
 # Crash-protection: a fast 10-day drop below the SMA200 is "falling
 # knife" territory — mean-reversion strategies (RSI-bouncing-in-bounce-
