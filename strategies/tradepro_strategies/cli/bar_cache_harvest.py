@@ -219,6 +219,10 @@ def main() -> int:
     # Track quality tier counts: gold=ibkr complete, silver=ibkr partial,
     # bronze=yfinance/ig, missing=all failed
     quality_counts: dict[str, int] = {"gold": 0, "silver": 0, "bronze": 0, "missing": 0}
+    # Per-symbol health records → POSTed to the cockpit's data-trust DB after the
+    # run so the Harvest/Data-Health screen renders the real coverage (bridges
+    # the local-cache → EC2 gap). Best-effort; never blocks the harvest.
+    health_records: list[dict] = []
 
     for symbol in symbols:
         try:
@@ -248,6 +252,17 @@ def main() -> int:
                 f"{tier_icon} {tier:<8s}  "
                 f"source={result.provider_used}"
             )
+            health_records.append({
+                "canonical": symbol,
+                "assetClass": args.asset,
+                "lastFetchedResult": "ok" if result.coverage_complete else "partial",
+                "lastFetchedProvider": result.provider_used,
+                "lastFetchedResolution": args.resolution,
+                "coverageStartDate": str(from_date)[:10],
+                "coverageEndDate": str(to_date)[:10],
+                "coveragePartitions": len(getattr(result, "partitions_used", []) or []),
+                "missingDaysCount": max(0, int(result.rows_expected) - int(result.rows_returned)),
+            })
         except BarFetchError as exc:
             fail_count += 1
             quality_counts["missing"] += 1
@@ -297,6 +312,25 @@ def main() -> int:
             "  (partial gaps expected on non-trading days; "
             "use --allow-partial to suppress exit-1)"
         )
+
+    # Report per-symbol health to the cockpit data-trust DB so the Harvest /
+    # Data-Health screen renders the real coverage. Best-effort: any failure is
+    # logged and ignored — it must never fail the harvest.
+    if health_records:
+        try:
+            from tradepro_strategies.cli import push_to_api as _pta
+            import requests as _rq
+            _base, _tok = _pta.load_credentials()
+            _h = {"Authorization": f"Bearer {_tok}"}
+            _n = 0
+            for _rec in health_records:
+                _r = _rq.post(f"{_base.rstrip('/')}/api/admin/data-trust/bar-cache/health",
+                              headers=_h, json=_rec, timeout=15)
+                if _r.status_code in (200, 201):
+                    _n += 1
+            print(f"  ↑ reported health for {_n}/{len(health_records)} symbol(s) to the cockpit")
+        except Exception as _exc:  # noqa: BLE001
+            print(f"  (health report skipped: {_exc})")
 
     if fail_count == len(symbols):
         return 2

@@ -527,6 +527,42 @@ public static class DataTrustEndpoints
             });
         });
 
+        // Ingest a per-symbol health record from the harvester (UPSERT on
+        // canonical+asset_class). Bridges the "two disconnected caches" gap —
+        // the harvest fills the local bar cache, then POSTs its coverage here
+        // so the cockpit Harvest/Data-Health screen renders the real state.
+        g.MapPost("/bar-cache/health", async (
+            BarCacheHealthBody body, NpgsqlDataSource db) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Canonical) || string.IsNullOrWhiteSpace(body.AssetClass))
+                return Results.BadRequest(new { error = "canonical + asset_class required" });
+            await using var conn = await db.OpenConnectionAsync();
+            await conn.ExecuteAsync(@"
+                INSERT INTO bar_cache_health
+                    (canonical, asset_class, last_fetched_at_utc, last_fetched_result,
+                     last_fetched_provider, last_fetched_resolution,
+                     coverage_start_date, coverage_end_date, coverage_partitions,
+                     missing_days_count, schema_version, updated_at_utc)
+                VALUES
+                    (@Canonical, @AssetClass, COALESCE(@LastFetchedAtUtc, NOW()), @LastFetchedResult,
+                     @LastFetchedProvider, @LastFetchedResolution,
+                     @CoverageStartDate::date, @CoverageEndDate::date, @CoveragePartitions,
+                     @MissingDaysCount, @SchemaVersion, NOW())
+                ON CONFLICT (canonical, asset_class) DO UPDATE SET
+                    last_fetched_at_utc     = COALESCE(EXCLUDED.last_fetched_at_utc, bar_cache_health.last_fetched_at_utc),
+                    last_fetched_result     = EXCLUDED.last_fetched_result,
+                    last_fetched_provider   = EXCLUDED.last_fetched_provider,
+                    last_fetched_resolution = EXCLUDED.last_fetched_resolution,
+                    coverage_start_date     = EXCLUDED.coverage_start_date,
+                    coverage_end_date       = EXCLUDED.coverage_end_date,
+                    coverage_partitions     = EXCLUDED.coverage_partitions,
+                    missing_days_count      = EXCLUDED.missing_days_count,
+                    schema_version          = EXCLUDED.schema_version,
+                    updated_at_utc          = NOW();",
+                body);
+            return Results.Ok(new { ok = true, canonical = body.Canonical });
+        });
+
         g.MapGet("/bar-cache/health", async (
             NpgsqlDataSource db,
             string? canonical,
@@ -954,5 +990,19 @@ public static class DataTrustEndpoints
         string From,
         string? To           = null,
         bool?  AllowPartial  = null
+    );
+
+    public sealed record BarCacheHealthBody(
+        string  Canonical,
+        string  AssetClass,
+        DateTime? LastFetchedAtUtc      = null,
+        string?   LastFetchedResult     = null,
+        string?   LastFetchedProvider   = null,
+        string?   LastFetchedResolution = null,
+        string?   CoverageStartDate     = null,
+        string?   CoverageEndDate       = null,
+        int       CoveragePartitions    = 0,
+        int       MissingDaysCount      = 0,
+        string?   SchemaVersion         = null
     );
 }
