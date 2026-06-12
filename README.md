@@ -1,41 +1,77 @@
 # TradePro
 
-A personal trading-strategy platform. The core question it answers is:
+A personal trading-strategy platform. It started as "scan + backtest" and has
+grown into a **live paper-trading desk** that runs real strategies across
+multiple brokers, measures them, and surfaces it all in a trader cockpit.
 
-> **Given a defined list of stocks and a strategy, what's worth buying or
-> selling today — and how much money would that strategy have made?**
+> **Given a defined universe and a strategy, what's worth buying or selling
+> today, how much would it have made, and is it *actually* working live?**
 
 - **Scanner** — run a strategy over a watchlist, get ranked BUY / SELL / HOLD.
-- **Signal detail** — drill into a single symbol: reasons, indicators (SMA, RSI,
+- **Signal detail** — drill into a symbol: reasons, indicators (SMA, RSI,
   52-week range), suggested stop/target.
-- **Simulations** — backtest the same strategy on historical data, see the
-  equity curve, P&L, CAGR, drawdown and Sharpe. UK fee model (0.5% stamp duty)
-  is on by default.
+- **Simulations / backtest** — equity curve, P&L, CAGR, drawdown, Sharpe.
+- **Live paper trading** — Python strategy daemons place real paper orders
+  across **Trading 212, IG, and IBKR**, every run config-driven from
+  `strategy_broker_map`.
+- **Cockpit** (`/desk`) — positions, orders, trades, balances, per-strategy
+  P&L, and a **Harvest / Data-Health** screen, on one composite screen.
+- **A/B testing** — the same signal runs as a control (T212) and an
+  IBKR-native clone with real per-trade P&L, to test enhancements honestly.
 
 ## Stack
 
 - **Frontend** — React + Vite + TypeScript, deployed to Firebase Hosting
   (`smsp-291e3` / `showmesoldprice`).
-- **Backend** — .NET 8 minimal API, deployable to Azure App Service. Pluggable
-  data providers: **Yahoo Finance, Stooq, Binance** (all free, no keys).
-- **Research** — Python package (`strategies/`) with the same backtest
-  semantics as the API, tuned for heavy local runs on an Apple-silicon Mac.
-- **Domain** — `showmesoldprice.*` fronts the web app.
+- **Backend** — .NET 8 minimal API + Postgres (OMS, decisions, account-state,
+  data-trust). Deployed to **AWS EC2** (eu-west-2) on push to `main`; reachable
+  at `tradepro.showsoldprice.com`. Pluggable data providers: **Yahoo Finance,
+  Stooq, Binance** (free, no keys).
+- **Strategies** — Python package (`strategies/`): the backtest engine
+  (`quant_engine`) AND the live paper-trading daemons + multi-broker order
+  routers (T212 / IG / IBKR). Runs on an Apple-silicon Mac via `launchd`.
+- **Brokers** — Trading 212 (equity), IG (FX + intraday CFDs), IBKR (paper
+  clone, `ib_insync`). The broker is the golden source of position/P&L.
 - **Region** — UK-first. GBP default, LSE `.L` symbols, stamp duty built in.
 
 ## Repo layout
 
 ```
-backend/         .NET 8 Web API
+backend/         .NET 8 Web API + Postgres (OMS, decisions, account-state)
   TradePro.Api/
-frontend/        React + Vite + TS (Firebase Hosting)
-strategies/      Python research / backtest package
+frontend/        React + Vite + TS (Firebase Hosting) — incl. /desk cockpit
+strategies/      Python: quant_engine (backtest) + live paper daemons + brokers
 .github/workflows/
-  firebase-hosting-deploy.yml   prod deploy on push to main
-  firebase-hosting-preview.yml  preview channel on PRs
-  azure-api-deploy.yml          .NET API deploy on push to main
-ROADMAP.md       phased build plan
+  firebase-hosting-deploy.yml   frontend deploy on push to main
+  aws-build-push.yml            .NET API → AWS EC2 on push to main
+  aws-start.yml                 start the EC2 instance (workflow_dispatch)
+ROADMAP.md       phased build plan + dated session state
+docs/            strategy reviews, IBKR topology, trader's quant spec (*.py)
 ```
+
+## Live strategies (current state)
+
+Four paper desks run from `launchd` on the Mac, config-driven from
+`strategy_broker_map.runtime_config` (`tradepro-paper --from-config --push`):
+
+| Desk | Strategy | Broker | Notes |
+|---|---|---|---|
+| `ichimoku_equity` | daily Ichimoku, long/flat | T212 (demo) | the **control** |
+| `ichimoku_equity_ibkr` | same signal | IBKR (paper) | the **clone** — real per-trade P&L; A/B test bed |
+| `ichimoku_fx_mr` | FX mean-reversion (fade breaks) | IG (demo) | G10 pairs; ~breakeven |
+| `intraday_flat` | (mis-designed — see below) | IG (demo) | EOD-flat intraday CFDs |
+
+**Key learnings (backtested, see `docs/` + `ROADMAP.md`):**
+- The **daily Ichimoku swing strategy is sound** (+88% / Sharpe 1.02 / −15% DD,
+  2021–26). It de-risks itself by going to **cash on signal reversal**.
+- **Per-name stops + "don't-chase" entry gates *don't* help** this diversified
+  trend-follower — they whipsaw and don't reduce portfolio drawdown. The plain
+  strategy is the benchmark to beat.
+- **A swing signal cannot fit intraday** — `intraday_flat` bolts the daily
+  signal onto an EOD-flat horizon and bleeds on cost. Real intraday needs an
+  **intraday-native signal** (ORB / VWAP) + liquidity×volatility selection.
+- The real edge-adders are **diversification** (sentiment-into-signal, a
+  non-price catalyst family), not more risk-control bolt-ons.
 
 ## Quick start (local)
 
