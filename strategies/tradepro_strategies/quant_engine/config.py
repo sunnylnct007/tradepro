@@ -47,6 +47,12 @@ class QuantEngineConfig:
     # None = gate disabled (no behaviour change vs the legacy backtest).
     entry_max_ext_pct: float | None = None
     entry_rsi_max: float | None = None
+    #   stop_loss_pct: force-flat a held long down more than this % from entry
+    #   (the exit discipline the control lacks). None = no stop.
+    stop_loss_pct: float | None = None
+    #   trail_pct: trailing stop — force-flat if down this % from the high since
+    #   entry (lets winners run, locks gains). None = no trailing stop.
+    trail_pct: float | None = None
 
     # Vol targeting (Hurst-Ooi-Pedersen 2017)
     target_vol: float = 0.12

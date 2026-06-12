@@ -40,6 +40,8 @@ def _default_compute_position(
     displacement: int,
     entry_max_ext_pct: float | None = None,
     entry_rsi_max: float | None = None,
+    stop_loss_pct: float | None = None,
+    trail_pct: float | None = None,
 ) -> pd.DataFrame:
     """Compute per-ticker long/flat signals using Ichimoku.
 
@@ -76,6 +78,8 @@ def _default_compute_position(
         pos = pd.Series(0.0, index=df.index)
         # Stateful: start flat, go long when entry conditions met, exit on reversal
         current = 0.0
+        entry_px = 0.0  # cost basis of the current long, for the hard stop
+        peak_px = 0.0   # highest close since entry, for the trailing stop
         for i in range(len(df)):
             c = df["Close"].iloc[i]
             ch = ich["cloud_high"].iloc[i]
@@ -101,10 +105,26 @@ def _default_compute_position(
                             blocked = True  # overbought — don't chase
                     if not blocked:
                         current = 1.0
+                        entry_px = float(c)  # arm the stops at the entry close
+                        peak_px = float(c)
             else:
-                # Exit: price below cloud OR tenkan below kijun
-                if c < cl or t < k:
+                peak_px = max(peak_px, float(c))  # high-water mark for the trail
+                # HARD STOP (OPT-IN): force-flat if down > stop_loss_pct from entry.
+                stopped = (
+                    stop_loss_pct is not None and entry_px > 0
+                    and (c / entry_px - 1) * 100 <= -stop_loss_pct
+                )
+                # TRAILING STOP (OPT-IN): force-flat if down > trail_pct from the
+                # high-water mark — lets winners run, locks in gains on reversal.
+                trailed = (
+                    trail_pct is not None and peak_px > 0
+                    and (peak_px - c) / peak_px * 100 >= trail_pct
+                )
+                # Exit: a stop hit, OR price below cloud OR tenkan below kijun.
+                if stopped or trailed or c < cl or t < k:
                     current = 0.0
+                    entry_px = 0.0
+                    peak_px = 0.0
 
             pos.iloc[i] = current
 
@@ -177,6 +197,10 @@ class Sleeve:
             gate_kw["entry_max_ext_pct"] = cfg.entry_max_ext_pct
         if getattr(cfg, "entry_rsi_max", None) is not None:
             gate_kw["entry_rsi_max"] = cfg.entry_rsi_max
+        if getattr(cfg, "stop_loss_pct", None) is not None:
+            gate_kw["stop_loss_pct"] = cfg.stop_loss_pct
+        if getattr(cfg, "trail_pct", None) is not None:
+            gate_kw["trail_pct"] = cfg.trail_pct
         raw_pos = self._compute_position_fn(
             self.data, cfg.tenkan, cfg.kijun, cfg.senkou_b, cfg.displacement,
             **gate_kw,
