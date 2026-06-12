@@ -248,6 +248,23 @@ class IBKRRouter(OrderRouter):
             return
         ib = await self.connection.connect()
 
+        # Idempotency guard: this strategy is SWING but the daemon reruns every
+        # ~15 min, and a placed OPG/MOO order rests until the auction. Without
+        # this, each rerun re-seeds the still-unfilled positions, re-emits the
+        # same entry/exit, and stacks DUPLICATE orders at IBKR (placeOrder fires
+        # before the OMS dedup). Snapshot the broker's existing open orders once
+        # at connect, keyed by (symbol, action); _handle_approval skips any
+        # order that already has a live broker order. The broker is the golden
+        # source — this is the authoritative "do I already have this working?".
+        self._open_keys: set[tuple[str, str]] = set()
+        try:
+            for tr in await ib.reqAllOpenOrdersAsync():
+                self._open_keys.add((tr.contract.symbol, tr.order.action))
+            log.info("IBKR open-order snapshot: %d existing (dedup guard armed)",
+                     len(self._open_keys))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("IBKR open-order snapshot failed (%s) — dedup guard off this run", exc)
+
         bar_drain = asyncio.create_task(self._drain_bars(bar_queue))
         try:
             while True:
@@ -360,6 +377,19 @@ class IBKRRouter(OrderRouter):
 
         contract = ib_insync.Stock(order.symbol, "SMART", "USD")
         ib_action = "BUY" if order.side == OrderSide.BUY else "SELL"
+
+        # Idempotency: if a live broker order for this (symbol, action) already
+        # exists (placed by an earlier rerun and still resting in the auction),
+        # do NOT stack a duplicate. The broker snapshot is the golden source.
+        key = (order.symbol, ib_action)
+        if key in getattr(self, "_open_keys", set()):
+            log.info(
+                "IBKR skip-duplicate · %s %s qty=%s — a live broker order already "
+                "exists (rerun before the prior order filled)",
+                ib_action, order.symbol, order.quantity,
+            )
+            return
+
         ib_order = ib_insync.MarketOrder(ib_action, order.quantity)
         ib_order.account = account
         # MOO placement: if the US equity venue is CLOSED (pre-market), submit as
@@ -377,6 +407,11 @@ class IBKRRouter(OrderRouter):
         except Exception:
             pass
         trade = ib.placeOrder(contract, ib_order)
+        # Remember it so a later order in THIS run can't double it either.
+        try:
+            self._open_keys.add(key)
+        except Exception:  # noqa: BLE001
+            pass
 
         # Mirror into the OMS for VISIBILITY (record-only — the .NET IBKR
         # placement is kill-switched off via IBKR:AllowOrders=false, so the OMS
