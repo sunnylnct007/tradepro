@@ -531,6 +531,17 @@ public static class DataTrustEndpoints
         // canonical+asset_class). Bridges the "two disconnected caches" gap —
         // the harvest fills the local bar cache, then POSTs its coverage here
         // so the cockpit Harvest/Data-Health screen renders the real state.
+        // Delete a health row — clears stale/test entries from the Harvest screen.
+        g.MapDelete("/bar-cache/health/{canonical}", async (
+            string canonical, NpgsqlDataSource db) =>
+        {
+            await using var conn = await db.OpenConnectionAsync();
+            var n = await conn.ExecuteAsync(
+                "DELETE FROM bar_cache_health WHERE canonical = @canonical;",
+                new { canonical });
+            return Results.Ok(new { deleted = n, canonical });
+        });
+
         g.MapPost("/bar-cache/health", async (
             BarCacheHealthBody body, NpgsqlDataSource db) =>
         {
