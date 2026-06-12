@@ -27,6 +27,24 @@ The clone is **SWING** but the daemon **reruns every ~15 min**. A placed OPG/MOO
 ### 🧭 INTRADAY needs its OWN symbol selection + params (user, 2026-06-12)
 Confirmed direction: **intraday ≠ swing**, so `intraday_flat`'s swing-style basket (daily-Ichimoku-ranked) is wrong for it. Intraday selection should rank by **intraday-relevant criteria** — high **dollar-volume / liquidity** (tight spreads + fills), high **intraday ATR%** (enough range to clear cost), avoid illiquid names — NOT the daily trend score. Params differ too: intraday bars (1–5m), tighter ATR stops/targets, time-of-day window. **This belongs in an intraday-NATIVE strategy (ORB / VWAP), not another patch on `intraday_flat`** (which bolts a swing signal on an intraday leash). Build: a liquidity+volatility intraday universe selector feeding the intraday-native desks.
 
+### 🟥 DECIDE PAGE never BUYs — 4-gate over-conservatism (user, 2026-06-12)
+The north-star page is stuck on WAIT/AVOID even for strong names (live proof:
+**LLY 5/7 strategies long → WAIT**; MU swing 5/8 → WAIT; NVDA/AVGO/AMD multi-long →
+WAIT). The verdict must survive **FOUR strict gates, each of which alone caps it**:
+1. **`market_state` price layer** — downgraded BUY→HOLD at the 70th %ile of the 52w
+   range. **FIXED tonight 70→88** (a1596f9) — only the parabolic top ~12% downgrade.
+2. **Majority-vote gate** (`compare.py`) — "only N of 7 long → wait for confirmation".
+3. **RISK rating** — `RISK · EXTREME` (high vol) caps the verdict. Almost every
+   high-beta tech/semi is EXTREME → almost everything capped.
+4. **Swing 0–8 scorer** (`horizon_classification.swing`) — brutally strict (93/98
+   AVOID). NOTE: **long_term horizon DOES surface BUYs** (10–22 per stock universe:
+   NVDA/AVGO/MU/GOOGL/META…) — it's the **swing tab** that's broken.
+**Fix (proper pass, needs daylight — touches the north-star verdict): gates should
+INFORM, not VETO.** RISK·EXTREME → smaller SIZING not WAIT (backtest: extended/high-
+vol momentum names are the winners); swing scorer recalibrated so a 5/7-long decent-
+Sharpe name clears; majority gate → plurality + strong price is enough. Also default
+the Decide page to a **stock universe + long-term** so BUYs are front-and-centre.
+
 ### 🔭 REFINED INTRADAY plan (queued — user, 2026-06-12)
 A proper intraday desk, built fresh rather than patching `intraday_flat`:
 1. **Universe selector** — ✅ BUILT (`intraday_universe.py`, commit fc8dce8): ranks a
