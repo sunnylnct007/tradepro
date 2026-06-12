@@ -13,6 +13,22 @@ those assumptions change.
 
 ---
 
+## SESSION STATE — 2026-06-12 (Thursday — measurement plumbing, harvest unblocked, swing-vs-intraday cadence)
+
+### ✅ Shipped
+- **Clone per-trade P&L real** — `ib.fills()` → OMS reconcile (1165b2c) + **broker-golden daily P&L** via `reqPnL` (5636cb7, verified £5.89). The clone's £0 row is fixed.
+- **IBKR harvest UNBLOCKED** — Error 162 was an **ambiguous login** (multiple paper users); fix = log in with the **specific paper user (DUP656969)**. Data flows (12 symbols filled the local cache). NOT the dynamic IP / auto-logoff.
+- **Harvest · Data Health cockpit screen** (4777d66) + **harvest→EC2 health reporting** (0493857, `POST /bar-cache/health` + CLI push) — bridges the "two disconnected caches" gap so the screen renders real coverage.
+- **Idempotency guard** (0143cdc) — see below.
+
+### 🔴 USER-CAUGHT BUG: swing daemon was stacking duplicate orders
+The clone is **SWING** but the daemon **reruns every ~15 min**. A placed OPG/MOO order rests until the auction, so each rerun re-seeds the still-unfilled positions, re-emits the same entry/exit, and `placeOrder` fires BEFORE the OMS dedup → **duplicate orders stack at IBKR**. **Fix:** snapshot the broker's open orders at connect (golden source), skip any (symbol, action) that already has a live order. Verified live ("10 existing, dedup guard armed"). **Deeper point: cadence must match horizon** — swing should decide ~once/day; only the per-bar stop-check wants frequency. Belt-and-braces done; consider a daily-run schedule for the swing desks later.
+
+### 🧭 INTRADAY needs its OWN symbol selection + params (user, 2026-06-12)
+Confirmed direction: **intraday ≠ swing**, so `intraday_flat`'s swing-style basket (daily-Ichimoku-ranked) is wrong for it. Intraday selection should rank by **intraday-relevant criteria** — high **dollar-volume / liquidity** (tight spreads + fills), high **intraday ATR%** (enough range to clear cost), avoid illiquid names — NOT the daily trend score. Params differ too: intraday bars (1–5m), tighter ATR stops/targets, time-of-day window. **This belongs in an intraday-NATIVE strategy (ORB / VWAP), not another patch on `intraday_flat`** (which bolts a swing signal on an intraday leash). Build: a liquidity+volatility intraday universe selector feeding the intraday-native desks.
+
+---
+
 ## SESSION STATE — 2026-06-11 (Wednesday — strategy reality, optimization + the signal-gap diagnosis)
 
 Theme: stop adding surface; **diagnose why the book loses, optimize the one signal
