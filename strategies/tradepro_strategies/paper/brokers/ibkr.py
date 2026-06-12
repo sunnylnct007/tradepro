@@ -97,6 +97,21 @@ class IBKRConnection:
             self._ib.disconnect()
 
 
+# G10 currency codes — used to detect an FX pair symbol so the router/bus
+# build a Forex contract instead of a Stock. "EURUSD" / "EUR/USD" → Forex;
+# anything else falls through to a US equity Stock on SMART/USD.
+_FX_CCYS = {"EUR", "USD", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF", "SEK", "NOK"}
+
+
+def _ib_contract(ib_insync, symbol: str):
+    """Resolve a symbol to the right ib_insync contract: Forex for a G10 pair
+    (so the FX desk can run on IBKR), Stock for everything else."""
+    s = symbol.replace("/", "").upper()
+    if len(s) == 6 and s[:3] in _FX_CCYS and s[3:] in _FX_CCYS:
+        return ib_insync.Forex(s)
+    return ib_insync.Stock(symbol, "SMART", "USD")
+
+
 @dataclass
 class IBKRBarBus(BarBus):
     """Real-time bar feed from IBKR.
@@ -136,7 +151,7 @@ class IBKRBarBus(BarBus):
         # SMART/USD covers US equities; equivalents for forex/futures
         # are the operator's job (Forex/Future/Contract subclasses).
         contracts = {
-            s: ib_insync.Stock(s, "SMART", "USD") for s in self.symbols
+            s: _ib_contract(ib_insync, s) for s in self.symbols
         }
         sequence = 0
         # ib_insync exposes real-time bars as a RealTimeBarList object
@@ -375,7 +390,7 @@ class IBKRRouter(OrderRouter):
             )
             return
 
-        contract = ib_insync.Stock(order.symbol, "SMART", "USD")
+        contract = _ib_contract(ib_insync, order.symbol)  # Stock or Forex
         ib_action = "BUY" if order.side == OrderSide.BUY else "SELL"
 
         # Idempotency: if a live broker order for this (symbol, action) already
