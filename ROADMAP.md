@@ -27,6 +27,32 @@ The clone is **SWING** but the daemon **reruns every ~15 min**. A placed OPG/MOO
 ### 🧭 INTRADAY needs its OWN symbol selection + params (user, 2026-06-12)
 Confirmed direction: **intraday ≠ swing**, so `intraday_flat`'s swing-style basket (daily-Ichimoku-ranked) is wrong for it. Intraday selection should rank by **intraday-relevant criteria** — high **dollar-volume / liquidity** (tight spreads + fills), high **intraday ATR%** (enough range to clear cost), avoid illiquid names — NOT the daily trend score. Params differ too: intraday bars (1–5m), tighter ATR stops/targets, time-of-day window. **This belongs in an intraday-NATIVE strategy (ORB / VWAP), not another patch on `intraday_flat`** (which bolts a swing signal on an intraday leash). Build: a liquidity+volatility intraday universe selector feeding the intraday-native desks.
 
+### 🔭 REFINED INTRADAY plan (queued — user, 2026-06-12)
+A proper intraday desk, built fresh rather than patching `intraday_flat`:
+1. **Universe selector** — ✅ BUILT (`intraday_universe.py`, commit fc8dce8): ranks a
+   pool by **$-volume (liquidity) × intraday ATR% (volatility)**, drops illiquid + too-
+   quiet names. Demo picks SMCI/MU/semis/AMD/COIN/TSLA; drops SPY (too quiet) + MARA.
+2. **RVOL (relative volume)** — NEW indicator to add: today's volume vs the N-day average
+   *at this time of day* = "is this name in play TODAY". The in-SESSION filter on top of the
+   pre-market liquidity/volatility pick.
+3. **Intraday-native signal** — use the existing ORB / VWAP-reversion / Bollinger-bounce /
+   MA-cross desks (intraday bars, intraday logic) — NOT the daily Ichimoku.
+4. **Intraday params** — 1–5m bars, ATR-based stops/targets sized to the intraday range,
+   time-of-day window (open/close volatility, skip midday chop).
+5. **Measure** — per-trade expectancy the same way (IG fill prices); compare vs the retired
+   `intraday_flat` baseline. Goal: turn intraday from a −£2.87/trade cost-loser into edge.
+
+### 💱 FX STRATEGY to try (queued — user, 2026-06-12)
+Run FX on IBKR as its **own desk** (partitioned), and try refined FX variants:
+- **Foundation** — ✅ BUILT (`_ib_contract` Forex support in the IBKR router/bus, commit
+  5d43851). Remaining: new `ichimoku_fx_mr_ibkr` desk in `strategy_broker_map` (allow_short)
+  + a `paper-fx-ibkr` daemon + the account (separate sub-account vs DUP656969).
+- **Variant to try** — the live FX (`ichimoku_fx_mr`) is **fragile-breakeven**; trade-by-trade
+  showed winners are TRENDS (AUD/USD, GBP/USD), losers are mean-reversion **fighting a trend**
+  (NZD/USD −£83). So try: (a) a **trend filter** — don't fade a strong trend; (b) a **stop** to
+  cut the runaway counter-trend losers; (c) bias toward **trend-continuation**, not pure fade.
+  A/B the variant (IBKR desk) vs the IG control, same as the equity clone.
+
 ---
 
 ## SESSION STATE — 2026-06-11 (Wednesday — strategy reality, optimization + the signal-gap diagnosis)
