@@ -165,7 +165,17 @@ def _score_event(row: dict) -> tuple[int, str]:
         return 2, "BEAT_AND_RETREAT — fired"
     if verdict == "MODERATE":
         return 1, "beat but retreat outside the sweet spot"
-    # 2) No actionable earnings → fall back to a NEWS-SENTIMENT catalyst so the
+    # 2) No actionable earnings → the LLM CATALYST SEAT. A strong, event-grounded
+    #    catalyst (the LLM judged a real symbol-specific event amid the news — a
+    #    sentiment mean can't) is a +1 nudge; +2 stays reserved for an earnings
+    #    beat, and one layer is never decisive alone (BUY needs ≥4/8). Only
+    #    strength-2 fires, to keep the weak local model's noise out of the verdict.
+    cat = row.get("llm_catalyst") or {}
+    if cat.get("strength") == 2 and cat.get("verdict") == "BULLISH":
+        return 1, f"strong news catalyst — {cat.get('event', 'event')}"
+    if cat.get("strength") == 2 and cat.get("verdict") == "BEARISH":
+        return 0, f"strong negative catalyst ({cat.get('event', 'event')}) — headwind"
+    # 3) Otherwise fall back to the deterministic NEWS-SENTIMENT mean so the
     #    layer stops being a flat 0 for every name (the gap that left the Decide
     #    swing scorer scoring out of ~3/8). Uses the pre-aggregated summary.
     ss = row.get("sentiment_summary") or {}

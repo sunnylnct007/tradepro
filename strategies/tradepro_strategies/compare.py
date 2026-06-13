@@ -1618,6 +1618,26 @@ def compare(
             ms["decision_trace"] = existing_trace + appended
             r["market_state"] = ms
 
+    # LLM catalyst seat (2026-06-13) — the news-reasoning layer the swing event
+    # score reads. Judges whether each symbol's headlines carry a GENUINE,
+    # symbol-specific catalyst (a sentiment mean can't: TSLA's SpaceX-IPO +0.7
+    # dilutes to a -0.15 mean). Computed once per symbol (memoised + disk-cached
+    # by headline-hash), attached BEFORE the swing scorer. Conservative: only a
+    # STRONG grounded catalyst nudges the event layer +1 downstream, never
+    # decisive alone. Best-effort — degrades to neutral, never blocks the run.
+    from .catalyst_llm import judge_catalyst
+    _catalyst_by_symbol: dict[str, dict | None] = {}
+    for r in rows:
+        sym = r.get("symbol")
+        if sym not in _catalyst_by_symbol:
+            try:
+                _catalyst_by_symbol[sym] = judge_catalyst(sym, r.get("news"), provider=llm)
+            except Exception as e:  # noqa: BLE001
+                if logger:
+                    logger.emit("compare.catalyst_failed", symbol=sym, error=str(e))
+                _catalyst_by_symbol[sym] = None
+        r["llm_catalyst"] = _catalyst_by_symbol[sym]
+
     # Phase-X composite swing-trade scorer (0-8 across four families).
     # Computed AFTER all signal annotations are attached so each layer
     # sees the same row shape the rationale and email digest see.
