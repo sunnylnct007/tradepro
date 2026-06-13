@@ -608,6 +608,27 @@ function buildSymbolViews(
       }
     }
 
+    // Reconcile (2026-06-13): a horizon-classification BUY (swing / long-term /
+    // passive) is an actionable call, but the price+consensus bucket is so
+    // strict it parked every name at WAIT — so "TODAY'S VERDICT" said "no clear
+    // buys" while the swing/long-term tabs had BUYs. Promote WAIT → BUY when any
+    // horizon says BUY (the horizon score already incorporates trend, so it
+    // won't fire in a real downtrend). A clear-downtrend AVOID is left alone.
+    const hc = best.horizon_classification;
+    const horizonBuy = !!hc && (
+      hc.swing?.signal === "BUY" ||
+      hc.long_term?.signal === "BUY" ||
+      hc.passive?.signal === "BUY"
+    );
+    if (horizonBuy && bucket === "WAIT") {
+      bucket = "BUY";
+      reason = `Horizon BUY (` +
+        [["swing", hc?.swing], ["long-term", hc?.long_term], ["passive", hc?.passive]]
+          .filter(([, v]) => (v as { signal?: string } | undefined)?.signal === "BUY")
+          .map(([k]) => k).join(", ") +
+        `)` + (reason ? ` · ${reason}` : "");
+    }
+
     views.push({
       symbol, rows: sorted, bestRow: best,
       marketSignal: priceVerdict, marketReason: ms?.entry_reason ?? "",
