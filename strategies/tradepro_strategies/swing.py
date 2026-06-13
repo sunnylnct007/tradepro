@@ -145,14 +145,19 @@ def _score_valuation(row: dict) -> tuple[int, str]:
     return 0, f"unknown flag {flag!r}"
 
 
+# News-sentiment thresholds for the event-layer fallback (2026-06-13). The row
+# already carries multi-source news scored per-item (Finnhub/GDELT/etc.), and
+# sentiment_summary aggregates it. A clearly-positive flow counts as a soft
+# catalyst; a clearly-negative flow is an explicit headwind. Deterministic for
+# now — the LLM nuance pass (judge a real catalyst vs noise) is the follow-on.
+NEWS_POS_CATALYST = 0.20
+NEWS_NEG_HEADWIND = -0.30
+
+
 def _score_event(row: dict) -> tuple[int, str]:
     ev = row.get("earnings_signal") or {}
     verdict = ev.get("verdict")
-    if not verdict or verdict in ("NO_RECENT", "NOT_APPLICABLE"):
-        # ETFs and stocks-with-no-recent-earnings get 0 — the layer
-        # silently doesn't fire. The reason explains why so the
-        # rationale layer doesn't quote a fabricated number.
-        return 0, "no recent earnings event"
+    # 1) Earnings beat/retreat is the strongest event signal — keep it on top.
     if verdict == "STRONG":
         retreat = ev.get("retreat_from_post_earnings_peak_pct")
         if retreat is not None:
@@ -160,8 +165,19 @@ def _score_event(row: dict) -> tuple[int, str]:
         return 2, "BEAT_AND_RETREAT — fired"
     if verdict == "MODERATE":
         return 1, "beat but retreat outside the sweet spot"
-    if verdict in ("EXPIRED", "NO_BEAT", "NO_PRICES"):
-        return 0, verdict.lower().replace("_", " ")
+    # 2) No actionable earnings → fall back to a NEWS-SENTIMENT catalyst so the
+    #    layer stops being a flat 0 for every name (the gap that left the Decide
+    #    swing scorer scoring out of ~3/8). Uses the pre-aggregated summary.
+    ss = row.get("sentiment_summary") or {}
+    mean = ss.get("mean_sentiment")
+    if isinstance(mean, (int, float)):
+        mneg = int(ss.get("material_negative_count") or 0)
+        if mean >= NEWS_POS_CATALYST and mneg <= 1:
+            return 1, f"positive news flow (mean sentiment {mean:+.2f})"
+        if mean <= NEWS_NEG_HEADWIND:
+            return 0, f"negative news flow (mean sentiment {mean:+.2f}) — headwind"
+    if not verdict or verdict in ("NO_RECENT", "NOT_APPLICABLE", "EXPIRED", "NO_BEAT", "NO_PRICES"):
+        return 0, "no earnings beat or clear news catalyst"
     return 0, f"unknown earnings verdict {verdict!r}"
 
 
