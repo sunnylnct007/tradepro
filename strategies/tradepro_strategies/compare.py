@@ -1626,16 +1626,23 @@ def compare(
     # STRONG grounded catalyst nudges the event layer +1 downstream, never
     # decisive alone. Best-effort — degrades to neutral, never blocks the run.
     from .catalyst_llm import judge_catalyst
+    from .fees import is_known_etf
     _catalyst_by_symbol: dict[str, dict | None] = {}
     for r in rows:
         sym = r.get("symbol")
         if sym not in _catalyst_by_symbol:
-            try:
-                _catalyst_by_symbol[sym] = judge_catalyst(sym, r.get("news"), provider=llm)
-            except Exception as e:  # noqa: BLE001
-                if logger:
-                    logger.emit("compare.catalyst_failed", symbol=sym, error=str(e))
+            # ETFs don't have single-name catalysts (they're baskets, not
+            # companies) — skip the LLM call entirely: it's wasted work and
+            # adds Ollama contention with the sentiment + rationale calls.
+            if is_known_etf(sym):
                 _catalyst_by_symbol[sym] = None
+            else:
+                try:
+                    _catalyst_by_symbol[sym] = judge_catalyst(sym, r.get("news"), provider=llm)
+                except Exception as e:  # noqa: BLE001
+                    if logger:
+                        logger.emit("compare.catalyst_failed", symbol=sym, error=str(e))
+                    _catalyst_by_symbol[sym] = None
         r["llm_catalyst"] = _catalyst_by_symbol[sym]
 
     # Phase-X composite swing-trade scorer (0-8 across four families).
