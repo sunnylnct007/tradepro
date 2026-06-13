@@ -92,10 +92,13 @@ function WhatToDoPanel({ views, onOpen, universe }: {
   views: SymbolView[]; onOpen: (s: string) => void; universe: string;
 }) {
   type Action = "BUY" | "WAIT" | "AVOID";
-  const HZ: { k: "swing" | "long_term" | "passive"; label: string }[] = [
+  // Only the ACTIVE horizons count as "BUY now". Passive (3–5yr) BUY means
+  // "fine to hold long-term", NOT an active buy — so a passive-only BUY (e.g. a
+  // bond ETF like AGG) must not surface as BUY NOW. It still shows in the
+  // per-symbol HORIZON SPLIT detail.
+  const HZ: { k: "swing" | "long_term"; label: string }[] = [
     { k: "swing", label: "swing (1–8wk)" },
     { k: "long_term", label: "long-term (6–18mo)" },
-    { k: "passive", label: "passive (3–5yr)" },
   ];
   const rows = views.map((v) => {
     const cls = (v.bestRow.horizon_classification ?? {}) as Record<string, { signal?: string } | undefined>;
@@ -608,22 +611,25 @@ function buildSymbolViews(
       }
     }
 
-    // Reconcile (2026-06-13): a horizon-classification BUY (swing / long-term /
-    // passive) is an actionable call, but the price+consensus bucket is so
-    // strict it parked every name at WAIT — so "TODAY'S VERDICT" said "no clear
-    // buys" while the swing/long-term tabs had BUYs. Promote WAIT → BUY when any
-    // horizon says BUY (the horizon score already incorporates trend, so it
+    // Reconcile (2026-06-13): a horizon-classification BUY on an ACTIVE horizon
+    // (swing / long-term) is an actionable call, but the price+consensus bucket
+    // is so strict it parked every name at WAIT — so "TODAY'S VERDICT" said "no
+    // clear buys" while the swing/long-term tabs had BUYs. Promote WAIT → BUY on
+    // an active-horizon BUY (the horizon score already incorporates trend, so it
     // won't fire in a real downtrend). A clear-downtrend AVOID is left alone.
+    // PASSIVE is deliberately EXCLUDED: a passive (3–5yr) BUY means "fine to hold
+    // long-term", NOT "buy now" — promoting on it made a bond ETF like AGG read
+    // "BUY NOW" while its own rationale still said WAIT. Passive BUY stays visible
+    // in the HORIZON SPLIT detail; it just doesn't drive the headline action.
     const hc = best.horizon_classification;
     const horizonBuy = !!hc && (
       hc.swing?.signal === "BUY" ||
-      hc.long_term?.signal === "BUY" ||
-      hc.passive?.signal === "BUY"
+      hc.long_term?.signal === "BUY"
     );
     if (horizonBuy && bucket === "WAIT") {
       bucket = "BUY";
       reason = `Horizon BUY (` +
-        [["swing", hc?.swing], ["long-term", hc?.long_term], ["passive", hc?.passive]]
+        [["swing", hc?.swing], ["long-term", hc?.long_term]]
           .filter(([, v]) => (v as { signal?: string } | undefined)?.signal === "BUY")
           .map(([k]) => k).join(", ") +
         `)` + (reason ? ` · ${reason}` : "");
