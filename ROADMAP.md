@@ -51,6 +51,22 @@ needs catalyst data, valuation needs fundamentals — neither loaded, [[eps_anal
 So it scores out of ~4 and rarely clears 4 → 93/98 AVOID. Half the scorecard is blank.
 Fix: score relative to LIVE layers (don't penalise for missing data) OR load the data.
 
+### 🖥️ DECIDE PAGE UX REDESIGN — "just show me what to do" (user, 2026-06-13)
+User pain (with screenshot): *"with everything split I can't even see where is the BUY —
+so many different tabs… user shouldn't have to go to different tabs… nicer display across
+all universes, show BUY/SELL first then WAIT/trim."* The current page fragments the answer
+across **VOTE (2/7) + VERDICT bucket (WAIT) + SWING (4/8) + Best-Sharpe + horizon tabs** —
+and the VERDICT column shows WAIT on everything, so the actionable signal is invisible.
+**Redesign (additive panel is the safe path — don't rewrite the 2797-line file blind):**
+- **One unified, ranked list** at the top — **BUY/SELL rows first, then WAIT, then trim/AVOID.**
+  Sorted by action, not alphabetical.
+- **ONE clear verdict per name** (collapse VOTE/VERDICT/SWING into a single action + a
+  conviction) **+ the HORIZON as a label/column** ("BUY · long-term") — *not* separate tabs.
+- **Across all universes** (aggregate), not per-universe tab-switching.
+- Keep the detailed multi-strategy table as a drill-down, but the *default* is the clean
+  action list. Note: with the swing-band fix (97fbe60) the SWING horizon now BUYs, but the
+  VERDICT *bucket* still shows WAIT — they must be reconciled into the single action.
+
 ### 🌟 DECIDE PAGE v2 — the portfolio + universe decision engine (user spec, 2026-06-13)
 This IS the north-star surface. The user's full vision, consolidated:
 - **Two modes:**
