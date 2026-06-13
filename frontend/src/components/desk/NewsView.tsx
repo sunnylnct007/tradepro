@@ -178,7 +178,19 @@ export function NewsView({ wide }: { wide: boolean }) {
           : catalysts.length === 0 ? <Dim>No active catalysts.</Dim>
           : (
             <ul style={LIST}>
-              {catalysts.map((c) => (
+              {[...catalysts].sort((a, b) => {
+                // Active-catalyst ordering: UPCOMING (>= today) first, soonest
+                // first; then PAST, most-recent first. Stale catalysts (old
+                // earnings already reported) sink to the bottom instead of the
+                // top. ISO date strings compare lexicographically = chronologically.
+                const today = new Date().toISOString().slice(0, 10);
+                const da = (a.occurs_on ?? "").slice(0, 10);
+                const db = (b.occurs_on ?? "").slice(0, 10);
+                if (!da || !db) return da ? -1 : db ? 1 : 0;  // undated last
+                const aUp = da >= today, bUp = db >= today;
+                if (aUp !== bUp) return aUp ? -1 : 1;          // upcoming before past
+                return aUp ? da.localeCompare(db) : db.localeCompare(da);
+              }).map((c) => (
                 <li key={c.id} style={ROW}>
                   <span style={{
                     width: 8, height: 8, borderRadius: "50%",
