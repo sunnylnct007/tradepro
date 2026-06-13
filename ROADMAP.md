@@ -81,6 +81,30 @@ Don't maintain two surfaces answering the same question. **Decide IS the "should
 engine** — fold any separate "should I invest" view/mode into the one Decide-v2 surface
 (universe scan + portfolio scan). One canonical place: *what to buy, for how long, what to sell.*
 
+### 🧩 SWING-SCORER precise diagnosis (live, 2026-06-13) — it's WIRING, not data-source
+Live layer breakdown (us_megacap): **quality ✅** (Sharpe), **valuation ✅** (cross-sectional
+P/E — "mid-basket"/"expensive" working!), **event ❌ 100% DEAD** ("no recent earnings event"
+on every name), **price ❌** (needs strong consensus; most names 2/7 long) **+ a swing
+52w-range cap** ("near 52w highs → limited upside"; LLY 5/7-long capped at WATCH at the 95th
+%ile — another "extended=avoid" instance, separate from the market_state one fixed in a1596f9).
+So BUY (≥4/8) is near-impossible: realistic max ≈ quality(2)+valuation(1)+event(0)+price(0).
+
+### 🛰️ MULTI-SOURCE DATA + LLM + TRUSTED NEWS (user, 2026-06-13) — the infra EXISTS, wire it
+User: *"take more data, let the LLM decide some things, source multiple trusted market news."*
+**Crucial: all of this is already built as infrastructure — the gap is wiring it into the
+Decide verdict + the swing event layer:**
+- **News (multi-source):** `news.py`, `news_sentiment.py`, `news_context.py` + catalyst
+  sources `catalysts_finnhub.py`, `catalysts_gdelt.py`, `catalysts_sec_edgar.py` — Finnhub +
+  GDELT + SEC EDGAR (multiple trusted sources, already coded). Aggregate → feed the **event
+  layer** (earnings/catalyst/sentiment) so it stops being 0.
+- **LLM judgment:** `llm_gate.py` (+ `analyst_actions.py`) exists but **isn't wired into the
+  live verdict** — give the LLM a real seat: weigh the news/catalyst context + a sanity check
+  on the technical/fundamental fusion (not just a veto).
+- **Fundamentals:** `fetch_fundamentals` returns real P/E, FCF, debt/equity from yahoo (verified
+  live) — valuation layer already uses it; could extend (growth, margins).
+**Build = connect existing pieces:** news/catalyst aggregation → event layer; LLM → verdict
+seat; recalibrate price-consensus + drop the swing 52w-cap. Then the 0–8 fusion is real.
+
 ### 🌟🌟 THE TRUE NORTH-STAR — fundamental × technical fusion (user, 2026-06-13)
 The unifying goal: **fuse fundamental analysis with technical** into the Decide verdict.
 **KEY INSIGHT: the swing scorer (`swing.py`) was already architected for exactly this** —
