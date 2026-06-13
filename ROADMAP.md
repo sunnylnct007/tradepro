@@ -68,6 +68,27 @@ This IS the north-star surface. The user's full vision, consolidated:
 - Pairs with the gate fixes above (inform-not-veto) so the verdict is actually actionable.
 Build order: fix the swing scorer + gates → add the horizon label to each verdict →
 add the portfolio-scan SELL/hold/buy-more mode. Needs a daylight pass (north-star).
+- **Portfolio "PIE" construction (user, 2026-06-13):** like T212 Pies / M1 Finance —
+  build a target book as a **pie of sectors with target exposures/weights**, then the
+  Decide engine + strategies surface **what to buy to fill it + what to trim/sell to
+  rebalance** toward the target. Ties the per-symbol verdicts into a *portfolio-level*
+  allocation goal (sector caps already exist in `ichimoku_equity` — reuse). This is the
+  construction layer on top of the decision engine: define the pie → engine fills/rebalances.
+
+### 🌟🌟 THE TRUE NORTH-STAR — fundamental × technical fusion (user, 2026-06-13)
+The unifying goal: **fuse fundamental analysis with technical** into the Decide verdict.
+**KEY INSIGHT: the swing scorer (`swing.py`) was already architected for exactly this** —
+its 4 layers are **quality + price (TECHNICAL, live)** and **valuation + event (FUNDAMENTAL,
+currently DEAD — no data).** So this isn't a rebuild; it's **loading the fundamental feeds
+to wake the two dead layers:**
+- **Valuation layer** ← P/E, P/FCF, growth, margins (fundamentals — [[eps_analyst_gap]]).
+- **Event layer** ← earnings calendar + analyst revisions + catalysts ([[catalyst_overlay_gap]],
+  Finnhub is the easy path).
+Once both layers carry real data, the 0–8 score becomes a genuine **fundamental×technical
+fusion** — a name BUYs when the *trend* AND the *business* AND a *catalyst* align, with the
+horizon + conviction falling out naturally. THAT is the north-star: not another price
+strategy, but **the day the scorecard stops being half-blank.** Everything else (Decide v2,
+pies, portfolio scan) sits on top of this fused score.
 
 ### 🔭 REFINED INTRADAY plan (queued — user, 2026-06-12)
 A proper intraday desk, built fresh rather than patching `intraday_flat`:
