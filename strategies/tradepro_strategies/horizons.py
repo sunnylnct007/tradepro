@@ -37,9 +37,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # Single source of truth for the score → signal grade mapping.
-# Spec §4.1 / §4.2 / §4.3 all use the same bands.
-_BAND_BUY = 6
-_BAND_WATCH = 4
+# Bands aligned (2026-06-13) with swing.evaluate_swing's OWN bands (BUY ≥4,
+# HOLD/WATCH ≥2). They had diverged — horizons re-banded the composite at ≥6=BUY,
+# silently downgrading the composite's own BUYs to WATCH (LLY 5/7-long → WATCH).
+# Now one source of truth. NOTE: until the EVENT layer is fed real data (earnings/
+# news — currently 0/2 for every name), the realistic ceiling is ~6/8, so ≥6 made
+# BUY near-impossible. Revisit upward once the event layer is live.
+_BAND_BUY = 4
+_BAND_WATCH = 2
 
 
 def _grade(score: int) -> str:
@@ -217,27 +222,24 @@ def _score_swing(
     # Range-position modifier — the genuinely horizon-specific bit.
     # The hard cap at WATCH for near-the-highs entries is the
     # VUKE-class fix codified.
-    cap_at_watch = False
+    # Range-position modifier — SOFTENED (2026-06-13). The old rule docked −2
+    # AND hard-capped at WATCH for ≥80th %ile, which (in a bull market, where
+    # almost everything is near its highs) turned every uptrend into WATCH/AVOID
+    # — the Decide swing tab never BUYd. Backtesting showed "extended=avoid" is
+    # wrong for trend-following (extended momentum names are the winners), so
+    # near-highs is now a single −1 nudge with NO hard cap. Near-lows keeps +1.
     if range_pct is not None:
         if range_pct < 35:
             score += 1
             reasons.append(f"Near annual lows ({range_pct:.0f}th pctile) — +1")
-        elif range_pct >= 80:
-            score = max(0, score - 2)
-            reasons.append(
-                f"At 52w highs ({range_pct:.0f}th pctile) — capped at WATCH"
-            )
-            cap_at_watch = True
         elif range_pct >= 65:
             score = max(0, score - 1)
             reasons.append(
-                f"Near 52w highs ({range_pct:.0f}th pctile) — limited swing upside"
+                f"Near 52w highs ({range_pct:.0f}th pctile) — −1 (extended)"
             )
 
     score = max(0, min(8, score))
     signal = _grade(score)
-    if cap_at_watch and signal == "BUY":
-        signal = "WATCH"
 
     entry_note = _swing_entry_note(rsi, off_52w, has_catalyst, range_pct)
     return HorizonVerdict(
