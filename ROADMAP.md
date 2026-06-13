@@ -45,6 +45,30 @@ vol momentum names are the winners); swing scorer recalibrated so a 5/7-long dec
 Sharpe name clears; majority gate → plurality + strong price is enough. Also default
 the Decide page to a **stock universe + long-term** so BUYs are front-and-centre.
 
+Root cause of the swing scorer (`swing.py`): scores 0–8 over **4 layers** (quality,
+valuation, event, price), needs **≥4 for BUY** — but **2 layers are DEAD** (event
+needs catalyst data, valuation needs fundamentals — neither loaded, [[eps_analyst_gap]]).
+So it scores out of ~4 and rarely clears 4 → 93/98 AVOID. Half the scorecard is blank.
+Fix: score relative to LIVE layers (don't penalise for missing data) OR load the data.
+
+### 🌟 DECIDE PAGE v2 — the portfolio + universe decision engine (user spec, 2026-06-13)
+This IS the north-star surface. The user's full vision, consolidated:
+- **Two modes:**
+  1. **Universe scan** — for each symbol: *is it worth buying, and FOR HOW LONG?*
+     → verdict (BUY/WAIT/AVOID) **+ the HORIZON it applies to** (swing 1–8w vs
+     long-term 3–12mo). The horizon data already exists (`horizon_classification`);
+     surface it as "BUY — swing" / "BUY — long-term" so the user knows the holding period.
+  2. **Portfolio scan** — for each HELD position: *should I hold, buy more, or SELL?*
+     → **highlight SELLs prominently** (exit signals on the book). This is the
+     [[project_phase2_portfolio_aware]] buy-more/hold/trim engine, finally surfaced.
+- **Every recommendation carries its time-frame** (don't show a bare BUY — show
+  "BUY, hold ~X").
+- **Reuse the `ichimoku_equity` signal logic** where it fits (it's the proven daily
+  trend signal — don't reinvent; feed its long/flat + cloud state into the verdict).
+- Pairs with the gate fixes above (inform-not-veto) so the verdict is actually actionable.
+Build order: fix the swing scorer + gates → add the horizon label to each verdict →
+add the portfolio-scan SELL/hold/buy-more mode. Needs a daylight pass (north-star).
+
 ### 🔭 REFINED INTRADAY plan (queued — user, 2026-06-12)
 A proper intraday desk, built fresh rather than patching `intraday_flat`:
 1. **Universe selector** — ✅ BUILT (`intraday_universe.py`, commit fc8dce8): ranks a
