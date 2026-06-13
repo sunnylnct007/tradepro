@@ -75,6 +75,12 @@ add the portfolio-scan SELL/hold/buy-more mode. Needs a daylight pass (north-sta
   allocation goal (sector caps already exist in `ichimoku_equity` — reuse). This is the
   construction layer on top of the decision engine: define the pie → engine fills/rebalances.
 
+### 🔀 CONSOLIDATE: "Decide" and "Should I invest today?" are the SAME thing (user, 2026-06-13)
+They overlap — the Decide rail item is literally titled *"Decide — should I invest today?"*.
+Don't maintain two surfaces answering the same question. **Decide IS the "should I invest"
+engine** — fold any separate "should I invest" view/mode into the one Decide-v2 surface
+(universe scan + portfolio scan). One canonical place: *what to buy, for how long, what to sell.*
+
 ### 🌟🌟 THE TRUE NORTH-STAR — fundamental × technical fusion (user, 2026-06-13)
 The unifying goal: **fuse fundamental analysis with technical** into the Decide verdict.
 **KEY INSIGHT: the swing scorer (`swing.py`) was already architected for exactly this** —
