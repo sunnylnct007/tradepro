@@ -184,6 +184,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[ichimoku_equity] Don't-chase gate: skip a NEW long >this %% above its 200-SMA (e.g. 50). Off by default.")
     p.add_argument("--entry-rsi-max", type=float, default=None,
                    help="[ichimoku_equity] Don't-chase gate: skip a NEW long with RSI(14) > this (e.g. 75). Off by default.")
+    # ── Cross-desk RISK GATE kill-switches (config-driven; ALL off by default →
+    #    None → no halt → zero behaviour change until set in runtime_config) ────
+    p.add_argument("--max-daily-loss-usd", type=float, default=None,
+                   help="[risk] Halt the desk for the day when realised+unrealised P&L drops below -this. Off by default.")
+    p.add_argument("--max-drawdown-pct", type=float, default=None,
+                   help="[risk] Halt the desk when equity falls this %% from its peak (e.g. 5). Off by default.")
+    p.add_argument("--max-open-positions", type=int, default=None,
+                   help="[risk] Reject NEW entries beyond this many concurrent positions. Off by default.")
+    p.add_argument("--max-position-pct-of-capital", type=float, default=None,
+                   help="[risk] Reject a position exceeding this %% of allocated capital (e.g. 15). Off by default.")
     # ── Ichimoku FX knobs ────────────────────────────────────────────────
     p.add_argument("--warmup-bars", type=int, default=200,
                    help="[ichimoku_fx_mr] Bars of history before signals fire.")
@@ -472,6 +482,10 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
             risk=RiskLimits(
                 max_position_value_usd=args.max_position_value_usd,
                 allow_short=False,
+                max_daily_loss_usd=args.max_daily_loss_usd,
+                max_drawdown_pct=_pct_to_fraction(args.max_drawdown_pct),
+                max_open_positions=args.max_open_positions,
+                max_position_pct_of_capital=_pct_to_fraction(args.max_position_pct_of_capital),
             ),
         )
 
@@ -523,6 +537,10 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
             risk=RiskLimits(
                 max_position_value_usd=args.max_position_value_usd,
                 allow_short=True,
+                max_daily_loss_usd=args.max_daily_loss_usd,
+                max_drawdown_pct=_pct_to_fraction(args.max_drawdown_pct),
+                max_open_positions=args.max_open_positions,
+                max_position_pct_of_capital=_pct_to_fraction(args.max_position_pct_of_capital),
             ),
         )
 
@@ -551,6 +569,10 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
             risk=RiskLimits(
                 max_position_value_usd=args.max_position_value_usd,
                 allow_short=False,
+                max_daily_loss_usd=args.max_daily_loss_usd,
+                max_drawdown_pct=_pct_to_fraction(args.max_drawdown_pct),
+                max_open_positions=args.max_open_positions,
+                max_position_pct_of_capital=_pct_to_fraction(args.max_position_pct_of_capital),
             ),
         )
 
@@ -1040,7 +1062,9 @@ def _apply_config_overrides(args, log) -> None:
                 "max_per_sector", "warmup_bars", "max_position_value_usd",
                 "target_vol", "max_leverage", "sleeve_size",
                 "entry_max_ext_pct", "entry_rsi_max",
-                "top_n", "min_atr_pct", "min_strength"):
+                "top_n", "min_atr_pct", "min_strength",
+                "max_daily_loss_usd", "max_drawdown_pct",
+                "max_open_positions", "max_position_pct_of_capital"):
         if key in cfg and cfg[key] is not None and hasattr(args, key):
             setattr(args, key, cfg[key])
     # IBKR connection → env (the adapter reads TRADEPRO_IBKR_*).
