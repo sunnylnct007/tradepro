@@ -83,6 +83,77 @@ interface SymbolView {
   sentimentDemotionReason?: string;
 }
 
+/** "What to do today" — the action-first answer. Collapses every symbol to ONE
+ * verdict + horizon and sorts BUY → WAIT → AVOID, so the user sees what to buy
+ * without reading the VOTE/VERDICT/SWING columns or switching horizon tabs.
+ * Reconciles the (often-WAIT) bucket with the horizon signals — a horizon BUY
+ * wins (that's the actionable call). Drill-down still lives in the table below. */
+function WhatToDoPanel({ views, onOpen, universe }: {
+  views: SymbolView[]; onOpen: (s: string) => void; universe: string;
+}) {
+  type Action = "BUY" | "WAIT" | "AVOID";
+  const HZ: { k: "swing" | "long_term" | "passive"; label: string }[] = [
+    { k: "swing", label: "swing (1–8wk)" },
+    { k: "long_term", label: "long-term (6–18mo)" },
+    { k: "passive", label: "passive (3–5yr)" },
+  ];
+  const rows = views.map((v) => {
+    const cls = (v.bestRow.horizon_classification ?? {}) as Record<string, { signal?: string } | undefined>;
+    const buyHz = HZ.filter((h) => cls[h.k]?.signal === "BUY").map((h) => h.label);
+    let action: Action;
+    if (buyHz.length) action = "BUY";
+    else if (v.bucket === "AVOID" || v.marketSignal === "AVOID") action = "AVOID";
+    else action = "WAIT";
+    const br = v.bestRow as unknown as { stats?: { sharpe?: number }; best_sharpe?: number };
+    const sharpe = br.stats?.sharpe ?? br.best_sharpe ?? null;
+    return { symbol: v.symbol, action, horizons: buyHz, longCount: v.longCount, total: v.total, sharpe };
+  });
+  const order: Record<Action, number> = { BUY: 0, WAIT: 1, AVOID: 2 };
+  rows.sort((a, b) => order[a.action] - order[b.action] || (b.sharpe ?? -9) - (a.sharpe ?? -9));
+  const nBuy = rows.filter((r) => r.action === "BUY").length;
+  const COLOR: Record<Action, string> = { BUY: "var(--up)", WAIT: "var(--neutral)", AVOID: "var(--down)" };
+  return (
+    <section style={{ ...cockpitPanel, padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+        <span style={cockpitHeader}>What to do today</span>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {nBuy} BUY · {rows.length - nBuy} wait/avoid · {universe} · one action per name, sorted
+        </span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {rows.map((r) => (
+          <button
+            key={r.symbol}
+            type="button"
+            onClick={() => onOpen(r.symbol)}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "72px 60px 1fr auto",
+              gap: 12, alignItems: "center", padding: "7px 8px",
+              background: "transparent", border: "none",
+              borderBottom: "1px solid #141b2b", cursor: "pointer",
+              textAlign: "left", color: "var(--text)", font: "inherit",
+              opacity: r.action === "AVOID" ? 0.45 : 1,
+            }}
+          >
+            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)" }}>{r.symbol}</span>
+            <span style={{ fontWeight: 700, color: COLOR[r.action] }}>{r.action}</span>
+            <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              {r.action === "BUY"
+                ? `for ${r.horizons.join(", ")}`
+                : r.action === "WAIT" ? "better entry likely" : "downtrend — skip"}
+              {`  ·  ${r.longCount}/${r.total} strategies long`}
+            </span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-muted)" }}>
+              {r.sharpe != null ? `Sharpe ${r.sharpe.toFixed(2)}` : ""}
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function Compare() {
   const [universes, setUniverses] = useState<CompareUniverseSummary[]>([]);
   const [universe, setUniverse] = useState<string>("");
@@ -226,6 +297,10 @@ export function Compare() {
       )}
 
       {data?.payload?.llm && <LlmStatusBar llm={data.payload.llm} />}
+
+      {data && allViews.length > 0 && (
+        <WhatToDoPanel views={allViews} onOpen={setOpenSymbol} universe={universe} />
+      )}
 
       <section
         style={{
