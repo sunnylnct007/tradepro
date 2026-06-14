@@ -874,16 +874,36 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[st
 
         rows = None
         _last_exc: Exception | None = None
-        for _attempt in range(3):
-            try:
-                rows = _aio.run(_fetch_ibkr_rows())
-                break
-            except Exception as exc:  # noqa: BLE001
-                _last_exc = exc
-                log.warning("ibkr positions read attempt %d/3 failed: %s",
-                            _attempt + 1, exc)
-                if _attempt < 2:
-                    _time.sleep(2.0 * (_attempt + 1))
+        # PHASE 2 — prefer the CENTRAL GATEWAY's fresh shared snapshot. The
+        # ibkr_gateway daemon holds the ONE connection and refreshes _gateway.json
+        # every ~30s; reading it means this desk does NOT open its own connection,
+        # which is what removes the per-account contention (and the ×32/×36 aborts)
+        # entirely. Degrades safely: if the gateway isn't running / its cache is
+        # stale, fall through to the direct read below.
+        _gw_file = _cache_dir / "_gateway.json"
+        _gw_ttl = float(_os.environ.get("TRADEPRO_IBKR_GATEWAY_TTL_S", "90"))
+        try:
+            _g = _json.loads(_gw_file.read_text())
+            _gage = _time.time() - float(_g.get("ts", 0))
+            if _gage <= _gw_ttl:
+                rows = _g.get("rows")
+                log.info("POSITION SEED (ibkr-gateway): %s via central gateway snapshot "
+                         "%.0fs old (%d positions) — no per-desk connection",
+                         _sid, _gage, len(rows or []))
+        except Exception:  # noqa: BLE001 — gateway down / stale → direct read
+            rows = None
+        # Direct read (with retry) ONLY if the gateway didn't give a fresh snapshot.
+        if rows is None:
+            for _attempt in range(3):
+                try:
+                    rows = _aio.run(_fetch_ibkr_rows())
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    _last_exc = exc
+                    log.warning("ibkr positions read attempt %d/3 failed: %s",
+                                _attempt + 1, exc)
+                    if _attempt < 2:
+                        _time.sleep(2.0 * (_attempt + 1))
 
         if rows is not None:
             try:  # cache the confirmed snapshot for the fallback path
