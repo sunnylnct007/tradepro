@@ -49,6 +49,36 @@ Running list — capture now, fix later (user: "don't have to sort straight away
 - **✅ FIXED this pass:** oms-events 500 (`detail_json`→`detail::text`); Settings>Catalysts
   sort + "NaNd ago"; NewsView Active-Catalysts sort; entry-quality flag; India universe.
 
+### 🏛️ IBKR CENTRAL ORCHESTRATION — one connection broker (user idea, 2026-06-14)
+Root cause of the desk aborts: every consumer (each trading desk, harvest, account-state
+pusher) opens its OWN IBKR connection and contends on the **per-account** data/processing
+budget → `reqPositions` times out under harvest load → desks fail-closed (×32/×36). Separate
+clientIds don't help (budget is per-account). User's fix (correct + the proper one): a
+**single IBKR connection-broker service** that owns ONE persistent connection and serves all
+consumers:
+- **Positions/account: subscribe ONCE, push-cached** snapshot in memory → desks read the
+  cached snapshot instantly, no per-request round-trip, **no timeout to abort on** (kills the
+  ×32/×36 aborts directly).
+- **Historical bars: a central QUEUE + pacing** → harvest can't flood the account.
+- **Orders** route through the same connection.
+- Desks/harvest call the broker (in-proc queue or tiny internal API), **never IBKR directly.**
+**Seed already exists:** `IBKRBarBus` (clientId 17) does this for BARS — generalise it into the
+full IBKR gateway (positions + orders + harvest queue). The whole point (user): **this one
+service lets trading AND harvesting run at the SAME TIME** without contention, because there's
+a single paced consumer of the account — so we don't even need to keep them off-hours.
+Fix hierarchy:
+1. **Interim A — only harvest TRACKED symbols** (user, 2026-06-14): don't flood IBKR with the
+   whole universe; request bars ONLY for symbols we actually trade/scan (the desks' symbols +
+   active universes). Far fewer historical requests → far less contention. Cheap: a `--symbols`
+   list derived from strategy_broker_map + the active universes, vs `--asset us_etf` (all).
+2. **Interim B —** harvest off-hours + tolerant `reqPositions` timeout/retry (so a momentary
+   spike doesn't fail-close a desk).
+3. **Proper — the central IBKR connection-broker service** (one connection, push-cached
+   positions, paced request queue serving all consumers). The real fix; trading + harvest
+   coexist. 2nd Gateway then becomes a nice-to-have, not a requirement.
+Aligns with [[feedback_broker_session_caching]] (singleton session, cache responses) +
+[[ibkr_harvest_session_isolation]].
+
 ### 🟥 DATA NORTH-STAR — Yahoo is NOT enough (user, 2026-06-14)
 User: *"just relying on yahoo will not make us northstar."* Correct. Audit: the bar-cache
 harvest is running **`source=yfinance_ok` 🥉 BRONZE for every symbol** (469 parquet files,
