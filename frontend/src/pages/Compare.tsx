@@ -107,9 +107,22 @@ function WhatToDoPanel({ views, onOpen, universe }: {
     if (buyHz.length) action = "BUY";
     else if (v.bucket === "AVOID" || v.marketSignal === "AVOID") action = "AVOID";
     else action = "WAIT";
-    const br = v.bestRow as unknown as { stats?: { sharpe?: number }; best_sharpe?: number };
+    const br = v.bestRow as unknown as {
+      stats?: { sharpe?: number }; best_sharpe?: number;
+      market_state?: { range_pct?: number };
+    };
     const sharpe = br.stats?.sharpe ?? br.best_sharpe ?? null;
-    return { symbol: v.symbol, action, horizons: buyHz, longCount: v.longCount, total: v.total, sharpe };
+    // Entry quality — the "inform, not veto" read on a BUY. A BUY at the top of
+    // its 52w range is momentum, not a value entry (e.g. SCHD at the 99th %ile);
+    // a pulled-back BUY is a better-priced entry. Surfaced so the user isn't
+    // told "BUY" without knowing they're buying the high.
+    const rangePct = br.market_state?.range_pct ?? null;
+    let entry: { tag: string; tone: "warn" | "good" } | null = null;
+    if (action === "BUY" && rangePct != null) {
+      if (rangePct >= 85) entry = { tag: `extended · ${Math.round(rangePct)}th %ile of 52w (near high)`, tone: "warn" };
+      else if (rangePct < 35) entry = { tag: `well-priced · pulled back to ${Math.round(rangePct)}th %ile`, tone: "good" };
+    }
+    return { symbol: v.symbol, action, horizons: buyHz, longCount: v.longCount, total: v.total, sharpe, entry };
   });
   const order: Record<Action, number> = { BUY: 0, WAIT: 1, AVOID: 2 };
   rows.sort((a, b) => order[a.action] - order[b.action] || (b.sharpe ?? -9) - (a.sharpe ?? -9));
@@ -146,6 +159,14 @@ function WhatToDoPanel({ views, onOpen, universe }: {
                 ? `for ${r.horizons.join(", ")}`
                 : r.action === "WAIT" ? "better entry likely" : "downtrend — skip"}
               {`  ·  ${r.longCount}/${r.total} strategies long`}
+              {r.entry && (
+                <span style={{
+                  marginLeft: 8, fontSize: 11, fontWeight: 600,
+                  color: r.entry.tone === "warn" ? "var(--down)" : "var(--up)",
+                }}>
+                  {r.entry.tone === "warn" ? "⚠ " : "✓ "}{r.entry.tag}
+                </span>
+              )}
             </span>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-muted)" }}>
               {r.sharpe != null ? `Sharpe ${r.sharpe.toFixed(2)}` : ""}
