@@ -120,6 +120,20 @@ WATCHLISTS: dict[str, list[str]] = {
         "JUNIORBEES.NS",  # Nippon India Nifty Next 50 ETF
         "GOLDBEES.NS",    # Nippon India Gold ETF
     ],
+    # The Nifty 50 constituents (user, 2026-06-14) — the canonical Indian
+    # large-cap index, vs the curated 20 in india_largecap. Yahoo .NS tickers.
+    "nifty50": [
+        "RELIANCE.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS", "TCS.NS",
+        "ITC.NS", "BHARTIARTL.NS", "SBIN.NS", "LT.NS", "KOTAKBANK.NS",
+        "AXISBANK.NS", "HINDUNILVR.NS", "BAJFINANCE.NS", "MARUTI.NS", "SUNPHARMA.NS",
+        "ASIANPAINT.NS", "TITAN.NS", "ONGC.NS", "NTPC.NS", "TATAMOTORS.NS",
+        "M&M.NS", "ULTRACEMCO.NS", "NESTLEIND.NS", "WIPRO.NS", "POWERGRID.NS",
+        "TATASTEEL.NS", "JSWSTEEL.NS", "ADANIENT.NS", "ADANIPORTS.NS", "COALINDIA.NS",
+        "HCLTECH.NS", "TECHM.NS", "BAJAJFINSV.NS", "GRASIM.NS", "HINDALCO.NS",
+        "DRREDDY.NS", "CIPLA.NS", "BRITANNIA.NS", "EICHERMOT.NS", "HEROMOTOCO.NS",
+        "BAJAJ-AUTO.NS", "INDUSINDBK.NS", "SBILIFE.NS", "HDFCLIFE.NS", "BPCL.NS",
+        "APOLLOHOSP.NS", "TATACONSUM.NS", "TRENT.NS", "DIVISLAB.NS", "SHRIRAMFIN.NS",
+    ],
     # European equities (ex-UK) — Euronext (.PA, .AS, .BR), Frankfurt
     # (.DE), Madrid (.MC). UK names live in the existing uk_* lists.
     "europe_majors": [
