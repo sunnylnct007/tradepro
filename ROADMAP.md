@@ -46,8 +46,32 @@ Running list — capture now, fix later (user: "don't have to sort straight away
 - **🟠 Universes page — kill the per-universe tabs.** Show universe as a COLUMN/ticker in one
   table with **filtering + sorting** (same no-tabs theme as Decide). [[feedback_no_dropdowns]].
 - **🟢 Cockpit (legacy)** page — user: probably removable. Check route/refs first before deleting.
+- **🟠 SENTIMENT MODEL NOT FIT (user, 2026-06-14):** the 8b scores GOOD news NEGATIVE — a
+  Meta–Reliance AI-partnership (clearly bullish for RELIANCE) came back −0.20/−0.70. Two
+  bugs: (a) 8b is unreliable → score sentiment on **gemma3:12b** (like the catalyst seat);
+  (b) scoring is **symbol-AGNOSTIC** — it scored the Meta-framed tone, not Reliance's benefit
+  → make it **symbol-aware** ("is this good FOR <symbol>?"). Sentiment feeds COMPASS (10%) so
+  mis-scores corrupt the verdict.
+- **🟠 INDIA universe polish (user, 2026-06-14):** (a) pill count shows SIGNALS (symbols ×
+  strategies, e.g. 20×7≈140) not SYMBOLS (~20 visible) → confusing; show symbol count. (b) add
+  a proper **nifty50** universe (50 names) not just my 20 large-caps. (c) data sourcing = Yahoo
+  `.NS` (verified fetching) but **same IP-rate-limit risk + no IBKR India** → NOT a dedicated
+  India source; rides the same Yahoo dependency (see the gateway/provider plan).
 - **✅ FIXED this pass:** oms-events 500 (`detail_json`→`detail::text`); Settings>Catalysts
-  sort + "NaNd ago"; NewsView Active-Catalysts sort; entry-quality flag; India universe.
+  sort + "NaNd ago"; NewsView Active-Catalysts sort; entry-quality flag; India universe;
+  IBKR positions retry+cache; **TCS BUY-vs-AVOID contradiction (panel=bucket)**; **false
+  LLM-offline caveat** (Ollama is on the worker, not EC2).
+
+### 🎯 TRADER METHODOLOGY to fold in (real trader, shared 2026-06-14)
+A working trader's confirmation stack (mobile screenshots: INDHOTEL/RELIANCE on BSE):
+1. **Dual STOCHASTICS — fast (14) + slow (50)** as the primary momentum/overbought-oversold
+   read (alongside RSI14 + MACD 12,26,9 + Bollinger). TradePro has no stochastics family yet →
+   add one (a new Family in [[project_phase3_multifamily_signals]]); fast/slow cross + OB/OS zones.
+2. **SECTOR-INDEX CONFIRMATION** — before trusting a BUY/SELL on a symbol, check the symbol's
+   **sector index** direction: don't buy a stock whose sector is rolling over. → a sector-index
+   confirmation gate on the verdict (map symbol→sector→index; require sector agreement, or at
+   least surface divergence). Strong fit with "inform-not-veto".
+3. **Market sentiment** — already have it (needs the model fix above), trader confirms it matters.
 
 ### 🏛️ IBKR CENTRAL ORCHESTRATION — one connection broker (user idea, 2026-06-14)
 Root cause of the desk aborts: every consumer (each trading desk, harvest, account-state
