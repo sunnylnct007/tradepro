@@ -84,6 +84,12 @@ class RiskLimits:
     """When False, any order that would open or extend a short
     position rejects. v1 default = long-only."""
 
+    excluded_symbols: frozenset[str] = frozenset()
+    """Symbols this desk must never OPEN or EXTEND exposure in (e.g.
+    too illiquid, restricted, or operator-blacklisted). A flatten /
+    reduce is still allowed so an already-held position can be exited.
+    Empty = no exclusions. Config-driven via --exclude-symbols."""
+
     # Loss caps -------------------------------------------------------
     max_daily_loss_usd: float | None = None
     """Halt the strategy for the rest of the session when realised
@@ -148,6 +154,18 @@ def check_order(
     # is to reduce risk).
     pos = ctx.current_positions.get(order.symbol)
     new_qty_signed = _projected_qty(pos, order)
+    # Symbol exclusion — a hard veto on OPENING/EXTENDING exposure in a
+    # blacklisted name. A flatten/reduce (|new| <= |prev|) is always allowed so
+    # an already-held position can still be exited. Config-driven blacklist.
+    if limits.excluded_symbols and order.symbol in limits.excluded_symbols:
+        prev_abs = abs(pos.quantity) if pos is not None else 0.0
+        if abs(new_qty_signed) > prev_abs:
+            return RiskCheckResult.fail(
+                "symbol_excluded",
+                f"{order.symbol} is on the desk exclusion list — "
+                f"no new or expanded exposure allowed (flatten still permitted)",
+            )
+
     # Value the order at ITS OWN symbol's mark, not a strategy-wide one.
     symbol_mark = ctx.marks.get(order.symbol) or ctx.mark_price
     new_position_value = abs(new_qty_signed) * symbol_mark

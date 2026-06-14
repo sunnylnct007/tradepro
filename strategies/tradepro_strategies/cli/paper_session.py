@@ -194,6 +194,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[risk] Reject NEW entries beyond this many concurrent positions. Off by default.")
     p.add_argument("--max-position-pct-of-capital", type=float, default=None,
                    help="[risk] Reject a position exceeding this %% of allocated capital (e.g. 15). Off by default.")
+    p.add_argument("--exclude-symbols", default=None,
+                   help="[risk] Comma-separated symbols this desk must never open/extend (e.g. TSLA,GME). Flatten still allowed. Off by default.")
     # ── Ichimoku FX knobs ────────────────────────────────────────────────
     p.add_argument("--warmup-bars", type=int, default=200,
                    help="[ichimoku_fx_mr] Bars of history before signals fire.")
@@ -467,6 +469,16 @@ def _pct_to_fraction(v):
     return f / 100.0 if f > 1.0 else f
 
 
+def _parse_excluded(val) -> frozenset:
+    """Normalise --exclude-symbols / runtime_config into a frozenset of
+    upper-cased symbols. Accepts a comma-string ("TSLA,GME") or a JSON list
+    (["TSLA","GME"]) from config; None/empty → no exclusions."""
+    if not val:
+        return frozenset()
+    items = val if isinstance(val, (list, tuple, set)) else str(val).split(",")
+    return frozenset(s.strip().upper() for s in items if s and str(s).strip())
+
+
 def _build_strategy(args: argparse.Namespace, symbols: list[str]):
     """Construct the chosen strategy object."""
     strategy_name = args.strategy
@@ -486,6 +498,7 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 max_drawdown_pct=_pct_to_fraction(args.max_drawdown_pct),
                 max_open_positions=args.max_open_positions,
                 max_position_pct_of_capital=_pct_to_fraction(args.max_position_pct_of_capital),
+                excluded_symbols=_parse_excluded(args.exclude_symbols),
             ),
         )
 
@@ -541,6 +554,7 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 max_drawdown_pct=_pct_to_fraction(args.max_drawdown_pct),
                 max_open_positions=args.max_open_positions,
                 max_position_pct_of_capital=_pct_to_fraction(args.max_position_pct_of_capital),
+                excluded_symbols=_parse_excluded(args.exclude_symbols),
             ),
         )
 
@@ -573,6 +587,7 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 max_drawdown_pct=_pct_to_fraction(args.max_drawdown_pct),
                 max_open_positions=args.max_open_positions,
                 max_position_pct_of_capital=_pct_to_fraction(args.max_position_pct_of_capital),
+                excluded_symbols=_parse_excluded(args.exclude_symbols),
             ),
         )
 
@@ -1064,7 +1079,8 @@ def _apply_config_overrides(args, log) -> None:
                 "entry_max_ext_pct", "entry_rsi_max",
                 "top_n", "min_atr_pct", "min_strength",
                 "max_daily_loss_usd", "max_drawdown_pct",
-                "max_open_positions", "max_position_pct_of_capital"):
+                "max_open_positions", "max_position_pct_of_capital",
+                "exclude_symbols"):
         if key in cfg and cfg[key] is not None and hasattr(args, key):
             setattr(args, key, cfg[key])
     # IBKR connection → env (the adapter reads TRADEPRO_IBKR_*).
