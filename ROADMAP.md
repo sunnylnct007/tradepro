@@ -27,6 +27,23 @@ The clone is **SWING** but the daemon **reruns every ~15 min**. A placed OPG/MOO
 ### 🧭 INTRADAY needs its OWN symbol selection + params (user, 2026-06-12)
 Confirmed direction: **intraday ≠ swing**, so `intraday_flat`'s swing-style basket (daily-Ichimoku-ranked) is wrong for it. Intraday selection should rank by **intraday-relevant criteria** — high **dollar-volume / liquidity** (tight spreads + fills), high **intraday ATR%** (enough range to clear cost), avoid illiquid names — NOT the daily trend score. Params differ too: intraday bars (1–5m), tighter ATR stops/targets, time-of-day window. **This belongs in an intraday-NATIVE strategy (ORB / VWAP), not another patch on `intraday_flat`** (which bolts a swing signal on an intraday leash). Build: a liquidity+volatility intraday universe selector feeding the intraday-native desks.
 
+### 🟥 DATA NORTH-STAR — Yahoo is NOT enough (user, 2026-06-14)
+User: *"just relying on yahoo will not make us northstar."* Correct. Audit: the bar-cache
+harvest is running **`source=yfinance_ok` 🥉 BRONZE for every symbol** (469 parquet files,
+all yfinance) — because the daemon runs WITHOUT `--ibkr-only`, so it never tries IBKR for
+bars and silently falls back to Yahoo. yfinance 1m is capped ~7d back, EOD-delayed, gappy.
+**Plan:**
+1. **Flip harvest to `--ibkr-only`** (now unblocked — Claude-IBKR connector disconnected
+   2026-06-13, no more Error 162). Blocker: it shares the ONE Gateway with the live trading
+   daemons → session/pacing contention → needs the **2nd Gateway + separate IBKR data user**
+   ([[ibkr_harvest_session_isolation]]). Harvest is lane-B's domain ([[data_platform_dependency]])
+   — coordinate, don't fork.
+2. **Small sessions** (user, 2026-06-13): chunk via `--symbols` (the CLI supports it) so a
+   run is a handful of symbols, respecting IBKR pacing.
+3. **Dedicated data provider** for breadth/depth IBKR can't serve ([[data_provider_pluggable]] —
+   harvest already plugin-shaped); demote Yahoo to fallback-only. THIS is the north-star data layer.
+Also: Indian MFs aren't on Yahoo → need an AMFI/mfapi.in feed (same provider-gap theme).
+
 ### 🟥 DECIDE PAGE never BUYs — 4-gate over-conservatism (user, 2026-06-12)
 The north-star page is stuck on WAIT/AVOID even for strong names (live proof:
 **LLY 5/7 strategies long → WAIT**; MU swing 5/8 → WAIT; NVDA/AVGO/AMD multi-long →
