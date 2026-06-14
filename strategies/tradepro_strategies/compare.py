@@ -1638,7 +1638,9 @@ def compare(
                 _catalyst_by_symbol[sym] = None
             else:
                 try:
-                    _catalyst_by_symbol[sym] = judge_catalyst(sym, r.get("news"), provider=llm)
+                    # No provider= → judge_catalyst uses its stronger catalyst
+                    # model (gemma3:12b), not the fast 8b used for bulk sentiment.
+                    _catalyst_by_symbol[sym] = judge_catalyst(sym, r.get("news"))
                 except Exception as e:  # noqa: BLE001
                     if logger:
                         logger.emit("compare.catalyst_failed", symbol=sym, error=str(e))

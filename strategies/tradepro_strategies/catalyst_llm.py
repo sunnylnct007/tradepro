@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,32 @@ from typing import Any
 from .llm import LlmProvider, get_provider
 
 CACHE_PATH = Path.home() / ".tradepro" / "cache" / "llm-catalyst.json"
+
+# Catalyst judgment is a REASONING task — telling a real symbol-specific event
+# from noise — where the small/fast 8B used for bulk per-headline sentiment
+# falls short (it over-attributes + can't calibrate strength). A mid-size local
+# model (gemma3:12b, well-calibrated in testing: BULLISH/2 on a real FDA approval,
+# NEUTRAL on off-symbol/ambiguous news) fixes that with no cloud/key/cost. Still
+# local + free. Override with TRADEPRO_CATALYST_MODEL.
+_CATALYST_MODEL = os.environ.get("TRADEPRO_CATALYST_MODEL", "gemma3:12b")
+_catalyst_provider_cache: list = []
+
+
+def _catalyst_provider() -> LlmProvider:
+    """Memoised provider for the catalyst seat — a stronger local model than the
+    bulk-sentiment default. Falls back to the platform default if Ollama can't
+    serve the stronger model."""
+    if _catalyst_provider_cache:
+        return _catalyst_provider_cache[0]
+    try:
+        from .llm.ollama_provider import OllamaProvider
+        p: LlmProvider = OllamaProvider(model=_CATALYST_MODEL)
+        if not p.healthy:
+            p = get_provider()
+    except Exception:
+        p = get_provider()
+    _catalyst_provider_cache.append(p)
+    return p
 
 _SCHEMA = {
     "event": "the specific market-moving event for THIS symbol, or 'none'",
@@ -60,7 +87,10 @@ def _neutral(reason: str, cached: bool = False) -> dict[str, Any]:
 
 
 def _cache_key(symbol: str, titles: list[str]) -> str:
-    blob = symbol + "|" + "|".join(titles)
+    # Include the model: a verdict is only valid for the model that produced it,
+    # so changing TRADEPRO_CATALYST_MODEL must invalidate the cache (else a model
+    # upgrade silently returns the old/weaker model's cached verdicts).
+    blob = _CATALYST_MODEL + "|" + symbol + "|" + "|".join(titles)
     return hashlib.md5(blob.encode("utf-8")).hexdigest()
 
 
@@ -94,7 +124,7 @@ def judge_catalyst(
         if key in cache:
             return {**cache[key], "cached": True}
 
-    p = provider or get_provider()
+    p = provider or _catalyst_provider()
     if not getattr(p, "healthy", False):
         return _neutral("llm provider unavailable")
 
