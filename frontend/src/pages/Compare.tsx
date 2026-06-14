@@ -103,10 +103,13 @@ function WhatToDoPanel({ views, onOpen, universe }: {
   const rows = views.map((v) => {
     const cls = (v.bestRow.horizon_classification ?? {}) as Record<string, { signal?: string } | undefined>;
     const buyHz = HZ.filter((h) => cls[h.k]?.signal === "BUY").map((h) => h.label);
-    let action: Action;
-    if (buyHz.length) action = "BUY";
-    else if (v.bucket === "AVOID" || v.marketSignal === "AVOID") action = "AVOID";
-    else action = "WAIT";
+    // Action = the detailed table's BUCKET (single source of truth). The bucket
+    // already promotes WAIT->BUY on an active-horizon BUY, so real buys still
+    // surface here — but deriving the action INDEPENDENTLY from horizons
+    // contradicted the table (e.g. TCS: long-term BUY in this panel, AVOID in
+    // the table, because its bucket is a risk/downtrend AVOID a horizon BUY must
+    // NOT override). Keying off the bucket guarantees the two never disagree.
+    const action: Action = v.bucket;
     const br = v.bestRow as unknown as {
       stats?: { sharpe?: number }; best_sharpe?: number;
       market_state?: { range_pct?: number };
@@ -156,7 +159,7 @@ function WhatToDoPanel({ views, onOpen, universe }: {
             <span style={{ fontWeight: 700, color: COLOR[r.action] }}>{r.action}</span>
             <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
               {r.action === "BUY"
-                ? `for ${r.horizons.join(", ")}`
+                ? (r.horizons.length ? `for ${r.horizons.join(", ")}` : "buy candidate")
                 : r.action === "WAIT" ? "better entry likely" : "downtrend — skip"}
               {`  ·  ${r.longCount}/${r.total} strategies long`}
               {r.entry && (

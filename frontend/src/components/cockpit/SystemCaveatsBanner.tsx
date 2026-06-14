@@ -71,6 +71,13 @@ export function SystemCaveatsBanner() {
     // ── Broker + provider readiness ────────────────────────────────
     try {
       const h = await api.integrationsHealth();
+      // The LLM (Ollama) runs on the MAC worker, not next to the EC2 backend —
+      // so the backend's active probe to host.docker.internal ALWAYS fails there
+      // and falsely flags the sentiment factor offline. The cache-derived
+      // ollama health (populated by the worker that actually scores) is the
+      // truth. If ANY llm/ollama provider is healthy, the factor is NOT blind.
+      const llmAlive = h.providers.some(
+        (p) => /llm|ollama/i.test(p.provider) && p.status === "ok");
       for (const p of h.providers) {
         // Broker buying power — the zero-fill root cause. status can be
         // "ok" (connectivity) while free cash is depleted.
@@ -93,13 +100,18 @@ export function SystemCaveatsBanner() {
           // LLM disabled => the sentiment COMPASS factor (10% weight) is
           // blind. Worth an amber so the trader knows the score is partial.
           const isLlm = /llm|ollama/i.test(p.provider);
-          found.push({
-            sev: "amber",
-            title: isLlm ? "Sentiment factor offline (LLM unreachable)" : `${p.label} disabled`,
-            detail: isLlm
-              ? "News-sentiment scoring needs the Mac LLM. Until it's reachable, the sentiment factor defaults neutral (5/10) — 10% of every COMPASS score is blind."
-              : p.detail,
-          });
+          // Suppress the false "sentiment offline" alarm: the worker's LLM is up
+          // (a healthy llm/ollama provider exists) — it's only the EC2-side probe
+          // that can't reach the Mac's Ollama. Don't cry wolf on a working factor.
+          if (!(isLlm && llmAlive)) {
+            found.push({
+              sev: "amber",
+              title: isLlm ? "Sentiment factor offline (LLM unreachable)" : `${p.label} disabled`,
+              detail: isLlm
+                ? "News-sentiment scoring needs the Mac LLM. Until it's reachable, the sentiment factor defaults neutral (5/10) — 10% of every COMPASS score is blind."
+                : p.detail,
+            });
+          }
         }
       }
     } catch {
