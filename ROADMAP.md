@@ -136,6 +136,22 @@ horizon + conviction falling out naturally. THAT is the north-star: not another 
 strategy, but **the day the scorecard stops being half-blank.** Everything else (Decide v2,
 pies, portfolio scan) sits on top of this fused score.
 
+### 💱 FX strategy — diagnosis + optimized clone (user asked, 2026-06-14)
+**The issue is already documented by the quant** (ichimoku_fx_mr docstring), not a hidden bug:
+- **DESIGN-LIMITED:** Ichimoku is a daily-equity TREND tool; using it for *intraday FX
+  mean-reversion* is contrarian to its design and **breaks down when EUR/USD·GBP/USD trend.**
+- **Lag:** 26-bar displacement lags price 26h — by the time the cloud shifts, the MR edge is gone.
+- **No stop-loss exit today** (confirmed: `seed_positions` notes "FX MR has no stop-loss exit").
+- **Missing:** vol-regime filter (ATR z-score), session filter (London/NY overlap), pairs cointegration.
+- Docstring: *"Ask the quant before relying on v1 for live capital."*
+**Optimized clone = the quant's roadmapped `ichimoku_fx_mr_v2`:** keep Ichimoku as a REGIME
+filter + add **Bollinger(20) + RSI(14) mean-reversion signal + ATR-based stop**. This is a NEW
+signal design → must be a **verbatim port of the quant's spec** ([[strategy_verbatim_port_parity]]),
+NOT hand-rolled. The IBKR FX desk currently runs the SAME v1 signal (not yet optimized).
+**Tractable safe first step (with the quant):** an ATR-based stop overlay (the equity-clone
+pattern, off-by-default) — but the FX positions are SIGNED + vol-targeted units, so the stop
+is more involved than the equity long-only one. Don't ship solo on live FX capital.
+
 ### 🔭 REFINED INTRADAY plan (queued — user, 2026-06-12)
 A proper intraday desk, built fresh rather than patching `intraday_flat`:
 1. **Universe selector** — ✅ BUILT (`intraday_universe.py`, commit fc8dce8): ranks a
