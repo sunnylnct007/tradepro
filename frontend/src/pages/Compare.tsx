@@ -650,7 +650,15 @@ function buildSymbolViews(
       hc.swing?.signal === "BUY" ||
       hc.long_term?.signal === "BUY"
     );
-    if (horizonBuy && bucket === "WAIT") {
+    // Don't promote an EXTENDED name to BUY (entry-quality gate). A horizon BUY
+    // at the top of the 52w range (e.g. SCHD at the 100th %ile) is a HOLD, not a
+    // fresh buy — "keep if held, no rush to add". Promoting it to "BUY NOW" was
+    // telling the user to buy the absolute top (and contradicted the rationale
+    // which said WAIT). >=90th %ile → leave at WAIT; the long-term/passive BUY
+    // is still visible in the HORIZON SPLIT detail.
+    const rp = (best as unknown as { market_state?: { range_pct?: number } }).market_state?.range_pct;
+    const tooExtended = typeof rp === "number" && rp >= 90;
+    if (horizonBuy && bucket === "WAIT" && !tooExtended) {
       bucket = "BUY";
       reason = `Horizon BUY (` +
         [["swing", hc?.swing], ["long-term", hc?.long_term]]
