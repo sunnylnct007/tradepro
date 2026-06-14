@@ -100,6 +100,26 @@ A working trader's confirmation stack (mobile screenshots: INDHOTEL/RELIANCE on 
    surface-divergence on the verdict. Strong fit with "inform-not-veto". Needs a symbol→sector
    map (partly exists in `_equity_sectors`) + per-sector index tickers + sector news grouping.
 3. **Market sentiment** — already have it (needs the model fix above), trader confirms it matters.
+4. **REGIME-AWARENESS (user, 2026-06-14, the USMV case):** "signal generation is not good yet."
+   USMV (a DEFENSIVE min-vol ETF) fires BUY in a GREEN/risk-on regime (VIX 17.7) — backwards:
+   defensives are for stress/choppy markets; in risk-on you want growth/quality. The entry
+   filters (>200SMA, RSI healthy, near-high) are **non-distinguishing** — they pass for almost
+   any ETF in a bull market. Fix: **match the asset's CHARACTER to the REGIME** (defensive vs
+   growth vs quality by VIX/stress state) — a defensive ETF should NOT BUY in GREEN, and vice
+   versa in stress. The regime data exists (market_context: VIX/regime); wire it into the verdict.
+5. **RELATIVE-STRENGTH gate (same case):** USMV ranks BELOW QQQ/SCHD/VTI/AGG in the basket yet
+   shows BUY. Don't surface a BUY for a name that ranks low vs its peers — require top-quartile
+   (or surface "ranks #14 of 20" so the user sees it's not a leader). Cross-basket rank exists.
+
+### 🏛️🏛️ CENTRAL GATEWAY for T212 + IG too (user, 2026-06-14)
+IBKR gateway proved the pattern (live, contention gone). Replicate per the universal principle:
+- **IG** — highest priority: it's the one that got the **403 anti-abuse block from transient
+  per-request clients** ([[feedback_broker_session_caching]]); a single IG gateway (one cached
+  session, paced requests, push-cached positions) is the permanent fix.
+- **T212** — already follows the caching pattern (the good example) → lower urgency, but fold it
+  into the same `BrokerGateway` interface for consistency (positions/orders one place).
+- Same shape as `ibkr_gateway.py`: one persistent session per broker, consumers read it, never
+  the SDK. The IBKR build is the template to copy.
 
 ### 🏛️ IBKR CENTRAL ORCHESTRATION — one connection broker (user idea, 2026-06-14)
 Root cause of the desk aborts: every consumer (each trading desk, harvest, account-state
