@@ -67,10 +67,14 @@ A working trader's confirmation stack (mobile screenshots: INDHOTEL/RELIANCE on 
 1. **Dual STOCHASTICS — fast (14) + slow (50)** as the primary momentum/overbought-oversold
    read (alongside RSI14 + MACD 12,26,9 + Bollinger). TradePro has no stochastics family yet →
    add one (a new Family in [[project_phase3_multifamily_signals]]); fast/slow cross + OB/OS zones.
-2. **SECTOR-INDEX CONFIRMATION** — before trusting a BUY/SELL on a symbol, check the symbol's
-   **sector index** direction: don't buy a stock whose sector is rolling over. → a sector-index
-   confirmation gate on the verdict (map symbol→sector→index; require sector agreement, or at
-   least surface divergence). Strong fit with "inform-not-veto".
+2. **SECTOR-CONTEXT CONFIRMATION (market-agnostic — user, 2026-06-14: "not only Indian, for
+   others as well"):** for ANY stock, look at THREE things: (a) the **stock** itself; (b) its
+   **related/sector INDEX** direction (don't buy a stock whose sector is rolling over); (c)
+   **market news for that SECTOR** (sector-level sentiment, not just the single name). →
+   build a **sector-context layer**: map symbol → sector → {sector index, sector news} for
+   every market (US: XLK/semis/etc.; India: Nifty sectoral indices; etc.), then confirm /
+   surface-divergence on the verdict. Strong fit with "inform-not-veto". Needs a symbol→sector
+   map (partly exists in `_equity_sectors`) + per-sector index tickers + sector news grouping.
 3. **Market sentiment** — already have it (needs the model fix above), trader confirms it matters.
 
 ### 🏛️ IBKR CENTRAL ORCHESTRATION — one connection broker (user idea, 2026-06-14)
