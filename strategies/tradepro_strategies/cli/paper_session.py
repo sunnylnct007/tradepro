@@ -855,13 +855,62 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[st
             finally:
                 ib.disconnect()
 
-        try:
-            rows = _aio.run(_fetch_ibkr_rows())
-        except Exception as exc:  # noqa: BLE001
-            raise PositionSeedError(
-                f"could not read ibkr paper positions (golden source) via the "
-                f"Gateway on :{_port}: {exc}"
-            ) from exc
+        # Read fresh with RETRY + a resilience CACHE. Under harvest/trade
+        # contention on the one IBKR account, this positions read transiently
+        # times out — and a single failure used to fail-close the whole desk
+        # (the ×32/×36 "could not confirm position" aborts). Retry a few times
+        # (most blips pass on the 2nd try), cache every good snapshot, and only
+        # if ALL retries fail fall back to the last-good cached snapshot WHEN IT
+        # IS FRESH ENOUGH — otherwise still fail-closed (never trade on a stale
+        # or unknown book; broker stays the golden source). TTL is conservative +
+        # tunable via TRADEPRO_IBKR_POS_CACHE_TTL_S.
+        import json as _json
+        import time as _time
+        from pathlib import Path as _Path
+        _cache_dir = _Path.home() / ".tradepro" / "cache" / "ibkr-positions"
+        _sid = str(getattr(strategy, "strategy_id", "unknown"))
+        _cache_file = _cache_dir / f"{_sid}.json"
+        _stale_ttl = float(_os.environ.get("TRADEPRO_IBKR_POS_CACHE_TTL_S", "600"))
+
+        rows = None
+        _last_exc: Exception | None = None
+        for _attempt in range(3):
+            try:
+                rows = _aio.run(_fetch_ibkr_rows())
+                break
+            except Exception as exc:  # noqa: BLE001
+                _last_exc = exc
+                log.warning("ibkr positions read attempt %d/3 failed: %s",
+                            _attempt + 1, exc)
+                if _attempt < 2:
+                    _time.sleep(2.0 * (_attempt + 1))
+
+        if rows is not None:
+            try:  # cache the confirmed snapshot for the fallback path
+                _cache_dir.mkdir(parents=True, exist_ok=True)
+                _cache_file.write_text(_json.dumps({"ts": _time.time(), "rows": rows}))
+            except Exception:  # noqa: BLE001 — caching is best-effort
+                pass
+        else:
+            cached_rows = None
+            try:
+                _obj = _json.loads(_cache_file.read_text())
+                _age = _time.time() - float(_obj.get("ts", 0))
+                if _age <= _stale_ttl:
+                    cached_rows = _obj.get("rows")
+                    log.warning(
+                        "ibkr positions read failed after 3 retries (%s) — using "
+                        "cached snapshot %.0fs old (TTL %.0fs) so the desk keeps "
+                        "running instead of fail-closing", _last_exc, _age, _stale_ttl)
+            except Exception:  # noqa: BLE001
+                cached_rows = None
+            if cached_rows is None:
+                raise PositionSeedError(
+                    f"could not read ibkr paper positions (golden source) via the "
+                    f"Gateway on :{_port} after 3 retries, and no fresh cache "
+                    f"(TTL {_stale_ttl:.0f}s): {_last_exc}"
+                ) from _last_exc
+            rows = cached_rows
         pp = getattr(strategy, "params", {}) or {}
         universe: set[str] = set()
         for key in ("pairs", "symbols", "candidates"):
