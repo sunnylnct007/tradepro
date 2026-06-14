@@ -45,6 +45,15 @@ Running list — capture now, fix later (user: "don't have to sort straight away
   Make broker config-based + a dedicated **connectivity smoke-test menu** (any broker).
 - **🟠 Universes page — kill the per-universe tabs.** Show universe as a COLUMN/ticker in one
   table with **filtering + sorting** (same no-tabs theme as Decide). [[feedback_no_dropdowns]].
+- **🟠 DATA HEALTH screen empty — lane-B vs main harvest divergence (2026-06-14):** the screen
+  reads `/api/admin/data-trust/bar-cache/health` → `{"health":[]}` (empty). Cause: the daemon
+  (`com.tradepro.bar-cache-harvest` → `tradepro-laneB/.../bar-cache-harvest.sh`) runs **lane-B's**
+  `bar_cache_harvest.py`, which has the `--api-base` flag but **NOT the health-POST pipeline** —
+  that pipeline (build health_records → POST to data-trust → "reported health to cockpit", lines
+  222–331) lives only in **main's** harvest. So the daemon harvests but never pushes health.
+  Fix: get the health-POST into lane-B (coordinate — harvest is the other dev's domain,
+  [[data_platform_dependency]]) OR point the daemon at main's harvest. API itself is UP (the
+  "Claude can't connect" was a separate MCP/connector issue, not the tradepro API).
 - **🟢 Cockpit (legacy)** page — user: probably removable. Check route/refs first before deleting.
 - **🟠 SENTIMENT MODEL NOT FIT (user, 2026-06-14):** the 8b scores GOOD news NEGATIVE — a
   Meta–Reliance AI-partnership (clearly bullish for RELIANCE) came back −0.20/−0.70. Two
