@@ -228,8 +228,33 @@ def fetch_news_with_fallback(
     primary = fetch_news(symbol, limit=limit, max_age_days=max_age_days)
     if primary:
         return primary, None
+    # Multi-source enrichment (2026-06-14): when Yahoo has nothing for the
+    # symbol, pull its REAL company news from Finnhub before resorting to a
+    # sector proxy — it's the symbol's own news, just a different source, so it's
+    # strictly better than "via ^FTSE". Fires ONLY for empty-Yahoo names, so it
+    # adds at most one Finnhub call per sparse symbol (not one per symbol).
+    finnhub_items = _fetch_finnhub_company_news(symbol, limit, max_age_days)
+    if finnhub_items:
+        return finnhub_items, None  # symbol's own news → not a proxy label
     fallback = NEWS_FALLBACK.get(symbol.upper())
     if not fallback:
         return [], None
     proxy_items = fetch_news(fallback, limit=limit, max_age_days=max_age_days)
     return proxy_items, (fallback if proxy_items else None)
+
+
+def _fetch_finnhub_company_news(
+    symbol: str, limit: int, max_age_days: int,
+) -> list[NewsItem]:
+    """Finnhub company-news for a symbol, or [] when the key is unset or the
+    call fails. Best-effort multi-source enrichment — never raises."""
+    import os
+    key = os.environ.get("TRADEPRO_FINNHUB_API_KEY", "")
+    if not key:
+        return []
+    try:
+        from .catalysts_finnhub import fetch_company_news
+        items = fetch_company_news(symbol, api_key=key, days_back=min(max_age_days, 7))
+        return items[:limit]
+    except Exception:
+        return []
