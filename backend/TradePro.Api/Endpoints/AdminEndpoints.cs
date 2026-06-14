@@ -115,7 +115,7 @@ public static class AdminEndpoints
             await using var conn = await db.OpenConnectionAsync();
             var rows = await conn.QueryAsync(@"
                 SELECT id, order_id, event_type, prior_state, new_state,
-                       actor, detail_json, occurred_at_utc
+                       actor, detail::text AS detail_json, occurred_at_utc
                 FROM oms_order_events
                 WHERE (@order_id IS NULL OR order_id::text = @order_id)
                 ORDER BY occurred_at_utc DESC

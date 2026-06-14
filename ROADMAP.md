@@ -27,6 +27,28 @@ The clone is **SWING** but the daemon **reruns every ~15 min**. A placed OPG/MOO
 ### 🧭 INTRADAY needs its OWN symbol selection + params (user, 2026-06-12)
 Confirmed direction: **intraday ≠ swing**, so `intraday_flat`'s swing-style basket (daily-Ichimoku-ranked) is wrong for it. Intraday selection should rank by **intraday-relevant criteria** — high **dollar-volume / liquidity** (tight spreads + fills), high **intraday ATR%** (enough range to clear cost), avoid illiquid names — NOT the daily trend score. Params differ too: intraday bars (1–5m), tighter ATR stops/targets, time-of-day window. **This belongs in an intraday-NATIVE strategy (ORB / VWAP), not another patch on `intraday_flat`** (which bolts a swing signal on an intraday leash). Build: a liquidity+volatility intraday universe selector feeding the intraday-native desks.
 
+### 📋 UI-REVIEW + LIVE-FINDINGS BACKLOG (user walkthrough, 2026-06-14)
+Running list — capture now, fix later (user: "don't have to sort straight away"):
+- **🔴 CRITICAL — IBKR desks aborting, not trading.** Cockpit shows `ichimoku_fx_mr` ×32 +
+  `ichimoku_equity` ×36 ABORTED: *"could not read ibkr paper positions (golden source) via
+  the Gateway on :7500"* → fail-closed, NO orders. **But IBKR itself works** — a raw probe
+  (clientId 88) connected + pulled **390 real bars** (`HMDS OK: ushmds`); only the orders/
+  positions request *timed out*. So it's a **positions-read TIMEOUT**, not a dead Gateway →
+  fix: longer timeout / retry on `reqPositions` before fail-closing. clientId 18 (harvest) vs
+  88 (probe) worked — check if the daemons' clientIds collide or their timeout is too short.
+- **🔴 11 strategy orders stuck SUBMITTED** — accepted by broker, never filled (placed after
+  close, or the fill-poller isn't reconciling). Cockpit caveat.
+- **🟠 "Sentiment factor offline (LLM unreachable)"** caveat — yet gemma3:12b works locally
+  (catalyst seat verified). The worker's LLM health probe is likely checking the wrong
+  endpoint/model. Reconcile.
+- **🟠 Smoke-test placement hardcoded to T212** (IT Data Browser "Test placement → T212 demo").
+  Make broker config-based + a dedicated **connectivity smoke-test menu** (any broker).
+- **🟠 Universes page — kill the per-universe tabs.** Show universe as a COLUMN/ticker in one
+  table with **filtering + sorting** (same no-tabs theme as Decide). [[feedback_no_dropdowns]].
+- **🟢 Cockpit (legacy)** page — user: probably removable. Check route/refs first before deleting.
+- **✅ FIXED this pass:** oms-events 500 (`detail_json`→`detail::text`); Settings>Catalysts
+  sort + "NaNd ago"; NewsView Active-Catalysts sort; entry-quality flag; India universe.
+
 ### 🟥 DATA NORTH-STAR — Yahoo is NOT enough (user, 2026-06-14)
 User: *"just relying on yahoo will not make us northstar."* Correct. Audit: the bar-cache
 harvest is running **`source=yfinance_ok` 🥉 BRONZE for every symbol** (469 parquet files,
