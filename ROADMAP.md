@@ -79,6 +79,29 @@ Fix hierarchy:
 Aligns with [[feedback_broker_session_caching]] (singleton session, cache responses) +
 [[ibkr_harvest_session_isolation]].
 
+**GENERALISE: this is a per-broker GATEWAY architecture, not an IBKR special-case (user, 2026-06-14).**
+Every broker (IBKR, T212, IG, future) should be a SINGLE central gateway service behind a common
+`BrokerGateway` interface (`positions()` / `placeOrder()` / `bars()` / `accountState()`). The
+gateway is the SOLE owner of that broker's session + the SOLE place its rate-limits/pacing live;
+all consumers (desks, harvest, OMS, account-state pusher) call the interface, never the broker SDK.
+This is the clean, general form of the hard-won lesson: **IG's 403 anti-abuse block came from
+transient per-request clients flooding `/session`** ([[feedback_broker_session_caching]]) — exactly
+what a singleton gateway prevents. T212 already follows the caching pattern (good example); IG got
+burned for not; IBKR is getting burned now (positions contention). Doing it once generically:
+no re-auth floods, per-broker central pacing, consistent shape so strategies/OMS are broker-agnostic,
+and **adding a new broker = one gateway class** behind the interface.
+
+**EXTEND TO DATA PROVIDERS TOO — incl. YAHOO (user insight, 2026-06-14):** the rule is "ONE central
+client per external service, never multiple connections" — and that covers **data providers**, not
+just brokers. **yfinance rate-limits BY IP**, so the current setup (compare fetching 84 symbols +
+each strategy + harvest fallback, all hitting Yahoo concurrently from one IP) almost certainly gets
+**throttled/429'd** — a very likely cause of the partial / `0 bars` / BRONZE harvest data + gappy
+feeds. Fix: a **Yahoo provider gateway** that **paces + caches + dedups** all requests → one
+well-mannered request stream from our IP instead of a flood. Same pattern as the broker gateways;
+ties into [[data_provider_pluggable]] + the DATA NORTH-STAR entry. So the universal principle:
+**every external dependency (broker OR data provider) = exactly one central gateway that owns the
+session/connection, paces to the provider's limits, and caches/dedups.**
+
 ### 🟥 DATA NORTH-STAR — Yahoo is NOT enough (user, 2026-06-14)
 User: *"just relying on yahoo will not make us northstar."* Correct. Audit: the bar-cache
 harvest is running **`source=yfinance_ok` 🥉 BRONZE for every symbol** (469 parquet files,
