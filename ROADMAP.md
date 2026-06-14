@@ -62,6 +62,21 @@ Running list — capture now, fix later (user: "don't have to sort straight away
   IBKR positions retry+cache; **TCS BUY-vs-AVOID contradiction (panel=bucket)**; **false
   LLM-offline caveat** (Ollama is on the worker, not EC2).
 
+### 🔴🔴 ROOT CAUSE of the recurring inconsistencies — NO SHARED VERDICT MODULE (user, 2026-06-14)
+User (frustrated, fairly): *"how come we still struggle even after a clear spec?"* The spec IS
+clear — the problem is it's **re-implemented per surface, not shared.** Symptoms seen this
+walkthrough, all the SAME bug:
+- **Screeners** renders raw per-(symbol×strategy) rows UN-deduplicated → IGLN.L appears 5× as
+  HOLD/HOLD/BUY/HOLD/HOLD, HMWO.L as HOLD/SELL — contradictory because it's 7 strategies stacked
+  as rows, not one row per symbol. (Decide DOES dedup via `buildSymbolViews`; Screeners doesn't.)
+- TCS BUY-in-panel vs AVOID-in-table (fixed); SCHD BUY-NOW-at-100th-%ile (fixed); each was a
+  surface deriving the verdict its own way.
+**THE FIX (unifying):** extract ONE canonical per-symbol verdict+dedup (the bucket promotion,
+entry-quality gate, horizon reconciliation, dedup-by-symbol) into a **single shared module**
+that EVERY surface (Decide, Screeners, Cockpit, Universes, panel) calls — instead of each
+re-rolling it. A clear spec doesn't enforce itself; one implementation does. This is the
+highest-leverage refactor — it dissolves the whole class of "X contradicts Y" bugs at once.
+
 ### 🎯 TRADER METHODOLOGY to fold in (real trader, shared 2026-06-14)
 A working trader's confirmation stack (mobile screenshots: INDHOTEL/RELIANCE on BSE):
 1. **Dual STOCHASTICS — fast (14) + slow (50)** as the primary momentum/overbought-oversold
