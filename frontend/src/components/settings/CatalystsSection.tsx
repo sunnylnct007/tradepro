@@ -208,7 +208,18 @@ function CatalystsList() {
             <span>Source</span>
             <span style={{ textAlign: "right" }}>Action</span>
           </div>
-          {rows.map((row) => (
+          {[...rows].sort((a, b) => {
+            // Upcoming (>= today) first, soonest first; then past, most-recent
+            // first. Was unsorted (API order = oldest-first), so already-reported
+            // May earnings sat at the top. ISO dates compare chronologically.
+            const today = new Date().toISOString().slice(0, 10);
+            const da = (a.occurs_on ?? "").slice(0, 10);
+            const db = (b.occurs_on ?? "").slice(0, 10);
+            if (!da || !db) return da ? -1 : db ? 1 : 0;
+            const aUp = da >= today, bUp = db >= today;
+            if (aUp !== bUp) return aUp ? -1 : 1;
+            return aUp ? da.localeCompare(db) : db.localeCompare(da);
+          }).map((row) => (
             <CatalystRow key={row.id} row={row} onDismiss={() => onDismiss(row.id)} />
           ))}
         </>
@@ -247,7 +258,10 @@ function CatalystRow({ row, onDismiss }: { row: Catalyst; onDismiss: () => void 
     if (!row.occurs_on) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const d = new Date(row.occurs_on + "T00:00:00");
+    // occurs_on can be a bare date ("2026-05-19") OR a full ISO timestamp
+    // ("2026-05-19T00:00:00"); appending "T00:00:00" to the latter produced an
+    // invalid Date → "NaNd ago". Take just the date part first.
+    const d = new Date(row.occurs_on.slice(0, 10) + "T00:00:00");
     return Math.round((d.getTime() - today.getTime()) / 86_400_000);
   }, [row.occurs_on]);
   const deltaLabel = daysDelta === null
