@@ -43,6 +43,8 @@ export type T212PosResp = {
     unrealisedPct: number | null;
     unrealisedAbs: number | null;
     currency: string | null;
+    // Position open date (broker-reported) — when the entry was first taken.
+    createdAt: string | null;
   }>;
   error?: string | null;
   fromCache?: boolean;

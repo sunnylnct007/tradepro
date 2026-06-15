@@ -19,12 +19,15 @@ export function SymbolChartCard({
   symbol,
   height = 300,
   entryPrice,
+  entryDate,
   fills,
 }: {
   symbol: string;
   height?: number;
   /** Held position's avg entry price → dashed "Entry" line on the chart. */
   entryPrice?: number | null;
+  /** Position open date (ISO) → shown on the Entry line label for context. */
+  entryDate?: string | null;
   /** Filled trades → buy/sell markers on the chart (entry/exit review). */
   fills?: { side: "BUY" | "SELL"; price: number | null; atUtc: string }[];
 }) {
@@ -70,7 +73,7 @@ export function SymbolChartCard({
         })}
       </div>
 
-      <CandleIchimokuChart symbol={symbol} timeframe={tf} height={height} entryPrice={entryPrice} fills={fills} />
+      <CandleIchimokuChart symbol={symbol} timeframe={tf} height={height} entryPrice={entryPrice} entryDate={entryDate} fills={fills} />
     </div>
   );
 }

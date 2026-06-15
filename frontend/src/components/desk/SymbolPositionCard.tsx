@@ -12,7 +12,7 @@
  * No extra fetch — reads from props so the right rail doesn't trigger another
  * positions call independently.
  */
-import { fmtMoney, fmtNum, fmtPct, signColour } from "./deskFormat";
+import { fmtEntryDate, fmtMoney, fmtNum, fmtPct, signColour } from "./deskFormat";
 import { ModeBadge } from "./ModeBadge";
 import type { AccountMode } from "./deskFormat";
 
@@ -27,6 +27,9 @@ export type PositionRow = {
   ccy: string | null;
   mode: AccountMode;
   avgPrice?: number | null;
+  /** Position open date (broker-reported, e.g. T212 createdAt) — when the
+   *  entry was first taken. Shown as "Opened" + on the chart's Entry line. */
+  entryDate?: string | null;
 };
 
 export function SymbolPositionCard({
@@ -76,6 +79,9 @@ export function SymbolPositionCard({
           <StatRow label="Shares">{fmtNum(held.qty)}</StatRow>
           {held.avgPrice != null && (
             <StatRow label="Avg Price">{fmtMoney(held.avgPrice, held.ccy)}</StatRow>
+          )}
+          {held.entryDate && (
+            <StatRow label="Opened">{fmtEntryDate(held.entryDate)}</StatRow>
           )}
           <StatRow label="Last Price">{fmtMoney(held.last, held.ccy)}</StatRow>
           {held.last != null && held.qty != null && (

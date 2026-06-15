@@ -46,6 +46,9 @@ export function SymbolDetailRail({
     (r) => r.chartSymbol === symbol || r.ticker === symbol,
   );
   const entryPrice = held?.avgPrice ?? null;
+  // Position open date → shown on the chart's Entry line + the position panel,
+  // so the trader knows WHEN the entry was taken, not just at what price.
+  const entryDate = held?.entryDate ?? null;
 
   // Filled trades for this symbol → buy/sell markers on the chart so a trader
   // can review a closed round-trip (entry/exit price + when) directly on the
@@ -136,7 +139,7 @@ export function SymbolDetailRail({
       {/* 1. Chart — 400px tall so candles + axis labels are readable in the
               wider rail. The rail itself has resize:horizontal so the trader
               can drag the right edge for even more room. */}
-      <SymbolChartCard symbol={symbol} height={400} entryPrice={entryPrice} fills={fills} />
+      <SymbolChartCard symbol={symbol} height={400} entryPrice={entryPrice} entryDate={entryDate} fills={fills} />
 
       {/* 2. Position */}
       <SymbolPositionCard symbol={symbol} positions={positions} />

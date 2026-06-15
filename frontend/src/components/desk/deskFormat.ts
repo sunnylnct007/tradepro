@@ -70,3 +70,15 @@ export function accountMode(...labels: (string | null | undefined)[]): AccountMo
 export function modeColour(mode: AccountMode): string {
   return mode === "LIVE" ? "#d4793b" : "var(--text-muted)";
 }
+
+/** Format a position's entry/open date for display. `short` (e.g. "2 Jun")
+ * for the compact chart Entry-line label; full ("2 Jun 2026") for the panel.
+ * Returns "" for null/unparseable input so callers can null-guard cleanly. */
+export function fmtEntryDate(iso: string | null | undefined, short = false): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, short
+    ? { day: "numeric", month: "short" }
+    : { day: "numeric", month: "short", year: "numeric" });
+}

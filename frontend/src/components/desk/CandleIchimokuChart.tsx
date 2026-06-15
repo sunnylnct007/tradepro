@@ -51,6 +51,7 @@ import {
 } from "lightweight-charts";
 import { api } from "../../api/client";
 import { config } from "../../config";
+import { fmtEntryDate } from "./deskFormat";
 import type { Candle, CandleSeries } from "../../api/types";
 
 /** Timeframe pill → visible window in calendar days. Matches QuoteView's pills. */
@@ -82,6 +83,9 @@ type Props = {
    *  dashed horizontal reference line ("Entry") so the trader sees cost basis
    *  vs the live price at a glance. null/0/undefined ⇒ no line (flat name). */
   entryPrice?: number | null;
+  /** Position open date (ISO) — appended to the "Entry" line label so the
+   *  trader sees WHEN the entry was taken, not just the cost-basis price. */
+  entryDate?: string | null;
   /** Filled trades for this symbol → buy (▲) / sell (▼) markers on the
    *  timeline, each labelled with its fill price, so a closed round-trip
    *  (entered here at X, exited here at Y) is visible directly on the chart. */
@@ -90,7 +94,7 @@ type Props = {
 
 type IchiPoint = { time: UTCTimestamp; value: number };
 
-export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entryPrice, fills }: Props) {
+export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entryPrice, entryDate, fills }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -209,7 +213,9 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: "Entry",
+        // Append the open date when known, so the label reads e.g.
+        // "Entry · 2 Jun" — price AND when the entry was taken.
+        title: entryDate ? `Entry · ${fmtEntryDate(entryDate, true)}` : "Entry",
       });
     }
 
@@ -343,7 +349,7 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
       chart.remove();
       chartRef.current = null;
     };
-  }, [series, height, windowDays, entryPrice, fills]);
+  }, [series, height, windowDays, entryPrice, entryDate, fills]);
 
   // ---- States ------------------------------------------------------------
   const noData = !loading && !err && (series?.candles?.length ?? 0) === 0;
