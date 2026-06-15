@@ -141,7 +141,7 @@ export function PositionsByStrategy({
             mode: accountMode("T212", "demo") as AccountMode,
             strategyId: attribution.get(attrKey("t212", "DEMO", p.ticker)) ?? null,
             series: null,
-            avgPrice: null,
+            avgPrice: p.averagePricePaid ?? null,
           });
         }
       } else if (t212 && !t212.enabled) msgs.push("T212 disabled");
@@ -165,7 +165,7 @@ export function PositionsByStrategy({
             mode: accountMode("T212", "live") as AccountMode,
             strategyId: attribution.get(attrKey("t212", "LIVE", p.ticker)) ?? null,
             series: null,
-            avgPrice: null,
+            avgPrice: p.averagePricePaid ?? null,
           });
         }
       }
