@@ -13,6 +13,26 @@ those assumptions change.
 
 ---
 
+## 📍 LIVE STRATEGY STATUS — handoff for any fresh agent (2026-06-15)
+Persisted so a new session picks up with ZERO chat history ([[feedback_focused_sessions]]).
+- **ICH Equity** (`ichimoku_equity` T212 control + `ichimoku_equity_ibkr` IBKR clone): ✅ RUNNING,
+  healthy, seeding ~38 positions. **Cannot optimize further** — backtests proved stops/gates HURT
+  ("trust the trend", the clone +68% vs control +88%). Clone reads positions via the central gateway.
+- **FX** (`ichimoku_fx_mr` IG + `_ibkr` clone): ✅ RUNNING, holding 10 G10 pairs, computing signed
+  targets. **BUT it's the design-limited v1** (Ichimoku misused for intraday MR, NO stop, breaks
+  down in trends — its own docstring says "ask the quant before live capital"). Good-to-trade today
+  ≠ good strategy. v2 = quant's spec (Ichimoku regime-filter + Bollinger(20)+RSI(14)+ATR stop) — NOT
+  built; verbatim-port required. Tractable: ATR-stop overlay (signed/vol-targeted, do WITH the quant).
+- **Intraday** (`intraday_flat` IG): ⚠️ RUNNING but **WRONG-DESIGN** — it runs the DAILY Ichimoku
+  SWING signal on an intraday leash, so it drops ~everything ("daily Ichimoku signal flat — drop").
+  NOT a real intraday strategy. The fix = a **native intraday desk (ORB/VWAP) + the built universe
+  selector (`intraday_universe.py`) + RVOL** — captured, not built. Don't keep patching the clone.
+- **Infra:** central IBKR gateway LIVE (one connection, desks read it, contention/aborts gone);
+  EC2 up; sentiment fix shipped (symbol-aware + gemma opt-in via TRADEPRO_SENTIMENT_MODEL).
+**NEXT (1–2 features per the focused-session rule):** (a) Decide shared-verdict module (kills
+cross-surface contradictions); (b) sentiment→gemma flip + verify; (c) FX ATR-stop overlay w/ quant;
+(d) intraday-native build. Pick 1–2, complete, persist, deploy, fresh session.
+
 ## SESSION STATE — 2026-06-12 (Thursday — measurement plumbing, harvest unblocked, swing-vs-intraday cadence)
 
 ### ✅ Shipped
