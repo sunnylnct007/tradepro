@@ -161,29 +161,36 @@ class _DiskCache:
 _cache = _DiskCache()
 
 
-def _key(title: str, model: str) -> str:
-    return hashlib.sha1(f"{model}::{title}".encode()).hexdigest()
+def _key(title: str, model: str, symbol: str = "") -> str:
+    # Symbol is part of the key: the SAME headline scores differently per symbol
+    # now that scoring is symbol-aware (a Meta-Reliance partnership is +ve for
+    # RELIANCE but neutral for a third name). Old key (model::title) would have
+    # returned one cached score for all symbols.
+    return hashlib.sha1(f"{model}::{symbol}::{title}".encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
 # Scoring one headline
 # ---------------------------------------------------------------------------
 
-_PROMPT = """You are a financial-news sentiment analyst. Score one headline.
+_PROMPT = """You are a financial-news sentiment analyst. Score how this headline
+affects {symbol} SPECIFICALLY — does it help or hurt {symbol}'s stock?
 
 Headline: {headline}
 Publisher: {publisher}
 
 Output ONLY a JSON object with these exact fields:
-  sentiment: float in [-1, 1] (-1 strongly negative, 0 neutral, 1 strongly positive)
+  sentiment: float in [-1, 1] — the impact ON {symbol} (-1 strongly hurts {symbol},
+             0 neutral, +1 strongly helps {symbol})
   themes:    array of 1-4 short lowercase tags (e.g. ["guidance", "china"])
-  material:  boolean — true only if this would plausibly move the price of
-             the named instrument; false for promotional / generic / filler.
+  material:  boolean — true only if this would plausibly move {symbol}'s price.
 
-Be conservative. Filler ("5 stocks to watch", routine analyst rating, list
-articles) is material=false. Guidance, earnings beats/misses, regulatory
-events, M&A, leadership changes, large customer wins/losses, geopolitical
-shocks affecting the underlying are material=true.
+Judge the impact ON {symbol}, NOT the general tone. A trial win / drug approval /
+partnership / contract win for {symbol} is POSITIVE even if the headline is framed
+around a partner or buried in caveats; a rival's setback can be positive for {symbol}.
+Be conservative on filler ("5 stocks to watch", routine analyst rating, list
+articles) → material=false. Guidance, earnings beats/misses, regulatory events, M&A,
+leadership changes, large customer wins/losses, geopolitical shocks → material=true.
 """
 
 _SCHEMA_HINT = {
@@ -217,7 +224,7 @@ def _score_one(
             model=None, error="provider unavailable",
         )
 
-    cache_key = _key(item.title, provider.model)
+    cache_key = _key(item.title, provider.model, symbol or "")
     cached = _cache.get(cache_key)
     if cached is not None:
         if telemetry:
@@ -237,6 +244,7 @@ def _score_one(
     prompt = _PROMPT.format(
         headline=item.title,
         publisher=item.publisher or "Unknown",
+        symbol=symbol or "the company",
     )
     if logger:
         logger.emit("llm.score.call_start",

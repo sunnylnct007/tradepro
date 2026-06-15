@@ -1346,6 +1346,20 @@ def compare(
     # transparent on the frontend.
     llm = get_llm_provider()
     llm_healthy = llm.healthy()
+    # Sentiment provider — configurable model via TRADEPRO_SENTIMENT_MODEL. Unset
+    # → use the standard provider (no latency change; the symbol-aware prompt still
+    # improves scoring). Set to e.g. "gemma3:12b" for the higher-quality symbol-aware
+    # scoring proven to fix the +ve-news-scored-negative mis-reads (NOVN trial win,
+    # Meta–Reliance partnership) — opt-in because gemma is ~6s/headline vs ~1.3s.
+    _sent_model = os.environ.get("TRADEPRO_SENTIMENT_MODEL", "").strip()
+    sentiment_llm = llm
+    if _sent_model:
+        try:
+            from .llm.ollama_provider import OllamaProvider as _OllProv
+            _cand = _OllProv(model=_sent_model)
+            sentiment_llm = _cand if _cand.healthy else llm
+        except Exception:  # noqa: BLE001
+            sentiment_llm = llm
     if logger:
         logger.emit("llm.provider", name=llm.name, model=llm.model, healthy=llm_healthy)
 
@@ -1477,7 +1491,7 @@ def compare(
             else:
                 scoring_t0 = _time.time()
                 scored = score_news(
-                    news_cache[symbol], llm,
+                    news_cache[symbol], sentiment_llm,
                     telemetry=telemetry, logger=logger, symbol=symbol,
                 )
                 scored_news_cache[symbol] = scored
