@@ -58,6 +58,18 @@ public static class BrokerInstrumentMatcher
             if (!string.IsNullOrWhiteSpace(root))
                 Add(byRoot, root, inst);
 
+            // Also index by the broker's SHORT ticker root. For most names
+            // this equals the order-code root (no-op). For RE-TICKERED names
+            // it differs and is the only bridge: T212 lists Jefferies as
+            // order-code "LUK_US_EQ" (root "LUK") but shortName "JEF", and the
+            // universe speaks "JEF". Both point at the same instrument, so a
+            // universe "JEF" resolves to "LUK_US_EQ" by exact ticker — no ISIN
+            // or low-confidence name match needed.
+            var shortRoot = SymbolHarmonization.BareSourceTicker(inst.ShortName ?? string.Empty);
+            if (!string.IsNullOrWhiteSpace(shortRoot)
+                && !string.Equals(shortRoot, root, StringComparison.OrdinalIgnoreCase))
+                Add(byRoot, shortRoot, inst);
+
             var norm = NormalizeName(inst.Name);
             if (!string.IsNullOrWhiteSpace(norm))
                 Add(byName, norm, inst);

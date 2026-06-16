@@ -22,6 +22,10 @@ public class BrokerInstrumentMatcherTest
         // A name collision: two distinct "Acme" issuers — name match must refuse.
         new BrokerInstrument("ACME1_US_EQ", "Acme", null, "EQUITY", "USD"),
         new BrokerInstrument("ACME2_L_EQ",  "Acme", null, "EQUITY", "GBP"),
+        // RE-TICKERED name: T212 lists Jefferies under its legacy order code
+        // "LUK_US_EQ" (root "LUK") but its human shortName is "JEF". The
+        // universe speaks "JEF" — only the shortName bridge resolves it.
+        new BrokerInstrument("LUK_US_EQ", "Jefferies Financial Group", "US47233W1099", "EQUITY", "USD", ShortName: "JEF"),
     };
 
     [Fact]
@@ -64,6 +68,24 @@ public class BrokerInstrumentMatcherTest
         var m = Assert.Single(res);
         Assert.Equal("AAPL_US_EQ", m.BrokerTicker);
         Assert.Equal(MatchMethod.ByIsin, m.Method);
+    }
+
+    [Fact]
+    public void Retickered_name_resolves_via_short_name()
+    {
+        // The JEF→LUK case: order-code root is "LUK" (no match for "JEF"),
+        // but the instrument's shortName is "JEF". Exact-ticker resolution
+        // must bridge via shortName and route to "LUK_US_EQ" — WITHOUT
+        // needing an ISIN on the universe side or a low-confidence name match.
+        var res = BrokerInstrumentMatcher.Resolve(
+            Catalog(),
+            new[] { ("JEF", (string?)"Jefferies Financial Group", (string?)null) });
+
+        var m = Assert.Single(res);
+        Assert.Equal("LUK_US_EQ", m.BrokerTicker);
+        Assert.Equal(MatchMethod.Exact, m.Method);
+        // ISIN flows through so the builder can backfill the canonical key.
+        Assert.Equal("US47233W1099", m.Isin);
     }
 
     [Fact]

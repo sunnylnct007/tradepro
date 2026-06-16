@@ -73,21 +73,24 @@ public sealed class BrokerTickerMapBuilder
 
         await using var conn = await _db.OpenConnectionAsync(ct);
 
-        // universe_symbols has no ISIN today; the matcher accepts an
-        // optional ISIN so backfilled ISINs flow through with no code
-        // change. SELECT it defensively in case the column lands later.
+        // universe_symbols.isin (migration 048) is the canonical
+        // cross-broker key. It starts null — the universe is built from
+        // Wikipedia/curated lists that carry only ticker+name — and is
+        // BACKFILLED below from each confident match, so subsequent
+        // rebuilds (and other brokers) pivot on ISIN instead of re-deriving
+        // from fragile ticker/name heuristics.
         var rows = (await conn.QueryAsync<UniverseRow>(@"
-            SELECT DISTINCT ticker, name
+            SELECT DISTINCT ticker, name, isin
             FROM universe_symbols
             WHERE ticker IS NOT NULL AND ticker <> ''")).AsList();
 
         var universe = rows
-            .Select(r => (ticker: r.Ticker, name: r.Name, isin: (string?)null))
+            .Select(r => (ticker: r.Ticker, name: r.Name, isin: r.Isin))
             .ToList();
 
         var matches = BrokerInstrumentMatcher.Resolve(instruments, universe);
 
-        int exact = 0, byName = 0, byIsin = 0, unresolved = 0;
+        int exact = 0, byName = 0, byIsin = 0, unresolved = 0, isinBackfilled = 0;
         var unresolvedSamples = new List<string>();
         var byNameSamples = new List<string>();
 
@@ -98,6 +101,7 @@ public sealed class BrokerTickerMapBuilder
                 case MatchMethod.Exact:
                     exact++;
                     await UpsertAsync(conn, broker, m, ct);
+                    isinBackfilled += await BackfillUniverseIsinAsync(conn, m, ct);
                     break;
                 case MatchMethod.ByName:
                     // SAFETY RAIL: name matches are low-confidence (distinct
@@ -105,6 +109,8 @@ public sealed class BrokerTickerMapBuilder
                     // enter the live routing map — a wrong mapping mis-routes a
                     // real order. Park them in the review queue for a human to
                     // promote via /api/admin/instruments/promote-suggestion.
+                    // No ISIN backfill either: an unconfirmed name match is not
+                    // trustworthy enough to stamp a canonical identity.
                     byName++;
                     if (byNameSamples.Count < 25)
                         byNameSamples.Add($"{m.SourceTicker}→{m.BrokerTicker} (suggested, pending review)");
@@ -113,6 +119,7 @@ public sealed class BrokerTickerMapBuilder
                 case MatchMethod.ByIsin:
                     byIsin++;
                     await UpsertAsync(conn, broker, m, ct);
+                    isinBackfilled += await BackfillUniverseIsinAsync(conn, m, ct);
                     break;
                 default:
                     unresolved++;
@@ -124,9 +131,10 @@ public sealed class BrokerTickerMapBuilder
 
         _log.LogInformation(
             "broker_ticker_map rebuild for {Broker}: exact={Exact} byName={ByName} "
-            + "byIsin={ByIsin} unresolved={Unresolved} (of {Total} universe symbols, "
-            + "{Catalog} catalog instruments)",
-            broker, exact, byName, byIsin, unresolved, universe.Count, instruments.Count);
+            + "byIsin={ByIsin} unresolved={Unresolved} isinBackfilled={IsinBackfilled} "
+            + "(of {Total} universe symbols, {Catalog} catalog instruments)",
+            broker, exact, byName, byIsin, unresolved, isinBackfilled,
+            universe.Count, instruments.Count);
 
         return new RebuildResult(
             broker, exact, byName, byIsin, unresolved,
@@ -181,10 +189,33 @@ public sealed class BrokerTickerMapBuilder
             cancellationToken: ct));
     }
 
+    /// <summary>
+    /// Stamp the canonical ISIN onto universe_symbols from a TRUSTED match
+    /// (exact / ISIN) when the universe row has none yet. This bootstraps
+    /// the cross-broker key from a broker's own registry: once stamped,
+    /// later rebuilds and other brokers pivot on the ISIN
+    /// (<see cref="BrokerInstrumentMatcher"/>'s preferred bridge) rather
+    /// than re-deriving from ticker/name. Idempotent — only fills NULL/empty
+    /// ISINs, so it never overwrites a confirmed value. Returns the number
+    /// of universe rows updated (a ticker can span multiple universes).
+    /// </summary>
+    private static async Task<int> BackfillUniverseIsinAsync(
+        NpgsqlConnection conn, InstrumentMatchResult m, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(m.Isin)) return 0;
+        return await conn.ExecuteAsync(new CommandDefinition(@"
+            UPDATE universe_symbols
+               SET isin = @isin
+             WHERE UPPER(ticker) = @ticker
+               AND (isin IS NULL OR isin = '')",
+            new { isin = m.Isin.Trim(), ticker = m.SourceTicker },
+            cancellationToken: ct));
+    }
+
     /// <summary>Whether a match method is trustworthy enough for the LIVE
     /// routing map. Exact + ISIN are unambiguous; name is not.</summary>
     public static bool IsTrustedForRouting(MatchMethod method) =>
         method is MatchMethod.Exact or MatchMethod.ByIsin;
 
-    private sealed record UniverseRow(string Ticker, string? Name);
+    private sealed record UniverseRow(string Ticker, string? Name, string? Isin);
 }

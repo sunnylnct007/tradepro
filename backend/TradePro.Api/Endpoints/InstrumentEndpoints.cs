@@ -1,3 +1,4 @@
+using Dapper;
 using TradePro.Api.Models;
 using TradePro.Api.Providers;
 using TradePro.Api.Providers.Trading212;
@@ -87,7 +88,10 @@ public static class InstrumentEndpoints
         // when T212 isn't configured so the caller fails open (trades full
         // universe rather than halting).
         app.MapGet("/instruments/t212/tradeable",
-            async (Trading212InstrumentsService t212, CancellationToken ct) =>
+            async (
+                Trading212InstrumentsService t212,
+                Npgsql.NpgsqlDataSource db,
+                CancellationToken ct) =>
             {
                 if (!t212.IsEnabled)
                 {
@@ -99,19 +103,55 @@ public static class InstrumentEndpoints
                     });
                 }
                 var all = await t212.GetAllAsync(ct);
-                var bare = all
-                    .Select(i => DeriveYahooFromT212(i.Ticker))
-                    .Where(s => !string.IsNullOrWhiteSpace(s))
-                    .Select(s => s!.ToUpperInvariant())
-                    .Distinct()
+
+                // Availability is HARMONIZATION-DRIVEN, not a raw catalog
+                // scrape. A symbol is tradeable on T212 iff it RESOLVES to a
+                // real T212 instrument — by either of two routes:
+                //   (1) its bare US-equity root is a T212 order code
+                //       ("AAPL" ← "AAPL_US_EQ"), or
+                //   (2) broker_ticker_map maps the canonical ticker to a T212
+                //       code — the authoritative map for RE-TICKERED names
+                //       (JEF→LUK_US_EQ) the raw catalog would miss, since the
+                //       catalog lists JEF only under its order code "LUK".
+                // Union of the two = what the desk may emit; everything else
+                // is skipped BEFORE sizing (no order, no 404 at the broker).
+                var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var i in all)
+                {
+                    var bare = DeriveYahooFromT212(i.Ticker);
+                    if (!string.IsNullOrWhiteSpace(bare)) symbols.Add(bare!);
+                }
+
+                // (2) broker_ticker_map source_tickers for the T212 family —
+                // manual overrides (migration 040) + catalog-derived matches
+                // (BrokerTickerMapBuilder). Fail-open: a DB hiccup just leaves
+                // the catalog-only set, never empties availability.
+                try
+                {
+                    await using var conn = await db.OpenConnectionAsync(ct);
+                    var mapped = await conn.QueryAsync<string>(new CommandDefinition(@"
+                        SELECT DISTINCT source_ticker
+                        FROM broker_ticker_map
+                        WHERE broker LIKE 'T212%'
+                          AND source_ticker IS NOT NULL AND source_ticker <> ''",
+                        cancellationToken: ct));
+                    foreach (var s in mapped)
+                        if (!string.IsNullOrWhiteSpace(s)) symbols.Add(s.ToUpperInvariant());
+                }
+                catch
+                {
+                    // swallow — see fail-open note above
+                }
+
+                var ordered = symbols
                     .OrderBy(s => s, StringComparer.Ordinal)
                     .ToArray();
                 return Results.Ok(new
                 {
                     enabled = true,
-                    count = bare.Length,
+                    count = ordered.Length,
                     loadedAtUtc = t212.LoadedAtUtc,
-                    symbols = bare,
+                    symbols = ordered,
                 });
             });
 

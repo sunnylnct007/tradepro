@@ -53,7 +53,11 @@ public sealed class T212InstrumentCatalog : IBrokerInstrumentCatalog
                 Name: i.Name ?? i.ShortName,
                 Isin: i.Isin,
                 AssetClass: DeriveAssetClass(i.Ticker, i.Type),
-                Currency: i.CurrencyCode));
+                Currency: i.CurrencyCode,
+                // T212's shortName is the human ticker ("JEF") even when the
+                // order code re-lists under a legacy root ("LUK_US_EQ") — the
+                // bridge that lets the matcher resolve re-tickered names.
+                ShortName: i.ShortName));
         }
         return mapped;
     }
