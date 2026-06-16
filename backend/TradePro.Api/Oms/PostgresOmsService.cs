@@ -50,6 +50,17 @@ public sealed class PostgresOmsService : IOmsService
         return scope.ServiceProvider.GetService<Trading212DemoClient>();
     }
 
+    private TradePro.Api.Providers.Trading212.Trading212InstrumentsService? ResolveT212Instruments()
+    {
+        // Singleton instruments catalog — used to pre-flight orders so we
+        // don't ship tickers T212 will 404/400 on. Per-call scope mirrors
+        // ResolveT212Demo; null in tests so the catalog gate is skipped.
+        if (_services is null) return null;
+        using var scope = _services.CreateScope();
+        return scope.ServiceProvider
+            .GetService<TradePro.Api.Providers.Trading212.Trading212InstrumentsService>();
+    }
+
     private TradePro.Api.Risk.RiskGate? ResolveRiskGate()
     {
         // Same per-call scope pattern as ResolveT212Demo. Null in unit
@@ -322,6 +333,38 @@ public sealed class PostgresOmsService : IOmsService
                     "OMS order {OrderId}: resolved symbol {Bare} -> {Broker} for T212 placement",
                     approved.Id, approved.Symbol, brokerSymbol);
             }
+
+            // Pre-flight: don't ship a ticker T212 can't trade. Sending one
+            // just earns a 404 "Ticker does not exist" / 400 "Instrument is
+            // disabled" and the order re-fires every strategy rerun, polluting
+            // the OMS. T212's own instrument catalog is the source of truth.
+            // FAIL OPEN — if the catalog is unavailable/empty we place as
+            // before, so a catalog hiccup never blocks the whole book.
+            var t212Catalog = ResolveT212Instruments();
+            if (t212Catalog is not null && t212Catalog.IsEnabled && t212Catalog.CachedCount > 0)
+            {
+                var all = await t212Catalog.GetAllAsync(CancellationToken.None);
+                var tradeable = all.Any(i =>
+                    string.Equals(i.Ticker, brokerSymbol, StringComparison.OrdinalIgnoreCase));
+                if (!tradeable)
+                {
+                    var reason =
+                        $"Not tradeable on T212: '{brokerSymbol}' is absent from the T212 "
+                        + $"instrument catalog ({t212Catalog.CachedCount} instruments). Order "
+                        + "skipped before placement (would 404/400 at the broker).";
+                    _log.LogInformation("OMS order {OrderId}: {Reason}", approved.Id, reason);
+                    return await TransitionAsync(
+                        approved.Id, actor: "oms:preflight-t212",
+                        allowedPriorStates: new[] { OmsState.Submitted },
+                        newState: OmsState.Rejected,
+                        eventType: "PREFLIGHT_NOT_TRADEABLE",
+                        extraSetSql: "cancelled_reason = @rejReason,",
+                        extraParams: new { rejReason = reason },
+                        cancelledReason: reason,
+                        detail: new { brokerSymbol, catalogCount = t212Catalog.CachedCount });
+                }
+            }
+
             try
             {
                 var result = await t212Demo.PlaceMarketOrderAsync(
