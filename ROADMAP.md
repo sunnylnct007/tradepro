@@ -44,6 +44,27 @@ cross-surface contradictions); (b) sentiment→gemma flip + verify; (c) FX ATR-s
 ### 🔴 USER-CAUGHT BUG: swing daemon was stacking duplicate orders
 The clone is **SWING** but the daemon **reruns every ~15 min**. A placed OPG/MOO order rests until the auction, so each rerun re-seeds the still-unfilled positions, re-emits the same entry/exit, and `placeOrder` fires BEFORE the OMS dedup → **duplicate orders stack at IBKR**. **Fix:** snapshot the broker's open orders at connect (golden source), skip any (symbol, action) that already has a live order. Verified live ("10 existing, dedup guard armed"). **Deeper point: cadence must match horizon** — swing should decide ~once/day; only the per-bar stop-check wants frequency. Belt-and-braces done; consider a daily-run schedule for the swing desks later.
 
+### ✅ SHIPPED 2026-06-16 — canonical verdict module + sentiment→gemma
+- **`shared_verdict.py`** — the 8 BUY/WAIT/AVOID pipeline functions (compute_bucket,
+  compute_conviction, cap_bucket_at_low_conviction, apply_earnings_suppressor,
+  enforce_coherence, apply_swing_strict/sentiment/horizon demotions) extracted VERBATIM
+  out of compare.py into one canonical home; thresholds centralized as named constants
+  (no more magic default-args). compare.py re-exports → zero caller changes. 88/88 tests.
+  This is the STRUCTURAL fix for cross-surface contradictions (single source of truth).
+- **Sentiment → gemma3:12b** via settings-kv `llm_model` (config-driven), + a
+  sign-reconciliation guard (classification is authoritative for the score's sign;
+  gemma labels right but sometimes signs the number wrong). Fixed a latent bug: prior
+  `finance-llama-3-8b` wasn't pulled in Ollama → scoring silently failed on real news.
+
+### 🔜 NEXT (Decide module — the VISIBLE half, deliberately deferred)
+The backend now has one canonical verdict. The remaining piece is the **scan grid
+(`SymbolScanGrid.tsx`) showing the strategy runner's `fire/skip` action while the Decide
+panel shows the compare `bucket`** — two different semantics side-by-side = the visible
+TCS-style contradiction. Fix = surface the canonical `bucket` on the scan grid alongside
+the strategy action, with an explainer when they diverge (strategy DID fire vs analytical
+verdict says WAIT). Needs: thread compareLatest bucket into the grid, join by symbol,
+divergence tooltip. Its own focused session (explainability design required).
+
 ### 🧭 INTRADAY needs its OWN symbol selection + params (user, 2026-06-12)
 Confirmed direction: **intraday ≠ swing**, so `intraday_flat`'s swing-style basket (daily-Ichimoku-ranked) is wrong for it. Intraday selection should rank by **intraday-relevant criteria** — high **dollar-volume / liquidity** (tight spreads + fills), high **intraday ATR%** (enough range to clear cost), avoid illiquid names — NOT the daily trend score. Params differ too: intraday bars (1–5m), tighter ATR stops/targets, time-of-day window. **This belongs in an intraday-NATIVE strategy (ORB / VWAP), not another patch on `intraday_flat`** (which bolts a swing signal on an intraday leash). Build: a liquidity+volatility intraday universe selector feeding the intraday-native desks.
 
