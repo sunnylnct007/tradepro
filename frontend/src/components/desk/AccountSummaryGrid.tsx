@@ -115,9 +115,22 @@ export function AccountSummaryGrid() {
           api.accountState().catch(() => null),
         ]);
         if (live) {
-          const cashRows = buildRows(cash.brokers, pnl?.rows ?? []);
+          const acctAccounts = acct?.accounts ?? [];
+          const acctKeys = new Set(
+            acctAccounts.map((a) => (a.broker || "").toLowerCase()),
+          );
+          // The daemon-pushed account-state is the GOLDEN source for clone
+          // accounts (e.g. IBKR_PAPER NLV). Drop a cash-summary row that has
+          // NO balance when account-state already covers that broker —
+          // otherwise the hollow IBKR_PAPER placeholder cash-summary emits
+          // when IBKR live is disabled shadows the real NLV and the demo
+          // balance renders blank.
+          const cashRows = buildRows(cash.brokers, pnl?.rows ?? []).filter(
+            (r) =>
+              !(acctKeys.has((r.broker || "").toLowerCase()) && r.netLiq == null),
+          );
           const have = new Set(cashRows.map((r) => (r.broker || "").toLowerCase()));
-          const cloneRows = buildAccountStateRows(acct?.accounts ?? [], have);
+          const cloneRows = buildAccountStateRows(acctAccounts, have);
           setRows([...cashRows, ...cloneRows]);
           setStrat(pnl?.rows ?? []);
           setErr(null);
