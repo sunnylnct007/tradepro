@@ -418,7 +418,14 @@ class IBKRRouter(OrderRouter):
             from .. import market_hours
             from ...bar_cache.asset_class_resolver import resolve_asset_class
             if not market_hours.is_open(resolve_asset_class(order.symbol), _dt.now(_tz.utc)):
-                ib_order.tif = "OPG"
+                # OPG (market-on-open) is an EQUITY/auction concept. Forex
+                # (secType CASH on IDEALPRO) has NO opening auction, so IBKR
+                # rejects OPG outright (Error 201: "time-in-force OPG is
+                # invalid for this combination") — which silently killed every
+                # FX-clone order. Only queue equities/ETFs (STK) as OPG; forex
+                # places a normal market order (24/5, no auction to wait for).
+                if getattr(contract, "secType", "") == "STK":
+                    ib_order.tif = "OPG"
         except Exception:
             pass
         trade = ib.placeOrder(contract, ib_order)
