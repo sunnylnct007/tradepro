@@ -180,34 +180,10 @@ export function PositionsByStrategy({
         }
       } else if (ig && !ig.enabled) msgs.push("IG disabled");
 
-      // IBKR (live)
-      const ibkr = await api.ibkrPositions().catch((e) => {
-        msgs.push(`IBKR: ${e instanceof Error ? e.message : e}`);
-        return null;
-      });
-      if (ibkr?.enabled && ibkr.positions && !ibkr.error) {
-        for (const p of ibkr.positions) {
-          const ticker = p.ticker ?? "—";
-          const stratId = attribution.get(attrKey("ibkr", "LIVE", ticker)) ?? null;
-          out.push({
-            broker: "IBKR",
-            ticker,
-            company: p.instrumentName ?? null,
-            qty: fmtQty(p.quantity),
-            last: p.currentPrice,
-            changePct: p.unrealisedPct,
-            pnl: p.unrealisedAbs,
-            pnlPct: p.unrealisedPct,
-            ccy: p.currency,
-            chartSymbol: chartSymbolFor(ticker, "IBKR"),
-            mode: accountMode("IBKR", "live") as AccountMode,
-            strategyId: stratId,
-            series: null,
-            avgPrice: p.averagePricePaid ?? null,
-          });
-        }
-      } else if (ibkr && !ibkr.enabled) msgs.push("IBKR disabled");
-      else if (ibkr?.error)             msgs.push(`IBKR: ${ibkr.error}`);
+      // IBKR LIVE — REMOVED. We do not connect to the personal IBKR live
+      // account: only the DEMO/paper clone (DUP656969) + harvesting are used.
+      // The live ibkrPositions() call is gone so the cockpit never triggers a
+      // live-account connection. (Backend IBKR:Mode also being set off live.)
 
       // IBKR DEMO (paper clone, DUP656969): the live IBKRClient only sees the
       // personal IBKR_LIVE account, so the clone's golden source is the account
