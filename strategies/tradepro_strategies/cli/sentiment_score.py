@@ -94,6 +94,39 @@ CLASSIFICATIONS = (
     "strongly_negative", "negative", "neutral", "positive", "strongly_positive",
 )
 
+# Expected sign per classification — used to reconcile models that emit the
+# right LABEL but the wrong numeric SIGN (notably gemma3:12b, e.g.
+# classification="negative" with score=+0.75). The numeric score drives the
+# demotion logic in compare.py (mean ≤ -0.30 → BUY→WAIT), so a wrong-sign
+# score can silently let a BUY through that should be held.
+_CLASS_SIGN: dict[str, int] = {
+    "strongly_negative": -1, "negative": -1,
+    "neutral": 0,
+    "positive": +1, "strongly_positive": +1,
+}
+# Per-tier fallback magnitude when the model's number disagrees in sign with
+# its own label AND is ~0 (so we can't just reuse the magnitude).
+_CLASS_FALLBACK_SCORE: dict[str, float] = {
+    "strongly_negative": -0.85, "negative": -0.45,
+    "neutral": 0.0,
+    "positive": 0.45, "strongly_positive": 0.85,
+}
+
+
+def _reconcile_score_sign(cls: str, score: float) -> float:
+    """Make the numeric score's sign agree with its classification. If they
+    already agree (or the label is neutral) the score is returned unchanged.
+    If they disagree the LABEL wins: keep the model's magnitude but apply the
+    label's sign; if the magnitude is ~0 for a non-neutral label, use the
+    per-tier fallback so a real signal isn't silently zeroed."""
+    want = _CLASS_SIGN.get(cls, 0)
+    if want == 0:
+        return score
+    if (want > 0 and score > 0) or (want < 0 and score < 0):
+        return score
+    mag = abs(score)
+    return _CLASS_FALLBACK_SCORE.get(cls, 0.0) if mag < 0.05 else want * mag
+
 
 # ---------------------------------------------------------------------- #
 # Inputs                                                                 #
@@ -229,9 +262,13 @@ def _call_llm(symbol: str, news: list[dict[str, Any]],
     if cls not in CLASSIFICATIONS or not isinstance(score, (int, float)):
         log.debug("LLM returned malformed result for %s: %s", symbol, parsed)
         return None
+    score = float(max(-1.0, min(1.0, score)))
+    # Enforce the classification's sign on the numeric score (guards against
+    # models that label correctly but sign the number wrong — see above).
+    score = _reconcile_score_sign(cls, score)
     return {
         "classification": cls,
-        "score": float(max(-1.0, min(1.0, score))),
+        "score": score,
         "rationale": parsed.get("rationale"),
     }
 
