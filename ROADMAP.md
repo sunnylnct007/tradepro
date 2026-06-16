@@ -65,6 +65,24 @@ the strategy action, with an explainer when they diverge (strategy DID fire vs a
 verdict says WAIT). Needs: thread compareLatest bucket into the grid, join by symbol,
 divergence tooltip. Its own focused session (explainability design required).
 
+### 🔜 NEXT — T212 fill price = 0 on genuinely-FILLED orders (2026-06-16)
+**Done today (deployed):** pre-flight T212 instrument check in `ApproveAsync` — un-tradeable
+tickers (CPRI/HIMS/RRX = 404 "ticker does not exist", COHR = 400 "disabled") are now skipped
++ marked `PREFLIGHT_NOT_TRADEABLE` instead of rejecting at the broker every rerun (was 56 REJECTED rows).
+
+**Still open:** the **39 genuinely-FILLED T212 orders show avgFillPrice = 0** — a SEPARATE pipeline
+from P&L/entry-price. Entry price on the chart works because it reads the broker's per-POSITION
+`averagePricePaid`; fill price reads the OMS per-ORDER `avg_fill_price` set by `OmsFillPoller`,
+which is 0 because T212's order-status reconciliation isn't capturing the per-order execution price.
+Today's fills (3) are 0 too, so it's systemic, not just aged-out orders.
+**Next step:** probe T212's `/equity/orders/{id}` + `/equity/history/orders` DIRECTLY (demo key in
+`tradepro/all` → `t212-demo-api-key`) for a known filled order to see the REAL field names — confirm
+whether T212 returns `fillPrice`/`filledValue`/`fillCost` at all. If yes → it's a parse/deploy bug
+(the aa3aa73 fillPrice parse should handle it). If T212 demo never returns per-order price → fall
+back to a reliable source (capture the bar/market price at emit time, or surface the broker avg-cost
+as the per-order proxy with a clear label). Confirm the aa3aa73 backfill code is actually running on
+the box first (today's container/deploy gremlins — see [[project_ec2_deploy_pull_caddy]]).
+
 ### 🧭 INTRADAY needs its OWN symbol selection + params (user, 2026-06-12)
 Confirmed direction: **intraday ≠ swing**, so `intraday_flat`'s swing-style basket (daily-Ichimoku-ranked) is wrong for it. Intraday selection should rank by **intraday-relevant criteria** — high **dollar-volume / liquidity** (tight spreads + fills), high **intraday ATR%** (enough range to clear cost), avoid illiquid names — NOT the daily trend score. Params differ too: intraday bars (1–5m), tighter ATR stops/targets, time-of-day window. **This belongs in an intraday-NATIVE strategy (ORB / VWAP), not another patch on `intraday_flat`** (which bolts a swing signal on an intraday leash). Build: a liquidity+volatility intraday universe selector feeding the intraday-native desks.
 
