@@ -762,6 +762,64 @@ public sealed class PostgresOmsService : IOmsService
         return (await GetAsync(orderId))!;
     }
 
+    public async Task<bool> BackfillFillPriceAsync(Guid orderId, decimal price, string actor)
+    {
+        if (price <= 0)
+            throw new ArgumentException("backfill price must be > 0", nameof(price));
+
+        await using var conn = await _db.OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+
+        var parent = await conn.QueryFirstOrDefaultAsync<OmsOrder>(@"
+            SELECT
+                id              AS Id,
+                client_order_id AS ClientOrderId,
+                broker, broker_order_id AS BrokerOrderId,
+                strategy_id     AS StrategyId,
+                symbol, side, qty,
+                order_type      AS OrderType,
+                limit_price     AS LimitPrice,
+                stop_price      AS StopPrice,
+                time_in_force   AS TimeInForce,
+                state,
+                placed_by       AS PlacedBy,
+                filled_qty      AS FilledQty,
+                avg_fill_price  AS AvgFillPrice,
+                cancelled_reason AS CancelledReason,
+                created_at_utc  AS CreatedAtUtc,
+                last_state_change_at_utc AS LastStateChangeAtUtc
+            FROM oms_orders
+            WHERE id = @orderId FOR UPDATE;",
+            new { orderId }, transaction: tx);
+        if (parent is null) return false;
+        // Only a terminal/partially-filled order can be backfilled — never an
+        // open order (its price arrives through the normal fill path).
+        if (parent.State != OmsState.Filled && parent.State != OmsState.PartiallyFilled)
+            return false;
+        // Never overwrite a real price — only fill the gap left by a 0/null.
+        if (parent.AvgFillPrice is decimal a && a > 0m)
+            return false;
+
+        await conn.ExecuteAsync(@"
+            UPDATE oms_orders SET avg_fill_price = @price WHERE id = @orderId;",
+            new { orderId, price }, transaction: tx);
+        // Patch the zero-price fill chunk(s) so per-fill analytics agree.
+        await conn.ExecuteAsync(@"
+            UPDATE oms_fills SET price = @price
+            WHERE order_id = @orderId AND (price IS NULL OR price = 0);",
+            new { orderId, price }, transaction: tx);
+
+        await InsertEventAsync(conn, tx, orderId,
+            eventType: "FILL_PRICE_BACKFILL",
+            priorState: parent.State,
+            newState: parent.State,
+            actor: actor,
+            detail: new { price });
+
+        await tx.CommitAsync();
+        return true;
+    }
+
     public async Task<IReadOnlyList<OmsPosition>> ListPositionsAsync(string? strategyId)
     {
         await using var conn = await _db.OpenConnectionAsync();

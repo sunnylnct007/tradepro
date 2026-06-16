@@ -173,6 +173,67 @@ public sealed class OmsFillPoller : BackgroundService
             try { await Task.Delay(_perOrderDelay, ct); }
             catch (OperationCanceledException) { return; }
         }
+
+        // 4. Backfill sweep — FILLED T212 orders recorded at price 0 because
+        //    T212 aged the order out of its hot cache before the poller could
+        //    capture the price. Re-look-up each in /equity/history/orders
+        //    (which carries the direct fillPrice) and patch avg_fill_price
+        //    WITHOUT touching qty/state. Bounded to recent orders (history
+        //    only retains the last ~250) + LIMIT 10/tick + the same 1.1s
+        //    pacing, so it chips away without tripping T212's rate limit.
+        //    Successful rows leave the set (price no longer 0); only orders
+        //    genuinely missing from history are re-tried.
+        var zeroPriced = (await conn.QueryAsync<(Guid OrderId, string BrokerId)>(@"
+            SELECT id AS OrderId, broker_order_id AS BrokerId
+            FROM oms_orders
+            WHERE broker = 'T212_DEMO'
+              AND state IN ('FILLED', 'PARTIALLY_FILLED')
+              AND broker_order_id IS NOT NULL
+              AND (avg_fill_price IS NULL OR avg_fill_price = 0)
+              AND created_at_utc > NOW() - INTERVAL '3 days'
+            ORDER BY created_at_utc DESC
+            LIMIT 10;")).ToList();
+        if (zeroPriced.Count > 0)
+            _log.LogInformation(
+                "OmsFillPoller: backfill sweep — {Count} FILLED T212 order(s) at price 0 to reconcile",
+                zeroPriced.Count);
+        foreach (var (orderId, brokerIdRaw) in zeroPriced)
+        {
+            if (ct.IsCancellationRequested) return;
+            if (!long.TryParse(brokerIdRaw, out var brokerId)) continue;
+            try
+            {
+                var status = await demo.GetOrderStatusAsync(brokerId, ct);
+                if (status is null) continue;
+                var price = status.FillPrice is decimal fp && fp > 0m
+                    ? fp
+                    : (status.FilledValue is decimal v
+                        && status.FilledQuantity is decimal q
+                        && q > 0) ? v / q : 0m;
+                if (price > 0m)
+                {
+                    var ok = await oms.BackfillFillPriceAsync(
+                        orderId, price, "poller:T212_DEMO:backfill");
+                    if (ok)
+                        _log.LogInformation(
+                            "OmsFillPoller: backfilled fill price {Price} for order {OrderId} "
+                            + "from T212 history", price, orderId);
+                }
+                else
+                {
+                    _log.LogDebug(
+                        "OmsFillPoller: order {OrderId} still has no price in T212 history "
+                        + "(too old / aged past the ~250-order window) — leaving at 0", orderId);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.LogWarning(ex,
+                    "OmsFillPoller: backfill lookup failed for {OrderId}", orderId);
+            }
+            try { await Task.Delay(_perOrderDelay, ct); }
+            catch (OperationCanceledException) { return; }
+        }
     }
 
     private async Task ReconcileAsync(
@@ -187,22 +248,31 @@ public sealed class OmsFillPoller : BackgroundService
         {
             case "FILLED":
                 {
-                    // Record the fill if not already recorded. avg
-                    // price = filledValue / filledQuantity when both
-                    // are present; otherwise leave price 0 and let
-                    // operator reconcile manually later.
+                    // Record the fill. Price preference:
+                    //   1. T212's direct fillPrice (history endpoint) — canonical
+                    //   2. filledValue / filledQuantity (live endpoint)
+                    //   3. 0 as last resort (the backfill sweep retries from history)
                     var qty = status.FilledQuantity ?? declaredQty;
-                    var avg = (status.FilledValue is decimal v
-                        && status.FilledQuantity is decimal q
-                        && q > 0) ? v / q : 0m;
+                    var avg = status.FillPrice is decimal fp && fp > 0m
+                        ? fp
+                        : (status.FilledValue is decimal v
+                            && status.FilledQuantity is decimal q
+                            && q > 0) ? v / q : 0m;
                     await oms.RecordFillAsync(
                         orderId, qty: qty, price: avg, fee: 0m,
                         currency: "USD",
                         brokerFillId: status.BrokerOrderId.ToString(),
                         actor: "poller:T212_DEMO");
-                    _log.LogInformation(
-                        "OmsFillPoller: order {OrderId} FILLED qty={Qty} avg={Avg}",
-                        orderId, qty, avg);
+                    if (avg == 0m)
+                        _log.LogWarning(
+                            "OmsFillPoller: order {OrderId} FILLED but T212 gave no usable "
+                            + "price (fillPrice={Fp} filledValue={Fv} filledQty={Fq}) — recorded "
+                            + "0, backfill sweep will retry from history",
+                            orderId, status.FillPrice, status.FilledValue, status.FilledQuantity);
+                    else
+                        _log.LogInformation(
+                            "OmsFillPoller: order {OrderId} FILLED qty={Qty} avg={Avg}",
+                            orderId, qty, avg);
                     break;
                 }
             case "CANCELLED":

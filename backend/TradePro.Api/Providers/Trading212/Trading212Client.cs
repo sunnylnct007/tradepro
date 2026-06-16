@@ -438,7 +438,12 @@ public sealed record Trading212OrderStatus(
     decimal? FilledQuantity,
     decimal? FilledValue,
     int HttpStatus,
-    string? Error);
+    string? Error,
+    // T212's per-order execution price. On /equity/history/orders this is
+    // the direct `fillPrice` (and `fillCost` = total). The live /orders/{id}
+    // endpoint usually omits it (only filledValue/filledQuantity), so the
+    // poller prefers FillPrice when present and falls back to value/qty.
+    decimal? FillPrice = null);
 
 /// <summary>Account cash snapshot from /equity/account/cash.
 /// Free = available to trade; Invested = already deployed in

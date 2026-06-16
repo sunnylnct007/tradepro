@@ -395,4 +395,55 @@ public sealed class OmsServiceTest
         Assert.Empty(expired);
         Assert.Equal(OmsState.Submitted, (await oms.GetAsync(row.Id))!.State);
     }
+
+    [Fact]
+    public async Task Backfill_sets_price_on_a_FILLED_order_recorded_at_zero()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");
+        // Full fill recorded at price 0 — T212 aged the order out before the
+        // poller could capture the price.
+        var filled = await oms.RecordFillAsync(
+            row.Id, 10m, 0m, 0m, "USD", "fill-0", "poller:T212_DEMO");
+        Assert.Equal(OmsState.Filled, filled.State);
+        Assert.Equal(0m, filled.AvgFillPrice);
+
+        var ok = await oms.BackfillFillPriceAsync(row.Id, 187.5m, "poller:T212_DEMO:backfill");
+
+        Assert.True(ok);
+        var after = (await oms.GetAsync(row.Id))!;
+        Assert.Equal(187.5m, after.AvgFillPrice);
+        Assert.Equal(OmsState.Filled, after.State);        // state untouched
+        Assert.Equal(filled.FilledQty, after.FilledQty);   // qty untouched
+        var events = await oms.ListEventsAsync(row.Id);
+        Assert.Contains(events, e => e.EventType == "FILL_PRICE_BACKFILL");
+    }
+
+    [Fact]
+    public async Task Backfill_never_overwrites_a_real_fill_price()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");
+        await oms.RecordFillAsync(row.Id, 10m, 100m, 0m, "USD", "fill-1", "broker");
+
+        var ok = await oms.BackfillFillPriceAsync(row.Id, 999m, "poller:T212_DEMO:backfill");
+
+        Assert.False(ok);
+        Assert.Equal(100m, (await oms.GetAsync(row.Id))!.AvgFillPrice);
+    }
+
+    [Fact]
+    public async Task Backfill_is_a_noop_for_a_non_terminal_order()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");   // SUBMITTED, not filled
+
+        var ok = await oms.BackfillFillPriceAsync(row.Id, 50m, "poller:T212_DEMO:backfill");
+
+        Assert.False(ok);
+        Assert.Null((await oms.GetAsync(row.Id))!.AvgFillPrice);
+    }
 }

@@ -285,7 +285,8 @@ public sealed class Trading212DemoClient
                 FilledQuantity: Num("filledQuantity"),
                 FilledValue: Num("filledValue"),
                 HttpStatus: (int)resp.StatusCode,
-                Error: null);
+                Error: null,
+                FillPrice: Num("fillPrice"));
         }
         catch (Exception ex)
         {
@@ -378,15 +379,24 @@ public sealed class Trading212DemoClient
                     // T212 history uses values like "FILLED", "CANCELLED",
                     // "REJECTED", "PARTIALLY_FILLED". Pass through as-is —
                     // OmsFillPoller knows how to map.
+                    // Prefer T212's direct fillPrice; derive from fillCost /
+                    // filledQuantity when only the total is present. This is
+                    // the canonical execution price for an aged-out order.
+                    var histFq = Num("filledQuantity");
+                    decimal? histFillPrice = Num("fillPrice");
+                    if (histFillPrice is null && Num("fillCost") is decimal fc
+                        && histFq is decimal fq && fq > 0)
+                        histFillPrice = fc / fq;
                     return new Trading212OrderStatus(
                         BrokerOrderId: brokerOrderId,
                         Status: status,
                         Ticker: Str("ticker"),
                         Quantity: Num("orderedQuantity") ?? Num("quantity"),
-                        FilledQuantity: Num("filledQuantity"),
+                        FilledQuantity: histFq,
                         FilledValue: Num("filledValue"),
                         HttpStatus: 200,
-                        Error: null);
+                        Error: null,
+                        FillPrice: histFillPrice);
                 }
             }
             // Cursor for next page (T212 returns nextPagePath which

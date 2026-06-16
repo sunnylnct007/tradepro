@@ -69,6 +69,15 @@ public interface IOmsService
         string actor,
         FillSnapshot? snapshot = null);
 
+    /// <summary>Backfill the execution price on an ALREADY-FILLED order whose
+    /// avg_fill_price is missing/zero (T212 aged the order out before the
+    /// poller could capture the price, so it was recorded at 0). Sets
+    /// avg_fill_price on the parent and patches any zero-price oms_fills rows,
+    /// WITHOUT changing qty or state. No-op (returns false) if the order isn't
+    /// terminal, isn't found, or already has a real price — we never overwrite
+    /// a genuine fill price. Returns true when a correction was applied.</summary>
+    Task<bool> BackfillFillPriceAsync(Guid orderId, decimal price, string actor);
+
     /// <summary>Event trail for an order, oldest first.</summary>
     Task<IReadOnlyList<OmsOrderEvent>> ListEventsAsync(Guid orderId);
 
