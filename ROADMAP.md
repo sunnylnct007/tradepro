@@ -127,14 +127,42 @@ The clone is **SWING** but the daemon **reruns every ~15 min**. A placed OPG/MOO
   gemma labels right but sometimes signs the number wrong). Fixed a latent bug: prior
   `finance-llama-3-8b` wasn't pulled in Ollama → scoring silently failed on real news.
 
-### 🔜 NEXT (Decide module — the VISIBLE half, deliberately deferred)
-The backend now has one canonical verdict. The remaining piece is the **scan grid
+### ✅ SHIPPED 2026-06-16 (eve) — Research shows the canonical verdict + multi-broker harmonization
+Two features, both committed (`e4c5b4b`, `b7b5bb6`), build+tsc+matcher-tests green.
+- **One canonical verdict on Research (kills Decide↔Research contradiction).** Root cause:
+  only Decide ran `shared_verdict`; Research ran a SEPARATE live C# `SignalEngine` (raw votes,
+  no demotions, BUY/SELL/HOLD vocab). Now Research leads with the canonical BUY/WAIT/AVOID +
+  the swing/short/long **timeline** + conviction, computed by the SAME `compare()`/shared_verdict
+  pipeline. Two serving paths:
+  - **`GET /api/compare/verdict?symbol=`** (PROD DEFAULT) — reads the canonical row straight from
+    the cached compare payloads Decide already serves (`ICompareStore`); same data → can't disagree.
+    404 when the symbol isn't in a compared universe.
+  - **`GET /api/symbol-analysis/{ticker}/verdict`** → Python sidecar runs `compare([symbol])` LIVE
+    for ANY symbol (fallback). ⚠️ **Sidecar (`tradepro-analysis-server`) is NOT deployed** — no
+    `analysis` service in compose.yaml / docker-compose.aws.yaml, no launchd agent. The existing
+    SymbolAnalysisCard already depends on it, so it's dev-only today. Heavy Python lives on the Mac
+    by design and EC2 can't pull from the Mac (Mac→EC2 push only), so the live path needs a
+    deployment decision: run the sidecar on the Mac + a reverse tunnel, OR keep prod on the cached
+    path only. **The cached path makes the user's reported contradiction go away in prod without it.**
+  - Research's old per-strategy "consensus" card is reframed as raw attribution behind the verdict.
+- **Multi-broker symbol harmonization (foundation).** ISIN is now actually the canonical key:
+  `universe_symbols.isin` (migration 048), `BrokerInstrument.ShortName` bridges re-tickered names
+  (JEF→LUK_US_EQ resolves by exact ticker, no low-confidence name match), builder backfills
+  `universe_symbols.isin` from trusted matches, and `/api/instruments/t212/tradeable` availability is
+  union(catalog roots, `broker_ticker_map` source_tickers) so the desk skips genuinely-absent names
+  but KEEPS re-tickered ones. **Run `POST /api/admin/instruments/rebuild-map?broker=T212_DEMO` after
+  deploy** to populate ISINs + shortName matches (still manual; the daily morning scan daemon is the
+  next harmonization chunk, not built).
+
+### 🔜 NEXT (Decide module — the VISIBLE half, partly done)
+Research now shows the canonical verdict. The remaining piece is the **scan grid
 (`SymbolScanGrid.tsx`) showing the strategy runner's `fire/skip` action while the Decide
 panel shows the compare `bucket`** — two different semantics side-by-side = the visible
 TCS-style contradiction. Fix = surface the canonical `bucket` on the scan grid alongside
 the strategy action, with an explainer when they diverge (strategy DID fire vs analytical
 verdict says WAIT). Needs: thread compareLatest bucket into the grid, join by symbol,
-divergence tooltip. Its own focused session (explainability design required).
+divergence tooltip. Its own focused session (explainability design required). Reuse the new
+`/api/compare/verdict?symbol=` endpoint.
 
 ### 🔜 NEXT — T212 fill price = 0 on genuinely-FILLED orders (2026-06-16)
 **Done today (deployed):** pre-flight T212 instrument check in `ApproveAsync` — un-tradeable
