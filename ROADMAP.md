@@ -33,6 +33,77 @@ Persisted so a new session picks up with ZERO chat history ([[feedback_focused_s
 cross-surface contradictions); (b) sentiment→gemma flip + verify; (c) FX ATR-stop overlay w/ quant;
 (d) intraday-native build. Pick 1–2, complete, persist, deploy, fresh session.
 
+## 🛑 HONEST STATE — "SYSTEM NOT FIT AS IT STANDS" (user, 2026-06-16)
+A long day of symptom-patching (T212 rejections, fill price = 0, balance regressions, a
+self-inflicted deploy outage) surfaced that we've been **patching on top of an unfit
+foundation**. Stop the patch-treadmill. The fitness gaps, deepest-first:
+
+1. **Data foundation (deepest).** IBKR harvest INCOMPLETE → no credible backtest; bar
+   cache has holes (MU not cached, garbage bars, yfinance-vs-broker price divergence).
+   Everything sits on this. *You can't validate a strategy without trustworthy data.*
+2. **Execution correctness.** OMS doesn't faithfully mirror reality: T212 rejects
+   un-tradeable/mismapped tickers, EVERY fill price records 0, FX clone sent invalid OPG
+   on forex, IBKR clone contends on one Gateway.
+3. **Trust / coherence.** Cross-surface verdict contradictions, fill-price-vs-P&L
+   confusion, balance display regressions.
+4. **Ops fragility.** No clean hands-off deploy; CI/CD is the ONLY deploy path
+   ([[feedback_never_manual_deploy_use_cicd]]) — manual SSM deploy broke the site today.
+5. **Strategy validity.** intraday_flat wrong-design, FX v1 design-limited, equity chases
+   tops — all unproven until 1–3 are solid.
+
+### ✅ STABILIZATION SEQUENCE (foundation-first — do in this order, fresh sessions)
+1. **Trading side: multi-broker SYMBOL HARMONIZATION (START HERE — user's call).**
+2. Data integrity: complete IBKR harvest (2nd Gateway / separate paper user for data) +
+   trustworthy bar cache (cache coverage incl. names like MU, garbage-bar guard on the
+   live bus, resolve yf-vs-broker divergence).
+3. Execution correctness: faithful fills (proper fill price — see below) + clean order flow.
+4. Backtest-driven strategy validation (needs 1–3).
+5. Trust indicators throughout.
+
+### 🔜 NEXT SESSION #1 — MULTI-BROKER SYMBOL HARMONIZATION (the trading-side fix)
+**Goal:** a strategy emits ONE canonical symbol; the OMS deterministically resolves the
+correct per-broker code (T212 `AAPL_US_EQ`, IG epic, IBKR conid) before placing — so we
+can run the SAME strategy across multiple brokers whose symbol namespaces differ, with no
+rejections from mismapped/unavailable tickers.
+
+**What already exists (build on it, don't rebuild):**
+- `broker_ticker_map` table `(broker, source_ticker, broker_ticker, note)` — migration
+  `040_broker_ticker_map_jef.sql` (only manual exceptions today, e.g. JEF→LUK_US_EQ).
+- `backend/.../Oms/SymbolHarmonization.cs` (`BareSourceTicker`, `ToBrokerTicker`) +
+  `PostgresOmsService.ResolveBrokerSymbolAsync` — applied at the placement boundary.
+- `Trading212InstrumentsService` (cached T212 instrument registry, has ISIN/ticker/name).
+- Today's pre-flight catalog gate in `ApproveAsync` (skips tickers absent from T212's
+  catalog) — a stopgap; harmonization makes it mostly unnecessary.
+
+**The gap / the work:**
+- The map is sparse + relies on a `_US_EQ` suffix GUESS → CPRI/HIMS/RRX/COHR (and JEF
+  before its manual fix) fall through to wrong/missing codes → 404/400 rejections.
+- **Populate the per-broker symbol table COMPREHENSIVELY from each broker's instrument
+  registry, keyed on a canonical identity — ISIN is the natural key** (T212/IG/IBKR all
+  expose ISIN). Canonical symbol ↔ ISIN ↔ {T212 ticker, IG epic, IBKR conid, …}.
+- Where a broker has no instrument for a canonical symbol, mark it **unavailable for that
+  broker** so the strategy/desk SKIPS it (no order emitted) — not enqueue-then-reject.
+- Keep it config/DB-driven + UI-editable ([[feedback_config_driven_no_hardcoding]],
+  [[feedback_ui_configurable_everywhere]]); seed from registries, allow manual overrides.
+- Result: no more "ticker does not exist"/"disabled" rejections; clean OMS; ready for
+  genuinely multi-broker routing.
+
+**DAILY MORNING HARMONIZATION SCAN (user, 2026-06-16):** the map must be REFRESHED every
+morning before the session — broker instrument lists drift (new listings, delistings,
+re-tickers e.g. JEF→LUK, enable/disable). Build a scheduled daemon (mirror the existing
+`refresh-universes` launchd pattern + its EC2 push) that, each morning pre-open:
+  1. pulls each broker's instrument registry (T212 instruments; IG epics; IBKR conids),
+  2. re-keys canonical↔broker by ISIN, upserting `broker_ticker_map`,
+  3. flags newly-unavailable / disabled instruments per broker (so desks skip them),
+  4. reports a coverage summary (how many universe symbols resolve per broker, what's
+     missing) to the Data-Health/Harvest screen so gaps are VISIBLE, not silent.
+Run it BEFORE the strategy desks (ordering like refresh-universes → paper-*). Config-driven,
+idempotent, manual-override-safe.
+
+### 🔜 Also open (after harmonization): T212 fill price = 0 on genuinely-FILLED orders
+See the dedicated task lower in this file — separate pipeline from P&L/entry-price;
+confirm whether T212 returns per-order execution price at all before choosing the fix.
+
 ## SESSION STATE — 2026-06-12 (Thursday — measurement plumbing, harvest unblocked, swing-vs-intraday cadence)
 
 ### ✅ Shipped
