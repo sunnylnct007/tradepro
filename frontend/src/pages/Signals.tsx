@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { CorporateActionMarker, EarningsMarker, HitRateResult, InsiderTrade, SignalDecision, Watchlist } from "../api/types";
+import type { CanonicalVerdict, CorporateActionMarker, EarningsMarker, HitRateResult, InsiderTrade, SignalDecision, Watchlist } from "../api/types";
 import { config } from "../config";
 import { Info } from "../components/Info";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
@@ -48,6 +48,14 @@ export function Signals() {
   const [multi, setMulti] = useState<MultiResult | null>(null);
   const [multiLoading, setMultiLoading] = useState(false);
 
+  // Canonical verdict — the SAME BUY/WAIT/AVOID + timeline the Decide page
+  // produces, computed live for this symbol via the shared compare()
+  // pipeline. This is the authoritative answer; the per-strategy card below
+  // is the raw attribution that feeds it. Fetched alongside the strategy run.
+  const [verdict, setVerdict] = useState<CanonicalVerdict | null>(null);
+  const [verdictLoading, setVerdictLoading] = useState(false);
+  const [verdictError, setVerdictError] = useState<string | null>(null);
+
   // Chart overlay data: earnings, corporate actions, insider buys.
   // All three fetched in parallel on symbol change; silent failure on each
   // → chart still renders, just without those particular marker types.
@@ -92,6 +100,21 @@ export function Signals() {
     setMultiLoading(true);
     setError(null);
     setMulti(null);
+    // Kick off the canonical verdict in parallel with the fast per-strategy
+    // signals. Prefer the CACHED compare payload (same data + pipeline as
+    // Decide → guaranteed consistent, prod-available, instant). If the symbol
+    // isn't in any compared universe, fall back to the LIVE sidecar (any
+    // symbol, fresher, but needs the analysis sidecar running).
+    setVerdict(null);
+    setVerdictError(null);
+    setVerdictLoading(true);
+    api.symbolVerdictCached(symbol)
+      .then(setVerdict)
+      .catch(() =>
+        api.symbolVerdict(symbol)
+          .then(setVerdict)
+          .catch((e) => setVerdictError(String(e))))
+      .finally(() => setVerdictLoading(false));
     // Strategy params reuse the per-strategy state already on the
     // page (fast/slow, RSI bands, MACD triplet, donchian lookback).
     // buy_and_hold takes no params.
@@ -165,10 +188,11 @@ export function Signals() {
         <h1 style={{ margin: 0, fontSize: 24 }}>Research — single-symbol signal</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0", maxWidth: 880, lineHeight: 1.55 }}>
           <strong style={{ color: "var(--text)" }}>What this page does:</strong>{" "}
-          Pick a symbol, run all strategies in parallel, see the consensus
-          BUY / SELL / HOLD with the live indicators (RSI, SMA20/50/200, distance
-          from 52w high/low) behind the call. Plus a 10-year hit-rate showing how
-          often this strategy combo would have been profitable historically.
+          Pick a symbol, run every strategy on it, and get the canonical
+          BUY / WAIT / AVOID verdict — plus the trade timeline (swing /
+          short / long term) and the per-strategy signals behind it. The
+          verdict is computed live by the <em>same pipeline the Decide page
+          uses</em>, so the two never disagree.
         </p>
         <p style={{ color: "var(--text-muted)", margin: "8px 0 0 0", maxWidth: 880, fontSize: 12, lineHeight: 1.55 }}>
           <strong>Research vs Backtest:</strong> Research answers <em>"what's the
@@ -177,13 +201,12 @@ export function Signals() {
           for live decisions; Backtest to validate a strategy before trusting it.
         </p>
         <p style={{ color: "var(--text-muted)", margin: "6px 0 0 0", maxWidth: 880, fontSize: 12, lineHeight: 1.55 }}>
-          <strong>Research vs Decide:</strong> Research runs the strategies live
-          on this symbol the moment you click "Run". Decide reads the cached
-          worker-refresh snapshot (typically 0–24h old) and applies
-          extra filters — sentiment demotion, horizon split, range veto —
-          before issuing a bucket. So the same symbol can show BUY on Research
-          and WAIT on Decide if (a) the filters demoted it, or (b) the snapshot
-          is from a different price action than now.
+          <strong>Research vs Decide:</strong> Both now compute the verdict the
+          SAME way (the shared multi-strategy pipeline with sentiment, range
+          and earnings demotions). Research runs it live the moment you click
+          "Run"; Decide serves the cached worker-refresh snapshot (typically
+          0–24h old) across a whole universe. Same logic — so any difference is
+          purely data freshness (live vs the last snapshot), not a contradiction.
         </p>
       </div>
 
@@ -336,6 +359,15 @@ export function Signals() {
         >
           {error}
         </div>
+      )}
+
+      {(verdict || verdictLoading || verdictError) && (
+        <CanonicalVerdictCard
+          verdict={verdict}
+          loading={verdictLoading}
+          error={verdictError}
+          symbol={symbol}
+        />
       )}
 
       {multi && <MultiStrategyCard result={multi} symbol={symbol} />}
@@ -573,6 +605,93 @@ function Stat({ label, value, tone, help }: { label: string; value: string; tone
 }
 
 // ---------------------------------------------------------------------------
+// Canonical verdict banner — the AUTHORITATIVE BUY/WAIT/AVOID + timeline,
+// computed live by the SAME compare() pipeline the Decide page uses, so
+// Research and Decide can never contradict. The per-strategy card below is
+// the raw attribution that feeds this verdict.
+// ---------------------------------------------------------------------------
+function CanonicalVerdictCard({
+  verdict, loading, error, symbol,
+}: {
+  verdict: CanonicalVerdict | null;
+  loading: boolean;
+  error: string | null;
+  symbol: string;
+}) {
+  const colour =
+    verdict?.bucket === "BUY" ? "var(--up)"
+    : verdict?.bucket === "AVOID" ? "var(--down)"
+    : "var(--neutral)";
+
+  return (
+    <section className="card" style={{ borderLeft: `4px solid ${verdict ? colour : "var(--border)"}` }}>
+      <div className="stat-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        Verdict
+        <Info k="canonical_verdict" />
+      </div>
+
+      {loading && !verdict && (
+        <div style={{ marginTop: 8, color: "var(--text-dim)", fontSize: 14 }}>
+          Computing canonical verdict (full pipeline — backtests + market state + news)… this takes ~15–30s.
+        </div>
+      )}
+
+      {error && !verdict && (
+        <div style={{ marginTop: 8, color: "var(--down)", fontSize: 13 }}>
+          Canonical verdict unavailable: {error}
+          <div style={{ color: "var(--text-muted)", marginTop: 4 }}>
+            The per-strategy signals below are still live. The verdict needs the analysis sidecar running.
+          </div>
+        </div>
+      )}
+
+      {verdict && (
+        <>
+          <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 30, fontWeight: 700, color: colour, letterSpacing: "0.04em" }}>
+              {verdict.bucket ?? "—"}
+            </span>
+            <span style={{ fontSize: 13, color: "var(--text-dim)" }}>
+              <strong>{symbol}</strong>
+              {verdict.long_count != null && verdict.total != null && (
+                <> · {verdict.long_count} of {verdict.total} strategies long</>
+              )}
+              {verdict.conviction && <> · conviction {verdict.conviction}</>}
+            </span>
+            {verdict.horizon_label && (
+              <span
+                title="Timeline of the best-fit strategy driving this verdict — how long the trade is meant to be held."
+                style={{
+                  fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 999,
+                  background: "var(--surface-2, rgba(255,255,255,0.06))", color: "var(--text)", cursor: "help",
+                }}
+              >
+                {verdict.horizon_label}
+              </span>
+            )}
+          </div>
+
+          {verdict.bucket_reason && (
+            <div style={{ marginTop: 8, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.5 }}>
+              {verdict.bucket_reason}
+            </div>
+          )}
+
+          {verdict.earnings_suppressed && (
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--warn, #d49b00)" }}>
+              ⚠ Earnings within 7 days — BUY suppressed to WAIT (post-print gap risk).
+            </div>
+          )}
+
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
+            Same verdict the Decide page shows — computed live, just now.
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 // Multi-strategy consensus — runs all strategies on the chosen symbol in
 // parallel and produces a Decide-page-style verdict for any symbol (not
 // just cached universes). Avoids the friction of "pick a strategy, run it,
@@ -650,7 +769,7 @@ function MultiStrategyCard({ result, symbol }: { result: MultiResult; symbol: st
     <section className="card" style={{ borderLeft: `4px solid ${colour}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
         <div>
-          <div className="stat-label">Multi-strategy consensus</div>
+          <div className="stat-label">Per-strategy signals (live) — attribution behind the verdict</div>
           <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
             <span style={{ fontSize: 28, fontWeight: 700, color: colour, letterSpacing: "0.04em" }}>
               {result.consensus}

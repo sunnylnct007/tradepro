@@ -187,6 +187,12 @@ export const HELP: Record<string, HelpEntry> = {
     body:
       "Whether today falls inside any of the 13 named historical stress windows tracked by the system (GFC, COVID, 2022 rate shock, 2025 tariff shock, …). When active, treat BUYs with extra caution.",
   },
+  canonical_verdict: {
+    title: "Canonical verdict",
+    body:
+      "The authoritative BUY / WAIT / AVOID call for this symbol, computed live by the SAME multi-strategy pipeline the Decide page uses — strategy consensus plus sentiment, range and earnings demotions. Research and Decide therefore show the same verdict; any difference is only data freshness (live vs the last cached snapshot). The strategy table below is the raw attribution behind it.",
+    href: "#bucket-vote",
+  },
   strategy_vote: {
     title: "Strategy consensus (X / N)",
     body:

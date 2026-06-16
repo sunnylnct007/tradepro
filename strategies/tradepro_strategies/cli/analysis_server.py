@@ -39,6 +39,96 @@ from ..core_portfolio import build_symbol_analysis_card
 _log = logging.getLogger("tradepro.cli.analysis_server")
 
 
+# Friendly label for the per-strategy horizon token the comparator attaches
+# (factor_types.Horizon). This is the "is it a swing / short / long-term
+# trade?" timeline the user asked for, surfaced verbatim from the same
+# classification Decide uses — never a parallel definition.
+_HORIZON_LABEL = {
+    "intraday":    "Intraday",
+    "swing":       "Swing (days–weeks)",
+    "medium_term": "Short-term (weeks–months)",
+    "long_term":   "Long-term (months–years)",
+}
+
+
+def _compute_canonical_verdict(symbol: str, lookback_years: int) -> dict:
+    """Run the FULL comparator pipeline for ONE symbol, live, and return its
+    canonical verdict.
+
+    This is the single source of truth that kills cross-surface
+    contradictions: Decide reads the comparator's cached batch output, and
+    this runs the IDENTICAL ``compare()`` function for one ad-hoc symbol on
+    demand. Same bucket, same demotions, same horizon — only fresher. No
+    logic is re-implemented here; we just restrict the symbol list to one
+    and lift the canonical row out of the payload.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from ..compare import CompareConfig, StrategySpec, compare
+    from ..strategies import available
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=365 * max(int(lookback_years), 1))
+    strategies = [StrategySpec(name=n) for n in available()]
+    payload = compare([symbol], strategies, start, end, CompareConfig())
+
+    rows = [r for r in (payload.get("rows") or [])
+            if (r.get("symbol") or "").upper() == symbol.upper()]
+    if not rows:
+        errs = payload.get("errors") or []
+        detail = next((e.get("error") for e in errs
+                       if (e.get("symbol") or "").upper() == symbol.upper()), None)
+        raise HTTPException(
+            status_code=422,
+            detail=f"no verdict for {symbol!r}"
+                   + (f": {detail}" if detail else " (no price data?)"))
+
+    # The comparator ranks rows; rank 1 is the best-fit strategy whose
+    # market_state/horizon drives the symbol-level bucket. _attach_bucket_
+    # and_rationale stamps the SAME bucket/conviction on every row for the
+    # symbol, so any row carries the canonical verdict — pick the top-ranked.
+    rows.sort(key=lambda r: r.get("rank", 1e9))
+    best = rows[0]
+    horizon = best.get("horizon")
+
+    # Per-strategy attribution — the whole point per the user: "evaluating
+    # different strategies for the symbol to decide buy/sell/hold". Each
+    # strategy's own latest action + how it backtested + its horizon.
+    attribution = [
+        {
+            "strategy":         r.get("strategy"),
+            "label":            r.get("strategy_label") or r.get("strategy"),
+            "action":           r.get("current_action"),     # BUY/SELL/HOLD on the latest bar
+            "in_position":      r.get("in_position"),
+            "horizon":          r.get("horizon"),
+            "strategy_type":    r.get("strategy_type"),
+            "excluded_for_fit": r.get("excluded_for_fit"),
+            "sharpe":           (r.get("stats") or {}).get("sharpe"),
+            "cagr_pct":         (r.get("stats") or {}).get("cagr_pct"),
+            "total_return_pct": (r.get("stats") or {}).get("total_return_pct"),
+        }
+        for r in rows
+    ]
+
+    return {
+        "symbol":             symbol.upper(),
+        "fetched_at":         end.isoformat(),
+        "bucket":             best.get("bucket"),            # BUY / WAIT / AVOID (canonical)
+        "bucket_reason":      best.get("bucket_reason"),
+        "conviction":         best.get("conviction"),
+        "conviction_reason":  best.get("conviction_reason"),
+        "horizon":            horizon,                       # swing / medium_term / long_term
+        "horizon_label":      _HORIZON_LABEL.get(horizon, horizon),
+        "long_count":         best.get("long_count"),
+        "total":              best.get("total"),
+        "earnings_suppressed": best.get("earnings_suppressed"),
+        "news_context":       best.get("news_context"),
+        "market_state":       best.get("market_state"),
+        "strategies":         attribution,
+        "_source":            f"live://canonical_verdict/{symbol.upper()}",
+    }
+
+
 def _api_base() -> str:
     return os.environ.get("TRADEPRO_API_URL", "http://localhost:5080").rstrip("/")
 
@@ -89,6 +179,23 @@ def build_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok", "service": "tradepro-analysis"}
+
+    @app.get("/symbol/{ticker}/verdict")
+    def symbol_verdict(ticker: str, lookback_years: int = 5) -> dict:
+        """CANONICAL multi-strategy verdict for one symbol, computed LIVE via
+        the same ``compare()`` pipeline Decide uses — so Research and Decide
+        can never contradict. Returns BUY/WAIT/AVOID + conviction + the
+        swing/short/long timeline + per-strategy attribution. ~15-30s
+        (5 backtests + market_state + news/sentiment per symbol)."""
+        symbol = (ticker or "").strip().upper()
+        if not symbol:
+            raise HTTPException(status_code=400, detail="ticker is required")
+        try:
+            return _compute_canonical_verdict(symbol, lookback_years)
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"verdict failed: {e}")
 
     @app.get("/symbol/{ticker}/analysis")
     def symbol_analysis(

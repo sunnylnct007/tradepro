@@ -988,3 +988,37 @@ export interface InsiderTradesResponse {
   lookback_days: number;
   trades: InsiderTrade[];
 }
+
+/** One strategy's contribution to the canonical verdict (attribution). */
+export interface CanonicalVerdictStrategy {
+  strategy: string | null;
+  label: string | null;
+  action: "BUY" | "SELL" | "HOLD" | null;   // the strategy's latest-bar signal
+  in_position: boolean | null;
+  horizon: string | null;                    // intraday | swing | medium_term | long_term
+  strategy_type: string | null;
+  excluded_for_fit: boolean | null;
+  sharpe: number | null;
+  cagr_pct: number | null;
+  total_return_pct: number | null;
+}
+
+/** Canonical multi-strategy verdict for one symbol — computed LIVE by the
+ *  SAME compare() pipeline the Decide page uses, so the two never disagree.
+ *  Carries the BUY/WAIT/AVOID call, conviction, the swing/short/long
+ *  timeline, and per-strategy attribution. */
+export interface CanonicalVerdict {
+  symbol: string;
+  fetched_at: string;
+  bucket: "BUY" | "WAIT" | "AVOID" | null;
+  bucket_reason: string | null;
+  conviction: string | null;
+  conviction_reason: string | null;
+  horizon: string | null;
+  horizon_label: string | null;
+  long_count: number | null;
+  total: number | null;
+  earnings_suppressed: boolean | null;
+  strategies: CanonicalVerdictStrategy[];
+  _source?: string;
+}

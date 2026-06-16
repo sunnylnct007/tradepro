@@ -1,6 +1,7 @@
 import { config } from "../config";
 import { getIdToken } from "../firebase";
 import type {
+  CanonicalVerdict,
   CandleSeries,
   CompareLatestResponse,
   CompareUniverseSummary,
@@ -77,6 +78,20 @@ export const api = {
     post<SimulationResult, SimulationRequest>("/api/simulations/run", req),
   evaluateSignal: (req: SignalRequest) =>
     post<SignalDecision, SignalRequest>("/api/signals/evaluate", req),
+  /** Canonical verdict from the CACHED compare payloads the Decide page
+   *  serves — same data + pipeline, so the two never disagree. Fast,
+   *  prod-available. 404s when the symbol isn't in any compared universe. */
+  symbolVerdictCached: (symbol: string) =>
+    get<CanonicalVerdict>("/api/compare/verdict",
+      { symbol: symbol.trim().toUpperCase() }),
+  /** Canonical multi-strategy verdict computed LIVE for ANY symbol via the
+   *  Python sidecar (same compare() pipeline). Slow (~15-30s) and needs the
+   *  analysis sidecar running — used as a fallback for symbols not in a
+   *  cached universe. */
+  symbolVerdict: (symbol: string, lookbackYears?: number) =>
+    get<CanonicalVerdict>(
+      `/api/symbol-analysis/${encodeURIComponent(symbol.trim().toUpperCase())}/verdict`,
+      lookbackYears ? { lookbackYears } : undefined),
   scanSignals: (req: ScanRequest) =>
     post<ScanResult, ScanRequest>("/api/signals/scan", req),
   hitRate: (req: HitRateRequest) =>

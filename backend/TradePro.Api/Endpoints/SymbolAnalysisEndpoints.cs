@@ -94,6 +94,59 @@ public static class SymbolAnalysisEndpoints
                 return Results.Content(body, "application/json");
             });
 
+        // CANONICAL multi-strategy verdict, computed LIVE for one symbol via
+        // the same compare() pipeline Decide uses — the single source of
+        // truth so Research and Decide can't contradict. Returns BUY/WAIT/
+        // AVOID + conviction + swing/short/long timeline + per-strategy
+        // attribution. Slow (~15-30s): full backtests + market_state +
+        // news/sentiment per symbol, so a generous client timeout.
+        group.MapGet("/{ticker}/verdict",
+            async (string ticker,
+                   int? lookbackYears,
+                   IConfiguration config,
+                   IHttpClientFactory clientFactory,
+                   ILoggerFactory logFactory) =>
+            {
+                if (string.IsNullOrWhiteSpace(ticker))
+                    return Results.BadRequest(new { error = "ticker is required" });
+
+                var sidecarBase = (config["Analysis:Url"] ?? "http://analysis:8002")
+                    .TrimEnd('/');
+                var log = logFactory.CreateLogger("SymbolAnalysisEndpoints");
+
+                var encodedTicker = HttpUtility.UrlEncode(ticker.Trim().ToUpperInvariant());
+                var url = $"{sidecarBase}/symbol/{encodedTicker}/verdict";
+                if (lookbackYears.HasValue)
+                    url += $"?lookback_years={lookbackYears.Value}";
+
+                using var client = clientFactory.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(90);  // 5 backtests + news/sentiment per symbol
+
+                HttpResponseMessage sidecarResp;
+                try
+                {
+                    sidecarResp = await client.GetAsync(url);
+                }
+                catch (Exception ex)
+                {
+                    log.LogError(ex, "analysis sidecar unreachable at {Url}", sidecarBase);
+                    return Results.Problem(
+                        $"Symbol Analysis sidecar is not running. Start it with " +
+                        $"`docker compose --profile analysis up -d analysis` " +
+                        $"(or locally `uv run tradepro-analysis-server`). ({ex.Message})",
+                        statusCode: 502);
+                }
+
+                var body = await sidecarResp.Content.ReadAsStringAsync();
+                if (!sidecarResp.IsSuccessStatusCode)
+                    return Results.Problem(
+                        $"analysis sidecar returned {(int)sidecarResp.StatusCode}: " +
+                        body[..Math.Min(body.Length, 500)],
+                        statusCode: (int)sidecarResp.StatusCode);
+
+                return Results.Content(body, "application/json");
+            });
+
         return app;
     }
 }
