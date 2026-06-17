@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Area,
   Bar,
   BarChart,
   Brush,
@@ -120,12 +121,38 @@ export function PriceHistoryChart({
     if (!series || series.candles.length === 0) return null;
     const candles = series.candles;
     const adj = candles.map((c) => priceOf(c));
-    const data = candles.map((c, i) => ({
-      t: c.timestamp.slice(0, 10),
-      price: priceOf(c),
-      sma200: smaAt(adj, i, 200),
-      volume: c.volume,
-    }));
+    // Ichimoku, computed on the ADJUSTED-close series (so it stays split-
+    // consistent with the plotted line) using close-based donchian midpoints:
+    // tenkan(9), kijun(26), spanA=(tenkan+kijun)/2, spanB(52). This is the
+    // trend lens the equity strategy actually uses — the cloud (between spanA
+    // and spanB) tells you bull (price above) / bear (below) at a glance.
+    // Plotted at the bar (not the traditional +26 forward shift) so "price vs
+    // cloud TODAY" reads directly. Rendered as a shaded band via two stacked
+    // areas (invisible base + filled thickness).
+    const midOver = (i: number, n: number): number | null => {
+      if (i + 1 < n) return null;
+      let hi = -Infinity, lo = Infinity;
+      for (let j = i - n + 1; j <= i; j++) { if (adj[j] > hi) hi = adj[j]; if (adj[j] < lo) lo = adj[j]; }
+      return (hi + lo) / 2;
+    };
+    const data = candles.map((c, i) => {
+      const tenkan = midOver(i, 9);
+      const kijun = midOver(i, 26);
+      const spanA = tenkan != null && kijun != null ? (tenkan + kijun) / 2 : null;
+      const spanB = midOver(i, 52);
+      const haveCloud = spanA != null && spanB != null;
+      return {
+        t: c.timestamp.slice(0, 10),
+        price: priceOf(c),
+        sma200: smaAt(adj, i, 200),
+        volume: c.volume,
+        tenkan,
+        kijun,
+        cloudLo: haveCloud ? Math.min(spanA!, spanB!) : null,
+        cloudFill: haveCloud ? Math.abs(spanA! - spanB!) : null,
+        cloudBull: haveCloud ? spanA! >= spanB! : null,
+      };
+    });
     // 52w window = last ~252 trading days. Track the dates of both
     // extremes so the user can tell whether the floor/ceiling was
     // tested recently (live signal) or months ago (stale).
@@ -406,6 +433,14 @@ export function PriceHistoryChart({
               the user can locate the current bar without squinting. */}
           <ReferenceLine x={lastDate} stroke="rgba(255,255,255,0.45)" strokeDasharray="2 4" ifOverflow="hidden" label={{ value: "today", position: "top", fill: "rgba(255,255,255,0.6)", fontSize: 10 }} />
           <ReferenceDot x={lastDate} y={last} r={4} fill={tone} stroke="white" strokeWidth={1} ifOverflow="hidden" />
+          {/* Ichimoku cloud — shaded band between spanA and spanB, drawn as
+              two stacked areas (invisible base to cloud floor + filled
+              thickness) so it sits BEHIND the price line. Tenkan (fast) +
+              kijun (base) as thin lines; their cross is the entry trigger. */}
+          <Area type="monotone" dataKey="cloudLo" stackId="cloud" stroke="none" fill="none" connectNulls isAnimationActive={false} legendType="none" tooltipType="none" />
+          <Area type="monotone" dataKey="cloudFill" stackId="cloud" stroke="none" fill="var(--neutral)" fillOpacity={0.16} connectNulls name="Ichimoku cloud" isAnimationActive={false} />
+          <Line type="monotone" dataKey="tenkan" stroke="#38bdf8" strokeWidth={1} dot={false} connectNulls name="Tenkan (9)" isAnimationActive={false} />
+          <Line type="monotone" dataKey="kijun" stroke="#f59e0b" strokeWidth={1} dot={false} connectNulls name="Kijun (26)" isAnimationActive={false} />
           <Line type="monotone" dataKey="price" stroke="#cbd2dc" strokeWidth={1.5} dot={false} name="Price (adj)" isAnimationActive={false} />
           <Line type="monotone" dataKey="sma200" stroke="#9b6eff" strokeWidth={1.4} strokeDasharray="6 3" dot={false} name="SMA(200)" isAnimationActive={false} />
           <Brush
@@ -456,7 +491,11 @@ export function PriceHistoryChart({
         solid <span style={{ color: "var(--down)" }}>R</span> /{" "}
         <span style={{ color: "var(--up)" }}>S</span> lines are the nearest
         swing-pivot resistance (ceiling to break) and support (floor to hold)
-        around today's price — the levels to act on. Coloured
+        around today's price — the levels to act on. The shaded band is the
+        Ichimoku cloud (price above = bull, below = bear — the strategy's trend
+        lens); <span style={{ color: "#38bdf8" }}>tenkan(9)</span> /{" "}
+        <span style={{ color: "#f59e0b" }}>kijun(26)</span> crossing is its entry
+        trigger. Coloured
         dots mark when each 52w extreme was hit (live vs stale floor). Volume
         bars below share the brush window — a rally on thick bars shows broad
         participation; thin bars suggest a thin rally. "E" dots = reported
