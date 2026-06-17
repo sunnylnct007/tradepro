@@ -172,6 +172,21 @@ rebuild-map empty, bad tickers shipped to the broker every rerun.
   exact matches now, so subsequent rebuilds pivot on ISIN). The DAILY MORNING HARMONIZATION SCAN daemon
   is still not built — rebuild-map is manual today. IG/IBKR catalogs still not built.
 
+### ✅ SHIPPED 2026-06-17 — orphan position purge + 🔜 reconcile-path harmonization (follow-up)
+- **Orphan purge (`ee8d4a2`):** 23 `(unattributed)` OMS positions (strategy_id NULL broker-sync
+  artifacts no strategy owns — 10 phantom SHORT T212 equities from the old net-short bug + 13 stale
+  IG rows incl. expired WK2EURO options) were verified against the BROKER golden source
+  ([[project_broker_is_golden_source]]): T212 holds zero shorts, IG holds only 1 epic → all 23 phantom.
+  New `POST /api/oms/positions/purge-unattributed` (preview-first, scoped to StrategyId=="(unattributed)"
+  so the real book is never touched; nets to zero via offsetting fills, no history DELETE). Executed:
+  171 → 148 open positions, 0 orphans remaining.
+- **🔜 FOLLOW-UP — reconcile-path symbol harmonization (foundation, not done).** The OMS↔broker diff
+  (`/api/oms/positions/diff`) reports 150/157 "drifted" because it compares OMS `AAPL_US_EQ` against
+  broker bare `AAPL` WITHOUT harmonizing — so the broker-golden reconcile is currently meaningless and
+  the broad `sync-from-broker` flatten is UNSAFE (would zero the real book). Apply the same harmonization
+  shipped today (ISIN/shortName) to `ListPositionsAsync`/diff/sync so the OMS continuously self-corrects
+  to the broker. This is the proper home for [[project_broker_is_golden_source]] on the position path.
+
 ### 🔜 NEXT (Decide module — the VISIBLE half, partly done)
 Research now shows the canonical verdict. The remaining piece is the **scan grid
 (`SymbolScanGrid.tsx`) showing the strategy runner's `fire/skip` action while the Decide
