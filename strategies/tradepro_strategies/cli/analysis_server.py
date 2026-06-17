@@ -120,7 +120,11 @@ def _compute_canonical_verdict(symbol: str, lookback_years: int) -> dict:
         "horizon":            horizon,                       # swing / medium_term / long_term
         "horizon_label":      _HORIZON_LABEL.get(horizon, horizon),
         "long_count":         best.get("long_count"),
-        "total":              best.get("total"),
+        # "N of M strategies long" — M is the compatible-strategy denominator
+        # the comparator stamps as consensus_compatible_count (the same value
+        # the Decide "N of M currently long" line uses).
+        "total":              best.get("consensus_compatible_count")
+                              or best.get("total_strategies"),
         "earnings_suppressed": best.get("earnings_suppressed"),
         "news_context":       best.get("news_context"),
         "market_state":       best.get("market_state"),

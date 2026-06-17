@@ -124,7 +124,9 @@ public static class CompareEndpoints
                 horizon,
                 horizon_label = HorizonLabel(horizon),
                 long_count = Num(bestRow, "long_count"),
-                total = Num(bestRow, "total"),
+                // "N of M strategies long" — M is the compatible-strategy
+                // denominator the comparator stamps as consensus_compatible_count.
+                total = Num(bestRow, "consensus_compatible_count") ?? Num(bestRow, "total_strategies"),
                 earnings_suppressed = Bool(bestRow, "earnings_suppressed"),
                 strategies = attribution,
                 universe = foundUniverse,
