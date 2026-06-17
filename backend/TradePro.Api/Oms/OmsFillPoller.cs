@@ -190,9 +190,13 @@ public sealed class OmsFillPoller : BackgroundService
               AND state IN ('FILLED', 'PARTIALLY_FILLED')
               AND broker_order_id IS NOT NULL
               AND (avg_fill_price IS NULL OR avg_fill_price = 0)
-              AND created_at_utc > NOW() - INTERVAL '3 days'
+              -- 7 days: T212 history retains ~250 orders (~5 days at current
+              -- volume); this backfills as far back as history allows now that
+              -- the history parser reads the real {fill,order} shape. Older
+              -- orders genuinely aged out of T212 history stay 0 (unrecoverable).
+              AND created_at_utc > NOW() - INTERVAL '7 days'
             ORDER BY created_at_utc DESC
-            LIMIT 10;")).ToList();
+            LIMIT 20;")).ToList();
         if (zeroPriced.Count > 0)
             _log.LogInformation(
                 "OmsFillPoller: backfill sweep — {Count} FILLED T212 order(s) at price 0 to reconcile",

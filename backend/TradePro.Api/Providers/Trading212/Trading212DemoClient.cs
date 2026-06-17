@@ -340,13 +340,45 @@ public sealed class Trading212DemoClient
         long brokerOrderId, CancellationToken ct)
     {
         if (!_options.IsEnabled) return null;
-        // T212 history is cursor-paginated. We page up to ~5×50 = 250
-        // rows; recent orders should land in page 1. Each page costs
-        // one /equity/history/orders hit so we keep a budget.
+
+        // T212 /equity/history/orders shape (verified against the live demo
+        // API): each item is { "fill": {...}, "order": {...} } —
+        //   order.id             — the broker order id we match on
+        //   order.status         — FILLED / CANCELLED / REJECTED / ...
+        //   order.ticker, order.filledQuantity, order.quantity
+        //   fill.price           — the per-share EXECUTION price (instrument ccy)
+        //   fill.quantity        — signed fill size
+        // A single order can produce SEVERAL fills (partials) → several items
+        // sharing one order.id; we weight-average fill.price across them to get
+        // the order's average execution price. (The previous parser matched a
+        // top-level `id`/`fillPrice` that T212 never returns at that level, so
+        // EVERY aged-out order missed history → GONE → recorded at price 0.)
+        static decimal? NumOf(System.Text.Json.JsonElement el, string k)
+            => el.TryGetProperty(k, out var e)
+                && e.ValueKind == System.Text.Json.JsonValueKind.Number
+                && e.TryGetDecimal(out var v) ? v : (decimal?)null;
+        static string? StrOf(System.Text.Json.JsonElement el, string k)
+            => el.TryGetProperty(k, out var e)
+                && e.ValueKind == System.Text.Json.JsonValueKind.String ? e.GetString() : null;
+        static bool TryId(System.Text.Json.JsonElement el, string k, out long id)
+        {
+            id = 0;
+            if (!el.TryGetProperty(k, out var e)) return false;
+            if (e.ValueKind == System.Text.Json.JsonValueKind.Number && e.TryGetInt64(out var n)) { id = n; return true; }
+            if (e.ValueKind == System.Text.Json.JsonValueKind.String && long.TryParse(e.GetString(), out var s)) { id = s; return true; }
+            return false;
+        }
+
+        decimal pxQty = 0m, qtyAbs = 0m;
+        decimal? filledQty = null, orderedQty = null;
+        string? status = null, ticker = null;
+        bool found = false;
+
+        // Cursor-paginated; recent orders land on page 1. Budget ~5×50 = 250.
         string? cursor = null;
         for (int page = 0; page < 5; page++)
         {
-            if (ct.IsCancellationRequested) return null;
+            if (ct.IsCancellationRequested) break;
             var url = "equity/history/orders?limit=50"
                 + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
             using var resp = await _http.GetAsync(url, ct);
@@ -355,75 +387,38 @@ public sealed class Trading212DemoClient
                 _log.LogDebug(
                     "T212 history page {Page} returned {Code} — abandoning lookup for {Id}",
                     page, (int)resp.StatusCode, brokerOrderId);
-                return null;
+                break;
             }
             var body = await SafeReadFullBody(resp, ct);
             using var doc = System.Text.Json.JsonDocument.Parse(body);
             var root = doc.RootElement;
-            // T212 history shape: { items: [...], nextPagePath: "...&cursor=..." }
             if (root.TryGetProperty("items", out var items)
                 && items.ValueKind == System.Text.Json.JsonValueKind.Array)
             {
                 foreach (var it in items.EnumerateArray())
                 {
-                    // T212 history returns the order id sometimes as a
-                    // number (live orders endpoint shape) and sometimes
-                    // as a string (history endpoint shape). Accept both
-                    // — otherwise the lookup silently misses and the
-                    // poller falsely cancels every order that ages out
-                    // of the hot cache.
-                    long? id = null;
-                    if (it.TryGetProperty("id", out var idEl))
+                    if (!it.TryGetProperty("order", out var order)
+                        || order.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                    if (!TryId(order, "id", out var oid) || oid != brokerOrderId) continue;
+
+                    found = true;
+                    status ??= (StrOf(order, "status") ?? "").ToUpperInvariant();
+                    ticker ??= StrOf(order, "ticker");
+                    filledQty ??= NumOf(order, "filledQuantity");
+                    orderedQty ??= NumOf(order, "quantity");
+
+                    if (it.TryGetProperty("fill", out var fill)
+                        && fill.ValueKind == System.Text.Json.JsonValueKind.Object
+                        && NumOf(fill, "price") is decimal p
+                        && NumOf(fill, "quantity") is decimal q && q != 0m)
                     {
-                        if (idEl.ValueKind == System.Text.Json.JsonValueKind.Number
-                            && idEl.TryGetInt64(out var idv))
-                        {
-                            id = idv;
-                        }
-                        else if (idEl.ValueKind == System.Text.Json.JsonValueKind.String
-                            && long.TryParse(idEl.GetString(), out var ids))
-                        {
-                            id = ids;
-                        }
+                        var aq = Math.Abs(q);
+                        pxQty += p * aq;
+                        qtyAbs += aq;
                     }
-                    if (id != brokerOrderId) continue;
-                    decimal? Num(string k)
-                    {
-                        if (it.TryGetProperty(k, out var e)
-                            && e.ValueKind == System.Text.Json.JsonValueKind.Number
-                            && e.TryGetDecimal(out var v)) return v;
-                        return null;
-                    }
-                    string? Str(string k) =>
-                        it.TryGetProperty(k, out var e)
-                            && e.ValueKind == System.Text.Json.JsonValueKind.String
-                                ? e.GetString() : null;
-                    var status = (Str("status") ?? "").ToUpperInvariant();
-                    // T212 history uses values like "FILLED", "CANCELLED",
-                    // "REJECTED", "PARTIALLY_FILLED". Pass through as-is —
-                    // OmsFillPoller knows how to map.
-                    // Prefer T212's direct fillPrice; derive from fillCost /
-                    // filledQuantity when only the total is present. This is
-                    // the canonical execution price for an aged-out order.
-                    var histFq = Num("filledQuantity");
-                    decimal? histFillPrice = Num("fillPrice");
-                    if (histFillPrice is null && Num("fillCost") is decimal fc
-                        && histFq is decimal fq && fq > 0)
-                        histFillPrice = fc / fq;
-                    return new Trading212OrderStatus(
-                        BrokerOrderId: brokerOrderId,
-                        Status: status,
-                        Ticker: Str("ticker"),
-                        Quantity: Num("orderedQuantity") ?? Num("quantity"),
-                        FilledQuantity: histFq,
-                        FilledValue: Num("filledValue"),
-                        HttpStatus: 200,
-                        Error: null,
-                        FillPrice: histFillPrice);
                 }
             }
-            // Cursor for next page (T212 returns nextPagePath which
-            // already contains the cursor query param).
+
             if (root.TryGetProperty("nextPagePath", out var nextEl)
                 && nextEl.ValueKind == System.Text.Json.JsonValueKind.String)
             {
@@ -435,20 +430,30 @@ public sealed class Trading212DemoClient
                     var amp = cursor.IndexOf('&');
                     if (amp >= 0) cursor = cursor.Substring(0, amp);
                 }
-                else
-                {
-                    return null; // no more pages
-                }
+                else break; // no parsable cursor
             }
-            else
-            {
-                _log.LogInformation(
-                    "T212 history lookup for {Id}: scanned {Pages} page(s), id not found — falling back to GONE",
-                    brokerOrderId, page + 1);
-                return null; // history exhausted
-            }
+            else break; // history exhausted
         }
-        return null; // budget exceeded
+
+        if (!found)
+        {
+            _log.LogInformation(
+                "T212 history lookup for {Id}: id not found in scanned pages — falling back to GONE",
+                brokerOrderId);
+            return null;
+        }
+
+        var avg = qtyAbs > 0m ? pxQty / qtyAbs : (decimal?)null;
+        return new Trading212OrderStatus(
+            BrokerOrderId: brokerOrderId,
+            Status: string.IsNullOrEmpty(status) ? "FILLED" : status,
+            Ticker: ticker,
+            Quantity: orderedQty,
+            FilledQuantity: filledQty ?? (qtyAbs > 0m ? qtyAbs : (decimal?)null),
+            FilledValue: avg is decimal a ? a * qtyAbs : (decimal?)null,
+            HttpStatus: 200,
+            Error: null,
+            FillPrice: avg);
     }
 
     /// <summary>Fetch account cash from /equity/account/cash. This is
