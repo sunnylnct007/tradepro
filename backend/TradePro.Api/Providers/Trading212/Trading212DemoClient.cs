@@ -56,6 +56,29 @@ public sealed class Trading212DemoClient
     public bool IsEnabled => _options.IsEnabled;
     public string Mode => "demo";
 
+    /// <summary>
+    /// READ-ONLY diagnostic: GET an arbitrary T212 demo path and return the
+    /// raw (status, body) so an operator can inspect the broker's actual
+    /// response shape (e.g. confirm which field carries the per-order
+    /// execution price on /equity/history/orders). Scoped to GET reads under
+    /// equity/* by the admin endpoint — never writes. Returns the raw JSON
+    /// verbatim; no parsing, so it can't hide a field we don't model yet.
+    /// </summary>
+    public async Task<(int Status, string Body)> GetRawAsync(string path, CancellationToken ct)
+    {
+        if (!_options.IsEnabled) return (0, "{\"error\":\"demo integration disabled\"}");
+        try
+        {
+            using var resp = await _http.GetAsync(path, ct);
+            var body = await SafeReadFullBody(resp, ct);
+            return ((int)resp.StatusCode, body);
+        }
+        catch (Exception ex)
+        {
+            return (0, $"{{\"error\":{System.Text.Json.JsonSerializer.Serialize(ex.Message)}}}");
+        }
+    }
+
     /// <summary>Open positions in the DEMO account. Distinct from the
     /// live client's GetPositionsAsync — needed because demo orders
     /// create demo positions, not live ones, so the UI's "what

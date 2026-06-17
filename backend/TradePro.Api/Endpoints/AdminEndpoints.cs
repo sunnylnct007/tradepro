@@ -37,6 +37,33 @@ public static class AdminEndpoints
             return Results.Ok(result);
         });
 
+        // ── T212 raw read-only probe ───────────────────────────────
+        // Inspect the broker's ACTUAL response shape (e.g. confirm which
+        // field carries the per-order execution price on
+        // /equity/history/orders, or whether a filled order is present at
+        // all). READ-ONLY: the path must be a GET under equity/* — order
+        // placement/cancel (POST/DELETE) can't be reached here. Returns the
+        // raw JSON verbatim so no unmodelled field is hidden.
+        // e.g. /api/admin/t212/raw?path=equity/history/orders?limit=20
+        g.MapGet("/t212/raw", async (
+            string path,
+            TradePro.Api.Providers.Trading212.Trading212DemoClient demo,
+            CancellationToken ct) =>
+        {
+            var p = (path ?? string.Empty).Trim().TrimStart('/');
+            // Allowlist: equity/* reads only. Block anything that could mutate.
+            if (!p.StartsWith("equity/", StringComparison.OrdinalIgnoreCase)
+                || p.Contains("orders/market", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.BadRequest(new { error = "path must be a read-only equity/* endpoint" });
+            }
+            var (status, body) = await demo.GetRawAsync(p, ct);
+            return Results.Content(
+                $"{{\"requestedPath\":{System.Text.Json.JsonSerializer.Serialize(p)},"
+                + $"\"httpStatus\":{status},\"body\":{body}}}",
+                "application/json");
+        });
+
         // ── events table ──────────────────────────────────────────
         // Generic domain event log — every order_emitted, fill_received,
         // risk decision, heartbeat, etc. Filterable by event_type.
