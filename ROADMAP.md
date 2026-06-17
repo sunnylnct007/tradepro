@@ -154,6 +154,24 @@ Two features, both committed (`e4c5b4b`, `b7b5bb6`), build+tsc+matcher-tests gre
   deploy** to populate ISINs + shortName matches (still manual; the daily morning scan daemon is the
   next harmonization chunk, not built).
 
+### ✅ SHIPPED 2026-06-17 — T212 instruments registry LIVE on EC2 (kills the ICH-equity rejections)
+ROOT CAUSE of the recurring T212 rejections (yesterday: 92 hard rejects — RRX/HIMS/CPRI/COHR via
+404 entity-not-found / 400 instrument-disabled): the OMS pre-flight tradeability gate + broker_ticker_map
+harmonization both need the T212 INSTRUMENTS registry, which only enabled off the LIVE `Trading212`
+config section. On EC2 that section is disabled (live SM binding "intermittently doesn't propagate" —
+documented in docker-compose.aws.yaml), so the registry was dark: enabled=false, pre-flight skipped,
+rebuild-map empty, bad tickers shipped to the broker every rerun.
+- **Fix (`078b967`):** `Trading212InstrumentsService` now falls back to the DEMO creds
+  (`FetchViaDemoAsync`, demo.trading212.com) when the live section is off. The catalog is read-only
+  reference data (identical demo/live) and demo IS the account the strategies trade. `IsEnabled = live || demo`.
+  Order placement untouched. Deployed via CI/CD (aws-build-push → aws-redeploy).
+- **Verified in prod:** `/api/instruments/t212/tradeable` → enabled=true, count=6918. `rebuild-map T212_DEMO`
+  → exact=1680, byName=39 (suggestions queue), unresolved=147 (non-US .L/.DE/.PA listings — correct).
+  JEF now resolves (shortName→LUK_US_EQ); RRX/HIMS/CPRI/COHR correctly excluded → desk skips them.
+- **Remaining:** byIsin=0 on the first rebuild (universe ISINs were null at run start; they backfill from
+  exact matches now, so subsequent rebuilds pivot on ISIN). The DAILY MORNING HARMONIZATION SCAN daemon
+  is still not built — rebuild-map is manual today. IG/IBKR catalogs still not built.
+
 ### 🔜 NEXT (Decide module — the VISIBLE half, partly done)
 Research now shows the canonical verdict. The remaining piece is the **scan grid
 (`SymbolScanGrid.tsx`) showing the strategy runner's `fire/skip` action while the Decide
