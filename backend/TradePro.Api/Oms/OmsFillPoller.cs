@@ -130,13 +130,13 @@ public sealed class OmsFillPoller : BackgroundService
             LIMIT 50;",
             new { states = InFlightStates })).ToList();
 
-        if (rows.Count == 0) return;
-
-        _log.LogDebug("OmsFillPoller: polling {Count} in-flight T212 demo orders", rows.Count);
-
-        // 2. Resolve fresh-scoped Trading212DemoClient + OmsService
-        //    via DI. Background service is singleton; HttpClient must
-        //    be transient.
+        // 2. Resolve fresh-scoped Trading212DemoClient + OmsService via DI.
+        //    Background service is singleton; HttpClient must be transient.
+        //    Resolve UNCONDITIONALLY — both the in-flight poll AND the backfill
+        //    sweep below need them. (Bug fix: this method used to `return` when
+        //    rows.Count == 0, which is the NORMAL steady state — market orders
+        //    fill instantly and leave the in-flight set — so the backfill sweep
+        //    at step 4 almost never ran and FILLED-at-0 orders never repaired.)
         using var scope = _services.CreateScope();
         var demo = scope.ServiceProvider.GetService<Trading212DemoClient>();
         var oms = scope.ServiceProvider.GetRequiredService<IOmsService>();
@@ -146,8 +146,11 @@ public sealed class OmsFillPoller : BackgroundService
             return;
         }
 
-        // 3. Poll each one. Sleep between to respect T212's
-        //    1 req/sec per endpoint rate limit.
+        // 3. Poll in-flight orders (if any). Guarded so an empty in-flight set
+        //    no longer short-circuits the backfill sweep below. Sleep between
+        //    to respect T212's 1 req/sec per endpoint rate limit.
+        if (rows.Count > 0)
+            _log.LogDebug("OmsFillPoller: polling {Count} in-flight T212 demo orders", rows.Count);
         foreach (var (orderId, brokerIdRaw, declaredQty) in rows)
         {
             if (ct.IsCancellationRequested) return;
