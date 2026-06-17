@@ -88,18 +88,14 @@ services:
       Firebase__RequireAuth: "${FIREBASE_REQUIRE_AUTH:-true}"
       Ingest__Token: "${INGEST_TOKEN}"
       Cors__AllowedOrigins__0: "${CORS_ORIGIN_0:-http://localhost:5173}"
-      # T212 read path (positions, status, INSTRUMENTS registry). The
-      # instruments registry powers the OMS pre-flight tradeability gate +
-      # broker_ticker_map harmonization — without it, un-tradeable/re-tickered
-      # tickers (RRX/HIMS/CPRI/COHR) reach the broker and 404/400 every rerun.
-      # Default to DEMO creds: (a) the strategies trade on the demo account so
-      # the demo catalog is the correct tradeability source, and (b) the LIVE
-      # SM/env binding "intermittently doesn't propagate" (see note above) while
-      # the demo creds load reliably. An explicit TRADEPRO_T212_MODE/API_KEY in
-      # .env still wins (live read path unchanged when configured).
-      Trading212__Mode: "${TRADEPRO_T212_MODE:-demo}"
-      Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-${TRADEPRO_T212_DEMO_API_KEY:-}}"
-      Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-${TRADEPRO_T212_DEMO_API_SECRET:-}}"
+      # T212 LIVE — read path (positions, status). The INSTRUMENTS registry
+      # (pre-flight tradeability gate + broker_ticker_map harmonization) now
+      # falls back to the DEMO creds in code when this live section is off
+      # (Trading212InstrumentsService.FetchViaDemoAsync), so the registry works
+      # even though the live SM binding "intermittently doesn't propagate".
+      Trading212__Mode: "${TRADEPRO_T212_MODE:-disabled}"
+      Trading212__ApiKey: "${TRADEPRO_T212_API_KEY:-}"
+      Trading212__ApiSecret: "${TRADEPRO_T212_API_SECRET:-}"
       # T212 DEMO — write path (order placement) + demo orderbook.
       # Distinct typed client (Trading212DemoClient) hard-codes the
       # demo.trading212.com base URL; type-enforced separation.

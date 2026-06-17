@@ -1,3 +1,6 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 
@@ -24,6 +27,8 @@ public sealed class Trading212InstrumentsService
     // hold the scope factory and resolve a fresh client per refresh.
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptionsMonitor<Trading212Options> _options;
+    private readonly IOptionsMonitor<Trading212DemoOptions> _demoOptions;
+    private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<Trading212InstrumentsService> _log;
     private readonly IConfiguration _config;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -34,17 +39,29 @@ public sealed class Trading212InstrumentsService
     public Trading212InstrumentsService(
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<Trading212Options> options,
+        IOptionsMonitor<Trading212DemoOptions> demoOptions,
+        IHttpClientFactory httpFactory,
         ILogger<Trading212InstrumentsService> log,
         IConfiguration config)
     {
         _scopeFactory = scopeFactory;
         _options = options;
+        _demoOptions = demoOptions;
+        _httpFactory = httpFactory;
         _log = log;
         _config = config;
         TryLoadFromDisk();
     }
 
-    public bool IsEnabled => _options.CurrentValue.IsEnabled;
+    // The instruments REGISTRY is read-only reference data — the same US-equity
+    // catalog regardless of demo/live. It powers the OMS pre-flight tradeability
+    // gate + broker_ticker_map harmonization, so it must be available whenever
+    // EITHER T212 credential set is configured. The live section's SM binding is
+    // known-flaky in prod (see docker-compose.aws.yaml), while the demo creds
+    // load reliably and ARE the account the strategies trade — so we fall back
+    // to demo when live is off. Demo is read-only here (catalog only; orders
+    // still go through the dedicated Trading212DemoClient).
+    public bool IsEnabled => _options.CurrentValue.IsEnabled || _demoOptions.CurrentValue.IsEnabled;
     public int CachedCount => _cache.Count;
     public DateTime LoadedAtUtc => _loadedAtUtc;
 
@@ -111,9 +128,21 @@ public sealed class Trading212InstrumentsService
         {
             // Re-check inside the lock — another caller may have just refreshed.
             if ((DateTime.UtcNow - _loadedAtUtc) <= TimeSpan.FromHours(TtlHours)) return;
-            using var scope = _scopeFactory.CreateScope();
-            var client = scope.ServiceProvider.GetRequiredService<Trading212Client>();
-            var fresh = await client.GetInstrumentsAsync(ct);
+
+            IReadOnlyList<Trading212Instrument> fresh;
+            if (_options.CurrentValue.IsEnabled)
+            {
+                // Live section configured — use the standard typed client.
+                using var scope = _scopeFactory.CreateScope();
+                var client = scope.ServiceProvider.GetRequiredService<Trading212Client>();
+                fresh = await client.GetInstrumentsAsync(ct);
+            }
+            else
+            {
+                // Live off but demo configured — fetch the catalog with the
+                // demo creds against demo.trading212.com (same registry).
+                fresh = await FetchViaDemoAsync(ct);
+            }
             if (fresh.Count > 0)
             {
                 _cache = fresh;
@@ -131,6 +160,55 @@ public sealed class Trading212InstrumentsService
         finally
         {
             _refreshLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Fetch the instruments catalog using the DEMO credentials against
+    /// demo.trading212.com. Used when the live section is disabled — the
+    /// catalog is the same reference data either way. Mirrors
+    /// Trading212Client's auth (Basic when a secret is present, raw key
+    /// otherwise) and parse. Returns empty on any failure so the caller
+    /// keeps any prior cache and never throws.
+    /// </summary>
+    private async Task<IReadOnlyList<Trading212Instrument>> FetchViaDemoAsync(CancellationToken ct)
+    {
+        var demo = _demoOptions.CurrentValue;
+        if (!demo.IsEnabled) return Array.Empty<Trading212Instrument>();
+        try
+        {
+            using var http = _httpFactory.CreateClient();
+            http.BaseAddress = new Uri(demo.BaseUrl);
+            http.Timeout = TimeSpan.FromSeconds(demo.TimeoutSeconds);
+            if (!string.IsNullOrWhiteSpace(demo.ApiSecret))
+            {
+                var token = Convert.ToBase64String(
+                    Encoding.UTF8.GetBytes($"{demo.ApiKey}:{demo.ApiSecret}"));
+                http.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Basic", token);
+            }
+            else
+            {
+                http.DefaultRequestHeaders.TryAddWithoutValidation(
+                    "Authorization", demo.ApiKey);
+            }
+            using var resp = await http.GetAsync("equity/metadata/instruments", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning(
+                    "Trading212 DEMO instruments fetch returned HTTP {Status}",
+                    (int)resp.StatusCode);
+                return Array.Empty<Trading212Instrument>();
+            }
+            var items = await resp.Content
+                .ReadFromJsonAsync<List<Trading212Instrument>>(cancellationToken: ct);
+            return (IReadOnlyList<Trading212Instrument>?)items
+                ?? Array.Empty<Trading212Instrument>();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Trading212 DEMO instruments fetch failed");
+            return Array.Empty<Trading212Instrument>();
         }
     }
 
