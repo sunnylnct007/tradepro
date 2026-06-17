@@ -446,6 +446,70 @@ public static class OmsEndpoints
             return Results.Ok(new { broker, adjusted = adjustments.Count, adjustments, debug = dbg });
         });
 
+        // Purge ORPHAN (unattributed) positions — strategy_id IS NULL rows that
+        // a past broker-sync wrote and no strategy owns, so nothing will ever
+        // exit them (e.g. the May/June reconcile snapshots: short T212 equities
+        // from the old net-short bug + expired IG WK2EURO options). They pollute
+        // the book and can't be managed.
+        //
+        // SAFE BY CONSTRUCTION: scoped to StrategyId == "(unattributed)" — the
+        // real strategy-attributed book is never touched. We don't DELETE
+        // history (FK-safe + auditable); we net each orphan to zero with an
+        // offsetting strategy-less fill (same mechanism as sync-from-broker),
+        // so it drops out of the positions view and the action is traceable.
+        // Preview-first: confirm=false (default) returns what WOULD be purged.
+        positions.MapPost("/purge-unattributed", async (
+            PurgeUnattributedRequest body,
+            IOmsService oms,
+            CancellationToken ct) =>
+        {
+            var broker = (body?.Broker ?? "").Trim().ToUpperInvariant();
+            var orphans = (await oms.ListPositionsAsync(null))
+                .Where(p => p.StrategyId == "(unattributed)")
+                .Where(p => string.IsNullOrEmpty(broker) || p.Broker == broker)
+                .Where(p => Math.Abs(p.Quantity) > 0m)
+                .ToList();
+
+            var preview = orphans.Select(p => new
+            {
+                broker = p.Broker, symbol = p.Symbol,
+                qty = p.Quantity, avgPrice = p.AvgPrice,
+            }).ToList();
+
+            if (body is null || !body.Confirm)
+                return Results.Ok(new
+                {
+                    confirmed = false,
+                    wouldPurge = preview.Count,
+                    positions = preview,
+                    note = "preview only — re-POST with { \"confirm\": true } to net these to zero",
+                });
+
+            var purged = new List<object>();
+            foreach (var p in orphans)
+            {
+                // Offsetting side: a long orphan (qty>0) is closed with a SELL,
+                // a short orphan (qty<0) with a BUY. Qty is the absolute size.
+                var side = p.Quantity > 0m ? "SELL" : "BUY";
+                var qty = Math.Abs(p.Quantity);
+                var price = p.AvgPrice ?? 0m;
+                var intent = new OrderIntent(
+                    ClientOrderId: Guid.NewGuid(),
+                    Broker: p.Broker,
+                    Symbol: p.Symbol,
+                    Side: side,
+                    Qty: qty,
+                    OrderType: "MKT",
+                    StrategyId: null,
+                    PlacedBy: "HUMAN");
+                var order = await oms.EnqueueAsync(intent, "oms-purge");
+                await oms.RecordFillAsync(
+                    order.Id, qty, price, 0m, "USD", $"purge-{order.Id:N}", "oms-purge");
+                purged.Add(new { broker = p.Broker, symbol = p.Symbol, closedQty = p.Quantity, side });
+            }
+            return Results.Ok(new { confirmed = true, purged = purged.Count, positions = purged });
+        });
+
         // Reconciliation: OMS-derived position vs T212 broker reality.
         // Drift = bug (T212 rejected something we recorded, or the
         // operator placed a manual trade outside the OMS). Surfaces
@@ -621,3 +685,7 @@ public static class OmsEndpoints
 // can flatten the OMS instead of refusing. Off by default — the safety
 // net stays on for routine syncs.
 public sealed record SyncFromBrokerRequest(string? Broker, bool Force = false);
+
+/// <summary>Purge orphan (unattributed) OMS positions. Optional broker
+/// filter; Confirm=false (default) previews, Confirm=true executes.</summary>
+public sealed record PurgeUnattributedRequest(string? Broker = null, bool Confirm = false);
