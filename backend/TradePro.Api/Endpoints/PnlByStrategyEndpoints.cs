@@ -246,26 +246,42 @@ public static class PnlByStrategyEndpoints
                     {
                         try
                         {
-                            var (fills, unpriced) = await LoadDatedFillsAsync(db, strategyId, broker, ct);
-                            if (fills.Count == 0 && unpriced == 0)
+                            var (bySymbol, unpricedFills, incompleteSymbols) =
+                                await LoadDatedFillsAsync(db, strategyId, broker, ct);
+                            if (bySymbol.Count == 0 && unpricedFills == 0)
                                 noteParts.Add("realised: no OMS fills for this strategy yet");
-                            else if (fills.Count == 0)
-                                // Every fill is unpriced (aged-out MOO orders T212 dropped
-                                // before the poller read a price). Leave realised/win BLANK
-                                // (null) — NOT £0/0%, which falsely reads as break-even.
-                                noteParts.Add($"realised NOT captured: {unpriced} fill(s) recorded with no broker price (T212 ages MOO orders out of /orders before the poller reads the price); position tracking stays correct, realised left blank rather than a false £0/0% win");
+                            else if (incompleteSymbols > 0)
+                                // GUARD: the ledger has zero/blank-price fills (the T212
+                                // fill-price gap). FIFO realised cannot be reconstructed from
+                                // a holed ledger — a zero-cost BUY lot makes a later SELL book
+                                // the FULL proceeds as phantom profit (this is what produced
+                                // the bogus +£5k realised). Publish NO number rather than a
+                                // fabricated one; broker Net Liq is the source of truth.
+                                // realisedLtd/realisedToday/winRate stay null; trades stays 0.
+                                noteParts.Add($"realised NOT computable: {unpricedFills} fill(s) across {incompleteSymbols} symbol(s) recorded with no broker price (T212 fill-price gap); realised left blank rather than a fabricated figure — reconcile to the broker's Net Liq");
                             else
                             {
-                                var rr = PnlByStrategy.FifoRealisedSplit(fills);
-                                realisedLtd = rr.RealisedLtd;
-                                realisedToday = rr.RealisedToday;
-                                trades = rr.ClosedTrades;
-                                winRate = rr.WinRatePct;
-                                noteParts.Add("realised derived from OMS fills (FIFO; T212 has no realised feed); today = sells dated today (UTC)");
-                                if (unpriced > 0)
-                                    noteParts.Add($"{unpriced} unpriced fill(s) excluded from realised (no broker price)");
-                                if (rr.UnmatchedSellQty > 0m)
-                                    noteParts.Add($"{rr.UnmatchedSellQty:0.##} sell qty had no matching buy lot in the ledger — realised may understate");
+                                // Correct realised: FIFO PER SYMBOL (matching a sell against a
+                                // different ticker's buy lot is meaningless), summed across
+                                // this strategy's symbols.
+                                decimal ltd = 0m, tod = 0m, unmatched = 0m;
+                                int closed = 0, won = 0;
+                                foreach (var stream in bySymbol.Values)
+                                {
+                                    var rr = PnlByStrategy.FifoRealisedSplit(stream);
+                                    ltd += rr.RealisedLtd;
+                                    tod += rr.RealisedToday;
+                                    closed += rr.ClosedTrades;
+                                    won += rr.WinningTrades;
+                                    unmatched += rr.UnmatchedSellQty;
+                                }
+                                realisedLtd = ltd;
+                                realisedToday = tod;
+                                trades = closed;
+                                winRate = closed > 0 ? 100.0 * won / closed : (double?)null;
+                                noteParts.Add("realised derived from OMS fills (per-symbol FIFO; T212 has no realised feed); today = sells dated today (UTC)");
+                                if (unmatched > 0m)
+                                    noteParts.Add($"{unmatched:0.##} sell qty had no matching buy lot in the ledger — realised may understate");
                             }
                         }
                         catch (Exception ex)
@@ -371,28 +387,54 @@ public static class PnlByStrategyEndpoints
     /// to keep POSITION tracking correct (broker = golden source) — but those
     /// 0s must NOT feed realised P&L (they'd fake £0 / 0% win). We exclude them
     /// and surface the count so the row can report "realised not captured".
-    private static async Task<(List<PnlByStrategy.DatedFill> Priced, int Unpriced)> LoadDatedFillsAsync(
+    /// <summary>
+    /// Load this strategy's OMS fills GROUPED BY SYMBOL — FIFO realised P&amp;L is
+    /// only valid per-symbol (matching a SELL of one ticker against a BUY lot of
+    /// another is nonsense). Within each symbol, fills are time-ordered.
+    /// <para/>
+    /// Unpriced fills (price ≤ 0 — the T212 fill-price gap) CANNOT be matched:
+    /// a zero-cost BUY lot makes a later SELL book the full proceeds as phantom
+    /// profit, and dropping it silently leaves the SELL to match a wrong lot.
+    /// Either way the symbol's realised is no longer provable, so we mark the
+    /// WHOLE symbol "incomplete" and exclude it from realised (counting the
+    /// fills + symbols affected) rather than publish a fabricated number.
+    /// </summary>
+    private static async Task<(Dictionary<string, List<PnlByStrategy.DatedFill>> BySymbol,
+                               int UnpricedFills, int IncompleteSymbols)> LoadDatedFillsAsync(
         NpgsqlDataSource db, string strategyId, string broker, CancellationToken ct)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
-        var rows = await conn.QueryAsync<(string side, decimal qty, decimal price, DateTime fill_at_utc)>(@"
-            SELECT o.side AS side, f.qty AS qty, f.price AS price, f.fill_at_utc AS fill_at_utc
+        var rows = await conn.QueryAsync<(string symbol, string side, decimal qty, decimal price, DateTime fill_at_utc)>(@"
+            SELECT o.symbol AS symbol, o.side AS side, f.qty AS qty, f.price AS price, f.fill_at_utc AS fill_at_utc
             FROM oms_orders o
             JOIN oms_fills f ON f.order_id = o.id
             WHERE o.strategy_id = @sid AND o.broker = @broker
             ORDER BY f.fill_at_utc ASC, f.id ASC;",
             new { sid = strategyId, broker });
         var today = DateTime.UtcNow.Date;
-        var priced = new List<PnlByStrategy.DatedFill>();
-        int unpriced = 0;
+        var bySymbol = new Dictionary<string, List<PnlByStrategy.DatedFill>>(StringComparer.OrdinalIgnoreCase);
+        var tainted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int unpricedFills = 0;
         foreach (var r in rows)
         {
-            if (r.price <= 0m) { unpriced++; continue; }
-            priced.Add(new PnlByStrategy.DatedFill(
+            var sym = r.symbol ?? "";
+            if (r.price <= 0m)
+            {
+                // A holed ledger for this symbol — its realised can't be trusted.
+                unpricedFills++;
+                tainted.Add(sym);
+                continue;
+            }
+            if (!bySymbol.TryGetValue(sym, out var list))
+                bySymbol[sym] = list = new List<PnlByStrategy.DatedFill>();
+            list.Add(new PnlByStrategy.DatedFill(
                 r.side, r.qty, r.price,
                 DateTime.SpecifyKind(r.fill_at_utc, DateTimeKind.Utc).ToUniversalTime().Date == today));
         }
-        return (priced, unpriced);
+        // Drop any symbol that had ≥1 unpriced fill — partial priced fills for it
+        // would FIFO-mismatch. Excluded from realised; surfaced as incomplete.
+        foreach (var sym in tainted) bySymbol.Remove(sym);
+        return (bySymbol, unpricedFills, tainted.Count);
     }
 
     /// <summary>Build the asset-class → owning-IG-strategy map exactly the way
