@@ -141,10 +141,36 @@ export function PriceHistoryChart({
     const peak = Math.max(...adj);
     const peakIdx = adj.indexOf(peak);
     const peakDate = candles[peakIdx]?.timestamp.slice(0, 10);
+
+    // SUPPORT / RESISTANCE from swing pivots: a bar that is the local max
+    // (resistance) or min (support) over ±PIVOT_K bars. We surface the
+    // NEAREST swing-high above price (the ceiling to break) and the nearest
+    // swing-low below (the floor to hold) — the levels a trader actually acts
+    // on, which a bare SMA(200) can't convey. Computed on the same adjusted
+    // series so they line up with the plotted line across splits.
+    const PIVOT_K = 10;
+    const swingHighs: number[] = [];
+    const swingLows: number[] = [];
+    for (let i = PIVOT_K; i < adj.length - PIVOT_K; i++) {
+      let isHigh = true, isLow = true;
+      for (let j = i - PIVOT_K; j <= i + PIVOT_K; j++) {
+        if (adj[j] > adj[i]) isHigh = false;
+        if (adj[j] < adj[i]) isLow = false;
+      }
+      if (isHigh) swingHighs.push(adj[i]);
+      if (isLow) swingLows.push(adj[i]);
+    }
+    // Epsilon so a pivot sitting basically AT the current price isn't drawn as
+    // both a support and a resistance line on top of the marker.
+    const eps = last * 0.005;
+    const resistance = swingHighs.filter((h) => h > last + eps).sort((a, b) => a - b)[0] ?? null;
+    const support = swingLows.filter((l) => l < last - eps).sort((a, b) => b - a)[0] ?? null;
+
     return {
       data,
       high52w, low52w, high52wDate, low52wDate,
       last, peak, peakDate,
+      support, resistance,
     };
   }, [series]);
 
@@ -180,7 +206,7 @@ export function PriceHistoryChart({
     );
   }
 
-  const { data, high52w, low52w, high52wDate, low52wDate, last, peak, peakDate } = computed;
+  const { data, high52w, low52w, high52wDate, low52wDate, last, peak, peakDate, support, resistance } = computed;
   const tone = last >= (high52w + low52w) / 2 ? "var(--up)" : "var(--neutral)";
   const lastDate = data[data.length - 1].t;
   // Range zones: bottom 35% = "dip" (green tint), middle 30% = neutral,
@@ -271,6 +297,17 @@ export function PriceHistoryChart({
               and defeating the zoom. */}
           <ReferenceLine y={high52w} stroke="var(--up)" strokeDasharray="3 3" ifOverflow="hidden" label={{ value: "52w high", position: "right", fill: "var(--up)", fontSize: 10 }} />
           <ReferenceLine y={low52w} stroke="var(--down)" strokeDasharray="3 3" ifOverflow="hidden" label={{ value: "52w low", position: "right", fill: "var(--down)", fontSize: 10 }} />
+          {/* Support / resistance — nearest swing pivots around the current
+              price. SOLID (vs the dashed 52w/SMA) so they read as actionable
+              levels: resistance = ceiling to break, support = floor to hold. */}
+          {resistance != null && (
+            <ReferenceLine y={resistance} stroke="var(--down)" strokeWidth={1.25} ifOverflow="hidden"
+              label={{ value: `R ${resistance.toFixed(2)}`, position: "left", fill: "var(--down)", fontSize: 10 }} />
+          )}
+          {support != null && (
+            <ReferenceLine y={support} stroke="var(--up)" strokeWidth={1.25} ifOverflow="hidden"
+              label={{ value: `S ${support.toFixed(2)}`, position: "left", fill: "var(--up)", fontSize: 10 }} />
+          )}
           {/* Mark when the 52w extremes were actually hit so the user
               can tell at a glance whether the floor/ceiling is freshly
               tested or months stale. */}
@@ -415,7 +452,11 @@ export function PriceHistoryChart({
       <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>
         Price line uses split-adjusted close so 4:1 / 2:1 splits don't render as
         fake crashes. SMA(200) is the same line the engine uses for the trend
-        check; 52w reference lines hide when zoomed outside their level. Coloured
+        check; 52w reference lines hide when zoomed outside their level. The
+        solid <span style={{ color: "var(--down)" }}>R</span> /{" "}
+        <span style={{ color: "var(--up)" }}>S</span> lines are the nearest
+        swing-pivot resistance (ceiling to break) and support (floor to hold)
+        around today's price — the levels to act on. Coloured
         dots mark when each 52w extreme was hit (live vs stale floor). Volume
         bars below share the brush window — a rally on thick bars shows broad
         participation; thin bars suggest a thin rally. "E" dots = reported
