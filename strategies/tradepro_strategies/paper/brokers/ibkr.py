@@ -234,6 +234,13 @@ class IBKRRouter(OrderRouter):
     accounts_by_strategy_id: dict[str, str] = field(default_factory=dict)
     allow_real_orders: bool = False
     name: str = "ibkr_router"
+    # PHASE 2: place through the central gateway's ONE connection (write an
+    # intent to its inbox, read the fill from its outbox) instead of opening
+    # our OWN ib_insync connection — which contended with the gateway over the
+    # single account's budget and caused the morning connect-timeouts. Default
+    # ON; set TRADEPRO_IBKR_ORDERS_VIA_GATEWAY=0 to fall back to direct placement.
+    route_via_gateway: bool = field(
+        default_factory=lambda: os.environ.get("TRADEPRO_IBKR_ORDERS_VIA_GATEWAY", "1") != "0")
 
     def __post_init__(self) -> None:
         if self.default_account is None:
@@ -256,6 +263,13 @@ class IBKRRouter(OrderRouter):
         fill_queue: asyncio.Queue,
         shutdown_queue: asyncio.Queue,
     ) -> None:
+        # PHASE 2 default: never open our own connection — submit intents to the
+        # central gateway and let its ONE connection place them. Eliminates the
+        # per-desk connection contention entirely.
+        if self.route_via_gateway:
+            await self._run_via_gateway(approved_queue, bar_queue, fill_queue, shutdown_queue)
+            return
+
         ib_insync = _try_import_ib_insync()
         if ib_insync is None:
             log.error("ib_insync not installed — IBKRRouter cannot run")
@@ -299,6 +313,109 @@ class IBKRRouter(OrderRouter):
             msg = await bar_queue.get()
             if isinstance(msg, ShutdownEvent):
                 return
+
+    async def _run_via_gateway(
+        self,
+        approved_queue: asyncio.Queue,
+        bar_queue: asyncio.Queue,
+        fill_queue: asyncio.Queue,
+        shutdown_queue: asyncio.Queue,
+    ) -> None:
+        """Gateway-routed run loop: NO own IBKR connection. Each approval is
+        submitted to the central gateway's order inbox; the gateway's single
+        connection places it and writes the fill back to the outbox, which we
+        poll to emit the FillEvent."""
+        log.info(
+            "IBKRRouter '%s': routing orders via the CENTRAL gateway inbox "
+            "(no own IBKR connection — contention-free)", self.name)
+        bar_drain = asyncio.create_task(self._drain_bars(bar_queue))
+        try:
+            while True:
+                msg = await approved_queue.get()
+                if isinstance(msg, ShutdownEvent):
+                    await fill_queue.put(ShutdownEvent(reason="ibkr shutdown"))
+                    return
+                assert isinstance(msg, OrderApproved)
+                await self._handle_via_gateway(msg, fill_queue)
+        finally:
+            if not bar_drain.done():
+                bar_drain.cancel()
+
+    async def _handle_via_gateway(
+        self, approval: OrderApproved, fill_queue: asyncio.Queue
+    ) -> None:
+        order = approval.order
+        if order.type != OrderType.MARKET:
+            log.warning(
+                "IBKRRouter only supports MARKET orders today; got %s for %s",
+                order.type.value, order.symbol)
+            return
+        account = self.accounts_by_strategy_id.get(order.strategy_id, self.default_account)
+        if not account:
+            log.error("No IBKR account mapped for strategy_id=%s and no default set",
+                      order.strategy_id)
+            return
+        if not self._live_orders_enabled(account):
+            log.info("IBKR WOULD-PLACE (gateway) · account=%s sid=%s %s %s qty=%s",
+                     account, order.strategy_id, order.side.value, order.symbol, order.quantity)
+            return
+
+        import hashlib
+        import uuid as _uuid
+        from ...ibkr_gateway import read_order_result, submit_order_intent
+
+        # Deterministic intent_id from (strategy, symbol, side, qty, bar_ts) so a
+        # 15-min rerun of the same approval can't double-place — the gateway
+        # skips an intent whose result already exists.
+        bar_ts = getattr(getattr(approval, "bar_at_approval", None), "timestamp", None)
+        seed = (f"{order.strategy_id}:{order.symbol}:{order.side.value}:"
+                f"{int(order.quantity)}:{bar_ts.isoformat() if bar_ts else ''}")
+        iid = str(_uuid.UUID(hashlib.md5(seed.encode()).hexdigest()))
+        action = "BUY" if order.side == OrderSide.BUY else "SELL"
+        submit_order_intent({
+            "intent_id": iid,
+            "account": account,
+            "symbol": order.symbol,
+            "action": action,
+            "quantity": float(order.quantity),
+            "order_type": "MKT",
+            "strategy_id": order.strategy_id,
+        })
+        log.info("IBKR→gateway · sid=%s %s %s qty=%s intent=%s",
+                 order.strategy_id, action, order.symbol, order.quantity, iid[:8])
+        # Mirror into the OMS for visibility (no ib_order in this path → None).
+        await self._record_in_oms(order, None)
+
+        # Poll the outbox for the gateway's result (~12s). OPG/dup return fast;
+        # an RTH market fills within the gateway's 8s wait. If nothing yet, the
+        # gateway still places it and the fill reconciles from the book.
+        result = None
+        for _ in range(24):
+            result = read_order_result(iid)
+            if result is not None:
+                break
+            await asyncio.sleep(0.5)
+        if result is None:
+            log.info("IBKR→gateway · %s %s: no result yet — gateway will place; "
+                     "fill reconciles from the book", action, order.symbol)
+            return
+        status = (result.get("status") or "").lower()
+        if status == "filled" and float(result.get("fill_qty") or 0) > 0:
+            await fill_queue.put(FillEvent(fill=Fill(
+                order_id=str(result.get("broker_order_id") or iid),
+                strategy_id=order.strategy_id,
+                symbol=order.symbol,
+                side=order.side,
+                quantity=int(float(result["fill_qty"])),
+                fill_price=float(result.get("fill_price") or 0.0),
+                fill_time=datetime.now(timezone.utc),
+                commission=0.0,
+            )))
+            log.info("IBKR→gateway FILLED · %s %s qty=%s @ %s",
+                     action, order.symbol, result.get("fill_qty"), result.get("fill_price"))
+        else:
+            log.info("IBKR→gateway · %s %s -> %s (no fill emitted; reconciles from the book)",
+                     action, order.symbol, status)
 
     async def _record_in_oms(self, order, ib_order) -> None:
         """Mirror an already-placed IBKR paper order into the OMS for VISIBILITY.
