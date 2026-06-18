@@ -384,7 +384,10 @@ class IBKRRouter(OrderRouter):
         log.info("IBKR→gateway · sid=%s %s %s qty=%s intent=%s",
                  order.strategy_id, action, order.symbol, order.quantity, iid[:8])
         # Mirror into the OMS for visibility (no ib_order in this path → None).
-        await self._record_in_oms(order, None)
+        # Keep the order id so we can mark it FILLED once the gateway reports
+        # the fill — otherwise it'd sit SUBMITTED forever (the fill happens on
+        # the gateway's connection, which the OMS can't see).
+        oms_oid = await self._record_in_oms(order, None)
 
         # Poll the outbox for the gateway's result (~12s). OPG/dup return fast;
         # an RTH market fills within the gateway's 8s wait. If nothing yet, the
@@ -401,16 +404,21 @@ class IBKRRouter(OrderRouter):
             return
         status = (result.get("status") or "").lower()
         if status == "filled" and float(result.get("fill_qty") or 0) > 0:
+            fqty = float(result["fill_qty"])
+            fprice = float(result.get("fill_price") or 0.0)
+            boid = str(result.get("broker_order_id") or iid)
             await fill_queue.put(FillEvent(fill=Fill(
-                order_id=str(result.get("broker_order_id") or iid),
+                order_id=boid,
                 strategy_id=order.strategy_id,
                 symbol=order.symbol,
                 side=order.side,
-                quantity=int(float(result["fill_qty"])),
-                fill_price=float(result.get("fill_price") or 0.0),
+                quantity=int(fqty),
+                fill_price=fprice,
                 fill_time=datetime.now(timezone.utc),
                 commission=0.0,
             )))
+            # Mark the OMS mirror FILLED so it doesn't sit SUBMITTED on /oms.
+            await self._mark_oms_filled(oms_oid, fqty, fprice, boid)
             log.info("IBKR→gateway FILLED · %s %s qty=%s @ %s",
                      action, order.symbol, result.get("fill_qty"), result.get("fill_price"))
         else:
@@ -461,20 +469,48 @@ class IBKRRouter(OrderRouter):
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.post(url, json=intent, headers=headers)
                 if resp.status_code == 409:
-                    return  # already recorded this session — idempotent
+                    return None  # already recorded this session — idempotent
                 if resp.status_code not in (200, 201):
                     log.warning("OMS record (IBKR) %s for %s: %s",
                                 resp.status_code, order.symbol, resp.text[:160])
-                    return
+                    return None
                 oid = (resp.json() or {}).get("id")
                 # Approve → ApproveAsync hits the IBKR kill-switch and leaves the
                 # order SUBMITTED WITHOUT placing (safe mirror of our OPG queue).
                 if oid:
                     await client.post(f"{url}/{oid}/approve", json={}, headers=headers)
+                return oid  # caller marks it FILLED once the gateway reports the fill
         except Exception:
             log.exception(
                 "OMS record (IBKR) failed for %s — not on /oms (placement unaffected)",
                 getattr(order, "symbol", "?"))
+        return None
+
+    async def _mark_oms_filled(self, oid, qty: float, price: float, broker_fill_id: str) -> None:
+        """Mark the OMS mirror order FILLED with the gateway's fill, so the /oms
+        + cockpit show FILLED (not a stuck SUBMITTED). Gateway-routed IBKR orders
+        place on the gateway's connection, so the OMS never learns the fill on
+        its own — we report it here. Best-effort; never disturbs trading."""
+        if not oid or qty <= 0 or price <= 0:
+            return
+        try:
+            import httpx
+            from ...secrets import get_secret
+            api_base = get_secret("api-base-url")
+            api_token = get_secret("api-token")
+            if not api_base or not api_token:
+                return
+            url = f"{api_base.rstrip('/')}/api/oms/orders/{oid}/fill"
+            body = {"Qty": float(qty), "Price": float(price), "Fee": 0.0,
+                    "Currency": "USD", "BrokerFillId": str(broker_fill_id or "")}
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    url, json=body, headers={"Authorization": f"Bearer {api_token}"})
+                if resp.status_code not in (200, 201, 409):
+                    log.warning("OMS fill-mark %s for oid=%s: %s",
+                                resp.status_code, oid, resp.text[:160])
+        except Exception:
+            log.exception("OMS fill-mark failed for oid=%s (placement unaffected)", oid)
 
     async def _handle_approval(
         self,
