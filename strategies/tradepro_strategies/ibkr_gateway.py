@@ -69,6 +69,117 @@ def write_cache(rows: list[dict], account: str) -> None:
         log.warning("ibkr gateway: cache write failed: %s", e)
 
 
+# Account-state cache: NLV / cash / unrealised + per-position P&L + the session's
+# fills + broker-golden daily P&L. The desks' account-state push reads THIS
+# instead of opening its own (contending) connection — and since the gateway is
+# now the connection that PLACES orders, ib.fills() here sees every fill, which
+# is exactly what reconciles the clones' OMS orders to FILLED.
+ACCOUNT_CACHE = GATEWAY_CACHE.parent / "_gateway_account.json"
+
+
+async def poll_account_state(ib, want_account: str) -> dict:
+    """Read NLV/cash/unrealised + position book (with P&L) + session fills +
+    daily P&L for `want_account`, on the gateway's ONE connection. Mirrors the
+    shape the desk's account-state push used to read directly."""
+    positions = []
+    for it in ib.portfolio():
+        if want_account and (it.account or "").strip() != want_account:
+            continue
+        positions.append({
+            "symbol": it.contract.symbol,
+            "qty": it.position,
+            "mark": it.marketPrice,
+            "marketValue": it.marketValue,
+            "avgCost": it.averageCost,
+            "unrealisedPnl": it.unrealizedPNL,
+            "currency": getattr(it.contract, "currency", None),
+        })
+    vals = ib.accountValues(want_account) if want_account else ib.accountValues()
+
+    def _val(tag):
+        for v in vals:
+            if v.tag == tag and (not want_account or v.account == want_account):
+                try:
+                    return float(v.value)
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def _ccy(tag):
+        for v in vals:
+            if v.tag == tag and (not want_account or v.account == want_account):
+                return v.currency or None
+        return None
+
+    fills = []
+    for f in ib.fills():
+        ex = getattr(f, "execution", None)
+        if ex is None:
+            continue
+        if want_account and (getattr(ex, "acctNumber", "") or "").strip() != want_account:
+            continue
+        try:
+            fills.append({
+                "symbol": f.contract.symbol,
+                "side": "BUY" if ex.side == "BOT" else "SELL",
+                "qty": abs(float(ex.shares)),
+                "price": float(ex.price),
+            })
+        except (TypeError, ValueError, AttributeError):
+            continue
+
+    unrl = _val("UnrealizedPnL")
+    if unrl is None and positions:
+        unrl = sum(p["unrealisedPnl"] for p in positions if p.get("unrealisedPnl") is not None)
+
+    daily_pnl = None
+    try:
+        pnl = ib.reqPnL(want_account) if want_account else None
+        if pnl is not None:
+            await asyncio.sleep(2.0)
+            dp = getattr(pnl, "dailyPnL", None)
+            if dp is not None and dp == dp:  # not None / not NaN
+                daily_pnl = float(dp)
+            try:
+                ib.cancelPnL(want_account)
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception:  # noqa: BLE001
+        daily_pnl = None
+
+    return {
+        "broker": "IBKR_PAPER",
+        "account_id": want_account or None,
+        "currency": _ccy("NetLiquidation"),
+        "net_liquidation": _val("NetLiquidation"),
+        "total_cash": _val("TotalCashValue"),
+        "unrealised_pnl": unrl,
+        "daily_pnl": daily_pnl,
+        "positions": positions,
+        "fills": fills,
+    }
+
+
+def write_account_cache(payload: dict) -> None:
+    try:
+        ACCOUNT_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        ACCOUNT_CACHE.write_text(json.dumps({"ts": time.time(), **payload}))
+    except Exception as e:  # noqa: BLE001
+        log.warning("ibkr gateway: account cache write failed: %s", e)
+
+
+def read_account_state(max_age_s: float = 90.0) -> dict | None:
+    """DESK side: the gateway's account-state snapshot, or None if missing/stale.
+    Desks read this instead of opening their own connection."""
+    try:
+        d = json.loads(ACCOUNT_CACHE.read_text())
+        if time.time() - float(d.get("ts", 0)) <= max_age_s:
+            return d
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 # ── PHASE 2 — order routing through the ONE connection ───────────────────────
 # Desks used to each open their own ib_insync connection to PLACE orders, which
 # contended with this gateway's connection over the single account's budget —
@@ -241,14 +352,24 @@ async def run_gateway(interval: float = 30.0, iterations: int | None = None) -> 
                     pass
             # 1) Orders FIRST, every tick — placement must be low-latency.
             await drain_order_inbox(ib, _ibis, want, open_keys)
-            # 2) Positions cache on the slower `interval` cadence.
+            # 2) Positions + account-state cache on the slower `interval` cadence.
             now = time.time()
             if now - last_poll >= interval:
                 await asyncio.sleep(1.0)  # let position snapshots arrive
                 rows = await poll_positions(ib, want)
                 write_cache(rows, want)
+                # Account-state (NLV/cash/unrealised + P&L + fills) on the same
+                # connection — desks read this instead of connecting themselves.
+                try:
+                    acct = await poll_account_state(ib, want)
+                    write_account_cache(acct)
+                    log.info("ibkr gateway: cached %d positions + account-state "
+                             "(NLV=%s, %d fills)", len(rows),
+                             acct.get("net_liquidation"), len(acct.get("fills") or []))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("ibkr gateway: account-state poll failed: %s", e)
+                    log.info("ibkr gateway: cached %d positions", len(rows))
                 last_poll = now
-                log.info("ibkr gateway: cached %d positions", len(rows))
         except Exception as e:  # noqa: BLE001
             log.warning("ibkr gateway loop failed (will reconnect): %s", e)
             try:

@@ -1282,12 +1282,34 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
         finally:
             ib.disconnect()
 
+    # PREFER the central gateway's account-state snapshot — the gateway holds the
+    # ONE connection (and now PLACES the orders, so its ib.fills() is the
+    # authoritative session fills). Reading it means this desk opens NO broker
+    # connection of its own, which is what removes the contention + the timeouts
+    # that left the clone showing $0/idle. Direct read only if the gateway cache
+    # is stale/missing.
+    fills: list = []
+    payload = None
     try:
-        payload = _aio.run(_read())
-    except Exception as exc:  # noqa: BLE001
-        log.warning("account-state: could not read IBKR portfolio (%s) — skip", exc)
-        return
-    fills = payload.pop("_fills", [])
+        from ..ibkr_gateway import read_account_state
+        gw = read_account_state()
+    except Exception:  # noqa: BLE001
+        gw = None
+    if gw is not None:
+        payload = {k: gw.get(k) for k in (
+            "broker", "account_id", "currency", "net_liquidation",
+            "total_cash", "unrealised_pnl", "daily_pnl", "positions")}
+        fills = gw.get("fills") or []
+        log.info("account-state: via CENTRAL gateway snapshot (no direct connection) "
+                 "— NLV=%s, %d positions, %d fills",
+                 payload.get("net_liquidation"), len(payload.get("positions") or []), len(fills))
+    else:
+        try:
+            payload = _aio.run(_read())
+            fills = payload.pop("_fills", [])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("account-state: gateway cache stale AND direct read failed (%s) — skip", exc)
+            return
     try:
         import requests as _rq
         resp = _rq.post(
