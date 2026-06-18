@@ -92,6 +92,13 @@ export function PriceHistoryChart({
   // dragging the brush handles.
   const [range, setRange] = useState<[number, number] | null>(null);
   const [activePreset, setActivePreset] = useState<string>("5Y");
+  // Indicator visibility — clean by default (price + cloud + S/R), with the
+  // moving-average lines OFF so the chart isn't a tangle. Toggle chips let the
+  // user reveal exactly what they want (show/hide, no clutter).
+  const [shown, setShown] = useState<Record<string, boolean>>({
+    cloud: true, sr: true, sma: false, tenkan: false, kijun: false,
+  });
+  const toggle = (k: string) => setShown((s) => ({ ...s, [k]: !s[k] }));
 
   useEffect(() => {
     if (!symbol) return;
@@ -296,6 +303,34 @@ export function PriceHistoryChart({
           </button>
         ))}
       </div>
+      {/* Indicator toggles — clean by default; reveal MAs only when wanted. */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 10, color: "var(--text-muted)", marginRight: 2 }}>Indicators:</span>
+        {([
+          { k: "cloud", label: "Ichimoku cloud", on: "#9ba1ad" },
+          { k: "sr", label: "Support / resistance", on: "#cbd2dc" },
+          { k: "sma", label: "SMA 200", on: "#9b6eff" },
+          { k: "tenkan", label: "Tenkan 9", on: "#38bdf8" },
+          { k: "kijun", label: "Kijun 26", on: "#f59e0b" },
+        ] as const).map((ind) => (
+          <button
+            key={ind.k}
+            type="button"
+            onClick={() => toggle(ind.k)}
+            style={{
+              fontSize: 10,
+              padding: "3px 8px",
+              borderRadius: 999,
+              border: `1px solid ${shown[ind.k] ? ind.on : "rgba(155,161,173,0.3)"}`,
+              background: shown[ind.k] ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.18)",
+              color: shown[ind.k] ? ind.on : "var(--text-muted)",
+              cursor: "pointer",
+            }}
+          >
+            {shown[ind.k] ? "● " : "○ "}{ind.label}
+          </button>
+        ))}
+      </div>
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }} syncId="priceHistory">
           <CartesianGrid stroke="rgba(155,161,173,0.15)" strokeDasharray="3 3" />
@@ -327,11 +362,11 @@ export function PriceHistoryChart({
           {/* Support / resistance — nearest swing pivots around the current
               price. SOLID (vs the dashed 52w/SMA) so they read as actionable
               levels: resistance = ceiling to break, support = floor to hold. */}
-          {resistance != null && (
+          {shown.sr && resistance != null && (
             <ReferenceLine y={resistance} stroke="var(--down)" strokeWidth={1.25} ifOverflow="hidden"
               label={{ value: `R ${resistance.toFixed(2)}`, position: "left", fill: "var(--down)", fontSize: 10 }} />
           )}
-          {support != null && (
+          {shown.sr && support != null && (
             <ReferenceLine y={support} stroke="var(--up)" strokeWidth={1.25} ifOverflow="hidden"
               label={{ value: `S ${support.toFixed(2)}`, position: "left", fill: "var(--up)", fontSize: 10 }} />
           )}
@@ -437,12 +472,22 @@ export function PriceHistoryChart({
               two stacked areas (invisible base to cloud floor + filled
               thickness) so it sits BEHIND the price line. Tenkan (fast) +
               kijun (base) as thin lines; their cross is the entry trigger. */}
-          <Area type="monotone" dataKey="cloudLo" stackId="cloud" stroke="none" fill="none" connectNulls isAnimationActive={false} legendType="none" tooltipType="none" />
-          <Area type="monotone" dataKey="cloudFill" stackId="cloud" stroke="none" fill="var(--neutral)" fillOpacity={0.16} connectNulls name="Ichimoku cloud" isAnimationActive={false} />
-          <Line type="monotone" dataKey="tenkan" stroke="#38bdf8" strokeWidth={1} dot={false} connectNulls name="Tenkan (9)" isAnimationActive={false} />
-          <Line type="monotone" dataKey="kijun" stroke="#f59e0b" strokeWidth={1} dot={false} connectNulls name="Kijun (26)" isAnimationActive={false} />
+          {shown.cloud && (
+            <Area type="monotone" dataKey="cloudLo" stackId="cloud" stroke="none" fill="none" connectNulls isAnimationActive={false} legendType="none" tooltipType="none" />
+          )}
+          {shown.cloud && (
+            <Area type="monotone" dataKey="cloudFill" stackId="cloud" stroke="none" fill="var(--neutral)" fillOpacity={0.16} connectNulls name="Ichimoku cloud" isAnimationActive={false} />
+          )}
+          {shown.tenkan && (
+            <Line type="monotone" dataKey="tenkan" stroke="#38bdf8" strokeWidth={1} dot={false} connectNulls name="Tenkan (9)" isAnimationActive={false} />
+          )}
+          {shown.kijun && (
+            <Line type="monotone" dataKey="kijun" stroke="#f59e0b" strokeWidth={1} dot={false} connectNulls name="Kijun (26)" isAnimationActive={false} />
+          )}
           <Line type="monotone" dataKey="price" stroke="#cbd2dc" strokeWidth={1.5} dot={false} name="Price (adj)" isAnimationActive={false} />
-          <Line type="monotone" dataKey="sma200" stroke="#9b6eff" strokeWidth={1.4} strokeDasharray="6 3" dot={false} name="SMA(200)" isAnimationActive={false} />
+          {shown.sma && (
+            <Line type="monotone" dataKey="sma200" stroke="#9b6eff" strokeWidth={1.4} strokeDasharray="6 3" dot={false} name="SMA(200)" isAnimationActive={false} />
+          )}
           <Brush
             dataKey="t"
             height={26}
