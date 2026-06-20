@@ -104,6 +104,39 @@ idempotent, manual-override-safe.
 See the dedicated task lower in this file — separate pipeline from P&L/entry-price;
 confirm whether T212 returns per-order execution price at all before choosing the fix.
 
+## 🏛️ PRODUCTION ARCHITECTURE — the north star (user, 2026-06-20)
+The gateway work this week is NOT a demo hack — it IS the prod architecture. The
+principle, true for EVERY broker (IBKR, T212, IG, and any new one): **all broker
+access goes through ONE central session/service per broker; desks NEVER connect
+to a broker directly.** What demo→prod adds on top:
+
+1. **Broker-gateway INTERFACE, per-broker adapters.** One stable contract —
+   `place · positions · account · fills · bars` — implemented once per broker
+   (IBKR = the Mac/cloud gateway daemon; T212 + IG = the .NET API session, which
+   already holds the creds and places via the OMS). Desks code to the interface,
+   broker-agnostic. A new broker = a new adapter behind the same contract, nothing
+   else changes. (Today: IBKR orders+positions+account-state all route through the
+   gateway; the leftover is gateway→OMS fill ATTRIBUTION so clone trades/P&L show.)
+2. **Gateway as a managed SERVICE, not a Mac daemon.** Containerized, health-checked,
+   auto-reconnecting, monitored/alerted. For IBKR pair it with a managed IB Gateway
+   (IBeam-style) that handles the **daily re-auth** — the overnight `Error 1100` that
+   broke every client this week CANNOT happen with real money.
+3. **OMS = single source of truth, continuously reconciled to the broker (golden
+   source).** Every fill flows broker→gateway→OMS. The clone-fills-invisible gaps we
+   hit are the prod-blocker: you cannot have trades the OMS can't see.
+4. **Per-strategy CAPITAL allocation (sleeves / sub-accounts).** Today all desks share
+   one account's cash → the intraday engine spams "insufficient funds" (2026-06-19).
+   Prod needs hard per-strategy capital limits so one desk can't starve/over-leverage
+   another.
+5. **Centralized SAFETY + CALENDAR.** Kill-switches, position/loss limits,
+   idempotency/dedup, AND a trading-calendar / market-hours gate (the Juneteenth
+   holiday-spam: intraday engine fired ~400 orders into a closed market) — all enforced
+   in the gateway/OMS, never per-desk.
+
+**The demo→prod MOVE itself:** today the *desks* run on the Mac while OMS/T212/IG run in
+AWS. Prod needs the desks + the IBKR gateway running as **cloud services near the broker**,
+no Mac dependency. That migration is the real graduation to real money ([[project_going_live_real_money]]).
+
 ## SESSION STATE — 2026-06-12 (Thursday — measurement plumbing, harvest unblocked, swing-vs-intraday cadence)
 
 ### ✅ Shipped

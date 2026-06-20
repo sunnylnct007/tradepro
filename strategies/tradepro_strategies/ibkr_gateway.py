@@ -287,6 +287,58 @@ async def place_one_intent(ib, ib_insync, intent: dict, want_account: str, open_
     }
 
 
+async def record_to_oms(intent: dict, result: dict) -> None:
+    """Record a gateway-FILLED order into the OMS, attributed to the intent's
+    strategy_id — so the clone's trades, per-strategy P&L AND open positions show
+    on /oms + the cockpit. The gateway is the ONLY place that has BOTH the fill
+    and the strategy_id, so it owns this (the desk's mirror was unreliable — FX
+    clone showed 0 OMS orders despite filling). Best-effort + idempotent via a
+    deterministic ClientOrderId derived from the intent_id."""
+    sid = intent.get("strategy_id")
+    fq = float(result.get("fill_qty") or 0)
+    fp = float(result.get("fill_price") or 0)
+    if not sid or fq <= 0 or fp <= 0:
+        return
+    try:
+        import hashlib
+        import uuid as _uuid
+        import httpx
+        from .secrets import get_secret
+        api_base = get_secret("api-base-url")
+        api_token = get_secret("api-token")
+        if not api_base or not api_token:
+            return
+        base = api_base.rstrip("/")
+        H = {"Authorization": f"Bearer {api_token}"}
+        client_id = str(_uuid.UUID(hashlib.md5(str(intent["intent_id"]).encode()).hexdigest()))
+        order = {
+            "ClientOrderId": client_id, "Broker": "IBKR_PAPER",
+            "Symbol": intent["symbol"], "Side": intent["action"],
+            "Qty": fq, "OrderType": "MKT", "StrategyId": sid,
+            "PlacedBy": "STRATEGY_AUTO", "TimeInForce": "DAY",
+        }
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(f"{base}/api/oms/orders", json=order, headers=H)
+            if r.status_code == 409:
+                return  # already recorded this session — idempotent
+            if r.status_code not in (200, 201):
+                log.warning("gateway→OMS record %s for %s: %s",
+                            r.status_code, intent["symbol"], r.text[:120])
+                return
+            oid = (r.json() or {}).get("id")
+            if not oid:
+                return
+            await client.post(f"{base}/api/oms/orders/{oid}/approve", json={}, headers=H)
+            await client.post(
+                f"{base}/api/oms/orders/{oid}/fill", headers=H,
+                json={"Qty": fq, "Price": fp, "Fee": 0.0, "Currency": "USD",
+                      "BrokerFillId": str(result.get("broker_order_id") or client_id)})
+        log.info("gateway→OMS: recorded FILLED %s %s qty=%s @ %s (sid=%s)",
+                 intent["action"], intent["symbol"], fq, fp, sid)
+    except Exception as e:  # noqa: BLE001
+        log.warning("gateway→OMS record failed for %s: %s", intent.get("symbol"), e)
+
+
 async def drain_order_inbox(ib, ib_insync, want_account: str, open_keys: set) -> int:
     """Place every pending inbox intent; write each result to the outbox and
     remove the inbox file. Idempotent (skips an intent already in the outbox);
@@ -314,6 +366,11 @@ async def drain_order_inbox(ib, ib_insync, want_account: str, open_keys: set) ->
         placed += 1
         log.info("ibkr gateway: placed intent %s (%s %s) -> %s",
                  iid, intent.get("action"), intent.get("symbol"), result.get("status"))
+        # Attribute the fill back to the OMS per strategy_id so the clone's
+        # trades + P&L + open positions are visible (immediate market fills;
+        # OPG/auction fills reconcile via the account-state fills path).
+        if result.get("status") == "filled":
+            await record_to_oms(intent, result)
     return placed
 
 

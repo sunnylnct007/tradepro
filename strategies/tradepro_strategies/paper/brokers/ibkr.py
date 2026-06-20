@@ -383,11 +383,11 @@ class IBKRRouter(OrderRouter):
         })
         log.info("IBKR→gateway · sid=%s %s %s qty=%s intent=%s",
                  order.strategy_id, action, order.symbol, order.quantity, iid[:8])
-        # Mirror into the OMS for visibility (no ib_order in this path → None).
-        # Keep the order id so we can mark it FILLED once the gateway reports
-        # the fill — otherwise it'd sit SUBMITTED forever (the fill happens on
-        # the gateway's connection, which the OMS can't see).
-        oms_oid = await self._record_in_oms(order, None)
+        # NOTE: OMS recording is owned by the GATEWAY now (record_to_oms), not
+        # the desk — the gateway is the one place with both the fill AND the
+        # strategy_id, and the desk's mirror was unreliable (FX clone showed 0
+        # OMS orders despite filling). We just emit the FillEvent for the local
+        # engine ledger below.
 
         # Poll the outbox for the gateway's result (~12s). OPG/dup return fast;
         # an RTH market fills within the gateway's 8s wait. If nothing yet, the
@@ -417,8 +417,6 @@ class IBKRRouter(OrderRouter):
                 fill_time=datetime.now(timezone.utc),
                 commission=0.0,
             )))
-            # Mark the OMS mirror FILLED so it doesn't sit SUBMITTED on /oms.
-            await self._mark_oms_filled(oms_oid, fqty, fprice, boid)
             log.info("IBKR→gateway FILLED · %s %s qty=%s @ %s",
                      action, order.symbol, result.get("fill_qty"), result.get("fill_price"))
         else:
