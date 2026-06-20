@@ -502,3 +502,72 @@ def apply_horizon_and_range_demotion(
             )
 
     return bucket, reason, False
+
+
+# --- FAIL-VISIBLE data-gap integrity — NO FALSE POSITIVES -------------- #
+# A check has THREE outcomes, not two: pass / fail / COULD-NOT-COMPUTE. A
+# could-not-compute (input missing or the calc threw) must be SURFACED and must
+# CAP confidence — never silently treated as "all clear". This is the verdict-
+# level twin of the P&L "ledger incomplete" guard. (User principle 2026-06-20,
+# BABA wrong-BUY: missing ADR fundamentals let the earnings/valuation vetoes
+# silently skip → a confident wrong BUY.) See feedback_no_false_positives.
+
+# Checks whose could-not-compute makes a BUY UNVERIFIABLE → cap bucket to WAIT.
+BLOCKING_GAP_CHECKS = ("earnings", "valuation", "bars")
+
+# check key → human label shown in the reason / Decide UI.
+_GAP_LABELS = {
+    "earnings": "earnings calendar unavailable",
+    "valuation": "valuation data missing",
+    "bars": "price bars suspect",
+    "volume": "volume confirmation unavailable",
+    "sentiment": "sentiment unavailable",
+    "llm": "LLM rationale failed",
+}
+
+
+def collect_data_gaps(*, available: dict[str, bool]) -> list[str]:
+    """From a map of check_name → input-was-available, return the ordered list of
+    checks that COULD NOT be computed. Only KNOWN keys present in `available`
+    are considered — an absent key is NOT a gap (not every caller checks every
+    input), so we never invent a gap we didn't actually observe."""
+    return [name for name in _GAP_LABELS
+            if name in available and not available[name]]
+
+
+def gap_labels(gaps: list[str]) -> list[str]:
+    """Human-readable labels for gap keys (Decide UI + reason text)."""
+    return [_GAP_LABELS.get(g, g) for g in gaps]
+
+
+def apply_data_gap_integrity(
+    *,
+    bucket: str,
+    conviction: str,
+    reason: str,
+    gaps: list[str],
+) -> tuple[str, str, str, bool]:
+    """FAIL-VISIBLE guard — a could-not-compute on a key check must NOT read as
+    "all clear". Returns (bucket, conviction, reason, capped).
+
+      - A BLOCKING gap (earnings/valuation/bars couldn't run) on a BUY → cap the
+        bucket to WAIT + conviction to LOW: we can't VERIFY the BUY, so we don't
+        recommend the entry. (No false positives.)
+      - ANY gap forbids HIGH conviction (HIGH → MEDIUM): a check is missing, so
+        we can't be maximally confident.
+      - The reason always NAMES the unverified checks — the gap is shown, never
+        hidden.
+
+    Pure — no row mutation; pinned by features/data_gaps.feature.
+    """
+    if not gaps:
+        return bucket, conviction, reason, False
+    has_blocking = any(g in BLOCKING_GAP_CHECKS for g in gaps)
+    new_bucket, new_conviction = bucket, conviction
+    if has_blocking and bucket == "BUY":
+        new_bucket, new_conviction = "WAIT", "LOW"
+    elif conviction == "HIGH":
+        new_conviction = "MEDIUM"
+    note = "Unverified — couldn't compute: " + ", ".join(gap_labels(gaps))
+    new_reason = f"{reason} | {note}" if reason else note
+    return new_bucket, new_conviction, new_reason, True
