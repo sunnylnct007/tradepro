@@ -104,6 +104,33 @@ idempotent, manual-override-safe.
 See the dedicated task lower in this file — separate pipeline from P&L/entry-price;
 confirm whether T212 returns per-order execution price at all before choosing the fix.
 
+## ⚠️ FAIL-VISIBLE VERDICT INTEGRITY — never hide a calc failure (user, 2026-06-20)
+**User principle:** "Better to SHOW issues in the calcs than to hide a calc failure and
+flag a wrong [confident] decision." Triggered by a **BABA wrong-BUY**: TradePro said BUY
+when it should have been no-buy — almost certainly because BABA (a Chinese ADR) has
+**missing fundamental/earnings/valuation data** ([[project_eps_analyst_coverage_gap]]), and
+the guards that should have blocked the BUY **silently passed through on the missing input**.
+
+**The bug pattern (found in `shared_verdict.py`):** checks treat a MISSING/FAILED input the
+same as "no signal" — they pass through. Examples: the earnings suppressor returns *unchanged*
+when `days_until_earnings is None` (so a failed earnings-calendar load = no suppression, silently);
+the volume-confirm drops to MEDIUM on a bad `vol_ratio` with no "couldn't compute" flag. Same
+class as the fabricated +£5,245 P&L (fixed: now shows `n/a · ledger incomplete`) and the fake
+−0.20 sentiment still feeding the verdict.
+
+**The fix (apply across the verdict pipeline):** every check reports THREE states —
+**pass / fail / could-not-compute** — and *could-not-compute* must be SURFACED and CAP conviction,
+never silently = pass:
+1. Each guard also returns whether its input was actually available.
+2. The verdict carries a **`dataGaps` / `checksSkipped`** list ("earnings calendar unavailable",
+   "valuation data missing", "LLM rationale failed", "garbage bar dropped").
+3. **Conviction can't be HIGH — and a BUY caps to WATCH — when a key check couldn't run** (same
+   shape as the BUG-001 conviction veto + the P&L ledger-incomplete guard).
+4. Decide UI shows the gaps PROMINENTLY: "BUY *(unverified: earnings, valuation)*", and the
+   `template (LLM failed/hallucinated)` state must downgrade conviction, not just footnote it.
+This is the verdict-level version of the same rule already shipped for P&L: refuse to fabricate
+confidence; show the gap. Gate before [[project_going_live_real_money]].
+
 ## 🏛️ PRODUCTION ARCHITECTURE — the north star (user, 2026-06-20)
 The gateway work this week is NOT a demo hack — it IS the prod architecture. The
 principle, true for EVERY broker (IBKR, T212, IG, and any new one): **all broker
