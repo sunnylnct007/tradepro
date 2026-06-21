@@ -597,6 +597,89 @@ public static class DataTrustEndpoints
             return Results.Ok(new { health = rows.AsList() });
         });
 
+        // Per-symbol DATA-QUALITY score — "is this symbol's data good enough to
+        // decide on TODAY?" Rolls bar_cache_health into one honest verdict so the
+        // Decide page + a Data-Health dashboard can show it, and so a stale/missing
+        // symbol can be flagged (no false positives). Tiers MIRROR the Python
+        // scorer (bar_cache/quality.py) — keep them in sync:
+        //   MISSING < STALE (pending N days) < PARTIAL (gaps) < BRONZE (yfinance,
+        //   flagged) < GOOD (fresh+complete+IBKR). good_for_today = GOOD|BRONZE.
+        g.MapGet("/bar-cache/quality", async (
+            NpgsqlDataSource db,
+            string? asset_class,
+            int? stale_after_days) =>
+        {
+            int staleAfter = Math.Clamp(stale_after_days ?? 4, 1, 30);
+            var today = DateTime.UtcNow.Date;
+            var trusted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ibkr", "ig" };
+
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = (await conn.QueryAsync<(string Canonical, string AssetClass,
+                    DateTime? CoverageEnd, int? MissingDays, string? Provider)>(@"
+                SELECT canonical, asset_class, coverage_end_date,
+                       missing_days_count, last_fetched_provider
+                FROM bar_cache_health
+                WHERE (@asset_class IS NULL OR asset_class = @asset_class)
+                ORDER BY canonical;",
+                new { asset_class })).AsList();
+
+            int good = 0, bronze = 0, partial = 0, stale = 0, missing = 0;
+            var symbols = new List<object>();
+            foreach (var r in rows)
+            {
+                var prov = (r.Provider ?? "").Trim().ToLowerInvariant();
+                int miss = r.MissingDays ?? 0;
+                string score; bool gft; int? daysBehind = null; string reason;
+                if (r.CoverageEnd is null)
+                {
+                    score = "MISSING"; gft = false; missing++;
+                    reason = "No cached bars — cannot decide on this symbol today.";
+                }
+                else
+                {
+                    int dB = (today - r.CoverageEnd.Value.Date).Days; daysBehind = dB;
+                    if (dB > staleAfter)
+                    {
+                        score = "STALE"; gft = false; stale++;
+                        reason = $"Last bar {dB}d old (> {staleAfter}d) — data pending; NOT good for today's decision.";
+                    }
+                    else if (miss > 0)
+                    {
+                        score = "PARTIAL"; gft = false; partial++;
+                        reason = $"Fresh but {miss} session(s) missing inside coverage — gaps; not high-conviction.";
+                    }
+                    else if (!trusted.Contains(prov))
+                    {
+                        score = "BRONZE"; gft = true; bronze++;
+                        reason = $"Fresh + complete but {(prov.Length == 0 ? "unknown" : prov)}-sourced (not IBKR) — ok for a first pass, not credible-backtest grade.";
+                    }
+                    else
+                    {
+                        score = "GOOD"; gft = true; good++;
+                        reason = $"Fresh ({dB}d) + complete + {prov.ToUpperInvariant()} — good for today.";
+                    }
+                }
+                symbols.Add(new
+                {
+                    canonical = r.Canonical, asset_class = r.AssetClass,
+                    score, good_for_today = gft, days_behind = daysBehind,
+                    provider = prov, missing_days = miss,
+                    coverage_end = r.CoverageEnd, reason,
+                });
+            }
+            return Results.Ok(new
+            {
+                as_of = today,
+                stale_after_days = staleAfter,
+                summary = new
+                {
+                    total = symbols.Count, good, bronze, partial, stale, missing,
+                    good_for_today = good + bronze,
+                },
+                symbols,
+            });
+        });
+
         // Phase F-3 — Fill-quality analytics.
         //
         // Reads oms_fills WHERE mid_at_fill IS NOT NULL (the rows F-2
