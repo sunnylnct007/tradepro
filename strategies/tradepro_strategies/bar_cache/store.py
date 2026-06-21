@@ -141,6 +141,12 @@ class BarStore:
         # silent for a tuple.
         self._default_chain = provider_chain or ["yfinance"]
         self._preferences_loader = preferences_loader
+        # SHARED bar cache: S3 is the source of truth (harvest once, read
+        # everywhere); the local dir is a read-through cache. None = pure local
+        # (dev). Fail-safe — an S3 hiccup never breaks read/write (see
+        # s3_mirror). Single switch: TRADEPRO_BAR_CACHE_S3_BUCKET.
+        from .s3_mirror import mirror_from_env
+        self._s3 = mirror_from_env(self.base_dir)
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -232,7 +238,7 @@ class BarStore:
             )
 
             need_fetch = force_refresh
-            if manifest_path.exists():
+            if self._ensure_local(manifest_path):  # read-through: shared S3 store
                 try:
                     manifest = Manifest.read(manifest_path)
                 except Exception as exc:  # noqa: BLE001
@@ -648,6 +654,23 @@ class BarStore:
         )
         manifest.write(manifest_path)
 
+        # Write-through to the SHARED S3 store so every env reads this harvest
+        # (no per-env re-harvest). Best-effort: an S3 failure keeps the local
+        # copy and logs — the harvest still succeeds.
+        if self._s3 is not None:
+            self._s3.upload(partition_path)
+            self._s3.upload(manifest_path)
+
+    def _ensure_local(self, path: Path) -> bool:
+        """True if `path` is available locally — fetching it from the shared S3
+        store on a local miss (read-through). Falls back to local-only when S3
+        is disabled/unreachable, so an env with no S3 still works."""
+        if path.exists():
+            return True
+        if self._s3 is not None and self._s3.download(path):
+            return True
+        return path.exists()
+
     def _read_partitions(
         self,
         canonical: str,
@@ -665,7 +688,7 @@ class BarStore:
             path = self._partition_path(
                 canonical, asset_class, resolution, partition,
             )
-            if not path.exists():
+            if not self._ensure_local(path):  # read-through: shared S3 store
                 continue
             table = pq.read_table(path)
             df = table.to_pandas()
@@ -811,7 +834,7 @@ class BarStore:
             manifest_path = self._manifest_path(
                 canonical, asset_class, resolution, partition,
             )
-            if not manifest_path.exists():
+            if not self._ensure_local(manifest_path):  # read-through: shared S3
                 continue
             try:
                 manifest = Manifest.read(manifest_path)
