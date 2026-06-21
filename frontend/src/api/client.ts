@@ -1273,6 +1273,35 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/bar-cache/coverage-matrix", qp);
   },
+
+  // Per-symbol data-QUALITY score: "is this symbol's data good enough to
+  // decide on TODAY?" Rolls bar_cache_health into one honest verdict so the
+  // Data-Health dashboard shows good-for-today / pending-N-days at a glance.
+  barCacheQuality: (params?: { assetClass?: string; staleAfterDays?: number }) => {
+    const qp: Record<string, string | undefined> = {};
+    if (params?.assetClass) qp.asset_class = params.assetClass;
+    if (params?.staleAfterDays !== undefined)
+      qp.stale_after_days = String(params.staleAfterDays);
+    return get<{
+      as_of: string;
+      stale_after_days: number;
+      summary: {
+        total: number; good: number; bronze: number; partial: number;
+        stale: number; missing: number; good_for_today: number;
+      };
+      symbols: Array<{
+        canonical: string;
+        asset_class: string;
+        score: "GOOD" | "BRONZE" | "PARTIAL" | "STALE" | "MISSING";
+        good_for_today: boolean;
+        days_behind: number | null;
+        provider: string;
+        missing_days: number;
+        coverage_end: string | null;
+        reason: string;
+      }>;
+    }>("/api/admin/data-trust/bar-cache/quality", qp);
+  },
   // Phase F-3 — fill-quality analytics. Empty payload until F-2
   // capture starts landing in production. Sign convention: positive
   // realised_bps = worse than mid (BUY above mid, SELL below mid),

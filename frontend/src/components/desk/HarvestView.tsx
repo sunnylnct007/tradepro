@@ -14,6 +14,18 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 
 type Row = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
+type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
+type QRow = Quality["symbols"][number];
+
+// Decision-grade tier → colour + glyph. The headline question: "good enough to
+// decide on TODAY?" GOOD/BRONZE = yes; PARTIAL/STALE/MISSING = no.
+const QTONE: Record<string, string> = {
+  GOOD: "var(--up)", BRONZE: "var(--warn)", PARTIAL: "var(--warn)",
+  STALE: "var(--down)", MISSING: "var(--text-muted)",
+};
+const QGLYPH: Record<string, string> = {
+  GOOD: "✅", BRONZE: "⚠️", PARTIAL: "◑", STALE: "⏳", MISSING: "✗",
+};
 
 const TH: React.CSSProperties = {
   textAlign: "left", padding: "7px 10px", fontSize: 11, fontWeight: 600,
@@ -49,6 +61,7 @@ const TONE: Record<string, string> = {
 
 export function HarvestView() {
   const [rows, setRows] = useState<Row[]>([]);
+  const [quality, setQuality] = useState<Quality | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -61,11 +74,23 @@ export function HarvestView() {
         .then((r) => { if (live) { setRows(r.health || []); setErr(null); } })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })
         .finally(() => { if (live) setLoading(false); });
+      // Decision-grade quality (good-for-today). Best-effort — its own catch so
+      // a quality hiccup never blanks the health table.
+      api.barCacheQuality()
+        .then((r) => { if (live) setQuality(r); })
+        .catch(() => { if (live) setQuality(null); });
     };
     void load();
     const t = setInterval(load, 60_000);
     return () => { live = false; clearInterval(t); };
   }, []);
+
+  // canonical → decision-grade quality, for the per-row badge.
+  const qmap = useMemo(() => {
+    const m = new Map<string, QRow>();
+    for (const s of quality?.symbols || []) m.set(s.canonical, s);
+    return m;
+  }, [quality]);
 
   const summary = useMemo(() => {
     const s = { total: rows.length, healthy: 0, warn: 0, bad: 0, none: 0, missing: 0 };
@@ -104,6 +129,14 @@ export function HarvestView() {
 
       {/* Summary strip */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        {quality && (
+          <Stat
+            label="Good for today"
+            value={`${quality.summary.good_for_today}/${quality.summary.total}`}
+            tone={quality.summary.good_for_today === quality.summary.total ? "ok"
+              : quality.summary.good_for_today === 0 ? "bad" : "warn"}
+          />
+        )}
         <Stat label="Tracked" value={summary.total} tone="none" />
         <Stat label="Healthy" value={summary.healthy} tone="ok" />
         <Stat label="Warnings" value={summary.warn} tone="warn" />
@@ -130,6 +163,7 @@ export function HarvestView() {
           <thead>
             <tr>
               <th style={TH}>Symbol</th>
+              <th style={TH}>Good today?</th>
               <th style={TH}>Class</th>
               <th style={TH}>Status</th>
               <th style={TH}>Coverage</th>
@@ -147,6 +181,18 @@ export function HarvestView() {
               return (
                 <tr key={r.canonical} style={{ borderBottom: "1px solid #141b2b" }}>
                   <td style={{ ...TD, fontWeight: 700, fontFamily: "var(--font-mono)" }}>{r.canonical}</td>
+                  <td style={TD}>
+                    {(() => {
+                      const qrow = qmap.get(r.canonical);
+                      if (!qrow) return <span style={{ color: "var(--text-muted)" }}>—</span>;
+                      return (
+                        <span title={qrow.reason} style={{ color: QTONE[qrow.score], fontWeight: 600, cursor: "help" }}>
+                          {QGLYPH[qrow.score]} {qrow.score}
+                          {qrow.days_behind != null && qrow.score !== "GOOD" ? ` ${qrow.days_behind}d` : ""}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td style={{ ...TD, color: "var(--text-dim)" }}>{r.asset_class || "—"}</td>
                   <td style={TD}>
                     <span style={{ color: TONE[v.tone], fontWeight: 600 }}>●</span>{" "}
@@ -182,7 +228,7 @@ export function HarvestView() {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: keyof typeof TONE }) {
+function Stat({ label, value, tone }: { label: string; value: number | string; tone: keyof typeof TONE }) {
   return (
     <div style={{
       background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8,
