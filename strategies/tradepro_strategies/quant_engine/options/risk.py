@@ -84,10 +84,14 @@ class OptionsRiskConfig:
     # Liquidity gates (§6.1 filter 1, §9.2)
     oi_min: int = 1000
     spread_max_usd: float = 0.10
-    # Capital rules (§9.1) — GBP
-    pot_gbp: float = 15000.0
-    max_deploy_gbp: float = 9000.0
-    per_position_gbp: float = 5000.0
+    # Capital rules (§9.1) — GBP. Pot ≈ £12k with ~£10k deployable (the trader's
+    # stated capacity); a single position may use the full deploy so mid-priced
+    # quality names (e.g. a $76 strike ≈ £6k cash-secured) aren't blocked on
+    # notional. Names too expensive to cash-secure within £10k (e.g. a $200 strike
+    # ≈ £16k) still correctly block — that's affordability, not a tunable.
+    pot_gbp: float = 12000.0
+    max_deploy_gbp: float = 10000.0
+    per_position_gbp: float = 10000.0
     max_positions: int = 2
     # Drawdown brakes (§9.5) — cumulative realised LOSS in GBP (positive number)
     brake1_alert_gbp: float = 500.0

@@ -98,17 +98,19 @@ def test_earnings_in_window_blocks():
 
 
 def test_per_position_limit_blocks():
-    cand = TradeCandidate(**{**_good_csp().__dict__, "notional_gbp": 6000.0})
+    # per-position cap is £10k; a £11k notional (≈ $140 strike) breaches it.
+    cand = TradeCandidate(**{**_good_csp().__dict__, "notional_gbp": 11000.0})
     d = evaluate(cand, _good_ctx(), _flat())
     assert not d.allowed
     assert any("per-position" in b for b in d.blocks)
 
 
 def test_deployment_limit_blocks():
+    # deploy cap is £10k; £8k already out + a £4.3k candidate = £12.3k > £10k.
     pf = PortfolioState(deployed_gbp=8000.0, open_positions=1, cumulative_realised_loss_gbp=0.0)
     d = evaluate(_good_csp(), _good_ctx(), pf)
     assert not d.allowed
-    assert any("max £9000" in b or "max £9,000" in b or "> max" in b for b in d.blocks)
+    assert any("max £10000" in b or "max £10,000" in b or "> max" in b for b in d.blocks)
 
 
 def test_max_positions_blocks():
@@ -181,10 +183,11 @@ def test_brake3_no_new_positions():
 
 
 def test_brake2_halves_per_position_limit():
-    # brake 2 → size_factor 0.5 → per-position limit halved to £2500; a £4300
-    # notional that passed at full size now blocks.
+    # brake 2 → size_factor 0.5 → per-position limit halved to £5000; a £6000
+    # notional that passed at full size (£10k) now blocks.
+    cand = TradeCandidate(**{**_good_csp().__dict__, "notional_gbp": 6000.0})
     pf = PortfolioState(deployed_gbp=0.0, open_positions=0, cumulative_realised_loss_gbp=1100.0)
-    d = evaluate(_good_csp(), _good_ctx(), pf)
+    d = evaluate(cand, _good_ctx(), pf)
     assert d.brake_tier == 2 and d.size_factor == 0.5
     assert not d.allowed
     assert any("halved by drawdown brake 2" in b for b in d.blocks)
