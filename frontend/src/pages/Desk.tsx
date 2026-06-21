@@ -37,6 +37,7 @@ import { SymbolDetailRail } from "../components/desk/SymbolDetailRail";
 import { ScreenersView } from "../components/desk/ScreenersView";
 import { NewsView } from "../components/desk/NewsView";
 import { HarvestView } from "../components/desk/HarvestView";
+import { OptionsDesk } from "../components/desk/OptionsDesk";
 import { WatchlistView } from "../components/desk/WatchlistView";
 import { QuoteView } from "../components/desk/QuoteView";
 import { SimulationView } from "../components/desk/SimulationView";
@@ -60,7 +61,7 @@ function useWide(): boolean {
   return wide;
 }
 
-const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest"];
+const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options"];
 
 export function Desk() {
   const wide = useWide();
@@ -158,6 +159,7 @@ export function Desk() {
       {view === "oms"        && <OmsOrders />}
       {view === "risk"       && <RiskPage />}
       {view === "harvest"    && <HarvestView />}
+      {view === "options"    && <OptionsDesk />}
       {view === "decide"     && <Compare />}
       {view === "scan"       && <UniverseScan />}
     </DeskShell>

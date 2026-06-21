@@ -1302,6 +1302,28 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/bar-cache/quality", qp);
   },
+  // Options Desk — wheel candidate screen. Produced by the Mac
+  // tradepro-options-screen job (IV-Rank + regime + risk engine) and
+  // pushed to /api/options/candidates. Empty until the first screen runs.
+  optionsCandidates: () =>
+    get<{
+      generated_at_utc: string | null;
+      market_open: boolean;
+      candidates: Array<{
+        symbol: string;
+        regime: string | null;
+        iv_rank: number | null;
+        iv: number | null;
+        open_interest: number | null;
+        spread_usd: number | null;
+        eligible: boolean;
+        blocks: string[];
+        warnings: string[];
+        suggested_strike: number | null;
+        suggested_delta: number | null;
+        suggested_premium: number | null;
+      }>;
+    }>("/api/options/candidates"),
   // Phase F-3 — fill-quality analytics. Empty payload until F-2
   // capture starts landing in production. Sign convention: positive
   // realised_bps = worse than mid (BUY above mid, SELL below mid),

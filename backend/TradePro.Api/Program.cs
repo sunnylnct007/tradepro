@@ -374,6 +374,7 @@ api.MapAdminEndpoints();
 api.MapAlertsEndpoints();
 api.MapDataTrustEndpoints();
 api.MapCatalystsEndpoints();
+api.MapOptionsEndpoints();
 
 // SSE event stream — AllowAnonymous (EventSource can't send auth headers).
 app.MapEventsEndpoints();
