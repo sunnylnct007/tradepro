@@ -1,17 +1,23 @@
-import { useEffect, useState } from "react";
-import { api } from "../../api/client";
+import { useCallback, useEffect, useState } from "react";
+import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
+import { OptionsPayoff, type PayoffSeed } from "./OptionsPayoff";
 
 /**
  * Options Desk — the wheel (cash-secured put → assignment → covered call),
- * risk-first per the BRD. v1 surface: the CANDIDATE SCREEN — for each approved
- * underlying, the regime (Ichimoku cloud), IV-Rank, liquidity, and whether it
- * passes the risk engine for a cash-secured put. Eligibility is fail-visible:
- * a name that can't be verified (missing IV-Rank / regime / chain) shows BLOCKED
- * with the reason — never a silent green light (no false positives).
+ * risk-first per the BRD. Two surfaces on one screen:
+ *   1. CANDIDATE SCREEN — for each approved underlying, the regime (Ichimoku
+ *      cloud), IV-Rank, liquidity, and whether it passes the risk engine for a
+ *      cash-secured put. Eligibility is fail-visible: a name that can't be
+ *      verified (missing IV-Rank / regime / chain) shows BLOCKED with the reason
+ *      — never a silent green light (no false positives).
+ *   2. PAPER LEDGER — the positions we've actually entered on paper, tracked
+ *      through the wheel state machine (SHORT_PUT_OPEN → ASSIGNED →
+ *      COVERED_CALL_OPEN → CLOSED) with realised P&L. The auditable per-cycle
+ *      record the BRD requires before live capital.
  *
- * Data is produced by the Mac-side `tradepro-options-screen` job (IV-Rank from
- * IBKR, regime from the bar cache, run through quant_engine.options.risk) and
- * pushed to /api/options/candidates — same pattern as the bar-cache health feed.
+ * The screen is produced by the Mac-side `tradepro-options-screen` job (IV-Rank
+ * from IBKR, regime from the bar cache, run through quant_engine.options.risk)
+ * and pushed to /api/options/candidates — same pattern as bar-cache health.
  */
 interface Candidate {
   symbol: string;
@@ -33,13 +39,28 @@ interface ScreenResp {
   candidates: Candidate[];
 }
 
-const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30", dim: "var(--text-muted)" };
+const FX_GBPUSD = 1.27;
+const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30", dim: "var(--text-muted)", line: "#4C9AFF" };
 const REGIME_TONE: Record<string, string> = { GREEN: TONE.ok, YELLOW: TONE.warn, ORANGE: "#E67E22", RED: TONE.bad };
+const STATE_TONE: Record<string, string> = {
+  SHORT_PUT_OPEN: TONE.warn, ASSIGNED: "#E67E22", COVERED_CALL_OPEN: TONE.warn, CLOSED: TONE.dim,
+};
 
 export function OptionsDesk() {
   const [data, setData] = useState<ScreenResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [positions, setPositions] = useState<OptionsPaperPosition[]>([]);
+  const [posErr, setPosErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [seed, setSeed] = useState<PayoffSeed | undefined>(undefined);
+
+  const loadPositions = useCallback(() => {
+    api.optionsPositions()
+      .then((d) => { setPositions(d.positions ?? []); setPosErr(null); })
+      .catch((e) => setPosErr(String(e?.message || e)));
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -47,11 +68,82 @@ export function OptionsDesk() {
       .then((d) => { if (live) { setData(d as ScreenResp); setErr(null); } })
       .catch((e) => { if (live) setErr(String(e?.message || e)); })
       .finally(() => { if (live) setLoading(false); });
+    loadPositions();
     return () => { live = false; };
+  }, [loadPositions]);
+
+  const record = useCallback(async (body: RecordOptionsPositionBody) => {
+    setBusy(true);
+    try {
+      await api.recordOptionsPosition(body);
+      loadPositions();
+    } catch (e) {
+      setPosErr(String((e as Error)?.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }, [loadPositions]);
+
+  const recordCandidate = useCallback((c: Candidate) => {
+    if (c.suggested_strike == null) return;
+    const cash = Math.round((c.suggested_strike * 100) / FX_GBPUSD);
+    record({
+      symbol: c.symbol,
+      structure: "CASH_SECURED_PUT",
+      state: "SHORT_PUT_OPEN",
+      strike: c.suggested_strike,
+      delta: c.suggested_delta,
+      ivRank: c.iv_rank,
+      premium: c.suggested_premium,
+      contracts: 1,
+      cashSecuredGbp: cash,
+      regime: c.regime,
+      notes: "recorded from screen",
+      riskDecisionJson: JSON.stringify({ eligible: c.eligible, blocks: c.blocks, warnings: c.warnings }),
+    });
+  }, [record]);
+
+  const transition = useCallback(async (id: number, state: string, pnl?: number, notes?: string) => {
+    setBusy(true);
+    try {
+      await api.optionsPositionEvent(id, { state, realisedPnlGbp: pnl ?? null, notes: notes ?? null });
+      loadPositions();
+    } catch (e) {
+      setPosErr(String((e as Error)?.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }, [loadPositions]);
+
+  const removePosition = useCallback(async (id: number, symbol: string) => {
+    if (!window.confirm(`Delete paper position ${symbol} (#${id})? This can't be undone.`)) return;
+    setBusy(true);
+    try {
+      await api.deleteOptionsPosition(id);
+      loadPositions();
+    } catch (e) {
+      setPosErr(String((e as Error)?.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }, [loadPositions]);
+
+  const analyze = useCallback((c: Candidate) => {
+    setSeed({
+      symbol: c.symbol,
+      structure: "CASH_SECURED_PUT",
+      strike: c.suggested_strike,
+      premium: c.suggested_premium,
+      contracts: 1,
+      dte: 35,
+    });
+    document.getElementById("options-payoff")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, []);
 
   const cands = data?.candidates ?? [];
   const eligible = cands.filter((c) => c.eligible);
+  const open = positions.filter((p) => p.state !== "CLOSED");
+  const realised = positions.reduce((s, p) => s + (p.realised_pnl_gbp ?? 0), 0);
 
   return (
     <div style={{ padding: "8px 4px" }}>
@@ -69,12 +161,16 @@ export function OptionsDesk() {
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <Stat label="Eligible CSP" value={eligible.length} tone="ok" />
         <Stat label="Screened" value={cands.length} tone="dim" />
+        <Stat label="Open paper" value={open.length} tone="warn" />
+        <Stat label="Realised £" value={realised.toFixed(0)} tone={realised >= 0 ? "ok" : "bad"} />
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           {data?.generated_at_utc ? `last screen ${new Date(data.generated_at_utc).toLocaleString()}` : "no screen yet"}
           {data && !data.market_open ? " · market closed (chain/Δ pending open)" : ""}
         </span>
       </div>
 
+      {/* ── Candidate screen ───────────────────────────────────── */}
+      <SectionTitle>Candidate screen</SectionTitle>
       {loading && <div style={{ color: "var(--text-muted)", padding: 16 }}>Loading screen…</div>}
       {err && <div style={{ color: TONE.bad, padding: 16 }}>Screen unavailable: {err}</div>}
       {!loading && !err && cands.length === 0 && (
@@ -84,11 +180,11 @@ export function OptionsDesk() {
       )}
 
       {cands.length > 0 && (
-        <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
+        <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 18 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Regime", "IV-Rank", "OI / Spread", "Eligible (CSP)", "Suggested", "Why / why-not"].map((h) => (
+                {["Symbol", "Regime", "IV-Rank", "OI / Spread", "Eligible (CSP)", "Suggested", "Why / why-not", ""].map((h) => (
                   <th key={h} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -118,8 +214,95 @@ export function OptionsDesk() {
                       ? `$${c.suggested_strike} · Δ${(c.suggested_delta ?? 0).toFixed(2)}${c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)}` : ""}`
                       : "—"}
                   </td>
-                  <td style={{ padding: "8px 10px", color: c.eligible ? TONE.warn : TONE.bad, maxWidth: 360 }}>
+                  <td style={{ padding: "8px 10px", color: c.eligible ? TONE.warn : TONE.bad, maxWidth: 320 }}>
                     {(c.blocks?.length ? c.blocks : c.warnings)?.join("; ") || (c.eligible ? "all gates pass" : "—")}
+                  </td>
+                  <td style={{ padding: "8px 10px" }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        disabled={c.suggested_strike == null}
+                        onClick={() => analyze(c)}
+                        title={c.suggested_strike == null ? "no chain yet (pending market open)" : "load into the payoff explorer"}
+                        style={btnStyle(c.suggested_strike != null, TONE.line)}
+                      >Analyze</button>
+                      <button
+                        disabled={busy || c.suggested_strike == null}
+                        onClick={() => recordCandidate(c)}
+                        title={c.suggested_strike == null ? "no suggested strike yet (chain pending market open)" : "record this CSP on the paper ledger"}
+                        style={btnStyle(c.suggested_strike != null)}
+                      >Record CSP</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Payoff explorer ────────────────────────────────────── */}
+      <div id="options-payoff" style={{ marginBottom: 18 }}>
+        <SectionTitle>Payoff explorer — max gain / loss / breakeven</SectionTitle>
+        <OptionsPayoff seed={seed} />
+      </div>
+
+      {/* ── Paper ledger ───────────────────────────────────────── */}
+      <SectionTitle>Paper ledger — wheel positions</SectionTitle>
+      <ManualRecord onRecord={record} busy={busy} />
+      {posErr && <div style={{ color: TONE.bad, padding: "8px 0" }}>Ledger error: {posErr}</div>}
+      {positions.length === 0 && !posErr && (
+        <div style={{ color: "var(--text-muted)", padding: "8px 2px" }}>
+          No paper positions yet. Record one from an eligible candidate above, or add a manual entry.
+        </div>
+      )}
+      {positions.length > 0 && (
+        <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
+                {["Symbol", "Structure", "State", "Strike / Δ", "Premium", "Cash £", "Opened", "Realised £", "Actions"].map((h) => (
+                  <th key={h} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((p) => (
+                <tr key={p.id} style={{ borderTop: "1px solid #141b2b" }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{p.symbol}</td>
+                  <td style={{ padding: "8px 10px", color: "var(--text-dim)" }}>{p.structure.replace(/_/g, " ").toLowerCase()}</td>
+                  <td style={{ padding: "8px 10px", fontWeight: 600, color: STATE_TONE[p.state] || TONE.dim }}>{p.state.replace(/_/g, " ")}</td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
+                    {p.strike != null ? `$${p.strike}` : "—"}{p.delta != null ? ` · Δ${p.delta.toFixed(2)}` : ""}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>{p.premium != null ? `$${p.premium.toFixed(2)}` : "—"}</td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>{p.cash_secured_gbp != null ? `£${p.cash_secured_gbp.toLocaleString()}` : "—"}</td>
+                  <td style={{ padding: "8px 10px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{new Date(p.opened_at_utc).toLocaleDateString()}</td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 600, color: p.realised_pnl_gbp == null ? TONE.dim : p.realised_pnl_gbp >= 0 ? TONE.ok : TONE.bad }}>
+                    {p.realised_pnl_gbp == null ? "—" : `£${p.realised_pnl_gbp.toFixed(0)}`}
+                  </td>
+                  <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {p.state === "SHORT_PUT_OPEN" && (
+                        <button disabled={busy} onClick={() => transition(p.id, "ASSIGNED", undefined, "assigned — now hold shares")} style={btnStyle(true)}>Assigned</button>
+                      )}
+                      {p.state === "ASSIGNED" && (
+                        <button disabled={busy} onClick={() => transition(p.id, "COVERED_CALL_OPEN", undefined, "sold covered call")} style={btnStyle(true)}>Sell CC</button>
+                      )}
+                      {p.state !== "CLOSED" && (
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            const v = window.prompt(`Close ${p.symbol} — realised P&L in £ (e.g. 85 or -120):`, "");
+                            if (v == null) return;
+                            const pnl = Number(v);
+                            if (Number.isNaN(pnl)) { setPosErr("P&L must be a number"); return; }
+                            transition(p.id, "CLOSED", pnl, "closed");
+                          }}
+                          style={btnStyle(true, TONE.bad)}
+                        >Close</button>
+                      )}
+                      <button disabled={busy} onClick={() => removePosition(p.id, p.symbol)} title="delete this paper position" style={btnStyle(true, TONE.dim)}>🗑</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -129,6 +312,83 @@ export function OptionsDesk() {
       )}
     </div>
   );
+}
+
+function ManualRecord({ onRecord, busy }: { onRecord: (b: RecordOptionsPositionBody) => void; busy: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ symbol: "", strike: "", premium: "", delta: "", contracts: "1", expiry: "", notes: "" });
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+
+  if (!open) {
+    return (
+      <div style={{ margin: "6px 0 12px" }}>
+        <button onClick={() => setOpen(true)} style={btnStyle(true)}>+ Record paper CSP (manual)</button>
+      </div>
+    );
+  }
+  const strike = Number(f.strike);
+  const valid = f.symbol.trim() !== "" && !Number.isNaN(strike) && strike > 0;
+  return (
+    <div style={{ margin: "8px 0 14px", padding: 12, border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)" }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <Field label="Symbol" v={f.symbol} on={set("symbol")} w={70} mono />
+        <Field label="Strike $" v={f.strike} on={set("strike")} w={70} mono />
+        <Field label="Premium $" v={f.premium} on={set("premium")} w={80} mono />
+        <Field label="Delta" v={f.delta} on={set("delta")} w={60} mono />
+        <Field label="Contracts" v={f.contracts} on={set("contracts")} w={70} mono />
+        <Field label="Expiry" v={f.expiry} on={set("expiry")} w={110} placeholder="YYYY-MM-DD" />
+        <Field label="Notes" v={f.notes} on={set("notes")} w={180} />
+        <button
+          disabled={busy || !valid}
+          onClick={() => {
+            const cash = Math.round((strike * 100 * (Number(f.contracts) || 1)) / FX_GBPUSD);
+            onRecord({
+              symbol: f.symbol.trim().toUpperCase(),
+              structure: "CASH_SECURED_PUT",
+              state: "SHORT_PUT_OPEN",
+              strike,
+              premium: f.premium ? Number(f.premium) : null,
+              delta: f.delta ? Number(f.delta) : null,
+              contracts: Number(f.contracts) || 1,
+              expiry: f.expiry || null,
+              cashSecuredGbp: cash,
+              notes: f.notes || "manual entry",
+            });
+            setF({ symbol: "", strike: "", premium: "", delta: "", contracts: "1", expiry: "", notes: "" });
+            setOpen(false);
+          }}
+          style={btnStyle(valid)}
+        >Record</button>
+        <button onClick={() => setOpen(false)} style={btnStyle(true, TONE.dim)}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, v, on, w, mono, placeholder }: { label: string; v: string; on: (e: React.ChangeEvent<HTMLInputElement>) => void; w: number; mono?: boolean; placeholder?: string }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+      {label}
+      <input
+        value={v} onChange={on} placeholder={placeholder}
+        style={{ width: w, padding: "5px 7px", fontSize: 12, borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", fontFamily: mono ? "var(--font-mono)" : "inherit" }}
+      />
+    </label>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)", margin: "4px 0 8px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{children}</div>;
+}
+
+function btnStyle(enabled: boolean, color = TONE.ok): React.CSSProperties {
+  return {
+    padding: "5px 10px", fontSize: 11, fontWeight: 600, borderRadius: 6,
+    border: `1px solid ${enabled ? color : "var(--border)"}`,
+    background: enabled ? `${color}1a` : "transparent",
+    color: enabled ? color : "var(--text-muted)",
+    cursor: enabled ? "pointer" : "not-allowed", whiteSpace: "nowrap",
+  };
 }
 
 function Stat({ label, value, tone }: { label: string; value: number | string; tone: keyof typeof TONE }) {

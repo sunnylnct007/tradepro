@@ -52,6 +52,56 @@ async function post<T, B>(path: string, body: B): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+async function del<T>(path: string): Promise<T> {
+  const url = new URL(path, config.apiBaseUrl);
+  const resp = await fetch(url, { method: "DELETE", headers: { ...(await authHeaders()) } });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
+  return resp.json() as Promise<T>;
+}
+
+export interface OptionsPaperPosition {
+  id: number;
+  symbol: string;
+  structure: string;          // CASH_SECURED_PUT | COVERED_CALL
+  state: string;              // SHORT_PUT_OPEN | ASSIGNED | COVERED_CALL_OPEN | CLOSED
+  strike: number | null;
+  expiry: string | null;
+  dte: number | null;
+  delta: number | null;
+  iv_rank: number | null;
+  premium: number | null;
+  contracts: number;
+  cash_secured_gbp: number | null;
+  regime: string | null;
+  opened_at_utc: string;
+  closed_at_utc: string | null;
+  realised_pnl_gbp: number | null;
+  notes: string | null;
+  risk_decision_json: string | null;
+  updated_at_utc: string;
+}
+export interface RecordOptionsPositionBody {
+  symbol: string;
+  structure?: string;
+  state?: string;
+  strike?: number | null;
+  expiry?: string | null;
+  dte?: number | null;
+  delta?: number | null;
+  ivRank?: number | null;
+  premium?: number | null;
+  contracts?: number | null;
+  cashSecuredGbp?: number | null;
+  regime?: string | null;
+  notes?: string | null;
+  riskDecisionJson?: string | null;
+}
+export interface OptionsPositionEventBody {
+  state?: string | null;
+  realisedPnlGbp?: number | null;
+  notes?: string | null;
+}
+
 export const api = {
   health: () => get<{ status: string }>("/health"),
   // Integration/provider readiness — broker connectivity + cash, LLM, Finnhub.
@@ -1324,6 +1374,15 @@ export const api = {
         suggested_premium: number | null;
       }>;
     }>("/api/options/candidates"),
+  // Options Desk — paper wheel positions (BRD §11 ledger). Record a paper
+  // CSP entry + the risk-engine verdict, list/track them, transition state.
+  optionsPositions: (state?: string) =>
+    get<{ positions: OptionsPaperPosition[] }>("/api/options/positions", state ? { state } : undefined),
+  recordOptionsPosition: (body: RecordOptionsPositionBody) =>
+    post<{ ok: boolean; id: number }, RecordOptionsPositionBody>("/api/options/positions", body),
+  optionsPositionEvent: (id: number, body: OptionsPositionEventBody) =>
+    post<{ ok: boolean }, OptionsPositionEventBody>(`/api/options/positions/${id}/event`, body),
+  deleteOptionsPosition: (id: number) => del<{ ok: boolean }>(`/api/options/positions/${id}`),
   // Phase F-3 — fill-quality analytics. Empty payload until F-2
   // capture starts landing in production. Sign convention: positive
   // realised_bps = worse than mid (BUY above mid, SELL below mid),

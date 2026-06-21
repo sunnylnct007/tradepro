@@ -106,6 +106,15 @@ public static class OptionsEndpoints
             return n == 0 ? Results.NotFound(new { error = "no such position" }) : Results.Ok(new { ok = true });
         });
 
+        // Remove a paper position (mis-entry / cleanup). Paper ledger only.
+        g.MapDelete("/positions/{id:long}", async (long id, NpgsqlDataSource db) =>
+        {
+            await using var conn = await db.OpenConnectionAsync();
+            var n = await conn.ExecuteAsync(
+                "DELETE FROM options_paper_position WHERE id = @id;", new { id });
+            return n == 0 ? Results.NotFound(new { error = "no such position" }) : Results.Ok(new { ok = true });
+        });
+
         return app;
     }
 
