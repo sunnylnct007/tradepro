@@ -12,6 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
+import { PriceHistoryChart } from "../PriceHistoryChart";
 
 type Row = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
 type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
@@ -62,6 +63,7 @@ const TONE: Record<string, string> = {
 export function HarvestView() {
   const [rows, setRows] = useState<Row[]>([]);
   const [quality, setQuality] = useState<Quality | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);  // symbol → show its curve
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -179,7 +181,13 @@ export function HarvestView() {
               const v = verdict(r);
               const ds = daysSince(r.last_fetched_at_utc);
               return (
-                <tr key={r.canonical} style={{ borderBottom: "1px solid #141b2b" }}>
+                <tr key={r.canonical}
+                  onClick={() => setSelected(selected === r.canonical ? null : r.canonical)}
+                  title="Click to show the price curve"
+                  style={{
+                    borderBottom: "1px solid #141b2b", cursor: "pointer",
+                    background: selected === r.canonical ? "var(--surface-2)" : undefined,
+                  }}>
                   <td style={{ ...TD, fontWeight: 700, fontFamily: "var(--font-mono)" }}>{r.canonical}</td>
                   <td style={TD}>
                     {(() => {
@@ -217,13 +225,26 @@ export function HarvestView() {
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={9} style={{ ...TD, color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
+              <tr><td colSpan={10} style={{ ...TD, color: "var(--text-muted)", textAlign: "center", padding: 20 }}>
                 No symbols match.
               </td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Click a row → show that symbol's harvested price curve. */}
+      {selected && (
+        <div style={{ marginTop: 16, background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 8, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 14 }}>{selected} — price history</span>
+            <button onClick={() => setSelected(null)}
+              style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
+              title="Close">✕</button>
+          </div>
+          <PriceHistoryChart symbol={selected} height={340} />
+        </div>
+      )}
     </div>
   );
 }
