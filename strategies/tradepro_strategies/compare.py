@@ -377,14 +377,17 @@ def _row_for(
 # Re-exported so existing `from .compare import <fn>` callers (market_state,
 # cross_sectional, mcp.tools, news_context) keep working unchanged.
 from .shared_verdict import (  # noqa: E402
+    apply_data_gap_integrity,
     apply_earnings_suppressor,
     apply_horizon_and_range_demotion,
     apply_sentiment_demotion,
     apply_swing_strict_demotion,
     cap_bucket_at_low_conviction,
+    collect_data_gaps,
     compute_bucket,
     compute_conviction,
     enforce_coherence,
+    gap_labels,
 )
 
 
@@ -393,6 +396,7 @@ def _attach_bucket_and_rationale(
     mean_threshold: float,
     min_material: int,
     logger: RunLogger | None = None,
+    llm_healthy: bool = True,
 ) -> None:
     """Compute the per-symbol bucket (BUY/WAIT/AVOID), apply the
     sentiment demotion rule, then generate a plain-English rationale
@@ -545,6 +549,17 @@ def _attach_bucket_and_rationale(
             reason=reason,
             conviction=conviction,
             days_until_earnings=days_until_earnings,
+        )
+
+        # FAIL-VISIBLE data-gap integrity (NO FALSE POSITIVES). A degraded LLM
+        # means the rationale / sentiment-scoring / catalyst layers COULDN'T be
+        # computed — so the sentiment demotion may have silently not fired. We
+        # surface that as a data gap and CAP conviction (HIGH→MEDIUM) rather than
+        # let a confident verdict ride on unverified inputs. (earnings/valuation
+        # gaps need an asset-class signal not present here — wired later.)
+        data_gaps = collect_data_gaps(available={"llm": llm_healthy})
+        bucket, conviction, reason, _gap_capped = apply_data_gap_integrity(
+            bucket=bucket, conviction=conviction, reason=reason, gaps=data_gaps,
         )
 
         # Exit framework — ② of the Alpha Engine. Compute stop_loss /
@@ -717,6 +732,9 @@ def _attach_bucket_and_rationale(
             r["conviction"] = conviction
             r["conviction_reason"] = conviction_reason
             r["conviction_demoted"] = conviction_demoted
+            # Surfaced data gaps ("couldn't compute" checks) so the Decide UI
+            # shows "BUY (unverified: …)" instead of a clean confident verdict.
+            r["data_gaps"] = gap_labels(data_gaps)
             # Earnings suppression flag — UI shows a WARNING badge on
             # the card when set, even if the bucket didn't actually
             # change (already WAIT). days_until carried for the
@@ -1281,6 +1299,7 @@ def compare(
     _attach_bucket_and_rationale(
         rows, settings.mean_sentiment_threshold,
         settings.min_material_negative_count, logger=logger,
+        llm_healthy=llm_healthy,
     )
 
     best_per_strategy: dict[str, dict] = {}
