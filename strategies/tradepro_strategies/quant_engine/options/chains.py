@@ -24,6 +24,7 @@ class OptionQuote:
     bid: float
     ask: float
     iv: float                   # implied vol (decimal); may be model-filled
+    open_interest: int = 0      # contracts outstanding (liquidity gate)
     @property
     def mid(self) -> float:
         if self.bid > 0 and self.ask > 0:
@@ -102,13 +103,14 @@ def fetch_chain(symbol: str, target_dte: int = 45, *, pricer: BlackScholesPricer
             for _, r in df.iterrows():
                 strike = float(r["strike"]); bid = float(r.get("bid") or 0); ask = float(r.get("ask") or 0)
                 iv = float(r.get("impliedVolatility") or 0)
+                oi = int(r.get("openInterest") or 0)
                 mid = (bid + ask) / 2.0 if bid > 0 and ask > 0 else (ask or bid)
                 if (not iv or iv <= 0) and mid > 0 and t > 0:
                     solved = pricer.implied_vol(mid, spot, strike, t, kind)
                     iv = solved or 0.0
                 if not (math.isfinite(strike) and strike > 0):
                     continue
-                out.append(OptionQuote(kind=kind, strike=strike, bid=bid, ask=ask, iv=iv))
+                out.append(OptionQuote(kind=kind, strike=strike, bid=bid, ask=ask, iv=iv, open_interest=oi))
             return out
 
         return OptionChain(

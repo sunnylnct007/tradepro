@@ -35,6 +35,34 @@ DEFAULT_UNIVERSE = [
     "F", "INTC", "PFE", "MO",
 ]
 
+_FX_GBPUSD = 1.27  # BRD display rate; USD strike×100 → GBP notional
+
+
+def _earnings_in_window(symbol: str, dte: int) -> bool | None:
+    """Is an earnings date within the option's expiry window (today..+dte)?
+    yfinance best-effort. Returns None when unavailable → the risk engine BLOCKs
+    (no false positive — never sell premium we can't clear for earnings)."""
+    try:
+        import datetime as _d
+        import yfinance as yf
+        cal = yf.Ticker(symbol).calendar
+        dates = []
+        if isinstance(cal, dict):
+            ed = cal.get("Earnings Date")
+            if ed:
+                dates = ed if isinstance(ed, list) else [ed]
+        if not dates:
+            return None
+        today = _d.date.today()
+        end = today + _d.timedelta(days=dte)
+        for d in dates:
+            dd = d if isinstance(d, _d.date) else getattr(d, "date", lambda: None)()
+            if dd and today <= dd <= end:
+                return True
+        return False
+    except Exception:  # noqa: BLE001
+        return None
+
 
 def _mid(vals: list[float], i: int, n: int) -> float | None:
     if i + 1 < n:
@@ -86,21 +114,47 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (no false positive)
         log.warning("%s regime fetch failed: %s", sym, e)
 
-    # Live chain — only meaningful in market hours. Left None otherwise so the
-    # risk engine BLOCKs on the liquidity/delta gates (honest "pending open").
-    oi = spread = strike = delta = premium = None
-    # (chain pull wired in the next chunk; weekend run intentionally leaves None)
+    # Options chain (yfinance — works outside market hours; bid/ask may be stale
+    # on weekends → spread surfaced as None → fail-visible). Select the put
+    # nearest 0.27 delta (BRD strike rule).
+    oi = strike = delta = premium = notional_gbp = None
+    spread = None
+    dte = 35
+    chain_ok = False
+    from ..quant_engine.options.chains import fetch_chain, select_by_abs_delta, delta_of
+    from ..quant_engine.options.black_scholes import BlackScholesPricer
+    try:
+        pricer = BlackScholesPricer()
+        chain = fetch_chain(sym, target_dte=35, pricer=pricer)
+        if chain and chain.puts and chain.spot > 0:
+            dte = chain.dte
+            t = max(dte, 1) / 365.0
+            q = select_by_abs_delta(chain.puts, 0.27, chain.spot, t, pricer)
+            if q is not None:
+                strike = q.strike
+                delta = abs(delta_of(q, chain.spot, t, pricer))
+                oi = q.open_interest
+                spread = q.spread if (q.bid > 0 and q.ask > 0) else None
+                premium = q.mid if q.mid > 0 else None
+                notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)  # USD strike×100 → GBP
+                chain_ok = True
+    except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (fail-visible)
+        log.warning("%s chain fetch failed: %s", sym, e)
+
+    earnings_in_window = _earnings_in_window(sym, dte)
 
     ctx = MarketContext(
         regime=Regime(regime) if regime else None,
         falling_knife=falling_knife,
         iv_rank=ivr.iv_rank if ivr.available else None,
         open_interest=oi, bid_ask_spread_usd=spread,
-        earnings_in_expiry_window=None,   # wired with the earnings feed next
-        data_fresh=market_open,
+        earnings_in_expiry_window=earnings_in_window,
+        # Screen on best-available data: a usable chain is enough to ASSESS
+        # eligibility (execution still needs live quotes at the open).
+        data_fresh=chain_ok,
     )
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
-                          abs_delta=delta, dte=35, strike=strike, notional_gbp=None)
+                          abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
     decision = evaluate(cand, ctx, PortfolioState(), cfg)
     return {
         "symbol": sym,
