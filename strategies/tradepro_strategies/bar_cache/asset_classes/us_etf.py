@@ -94,6 +94,30 @@ _NYSE_HALF_DAYS = frozenset({
 })
 
 
+# Calendar-backed sessions: prefer the MAINTAINED NYSE (XNYS) calendar from
+# exchange_calendars — covers every year (incl. 2022-2023 and future) with no
+# manual upkeep, so a real holiday is never miscounted as a "missing" bar (which
+# was producing false PARTIAL / "not good for today" on otherwise-complete data).
+# FAIL-SAFE: if the lib is unavailable, fall back to the hardcoded weekday +
+# _NYSE_HOLIDAYS sets below so the harvest never breaks on a bare env.
+_XNYS_SESSIONS: Optional[frozenset] = None
+
+
+def _xnys_sessions() -> Optional[frozenset]:
+    """Cached set of XNYS trading-session dates, or None when the calendar lib
+    isn't available (caller then uses the hardcoded fallback)."""
+    global _XNYS_SESSIONS
+    if _XNYS_SESSIONS is not None:
+        return _XNYS_SESSIONS or None
+    try:
+        import exchange_calendars as _xcals
+        cal = _xcals.get_calendar("XNYS")
+        _XNYS_SESSIONS = frozenset(s.date() for s in cal.sessions)
+    except Exception:  # noqa: BLE001 — fail-safe: cache empty → hardcoded fallback
+        _XNYS_SESSIONS = frozenset()
+    return _XNYS_SESSIONS or None
+
+
 _US_EQUITY_SCHEMA = BarSchema(
     schema_version="us_equity_v1",
     column_order=("open", "high", "low", "close", "volume", "adj_factor", "source"),
@@ -190,6 +214,11 @@ class UsEtfPlugin(AssetClassPlugin):
 
     @staticmethod
     def _is_session(d: date) -> bool:
+        # Prefer the maintained XNYS calendar (all years); fall back to the
+        # hardcoded weekday + holiday sets when the lib isn't available.
+        sessions = _xnys_sessions()
+        if sessions is not None:
+            return d in sessions
         if d.weekday() >= 5:  # Sat / Sun
             return False
         if d in _NYSE_HOLIDAYS:

@@ -33,6 +33,7 @@ dependencies = [
     # (tradepro_strategies.viz). Soft-imported only inside chart builders
     # so non-viz code paths don't pay the import cost.
     "plotly>=6.0",
+    "exchange-calendars>=4.13.2",
 ]
 
 [project.optional-dependencies]
