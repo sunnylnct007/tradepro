@@ -85,6 +85,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--universe", default=None,
+        help=(
+            "Comma-separated universe NAME(s) (e.g. 'large_50,high_beta') — "
+            "harvest the SAME effective tickers the strategy desks trade, loaded "
+            "live from /api/universes/<name>. This is how you harvest the FULL "
+            "backtest universe instead of the hardcoded 12-symbol default. "
+            "Takes precedence over --symbols. Requires the API to be reachable."
+        ),
+    )
+    parser.add_argument(
         "--asset", default="us_etf",
         help="Asset class plugin (default: us_etf)",
     )
@@ -147,11 +157,25 @@ def main() -> int:
     )
 
     # ── Symbols ────────────────────────────────────────────────
-    symbols = (
-        [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-        if args.symbols
-        else list(_DEFAULT_SYMBOLS)
-    )
+    # Precedence: --universe (the FULL strategy universe, live from the API) >
+    # --symbols (explicit list) > the hardcoded 12-symbol intraday default. The
+    # default exists only so a no-arg run still does something; credible
+    # full-universe backtests need --universe.
+    if args.universe:
+        from tradepro_strategies.cli.paper_session import _fetch_universe_symbols
+        symbols = []
+        seen: set[str] = set()
+        for uname in [u.strip() for u in args.universe.split(",") if u.strip()]:
+            for s in _fetch_universe_symbols(uname):  # fail-loud on empty
+                if s not in seen:
+                    seen.add(s)
+                    symbols.append(s)
+        logging.getLogger("tradepro.harvest").info(
+            "harvest universe %s → %d symbols", args.universe, len(symbols))
+    elif args.symbols:
+        symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    else:
+        symbols = list(_DEFAULT_SYMBOLS)
 
     # ── Dates ─────────────────────────────────────────────────
     today_utc = datetime.now(timezone.utc).replace(
