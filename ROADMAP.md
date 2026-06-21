@@ -104,6 +104,27 @@ idempotent, manual-override-safe.
 See the dedicated task lower in this file — separate pipeline from P&L/entry-price;
 confirm whether T212 returns per-order execution price at all before choosing the fix.
 
+## 🗄️ SHARED BAR CACHE (S3) — harvest once, every env reads (user, 2026-06-21)
+**Decision (small hedge firm, minimal staff):** market data is environment-INDEPENDENT,
+so we harvest ONCE into a shared S3 store and every env (dev, prod, backtest, the API,
+Decide) reads from it — NO per-env harvest. Decide's backtests depend on this store.
+- **Shipped (`5504f78`):** `bar_cache/s3_mirror.py` + `BarStore` write-through (upload after
+  each atomic local write) + read-through (`_ensure_local` downloads on a local miss). S3 =
+  source of truth, local dir = read cache. FAIL-SAFE: any S3 error falls back to local, never
+  crashes (nothing halts unattended). Single switch `TRADEPRO_BAR_CACHE_S3_BUCKET`
+  (unset = pure local, dev). Verified end-to-end vs the real bucket.
+- **Bucket:** `s3://ccit-dev-tradepro-bar-cache` (eu-west-2), prefix `bar_cache/`.
+- **🔜 Wiring left (the data foundation isn't "on" until this is done):**
+  1. Set `TRADEPRO_BAR_CACHE_S3_BUCKET=ccit-dev-tradepro-bar-cache` in the harvest daemon
+     plist + the API/desk runtimes (EC2 compose env).
+  2. **Credentials (minimal-staff posture):** EC2 → attach an **IAM instance role** with
+     s3 get/put on the bucket (no keys to manage, no expiry). Mac harvest daemon → SSO
+     expires, so for unattended nightly runs use a dedicated long-lived IAM key (SM) NOW,
+     and move the harvest to a **cloud job (instance role)** per the prod-architecture north
+     star — that removes the Mac dependency entirely.
+  3. Blocker to RUN a real harvest: IBKR `ConnectionRefused` on :7500 (Gateway API not
+     accepting the harvest client — clientId/trusted-IP/config) must be fixed first.
+
 ## ⚠️ FAIL-VISIBLE VERDICT INTEGRITY — never hide a calc failure (user, 2026-06-20)
 **User principle:** "Better to SHOW issues in the calcs than to hide a calc failure and
 flag a wrong [confident] decision." Triggered by a **BABA wrong-BUY**: TradePro said BUY
