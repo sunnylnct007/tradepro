@@ -377,6 +377,20 @@ _INTRADAY_DEFAULT_STRATEGY_NAMES: tuple[str, ...] = (
     "ma_crossover",
 )
 
+# Strategies allowed to AUTO-EMIT orders on a scheduled tick when the trader
+# supplied no explicit strategy / settings block. EMPTY BY DESIGN.
+#
+# The textbook strategies above are *registered* (and explicitly runnable via
+# `/scan strategy=<name>` or the Intraday settings `strategies` block) but they
+# are NOT broker-integrated: routed to T212_DEMO they emit orders that never get
+# a brokerOrderId and are auto-cancelled as `stale_pending_auto_clean` — pure
+# noise, and an unacceptable "un-integrated strategy auto-places orders" risk
+# before live money. So scheduled ticks auto-run ONLY the names listed here.
+# To let a strategy auto-emit, add it here once it is genuinely integrated, or
+# enable it explicitly per-run. This flips the engine from opt-out
+# ("run-everything-then-narrow") to opt-in for unattended ticks.
+_INTRADAY_AUTORUN_STRATEGY_NAMES: tuple[str, ...] = ()
+
 
 def _fetch_initial_positions_for_symbol(symbol: str) -> dict[str, int]:
     """Best-effort fetch of the current broker position for `symbol`
@@ -433,20 +447,18 @@ def _resolve_enabled_strategies(cfg: dict) -> dict[str, dict]:
     """Return ``{name: params_override}`` for every strategy the
     engine should run on this scan.
 
-    Source of truth:
-      1. ``cfg["strategies"]`` (Intraday settings block, merged with
-         claim params upstream). Each entry can set ``enabled: bool``
-         and ``params: dict`` (param overrides merged into the
-         strategy's ``default_params()``).
-      2. If the settings block is empty / missing, fall back to the
-         compiled default list (everything in
-         ``_INTRADAY_DEFAULT_STRATEGY_NAMES``).
+    Source of truth (OPT-IN for unattended ticks):
+      1. ``cfg["strategy"]`` (singular) — an explicit ``/scan strategy=X``;
+         run exactly that one.
+      2. ``cfg["strategies"]`` (Intraday settings block). Each entry can set
+         ``enabled: bool`` and ``params: dict``. Only strategies present AND
+         enabled run; a name absent from the block does NOT run.
+      3. If neither is supplied (a bare scheduled tick), auto-run only the
+         integrated allowlist ``_INTRADAY_AUTORUN_STRATEGY_NAMES`` (empty by
+         design — see its note).
 
-    Any name in the registry that is NOT in settings defaults to
-    enabled=True with no param overrides. Matches the
-    "run-everything-then-narrow" preference: a freshly registered
-    strategy shows up in the engine as soon as it's wired into the
-    registry, without needing the user to toggle it on first.
+    This is deliberately opt-in: un-integrated textbook strategies stay
+    registered/explicitly-runnable but never auto-emit orders on their own.
     """
     from ..paper.strategies import available as _registry_available
     available = set(_registry_available())
@@ -474,19 +486,21 @@ def _resolve_enabled_strategies(cfg: dict) -> dict[str, dict]:
 
     settings_block = cfg.get("strategies")
     if not isinstance(settings_block, dict) or not settings_block:
-        return {name: {} for name in _INTRADAY_DEFAULT_STRATEGY_NAMES
+        # No explicit config on this tick → auto-run only the integrated
+        # allowlist (empty by design). Un-integrated textbook strategies no
+        # longer auto-emit stale orders. See _INTRADAY_AUTORUN_STRATEGY_NAMES.
+        return {name: {} for name in _INTRADAY_AUTORUN_STRATEGY_NAMES
                 if name in available}
 
     enabled: dict[str, dict] = {}
     for name in available:
         entry = settings_block.get(name)
-        if isinstance(entry, dict):
-            if entry.get("enabled", True):
-                params = entry.get("params") or {}
-                enabled[name] = dict(params) if isinstance(params, dict) else {}
-        else:
-            # Not in settings yet → run by default
-            enabled[name] = {}
+        if isinstance(entry, dict) and entry.get("enabled", True):
+            params = entry.get("params") or {}
+            enabled[name] = dict(params) if isinstance(params, dict) else {}
+        # Not in the settings block → NOT auto-run (opt-in). Previously this
+        # defaulted to enabled ("run-everything-then-narrow"), which is what
+        # auto-emitted orders for strategies the trader never turned on.
     return enabled
 
 
