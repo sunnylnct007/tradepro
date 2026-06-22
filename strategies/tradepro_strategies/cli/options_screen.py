@@ -104,13 +104,18 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     """Build one candidate row: IV-Rank + regime + (live) chain → risk engine."""
     ivr = fetch_iv_rank(sym, ib=ib)
     # Daily closes for the regime (TRADES; historical, available any time).
-    regime = falling_knife = None
+    # The last IBKR close also serves as the AUTHORITATIVE reference spot to
+    # sanity-check the (free, sometimes garbage) yfinance chain spot against.
+    regime = falling_knife = ref_close = None
     try:
         c = ib_insync.Stock(sym, "SMART", "USD"); ib.qualifyContracts(c)
         bars = ib.reqHistoricalData(
             c, endDateTime="", durationStr="1 Y", barSizeSetting="1 day",
             whatToShow="TRADES", useRTH=True, formatDate=1, timeout=30)
-        regime, falling_knife = regime_from_closes([b.close for b in bars])
+        closes = [b.close for b in bars]
+        regime, falling_knife = regime_from_closes(closes)
+        if closes and closes[-1] > 0:
+            ref_close = closes[-1]
     except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (no false positive)
         log.warning("%s regime fetch failed: %s", sym, e)
 
@@ -121,12 +126,23 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     spread = None
     dte = 35
     chain_ok = False
+    spot_divergence = None  # |yf spot / IBKR close − 1| when both known
     from ..quant_engine.options.chains import fetch_chain, select_by_abs_delta, delta_of
     from ..quant_engine.options.black_scholes import BlackScholesPricer
     try:
         pricer = BlackScholesPricer()
         chain = fetch_chain(sym, target_dte=35, pricer=pricer)
-        if chain and chain.puts and chain.spot > 0:
+        # Spot-sanity guard: reject a chain whose spot disagrees with the
+        # authoritative IBKR close by >15% (e.g. yfinance returned INTC "$134").
+        # A garbage spot poisons strike selection → never trust it; fail-visible.
+        spot_ok = True
+        if chain and chain.spot > 0 and ref_close:
+            spot_divergence = abs(chain.spot / ref_close - 1.0)
+            if spot_divergence > 0.15:
+                spot_ok = False
+                log.warning("%s chain spot %.2f diverges %.0f%% from IBKR close %.2f — rejecting chain",
+                            sym, chain.spot, spot_divergence * 100, ref_close)
+        if chain and chain.puts and chain.spot > 0 and spot_ok:
             dte = chain.dte
             t = max(dte, 1) / 365.0
             q = select_by_abs_delta(chain.puts, 0.27, chain.spot, t, pricer)
@@ -169,6 +185,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "suggested_strike": strike,
         "suggested_delta": delta,
         "suggested_premium": premium,
+        "ref_close": round(ref_close, 2) if ref_close else None,
+        "spot_divergence_pct": round(spot_divergence * 100, 1) if spot_divergence is not None else None,
     }
 
 
