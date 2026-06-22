@@ -36,7 +36,6 @@ from .sources import (
     BarSource,
     CachedSource,
     FallbackSource,
-    FinnhubSource,
     MultiSymbolSourceBackedBus,
     SourceBackedBus,
     YfinanceSource,
@@ -281,19 +280,22 @@ def _yfinance_bus(
 
 
 def default_bar_source() -> BarSource:
-    """The standard intraday source chain. Each provider sits behind
-    its own `CachedSource` so a cache hit is always preferred over a
-    network call, regardless of which provider previously served that
-    session. FinnhubSource only contributes when its API key is set
-    (otherwise its fetch returns []), so OSS-clone users without a
-    Finnhub key just get Yahoo + cache and nothing breaks.
+    """The standard bar source chain: **cache → yfinance**.
 
-    Override by passing your own `BarSource` to `SourceBackedBus`
-    when you need a different chain (e.g. Polygon-first for a sub-
-    second latency strategy)."""
+    `CachedSource` is preferred first, and the shared bar cache is what the
+    IBKR harvest populates — so when IBKR data has been harvested for a symbol
+    it is served from cache (IBKR quality); otherwise we fall through to live
+    yfinance. That is the "use IBKR if available, else yfinance" behaviour.
+
+    Finnhub was REMOVED from the chain: its free `/stock/candle` endpoint now
+    returns 403 Forbidden (premium-only), so it contributed nothing but noise
+    and 403 tracebacks (it was starving the IBKR equity clone). FinnhubSource
+    still exists for anyone on a paid Finnhub plan to wire back in explicitly.
+
+    Override by passing your own `BarSource` to `SourceBackedBus` when you need
+    a different chain (e.g. Polygon-first for a sub-second latency strategy)."""
     return FallbackSource(sources=[
         CachedSource(inner=YfinanceSource()),
-        CachedSource(inner=FinnhubSource()),
     ])
 
 
