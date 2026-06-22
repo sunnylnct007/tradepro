@@ -172,6 +172,14 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
     decision = evaluate(cand, ctx, PortfolioState(), cfg)
+
+    # Annualised premium yield — the income metric that ranks "best to trade".
+    # premium ÷ strike (capital per share) scaled to a year by DTE. Only
+    # meaningful with a real premium + strike (None pre-market → unranked).
+    ann_yield_pct = None
+    if premium and strike and strike > 0 and dte > 0:
+        ann_yield_pct = round((premium / strike) * (365.0 / dte) * 100, 1)
+
     return {
         "symbol": sym,
         "regime": regime,
@@ -185,6 +193,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "suggested_strike": strike,
         "suggested_delta": delta,
         "suggested_premium": premium,
+        "dte": dte,
+        "annualized_yield_pct": ann_yield_pct,
         "ref_close": round(ref_close, 2) if ref_close else None,
         "spot_divergence_pct": round(spot_divergence * 100, 1) if spot_divergence is not None else None,
     }
@@ -215,10 +225,24 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     finally:
         ib.disconnect()
 
+    # Crown the single BEST eligible CSP: highest annualised yield, GREEN
+    # preferred over YELLOW as a tiebreak. NEVER crown a non-eligible name —
+    # if nothing clears every gate, best_symbol is None (no false "best").
+    def _rank_key(r: dict) -> tuple:
+        regime_rank = 1.0 if r.get("regime") == "GREEN" else 0.0
+        return (r.get("annualized_yield_pct") or 0.0, regime_rank)
+
+    eligible_rows = [r for r in rows if r.get("eligible")]
+    best = max(eligible_rows, key=_rank_key) if eligible_rows else None
+    for r in rows:
+        r["is_best"] = bool(best and r["symbol"] == best["symbol"])
+
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "market_open": market_open,
         "candidates": rows,
+        "best_symbol": best["symbol"] if best else None,
+        "eligible_count": len(eligible_rows),
     }
     # Push to the API for the Options tab.
     import requests
@@ -237,9 +261,16 @@ def main() -> int:
     elig = [c["symbol"] for c in p["candidates"] if c["eligible"]]
     print(f"\nOptions screen: {len(p['candidates'])} screened, {len(elig)} eligible "
           f"(market_open={p['market_open']})")
+    if p.get("best_symbol"):
+        b = next(c for c in p["candidates"] if c["symbol"] == p["best_symbol"])
+        print(f"  ⭐ BEST: {b['symbol']} CSP ${b['suggested_strike']} — "
+              f"{b['annualized_yield_pct']}% annualised, {b['regime']}")
+    else:
+        print("  ⭐ BEST: none — no candidate clears every gate right now")
     for c in p["candidates"]:
-        mark = "✓" if c["eligible"] else "·"
+        mark = "⭐" if c.get("is_best") else ("✓" if c["eligible"] else "·")
         ivr = f"{c['iv_rank']:.0f}%" if c["iv_rank"] is not None else "n/a"
-        print(f"  {mark} {c['symbol']:5} regime={c['regime'] or 'n/a':6} IV-Rank={ivr:>4} "
+        yld = f"{c['annualized_yield_pct']:.0f}%/yr" if c.get("annualized_yield_pct") else ""
+        print(f"  {mark} {c['symbol']:5} regime={c['regime'] or 'n/a':6} IV-Rank={ivr:>4} {yld:>7} "
               f"{'' if c['eligible'] else '— ' + '; '.join(c['blocks'][:2])}")
     return 0

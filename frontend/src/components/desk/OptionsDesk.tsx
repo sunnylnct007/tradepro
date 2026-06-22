@@ -32,11 +32,16 @@ interface Candidate {
   suggested_strike: number | null;
   suggested_delta: number | null;
   suggested_premium: number | null;
+  dte?: number | null;
+  annualized_yield_pct?: number | null;  // ranking metric
+  is_best?: boolean;                      // the single best eligible CSP
 }
 interface ScreenResp {
   generated_at_utc: string | null;
   market_open: boolean;
   candidates: Candidate[];
+  best_symbol?: string | null;
+  eligible_count?: number;
 }
 
 const FX_GBPUSD = 1.27;
@@ -165,8 +170,15 @@ export function OptionsDesk() {
     document.getElementById("options-payoff")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, []);
 
-  const cands = data?.candidates ?? [];
+  const rawCands = data?.candidates ?? [];
+  // Eligible first, ranked by annualised yield; the rest keep screen order.
+  const cands = [...rawCands].sort((a, b) => {
+    if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
+    if (a.eligible && b.eligible) return (b.annualized_yield_pct ?? 0) - (a.annualized_yield_pct ?? 0);
+    return 0;
+  });
   const eligible = cands.filter((c) => c.eligible);
+  const best = cands.find((c) => c.is_best) ?? null;
   const open = positions.filter((p) => p.state !== "CLOSED");
   const realised = positions.reduce((s, p) => s + (p.realised_pnl_gbp ?? 0), 0);
 
@@ -196,6 +208,7 @@ export function OptionsDesk() {
 
       {/* ── Candidate screen ───────────────────────────────────── */}
       <SectionTitle>Candidate screen</SectionTitle>
+      {!loading && !err && cands.length > 0 && <BestPick best={best} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />}
       {loading && <div style={{ color: "var(--text-muted)", padding: 16 }}>Loading screen…</div>}
       {err && <div style={{ color: TONE.bad, padding: 16 }}>Screen unavailable: {err}</div>}
       {!loading && !err && cands.length === 0 && (
@@ -209,15 +222,17 @@ export function OptionsDesk() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Regime", "IV-Rank", "OI / Spread", "Eligible (CSP)", "Suggested", "Why / why-not", ""].map((h) => (
+                {["Symbol", "Regime", "IV-Rank", "OI / Spread", "Eligible (CSP)", "Annual yield", "Suggested", "Why / why-not", ""].map((h) => (
                   <th key={h} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {cands.map((c) => (
-                <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b" }}>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{c.symbol}</td>
+                <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b", background: c.is_best ? `${TONE.ok}12` : undefined }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+                    {c.is_best && <span title="best eligible CSP right now" style={{ marginRight: 5 }}>⭐</span>}{c.symbol}
+                  </td>
                   <td style={{ padding: "8px 10px" }}>
                     {c.regime ? <RegimePill regime={c.regime} /> : <span style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>}
                   </td>
@@ -230,6 +245,9 @@ export function OptionsDesk() {
                   </td>
                   <td style={{ padding: "8px 10px", fontWeight: 700, color: c.eligible ? TONE.ok : TONE.dim }}>
                     {c.eligible ? "✓ YES" : "— no"}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 600, color: c.annualized_yield_pct != null ? (c.eligible ? TONE.ok : "var(--text-dim)") : "var(--text-muted)" }}>
+                    {c.annualized_yield_pct != null ? `${c.annualized_yield_pct.toFixed(0)}%/yr` : "—"}
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
                     {c.suggested_strike != null
@@ -411,6 +429,43 @@ function btnStyle(enabled: boolean, color = TONE.ok): React.CSSProperties {
     color: enabled ? color : "var(--text-muted)",
     cursor: enabled ? "pointer" : "not-allowed", whiteSpace: "nowrap",
   };
+}
+
+function BestPick({ best, onAnalyze, onRecord, busy }: { best: Candidate | null; onAnalyze: (c: Candidate) => void; onRecord: (c: Candidate) => void; busy: boolean }) {
+  if (!best) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 12, borderRadius: 8, border: "1px dashed var(--border)", background: "var(--surface-2)" }}>
+        <span style={{ fontSize: 16 }}>⏳</span>
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
+          <b style={{ color: "var(--text-dim)" }}>No best pick right now.</b> No candidate clears every gate yet — see the why-not column below.
+          Live strikes/premiums/OI arrive when the US market opens; the best CSP will be crowned here automatically.
+        </div>
+      </div>
+    );
+  }
+  const c = REGIME_TONE[best.regime || ""] || TONE.ok;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", marginBottom: 12, borderRadius: 10, border: `1px solid ${TONE.ok}66`, background: `${TONE.ok}14`, flexWrap: "wrap" }}>
+      <div style={{ fontSize: 22 }}>⭐</div>
+      <div style={{ flex: 1, minWidth: 220 }}>
+        <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: TONE.ok, fontWeight: 700 }}>Best to trade now</div>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>
+          <span style={{ fontFamily: "var(--font-mono)" }}>{best.symbol}</span> cash-secured put
+          {best.suggested_strike != null ? <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}> · ${best.suggested_strike}{best.suggested_premium != null ? ` @ $${best.suggested_premium.toFixed(2)}` : ""}</span> : null}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+          <b style={{ color: TONE.ok }}>{best.annualized_yield_pct != null ? `${best.annualized_yield_pct.toFixed(0)}%/yr` : "—"}</b> premium yield ·
+          <span style={{ color: c, fontWeight: 600 }}> {best.regime}</span> regime ·
+          IV-Rank {best.iv_rank != null ? `${best.iv_rank.toFixed(0)}%` : "n/a"} ·
+          highest yield among {/* eligible */}the names that clear every gate
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => onAnalyze(best)} style={btnStyle(true, TONE.line)}>Analyze</button>
+        <button disabled={busy || best.suggested_strike == null} onClick={() => onRecord(best)} style={btnStyle(best.suggested_strike != null)}>Record CSP</button>
+      </div>
+    </div>
+  );
 }
 
 function RegimePill({ regime }: { regime: string }) {
