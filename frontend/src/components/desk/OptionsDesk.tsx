@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
-import { OptionsPayoff, type PayoffSeed } from "./OptionsPayoff";
+import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsPayoff";
 
 /**
  * Options Desk — the wheel (cash-secured put → assignment → covered call),
@@ -128,6 +128,31 @@ export function OptionsDesk() {
     }
   }, [loadPositions]);
 
+  const placeFromExplorer = useCallback((p: PayoffPlacement) => {
+    const lbl = p.structure === "CASH_SECURED_PUT" ? "cash-secured put" : "covered call";
+    if (!window.confirm(
+      `Place paper ${lbl} — ${p.symbol} $${p.strike} ×${p.contracts}\n` +
+      `Premium $${p.premium} · max gain £${p.maxGainGbp.toLocaleString()} · max loss £${p.maxLossGbp.toLocaleString()} · PoP ${(p.pop * 100).toFixed(0)}%\n\n` +
+      `This records the trade on the paper ledger.`
+    )) return;
+    record({
+      symbol: p.symbol,
+      structure: p.structure,
+      state: p.structure === "CASH_SECURED_PUT" ? "SHORT_PUT_OPEN" : "COVERED_CALL_OPEN",
+      strike: p.strike,
+      delta: null,
+      ivRank: null,
+      premium: p.premium,
+      contracts: p.contracts,
+      cashSecuredGbp: p.capitalGbp,
+      notes: `placed from payoff explorer · DTE ${p.dte} · BE $${p.breakevenUsd}`,
+      riskDecisionJson: JSON.stringify({
+        source: "payoff-explorer", dte: p.dte, breakeven_usd: p.breakevenUsd,
+        max_gain_gbp: p.maxGainGbp, max_loss_gbp: p.maxLossGbp, pop: p.pop, iv: p.iv,
+      }),
+    });
+  }, [record]);
+
   const analyze = useCallback((c: Candidate) => {
     setSeed({
       symbol: c.symbol,
@@ -239,8 +264,8 @@ export function OptionsDesk() {
 
       {/* ── Payoff explorer ────────────────────────────────────── */}
       <div id="options-payoff" style={{ marginBottom: 18 }}>
-        <SectionTitle>Payoff explorer — max gain / loss / breakeven</SectionTitle>
-        <OptionsPayoff seed={seed} />
+        <SectionTitle>Payoff explorer — max gain / loss / breakeven · place a paper trade</SectionTitle>
+        <OptionsPayoff seed={seed} onPlace={placeFromExplorer} placing={busy} />
       </div>
 
       {/* ── Paper ledger ───────────────────────────────────────── */}

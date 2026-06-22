@@ -30,7 +30,22 @@ export interface PayoffSeed {
   dte?: number | null;
 }
 
-export function OptionsPayoff({ seed }: { seed?: PayoffSeed }) {
+export interface PayoffPlacement {
+  symbol: string;
+  structure: Structure;
+  strike: number;
+  premium: number;
+  contracts: number;
+  dte: number;
+  breakevenUsd: number;
+  maxGainGbp: number;
+  maxLossGbp: number;
+  capitalGbp: number;
+  pop: number;
+  iv: number | null;
+}
+
+export function OptionsPayoff({ seed, onPlace, placing }: { seed?: PayoffSeed; onPlace?: (p: PayoffPlacement) => void; placing?: boolean }) {
   const [structure, setStructure] = useState<Structure>(seed?.structure ?? "CASH_SECURED_PUT");
   const [symbol, setSymbol] = useState(seed?.symbol ?? "");
   const [spot, setSpot] = useState(num(seed?.spot, 100));
@@ -229,6 +244,26 @@ export function OptionsPayoff({ seed }: { seed?: PayoffSeed }) {
           ? <>Short put: keep the <b>£{fmt(m.maxGainGbp)}</b> premium if {symbol || "the stock"} stays above <b>${round2(strike)}</b> at expiry (<b>{pct(m.pop)}</b> chance). Below breakeven <b>${round2(m.breakeven)}</b> you're assigned and start losing — worst case <b>£{fmt(m.maxLossGbp)}</b> at zero. The wheel's entry: get paid to set a buy limit.</>
           : <>Covered call: own 100 shares @ <b>${round2(costBasis)}</b>, sold the <b>${round2(strike)}</b> call. Upside capped at <b>£{fmt(m.maxGainGbp)}</b> (called away above strike); downside is the stock minus the <b>£{fmt(premium * m.mult / FX_GBPUSD)}</b> premium cushion.</>}
       </div>
+
+      {onPlace && (
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            {symbol && strike > 0 && premium > 0
+              ? `Place this ${m.isPut ? "CSP" : "covered call"} on the paper ledger`
+              : "Enter symbol, strike and premium to place"}
+          </span>
+          <button
+            disabled={placing || !symbol || !(strike > 0) || !(premium > 0)}
+            onClick={() => onPlace({
+              symbol, structure, strike, premium, contracts: Math.max(1, contracts), dte,
+              breakevenUsd: round2(m.breakeven), maxGainGbp: Math.round(m.maxGainGbp),
+              maxLossGbp: Math.round(m.maxLossGbp), capitalGbp: Math.round(m.capitalGbp),
+              pop: Math.round(m.pop * 1000) / 1000, iv: m.ivSolved,
+            })}
+            style={placeBtn(!placing && !!symbol && strike > 0 && premium > 0)}
+          >📌 Place paper trade</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -279,6 +314,16 @@ function Legend({ color, label, dashed }: { color: string; label: string; dashed
       {label}
     </span>
   );
+}
+
+function placeBtn(enabled: boolean): React.CSSProperties {
+  return {
+    padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 6,
+    border: `1px solid ${enabled ? TONE.ok : "var(--border)"}`,
+    background: enabled ? TONE.ok : "transparent",
+    color: enabled ? "#04140d" : "var(--text-muted)",
+    cursor: enabled ? "pointer" : "not-allowed", whiteSpace: "nowrap",
+  };
 }
 
 function pill(active: boolean): React.CSSProperties {
