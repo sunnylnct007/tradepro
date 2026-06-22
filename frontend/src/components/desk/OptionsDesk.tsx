@@ -194,13 +194,10 @@ export function OptionsDesk() {
                 <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{c.symbol}</td>
                   <td style={{ padding: "8px 10px" }}>
-                    {c.regime
-                      ? <span style={{ color: REGIME_TONE[c.regime] || TONE.dim, fontWeight: 600 }}>{c.regime}</span>
-                      : <span style={{ color: TONE.bad }}>n/a</span>}
+                    {c.regime ? <RegimePill regime={c.regime} /> : <span style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>}
                   </td>
-                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
-                    {c.iv_rank == null ? <span style={{ color: TONE.bad }}>n/a</span>
-                      : <span style={{ color: c.iv_rank >= 30 ? TONE.ok : TONE.warn }}>{c.iv_rank.toFixed(0)}%</span>}
+                  <td style={{ padding: "8px 10px" }}>
+                    <IvGauge rank={c.iv_rank} />
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
                     {c.open_interest == null ? "—" : c.open_interest.toLocaleString()}
@@ -389,6 +386,31 @@ function btnStyle(enabled: boolean, color = TONE.ok): React.CSSProperties {
     color: enabled ? color : "var(--text-muted)",
     cursor: enabled ? "pointer" : "not-allowed", whiteSpace: "nowrap",
   };
+}
+
+function RegimePill({ regime }: { regime: string }) {
+  const c = REGIME_TONE[regime] || TONE.dim;
+  return (
+    <span style={{ display: "inline-block", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", color: c, background: `${c}1f`, border: `1px solid ${c}55`, borderRadius: 999, padding: "2px 9px" }}>
+      {regime}
+    </span>
+  );
+}
+
+function IvGauge({ rank }: { rank: number | null }) {
+  if (rank == null) return <span style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>;
+  const pass = rank >= 30;
+  const c = pass ? TONE.ok : TONE.warn;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 96 }} title={`IV-Rank ${rank.toFixed(0)}% — ${pass ? "premium rich (≥30 gate)" : "below the 30 gate, too cheap"}`}>
+      <div style={{ position: "relative", flex: 1, height: 6, borderRadius: 3, background: "var(--surface)", border: "1px solid var(--border)", overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, Math.max(0, rank))}%`, background: c }} />
+        {/* 30% threshold marker */}
+        <div style={{ position: "absolute", left: "30%", top: -1, bottom: -1, width: 1, background: "var(--text-muted)" }} />
+      </div>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, color: c, width: 30, textAlign: "right" }}>{rank.toFixed(0)}%</span>
+    </div>
+  );
 }
 
 function Stat({ label, value, tone }: { label: string; value: number | string; tone: keyof typeof TONE }) {
