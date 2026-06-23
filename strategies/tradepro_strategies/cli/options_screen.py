@@ -119,43 +119,68 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (no false positive)
         log.warning("%s regime fetch failed: %s", sym, e)
 
-    # Options chain (yfinance — works outside market hours; bid/ask may be stale
-    # on weekends → spread surfaced as None → fail-visible). Select the put
+    # Options chain — IBKR FIRST (real model greeks/IV/OI, so delta is real and
+    # the wheel can actually fire), yfinance as fallback (delayed/patchy; its IV
+    # is often missing → BS delta ≈ 0 → nothing clears the band). Select the put
     # nearest 0.27 delta (BRD strike rule).
     oi = strike = delta = premium = notional_gbp = None
     spread = None
     dte = 35
     chain_ok = False
+    chain_source = None
     spot_divergence = None  # |yf spot / IBKR close − 1| when both known
-    from ..quant_engine.options.chains import fetch_chain, select_by_abs_delta, delta_of
     from ..quant_engine.options.black_scholes import BlackScholesPricer
+    from ..quant_engine.options.chains import fetch_chain, select_by_abs_delta, delta_of
+    from ..quant_engine.options.chains_ibkr import fetch_chain_ibkr
+    pricer = BlackScholesPricer()
+
+    # 1) IBKR (authoritative). Reuse the screen's connection + IBKR close as spot.
     try:
-        pricer = BlackScholesPricer()
-        chain = fetch_chain(sym, target_dte=35, pricer=pricer)
-        # Spot-sanity guard: reject a chain whose spot disagrees with the
-        # authoritative IBKR close by >15% (e.g. yfinance returned INTC "$134").
-        # A garbage spot poisons strike selection → never trust it; fail-visible.
-        spot_ok = True
-        if chain and chain.spot > 0 and ref_close:
-            spot_divergence = abs(chain.spot / ref_close - 1.0)
-            if spot_divergence > 0.15:
-                spot_ok = False
-                log.warning("%s chain spot %.2f diverges %.0f%% from IBKR close %.2f — rejecting chain",
-                            sym, chain.spot, spot_divergence * 100, ref_close)
-        if chain and chain.puts and chain.spot > 0 and spot_ok:
-            dte = chain.dte
-            t = max(dte, 1) / 365.0
-            q = select_by_abs_delta(chain.puts, 0.27, chain.spot, t, pricer)
+        ic = fetch_chain_ibkr(sym, target_dte=35, ib=ib, pricer=pricer, spot=ref_close)
+        if ic and ic.puts and ic.spot > 0:
+            t = max(ic.dte, 1) / 365.0
+            q = select_by_abs_delta(ic.puts, 0.27, ic.spot, t, pricer)
             if q is not None:
+                dte = ic.dte
                 strike = q.strike
-                delta = abs(delta_of(q, chain.spot, t, pricer))
+                delta = abs(delta_of(q, ic.spot, t, pricer))
                 oi = q.open_interest
                 spread = q.spread if (q.bid > 0 and q.ask > 0) else None
                 premium = q.mid if q.mid > 0 else None
-                notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)  # USD strike×100 → GBP
+                notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                 chain_ok = True
-    except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (fail-visible)
-        log.warning("%s chain fetch failed: %s", sym, e)
+                chain_source = "ibkr"
+    except Exception as e:  # noqa: BLE001 — fall through to yfinance
+        log.warning("%s IBKR chain failed, trying yfinance: %s", sym, e)
+
+    # 2) yfinance fallback (only if IBKR gave nothing usable).
+    if not chain_ok:
+        try:
+            chain = fetch_chain(sym, target_dte=35, pricer=pricer)
+            # Spot-sanity guard: reject a chain whose spot disagrees with the
+            # authoritative IBKR close by >15% (e.g. yfinance "$134" for INTC).
+            spot_ok = True
+            if chain and chain.spot > 0 and ref_close:
+                spot_divergence = abs(chain.spot / ref_close - 1.0)
+                if spot_divergence > 0.15:
+                    spot_ok = False
+                    log.warning("%s yf spot %.2f diverges %.0f%% from IBKR close %.2f — rejecting",
+                                sym, chain.spot, spot_divergence * 100, ref_close)
+            if chain and chain.puts and chain.spot > 0 and spot_ok:
+                dte = chain.dte
+                t = max(dte, 1) / 365.0
+                q = select_by_abs_delta(chain.puts, 0.27, chain.spot, t, pricer)
+                if q is not None:
+                    strike = q.strike
+                    delta = abs(delta_of(q, chain.spot, t, pricer))
+                    oi = q.open_interest
+                    spread = q.spread if (q.bid > 0 and q.ask > 0) else None
+                    premium = q.mid if q.mid > 0 else None
+                    notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
+                    chain_ok = True
+                    chain_source = "yfinance"
+        except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (fail-visible)
+            log.warning("%s yfinance chain fetch failed: %s", sym, e)
 
     earnings_in_window = _earnings_in_window(sym, dte)
 
@@ -195,6 +220,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "suggested_premium": premium,
         "dte": dte,
         "annualized_yield_pct": ann_yield_pct,
+        "chain_source": chain_source,
         "ref_close": round(ref_close, 2) if ref_close else None,
         "spot_divergence_pct": round(spot_divergence * 100, 1) if spot_divergence is not None else None,
     }
