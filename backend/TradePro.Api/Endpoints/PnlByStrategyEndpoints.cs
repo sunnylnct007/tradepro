@@ -143,20 +143,18 @@ public static class PnlByStrategyEndpoints
             // summed from these live marks; REALISED still comes from the OMS FIFO
             // (IBKR fills DO carry prices, unlike T212). Keyed by bare symbol.
             var ibkrUnrealBySymbol = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-            decimal? ibkrTotalUnreal = null;
             string? ibkrStateError = null;
             try
             {
                 await using var conn = await db.OpenConnectionAsync(ct);
-                var st = await conn.QueryFirstOrDefaultAsync<(decimal? unreal, string? positions)>(@"
-                    SELECT unrealised_pnl AS unreal, positions::text AS positions
+                var positionsJson = await conn.ExecuteScalarAsync<string?>(@"
+                    SELECT positions::text
                     FROM broker_account_state
                     WHERE broker = 'IBKR_PAPER'
                     ORDER BY updated_at_utc DESC LIMIT 1;");
-                ibkrTotalUnreal = st.unreal;
-                if (!string.IsNullOrWhiteSpace(st.positions))
+                if (!string.IsNullOrWhiteSpace(positionsJson))
                 {
-                    using var doc = JsonDocument.Parse(st.positions);
+                    using var doc = JsonDocument.Parse(positionsJson);
                     if (doc.RootElement.ValueKind == JsonValueKind.Array)
                         foreach (var p in doc.RootElement.EnumerateArray())
                         {
@@ -266,13 +264,11 @@ public static class PnlByStrategyEndpoints
                         else if (omsError is not null) noteParts.Add($"open: {omsError}");
                         else
                         {
-                            var (o, attributed, usedTotal) = IbkrOpenForStrategy(
-                                strategyId, omsPos!, ibkrUnrealBySymbol, ibkrTotalUnreal);
+                            var (o, attributed) = IbkrOpenForStrategy(strategyId, omsPos!, ibkrUnrealBySymbol);
                             open = o;
-                            if (usedTotal)
-                                noteParts.Add("open: OMS attributed 0 symbols (seeded book?) — used account-state TOTAL unrealised for the whole IBKR paper account");
-                            else
-                                noteParts.Add($"open: Σ IBKR live per-position unrealised over {attributed} OMS-attributed symbol(s)");
+                            noteParts.Add(attributed > 0
+                                ? $"open: Σ IBKR live per-position unrealised over {attributed} OMS-attributed symbol(s)"
+                                : "open: no OMS-attributed IBKR positions for this strategy (open=0)");
                         }
                     }
                     // T212 strategy. OPEN — Σ the broker's own Ppl (golden) for the
@@ -429,15 +425,15 @@ public static class PnlByStrategyEndpoints
     }
 
     /// <summary>Open P&amp;L for an IBKR strategy: Σ the broker's OWN per-position
-    /// unrealised (pushed via account-state) over the symbols the OMS attributes
-    /// to this strategy. If the OMS attributes nothing (e.g. a broker-seeded book
-    /// whose holdings were never written as OMS positions), fall back to the
-    /// account-state TOTAL unrealised — the IBKR paper account is dedicated to the
-    /// clone, so the whole-account number is the honest proxy (beats showing $0).
-    /// Returns (open, attributedSymbols, usedAccountTotal).</summary>
-    private static (decimal Open, int Attributed, bool UsedTotal) IbkrOpenForStrategy(
-        string strategyId, List<OmsPosition> omsPos,
-        Dictionary<string, decimal> unrealBySymbol, decimal? totalUnreal)
+    /// unrealised (pushed via account-state) over ONLY the symbols the OMS
+    /// attributes to this strategy. No whole-account fallback — multiple
+    /// strategies can share one IBKR account, so attributing the account TOTAL
+    /// to a strategy with no tracked positions double-counts another strategy's
+    /// book (it falsely showed the FX-clone +$328 = the equity clone's marks).
+    /// A strategy with zero attributed positions has zero open P&amp;L — honest.
+    /// Returns (open, attributedSymbols).</summary>
+    private static (decimal Open, int Attributed) IbkrOpenForStrategy(
+        string strategyId, List<OmsPosition> omsPos, Dictionary<string, decimal> unrealBySymbol)
     {
         var held = omsPos.Where(p =>
             string.Equals(p.StrategyId, strategyId, StringComparison.OrdinalIgnoreCase)
@@ -451,9 +447,7 @@ public static class PnlByStrategyEndpoints
                 open += u;
                 attributed++;
             }
-        if (attributed == 0 && totalUnreal is not null)
-            return (totalUnreal.Value, 0, true);
-        return (open, attributed, false);
+        return (open, attributed);
     }
 
     /// <summary>Load this strategy's broker fills from the OMS ledger, oldest
