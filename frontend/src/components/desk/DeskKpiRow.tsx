@@ -77,12 +77,18 @@ export function DeskKpiRow() {
 }
 
 function BrokerKpis({ g }: { g: Group }) {
-  // Daily P&L% relative to net-liq (best available denominator we have
-  // honestly; null when either side is missing — never a guessed base).
-  const dailyPnl = sumNullable(g.openPnl, g.realisedToday);
-  const dailyPct =
-    dailyPnl != null && g.netLiq != null && g.netLiq !== 0
-      ? (dailyPnl / g.netLiq) * 100
+  // TOTAL P&L = unrealised (open, mark-to-market now) + realised life-to-date.
+  // We do NOT show a "Daily P&L" tile: openPnl is the position's WHOLE-LIFE
+  // unrealised, not today's change, and no broker here feeds us a true daily
+  // figure — labelling total-unrealised as "daily" overstated a flat/losing
+  // book as a fat daily gain. Total is only honest when realised is computable;
+  // when it isn't (the T212 fill-price gap → realisedLtd null) we show n/a and
+  // point at Net Liquidity, the only truthful number for that sleeve.
+  const realisedComputable = g.realisedLtd != null;
+  const totalPnl = realisedComputable ? (g.openPnl ?? 0) + g.realisedLtd! : null;
+  const totalPct =
+    totalPnl != null && g.netLiq != null && g.netLiq !== 0
+      ? (totalPnl / g.netLiq) * 100
       : null;
 
   return (
@@ -101,6 +107,14 @@ function BrokerKpis({ g }: { g: Group }) {
         />
         {g.label} · {g.ccy || "—"}
         <ModeBadge mode={g.mode} />
+        {!realisedComputable && (
+          <span
+            title="Realised P&L isn't computable for this sleeve (broker fill-price gap), so a total can't be trusted. The unrealised tile is mark-to-market only — read Net Liquidity as the truth."
+            style={{ color: "#f59e0b", fontWeight: 600, textTransform: "none", letterSpacing: 0 }}
+          >
+            ⚠ realised n/a — reconcile to Net Liq
+          </span>
+        )}
       </div>
       <div
         style={{
@@ -110,8 +124,8 @@ function BrokerKpis({ g }: { g: Group }) {
         }}
       >
         <Tile label="Account" value={g.label} mono={false} />
-        <Tile label="Daily P&L" value={fmtMoney(dailyPnl, g.ccy, true)} colour={signColour(dailyPnl)} />
-        <Tile label="Daily P&L %" value={fmtPct(dailyPct)} colour={signColour(dailyPct)} />
+        <Tile label="Total P&L" value={fmtMoney(totalPnl, g.ccy, true)} colour={signColour(totalPnl)} />
+        <Tile label="Total P&L %" value={fmtPct(totalPct)} colour={signColour(totalPct)} />
         <Tile label="Unrealized P&L" value={fmtMoney(g.openPnl, g.ccy, true)} colour={signColour(g.openPnl)} />
         <Tile label="Realized P&L (LTD)" value={fmtMoney(g.realisedLtd, g.ccy, true)} colour={signColour(g.realisedLtd)} />
         <Tile label="Net Liquidity" value={fmtMoney(g.netLiq, g.ccy)} />
@@ -208,9 +222,4 @@ function statusColour(s: Group["status"]): string {
     case "down": return "var(--down, #ef4444)";
     default: return "var(--text-muted)";
   }
-}
-
-function sumNullable(a: number | null, b: number | null): number | null {
-  if (a == null && b == null) return null;
-  return (a ?? 0) + (b ?? 0);
 }
