@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Dapper;
 using Npgsql;
 using TradePro.Api.Oms;
@@ -136,6 +137,39 @@ public static class PnlByStrategyEndpoints
             }
             catch (Exception ex) { igPosError = $"IG positions fetch threw: {ex.Message}"; }
 
+            // IBKR account-state (NLV + per-position unrealised), pushed by the algo
+            // daemon — the .NET IBKR client is bound to the LIVE harvest account, so
+            // the server can't query the paper book directly. The clone's OPEN P&L is
+            // summed from these live marks; REALISED still comes from the OMS FIFO
+            // (IBKR fills DO carry prices, unlike T212). Keyed by bare symbol.
+            var ibkrUnrealBySymbol = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            decimal? ibkrTotalUnreal = null;
+            string? ibkrStateError = null;
+            try
+            {
+                await using var conn = await db.OpenConnectionAsync(ct);
+                var st = await conn.QueryFirstOrDefaultAsync<(decimal? unreal, string? positions)>(@"
+                    SELECT unrealised_pnl AS unreal, positions::text AS positions
+                    FROM broker_account_state
+                    WHERE broker = 'IBKR_PAPER'
+                    ORDER BY updated_at_utc DESC LIMIT 1;");
+                ibkrTotalUnreal = st.unreal;
+                if (!string.IsNullOrWhiteSpace(st.positions))
+                {
+                    using var doc = JsonDocument.Parse(st.positions);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                        foreach (var p in doc.RootElement.EnumerateArray())
+                        {
+                            var sym = p.TryGetProperty("symbol", out var s) ? s.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(sym)) continue;
+                            decimal u = p.TryGetProperty("unrealisedPnl", out var up)
+                                        && up.ValueKind == JsonValueKind.Number ? up.GetDecimal() : 0m;
+                            ibkrUnrealBySymbol[ReconcileMath.Bare(sym)] = u;
+                        }
+                }
+            }
+            catch (Exception ex) { ibkrStateError = $"IBKR account-state unavailable: {ex.Message}"; }
+
             // IG realised history, attributed per strategy (asset-class basis).
             // Reuse the exact attribution + trading-type filter ig/history uses.
             // Per strategy: (realisedLtd over the window, realisedToday for the
@@ -192,6 +226,7 @@ public static class PnlByStrategyEndpoints
             {
                 var ccy = CurrencyFor(broker);
                 var isIg = broker.StartsWith("IG", StringComparison.OrdinalIgnoreCase);
+                var isIbkr = broker.StartsWith("IBKR", StringComparison.OrdinalIgnoreCase);
                 decimal? open = null, realisedToday = null, realisedLtd = null;
                 int trades = 0;
                 double? winRate = null;
@@ -223,11 +258,28 @@ public static class PnlByStrategyEndpoints
                 }
                 else
                 {
+                    // OPEN — IBKR marks come from the account-state push; T212 from
+                    // its own /positions feed. (REALISED below is OMS FIFO for both.)
+                    if (isIbkr)
+                    {
+                        if (ibkrStateError is not null) noteParts.Add($"open: {ibkrStateError}");
+                        else if (omsError is not null) noteParts.Add($"open: {omsError}");
+                        else
+                        {
+                            var (o, attributed, usedTotal) = IbkrOpenForStrategy(
+                                strategyId, omsPos!, ibkrUnrealBySymbol, ibkrTotalUnreal);
+                            open = o;
+                            if (usedTotal)
+                                noteParts.Add("open: OMS attributed 0 symbols (seeded book?) — used account-state TOTAL unrealised for the whole IBKR paper account");
+                            else
+                                noteParts.Add($"open: Σ IBKR live per-position unrealised over {attributed} OMS-attributed symbol(s)");
+                        }
+                    }
                     // T212 strategy. OPEN — Σ the broker's own Ppl (golden) for the
                     // symbols the OMS attributes to this strategy, falling back to
                     // (CurrentPrice − avg) × qty using T212's OWN price when ppl is
                     // absent (the demo /positions feed omits per-row ppl).
-                    if (t212Error is not null) noteParts.Add($"open: {t212Error}");
+                    else if (t212Error is not null) noteParts.Add($"open: {t212Error}");
                     else if (omsError is not null) noteParts.Add($"open: {omsError}");
                     else
                     {
@@ -374,6 +426,34 @@ public static class PnlByStrategyEndpoints
             else missing++;
         }
         return (open, missing, usedFallback);
+    }
+
+    /// <summary>Open P&amp;L for an IBKR strategy: Σ the broker's OWN per-position
+    /// unrealised (pushed via account-state) over the symbols the OMS attributes
+    /// to this strategy. If the OMS attributes nothing (e.g. a broker-seeded book
+    /// whose holdings were never written as OMS positions), fall back to the
+    /// account-state TOTAL unrealised — the IBKR paper account is dedicated to the
+    /// clone, so the whole-account number is the honest proxy (beats showing $0).
+    /// Returns (open, attributedSymbols, usedAccountTotal).</summary>
+    private static (decimal Open, int Attributed, bool UsedTotal) IbkrOpenForStrategy(
+        string strategyId, List<OmsPosition> omsPos,
+        Dictionary<string, decimal> unrealBySymbol, decimal? totalUnreal)
+    {
+        var held = omsPos.Where(p =>
+            string.Equals(p.StrategyId, strategyId, StringComparison.OrdinalIgnoreCase)
+            && p.Broker.StartsWith("IBKR", StringComparison.OrdinalIgnoreCase)
+            && p.Quantity != 0m);
+        decimal open = 0m;
+        int attributed = 0;
+        foreach (var p in held)
+            if (unrealBySymbol.TryGetValue(ReconcileMath.Bare(p.Symbol), out var u))
+            {
+                open += u;
+                attributed++;
+            }
+        if (attributed == 0 && totalUnreal is not null)
+            return (totalUnreal.Value, 0, true);
+        return (open, attributed, false);
     }
 
     /// <summary>Load this strategy's broker fills from the OMS ledger, oldest
