@@ -200,3 +200,15 @@ def test_no_trade_is_clean_outcome_not_exception():
     assert d.allowed is False
     assert isinstance(d.blocks, list) and len(d.blocks) >= 1
     assert "iv_rank" in d.checked
+
+
+def test_delayed_quote_spread_is_advisory_not_block():
+    """Wide spread on DELAYED quotes (no OPRA) → WARNING, candidate still allowed;
+    on live quotes the same spread hard-blocks. Lets paper candidates surface."""
+    cand = TradeCandidate(**{**_good_csp().__dict__})
+    base = _good_ctx().__dict__.copy()
+    base["bid_ask_spread_usd"] = 0.73  # wide (delayed artifact)
+    live = evaluate(cand, MarketContext(**{**base, "quotes_delayed": False}), _flat())
+    dly = evaluate(cand, MarketContext(**{**base, "quotes_delayed": True}), _flat())
+    assert not live.allowed and any("spread too wide" in b for b in live.blocks)
+    assert dly.allowed and any("DELAYED" in w for w in dly.warnings)

@@ -82,7 +82,10 @@ class OptionsRiskConfig:
     dte_max: int = 50
     iv_rank_min: float = 30.0          # %
     # Liquidity gates (§6.1 filter 1, §9.2)
-    oi_min: int = 1000
+    oi_min: int = 250          # per-strike OI floor. 1,000 was index-level and
+    #   rejected every single-name equity strike (KO/F/INTC near-month strikes
+    #   run 50–500 OI); 250 is enough for 1-lot paper/wheel fills without bad
+    #   slippage. Raise for size.
     spread_max_usd: float = 0.10
     # Capital rules (§9.1) — GBP. Pot ≈ £12k with ~£10k deployable (the trader's
     # stated capacity); a single position may use the full deploy so mid-priced
@@ -124,6 +127,10 @@ class MarketContext:
     earnings_in_expiry_window: bool | None = None   # §9.4 blackout
     ex_div_in_expiry_window: bool | None = None      # §9.4 (covered calls)
     data_fresh: bool = True                # chain/greeks fresh + valid (§9.2 last check)
+    quotes_delayed: bool = False           # bid/ask are DELAYED (no OPRA) → the
+    #   spread is indicative, not a verified fill. The spread gate becomes an
+    #   advisory WARNING rather than a hard block so paper candidates surface;
+    #   flip to False (→ hard block) once real-time OPRA quotes are enabled.
 
 
 @dataclass(frozen=True)
@@ -239,7 +246,16 @@ def evaluate(
     if ctx.bid_ask_spread_usd is None:
         blocks.append("Bid-ask spread unavailable.")
     elif ctx.bid_ask_spread_usd > cfg.spread_max_usd:
-        blocks.append(f"Bid-ask ${ctx.bid_ask_spread_usd:.2f} > ${cfg.spread_max_usd:.2f} — spread too wide.")
+        _msg = f"Bid-ask ${ctx.bid_ask_spread_usd:.2f} > ${cfg.spread_max_usd:.2f} — spread too wide"
+        if ctx.quotes_delayed:
+            # DELAYED quote (no OPRA): the wide spread is a data artifact, not a
+            # real market. Advise, don't block — but make it loud so nobody
+            # mistakes the indicative premium for a verified fill.
+            warnings.append(
+                _msg + " — but quotes are DELAYED (no OPRA): indicative only, "
+                "verify the live spread before you place. Enable OPRA for real-time.")
+        else:
+            blocks.append(_msg + ".")
 
     # ── Earnings blackout (§9.4) ─────────────────────────────────────────
     if s in SHORT_PREMIUM_STRUCTURES:

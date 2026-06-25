@@ -193,6 +193,11 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         # Screen on best-available data: a usable chain is enough to ASSESS
         # eligibility (execution still needs live quotes at the open).
         data_fresh=chain_ok,
+        # IBKR chains are DELAYED until OPRA is enabled → the spread gate becomes
+        # an advisory warning (candidates surface for paper, marked indicative)
+        # instead of blocking on a stale wide spread. Flip to False once OPRA is
+        # on (then real-time spreads hard-block again).
+        quotes_delayed=(chain_source == "ibkr"),
     )
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
