@@ -417,7 +417,16 @@ def _run_backtest(
     if not data:
         raise SystemExit("ERROR: no symbols returned bars; cannot run backtest")
 
-    config = QuantEngineConfig(initial_capital=initial_capital)
+    # Thread the entry-discipline gates from the payload so a backtest can A/B
+    # the live clone's settings (entry_max_ext_pct / entry_rsi_max / stop_loss_pct).
+    # Absent → None → ungated (the trader-verbatim control), so existing runs are
+    # unchanged. This is what lets us VALIDATE the clone gate change on history.
+    config = QuantEngineConfig(
+        initial_capital=initial_capital,
+        entry_max_ext_pct=payload.get("entry_max_ext_pct"),
+        entry_rsi_max=payload.get("entry_rsi_max"),
+        stop_loss_pct=payload.get("stop_loss_pct"),
+    )
     sleeve_name = str(payload.get("strategy") or "default_sleeve")
     sleeve = Sleeve(name=sleeve_name, data=data, config=config)
     ensemble = Ensemble(sleeves=[sleeve], config=config, initial_capital=initial_capital)
