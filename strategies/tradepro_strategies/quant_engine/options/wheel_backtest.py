@@ -113,6 +113,7 @@ def simulate_wheel(
             continue
         sigma = _realised_vol(closes, i)
         t_open = max(dte, 1) / 365.0
+        iso = dates[i].isoformat()
 
         # ── settle an expiring option ────────────────────────────────
         if mode in ("short_put", "covered_call") and i >= opt_expiry_idx:
@@ -122,11 +123,11 @@ def simulate_wheel(
                     cost_basis = opt_strike
                     cash -= opt_strike * mult              # buy shares (cash was reserved)
                     n_assign += 1
-                    trades.append(WheelTrade(dates[i].isoformat(), "ASSIGNED", opt_strike, None, spot,
-                                             f"spot {spot:.2f} < strike {opt_strike:.2f} → bought {mult} sh"))
+                    trades.append(WheelTrade(iso, "ASSIGNED", opt_strike, None, spot,
+                                             f"spot {spot:.2f} < {opt_strike:.2f} → +{mult} sh"))
                     mode = "shares_pending"
                 else:                                      # expired worthless
-                    trades.append(WheelTrade(dates[i].isoformat(), "PUT_EXPIRED", opt_strike, None, spot,
+                    trades.append(WheelTrade(iso, "PUT_EXPIRED", opt_strike, None, spot,
                                              "kept premium"))
                     mode = "flat"
             else:  # covered_call
@@ -134,12 +135,12 @@ def simulate_wheel(
                     cash += opt_strike * mult
                     realised_pnl += (opt_strike - cost_basis) * mult
                     n_aways += 1
-                    trades.append(WheelTrade(dates[i].isoformat(), "CALLED_AWAY", opt_strike, None, spot,
-                                             f"sold {mult} sh @ {opt_strike:.2f} (basis {cost_basis:.2f})"))
+                    trades.append(WheelTrade(iso, "CALLED_AWAY", opt_strike, None, spot,
+                                             f"sold {mult}sh @{opt_strike:.2f} (basis {cost_basis:.2f})"))
                     shares = 0
                     mode = "flat"
                 else:
-                    trades.append(WheelTrade(dates[i].isoformat(), "CALL_EXPIRED", opt_strike, None, spot,
+                    trades.append(WheelTrade(iso, "CALL_EXPIRED", opt_strike, None, spot,
                                              "kept premium, still hold shares"))
                     mode = "shares_pending"
 
@@ -153,7 +154,7 @@ def simulate_wheel(
                 opt_strike, opt_expiry_idx = strike, expiry_index(i)
                 mode = "short_put"
                 n_puts += 1
-                trades.append(WheelTrade(dates[i].isoformat(), "SELL_PUT", strike, round(prem, 2), spot,
+                trades.append(WheelTrade(iso, "SELL_PUT", strike, round(prem, 2), spot,
                                          f"Δ~ otm {otm_pct:.0%}, dte {dte}, iv {sigma:.0%}"))
         elif mode == "shares_pending":
             strike = round(max(cost_basis, spot * (1 + otm_pct)))
@@ -163,15 +164,15 @@ def simulate_wheel(
             opt_strike, opt_expiry_idx = strike, expiry_index(i)
             mode = "covered_call"
             n_calls += 1
-            trades.append(WheelTrade(dates[i].isoformat(), "SELL_CALL", strike, round(prem, 2), spot,
+            trades.append(WheelTrade(iso, "SELL_CALL", strike, round(prem, 2), spot,
                                      f"covered, dte {dte}, iv {sigma:.0%}"))
 
         # ── mark equity (cash + shares − current short-option liability) ──
         liab = 0.0
-        if mode == "short_put":
-            liab = pricer.price(spot, opt_strike, max((opt_expiry_idx - i), 1) / 365.0 * (dte / max(dte, 1)), sigma, "put") * mult
-        elif mode == "covered_call":
-            liab = pricer.price(spot, opt_strike, max((opt_expiry_idx - i), 1) / 365.0 * (dte / max(dte, 1)), sigma, "call") * mult
+        if mode in ("short_put", "covered_call"):
+            t_rem = max(opt_expiry_idx - i, 1) / 252.0   # trading days → years
+            kind = "put" if mode == "short_put" else "call"
+            liab = pricer.price(spot, opt_strike, t_rem, sigma, kind) * mult
         equity_curve.append(cash + shares * spot - liab)
 
     final_equity = equity_curve[-1] if equity_curve else start_capital
