@@ -54,7 +54,7 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from ..data import DataRequest, load_candles
@@ -64,6 +64,7 @@ from ..quant_engine.monte_carlo import MonteCarloResult, MonteCarloSimulator
 from ..quant_engine.portfolio_metrics import summarise
 from ..quant_engine.sleeve import Sleeve
 from ..viz import build_chart
+
 # Phase D-3/E for the quant backtest path. The `_run_preflight` helper
 # is split out so a BDD scenario can exercise the hash combination
 # logic without spinning up the engine. Late imports inside the helper
@@ -71,6 +72,11 @@ from ..viz import build_chart
 
 
 log = logging.getLogger("tradepro.cli.quant_backtest")
+
+# Backtests tolerate up to this fraction of isolated missing sessions before the
+# preflight hard-blocks. Small harvest gaps (a missing session or two) proceed
+# with the gap RECORDED on the report (fail-visible); a real hole still aborts.
+_DEFAULT_MAX_MISSING_FRACTION = 0.01
 
 
 RESULT_BEGIN = "BEGIN_QUANT_BACKTEST_RESULT"
@@ -205,10 +211,11 @@ def _run_preflight(
     On any symbol's incomplete coverage (and require_complete),
     re-raises ``IncompleteDataError`` with the list of missing
     sessions so the caller can stop the run with a structured exit."""
-    from datetime import timezone as _tz
+
     from ..bar_cache import IncompleteDataError, preflight_data_state
     from ..bar_cache.asset_class_resolver import (
-        ASSET_CLASS_UNKNOWN, resolve_asset_class,
+        ASSET_CLASS_UNKNOWN,
+        resolve_asset_class,
     )
 
     per_symbol_states: dict[str, dict[str, Any]] = {}
@@ -217,9 +224,9 @@ def _run_preflight(
     coverage_complete = True
 
     start_utc = (
-        start.replace(tzinfo=_tz.utc) if start.tzinfo is None else start
+        start.replace(tzinfo=UTC) if start.tzinfo is None else start
     )
-    end_utc = end.replace(tzinfo=_tz.utc) if end.tzinfo is None else end
+    end_utc = end.replace(tzinfo=UTC) if end.tzinfo is None else end
 
     for sym in symbols:
         # Resolve per-symbol when no run-level override was supplied.
@@ -238,6 +245,11 @@ def _run_preflight(
                 start=start_utc,
                 end=end_utc,
                 require_complete=not allow_incomplete,
+                # Tolerate up to 1% isolated missing sessions (a harvest gap)
+                # rather than aborting the whole run on one missing bar — the
+                # gap is still recorded on the report (fail-visible). A larger
+                # hole still hard-fails. --allow-incomplete-data bypasses entirely.
+                max_missing_fraction=_DEFAULT_MAX_MISSING_FRACTION,
                 api_base=api_base,
                 fetched_by=f"quant-backtest:{ac}",
             )

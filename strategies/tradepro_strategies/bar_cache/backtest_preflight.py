@@ -25,10 +25,10 @@ gets reproducibility for free, no per-caller stamping logic.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class IncompleteDataError(Exception):
@@ -92,6 +92,12 @@ class PreflightResult:
     provider_used: str
     schema_version: str
     base_dir: str
+    # Fail-VISIBLE data-quality: when the run was allowed to proceed on
+    # slightly-incomplete data (missing_fraction ≤ tolerance), the gap is NOT
+    # hidden — it's reported here so the report/UI can surface "ran on 99.9%
+    # coverage, 1 session missing" rather than a silent pass.
+    missing_sessions: list[str] = field(default_factory=list)
+    missing_fraction: float = 0.0
 
     def to_report_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +111,8 @@ class PreflightResult:
                 "provider_used": self.provider_used,
                 "schema_version": self.schema_version,
                 "base_dir": self.base_dir,
+                "missing_sessions": list(self.missing_sessions),
+                "missing_fraction": self.missing_fraction,
             },
         }
 
@@ -117,16 +125,26 @@ def preflight_data_state(
     end: datetime,
     *,
     require_complete: bool = True,
-    api_base: Optional[str] = None,
-    auth_token: Optional[str] = None,
-    base_dir: Optional[Path] = None,
+    max_missing_fraction: float = 0.0,
+    api_base: str | None = None,
+    auth_token: str | None = None,
+    base_dir: Path | None = None,
     fetched_by: str = "preflight",
 ) -> PreflightResult:
     """Wraps BarStore.get with the auto-stamp + hard-block contract.
 
     Returns a ``PreflightResult`` on success (caller stamps it on the
     backtest report payload). Raises ``IncompleteDataError`` when
-    coverage is incomplete AND ``require_complete=True``.
+    coverage is incomplete AND ``require_complete=True`` AND the missing
+    fraction exceeds ``max_missing_fraction``.
+
+    ``max_missing_fraction`` (default 0.0 = strict) lets a backtest run on
+    near-complete data — e.g. 0.01 tolerates up to 1% of sessions missing
+    (an isolated harvest gap) WITHOUT silently hiding it: the missing
+    sessions + fraction are recorded on the result so the report stays
+    honest. A larger hole still hard-fails. This is the middle ground
+    between "abort on one missing bar" and the blunt allow_incomplete
+    override.
 
     On a BarStore-level failure (no provider, schema mismatch, etc.),
     re-raises the underlying ``BarFetchError`` — backtests should
@@ -150,7 +168,7 @@ def preflight_data_state(
         telemetry: TelemetrySink = BackendTelemetrySink(
             base_dir=base, api_base=api_base, auth_token=auth_token,
         )
-        preferences_loader: Optional[PreferencesLoader] = PreferencesLoader(
+        preferences_loader: PreferencesLoader | None = PreferencesLoader(
             api_base=api_base, auth_token=auth_token,
         )
     else:
@@ -175,7 +193,9 @@ def preflight_data_state(
         fetched_by=fetched_by,
     )
 
-    if require_complete and not frame.coverage_complete:
+    missing: list[str] = []
+    missing_fraction = 0.0
+    if not frame.coverage_complete:
         from .asset_class import get_asset_class
         plugin = get_asset_class(asset_class)
         sessions_expected = plugin.expected_session_dates(start, end)
@@ -187,14 +207,20 @@ def preflight_data_state(
             d.isoformat() for d in sessions_expected
             if d not in sessions_present
         ]
-        raise IncompleteDataError(
-            canonical=canonical,
-            asset_class=asset_class,
-            resolution=resolution,
-            rows_expected=frame.rows_expected,
-            rows_returned=frame.rows_returned,
-            missing_sessions=missing,
-        )
+        denom = max(len(sessions_expected), frame.rows_expected, 1)
+        missing_fraction = len(missing) / denom
+        # Hard-fail only when strict AND the hole exceeds tolerance. A small
+        # isolated gap (≤ tolerance) proceeds, but is recorded on the result
+        # (fail-visible) — never silently passed.
+        if require_complete and missing_fraction > max_missing_fraction:
+            raise IncompleteDataError(
+                canonical=canonical,
+                asset_class=asset_class,
+                resolution=resolution,
+                rows_expected=frame.rows_expected,
+                rows_returned=frame.rows_returned,
+                missing_sessions=missing,
+            )
 
     return PreflightResult(
         data_state_hash=frame.data_state_hash,
@@ -205,4 +231,6 @@ def preflight_data_state(
         provider_used=frame.provider_used,
         schema_version=frame.schema_version,
         base_dir=str(base),
+        missing_sessions=missing,
+        missing_fraction=missing_fraction,
     )
