@@ -135,8 +135,8 @@ def simulate_wheel(
                     cash += opt_strike * mult
                     realised_pnl += (opt_strike - cost_basis) * mult
                     n_aways += 1
-                    trades.append(WheelTrade(iso, "CALLED_AWAY", opt_strike, None, spot,
-                                             f"sold {mult}sh @{opt_strike:.2f} (basis {cost_basis:.2f})"))
+                    note = f"sold {mult}sh @{opt_strike:.2f} (basis {cost_basis:.2f})"
+                    trades.append(WheelTrade(iso, "CALLED_AWAY", opt_strike, None, spot, note))
                     shares = 0
                     mode = "flat"
                 else:
