@@ -29,10 +29,16 @@ from ..quant_engine.options.risk import (
 
 log = logging.getLogger("tradepro.options_screen")
 
-# BRD candidate buckets — core quality + lower-priced liquid names.
+# Wheel universe — EVIDENCE-SELECTED from a 2023→2026 wheel backtest (return on
+# capital-at-risk vs the ~4.5%/yr bank rate). The winners are mid-vol QUALITY
+# names (energy / utility / healthcare / staples): they beat the bank ~2× with
+# low drawdown. Dropped vs the old BRD list: KO/T/JPM (under the bank — too
+# low-vol, premiums too thin), INTC/PFE (beat bank but −50%+ drawdown). Add
+# DUK/D for defensive yield. Re-run tradepro-wheel-backtest to revisit.
+#   CVX 12.2%/-7%  ABBV 11.7%/-16%  XOM 11.1%/-8%  VZ 10.3%/-11%
+#   DUK 8.8%/-8%   JNJ 6.3%/-10%    MO 5.7%/-10%   PG 5.0%/-13%
 DEFAULT_UNIVERSE = [
-    "KO", "PG", "PEP", "JNJ", "ABBV", "T", "VZ", "XOM", "CVX", "JPM",
-    "F", "INTC", "PFE", "MO",
+    "CVX", "XOM", "ABBV", "JNJ", "VZ", "MO", "PG", "DUK", "D", "PEP",
 ]
 
 _FX_GBPUSD = 1.27  # BRD display rate; USD strike×100 → GBP notional
