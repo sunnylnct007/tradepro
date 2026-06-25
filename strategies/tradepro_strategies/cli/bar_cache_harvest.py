@@ -242,7 +242,8 @@ def main() -> int:
         "daily" if span_days <= 1
         else f"backfill {span_days}d ({from_date.date()} → {(to_date - timedelta(days=1)).date()})"
     )
-    chain_label = "ibkr-only" if args.ibkr_only else ("yfinance-only" if args.no_ibkr else "ibkr→ig→yfinance")
+    chain_label = ("ibkr-only" if args.ibkr_only
+                   else "yfinance-only" if args.no_ibkr else "ibkr→ig→yfinance")
     print(
         f"tradepro-bar-cache-harvest  mode={mode_label}  "
         f"res={args.resolution}  symbols={len(symbols)}  "
