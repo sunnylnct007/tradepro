@@ -44,7 +44,10 @@ else
     log "EC2 unreachable — local harvest only, telemetry skipped"
 fi
 
-log "daily 1d harvest: $N symbols, $FROM → $TO"
-exec "$UV" run tradepro-bar-cache-harvest --resolution 1d --asset us_etf \
+log "daily 1d harvest (yfinance-only): $N symbols, $FROM → $TO"
+# --no-ibkr: daily bars come from yfinance (fast, reliable). IBKR historical
+# hangs under gateway contention with the trader daemon — and we don't need it
+# for daily resolution. This keeps the nightly job deterministic.
+exec "$UV" run tradepro-bar-cache-harvest --resolution 1d --asset us_etf --no-ibkr \
     --symbols "$SYMS" --from "$FROM" --to "$TO" --allow-partial --verbose \
     "${API_ARGS[@]+"${API_ARGS[@]}"}" >>"$LOG" 2>&1

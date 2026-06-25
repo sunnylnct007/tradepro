@@ -46,15 +46,16 @@ import argparse
 import logging
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tradepro_strategies.bar_cache import BarFetchError, BarStore, PreferencesLoader
 from tradepro_strategies.bar_cache.asset_classes import UsEtfPlugin  # noqa: F401 — registers
 from tradepro_strategies.bar_cache.providers import YFinanceProvider  # noqa: F401 — registers
-from tradepro_strategies.bar_cache.providers.ibkr_provider import IBKRProvider  # noqa: F401 — registers
+from tradepro_strategies.bar_cache.providers.ibkr_provider import (
+    IBKRProvider,  # noqa: F401 — registers
+)
 from tradepro_strategies.bar_cache.telemetry import BackendTelemetrySink, TelemetrySink
-
 
 # Full universe: intraday_flat candidates + SPY (regime filter).
 # Keep in sync with intraday_flat.default_params()["candidates"].
@@ -147,6 +148,15 @@ def main() -> int:
             "written with fallback data. TWS must be open on port 7497."
         ),
     )
+    parser.add_argument(
+        "--no-ibkr", action="store_true",
+        help=(
+            "Skip IBKR (and IG) — use yfinance ONLY. For the scheduled DAILY "
+            "harvest: IBKR historical hangs under gateway contention (the trader "
+            "daemon holds the single session), and yfinance daily bars are fast + "
+            "adequate. Also disables the API provider-preference so it can't "
+            "re-add IBKR; telemetry still pushes."),
+    )
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="INFO-level logging + per-partition paths")
     args = parser.parse_args()
@@ -178,7 +188,7 @@ def main() -> int:
         symbols = list(_DEFAULT_SYMBOLS)
 
     # ── Dates ─────────────────────────────────────────────────
-    today_utc = datetime.now(timezone.utc).replace(
+    today_utc = datetime.now(UTC).replace(
         hour=0, minute=0, second=0, microsecond=0,
     )
     from_date = _parse_date(args.from_date) if args.from_date else today_utc
@@ -198,7 +208,9 @@ def main() -> int:
         telemetry = BackendTelemetrySink(
             base_dir=base_dir, api_base=args.api_base, auth_token=token,
         )
-        preferences_loader = PreferencesLoader(
+        # --no-ibkr forces the local yfinance chain; skip the preference loader
+        # so an API-side ibkr-first preference can't re-add IBKR (and re-hang).
+        preferences_loader = None if args.no_ibkr else PreferencesLoader(
             api_base=args.api_base, auth_token=token,
         )
     else:
@@ -212,6 +224,8 @@ def main() -> int:
     #   same-day fallback if TWS briefly lags.
     if args.ibkr_only:
         chain = ["ibkr"]
+    elif args.no_ibkr:
+        chain = ["yfinance"]
     else:
         chain = ["ibkr", "ig", "yfinance"]
 
@@ -228,7 +242,7 @@ def main() -> int:
         "daily" if span_days <= 1
         else f"backfill {span_days}d ({from_date.date()} → {(to_date - timedelta(days=1)).date()})"
     )
-    chain_label = "ibkr-only" if args.ibkr_only else "ibkr→ig→yfinance"
+    chain_label = "ibkr-only" if args.ibkr_only else ("yfinance-only" if args.no_ibkr else "ibkr→ig→yfinance")
     print(
         f"tradepro-bar-cache-harvest  mode={mode_label}  "
         f"res={args.resolution}  symbols={len(symbols)}  "
@@ -342,8 +356,9 @@ def main() -> int:
     # logged and ignored — it must never fail the harvest.
     if health_records:
         try:
-            from tradepro_strategies.cli import push_to_api as _pta
             import requests as _rq
+
+            from tradepro_strategies.cli import push_to_api as _pta
             _base, _tok = _pta.load_credentials()
             _h = {"Authorization": f"Bearer {_tok}"}
             _n = 0
@@ -380,7 +395,7 @@ def _tier_icon(tier: str) -> str:
 
 def _parse_date(s: str) -> datetime:
     """YYYY-MM-DD → tz-aware UTC midnight."""
-    return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC)
 
 
 if __name__ == "__main__":
