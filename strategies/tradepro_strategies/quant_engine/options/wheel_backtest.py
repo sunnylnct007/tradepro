@@ -24,7 +24,7 @@ from .black_scholes import BlackScholesPricer
 @dataclass
 class WheelTrade:
     date: str
-    action: str       # SELL_PUT | ASSIGNED | PUT_EXPIRED | SELL_CALL | CALLED_AWAY | CALL_EXPIRED
+    action: str       # SELL_PUT|ASSIGNED|PUT_EXPIRED|SELL_CALL|CALLED_AWAY|CALL_EXPIRED
     strike: float | None
     premium: float | None     # per share
     spot: float
