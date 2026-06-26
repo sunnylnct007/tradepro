@@ -389,3 +389,26 @@ def test_entry_rsi_gate_blocks_overbought():
     strat = _make_strategy(["AAPL"], df, entry_rsi_max=50.0)  # low cap → blocks
     orders = strat.on_bar(_bar("AAPL", 250.0))
     assert orders == []
+
+
+def test_from_config_whole_percent_stop_wires_to_fraction():
+    """END-TO-END wiring pin: the LIVE config sets stop_loss_pct=8 (whole
+    percent). The real builder (_build_strategy) must convert it to 0.08 so the
+    stop fires at -8%, NOT -800% (the old silently-dead double-bug). Halves are
+    tested separately elsewhere; this pins the chain config → builder → param so
+    a regression that drops _pct_to_fraction is caught."""
+    import argparse
+    from tradepro_strategies.cli.paper_session import _build_strategy
+    args = argparse.Namespace(
+        strategy="ichimoku_equity", strategy_id="test", broker="ibkr",
+        capital_usd=50000.0, sleeve_size=20, per_symbol_capital=None,
+        sleeves_map=None, target_vol=None, max_leverage=None,
+        no_regime_filter=True, stop_loss_pct=8, take_profit_pct=None,
+        max_per_sector=None, entry_max_ext_pct=None, entry_rsi_max=None,
+    )
+    strat = _build_strategy(args, ["AAPL"])
+    assert strat.params["stop_loss_pct"] == 0.08, strat.params["stop_loss_pct"]
+    # and a whole-percent take-profit would convert too
+    args.take_profit_pct = 12
+    strat2 = _build_strategy(args, ["AAPL"])
+    assert strat2.params["take_profit_pct"] == 0.12
