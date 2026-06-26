@@ -13,6 +13,29 @@ those assumptions change.
 
 ---
 
+## 📍 LIVE STRATEGY STATUS — handoff (2026-06-26) ⟵ CURRENT
+Persisted so a fresh session resumes with ZERO chat history ([[feedback_focused_sessions]]).
+
+**THE DECISION (motto: "less but concrete solid, not more with less accuracy" — [[feedback_depth_over_breadth]]):**
+The app was "covering a lot, fit for nothing." We picked **ONE** strategy to make production-grade and **shelved everything else** (wheel / FX / intraday / high_beta). The one = **Ichimoku equity**.
+
+**ICH EQUITY — production-grade foundations now SOLID + PINNED ([[project_focus_one_strategy_ichimoku]]):**
+- **Clone `ichimoku_equity_ibkr`** (IBKR_PAPER DUP656969) is the trustworthy line (clean fill P&L). Config now:
+  `sleeves="large_50:25,GLD:1"` — CLEAN mega-caps only. **Dropped `high_beta:30`** (the junk/IPO source — CAVA/GEV/delisted LUK/SNOW/KORS were unbacktestable losers; this was the live-vs-backtest divergence).
+- **Gate OFF** (entry_max_ext_pct/rsi removed) — backtest proved it HURT return+Sharpe through-cycle. **8% stop kept** (pinned end-to-end: config 8 → _build_strategy → 0.08, NOT the old −800% dead-stop).
+- **Parity**: live signal == trader's spec (`test_equity_signal_parity.py`, 26 pass); backtest sleeve matches (same 5/32 periods, stateful rule); **sizing matches** (equal-weight, vol-target off). → the backtest is a FAITHFUL live proxy.
+- **Evidence** (clean large_50, through-cycle 2022→2026 incl. bear): **8.9% CAGR, Sharpe 0.99, −13% maxDD, 0% MC loss-prob** — under SPY's 10.9% but HALF the drawdown (long/flat → cash in selloffs). A real, defensive, fund-grade edge.
+- **T212 control `ichimoku_equity`** stays trader-verbatim (no changes) as the A/B baseline. Supersedes the 2026-06-15 "cannot optimize / clone +68 vs control +88" note (that was on the junk universe + before the data fix).
+- **NEXT**: (1) OBSERVE live tracks the backtest over sessions (time-gated); (2) build a live-vs-backtest *tracking view* so we can SEE it prove itself; (3) prove the 8% stop fires on the live seeded book (unit+wiring done, live obs pending).
+
+**DATA PIPELINE — fixed ([[project_data_pipeline_daily_harvest_fix]]):** there was NO scheduled DAILY harvest (only 1m) → daily cache went stale → "0/119 good for today" → strategies starved on "NO BARS". Added `com.tradepro.bar-cache-harvest-daily` (Mon–Fri 21:30 BST, `--no-ibkr` yfinance-only because IBKR historical HANGS on gateway contention). Verified 127/127 fresh.
+
+**BACKTEST — now usable ([[project_backtest_and_wheel_state]]):** preflight had hard-blocked on ONE missing bar; added `max_missing_fraction` tolerance (fail-visible) + wired gate params from payload. `tradepro-wheel-backtest` also exists.
+
+**SHELVED (built, parked — do NOT develop until ICH equity is proven live):** options wheel (full desk + risk engine + IBKR greeks + backtester; mid-vol quality beats bank ~2×; needs OPRA + downside-defense), FX v2, intraday native desk, high_beta universe.
+
+---
+
 ## 📍 LIVE STRATEGY STATUS — handoff for any fresh agent (2026-06-15)
 Persisted so a new session picks up with ZERO chat history ([[feedback_focused_sessions]]).
 - **ICH Equity** (`ichimoku_equity` T212 control + `ichimoku_equity_ibkr` IBKR clone): ✅ RUNNING,
