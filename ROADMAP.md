@@ -34,6 +34,20 @@ The app was "covering a lot, fit for nothing." We picked **ONE** strategy to mak
 
 **SHELVED (built, parked — do NOT develop until ICH equity is proven live):** options wheel (full desk + risk engine + IBKR greeks + backtester; mid-vol quality beats bank ~2×; needs OPRA + downside-defense), FX v2, intraday native desk, high_beta universe.
 
+### 🛞 WHEEL — learnings to apply WHEN we resume it (do not lose)
+Captured 2026-06-27 (first manual paper CSP placed on MO). Apply these when un-shelving:
+- **Stock-selection filter** (operator-confirmed): price > 200-DMA (≈ above Ichimoku cloud) · avg option volume > 10K · dividend yield 3–6% · prefer beta < 0.5 (MO β≈−0.41) · avoid names near 52-wk lows.
+- **Strike rule**: target **delta −0.20 to −0.30** (sweet spot). The first MO $70 put was Δ−0.165 — too conservative; aim ~Δ−0.25.
+- **Order rules (learned the hard way)**: always **GTC, not DAY** (DAY cancels at close) · limit at the **bid**, not mid · use IBKR **Price Management Algo** when offered.
+- **Premium expectation**: ~23% IV, ~20 DTE, Δ−0.25 → **~0.5–0.8% of strike** in premium (MO $70 → ~$35–56/contract).
+- **⚠️ BACKTEST CAVEAT (our evidence, reconcile with the above)**: wheel return scales with VOLATILITY — and so does drawdown. Low-β "safe" names earn too little: **MO wheel through-cycle (2022→2026) = +3.0% CAGR / −13% DD — UNDER the bank rate.** KO similar. The beat-the-bank wheel names are **mid-vol quality (CVX 12%, XOM 11%, ABBV, VZ)**, β≈0.7–1.0, at the cost of larger drawdowns. So "β<0.5 / MO ideal" optimises SAFETY at the expense of beating the bank — a real tradeoff to resolve when resuming. (Premiums model-priced; real IV runs a bit higher.)
+- **Data**: live wheel needs OPRA (US options) — paywalled, ~$125/mo on this Professional/legal-entity account (no non-pro discount). Delayed data works as *advisory* for paper.
+
+### 🧭 DIFFERENTIATION finding (2026-06-27) — the edge is NOT the indicator
+Technical indicators (Ichimoku/RSI/…) are commodities (TradingView/Yahoo); even "backtest + auto-execute" is commodity (Composer/QuantConnect). The only real differentiators: (a) **owning the stack** (privacy/control/encode-anything — matters for a fund), (b) a **proprietary signal combination**. The latter ALREADY EXISTS as **COMPASS** (`compass_scorer.py`, 540 lines + `compass_momentum` strategy): a **7-factor fusion** — momentum 20% · EPS-revision 20% · quality(FCF+Sharpe) 15% · rel-strength 15% · analyst-conviction 15% · news 10% · valuation 5%. THAT blend isn't on other sites.
+- **Free data confirmed** for the fundamental factors (no IBKR fundamentals needed — those are paywalled, `Error 10358`): Finnhub `/stock/metric`, `/stock/recommendation`, `/stock/earnings` all work FREE on our token (only `/price-target` is premium); plus yfinance financials.
+- **⚠️ COMPASS can't be cleanly BACKTESTED** — its fundamental factors need point-in-time data (EPS estimate/analyst-rec AS OF each past date); free sources give TODAY's values → look-ahead bias. The EPS snapshots (`eps_tracker`) only accumulate FORWARD. So **COMPASS must be FORWARD-tested** (run paper, judged on real forward results), not backtested. This is the evidence path for the differentiator once ICH equity is proven.
+
 ---
 
 ## 📍 LIVE STRATEGY STATUS — handoff for any fresh agent (2026-06-15)
