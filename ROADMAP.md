@@ -13,7 +13,26 @@ those assumptions change.
 
 ---
 
-## 📍 LIVE STRATEGY STATUS — handoff (2026-06-26) ⟵ CURRENT
+## 📍 HANDOFF (2026-06-28) — POSITIONING + over-extension REFUTED + IBKR reuse ⟵ CURRENT
+Persisted so a fresh session resumes with ZERO chat history ([[feedback_focused_sessions]]).
+
+**STRATEGIC POSITIONING (concluded with user + a second agent — [[project_tradepro_as_filter_reuse_ibkr]]):** TradePro = a **research/screening platform that makes the user a better DISCRETIONARY trader** — NOT a full auto-trader (that was the wrong north star). The retail winning combo: **systematic about RISK, discretionary about ENTRY.** Our own session corroborates it — entry-systematisation FAILED (over-extension filter), and the only edge found is RISK/defensive (half SPY's drawdown), not alpha. **Reuse the IBKR pro account we pay for — don't rebuild it** (data/charts/greeks/themes/analytics). Three pillars, priority order: **(1) systematic RISK layer** (sizing, stops, max-DD, capital allocation, circuit breaker — the real edge); **(2) confluence SURFACING for entry** (Ichimoku + regime + sector momentum + options flow + themes shown together, human picks); **(3) decision→outcome JOURNAL** (score the user's own calls over time).
+
+> **CRITICAL CLARIFICATION (user, 2026-06-28): "discretionary about entry" does NOT mean dropping the systematic Ichimoku optimization.** Two layers run in parallel. **Layer 1 = the systematic ICH engine = the LAB + proprietary core** — keep optimising it; it GENERATES the signal and MEASURES our behaviour (live-vs-backtest, fill-replay). That measurement loop IS the edge — don't give it away/pause it. **Layer 2 = research foundation + product = how the human acts** on top. The discretionary/risk framing is Layer 2 only. **Research foundation (load-bearing):** clean data · backtest↔live parity · live-vs-backtest tracking · fill-replay/attribution · decision→outcome capture — so Layer 1 *and* human calls are both measurable honestly.
+
+**OVER-EXTENSION HYPOTHESIS — TESTED & REFUTED ([[project_equity_entry_chases_tops]] updated):** The "ICH equity loses because it chases over-extended entries" theory does **not** survive the real fills. Two proofs: (1) backtest — the extension filter LOWERS returns (high_beta 14.8%→10.9% with cap+stop; gate hurt large_50 too); (2) real-fill replay of the `ichimoku_equity_ibkr` OMS book — **corr(entry %>200SMA, return) = −0.12 high_beta / −0.06 large_50**, winners as/more extended than losers, and **staggered entry changes nothing** (−3.7% one-shot vs −3.8% 10-day DCA). The high_beta loss was a **one-shot basket seeded 2026-06-09 drifting down broadly = UNIVERSE AMPLITUDE (beta), not entry timing.** → No extension filter, no pullback/stagger machinery (less to build). The large_50+stop pivot is right, for **beta reduction**, not "over-extension." **Method note:** to diagnose LIVE losses, replay actual OMS fills — the backtest models logic, not seeding/timing.
+
+**IBKR MCP — capability map (all live, tested this session):**
+- ✅ **`get_price_history` / `get_price_snapshot`** — returns US-equity OHLCV cleanly & fast via the CLOUD path, **sidestepping the local-gateway `OFFushmds` hang.** Great for **ad-hoc charts/indicators/verification**. NOT for the cron harvest (interactive, account-scoped, can be absent headless).
+- ⚠️ **`get_company_themes` / `get_company_connections`** — RICH for mega-caps (large_50: ranked peers + evidence w/ fresh financials), **EMPTY for small/mid-caps + foreign ADRs** (EC, APLD). It's **thematic/structural, NOT event/catalyst.** → Use for a **thematic/peer-relative layer on large_50** (Tier-2 macro themes, a COMPASS relative-strength factor); **does NOT seed the catalyst gap** (wrong coverage + wrong data type). Catalyst gap STILL needs an **earnings calendar + news feed** (Finnhub path, [[project_catalyst_overlay_gap]]).
+- ✅ Also reusable: `get_option_data`/`get_option_parameters` (real greeks — for the wheel later), account analytics (`get_pa_performance_all_periods`, positions/trades).
+- **Account note:** the IBKR MCP is the **REAL personal account** (VWRL/SWDA savings + BABA/MRVL/EC/APLD), DIFFERENT from the paper clone (DUP656969) the local gateway trades. Don't conflate.
+
+**DATA HARVESTING conclusion:** leverage IBKR where it works (MCP cloud for ad-hoc US history; local gateway for greeks/exec). For **bulk nightly bars**, yfinance daily is fine (127/127 green) and IBKR bulk via the local gateway still needs the dedicated-data-gateway isolation fix ([[project_ibkr_harvest_session_isolation]], parked — US farm off, EU `euhmds` on so UK/EU would work). MCP is NOT a cron-harvest replacement.
+
+---
+
+## 📍 LIVE STRATEGY STATUS — handoff (2026-06-26)
 Persisted so a fresh session resumes with ZERO chat history ([[feedback_focused_sessions]]).
 
 **THE DECISION (motto: "less but concrete solid, not more with less accuracy" — [[feedback_depth_over_breadth]]):**
