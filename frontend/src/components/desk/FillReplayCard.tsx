@@ -89,24 +89,31 @@ export function FillReplayCard() {
       {state === "ok" && data && (
         <div style={{ padding: "8px 10px", display: "grid", gap: 8 }}>
           {universes.map(([name, u]) => {
-            const extMatters = Math.abs(u.ext_return_corr) >= 0.3;
+            // The staggered counterfactual only means something for a ONE-SHOT
+            // basket (all entries clustered). For organically-entered names the
+            // forward window is truncated for recent buys → misleading. Gate it.
+            const oneShot = u.entry_dates.length <= 1;
+            const absC = Math.abs(u.ext_return_corr);
+            const extWord = absC < 0.2
+              ? "doesn't separate winners from losers"
+              : u.ext_return_corr > 0
+                ? "more-extended entries did BETTER (momentum healthy here)"
+                : "more-extended entries did WORSE (mean-reversion risk)";
             return (
               <div key={name} style={{ borderTop: "1px solid #1b2233", paddingTop: 7 }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, fontSize: 12 }}>{name}</span>
-                  <span style={{ fontSize: 9.5, color: "var(--text-muted)" }}>n={u.n} · {u.entry_dates.length === 1 ? `one-shot ${u.entry_dates[0]}` : `${u.entry_dates.length} entry dates`}</span>
+                  <span style={{ fontSize: 9.5, color: "var(--text-muted)" }}>n={u.n} · {oneShot ? `one-shot ${u.entry_dates[0]}` : `${u.entry_dates.length} entry dates (organic)`}</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 8 }}>
-                  <Stat label="one-shot ret" v={fmtPct(u.one_shot_return_pct)} good={u.one_shot_return_pct >= 0} />
-                  <Stat label="staggered ret" v={fmtPct(u.staggered_return_pct)} good={u.staggered_return_pct >= 0} />
+                  <Stat label="return since entry" v={fmtPct(u.one_shot_return_pct)} good={u.one_shot_return_pct >= 0} />
+                  {oneShot && <Stat label="if staggered 10d" v={fmtPct(u.staggered_return_pct)} good={u.staggered_return_pct >= 0} />}
                   <Stat label="win rate" v={`${u.win_rate_pct.toFixed(0)}%`} good={u.win_rate_pct >= 50} />
-                  <Stat label="corr(ext,ret)" v={u.ext_return_corr >= 0 ? `+${u.ext_return_corr.toFixed(2)}` : u.ext_return_corr.toFixed(2)} good={extMatters ? u.ext_return_corr < 0 : undefined} />
+                  <Stat label="corr(ext,ret)" v={u.ext_return_corr >= 0 ? `+${u.ext_return_corr.toFixed(2)}` : u.ext_return_corr.toFixed(2)} />
                 </div>
                 <div style={{ marginTop: 5, fontSize: 10, color: "var(--text-dim)", lineHeight: 1.4 }}>
-                  {extMatters
-                    ? `extension is a real signal here (corr ${u.ext_return_corr.toFixed(2)}); losers entered ${fmtExt(u.ext_losers_avg)} vs winners ${fmtExt(u.ext_winners_avg)} over 200-SMA.`
-                    : `extension does NOT explain outcomes (corr ${u.ext_return_corr.toFixed(2)}); losers ${fmtExt(u.ext_losers_avg)} vs winners ${fmtExt(u.ext_winners_avg)} over 200-SMA — about the same.`}
-                  {" "}Staggering: {fmtPct(u.one_shot_return_pct)} → {fmtPct(u.staggered_return_pct)} ({Math.abs(u.one_shot_return_pct - u.staggered_return_pct) < 1 ? "no help" : "would differ"}).
+                  entry-extension {extWord} (corr {u.ext_return_corr.toFixed(2)}); losers entered {fmtExt(u.ext_losers_avg)} vs winners {fmtExt(u.ext_winners_avg)} over 200-SMA.
+                  {oneShot && ` Staggering would${Math.abs(u.one_shot_return_pct - u.staggered_return_pct) < 1 ? " NOT" : ""} have helped (${fmtPct(u.one_shot_return_pct)} → ${fmtPct(u.staggered_return_pct)}).`}
                 </div>
               </div>
             );
