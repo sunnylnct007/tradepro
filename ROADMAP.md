@@ -30,6 +30,11 @@ Persisted so a fresh session resumes with ZERO chat history ([[feedback_focused_
 
 **DATA HARVESTING conclusion:** leverage IBKR where it works (MCP cloud for ad-hoc US history; local gateway for greeks/exec). For **bulk nightly bars**, yfinance daily is fine (127/127 green) and IBKR bulk via the local gateway still needs the dedicated-data-gateway isolation fix ([[project_ibkr_harvest_session_isolation]], parked — US farm off, EU `euhmds` on so UK/EU would work). MCP is NOT a cron-harvest replacement.
 
+**TRACK B (research foundation = make the measurement loop VISIBLE) — progress:**
+- ✅ **Live-vs-backtest tracking card** — SHIPPED + deployed (cockpit portfolio view). `EquityTrackingCard.tsx` + `util/equityTracking.ts` (mirror of `assess_tracking`), computes the verdict from `/api/pnl/by-strategy` with a refresh re-trigger + explainer. Reads TOO_EARLY until 20 sessions (no false positives).
+- ✅ **`tradepro-fill-replay` CLI** (layer 1) — built + verified: replays actual OMS fills → per-symbol entry-extension + outcome + one-shot-vs-staggered, split by universe; `--push` to `/api/ingest/fill-replay`. Reproduces the over-extension refutation.
+- ⏳ **NEXT (fill-replay layers 2-3):** C# ingest+read endpoints (`fill_replay_results` table, mirror `EquityPipelineEndpoints`) + a cockpit card to render it. Then the daemon can `--push` it on a schedule. Also surfaced: large_50 cache coverage is partial (fill-replay skipped 15 `_US_EQ` names) → harvest should track the strategy universe.
+
 ---
 
 ## 📍 LIVE STRATEGY STATUS — handoff (2026-06-26)
