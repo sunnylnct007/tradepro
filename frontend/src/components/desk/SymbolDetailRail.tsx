@@ -24,6 +24,7 @@ import { bareSymbol } from "../../util/brokerSymbols";
 import { SymbolChartCard } from "./SymbolChartCard";
 import { SymbolPositionCard, type PositionRow } from "./SymbolPositionCard";
 import { SymbolDecisionCard } from "./SymbolDecisionCard";
+import { SymbolRangeRiskCard } from "./SymbolRangeRiskCard";
 import { SymbolOrdersCard } from "./SymbolOrdersCard";
 
 const ORDER_LIMIT = 100;
@@ -147,6 +148,10 @@ export function SymbolDetailRail({
       {/* 3. Signal / Why held — pass positions so it can reconcile the
           verdict against your entry (explains "trend up but I'm down"). */}
       <SymbolDecisionCard symbol={symbol} positions={positions} />
+
+      {/* 3b. Range / Risk — discretionary + risk overlay next to the systematic
+          signal: 52w-range position, ATR, kijun pullback level, 8% stop level. */}
+      <SymbolRangeRiskCard symbol={symbol} />
 
       {/* 4. Orders */}
       <SymbolOrdersCard symbol={symbol} orders={orders} loading={ordersLoading} />
