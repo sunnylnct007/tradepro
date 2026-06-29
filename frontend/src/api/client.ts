@@ -460,6 +460,41 @@ export const api = {
         notes: string;
       }>;
     }>("/api/pnl/by-strategy", { days }),
+  // Fill-replay artifact (tradepro-fill-replay): per-universe entry-extension +
+  // one-shot-vs-staggered, computed from ACTUAL OMS fills on the Mac and pushed.
+  fillReplay: (strategy: string, label?: string) =>
+    get<{
+      strategy: string;
+      label: string;
+      asOfUtc: string;
+      uploadedBy?: string | null;
+      artifact: {
+        kind: string;
+        strategy: string;
+        as_of_utc: string;
+        stagger_days: number;
+        universes: Record<string, {
+          n: number;
+          entry_dates: string[];
+          one_shot_return_pct: number;
+          staggered_return_pct: number;
+          win_rate_pct: number;
+          ext_return_corr: number;
+          ext_losers_avg: number | null;
+          ext_winners_avg: number | null;
+        }>;
+        rows: Array<{
+          symbol: string;
+          universe: string;
+          entry_date: string;
+          ext_pct: number;
+          atr_over_kijun: number;
+          return_pct: number;
+          staggered_return_pct: number;
+        }>;
+        missing: string[];
+      };
+    }>(`/api/fill-replay/${encodeURIComponent(strategy)}/latest`, label ? { label } : undefined),
   paperPendingOrders: () =>
     get<Array<{
       orderId: string;

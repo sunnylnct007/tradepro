@@ -32,6 +32,7 @@ import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
+import { FillReplayCard } from "../components/desk/FillReplayCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
 import { DeskRightRail } from "../components/desk/DeskRightRail";
 import { SymbolDetailRail } from "../components/desk/SymbolDetailRail";
@@ -112,6 +113,10 @@ export function Desk() {
           {/* Live-vs-backtest tracking — the systematic ICH clone proving itself
               (Track B research foundation: make the measurement loop visible). */}
           <EquityTrackingCard />
+
+          {/* Fill-replay — what the ACTUAL fills say about entry quality
+              (Track B: the over-extension refutation, made visible). */}
+          <FillReplayCard />
 
           {/* Compact per-broker account summary table */}
           <AccountSummaryGrid />
