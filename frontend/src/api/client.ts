@@ -495,6 +495,37 @@ export const api = {
         missing: string[];
       };
     }>(`/api/fill-replay/${encodeURIComponent(strategy)}/latest`, label ? { label } : undefined),
+  // Today's Setups scanner (tradepro-today-setups): universe ranked by entry quality.
+  todaySetups: (universe: string) =>
+    get<{
+      universe: string;
+      label: string;
+      asOfUtc: string;
+      artifact: {
+        kind: string;
+        universe: string;
+        as_of_utc: string;
+        counts: { consider: number; extended: number; excluded: number; scanned: number };
+        setups: Array<{
+          symbol: string;
+          rank: number;
+          classification: "consider" | "extended" | "hold";
+          close: number;
+          range_pctile: number;
+          pct_off_high: number;
+          pct_over_200sma: number;
+          atr_pct: number | null;
+          kijun: number;
+          dist_to_kijun_pct: number | null;
+          dist_atr: number | null;
+          stop8: number;
+          why: string;
+        }>;
+        excluded_symbols: string[];
+        missing: string[];
+        note: string;
+      };
+    }>(`/api/today-setups/${encodeURIComponent(universe)}/latest`),
   paperPendingOrders: () =>
     get<Array<{
       orderId: string;

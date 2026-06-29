@@ -82,6 +82,7 @@ tradepro-bar-cache-scorecard = "tradepro_strategies.cli.bar_cache_scorecard:main
 tradepro-options-screen = "tradepro_strategies.cli.options_screen:main"
 tradepro-equity-track = "tradepro_strategies.cli.equity_track:main"
 tradepro-fill-replay = "tradepro_strategies.cli.fill_replay:main"
+tradepro-today-setups = "tradepro_strategies.cli.today_setups:main"
 tradepro-catalysts-extract = "tradepro_strategies.cli.catalysts_extract:main"
 tradepro-catalysts-daily-sweep = "tradepro_strategies.cli.catalysts_daily_sweep:main"
 tradepro-catalysts-finnhub = "tradepro_strategies.cli.catalysts_finnhub_sweep:main"

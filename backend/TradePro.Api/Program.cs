@@ -360,6 +360,7 @@ api.MapSettingsKvEndpoints();
 api.MapUniverseUserEndpoints();
 api.MapEquityPipelineUserEndpoints();
 api.MapFillReplayUserEndpoints();
+api.MapTodaySetupsUserEndpoints();
 api.MapLivePortfolioUserEndpoints();
 api.MapPositionsEndpoints();
 api.MapTradePlanEndpoints();
@@ -388,6 +389,7 @@ ingest.MapQuantWorkerEndpoints();
 ingest.MapUniverseWorkerEndpoints();
 ingest.MapEquityPipelineIngestEndpoints();
 ingest.MapFillReplayIngestEndpoints();
+ingest.MapTodaySetupsIngestEndpoints();
 ingest.MapLivePortfolioIngestEndpoints();
 ingest.MapSentimentIngestEndpoints();
 

@@ -33,6 +33,7 @@ import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
+import { TodaySetupsCard } from "../components/desk/TodaySetupsCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
 import { DeskRightRail } from "../components/desk/DeskRightRail";
 import { SymbolDetailRail } from "../components/desk/SymbolDetailRail";
@@ -117,6 +118,10 @@ export function Desk() {
           {/* Fill-replay — what the ACTUAL fills say about entry quality
               (Track B: the over-extension refutation, made visible). */}
           <FillReplayCard />
+
+          {/* Today's Setups — universe ranked by entry quality (the curated,
+              risk-aware scanner; replaces the old flat BUY-light board). */}
+          <TodaySetupsCard />
 
           {/* Compact per-broker account summary table */}
           <AccountSummaryGrid />
