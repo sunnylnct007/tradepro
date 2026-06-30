@@ -361,6 +361,7 @@ api.MapUniverseUserEndpoints();
 api.MapEquityPipelineUserEndpoints();
 api.MapFillReplayUserEndpoints();
 api.MapTodaySetupsUserEndpoints();
+api.MapManualTradesEndpoints();
 api.MapLivePortfolioUserEndpoints();
 api.MapPositionsEndpoints();
 api.MapTradePlanEndpoints();
