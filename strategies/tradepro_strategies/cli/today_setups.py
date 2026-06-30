@@ -28,9 +28,14 @@ import os
 
 log = logging.getLogger("tradepro.today_setups")
 
-# Ichimoku periods — match the clone (project_focus_one_strategy_ichimoku).
-_T, _K, _B, _D = 5, 32, 50, 32
-_MIN_BARS = 200  # need 200 for the SMA200/range context
+# Ichimoku periods — STANDARD 9/26/52/26 to MATCH the chart + get_market_state
+# (the canonical "is it in an uptrend" view the user cross-checks). NB the
+# automated clone trades its own 5/32/50 rule; the scanner is a DISCRETIONARY
+# tool and must agree with what the human sees on the chart (else false
+# positives like a name above the fast cloud but below the standard cloud).
+_T, _K, _B, _D = 9, 26, 52, 26
+_MIN_BARS = 200          # need 200 for the SMA200/range context
+_MAX_SANE_ATR_PCT = 25.0  # ATR/day above this = corrupt bar (garbage-bar guard)
 
 
 def _load_daily(cache_dir: str, sym: str):
@@ -77,15 +82,24 @@ def _setup_for(df) -> dict | None:
     dist_to_kijun_pct = (c / kj - 1) * 100 if kj else None
     dist_atr = (c - kj) / atr if atr > 0 else None  # how many ATR above kijun support
 
-    # Classify entry quality.
-    if not long_:
-        cls = "excluded"
-    elif rng_pctile >= 90 or (dist_atr is not None and dist_atr > 3):
-        cls = "extended"
-    elif dist_atr is not None and dist_atr <= 2 and rng_pctile < 90:
-        cls = "consider"
+    # Data-quality guard: a corrupt bar inflates ATR (e.g. HON 18.9%/day for a
+    # stable industrial) and produces fabricated-looking output. Don't emit it.
+    suspect = atr_pct is None or atr_pct > _MAX_SANE_ATR_PCT or c <= 0
+    # Classify entry quality. dist_atr = ATR ABOVE the kijun; a healthy pullback
+    # entry sits AT or JUST ABOVE support (0..2 ATR). NEGATIVE = price broke
+    # BELOW the kijun (support failing) → NOT a setup, however close to the line.
+    if suspect:
+        cls = "suspect"                       # bad data — discard, never star
+    elif not long_:
+        cls = "excluded"                      # below the cloud — downtrend
+    elif dist_atr is None or dist_atr < 0:
+        cls = "weak"                          # above cloud but below kijun — support breaking
+    elif rng_pctile >= 90 or dist_atr > 3:
+        cls = "extended"                      # LONG but chasing — wait for pullback
+    elif dist_atr <= 2 and rng_pctile < 90:
+        cls = "consider"                      # LONG + at/just-above kijun support — the entry
     else:
-        cls = "hold"  # LONG but middling — neither a great entry nor a chase
+        cls = "hold"                          # LONG but mid-zone — no edge
     return {
         "close": round(c, 2), "long": long_, "classification": cls,
         "range_pctile": round(rng_pctile, 0), "pct_off_high": round((c / w.max() - 1) * 100, 1),
@@ -106,6 +120,10 @@ def _why(s: dict) -> str:
                 f"valid trend, you're chasing; wait for a pullback toward ${s['kijun']}.")
     if s["classification"] == "hold":
         return f"LONG, mid-zone ({s['range_pctile']:.0f}th pctile, {s['dist_atr']} ATR above kijun) — no edge in entering here."
+    if s["classification"] == "weak":
+        return f"above cloud but BELOW kijun ({s['dist_atr']} ATR) — support breaking, not a pullback entry."
+    if s["classification"] == "suspect":
+        return f"DATA SUSPECT (ATR {s['atr_pct']}%/day) — likely a corrupt bar; discarded, not a signal."
     return "below cloud / rolling over — no long signal."
 
 
@@ -141,30 +159,32 @@ def main() -> int:
         s["why"] = _why(s)
         rows.append(s)
 
-    # Rank: consider (closest to kijun first) → extended → hold; excluded dropped.
+    # Rank only the actionable (consider → extended → hold), consider closest to
+    # kijun first. weak/suspect/excluded are COUNTED but never shown/starred.
     order = {"consider": 0, "extended": 1, "hold": 2}
     actionable = [r for r in rows if r["classification"] in order]
     actionable.sort(key=lambda r: (order[r["classification"]], r.get("dist_atr") if r.get("dist_atr") is not None else 99))
     for i, r in enumerate(actionable):
         r["rank"] = i + 1
-    excluded = [r["symbol"] for r in rows if r["classification"] == "excluded"]
 
+    def n(cls): return sum(r["classification"] == cls for r in rows)
     artifact = {
         "kind": "today_setups", "universe": args.universe,
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
-        "counts": {"consider": sum(r["classification"] == "consider" for r in rows),
-                   "extended": sum(r["classification"] == "extended" for r in rows),
-                   "excluded": len(excluded), "scanned": len(rows)},
+        "counts": {"consider": n("consider"), "extended": n("extended"), "hold": n("hold"),
+                   "weak": n("weak"), "suspect": n("suspect"), "excluded": n("excluded"), "scanned": len(rows)},
         "setups": actionable[: args.top],
-        "excluded_symbols": excluded,
+        "excluded_symbols": [r["symbol"] for r in rows if r["classification"] == "excluded"],
+        "data_suspect": [r["symbol"] for r in rows if r["classification"] == "suspect"],
         "missing": missing,
-        "note": "earnings proximity not checked (catalyst gap); systematic signal — discretionary entry.",
+        "note": ("Ichimoku 9/26/52 (matches the chart). consider = LONG + at/above kijun support; "
+                 "weak/suspect/excluded not shown. Earnings not checked (catalyst gap). Discretionary entry."),
     }
 
     for r in artifact["setups"]:
         log.info("%-2s %-9s %-8s %6.2f  %s", {"consider": "⭐", "extended": "⚠", "hold": "·"}.get(r["classification"], " "),
                  r["symbol"], r["classification"], r["close"], r["why"])
-    log.info("counts: %s | missing: %d", artifact["counts"], len(missing))
+    log.info("counts: %s | suspect: %s | missing: %d", artifact["counts"], artifact["data_suspect"], len(missing))
 
     if args.json:
         import json

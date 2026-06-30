@@ -48,10 +48,11 @@ function compute(highs: number[], lows: number[], closes: number[]): RangeRisk |
     const atr = trs.reduce((a, b) => a + b, 0) / trs.length;
     atrPct = (atr / close) * 100;
   }
-  // Kijun(32) = (max high + min low) over 32
+  // Kijun(26) = (max high + min low) over 26 — STANDARD Ichimoku, matching the
+  // chart + get_market_state + the Today's Setups scanner (one consistent kijun).
   let kijun: number | null = null, riskToKijunPct: number | null = null;
-  if (n >= 32) {
-    kijun = (Math.max(...highs.slice(-32)) + Math.min(...lows.slice(-32))) / 2;
+  if (n >= 26) {
+    kijun = (Math.max(...highs.slice(-26)) + Math.min(...lows.slice(-26))) / 2;
     riskToKijunPct = (close / kijun - 1) * 100;
   }
   return { close, rangePctile, pctOffHigh, pctOver200, atrPct, kijun, riskToKijunPct, stopLevel: close * (1 - STOP_PCT / 100), bars: n };

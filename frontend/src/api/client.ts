@@ -505,7 +505,7 @@ export const api = {
         kind: string;
         universe: string;
         as_of_utc: string;
-        counts: { consider: number; extended: number; excluded: number; scanned: number };
+        counts: { consider: number; extended: number; excluded: number; scanned: number; hold?: number; weak?: number; suspect?: number };
         setups: Array<{
           symbol: string;
           rank: number;
@@ -522,6 +522,7 @@ export const api = {
           why: string;
         }>;
         excluded_symbols: string[];
+        data_suspect?: string[];
         missing: string[];
         note: string;
       };

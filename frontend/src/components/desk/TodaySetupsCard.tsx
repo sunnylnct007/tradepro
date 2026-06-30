@@ -31,7 +31,7 @@ const TAG: Record<string, { dot: string; color: string }> = {
 export function TodaySetupsCard() {
   const [state, setState] = useState<State>("loading");
   const [setups, setSetups] = useState<Setup[]>([]);
-  const [counts, setCounts] = useState<{ consider: number; extended: number; excluded: number }>({ consider: 0, extended: 0, excluded: 0 });
+  const [counts, setCounts] = useState<{ consider: number; extended: number; excluded: number; weak: number; suspect: number }>({ consider: 0, extended: 0, excluded: 0, weak: 0, suspect: 0 });
   const [asOf, setAsOf] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -39,7 +39,7 @@ export function TodaySetupsCard() {
   const load = useCallback(async () => {
     const results = await Promise.allSettled(UNIVERSES.map((u) => api.todaySetups(u.key)));
     const merged: Setup[] = [];
-    const c = { consider: 0, extended: 0, excluded: 0 };
+    const c = { consider: 0, extended: 0, excluded: 0, weak: 0, suspect: 0 };
     let anyOk = false, latest: string | null = null;
     results.forEach((r, i) => {
       if (r.status !== "fulfilled") return;
@@ -47,6 +47,7 @@ export function TodaySetupsCard() {
       const a = r.value.artifact;
       if (!latest || (a.as_of_utc ?? "") > latest) latest = a.as_of_utc;
       c.consider += a.counts.consider; c.extended += a.counts.extended; c.excluded += a.counts.excluded;
+      c.weak += a.counts.weak ?? 0; c.suspect += a.counts.suspect ?? 0;
       a.setups.forEach((s) => merged.push({ ...s, universe: UNIVERSES[i].key }));
     });
     if (!anyOk) {
@@ -77,7 +78,12 @@ export function TodaySetupsCard() {
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, background: "rgba(255,255,255,0.02)", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", fontSize: 11, borderBottom: state === "ok" ? "1px solid #1b2233" : "none" }}>
         <span style={{ fontWeight: 600 }}>Today's Setups — large_50 + high-β</span>
-        {state === "ok" && <span style={{ fontSize: 9.5, color: "var(--text-muted)" }}>⭐{counts.consider} · ⚠{counts.extended} · {counts.excluded} excluded</span>}
+        {state === "ok" && (
+          <span style={{ fontSize: 9.5, color: "var(--text-muted)" }} title="weak = above cloud but below kijun (support breaking); suspect = bad data (corrupt bar). Both filtered out, never starred.">
+            ⭐{counts.consider} · ⚠{counts.extended} · {counts.excluded} excluded
+            {counts.weak + counts.suspect > 0 ? ` · ${counts.weak + counts.suspect} filtered` : ""}
+          </span>
+        )}
         {state === "ok" && asOf && <span style={{ marginLeft: "auto", fontSize: 9.5, color: "var(--text-muted)" }}>as of {asOf.slice(0, 10)}</span>}
       </div>
 
