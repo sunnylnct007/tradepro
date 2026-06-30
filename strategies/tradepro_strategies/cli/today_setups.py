@@ -28,14 +28,11 @@ import os
 
 log = logging.getLogger("tradepro.today_setups")
 
-# Ichimoku periods — STANDARD 9/26/52/26 to MATCH the chart + get_market_state
-# (the canonical "is it in an uptrend" view the user cross-checks). NB the
-# automated clone trades its own 5/32/50 rule; the scanner is a DISCRETIONARY
-# tool and must agree with what the human sees on the chart (else false
-# positives like a name above the fast cloud but below the standard cloud).
-_T, _K, _B, _D = 9, 26, 52, 26
+# Cloud position + BUY/WAIT/AVOID verdict + garbage-guard all come from the
+# canonical market_state() engine (so the scanner can't contradict
+# get_market_state). The only thing computed locally is the kijun-distance
+# entry-quality ranking (standard 26-period kijun, matching the chart).
 _MIN_BARS = 200          # need 200 for the SMA200/range context
-_MAX_SANE_ATR_PCT = 25.0  # ATR/day above this = corrupt bar (garbage-bar guard)
 
 
 def _load_daily(cache_dir: str, sym: str):
@@ -61,70 +58,79 @@ def _load_daily(cache_dir: str, sym: str):
 
 def _setup_for(df) -> dict | None:
     import pandas as pd
+    from ..market_state import market_state  # the SAME engine get_market_state uses
 
     if df is None or "close" not in df.columns or len(df) < _MIN_BARS:
         return None
+    # AUTHORITATIVE state from the canonical engine — so the scanner CANNOT
+    # contradict get_market_state (cloud position + BUY/WAIT/AVOID verdict), and
+    # it inherits the engine's isolated-spike garbage guard (the HON fix, free).
+    ms = market_state("_", df)
+    if ms.last_price is None:
+        return None                                   # no usable data (garbage-only) — skip
+    c = float(ms.last_price)
+    cloud = ms.ichimoku_cloud_position                # ABOVE / INSIDE / BELOW / None (canonical)
+    sig = (ms.entry_signal or "").upper()             # BUY / HOLD / WAIT / AVOID (canonical verdict)
+    mom3 = ms.momentum_3m_pct
+
+    # Local entry-quality geometry — the scanner's value-add ON TOP of the
+    # canonical verdict. Standard 26-period kijun (matches the chart).
     hi, lo, cl = df["high"], df["low"], df["close"]
-    c = float(cl.iloc[-1])
-    tenkan = (hi.rolling(_T).max() + lo.rolling(_T).min()) / 2
-    kijun = (hi.rolling(_K).max() + lo.rolling(_K).min()) / 2
-    sa = ((tenkan + kijun) / 2).shift(_D)
-    sb = ((hi.rolling(_B).max() + lo.rolling(_B).min()) / 2).shift(_D)
-    cloud_top = pd.concat([sa, sb], axis=1).max(axis=1).iloc[-1]
-    kj = float(kijun.iloc[-1]); tk = float(tenkan.iloc[-1])
-    long_ = bool(c > cloud_top and tk > kj)
-    sma200 = float(cl.tail(200).mean())
+    kj = float((hi.tail(26).max() + lo.tail(26).min()) / 2)
     w = cl.tail(252)
     rng_pctile = float((c - w.min()) / (w.max() - w.min()) * 100) if w.max() > w.min() else 50.0
     tr = pd.concat([hi - lo, (hi - cl.shift()).abs(), (lo - cl.shift()).abs()], axis=1).max(axis=1)
     atr = float(tr.tail(14).mean())
-    atr_pct = atr / c * 100 if c else None
+    atr_pct = ms.atr_14_pct if getattr(ms, "atr_14_pct", None) is not None else (atr / c * 100 if c else None)
     dist_to_kijun_pct = (c / kj - 1) * 100 if kj else None
-    dist_atr = (c - kj) / atr if atr > 0 else None  # how many ATR above kijun support
+    dist_atr = (c - kj) / atr if atr > 0 else None
 
-    # Data-quality guard: a corrupt bar inflates ATR (e.g. HON 18.9%/day for a
-    # stable industrial) and produces fabricated-looking output. Don't emit it.
-    suspect = atr_pct is None or atr_pct > _MAX_SANE_ATR_PCT or c <= 0
-    # Classify entry quality. dist_atr = ATR ABOVE the kijun; a healthy pullback
-    # entry sits AT or JUST ABOVE support (0..2 ATR). NEGATIVE = price broke
-    # BELOW the kijun (support failing) → NOT a setup, however close to the line.
-    if suspect:
-        cls = "suspect"                       # bad data — discard, never star
-    elif not long_:
-        cls = "excluded"                      # below the cloud — downtrend
+    # The hard veto the canonical engine LACKS: a pullback to kijun after a +150%
+    # run is NOT the same risk as after +15%. Top-of-range AND/OR parabolic = chase.
+    extreme = (rng_pctile >= 90
+               or (rng_pctile >= 80 and mom3 is not None and mom3 > 60)
+               or (mom3 is not None and mom3 > 100)
+               or (dist_atr is not None and dist_atr > 3))
+
+    if cloud != "ABOVE":
+        cls = "excluded"        # not in an uptrend per the canonical cloud (PG-inside / GSL-below)
+    elif sig in ("WAIT", "AVOID"):
+        cls = "excluded"        # the engine ITSELF vetoes it (JPM = WAIT at the highs)
+    elif extreme:
+        cls = "extended"        # chasing — top of range / parabolic / far above kijun
     elif dist_atr is None or dist_atr < 0:
-        cls = "weak"                          # above cloud but below kijun — support breaking
-    elif rng_pctile >= 90 or dist_atr > 3:
-        cls = "extended"                      # LONG but chasing — wait for pullback
-    elif dist_atr <= 2 and rng_pctile < 90:
-        cls = "consider"                      # LONG + at/just-above kijun support — the entry
+        cls = "weak"            # above cloud but below kijun — support breaking
+    elif dist_atr <= 2:
+        cls = "consider"        # uptrend + engine-OK + not extended + at/above kijun support
     else:
-        cls = "hold"                          # LONG but mid-zone — no edge
+        cls = "hold"            # uptrend but mid-zone (2-3 ATR above kijun)
     return {
-        "close": round(c, 2), "long": long_, "classification": cls,
+        "close": round(c, 2), "classification": cls,
+        "cloud": cloud, "signal": sig,
+        "momentum_3m_pct": round(mom3, 0) if mom3 is not None else None,
         "range_pctile": round(rng_pctile, 0), "pct_off_high": round((c / w.max() - 1) * 100, 1),
-        "pct_over_200sma": round((c / sma200 - 1) * 100, 1),
         "atr_pct": round(atr_pct, 1) if atr_pct else None,
-        "kijun": round(kj, 2), "dist_to_kijun_pct": round(dist_to_kijun_pct, 1) if dist_to_kijun_pct is not None else None,
+        "kijun": round(kj, 2),
+        "dist_to_kijun_pct": round(dist_to_kijun_pct, 1) if dist_to_kijun_pct is not None else None,
         "dist_atr": round(dist_atr, 1) if dist_atr is not None else None,
         "stop8": round(c * 0.92, 2),
     }
 
 
 def _why(s: dict) -> str:
-    if s["classification"] == "consider":
-        return (f"LONG, pulled back near kijun ${s['kijun']} ({s['dist_atr']} ATR above) — good risk-entry; "
-                f"{s['range_pctile']:.0f}th pctile, ATR {s['atr_pct']}%/day, 8% stop ${s['stop8']}.")
-    if s["classification"] == "extended":
-        return (f"LONG but extended ({s['range_pctile']:.0f}th pctile, {s['dist_atr']} ATR above kijun) — "
-                f"valid trend, you're chasing; wait for a pullback toward ${s['kijun']}.")
-    if s["classification"] == "hold":
-        return f"LONG, mid-zone ({s['range_pctile']:.0f}th pctile, {s['dist_atr']} ATR above kijun) — no edge in entering here."
-    if s["classification"] == "weak":
-        return f"above cloud but BELOW kijun ({s['dist_atr']} ATR) — support breaking, not a pullback entry."
-    if s["classification"] == "suspect":
-        return f"DATA SUSPECT (ATR {s['atr_pct']}%/day) — likely a corrupt bar; discarded, not a signal."
-    return "below cloud / rolling over — no long signal."
+    cls = s["classification"]
+    if cls == "consider":
+        return (f"engine: {s['signal']}, above cloud, pulled back to kijun ${s['kijun']} "
+                f"({s['dist_atr']} ATR) — entry; {s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}%, "
+                f"ATR {s['atr_pct']}%/day (size for it), stop below kijun.")
+    if cls == "extended":
+        return (f"above cloud but EXTENDED ({s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}%) — "
+                f"chasing a big run; wait for a deeper pullback toward kijun ${s['kijun']}.")
+    if cls == "hold":
+        return f"above cloud, mid-zone ({s['dist_atr']} ATR above kijun) — no edge entering here."
+    if cls == "weak":
+        return f"above cloud but BELOW kijun ({s['dist_atr']} ATR) — support breaking, not an entry."
+    return f"engine: {s.get('signal','-')} / cloud {s.get('cloud','-')} — no long entry."
 
 
 def main() -> int:
