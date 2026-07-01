@@ -72,6 +72,8 @@ def _setup_for(df) -> dict | None:
     cloud = ms.ichimoku_cloud_position                # ABOVE / INSIDE / BELOW / None (canonical)
     sig = (ms.entry_signal or "").upper()             # BUY / HOLD / WAIT / AVOID (canonical verdict)
     mom3 = ms.momentum_3m_pct
+    vol_ratio = ms.volume_ratio_20d                   # 20d vol ratio — <0.8 = thin move, low conviction
+    boll = ms.bollinger_position                      # AT_UPPER (%B≥1) = overextended above the band
 
     # Local entry-quality geometry — the scanner's value-add ON TOP of the
     # canonical verdict. Standard 26-period kijun (matches the chart).
@@ -90,7 +92,11 @@ def _setup_for(df) -> dict | None:
     extreme = (rng_pctile >= 90
                or (rng_pctile >= 80 and mom3 is not None and mom3 > 60)
                or (mom3 is not None and mom3 > 100)
-               or (dist_atr is not None and dist_atr > 3))
+               or (dist_atr is not None and dist_atr > 3)
+               or boll == "AT_UPPER")                 # %B≥1: above the upper Bollinger band — overextended (V case)
+    # Thin volume isn't a hard veto — it's a CONVICTION reducer. A ⭐ on <0.8x
+    # 20d volume is a low-conviction move (ZBRA/UPS): keep it, but flag it.
+    thin_vol = vol_ratio is not None and vol_ratio < 0.8
 
     if cloud != "ABOVE":
         cls = "excluded"        # not in an uptrend per the canonical cloud (PG-inside / GSL-below)
@@ -114,15 +120,19 @@ def _setup_for(df) -> dict | None:
         "dist_to_kijun_pct": round(dist_to_kijun_pct, 1) if dist_to_kijun_pct is not None else None,
         "dist_atr": round(dist_atr, 1) if dist_atr is not None else None,
         "stop8": round(c * 0.92, 2),
+        "volume_ratio": round(vol_ratio, 2) if vol_ratio is not None else None,
+        "thin_volume": bool(thin_vol),
+        "bollinger": boll,
     }
 
 
 def _why(s: dict) -> str:
     cls = s["classification"]
     if cls == "consider":
+        vol = f"{s['volume_ratio']}x vol" + (" ⚠ THIN (low conviction)" if s.get("thin_volume") else "")
         return (f"engine: {s['signal']}, above cloud, pulled back to kijun ${s['kijun']} "
                 f"({s['dist_atr']} ATR) — entry; {s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}%, "
-                f"ATR {s['atr_pct']}%/day (size for it), stop below kijun.")
+                f"ATR {s['atr_pct']}%/day, {vol}; stop below kijun.")
     if cls == "extended":
         return (f"above cloud but EXTENDED ({s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}%) — "
                 f"chasing a big run; wait for a deeper pullback toward kijun ${s['kijun']}.")
