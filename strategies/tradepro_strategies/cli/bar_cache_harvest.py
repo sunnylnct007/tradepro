@@ -291,15 +291,31 @@ def main() -> int:
                 f"{tier_icon} {tier:<8s}  "
                 f"source={result.provider_used}"
             )
+            # Report the TRUE history depth (earliest bar across ALL partitions),
+            # NOT just this fetch's trailing window — otherwise the Data Health
+            # screen shows ~10 days when the cache actually holds years (66mo for
+            # large_50). The nightly 10-day harvest was overwriting the full
+            # coverage the backfill reported. Cheap: index-only parquet reads.
+            import glob as _glob
+            import pandas as _pd
+            _pq = _glob.glob(str(base_dir / args.asset / symbol / args.resolution / "*.parquet"))
+            _cov_start = None
+            for _f in _pq:
+                try:
+                    _mn = _pd.to_datetime(_pd.read_parquet(_f).index).min().date().isoformat()
+                    if _cov_start is None or _mn < _cov_start:
+                        _cov_start = _mn
+                except Exception:  # noqa: BLE001
+                    continue
             health_records.append({
                 "canonical": symbol,
                 "assetClass": args.asset,
                 "lastFetchedResult": "ok" if result.coverage_complete else "partial",
                 "lastFetchedProvider": result.provider_used,
                 "lastFetchedResolution": args.resolution,
-                "coverageStartDate": str(from_date)[:10],
+                "coverageStartDate": _cov_start or str(from_date)[:10],  # TRUE earliest bar
                 "coverageEndDate": str(to_date)[:10],
-                "coveragePartitions": len(getattr(result, "partitions_used", []) or []),
+                "coveragePartitions": len(_pq),                          # real partition count
                 "missingDaysCount": max(0, int(result.rows_expected) - int(result.rows_returned)),
             })
         except BarFetchError as exc:
