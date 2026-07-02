@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { OmsOrderRow } from "../../api/client";
 import { bareSymbol } from "../../util/brokerSymbols";
+import { brokerPortal } from "../../util/brokerLinks";
 import { SymbolChartCard } from "./SymbolChartCard";
 import { SymbolPositionCard, type PositionRow } from "./SymbolPositionCard";
 import { SymbolDecisionCard } from "./SymbolDecisionCard";
@@ -117,8 +118,18 @@ export function SymbolDetailRail({
           gap: 8,
         }}
       >
-        <div style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 15, color: "var(--text)" }}>
+        <div style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 15, color: "var(--text)", display: "flex", alignItems: "baseline", gap: 8 }}>
           {symbol}
+          {(() => {
+            const bp = held ? brokerPortal(held.broker) : null;
+            return bp ? (
+              <a href={bp.url} target="_blank" rel="noopener noreferrer"
+                 title={`Open ${bp.label} — positions, fills, charts & P&L for ${symbol} live in the broker`}
+                 style={{ fontSize: 10, fontWeight: 500, color: "var(--accent, #4f8cff)", textDecoration: "none" }}>
+                ↗ {bp.label}
+              </a>
+            ) : null;
+          })()}
         </div>
         <button
           onClick={onClose}

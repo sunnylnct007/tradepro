@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
+import { brokerPortal } from "../../util/brokerLinks";
 
 type Row = Awaited<ReturnType<typeof api.pnlByStrategy>>["rows"][number];
 type State = "loading" | "ok" | "error";
@@ -74,7 +75,13 @@ export function PnlTruthCard() {
             const soft = SOFT_OPEN.has(r.strategyId) && (r.openPnl ?? 0) > 0;
             return (
               <div key={r.strategyId} style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.4fr) 1fr 1fr 1fr auto", gap: 6, padding: "4px 6px", borderTop: "1px solid #11161f", alignItems: "baseline", fontSize: 11 }}>
-                <span style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text)" }}>{r.strategyId}</span>
+                <span style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text)" }}>
+                  {r.strategyId}
+                  {(() => { const bp = brokerPortal(r.broker); return bp ? (
+                    <a href={bp.url} target="_blank" rel="noopener noreferrer" title={`Open ${bp.label} for positions/fills/P&L detail`}
+                       style={{ marginLeft: 5, fontSize: 8.5, color: "var(--accent, #4f8cff)", textDecoration: "none" }}>↗{r.broker.split("_")[0]}</a>
+                  ) : null; })()}
+                </span>
                 <span style={{ color: col(r.realisedLtd), fontWeight: 700 }} title="booked P&L on closed trades — the trustworthy number">{money(r.realisedLtd, r.currency)}</span>
                 <span style={{ color: col(r.openPnl) }} title="unrealised mark-to-market — moves with price, not booked">
                   {money(r.openPnl, r.currency)}{soft && <span style={{ color: "#d29922", fontSize: 9 }} title="includes orphaned positions the strategy isn't managing — soft"> ⚠</span>}
