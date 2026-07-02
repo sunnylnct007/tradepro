@@ -16,7 +16,7 @@ import { brokerPortal } from "../../util/brokerLinks";
 type Acct = Awaited<ReturnType<typeof api.accountState>>["accounts"][number];
 type State = "loading" | "ok" | "error";
 
-function money(n: number | null | undefined, ccy = "USD"): string {
+function money(n: number | null | undefined, ccy: string | null | undefined = "USD"): string {
   if (n == null) return "—";
   const s = ccy === "GBP" ? "£" : ccy === "USD" ? "$" : ccy === "EUR" ? "€" : "";
   return `${n < 0 ? "−" : ""}${s}${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
