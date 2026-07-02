@@ -1196,14 +1196,19 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
             for it in ib.portfolio():
                 if _want and (it.account or "").strip() != _want:
                     continue
+                c = it.contract
                 positions.append({
-                    "symbol": it.contract.symbol,
+                    "symbol": c.symbol,
+                    "secType": getattr(c, "secType", None) or None,
+                    "right": getattr(c, "right", None) or None,
+                    "strike": getattr(c, "strike", None) or None,
+                    "expiry": getattr(c, "lastTradeDateOrContractMonth", None) or None,
                     "qty": it.position,
                     "mark": it.marketPrice,
                     "marketValue": it.marketValue,
                     "avgCost": it.averageCost,
                     "unrealisedPnl": it.unrealizedPNL,
-                    "currency": getattr(it.contract, "currency", None),
+                    "currency": getattr(c, "currency", None),
                 })
             vals = ib.accountValues(_want) if _want else ib.accountValues()
 
