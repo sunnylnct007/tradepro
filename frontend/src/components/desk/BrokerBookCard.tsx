@@ -67,9 +67,9 @@ export function BrokerBookCard() {
               <Stat label="positions" v={`${longs.length} long${shorts.length ? ` · ${shorts.length} SHORT` : ""}`} good={shorts.length ? false : undefined} />
             </div>
             {shorts.length > 0 && (
-              <div style={{ marginTop: 6, fontSize: 10, color: "#f85149", background: "rgba(248,81,73,0.08)", border: "1px solid #5a2222", borderRadius: 5, padding: "4px 7px" }}>
-                ⚠ <b>{shorts.length} SHORT position{shorts.length > 1 ? "s" : ""}</b> — the strategy is long/flat, a short is a BUG:{" "}
-                {shorts.map((p) => `${p.symbol} ${p.qty}`).join(", ")} (net-short risk — investigate).
+              <div style={{ marginTop: 6, fontSize: 10, color: "#d29922", background: "rgba(210,153,34,0.08)", border: "1px solid #5a4a1a", borderRadius: 5, padding: "4px 7px" }}>
+                ⚠ <b>{shorts.length} SHORT position{shorts.length > 1 ? "s" : ""}</b> in this account:{" "}
+                {shorts.map((p) => `${p.symbol} ${p.qty}`).join(", ")}. Account is SHARED across strategies — a short usually means a corp-action / fractional-reconciliation artifact or manual entry, NOT a strategy order (strategies are long/flat). Reconcile in the broker.
               </div>
             )}
           </div>
