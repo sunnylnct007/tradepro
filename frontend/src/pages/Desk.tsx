@@ -32,6 +32,7 @@ import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
+import { PnlTruthCard } from "../components/desk/PnlTruthCard";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
 import { TodaySetupsCard } from "../components/desk/TodaySetupsCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
@@ -110,6 +111,10 @@ export function Desk() {
           {/* Per-strategy healthcheck — run timing + fills so a silently-stopped
               strategy is visible (not buried in logs). */}
           <StrategyHealthPanel />
+
+          {/* P&L truth — realised (booked) vs open (unrealised/soft) per strategy,
+              part of the operational + data-truthfulness clarity workstream. */}
+          <PnlTruthCard />
 
           {/* Live-vs-backtest tracking — the systematic ICH clone proving itself
               (Track B research foundation: make the measurement loop visible). */}
