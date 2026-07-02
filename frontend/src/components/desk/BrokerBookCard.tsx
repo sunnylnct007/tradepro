@@ -52,12 +52,15 @@ export function BrokerBookCard() {
 
       {state === "ok" && accts.map((a) => {
         const pos = a.positions ?? [];
-        // An OPTION contract carries a 100× multiplier: |marketValue| ≈ |qty|·mark·100,
-        // whereas equity is |qty|·mark·1. We have no secType in the payload, so infer it
-        // from that ratio — a short PUT (e.g. the wheel) is a DELIBERATE −1, not a bug.
+        // Prefer the broker-golden secType (STK/OPT/FUT). Only when it's absent
+        // (older rows, or a broker that doesn't send it) fall back to inferring an
+        // option from its 100× contract multiplier (|marketValue| ≈ |qty|·mark·100).
+        // A short PUT (e.g. the wheel) is a DELIBERATE −1, not an equity-short bug.
         const isOption = (p: (typeof pos)[number]) =>
-          p.mark != null && p.mark !== 0 && p.marketValue != null && p.qty !== 0 &&
-          Math.abs(Math.abs(p.marketValue) / (Math.abs(p.qty) * p.mark) - 100) < 10;
+          p.secType != null
+            ? p.secType === "OPT" || p.secType === "FOP"
+            : p.mark != null && p.mark !== 0 && p.marketValue != null && p.qty !== 0 &&
+              Math.abs(Math.abs(p.marketValue) / (Math.abs(p.qty) * p.mark) - 100) < 10;
         const longs = pos.filter((p) => p.qty > 0 && !isOption(p));
         const shorts = pos.filter((p) => p.qty < 0);
         const optionPos = pos.filter(isOption);

@@ -85,14 +85,24 @@ async def poll_account_state(ib, want_account: str) -> dict:
     for it in ib.portfolio():
         if want_account and (it.account or "").strip() != want_account:
             continue
+        c = it.contract
         positions.append({
-            "symbol": it.contract.symbol,
+            "symbol": c.symbol,
+            # secType is the broker-golden asset class (STK / OPT / FUT). Carrying
+            # it lets the cockpit tell a deliberate short PUT (the wheel) apart from
+            # a genuine equity short WITHOUT reverse-engineering the 100x option
+            # multiplier from marketValue — the real field, not a heuristic.
+            "secType": getattr(c, "secType", None) or None,
+            "multiplier": getattr(c, "multiplier", None) or None,
+            "right": getattr(c, "right", None) or None,   # 'P' / 'C' for options
+            "strike": getattr(c, "strike", None) or None,
+            "expiry": getattr(c, "lastTradeDateOrContractMonth", None) or None,
             "qty": it.position,
             "mark": it.marketPrice,
             "marketValue": it.marketValue,
             "avgCost": it.averageCost,
             "unrealisedPnl": it.unrealizedPNL,
-            "currency": getattr(it.contract, "currency", None),
+            "currency": getattr(c, "currency", None),
         })
     vals = ib.accountValues(want_account) if want_account else ib.accountValues()
 

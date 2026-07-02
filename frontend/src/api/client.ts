@@ -1090,6 +1090,10 @@ export const api = {
         dailyPnl: number | null;
         positions: Array<{
           symbol: string;
+          secType: string | null; // STK / OPT / FUT — broker-golden asset class
+          right: string | null; // 'P' / 'C' for options
+          strike: number | null;
+          expiry: string | null;
           qty: number;
           mark: number | null;
           marketValue: number | null;
