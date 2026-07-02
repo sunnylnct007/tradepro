@@ -527,6 +527,30 @@ export const api = {
         note: string;
       };
     }>(`/api/today-setups/${encodeURIComponent(universe)}/latest`),
+  // Broker-GOLDEN account state (read from IBKR/T212/IG via the daemons) — the
+  // authoritative positions + per-position P&L + cost basis + NLV. This is the
+  // truth (vs the OMS-computed view); reveals shorts / corp-actions / stuck fills.
+  accountState: () =>
+    get<{
+      accounts: Array<{
+        broker: string;
+        accountId: string;
+        currency: string;
+        netLiquidation: number | null;
+        totalCash: number | null;
+        unrealisedPnl: number | null;
+        dailyPnl: number | null;
+        positions: Array<{
+          symbol: string;
+          qty: number;
+          avgCost: number | null;
+          mark: number | null;
+          marketValue: number | null;
+          unrealisedPnl: number | null;
+          currency: string;
+        }>;
+      }>;
+    }>("/api/integrations/account-state"),
   paperPendingOrders: () =>
     get<Array<{
       orderId: string;

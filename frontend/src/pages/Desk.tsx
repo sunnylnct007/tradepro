@@ -33,6 +33,7 @@ import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
 import { PnlTruthCard } from "../components/desk/PnlTruthCard";
+import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
 import { TodaySetupsCard } from "../components/desk/TodaySetupsCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
@@ -115,6 +116,10 @@ export function Desk() {
           {/* P&L truth — realised (booked) vs open (unrealised/soft) per strategy,
               part of the operational + data-truthfulness clarity workstream. */}
           <PnlTruthCard />
+
+          {/* Broker-golden book — read straight from the broker (positions/
+              deployed/unrealised/NLV), flags shorts + the truth the OMS misses. */}
+          <BrokerBookCard />
 
           {/* Live-vs-backtest tracking — the systematic ICH clone proving itself
               (Track B research foundation: make the measurement loop visible). */}
