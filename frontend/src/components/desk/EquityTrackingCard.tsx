@@ -132,7 +132,7 @@ export function EquityTrackingCard() {
           </div>
           <div style={{ marginTop: 7, fontSize: 10.5, color: "var(--text-dim)", lineHeight: 1.45 }}>{verdict.note}</div>
           <div style={{ marginTop: 5, fontSize: 9.5, color: "var(--text-muted)" }}>
-            on {ccySym}{DEPLOYED_CAPITAL.toLocaleString()} deployed · since {CLEAN_CONFIG_START} · DD bound {DRAWDOWN_BOUND_PCT}%
+on {ccySym}{DEPLOYED_CAPITAL.toLocaleString()} allocated (config sizing base, not current exposure) · since {CLEAN_CONFIG_START} · DD bound {DRAWDOWN_BOUND_PCT}%
           </div>
         </div>
       )}

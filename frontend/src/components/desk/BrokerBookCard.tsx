@@ -3,8 +3,11 @@
  * broker (IBKR/T212/IG) via /api/integrations/account-state. This is the
  * authoritative book (positions · avgCost=deployed · mark · marketValue ·
  * per-position unrealised P&L · NLV), NOT the OMS-computed view — so it reveals
- * what the OMS hides: SHORT positions (the clone is long/flat, so a short is a
- * BUG), corp-action splits, and stuck/unreconciled fills.
+ * what the OMS hides: genuine EQUITY shorts (strategies are long/flat, so an
+ * equity short is a corp-action/fractional artifact), corp-action splits, and
+ * stuck/unreconciled fills. Option contracts (short puts from the wheel) are a
+ * DELIBERATE −1 and are told apart from equity shorts by their 100× multiplier
+ * (|marketValue| ≈ |qty|·mark·100), so they are never mis-flagged as a bug.
  *
  * The "central orchestrator, read from the broker" vision made concrete:
  * TradePro aggregates each broker's golden read into one cross-broker cockpit.
@@ -49,8 +52,16 @@ export function BrokerBookCard() {
 
       {state === "ok" && accts.map((a) => {
         const pos = a.positions ?? [];
-        const longs = pos.filter((p) => p.qty > 0);
+        // An OPTION contract carries a 100× multiplier: |marketValue| ≈ |qty|·mark·100,
+        // whereas equity is |qty|·mark·1. We have no secType in the payload, so infer it
+        // from that ratio — a short PUT (e.g. the wheel) is a DELIBERATE −1, not a bug.
+        const isOption = (p: (typeof pos)[number]) =>
+          p.mark != null && p.mark !== 0 && p.marketValue != null && p.qty !== 0 &&
+          Math.abs(Math.abs(p.marketValue) / (Math.abs(p.qty) * p.mark) - 100) < 10;
+        const longs = pos.filter((p) => p.qty > 0 && !isOption(p));
         const shorts = pos.filter((p) => p.qty < 0);
+        const optionPos = pos.filter(isOption);
+        const equityShorts = shorts.filter((p) => !isOption(p)); // the real anomaly
         const deployed = longs.reduce((s, p) => s + (p.avgCost ?? 0) * p.qty, 0);
         const bp = brokerPortal(a.broker);
         return (
@@ -61,15 +72,25 @@ export function BrokerBookCard() {
               {bp && <a href={bp.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "var(--accent, #4f8cff)", textDecoration: "none" }}>↗</a>}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(88px,1fr))", gap: 8, marginTop: 5 }}>
-              <Stat label="NLV" v={money(a.netLiquidation, a.currency)} />
-              <Stat label="deployed (long cost)" v={money(deployed, "USD")} />
+              <Stat label={`NLV (${a.currency ?? "base"})`} v={money(a.netLiquidation, a.currency)} />
+              <Stat label="deployed (long cost, USD)" v={money(deployed, "USD")} />
               <Stat label="unrealised P&L" v={money(a.unrealisedPnl, a.currency)} good={a.unrealisedPnl != null ? a.unrealisedPnl >= 0 : undefined} />
-              <Stat label="positions" v={`${longs.length} long${shorts.length ? ` · ${shorts.length} SHORT` : ""}`} good={shorts.length ? false : undefined} />
+              <Stat
+                label="positions"
+                v={`${longs.length} long${optionPos.length ? ` · ${optionPos.length} opt` : ""}${equityShorts.length ? ` · ${equityShorts.length} SHORT` : ""}`}
+                good={equityShorts.length ? false : undefined}
+              />
             </div>
-            {shorts.length > 0 && (
+            {optionPos.length > 0 && (
+              <div style={{ marginTop: 6, fontSize: 9.5, color: "var(--text-muted)" }}>
+                ◇ {optionPos.length} option position{optionPos.length > 1 ? "s" : ""} (100× multiplier):{" "}
+                {optionPos.map((p) => `${p.symbol} ${p.qty}`).join(", ")} — deliberate (e.g. wheel puts), not an equity short.
+              </div>
+            )}
+            {equityShorts.length > 0 && (
               <div style={{ marginTop: 6, fontSize: 10, color: "#d29922", background: "rgba(210,153,34,0.08)", border: "1px solid #5a4a1a", borderRadius: 5, padding: "4px 7px" }}>
-                ⚠ <b>{shorts.length} SHORT position{shorts.length > 1 ? "s" : ""}</b> in this account:{" "}
-                {shorts.map((p) => `${p.symbol} ${p.qty}`).join(", ")}. Account is SHARED across strategies — a short usually means a corp-action / fractional-reconciliation artifact or manual entry, NOT a strategy order (strategies are long/flat). Reconcile in the broker.
+                ⚠ <b>{equityShorts.length} equity SHORT</b>:{" "}
+                {equityShorts.map((p) => `${p.symbol} ${p.qty}`).join(", ")}. Strategies here are long/flat, so an equity short = a corp-action / fractional-reconciliation artifact (no strategy or manual order created it). Reconcile in the broker.
               </div>
             )}
           </div>
