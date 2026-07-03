@@ -86,6 +86,14 @@ def _setup_for(df) -> dict | None:
     atr_pct = ms.atr_14_pct if getattr(ms, "atr_14_pct", None) is not None else (atr / c * 100 if c else None)
     dist_to_kijun_pct = (c / kj - 1) * 100 if kj else None
     dist_atr = (c - kj) / atr if atr > 0 else None
+    # Falling-knife guard input: how far below the recent 10-day high we sit. A
+    # "pullback to kijun" that arrived via a sharp multi-day REVERSAL (ENTG −18%,
+    # CAT −10% in 2 days) is a knife slicing DOWN through support, NOT a healthy
+    # consolidation onto it (ANET −6%). This is a RISK guard (don't call a crash a
+    # dip), not an alpha filter — it maps to the boundary a human reviewer drew.
+    recent_high = float(cl.tail(10).max())
+    off_10d_high_pct = (c / recent_high - 1) * 100 if recent_high else 0.0
+    mom10 = ms.momentum_10d_pct
 
     # The hard veto the canonical engine LACKS: a pullback to kijun after a +150%
     # run is NOT the same risk as after +15%. Top-of-range AND/OR parabolic = chase.
@@ -102,12 +110,18 @@ def _setup_for(df) -> dict | None:
         cls = "excluded"        # not in an uptrend per the canonical cloud (PG-inside / GSL-below)
     elif sig in ("WAIT", "AVOID"):
         cls = "excluded"        # the engine ITSELF vetoes it (JPM = WAIT at the highs)
+    elif sig == "HOLD":
+        cls = "extended"        # engine DEMOTED BUY→HOLD (≥88th pctile, near highs) — it
+                                # won't buy here, so the scanner must not star it either
+                                # (coherence with market_state; the CAT/ENTG-at-highs case)
     elif extreme:
         cls = "extended"        # chasing — top of range / parabolic / far above kijun
+    elif off_10d_high_pct < -8.0:
+        cls = "reversal"        # sharp drop THROUGH the kijun — falling knife, not support
     elif dist_atr is None or dist_atr < 0:
         cls = "weak"            # above cloud but below kijun — support breaking
     elif dist_atr <= 2:
-        cls = "consider"        # uptrend + engine-OK + not extended + at/above kijun support
+        cls = "consider"        # uptrend + engine-BUY + not extended + not a knife + at kijun
     else:
         cls = "hold"            # uptrend but mid-zone (2-3 ATR above kijun)
     return {
@@ -119,6 +133,9 @@ def _setup_for(df) -> dict | None:
         "kijun": round(kj, 2),
         "dist_to_kijun_pct": round(dist_to_kijun_pct, 1) if dist_to_kijun_pct is not None else None,
         "dist_atr": round(dist_atr, 1) if dist_atr is not None else None,
+        "off_10d_high_pct": round(off_10d_high_pct, 1),
+        "momentum_10d_pct": round(mom10, 0) if mom10 is not None else None,
+        "as_of": ms.as_of,
         "stop8": round(c * 0.92, 2),
         "volume_ratio": round(vol_ratio, 2) if vol_ratio is not None else None,
         "thin_volume": bool(thin_vol),
@@ -131,8 +148,13 @@ def _why(s: dict) -> str:
     if cls == "consider":
         vol = f"{s['volume_ratio']}x vol" + (" ⚠ THIN (low conviction)" if s.get("thin_volume") else "")
         return (f"engine: {s['signal']}, above cloud, pulled back to kijun ${s['kijun']} "
-                f"({s['dist_atr']} ATR) — entry; {s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}%, "
+                f"({s['dist_atr']} ATR, {s['off_10d_high_pct']}% off 10d high — support hold, not a knife); "
+                f"{s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}% / 10d {s['momentum_10d_pct']}%, "
                 f"ATR {s['atr_pct']}%/day, {vol}; stop below kijun.")
+    if cls == "reversal":
+        return (f"at kijun ${s['kijun']} but via a SHARP DROP ({s['off_10d_high_pct']}% off the 10d high, "
+                f"10d {s['momentum_10d_pct']}%) — a falling knife slicing through support, NOT an entry. "
+                f"Wait for it to base.")
     if cls == "extended":
         return (f"above cloud but EXTENDED ({s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}%) — "
                 f"chasing a big run; wait for a deeper pullback toward kijun ${s['kijun']}.")
@@ -175,9 +197,21 @@ def main() -> int:
         s["why"] = _why(s)
         rows.append(s)
 
-    # Rank only the actionable (consider → extended → hold), consider closest to
-    # kijun first. weak/suspect/excluded are COUNTED but never shown/starred.
-    order = {"consider": 0, "extended": 1, "hold": 2}
+    # Staleness guard: never surface a name whose bar didn't refresh with the rest
+    # of the universe (the ENTG-06-29 case a reviewer caught). Demote any symbol a
+    # full session behind the freshest bar out of the actionable tiers.
+    newest = max((r["as_of"][:10] for r in rows if r.get("as_of")), default=None)
+    if newest:
+        for r in rows:
+            asof = (r.get("as_of") or "")[:10]
+            if asof and asof < newest and r["classification"] in ("consider", "extended", "hold", "reversal"):
+                r["stale"] = True
+                r["classification"] = "excluded"
+
+    # Rank the actionable. consider (real entries) first, then the WARNINGS —
+    # reversal (falling knife) and extended (chasing) are SHOWN, not hidden, so the
+    # trader sees why a tempting name is a skip. weak/suspect/excluded stay hidden.
+    order = {"consider": 0, "reversal": 1, "extended": 2, "hold": 3}
     actionable = [r for r in rows if r["classification"] in order]
     actionable.sort(key=lambda r: (order[r["classification"]], r.get("dist_atr") if r.get("dist_atr") is not None else 99))
     for i, r in enumerate(actionable):
@@ -187,8 +221,9 @@ def main() -> int:
     artifact = {
         "kind": "today_setups", "universe": args.universe,
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
-        "counts": {"consider": n("consider"), "extended": n("extended"), "hold": n("hold"),
-                   "weak": n("weak"), "suspect": n("suspect"), "excluded": n("excluded"), "scanned": len(rows)},
+        "counts": {"consider": n("consider"), "reversal": n("reversal"), "extended": n("extended"),
+                   "hold": n("hold"), "weak": n("weak"), "suspect": n("suspect"),
+                   "excluded": n("excluded"), "scanned": len(rows)},
         "setups": actionable[: args.top],
         "excluded_symbols": [r["symbol"] for r in rows if r["classification"] == "excluded"],
         "data_suspect": [r["symbol"] for r in rows if r["classification"] == "suspect"],
@@ -198,7 +233,7 @@ def main() -> int:
     }
 
     for r in artifact["setups"]:
-        log.info("%-2s %-9s %-8s %6.2f  %s", {"consider": "⭐", "extended": "⚠", "hold": "·"}.get(r["classification"], " "),
+        log.info("%-2s %-9s %-8s %6.2f  %s", {"consider": "⭐", "reversal": "🔪", "extended": "⚠", "hold": "·"}.get(r["classification"], " "),
                  r["symbol"], r["classification"], r["close"], r["why"])
     log.info("counts: %s | suspect: %s | missing: %d", artifact["counts"], artifact["data_suspect"], len(missing))
 
