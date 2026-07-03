@@ -264,30 +264,40 @@ def ichimoku_strength_score(
     metadata: dict,
     atr: float | None,
 ) -> float | None:
-    """Continuous strength score for ranking Ichimoku candidates.
+    """Continuous ENTRY-QUALITY score for ranking Ichimoku candidates.
 
     `ichimoku_daily_signal` returns a binary 0/1 long signal — fine for
     "do I trade this name today?" but not for ranking a candidate
-    universe. The intraday scanner picks the top-N by conviction, so it
-    needs a continuous score with a comparable scale across symbols.
+    universe. The intraday scanner picks the top-N by score, so it needs
+    a continuous, cross-symbol-comparable measure of ENTRY QUALITY.
 
-    Score formula:
-        distance_score  = (last_close - kijun_val) / atr
-        cloud_thickness = (cloud_top - cloud_bottom) / atr      (ATR-units)
-        score           = distance_score * clamp(cloud_thickness, 0.3, 2.0)
+    IMPORTANT — this rewards PULLBACK-TO-SUPPORT, not extension. The
+    previous formula ranked by raw distance ABOVE the kijun (`(close -
+    kijun)/atr`), i.e. it scored the MOST EXTENDED names highest — the
+    exact thing our own evidence says predicts WORSE entries (the equity
+    book chased tops; the Today's Setups scanner treats dist_atr≈0 as the
+    best `consider` entry and far-above-kijun as `extended`/chasing). So
+    intraday_flat was structurally buying tops, then getting mean-reverted
+    out — the mechanism behind its churn. This version is coherent with
+    the scanner: closest-to-kijun (freshest pullback) ranks highest.
 
-    Reading the score:
-      higher = more conviction (price far above kijun on a thick cloud)
-      <= 0   = below kijun; long-only callers should drop these
-      None   = scoring impossible (missing meta or ATR); caller drops.
+    Score formula (higher = better entry):
+        d               = (last_close - kijun_val) / atr    (ATR above kijun)
+        cloud_thickness = clamp((cloud_top - cloud_bottom)/atr, 0.3, 2.0)
+        d <= 0 :  return d * cloud_thickness                (<=0 → below kijun,
+                  support breaking; long-only callers drop these — UNCHANGED gate)
+        d  > 0 :  proximity = 1 / (1 + d)   (d→0: 1.0, d=1: 0.5, d=3: 0.25)
+                  return proximity * cloud_thickness
 
-    ATR-normalisation matters: a $5 distance is small for SPY (~$0.50
-    ATR scale relative to price) and huge for an EUR/USD pair. Without
-    it the score isn't comparable across symbols.
+    So a name that has just pulled back to its kijun on a solid cloud
+    scores near the top; a name extended far above the kijun scores near
+    the bottom (kept but out-ranked, so top-N naturally drops it). The
+    <=0 semantics are preserved so the caller's below-kijun drop is intact.
 
-    `metadata` is the dict returned by `ichimoku_daily_signal` —
-    requires `kijun_val`, `cloud_top`, `cloud_bottom`. Returns None on
-    any missing component so the scanner can skip cleanly.
+    ATR-normalisation keeps the score comparable across symbols.
+    `metadata` is the dict from `ichimoku_daily_signal` — requires
+    `kijun_val`, `cloud_top`, `cloud_bottom`. Returns None on any missing
+    component so the scanner can skip cleanly.
     """
     if atr is None or atr <= 0:
         return None
@@ -297,12 +307,19 @@ def ichimoku_strength_score(
     if kijun_val is None or cloud_top is None or cloud_bottom is None:
         return None
 
-    distance_score = (last_close - kijun_val) / atr
+    d = (last_close - kijun_val) / atr
     cloud_thickness_raw = (cloud_top - cloud_bottom) / atr
-    # Clamp thickness so a degenerate cloud (near-zero) doesn't kill
-    # the score, and a freak-wide cloud doesn't dominate the ranking.
+    # Clamp thickness so a degenerate cloud (near-zero) doesn't kill the
+    # score, and a freak-wide cloud doesn't dominate the ranking.
     cloud_thickness = max(0.3, min(2.0, cloud_thickness_raw))
-    return distance_score * cloud_thickness
+    if d <= 0:
+        # Below kijun: support breaking — keep the ORIGINAL <=0 semantics so the
+        # long-only caller drops it (score sign is the gate the scanner relies on).
+        return d * cloud_thickness
+    # Above kijun: reward PROXIMITY to support (a fresh pullback), decaying as the
+    # name gets extended — so the scanner picks dips, not tops.
+    proximity = 1.0 / (1.0 + d)
+    return proximity * cloud_thickness
 
 
 __all__ = [

@@ -480,6 +480,23 @@ class IntradayFlatStrategy(Strategy):
                     )
                     continue
 
+            # Falling-knife reject (coherent with the Today's Setups scanner): a
+            # name that has dropped >8% below its recent 10-day high reached the
+            # kijun by SLICING through it — a reversal, not a fresh pullback.
+            # Trading it long into the session is the false-stop churn we're
+            # fighting; drop it BEFORE it's scored.
+            recent_high = float(close.tail(10).max())
+            if recent_high > 0 and (last_close / recent_high - 1.0) < -0.08:
+                self.log_decision(
+                    symbol=sym, action="scanner-drop-falling-knife",
+                    reason=(
+                        f"{(last_close / recent_high - 1.0):.1%} below the 10-day high "
+                        f"${recent_high:.2f} — sharp reversal through support, not a pullback"
+                    ),
+                    atr=last_atr, last_close=last_close, **meta,
+                )
+                continue
+
             strength = ichimoku_strength_score(
                 last_close=last_close, metadata=meta, atr=last_atr,
             )
