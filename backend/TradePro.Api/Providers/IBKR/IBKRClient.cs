@@ -460,6 +460,72 @@ public sealed class IBKRClient
         }
     }
 
+    // ─── Market data (historical bars, read-only) ───────────────────
+
+    /// <summary>
+    /// Historical OHLCV bars for a stock symbol via the IBKR Web API — the SINGLE
+    /// IBKR data path (central handler; the Python bar_cache provider consumes this
+    /// over HTTP, it does NOT re-implement OAuth). Resolves symbol → conid via
+    /// secdef/search, then GET /iserver/marketdata/history.
+    ///
+    /// <paramref name="period"/> = IBKR window ("1m","6m","1y","2y"…);
+    /// <paramref name="bar"/> = bar size ("1d","1h","1w"…).
+    ///
+    /// FAIL-LOUD: on disabled / no-contract / non-2xx / empty, returns Bars empty
+    /// with <c>Error</c> set to the reason — the caller MUST surface it (flag the
+    /// symbol in the cockpit); an empty result is NEVER a silent "no data".
+    /// </summary>
+    public async Task<IBKRHistoryResult> GetPriceHistoryAsync(
+        string symbol, string period, string bar, CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled)
+            return new IBKRHistoryResult(Array.Empty<IBKRBar>(), null, "IBKR disabled", 0);
+        var sym = (symbol ?? string.Empty).Trim().ToUpperInvariant();
+        if (sym.Length == 0)
+            return new IBKRHistoryResult(Array.Empty<IBKRBar>(), null, "empty symbol", 0);
+        try
+        {
+            // 1) symbol → conid (secdef/search, best-first, STK).
+            long conid;
+            using (var searchResp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(sym)}&secType=STK",
+                null, ct))
+            {
+                var searchText = await searchResp.Content.ReadAsStringAsync(ct);
+                if (!searchResp.IsSuccessStatusCode)
+                    return new IBKRHistoryResult(Array.Empty<IBKRBar>(), null,
+                        $"conid search failed for {sym}: {searchText}", (int)searchResp.StatusCode);
+                var resolved = IBKRResponseParser.ParseConidSearch(searchText);
+                if (resolved is null)
+                    return new IBKRHistoryResult(Array.Empty<IBKRBar>(), null,
+                        $"no IBKR contract for {sym}", (int)searchResp.StatusCode);
+                conid = resolved.Value;
+            }
+
+            // 2) conid → OHLCV history.
+            using var histResp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"v1/api/iserver/marketdata/history?conid={conid}&period={Uri.EscapeDataString(period)}"
+                + $"&bar={Uri.EscapeDataString(bar)}&outsideRth=false",
+                null, ct);
+            var histText = await histResp.Content.ReadAsStringAsync(ct);
+            if (!histResp.IsSuccessStatusCode)
+                return new IBKRHistoryResult(Array.Empty<IBKRBar>(), conid,
+                    $"history fetch failed for {sym} (conid {conid}): {histText}", (int)histResp.StatusCode);
+            var bars = IBKRResponseParser.ParseHistory(histText);
+            if (bars.Count == 0)
+                return new IBKRHistoryResult(Array.Empty<IBKRBar>(), conid,
+                    $"IBKR returned NO bars for {sym} (conid {conid}, period {period}, bar {bar})",
+                    (int)histResp.StatusCode);
+            return new IBKRHistoryResult(bars, conid, null, (int)histResp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IBKRHistoryResult(Array.Empty<IBKRBar>(), null, ex.Message, 0);
+        }
+    }
+
     // ─── Orders ─────────────────────────────────────────────────────
 
     /// <summary>

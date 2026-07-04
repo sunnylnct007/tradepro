@@ -791,6 +791,43 @@ public static class IntegrationsEndpoints
         // On failure the verbatim IBKR error body (e.g. a 401/403 with the
         // IP/credential complaint) is surfaced so the operator can debug
         // against IBKR's error guide.
+        // GET /api/integrations/ibkr/price-history?symbol=AAPL&period=1y&bar=1d
+        // Central IBKR historical bars via the OAuth Web API — the SINGLE IBKR data
+        // path. The Python bar_cache provider consumes THIS over HTTP (no duplicate
+        // OAuth). FAIL-LOUD: an unresolved symbol / empty history returns an explicit
+        // 502 + reason, NEVER an empty 200 — so the cockpit can FLAG the symbol
+        // instead of silently showing "no data".
+        app.MapGet("/integrations/ibkr/price-history", async (
+            string symbol, string? period, string? bar,
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(symbol))
+                return Results.BadRequest(new { error = "symbol is required" });
+            var p = string.IsNullOrWhiteSpace(period) ? "1y" : period;
+            var b = string.IsNullOrWhiteSpace(bar) ? "1d" : bar;
+            var r = await ibkr.GetPriceHistoryAsync(symbol, p, b, ct);
+            if (r.Error is not null || r.Bars.Count == 0)
+            {
+                return Results.Json(new
+                {
+                    symbol = symbol.ToUpperInvariant(), period = p, bar = b,
+                    conid = r.ConId, error = r.Error ?? "no bars returned",
+                    bars = Array.Empty<object>(),
+                }, statusCode: 502);
+            }
+            return Results.Ok(new
+            {
+                symbol = symbol.ToUpperInvariant(), period = p, bar = b, conid = r.ConId,
+                count = r.Bars.Count,
+                // epoch-ms UTC + OHLCV; the Python provider maps straight to the
+                // bar_cache schema.
+                bars = r.Bars.Select(x => new
+                {
+                    t = x.TimeMs, o = x.Open, h = x.High, l = x.Low, c = x.Close, v = x.Volume,
+                }),
+            });
+        });
+
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,

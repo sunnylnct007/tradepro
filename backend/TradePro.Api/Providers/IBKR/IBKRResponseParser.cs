@@ -178,6 +178,49 @@ public static class IBKRResponseParser
         return new IBKROrderAck(OrderId: null, OrderStatus: null, Error: "unparseable order ack");
     }
 
+    /// <summary>Parse GET /iserver/secdef/search?symbol=X — an array of matches,
+    /// best-first. Returns the FIRST match's conid (may be a string or number in
+    /// the payload). Null when there's no match — the caller FLAGS the symbol as
+    /// unresolvable rather than swallowing it (fail-loud).</summary>
+    public static long? ParseConidSearch(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Array) return null;
+        foreach (var m in root.EnumerateArray())
+        {
+            if (m.ValueKind != JsonValueKind.Object) continue;
+            if (m.TryGetProperty("conid", out var c))
+            {
+                if (c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n)) return n;
+                if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var s)) return s;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Parse GET /iserver/marketdata/history — OHLCV bars in the "data"
+    /// array ({t: epoch-MILLISECONDS UTC, o,h,l,c, v}). Empty list when there are
+    /// no bars; the caller FLAGS that (never a silent empty).</summary>
+    public static IReadOnlyList<IBKRBar> ParseHistory(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var bars = new List<IBKRBar>();
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("data", out var data)
+            || data.ValueKind != JsonValueKind.Array) return bars;
+        foreach (var b in data.EnumerateArray())
+        {
+            if (b.ValueKind != JsonValueKind.Object) continue;
+            long? t = Long(b, "t");
+            decimal? o = Dec(b, "o"), h = Dec(b, "h"), l = Dec(b, "l"), c = Dec(b, "c");
+            if (t is null || o is null || h is null || l is null || c is null) continue;
+            bars.Add(new IBKRBar(t.Value, o.Value, h.Value, l.Value, c.Value, (long)(Dec(b, "v") ?? 0m)));
+        }
+        return bars;
+    }
+
     // ─── helpers ────────────────────────────────────────────────────
     private static string? Str(JsonElement el, string prop) =>
         el.ValueKind == JsonValueKind.Object
@@ -273,3 +316,16 @@ public sealed record IBKRStatusResult(
     string? IpInUse,                    // ip sent in the sso-sessions claim (null until resolved)
     string? IpSource,                   // "override" | "auto-detected" | null
     string? Error);                     // verbatim IBKR error body on failure, else null
+
+/// <summary>One OHLCV bar from IBKR marketdata/history. Time is epoch MILLISECONDS UTC.</summary>
+public sealed record IBKRBar(
+    long TimeMs, decimal Open, decimal High, decimal Low, decimal Close, long Volume);
+
+/// <summary>Result of <c>IBKRClient.GetPriceHistoryAsync</c>. On failure Bars is
+/// empty and <see cref="Error"/> carries the reason — callers MUST surface it
+/// (fail-loud); an empty result is NEVER to be treated as "no data" silently.</summary>
+public sealed record IBKRHistoryResult(
+    IReadOnlyList<IBKRBar> Bars,
+    long? ConId,
+    string? Error,
+    int HttpStatus);
