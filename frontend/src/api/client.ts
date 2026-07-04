@@ -527,6 +527,43 @@ export const api = {
         note: string;
       };
     }>(`/api/today-setups/${encodeURIComponent(universe)}/latest`),
+
+  // Signal vs Position audit (tradepro-signal-audit): exits-not-firing + honest NLV P&L.
+  signalAudit: (strategy: string) =>
+    get<{
+      strategy: string;
+      asOfUtc: string;
+      artifact: {
+        kind: string;
+        strategy: string;
+        broker: string;
+        currency: string;
+        as_of_utc: string;
+        pnl: {
+          start_capital: number | null;
+          nlv: number | null;
+          cash: number | null;
+          invested_cost: number | null;
+          unrealised_on_held: number | null;
+          total_pnl: number | null;
+          realized_and_costs: number | null;
+          total_pnl_pct: number | null;
+        };
+        counts: { held: number; hold: number; exit_overdue: number; blind: number };
+        exit_overdue: Array<{
+          symbol: string | null;
+          qty: number;
+          entry: number | null;
+          price: number | null;
+          pnl_pct: number | null;
+          classification: string;
+          exit_fired: string | null;
+          days_overdue: number | null;
+        }>;
+        blind: Array<string | null>;
+        note: string;
+      };
+    }>(`/api/signal-audit/${encodeURIComponent(strategy)}/latest`),
   paperPendingOrders: () =>
     get<Array<{
       orderId: string;

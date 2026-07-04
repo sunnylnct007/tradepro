@@ -361,6 +361,7 @@ api.MapUniverseUserEndpoints();
 api.MapEquityPipelineUserEndpoints();
 api.MapFillReplayUserEndpoints();
 api.MapTodaySetupsUserEndpoints();
+api.MapSignalAuditUserEndpoints();
 api.MapManualTradesEndpoints();
 api.MapLivePortfolioUserEndpoints();
 api.MapPositionsEndpoints();
@@ -391,6 +392,7 @@ ingest.MapUniverseWorkerEndpoints();
 ingest.MapEquityPipelineIngestEndpoints();
 ingest.MapFillReplayIngestEndpoints();
 ingest.MapTodaySetupsIngestEndpoints();
+ingest.MapSignalAuditIngestEndpoints();
 ingest.MapLivePortfolioIngestEndpoints();
 ingest.MapSentimentIngestEndpoints();
 

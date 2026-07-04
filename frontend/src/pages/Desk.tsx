@@ -34,6 +34,7 @@ import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
 import { PnlTruthCard } from "../components/desk/PnlTruthCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
+import { SignalAuditCard } from "../components/desk/SignalAuditCard";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
 import { TodaySetupsCard } from "../components/desk/TodaySetupsCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
@@ -120,6 +121,10 @@ export function Desk() {
           {/* Broker-golden book — read straight from the broker (positions/
               deployed/unrealised/NLV), flags shorts + the truth the OMS misses. */}
           <BrokerBookCard />
+
+          {/* Signal vs Position audit — exits that fired but never executed +
+              the HONEST NLV-vs-start P&L (realized churn/costs no longer hidden). */}
+          <SignalAuditCard />
 
           {/* Live-vs-backtest tracking — the systematic ICH clone proving itself
               (Track B research foundation: make the measurement loop visible). */}
