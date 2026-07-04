@@ -31,7 +31,9 @@ from typing import Optional
 # passing a trading-calendar-aware `as_of`/`last_session` when it has one.
 DEFAULT_STALE_AFTER_DAYS = 4
 # yfinance = bronze (Yahoo-vs-IBKR divergence + garbage bars seen); IBKR/IG ok.
-_TRUSTED_PROVIDERS = {"ibkr", "ig"}
+# ibkr_web = the OAuth Web API path via the central backend endpoint (Option B) —
+# same broker-GOOD data as ibkr (Gateway), without the Gateway's session hangs.
+_TRUSTED_PROVIDERS = {"ibkr", "ibkr_web", "ig"}
 
 
 @dataclass(frozen=True)
