@@ -222,12 +222,16 @@ def main() -> int:
     #   no yfinance stubs for old partitions.
     # daily mode (no --ibkr-only): full chain — yfinance is an acceptable
     #   same-day fallback if TWS briefly lags.
+    # ibkr_web (OAuth Web API via the central backend endpoint) is the WORKING
+    # IBKR-GOOD source for 1d/1h — preferred FIRST. The legacy 'ibkr' (local
+    # Gateway/ib_insync) stays as a fallback (it hangs on session contention, and
+    # only it does 1m). See migration 055 / Data Accuracy Turnaround.
     if args.ibkr_only:
-        chain = ["ibkr"]
+        chain = ["ibkr_web", "ibkr"]           # IBKR-only: web first, Gateway for 1m
     elif args.no_ibkr:
         chain = ["yfinance"]
     else:
-        chain = ["ibkr", "ig", "yfinance"]
+        chain = ["ibkr_web", "ibkr", "ig", "yfinance"]
 
     store = BarStore(
         base_dir=base_dir,
@@ -242,8 +246,8 @@ def main() -> int:
         "daily" if span_days <= 1
         else f"backfill {span_days}d ({from_date.date()} → {(to_date - timedelta(days=1)).date()})"
     )
-    chain_label = ("ibkr-only" if args.ibkr_only
-                   else "yfinance-only" if args.no_ibkr else "ibkr→ig→yfinance")
+    chain_label = ("ibkr_web→ibkr" if args.ibkr_only
+                   else "yfinance-only" if args.no_ibkr else "ibkr_web→ibkr→ig→yfinance")
     print(
         f"tradepro-bar-cache-harvest  mode={mode_label}  "
         f"res={args.resolution}  symbols={len(symbols)}  "

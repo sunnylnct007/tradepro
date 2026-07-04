@@ -124,6 +124,10 @@ class IBKRWebProvider(Provider):
                 .rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
                 [["open", "high", "low", "close", "volume"]]
                 .sort_index())
+        # IBKR history is split/dividend-adjusted "Last" → adj_factor = 1.0, matching
+        # the Gateway provider. REQUIRED by the bar_cache schema (without it BarStore
+        # rejects the frame + silently falls through to yfinance = BRONZE).
+        df["adj_factor"] = 1.0
 
         s = pd.Timestamp(start); e = pd.Timestamp(end)
         if s.tz is None:
