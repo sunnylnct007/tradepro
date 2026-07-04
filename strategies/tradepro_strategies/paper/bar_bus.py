@@ -30,6 +30,7 @@ When this service moves to its own process (microservice split):
 from __future__ import annotations
 
 import asyncio
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, time, timezone, timedelta
@@ -37,6 +38,60 @@ from typing import AsyncIterator, Iterable
 
 from .messages import BarEvent, ShutdownEvent
 from .strategy import Bar
+
+_log = logging.getLogger(__name__)
+
+# Isolated intraday spike guard threshold. Yahoo's 1-minute feed occasionally
+# emits a phantom tick — a single bar wildly off both neighbours (the UNH ~$377
+# phantom that fired a false stop, memory: project_data_quality_findings). Unlike
+# the DAILY holiday phantoms (10-15x, caught by cache._drop_garbage_bars' 4x rule)
+# intraday phantoms are smaller (~10-30%), so we use a PERCENTAGE isolated-spike
+# test. Genuine >12% one-minute moves-then-full-reversion are vanishingly rare
+# (LULD halts fire first), so an isolated 12% round-trip is a bad tick, not a move.
+_INTRADAY_SPIKE_PCT = 0.12
+
+
+def sanitize_intraday_bars(
+    bars: list[Bar], spike_pct: float = _INTRADAY_SPIKE_PCT
+) -> list[Bar]:
+    """Drop ISOLATED spike bars from a live intraday sequence.
+
+    A bar is an isolated spike when its close deviates > spike_pct from BOTH
+    neighbours in the SAME direction while the two neighbours agree with each
+    other (gap < spike_pct/2) — i.e. a lone bad tick that reverts, not a real
+    trend leg or gap. Golden-source note: when an IBKR feed is available its
+    ticks are authoritative and this bronze-feed guard is unnecessary; it exists
+    to protect the yfinance intraday path (see [[reuse_ibkr]] roadmap).
+    """
+    if len(bars) < 3:
+        return bars
+    out = [bars[0]]
+    dropped: list[str] = []
+    for i in range(1, len(bars) - 1):
+        prev, cur, nxt = bars[i - 1].close, bars[i].close, bars[i + 1].close
+        if prev <= 0 or cur <= 0 or nxt <= 0:
+            out.append(bars[i])
+            continue
+        dev_prev = cur / prev - 1.0
+        dev_nxt = cur / nxt - 1.0
+        neighbour_gap = abs(nxt / prev - 1.0)
+        isolated = (
+            abs(dev_prev) > spike_pct
+            and abs(dev_nxt) > spike_pct
+            and (dev_prev > 0) == (dev_nxt > 0)   # spikes the same way vs both sides
+            and neighbour_gap < spike_pct / 2     # neighbours agree → the spike is lone
+        )
+        if isolated:
+            dropped.append(f"{bars[i].timestamp:%H:%M}={cur:.2f}")
+            continue
+        out.append(bars[i])
+    out.append(bars[-1])
+    if dropped:
+        _log.warning(
+            "sanitize_intraday_bars[%s]: dropped %d isolated spike bar(s): %s",
+            bars[0].symbol, len(dropped), ", ".join(dropped),
+        )
+    return out
 
 
 class BarBus(ABC):
@@ -190,7 +245,9 @@ class YfinanceIntradayBus(BarBus):
                 volume=int(row["Volume"]),
                 timeframe_seconds=tf_seconds,
             ))
-        return bars
+        # Strip isolated phantom ticks BEFORE the engine sees them, so a bad
+        # Yahoo bar can't fire a false stop / bad entry (the UNH ~$377 case).
+        return sanitize_intraday_bars(bars)
 
 
 def _interval_seconds(s: str) -> int:
