@@ -112,31 +112,26 @@ export function Desk() {
       {view === "portfolio" && (
         <>
           {/* Compact-UX pass: always-visible KPI strip + a per-strategy health bar
-              full-width, then the detail panels in a responsive 2-COLUMN grid so the
-              cockpit fits ~one screen instead of a long single-column scroll. */}
+              full-width, then the detail panels in a MASONRY (CSS multi-column)
+              layout. Masonry (not a grid) because the panels have very different
+              heights — a grid aligns rows to the tallest card and leaves big gaps
+              under the short ones; columns pack cards top-to-bottom with no gaps. */}
           <DeskKpiStrip />
           <StrategyHealthPanel />
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: wide ? "repeat(auto-fit, minmax(460px, 1fr))" : "1fr",
-              gap: 12,
-              alignItems: "start",
-            }}
-          >
-            {/* P&L truth — realised (booked) vs open (unrealised/soft) per strategy. */}
-            <PnlTruthCard />
-            {/* Broker-golden book — positions/deployed/unrealised/NLV, flags shorts. */}
-            <BrokerBookCard />
-            {/* Signal vs Position audit — exits-not-firing + honest NLV-vs-start P&L. */}
-            <SignalAuditCard />
-            {/* Live-vs-backtest tracking — the systematic ICH clone proving itself. */}
-            <EquityTrackingCard />
-            {/* Fill-replay — what the ACTUAL fills say about entry quality. */}
-            <FillReplayCard />
-            {/* Today's Setups — universe ranked by entry quality (risk-aware scanner). */}
-            <TodaySetupsCard />
+          <div style={{ columnCount: wide ? 3 : 1, columnGap: 12 }}>
+            {[
+              <PnlTruthCard key="pnl" />,
+              <SignalAuditCard key="sig" />,
+              <BrokerBookCard key="brk" />,
+              <EquityTrackingCard key="eq" />,
+              <FillReplayCard key="fill" />,
+              <TodaySetupsCard key="setups" />,
+            ].map((card) => (
+              <div key={card.key} style={{ breakInside: "avoid", marginBottom: 12 }}>
+                {card}
+              </div>
+            ))}
           </div>
 
           {/* Compact per-broker account summary table */}
