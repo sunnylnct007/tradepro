@@ -12,6 +12,19 @@ namespace TradePro.Api.Endpoints;
 /// </summary>
 public static class RunLogEndpoints
 {
+    // Processes that SHOULD run on a cadence — if the last run is older than MaxAgeHours
+    // the process is STALE/dead (the absence the cockpit flags loud). Daily jobs get ~30h
+    // (a day + slack + the overnight box stop); the 15-min paper daemons get a few hours.
+    // Add a process here the moment it starts writing run_log heartbeats.
+    private static readonly (string Process, double MaxAgeHours)[] _expected = new[]
+    {
+        ("bar-cache-harvest", 30.0),
+        ("live-portfolio", 30.0),   // the uploader that was dead 5 weeks — now watched
+        ("signal-audit", 30.0),
+        ("today-setups", 30.0),
+        // TODO: add the paper-* session daemons once they write run_log heartbeats.
+    };
+
     public static IEndpointRouteBuilder MapRunLogUserEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/run-log").WithTags("RunLog");
@@ -41,7 +54,33 @@ public static class RunLogEndpoints
                 GROUP BY status;")).ToDictionary(
                     r => (string)r.status, r => (long)r.n);
 
-            return Results.Ok(new { rows, health24h = health });
+            // ABSENCE DETECTION — a process that STOPPED writes nothing, so failure
+            // rollups can't see it. Check each EXPECTED process's last run against its
+            // cadence; anything overdue is STALE/dead and gets flagged loud. (The
+            // strategy_decisions uploader was dead 5 weeks with no signal — this is
+            // the class of failure this catches.)
+            var lastRuns = (await conn.QueryAsync(@"
+                SELECT process, MAX(created_at_utc) AS last_run
+                FROM run_log GROUP BY process;"))
+                .ToDictionary(r => (string)r.process, r => (DateTime)r.last_run);
+
+            var processes = _expected.Select(e =>
+            {
+                lastRuns.TryGetValue(e.Process, out var last);
+                var has = last != default;
+                var ageH = has ? (DateTime.UtcNow - last).TotalHours : (double?)null;
+                var stale = !has || (ageH ?? double.MaxValue) > e.MaxAgeHours;
+                return new
+                {
+                    process = e.Process,
+                    lastRunUtc = has ? last : (DateTime?)null,
+                    ageHours = ageH,
+                    maxAgeHours = e.MaxAgeHours,
+                    stale,
+                };
+            }).ToList();
+
+            return Results.Ok(new { rows, health24h = health, processes });
         });
 
         return app;

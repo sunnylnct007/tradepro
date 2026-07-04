@@ -27,13 +27,14 @@ export function RunLogCard() {
   const [state, setState] = useState<State>("loading");
   const [rows, setRows] = useState<Row[]>([]);
   const [health, setHealth] = useState<Record<string, number>>({});
+  const [procs, setProcs] = useState<Awaited<ReturnType<typeof api.runLog>>["processes"]>([]);
   const [failOnly, setFailOnly] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const d = await api.runLog(60, failOnly ? "fail" : undefined);
-      setRows(d.rows); setHealth(d.health24h ?? {}); setState("ok"); setErr(null);
+      setRows(d.rows); setHealth(d.health24h ?? {}); setProcs(d.processes ?? []); setState("ok"); setErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e)); setState("error");
     }
@@ -60,6 +61,13 @@ export function RunLogCard() {
           style={{ fontSize: 10, padding: "1px 7px", borderRadius: 5, border: "1px solid #1b2233", background: "rgba(255,255,255,0.03)", color: "var(--text-dim)", cursor: "pointer" }}>↻</button>
       </div>
 
+      {procs.some((p) => p.stale) && (
+        <div style={{ padding: "5px 10px", fontSize: 10.5, color: "#f85149", background: "rgba(248,81,73,0.08)", borderBottom: "1px solid #5a2222" }}>
+          ⚠ <b>Dead / stale process{procs.filter((p) => p.stale).length > 1 ? "es" : ""}:</b>{" "}
+          {procs.filter((p) => p.stale).map((p) => `${p.process} (${p.lastRunUtc ? `${Math.round(p.ageHours ?? 0)}h ago` : "never run"})`).join(", ")}
+          {" "}— expected to run on schedule but hasn't. (This is the check that would've caught the 5-week-dead decision uploader.)
+        </div>
+      )}
       {state === "loading" && <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-muted)" }}>Loading…</div>}
       {state === "error" && <div style={{ padding: "8px 10px", fontSize: 11, color: "#f85149" }}>Run-log unavailable: {err}</div>}
       {state === "ok" && rows.length === 0 && <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>No runs recorded yet.</div>}

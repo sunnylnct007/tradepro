@@ -584,6 +584,13 @@ export const api = {
         created_at_utc: string;
       }>;
       health24h: Record<string, number>;
+      processes: Array<{
+        process: string;
+        lastRunUtc: string | null;
+        ageHours: number | null;
+        maxAgeHours: number;
+        stale: boolean;
+      }>;
     }>(`/api/run-log/recent?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ""}`),
   paperPendingOrders: () =>
     get<Array<{

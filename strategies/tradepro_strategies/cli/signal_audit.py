@@ -241,6 +241,14 @@ def main() -> int:
         _pta.push("signal-audit", {"strategy": args.strategy, "label": "latest",
                   "uploaded_by": os.uname().nodename, "artifact": art}, base, token)
         log.info("pushed signal-audit for %s", args.strategy)
+        try:
+            from ..run_log import log_run
+            c = art["counts"]
+            log_run("signal-audit", "audit", "ok", base=base, token=token,
+                    summary=(f"{args.strategy}: {c.get('exit_overdue',0)} exit-overdue, "
+                             f"{c.get('missed_buys',0)} missed-buys, {c.get('blind',0)} blind"))
+        except Exception:  # noqa: BLE001 — heartbeat must never fail the run
+            pass
     return 0
 
 

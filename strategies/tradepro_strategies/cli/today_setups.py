@@ -245,6 +245,13 @@ def main() -> int:
             _, token = _pta.load_credentials()
         _pta.push("today-setups", {"universe": args.universe, "label": "latest",
                   "uploaded_by": os.uname().nodename, "artifact": artifact}, base, token)
+        try:
+            from ..run_log import log_run
+            _c = artifact.get("counts", {})
+            log_run("today-setups", "price_load", "ok", base=base, token=token,
+                    summary=f"{args.universe}: {_c.get('consider',0)} consider, {_c.get('reversal',0)} reversal")
+        except Exception:  # noqa: BLE001
+            pass
     return 0
 
 

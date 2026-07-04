@@ -355,6 +355,15 @@ def main(argv: list[str] | None = None) -> int:
         rc = _push(_sanitise(payload))
         if rc != 0:
             return rc
+        # Heartbeat the central run-log so the absence-detector knows this uploader
+        # ran (it was silently dead 5 weeks; now its absence would be flagged loud).
+        try:
+            from ..run_log import log_run
+            _n = len(payload.get("decisions") or payload.get("targets") or [])
+            log_run("live-portfolio", "session", "ok",
+                    summary=f"{args.strategy}: {_n} decisions persisted")
+        except Exception:  # noqa: BLE001
+            pass
 
     if args.auto_execute:
         if not args.push:
