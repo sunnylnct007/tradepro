@@ -766,6 +766,44 @@ def _fetch_broker_held_symbols(broker: str) -> list[str]:
         return []
 
 
+def _fetch_broker_held_marks(broker: str) -> dict[str, float]:
+    """{bare_symbol: current mark} for held positions at `broker` (golden source).
+
+    Prices the held-exit RECONCILIATION bars (see HeldReconciliationBus): a held
+    name whose live feed delivered no trigger bar still needs an on_bar → exit
+    evaluation, and the synthetic bar's price feeds the (clone's) stop-loss check,
+    so we use the broker's real current mark rather than a placeholder. Best-effort
+    — returns {} on any error (reconciliation is exit-coverage, not a correctness
+    gate; the seed still confirms the book separately)."""
+    b = broker.strip().lower()
+    path = _REAL_BROKER_POSITION_PATHS.get(b)
+    if path is None:
+        return {}
+    try:
+        import requests
+        from . import push_to_api
+        base, token = push_to_api.load_credentials()
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        resp = requests.get(f"{base.rstrip('/')}{path}", headers=headers, timeout=10)
+        resp.raise_for_status()
+        out: dict[str, float] = {}
+        for r in resp.json().get("positions") or []:
+            sym = (r.get("yahooSymbol") or r.get("ticker") or r.get("epic") or "")
+            sym = sym.replace("_US_EQ", "").upper().strip()
+            px = r.get("currentPrice") or r.get("mark") or r.get("price")
+            qty = r.get("quantity") or r.get("qty") or 0
+            if sym and px and qty:
+                try:
+                    out[sym] = float(px)
+                except (TypeError, ValueError):
+                    continue
+        return out
+    except Exception:  # noqa: BLE001
+        logging.getLogger("tradepro.cli").warning(
+            "held-exit reconciliation: could not read %s held marks", b)
+        return {}
+
+
 def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[str, int], dict[str, float]]:
     """Fetch the strategy's current position FROM THE BROKER and seed it
     so reruns compute a delta (target - current) instead of re-emitting a
@@ -1529,6 +1567,34 @@ def main(argv: list[str] | None = None) -> int:
                 return 2  # fail-closed: engine never runs, no orders
             seeded_positions.update(seeded)
             seeded_avg_prices.update(seeded_avg)
+
+    # Held-exit reconciliation: guarantee every SEEDED held position gets an
+    # on_bar → exit evaluation, even if the live feed delivered no trigger bar for
+    # it. Thin/gappy names (STRL/STX/WDC) get no intraday bar → on_bar is never
+    # called → a held long whose signal says EXIT is never sold and bleeds forever
+    # (root cause confirmed 2026-07-04). Wrap the bus so it emits one synthetic bar
+    # per held name AFTER the real bars. Parity-safe: held positions (qty>0) can
+    # only exit-or-hold in on_bar (entry needs position==0), so this only ADDS exit
+    # coverage; _moo_fired dedups vs any real bar. Single non-shared broker only:
+    # T212 is the equity strategy's OWN book (IG is shared across strategies; IBKR
+    # has native MOO so its exits queue pre-market anyway).
+    if seeded_positions and len(broker_list) == 1 and broker_list[0].lower() == "t212":
+        from ..paper.bar_bus import HeldReconciliationBus
+        from ..paper.strategy import Bar as _ReconBar
+        marks = _fetch_broker_held_marks(broker_list[0])
+        recon_bars = []
+        for _s, _q in seeded_positions.items():
+            if _q <= 0:
+                continue  # long-only book; never reconcile a (bug) short here
+            _px = marks.get(_s) or seeded_avg_prices.get(_s) or 0.0
+            recon_bars.append(_ReconBar(
+                symbol=_s, timestamp=session_date, open=_px, high=_px, low=_px,
+                close=_px, volume=0, timeframe_seconds=86400, is_live=True))
+        if recon_bars:
+            bus = HeldReconciliationBus(inner=bus, reconciliation_bars=recon_bars)
+            log.info(
+                "held-exit reconciliation: wrapped bus with %d synthetic held "
+                "bar(s) so every held name gets an exit evaluation", len(recon_bars))
 
     engine = Engine(bus=bus, router=router)
     engine.register_strategy(

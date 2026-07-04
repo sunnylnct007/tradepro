@@ -168,6 +168,57 @@ class ReplayBarBus(BarBus):
 
 
 @dataclass
+class HeldReconciliationBus(BarBus):
+    """Wrap an inner bus and, AFTER it exhausts, emit ONE synthetic 'reconciliation'
+    bar per held symbol.
+
+    WHY: a daily strategy's exit only fires inside on_bar, which needs the live feed
+    to deliver a trigger bar for that symbol. Thin/gappy names (e.g. STRL/STX/WDC)
+    get NO intraday bar, so on_bar is never called → a held position whose signal
+    says EXIT is never sold, and bleeds forever (root cause confirmed 2026-07-04).
+    Appending a synthetic bar guarantees every held name gets an on_bar → exit
+    evaluation, independent of the feed.
+
+    PARITY-SAFE: the reconciliation bars are ONLY for symbols with an open position
+    (qty>0). on_bar can only exit-or-hold a held long (entry requires position==0),
+    so this NEVER opens a new position — it only ADDS exit coverage. The strategy's
+    per-session dedup (_moo_fired) makes it a no-op for a held name that already got
+    a real bar. The signal itself is computed from the daily cache (not the bar), so
+    the synthetic bar's price only feeds the (clone's) stop-loss check — hence we
+    pass the broker's current mark, not a placeholder.
+    """
+
+    inner: BarBus
+    reconciliation_bars: list[Bar]
+    name: str = "held_reconciliation_bus"
+
+    async def run(
+        self,
+        out_queue: asyncio.Queue,
+        shutdown_queue: asyncio.Queue,
+    ) -> None:
+        # Route the inner bus through a local queue so we can intercept its
+        # end-of-stream ShutdownEvent, inject the reconciliation bars, THEN emit
+        # our own shutdown. Bar-type agnostic — wraps any BarBus.
+        local: asyncio.Queue = asyncio.Queue()
+        inner_task = asyncio.create_task(self.inner.run(local, shutdown_queue))
+        seq = 0
+        while True:
+            ev = await local.get()
+            if isinstance(ev, ShutdownEvent):
+                break
+            await out_queue.put(ev)
+            seq = getattr(ev, "sequence", seq) + 1
+        await inner_task
+        for bar in self.reconciliation_bars:
+            await out_queue.put(BarEvent(bar=bar, sequence=seq))
+            seq += 1
+        await out_queue.put(ShutdownEvent(
+            reason=f"{self.name}: emitted {len(self.reconciliation_bars)} "
+                   f"held-exit reconciliation bar(s)"))
+
+
+@dataclass
 class YfinanceIntradayBus(BarBus):
     """Pull one intraday session of bars from Yahoo Finance for the
     given symbol + date and replay them.
