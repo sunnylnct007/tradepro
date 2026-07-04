@@ -36,6 +36,7 @@ import { PnlTruthCard } from "../components/desk/PnlTruthCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { SignalAuditCard } from "../components/desk/SignalAuditCard";
 import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
+import { RunLogCard } from "../components/desk/RunLogCard";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
 import { TodaySetupsCard } from "../components/desk/TodaySetupsCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
@@ -126,6 +127,7 @@ export function Desk() {
               <BrokerBookCard key="brk" />,
               <EquityTrackingCard key="eq" />,
               <FillReplayCard key="fill" />,
+              <RunLogCard key="runlog" />,
               <TodaySetupsCard key="setups" />,
             ].map((card) => (
               <div key={card.key} style={{ breakInside: "avoid", marginBottom: 12 }}>

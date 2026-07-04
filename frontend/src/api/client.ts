@@ -564,6 +564,26 @@ export const api = {
         note: string;
       };
     }>(`/api/signal-audit/${encodeURIComponent(strategy)}/latest`),
+
+  // Central run-log — every process/machine's runs + failures, one place.
+  runLog: (limit = 60, status?: string) =>
+    get<{
+      rows: Array<{
+        id: number;
+        process: string;
+        machine: string | null;
+        kind: string;
+        broker: string | null;
+        symbol: string | null;
+        status: string; // ok | fail | partial | stale | warn
+        error: string | null;
+        summary: string | null;
+        started_at_utc: string | null;
+        finished_at_utc: string | null;
+        created_at_utc: string;
+      }>;
+      health24h: Record<string, number>;
+    }>(`/api/run-log/recent?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ""}`),
   paperPendingOrders: () =>
     get<Array<{
       orderId: string;

@@ -392,6 +392,21 @@ def main() -> int:
         except Exception as _exc:  # noqa: BLE001
             print(f"  (health report skipped: {_exc})")
 
+    # Central run-log: record this harvest run (+ any non-GOOD outcome) so a failed or
+    # partial harvest is LOUD in the cross-machine cockpit, not just in this stdout.
+    try:
+        from tradepro_strategies.run_log import log_run
+        _rl_status = "fail" if fail_count else "partial" if partial_count else "ok"
+        log_run(
+            "bar-cache-harvest", "harvest", _rl_status,
+            error=(f"{fail_count} symbol(s) missing" if fail_count else None),
+            summary=(f"{args.resolution} {len(symbols)} sym → "
+                     f"{quality_counts['gold']}G/{quality_counts['silver']}S/"
+                     f"{quality_counts['bronze']}B/{quality_counts['missing']}M"),
+        )
+    except Exception:  # noqa: BLE001 — logging must never fail the harvest
+        pass
+
     if fail_count == len(symbols):
         return 2
     if (partial_count or fail_count) and not args.allow_partial:
