@@ -29,7 +29,9 @@ public static class DataTrustEndpoints
     {
         "yfinance", "ig", "finnhub", "t212",
         "polygon", "databento", "oanda", "binance",
-        "ibkr",    // IBKR ib_insync provider — deep 1m history (1yr vs yfinance 7d)
+        "ibkr",     // IBKR ib_insync (local Gateway) — deep 1m, but hangs on contention
+        "ibkr_web", // IBKR OAuth Web API via the central backend endpoint (Option B) —
+                    // 1d/1h, no Gateway to babysit; the working IBKR-GOOD source
     };
 
     // Phase G-1 — map the bar_cache_events.result enum into the coarse
