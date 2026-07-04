@@ -196,6 +196,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[risk] Reject a position exceeding this %% of allocated capital (e.g. 15). Off by default.")
     p.add_argument("--exclude-symbols", default=None,
                    help="[risk] Comma-separated symbols this desk must never open/extend (e.g. TSLA,GME). Flatten still allowed. Off by default.")
+    p.add_argument("--reconcile-entries", action="store_true", default=False,
+                   help="[equity] Widen signal reconciliation from held→universe so a flat "
+                        "name whose signal says LONG still BUYS even if the feed delivered no "
+                        "trigger bar (fixes missed buys). OPENS positions — off by default; "
+                        "enable after reviewing a dry run. Held-EXIT reconciliation is always on.")
     # ── Ichimoku FX knobs ────────────────────────────────────────────────
     p.add_argument("--warmup-bars", type=int, default=200,
                    help="[ichimoku_fx_mr] Bars of history before signals fire.")
@@ -1215,7 +1220,7 @@ def _apply_config_overrides(args, log) -> None:
                 "top_n", "min_atr_pct", "min_strength",
                 "max_daily_loss_usd", "max_drawdown_pct",
                 "max_open_positions", "max_position_pct_of_capital",
-                "exclude_symbols"):
+                "exclude_symbols", "reconcile_entries"):
         if key in cfg and cfg[key] is not None and hasattr(args, key):
             setattr(args, key, cfg[key])
     # IBKR connection → env (the adapter reads TRADEPRO_IBKR_*).
@@ -1619,13 +1624,19 @@ def main(argv: list[str] | None = None) -> int:
         _cache_dir = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
         marks = _fetch_broker_held_marks(broker_list[0])
         recon_px: dict[str, float] = {}
-        # 1) held names → broker mark (exit coverage). Long-only: skip (bug) shorts.
+        # 1) held names → broker mark (EXIT coverage). Long-only: skip (bug) shorts.
+        #    Always on — proven safe (held positions can only exit-or-hold) + wanted.
         for _s, _q in seeded_positions.items():
             if _q > 0:
                 recon_px[_s] = marks.get(_s) or seeded_avg_prices.get(_s) or 0.0
-        # 2) universe names not already held → cache latest close (entry coverage).
-        _uni = [s for s in bus_symbols if s not in recon_px]
-        recon_px.update(_latest_daily_closes(_uni, _cache_dir))
+        # 2) universe names → cache latest close (ENTRY coverage). GATED behind
+        #    --reconcile-entries (default OFF): this OPENS the missed-buy names, a real
+        #    behaviour change, so it stays off until explicitly enabled after a review.
+        #    When off, missed buys are still SURFACED by the signal-audit (observability),
+        #    just not auto-traded.
+        if getattr(args, "reconcile_entries", False):
+            _uni = [s for s in bus_symbols if s not in recon_px]
+            recon_px.update(_latest_daily_closes(_uni, _cache_dir))
         recon_bars = [
             _ReconBar(symbol=_s, timestamp=session_date, open=_px, high=_px, low=_px,
                       close=_px, volume=0, timeframe_seconds=86400, is_live=True)
