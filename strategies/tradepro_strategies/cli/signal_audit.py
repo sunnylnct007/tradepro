@@ -31,9 +31,11 @@ log = logging.getLogger("tradepro.signal_audit")
 _STRATEGIES = {
     "ichimoku_equity": {
         "broker": "T212_DEMO", "source": "t212", "start_capital": 50_000.0, "ccy": "GBP",
+        "universes": ["large_50", "high_beta"],   # for missed-BUY detection
     },
     "ichimoku_equity_ibkr": {
         "broker": "IBKR_PAPER", "source": "account-state", "start_capital": 1_000_000.0, "ccy": "USD",
+        "universes": ["large_50"],
     },
 }
 
@@ -143,6 +145,27 @@ def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
             "days_overdue": days_overdue,
         })
 
+    # Missed BUYs: universe names whose signal says LONG but we're FLAT (not held) —
+    # the ENTRY half of the signal-execution gap. Surfaced even when auto-entry is
+    # gated off (--reconcile-entries), so the trader SEES what the strategy would buy.
+    import requests as _rq
+    held_syms = {p["symbol"] for p in positions if p.get("symbol")}
+    missed_buys: list[dict] = []
+    for uname in cfg.get("universes", []):
+        try:
+            usyms = [s["ticker"] for s in _rq.get(
+                f"{base}/api/universes/{uname}", headers=headers, timeout=15
+            ).json().get("symbols", []) if s.get("effective", True)]
+        except Exception:  # noqa: BLE001
+            usyms = []
+        for us in usyms:
+            if us in held_syms or any(m["symbol"] == us for m in missed_buys):
+                continue
+            pos, _ = _signal(_load_daily(cache_dir, us))
+            if pos == 1.0:  # signal LONG but we hold none → missed buy candidate
+                missed_buys.append({"symbol": us, "universe": uname})
+    missed_buys.sort(key=lambda m: m["symbol"])
+
     # Honest P&L: NLV vs start, splitting realized+costs from unrealised-on-held.
     start = cfg["start_capital"]
     nlv = account.get("nlv")
@@ -166,13 +189,16 @@ def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
             "total_pnl_pct": round(total_pnl / start * 100, 2) if total_pnl is not None else None,
         },
         "counts": {"held": len(rows), "hold": n("hold"),
-                   "exit_overdue": n("exit_overdue"), "blind": n("blind")},
+                   "exit_overdue": n("exit_overdue"), "blind": n("blind"),
+                   "missed_buys": len(missed_buys)},
         "exit_overdue": overdue,
+        "missed_buys": missed_buys,
         "blind": [r["symbol"] for r in rows if r["classification"] == "blind"],
         "positions": rows,
         "note": ("Signal = trader's stateful Ichimoku (exit when Close<cloud_bottom OR "
-                 "tenkan<kijun). exit_overdue = signal says SELL but still held (exit not "
-                 "executed). P&L is NLV-vs-start (realized+costs NOT hidden). blind = no bars."),
+                 "tenkan<kijun). exit_overdue = signal says SELL but still held. missed_buys "
+                 "= signal says LONG but we're flat (entry gap). P&L is NLV-vs-start "
+                 "(realized+costs NOT hidden). blind = no bars."),
     }
 
 

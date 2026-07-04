@@ -111,6 +111,21 @@ export function SignalAuditCard() {
             </div>
           ))}
 
+          {/* Missed BUYs — signal says LONG but we're flat (the entry gap) */}
+          {(a.missed_buys?.length ?? 0) > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Missed BUYs — signal says LONG, we're flat ({a.counts.missed_buys ?? a.missed_buys!.length})
+              </div>
+              <div style={{ fontSize: 10.5, color: "#58a6ff", padding: "3px 0", lineHeight: 1.5 }}>
+                {a.missed_buys!.map((m) => m.symbol).join(", ")}
+              </div>
+              <div style={{ fontSize: 9, color: "var(--text-muted)" }}>
+                The entry half of the gap — flat names the strategy should hold. Auto-entry is gated (<code>--reconcile-entries</code> off) until reviewed; these are what it would open.
+              </div>
+            </div>
+          )}
+
           {a.blind.length > 0 && (
             <div style={{ marginTop: 7, fontSize: 9.5, color: "#d29922" }}>
               👁 <b>Blind ({a.counts.blind})</b> — held but no bars to evaluate exits: {a.blind.filter(Boolean).join(", ")}. Harvest these (golden-source gap).

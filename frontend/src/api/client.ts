@@ -549,7 +549,8 @@ export const api = {
           realized_and_costs: number | null;
           total_pnl_pct: number | null;
         };
-        counts: { held: number; hold: number; exit_overdue: number; blind: number };
+        counts: { held: number; hold: number; exit_overdue: number; blind: number; missed_buys?: number };
+        missed_buys?: Array<{ symbol: string; universe: string }>;
         exit_overdue: Array<{
           symbol: string | null;
           qty: number;
