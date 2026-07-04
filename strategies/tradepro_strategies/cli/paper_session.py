@@ -804,6 +804,34 @@ def _fetch_broker_held_marks(broker: str) -> dict[str, float]:
         return {}
 
 
+def _latest_daily_closes(symbols: list[str], cache_dir: str) -> dict[str, float]:
+    """{bare_symbol: latest daily close} from the local bar cache — used to PRICE
+    the signal-reconciliation bars for UNIVERSE names (entry coverage). The close
+    feeds the entry sizing (qty = notional // close), so it must be real. Best-effort
+    per symbol; a symbol with no cache is simply not reconciled (stays feed-dependent
+    + will surface as a no-bar flag). Kept lightweight (index-free parquet read)."""
+    import glob as _glob
+    out: dict[str, float] = {}
+    try:
+        import pandas as _pd
+    except Exception:  # noqa: BLE001
+        return out
+    for s in symbols:
+        try:
+            files = sorted(_glob.glob(f"{cache_dir}/{s}/1d/*.parquet"))
+            if not files:
+                continue
+            df = _pd.read_parquet(files[-1])
+            df.columns = [c.lower() for c in df.columns]
+            if "close" in df.columns and len(df):
+                px = float(df["close"].iloc[-1])
+                if px > 0:
+                    out[s] = px
+        except Exception:  # noqa: BLE001 — one bad symbol never blocks the rest
+            continue
+    return out
+
+
 def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[str, int], dict[str, float]]:
     """Fetch the strategy's current position FROM THE BROKER and seed it
     so reruns compute a delta (target - current) instead of re-emitting a
@@ -1568,33 +1596,47 @@ def main(argv: list[str] | None = None) -> int:
             seeded_positions.update(seeded)
             seeded_avg_prices.update(seeded_avg)
 
-    # Held-exit reconciliation: guarantee every SEEDED held position gets an
-    # on_bar → exit evaluation, even if the live feed delivered no trigger bar for
-    # it. Thin/gappy names (STRL/STX/WDC) get no intraday bar → on_bar is never
-    # called → a held long whose signal says EXIT is never sold and bleeds forever
-    # (root cause confirmed 2026-07-04). Wrap the bus so it emits one synthetic bar
-    # per held name AFTER the real bars. Parity-safe: held positions (qty>0) can
-    # only exit-or-hold in on_bar (entry needs position==0), so this only ADDS exit
-    # coverage; _moo_fired dedups vs any real bar. Single non-shared broker only:
-    # T212 is the equity strategy's OWN book (IG is shared across strategies; IBKR
-    # has native MOO so its exits queue pre-market anyway).
+    # Signal reconciliation: guarantee every name in `universe ∪ held` gets an
+    # on_bar evaluation, even if the live feed delivered no trigger bar for it.
+    # Thin/gappy names get no intraday bar → on_bar never runs → the signal is
+    # SILENTLY DROPPED — a held name whose signal says EXIT never sells (STRL/STX/WDC)
+    # AND a flat name whose signal says BUY never buys (the 8 missed buys). Root
+    # cause + full reconciliation confirmed 2026-07-04. We wrap the bus so it emits
+    # one synthetic bar per name AFTER the real bars, so on_bar evaluates BOTH the
+    # exit (held) and the entry (flat) for every name.
+    #
+    # Priced from the broker mark (held) or the cache's latest daily close (universe)
+    # so entry sizing is real. Parity-safe: the strategy's own entry gates + _moo_fired
+    # dedup still apply — this only ensures on_bar RUNS; it never forces a trade the
+    # signal/gates didn't already call for. Single non-shared broker only (T212 = the
+    # equity strategy's OWN book; IG is shared; IBKR has native MOO).
+    #
+    # NOTE: this is a real behaviour change — it WILL open the missed-buy names that
+    # signal long. Reviewed as such; entry logic unchanged, only its reachability.
     if seeded_positions and len(broker_list) == 1 and broker_list[0].lower() == "t212":
         from ..paper.bar_bus import HeldReconciliationBus
         from ..paper.strategy import Bar as _ReconBar
+        _cache_dir = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
         marks = _fetch_broker_held_marks(broker_list[0])
-        recon_bars = []
+        recon_px: dict[str, float] = {}
+        # 1) held names → broker mark (exit coverage). Long-only: skip (bug) shorts.
         for _s, _q in seeded_positions.items():
-            if _q <= 0:
-                continue  # long-only book; never reconcile a (bug) short here
-            _px = marks.get(_s) or seeded_avg_prices.get(_s) or 0.0
-            recon_bars.append(_ReconBar(
-                symbol=_s, timestamp=session_date, open=_px, high=_px, low=_px,
-                close=_px, volume=0, timeframe_seconds=86400, is_live=True))
+            if _q > 0:
+                recon_px[_s] = marks.get(_s) or seeded_avg_prices.get(_s) or 0.0
+        # 2) universe names not already held → cache latest close (entry coverage).
+        _uni = [s for s in bus_symbols if s not in recon_px]
+        recon_px.update(_latest_daily_closes(_uni, _cache_dir))
+        recon_bars = [
+            _ReconBar(symbol=_s, timestamp=session_date, open=_px, high=_px, low=_px,
+                      close=_px, volume=0, timeframe_seconds=86400, is_live=True)
+            for _s, _px in recon_px.items() if _px > 0
+        ]
         if recon_bars:
             bus = HeldReconciliationBus(inner=bus, reconciliation_bars=recon_bars)
             log.info(
-                "held-exit reconciliation: wrapped bus with %d synthetic held "
-                "bar(s) so every held name gets an exit evaluation", len(recon_bars))
+                "signal reconciliation: wrapped bus with %d synthetic bar(s) "
+                "(universe ∪ held) so every name gets an entry+exit evaluation",
+                len(recon_bars))
 
     engine = Engine(bus=bus, router=router)
     engine.register_strategy(
