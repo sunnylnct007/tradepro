@@ -124,10 +124,13 @@ class IBKRWebProvider(Provider):
                 .rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
                 [["open", "high", "low", "close", "volume"]]
                 .sort_index())
-        # IBKR history is split/dividend-adjusted "Last" → adj_factor = 1.0, matching
-        # the Gateway provider. REQUIRED by the bar_cache schema (without it BarStore
-        # rejects the frame + silently falls through to yfinance = BRONZE).
+        # bar_cache schema REQUIRES adj_factor + source (column_order = open/high/low/
+        # close/volume/adj_factor/source). Without BOTH, BarStore rejects the frame
+        # (ibkr_web_parse) and silently falls through to yfinance = BRONZE. IBKR
+        # history is split/dividend-adjusted "Last" → adj_factor = 1.0 (like the
+        # Gateway). source drives the quality grade (ibkr_web ∈ _TRUSTED_PROVIDERS → GOOD).
         df["adj_factor"] = 1.0
+        df["source"] = "ibkr_web"
 
         s = pd.Timestamp(start); e = pd.Timestamp(end)
         if s.tz is None:
