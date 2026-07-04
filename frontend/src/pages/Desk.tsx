@@ -35,6 +35,7 @@ import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
 import { PnlTruthCard } from "../components/desk/PnlTruthCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { SignalAuditCard } from "../components/desk/SignalAuditCard";
+import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
 import { TodaySetupsCard } from "../components/desk/TodaySetupsCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
@@ -110,33 +111,33 @@ export function Desk() {
     <DeskShell active={view} onSelect={onSelectView}>
       {view === "portfolio" && (
         <>
-          {/* Per-strategy healthcheck — run timing + fills so a silently-stopped
-              strategy is visible (not buried in logs). */}
+          {/* Compact-UX pass: always-visible KPI strip + a per-strategy health bar
+              full-width, then the detail panels in a responsive 2-COLUMN grid so the
+              cockpit fits ~one screen instead of a long single-column scroll. */}
+          <DeskKpiStrip />
           <StrategyHealthPanel />
 
-          {/* P&L truth — realised (booked) vs open (unrealised/soft) per strategy,
-              part of the operational + data-truthfulness clarity workstream. */}
-          <PnlTruthCard />
-
-          {/* Broker-golden book — read straight from the broker (positions/
-              deployed/unrealised/NLV), flags shorts + the truth the OMS misses. */}
-          <BrokerBookCard />
-
-          {/* Signal vs Position audit — exits that fired but never executed +
-              the HONEST NLV-vs-start P&L (realized churn/costs no longer hidden). */}
-          <SignalAuditCard />
-
-          {/* Live-vs-backtest tracking — the systematic ICH clone proving itself
-              (Track B research foundation: make the measurement loop visible). */}
-          <EquityTrackingCard />
-
-          {/* Fill-replay — what the ACTUAL fills say about entry quality
-              (Track B: the over-extension refutation, made visible). */}
-          <FillReplayCard />
-
-          {/* Today's Setups — universe ranked by entry quality (the curated,
-              risk-aware scanner; replaces the old flat BUY-light board). */}
-          <TodaySetupsCard />
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: wide ? "repeat(auto-fit, minmax(460px, 1fr))" : "1fr",
+              gap: 12,
+              alignItems: "start",
+            }}
+          >
+            {/* P&L truth — realised (booked) vs open (unrealised/soft) per strategy. */}
+            <PnlTruthCard />
+            {/* Broker-golden book — positions/deployed/unrealised/NLV, flags shorts. */}
+            <BrokerBookCard />
+            {/* Signal vs Position audit — exits-not-firing + honest NLV-vs-start P&L. */}
+            <SignalAuditCard />
+            {/* Live-vs-backtest tracking — the systematic ICH clone proving itself. */}
+            <EquityTrackingCard />
+            {/* Fill-replay — what the ACTUAL fills say about entry quality. */}
+            <FillReplayCard />
+            {/* Today's Setups — universe ranked by entry quality (risk-aware scanner). */}
+            <TodaySetupsCard />
+          </div>
 
           {/* Compact per-broker account summary table */}
           <AccountSummaryGrid />
