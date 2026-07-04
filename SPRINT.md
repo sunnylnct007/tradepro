@@ -1,5 +1,39 @@
 # TradePro Sprint Tracker
-_Updated: 2026-06-10. Read this first in every new session — takes < 2 min._
+_Updated: 2026-07-04. Read this first in every new session — takes < 2 min._
+
+---
+
+## 🚨 FEATURE FREEZE — Data Accuracy Turnaround (2026-07-04)
+
+**No new strategies, no Polygon, no paid Finnhub, no catalyst/LLM work, no new
+surfaces** until the data under `UNIVERSE_CORE` reads all-GOOD on
+`/api/admin/data-trust/bar-cache/quality`. Phases 0–3 DELETE / re-point / verify —
+they add zero features. Only Phase 4 adds anything, and only what IBKR hands us for
+broker-true (options/IV, peers/themes).
+
+**The one rule:** nothing is shown as actionable until the data under it is
+broker-GOOD for the symbols it covers. Everything else is LABELED + demoted, never
+deleted-in-silence. The gate for every phase = `UNIVERSE_CORE` all-GOOD on the
+quality endpoint.
+
+**Crux (Phase 1):** flipping to IBKR is a `data_source_preferences` ROW EDIT
+(migration 045 already added `ibkr`; `PreferencesLoader` picks it up in ~60s), NOT
+a code change — EXCEPT the transport. We are doing **Option B (IBKR Web API / OAuth)**,
+not the local Gateway (`ib_insync`), because the Gateway is single-session-per-account
+and hangs under trader+harvester contention (see memory
+`project_ibkr_harvest_session_isolation`).
+
+**CENTRAL API HANDLING (user rule 2026-07-04) — do NOT scatter broker API logic.**
+The C# `IBKRClient.cs` already owns the IBKR OAuth session + egress-IP + status/
+positions/cash/orders. It is THE single IBKR API handler. Option B = add ONE method
+`GetPriceHistoryAsync` there (reusing that session) + expose ONE endpoint
+(`/api/integrations/ibkr/price-history`); the Python `bar_cache` provider is a THIN
+HTTP consumer of that endpoint — it does NOT re-implement OAuth. This also starts
+CONSOLIDATING the scattered IBKR paths (Python Gateway provider, ad-hoc MCP,
+paper_session gateway) toward the one central handler. Core universe = `UNIVERSE_CORE`
+(`strategies/tradepro_strategies/universe_core.py`).
+
+Full plan: this file's git history + memory `project_data_accuracy_turnaround`.
 
 ---
 
