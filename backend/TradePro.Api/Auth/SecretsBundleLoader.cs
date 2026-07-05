@@ -114,6 +114,12 @@ public static class SecretsBundleLoader
         // (the loader injects both config keys; IBKROptions prefers per-env).
         ["client_id"]        = "IBKR:ClientId",
         ["credential"]       = "IBKR:Credential",
+
+        // Order-placement kill-switch. Absent by default (binds false). When an
+        // operator sets allow_orders=true on the paper secret this maps it into
+        // IBKR:AllowOrders so the secret controls it (config-driven, no code
+        // change / redeploy needed to arm or disarm placement).
+        ["allow_orders"]     = "IBKR:AllowOrders",
     };
 
     public static void LoadInto(IConfigurationBuilder builder, IConfiguration existing, ILogger? log = null)
