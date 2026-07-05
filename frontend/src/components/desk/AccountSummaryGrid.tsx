@@ -296,19 +296,27 @@ function StrategyPnlTable({ rows }: { rows: PnlRow[] }) {
         </thead>
         <tbody>
           {active.map((r) => {
+            const unconf = r.unconfirmed;
+            const dim = (c: string | undefined) => (unconf ? "var(--text-dim)" : c);
             // open=null but the desk has traded → it's flat right now, not "no data".
             const openCell = r.openPnl == null
               ? (r.trades > 0
                   ? <span style={{ color: "var(--text-muted)" }}>flat</span>
                   : <span style={{ color: "var(--text-muted)" }}>—</span>)
-              : <span style={{ color: signColour(r.openPnl) }}>{fmtMoney(r.openPnl, r.currency, true)}</span>;
+              : <span style={{ color: dim(signColour(r.openPnl)) }}>{fmtMoney(r.openPnl, r.currency, true)}{unconf && "*"}</span>;
             return (
-              <tr key={r.strategyId} style={{ borderBottom: "1px solid #141b2b" }}>
-                <td style={{ ...TD, fontWeight: 700 }}>{r.strategyId}</td>
+              <tr key={r.strategyId} title={unconf ? r.confirmation : undefined} style={{ borderBottom: "1px solid #141b2b", opacity: unconf ? 0.72 : 1 }}>
+                <td style={{ ...TD, fontWeight: 700 }}>
+                  {r.strategyId}
+                  {unconf && (
+                    <span title={r.confirmation}
+                      style={{ marginLeft: 5, fontSize: 8, fontWeight: 700, padding: "0px 4px", borderRadius: 4, background: "rgba(248,81,73,0.15)", border: "1px solid rgba(248,81,73,0.5)", color: "#f85149", letterSpacing: "0.03em", cursor: "help" }}>UNCONFIRMED</span>
+                  )}
+                </td>
                 <td style={{ ...TD, color: "var(--text-muted)", fontSize: 10 }}>{r.broker}</td>
                 <td style={TD_R}>{openCell}</td>
-                <td style={{ ...TD_R, color: signColour(r.realisedToday) }}>{fmtMoney(r.realisedToday, r.currency, true)}</td>
-                <td style={{ ...TD_R, color: signColour(r.realisedLtd) }}>{fmtMoney(r.realisedLtd, r.currency, true)}</td>
+                <td style={{ ...TD_R, color: dim(signColour(r.realisedToday)) }}>{fmtMoney(r.realisedToday, r.currency, true)}{unconf && r.realisedToday != null && "*"}</td>
+                <td style={{ ...TD_R, color: dim(signColour(r.realisedLtd)) }}>{fmtMoney(r.realisedLtd, r.currency, true)}{unconf && r.realisedLtd != null && "*"}</td>
                 <td style={{ ...TD_R, color: "var(--text-muted)" }}>{r.trades}</td>
               </tr>
             );
@@ -318,6 +326,9 @@ function StrategyPnlTable({ rows }: { rows: PnlRow[] }) {
       <div style={{ padding: "4px 10px 5px", fontSize: 9, color: "var(--text-dim)" }}>
         Per-strategy realised from oms fills (golden source) · "flat" = desk holds nothing now ·
         IG FX + intraday equity share the IG account but are shown separately here
+        {active.some((r) => r.unconfirmed) && (
+          <><br /><span style={{ color: "#f85149" }}>UNCONFIRMED / *</span> = fills are OMS-simulated with no broker order id — not broker-verified, not comparable to the confirmed desks.</>
+        )}
       </div>
     </div>
   );

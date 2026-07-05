@@ -402,6 +402,12 @@ function PositionSection({
   );
 
   const sectionMode: AccountMode = section.rows.some((r) => r.mode === "LIVE") ? "LIVE" : "DEMO";
+  // IBKR paper clone: its orders route via a fire-and-forget inbox with NO broker
+  // ack (broker_order_id is NULL on every fill), so the FILLS + strategy
+  // attribution are OMS-simulated, not broker-verified. The position MARKS below
+  // do come from the account-state snapshot (a broker read), which is why we flag
+  // "execution unconfirmed" rather than muting the numbers outright.
+  const unconfirmedExec = section.rows.some((r) => r.broker === "IBKR" && r.mode === "DEMO");
   const ccys     = new Set(section.rows.map((r) => r.ccy ?? ""));
   const oneCcy   = ccys.size === 1 ? (section.rows[0]?.ccy ?? null) : null;
   const subtotal = oneCcy
@@ -441,6 +447,14 @@ function PositionSection({
           {section.title}
         </span>
         <ModeBadge mode={sectionMode} />
+        {unconfirmedExec && (
+          <span
+            title="IBKR paper clone — orders route through an inbox with NO broker acknowledgement, so every fill and the strategy attribution are OMS-simulated, not broker-verified. The position marks/P&L below are read from the account-state snapshot. Realised P&L and 'did this trade actually execute' are NOT broker-confirmed until execution is routed through the broker."
+            style={{ fontSize: 8, fontWeight: 700, padding: "0px 4px", borderRadius: 4, background: "rgba(248,81,73,0.15)", border: "1px solid rgba(248,81,73,0.5)", color: "#f85149", letterSpacing: "0.03em", cursor: "help" }}
+          >
+            EXECUTION UNCONFIRMED
+          </span>
+        )}
         <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>
           {section.rows.length} holding{section.rows.length === 1 ? "" : "s"}
         </span>
