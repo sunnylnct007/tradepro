@@ -445,6 +445,7 @@ export const api = {
     get<{
       utc: string;
       error?: string | null;
+      coverageError?: string | null;
       window?: { days: number; basis: string };
       rows: Array<{
         strategyId: string;
@@ -457,6 +458,13 @@ export const api = {
         totalPnl: number | null;
         trades: number;
         winRatePct: number | null;
+        // Broker-confirmation truth: of this strategy's FILLED orders, how many
+        // carry a broker_order_id. unconfirmed=true means ZERO do — the whole
+        // book is OMS-simulated, NOT broker-verified (the IBKR paper clones).
+        filledOrders: number;
+        brokerConfirmedFills: number;
+        unconfirmed: boolean;
+        confirmation: string;
         notes: string;
       }>;
     }>("/api/pnl/by-strategy", { days }),

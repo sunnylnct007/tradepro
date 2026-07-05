@@ -218,6 +218,30 @@ public static class PnlByStrategyEndpoints
             }
             catch (Exception ex) { igHistError = $"IG history fetch threw: {ex.Message}"; }
 
+            // ── 2b. broker-confirmation coverage (fail-loud) ───────────────
+            // The single honest signal for "can we trust this row": of a
+            // strategy's FILLED orders, how many carry a broker_order_id (the id
+            // the broker returns on ACK). T212/IG record it synchronously; the
+            // IBKR paper clones route via a fire-and-forget inbox and record
+            // NONE — so their fills/P&L are OMS-SIMULATED, not broker-verified,
+            // and must NOT be compared like-for-like against the real book.
+            // Data-driven off the ledger — never a hardcoded broker-name check.
+            var fillCoverage = new Dictionary<string, (int Filled, int WithBrokerId)>(StringComparer.OrdinalIgnoreCase);
+            string? coverageError = null;
+            try
+            {
+                await using var conn = await db.OpenConnectionAsync(ct);
+                var covRows = await conn.QueryAsync<(string strategy_id, int filled, int with_id)>(@"
+                    SELECT strategy_id,
+                           COUNT(*)::int              AS filled,
+                           COUNT(broker_order_id)::int AS with_id
+                    FROM oms_orders
+                    WHERE state = 'FILLED'
+                    GROUP BY strategy_id;");
+                foreach (var c in covRows) fillCoverage[c.strategy_id] = (c.filled, c.with_id);
+            }
+            catch (Exception ex) { coverageError = $"broker-confirmation coverage unavailable: {ex.Message}"; }
+
             // ── 3. build one row per mapped strategy ───────────────────────
             var outRows = new List<PnlByStrategy.StrategyPnlRow>();
             foreach (var (strategyId, broker) in map)
@@ -357,19 +381,41 @@ public static class PnlByStrategyEndpoints
             {
                 utc = DateTime.UtcNow,
                 window = new { days = window, basis = "Realised today = banked on UTC-today's closed deals/sells; realised LTD = banked life-to-date (IG closed-deal history over the window; T212 FIFO over the OMS ledger). Open = unrealised mark-to-market now." },
-                rows = outRows.Select(r => new
+                coverageError,
+                rows = outRows.Select(r =>
                 {
-                    strategyId = r.StrategyId,
-                    broker = r.Broker,
-                    currency = r.Currency,
-                    openPnl = r.OpenPnl,
-                    realisedToday = r.RealisedToday,
-                    realisedLtd = r.RealisedLtd,
-                    realisedPnl = r.RealisedPnl,
-                    totalPnl = r.TotalPnl,
-                    trades = r.Trades,
-                    winRatePct = r.WinRatePct,
-                    notes = r.Notes,
+                    fillCoverage.TryGetValue(r.StrategyId, out var cov);
+                    var filled = cov.Filled;
+                    var confirmed = cov.WithBrokerId;
+                    // UNCONFIRMED only when the strategy HAS fills yet NONE carry a
+                    // broker order id — i.e. the whole book is OMS-simulated. A
+                    // strategy with no fills yet isn't "unconfirmed", just empty.
+                    var unconfirmed = filled > 0 && confirmed == 0;
+                    var confirmation = coverageError is not null
+                        ? $"confirmation unknown: {coverageError}"
+                        : unconfirmed
+                            ? $"UNCONFIRMED — 0 of {filled} filled orders carry a broker order id; positions & P&L are OMS-simulated, NOT broker-verified. Not comparable to broker-confirmed strategies until execution is routed through the broker."
+                            : filled > 0
+                                ? $"broker-verified ({confirmed}/{filled} filled orders carry a broker order id)"
+                                : "no fills yet";
+                    return new
+                    {
+                        strategyId = r.StrategyId,
+                        broker = r.Broker,
+                        currency = r.Currency,
+                        openPnl = r.OpenPnl,
+                        realisedToday = r.RealisedToday,
+                        realisedLtd = r.RealisedLtd,
+                        realisedPnl = r.RealisedPnl,
+                        totalPnl = r.TotalPnl,
+                        trades = r.Trades,
+                        winRatePct = r.WinRatePct,
+                        filledOrders = filled,
+                        brokerConfirmedFills = confirmed,
+                        unconfirmed,
+                        confirmation,
+                        notes = r.Notes,
+                    };
                 }),
             });
         });

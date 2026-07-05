@@ -73,20 +73,30 @@ export function PnlTruthCard() {
             const net = (r.realisedLtd ?? 0) + (r.openPnl ?? 0);
             const bothKnown = r.realisedLtd != null && r.openPnl != null;
             const soft = SOFT_OPEN.has(r.strategyId) && (r.openPnl ?? 0) > 0;
+            // UNCONFIRMED: the whole book is OMS-simulated (no broker ack). Its
+            // numbers are NOT broker-verified, so we mute them so nobody reads
+            // them like the real, broker-confirmed rows (the whole point: you
+            // can't compare the clone vs the T212 original on made-up fills).
+            const unconf = r.unconfirmed;
+            const numColor = (c: string) => (unconf ? "var(--text-dim)" : c);
             return (
-              <div key={r.strategyId} style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.4fr) 1fr 1fr 1fr auto", gap: 6, padding: "4px 6px", borderTop: "1px solid #11161f", alignItems: "baseline", fontSize: 11 }}>
+              <div key={r.strategyId} title={unconf ? r.confirmation : undefined} style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.4fr) 1fr 1fr 1fr auto", gap: 6, padding: "4px 6px", borderTop: "1px solid #11161f", alignItems: "baseline", fontSize: 11, opacity: unconf ? 0.72 : 1 }}>
                 <span style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text)" }}>
                   {r.strategyId}
+                  {unconf && (
+                    <span title={r.confirmation}
+                      style={{ marginLeft: 5, fontSize: 8, fontWeight: 700, padding: "0px 4px", borderRadius: 4, background: "rgba(248,81,73,0.15)", border: "1px solid rgba(248,81,73,0.5)", color: "#f85149", letterSpacing: "0.03em", cursor: "help" }}>UNCONFIRMED</span>
+                  )}
                   {(() => { const bp = brokerPortal(r.broker); return bp ? (
                     <a href={bp.url} target="_blank" rel="noopener noreferrer" title={`Open ${bp.label} for positions/fills/P&L detail`}
                        style={{ marginLeft: 5, fontSize: 8.5, color: "var(--accent, #4f8cff)", textDecoration: "none" }}>↗{r.broker.split("_")[0]}</a>
                   ) : null; })()}
                 </span>
-                <span style={{ color: col(r.realisedLtd), fontWeight: 700 }} title="booked P&L on closed trades — the trustworthy number">{money(r.realisedLtd, r.currency)}</span>
-                <span style={{ color: col(r.openPnl) }} title="unrealised mark-to-market — moves with price, not booked">
-                  {money(r.openPnl, r.currency)}{soft && <span style={{ color: "#d29922", fontSize: 9 }} title="includes orphaned positions the strategy isn't managing — soft"> ⚠</span>}
+                <span style={{ color: numColor(col(r.realisedLtd)), fontWeight: unconf ? 400 : 700 }} title={unconf ? r.confirmation : "booked P&L on closed trades — the trustworthy number"}>{money(r.realisedLtd, r.currency)}{unconf && "*"}</span>
+                <span style={{ color: numColor(col(r.openPnl)) }} title={unconf ? r.confirmation : "unrealised mark-to-market — moves with price, not booked"}>
+                  {money(r.openPnl, r.currency)}{unconf && "*"}{soft && <span style={{ color: "#d29922", fontSize: 9 }} title="includes orphaned positions the strategy isn't managing — soft"> ⚠</span>}
                 </span>
-                <span style={{ color: bothKnown ? col(net) : "var(--text-dim)" }}>{bothKnown ? money(net, r.currency) : "—"}</span>
+                <span style={{ color: bothKnown ? numColor(col(net)) : "var(--text-dim)" }}>{bothKnown ? `${money(net, r.currency)}${unconf ? "*" : ""}` : "—"}</span>
                 <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{r.winRatePct != null ? `${r.winRatePct.toFixed(0)}%` : "—"}·{r.trades}t</span>
               </div>
             );
@@ -94,6 +104,9 @@ export function PnlTruthCard() {
           <div style={{ marginTop: 6, fontSize: 9, color: "var(--text-muted)", padding: "0 6px", lineHeight: 1.5 }}>
             <b style={{ color: "#3fb950" }}>Realised</b> = booked closed trades (trust this). <b>Open</b> = unrealised mark-to-market — moves with price, not money in the bank.
             <span style={{ color: "#d29922" }}> ⚠ = Open is soft</span> (holds orphaned positions the strategy isn't managing → Net overstates the real result until wound down).
+            {rows.some((r) => r.unconfirmed) && (
+              <><br /><span style={{ color: "#f85149" }}>UNCONFIRMED / *</span> = every fill is OMS-simulated with <b>no broker order id</b> — these numbers are <b>not broker-verified</b> and are <b>not comparable</b> to the real broker-confirmed rows (e.g. the IBKR paper clones vs the T212 original). Fix in flight: route clone execution through the broker.</>
+            )}
           </div>
         </div>
       )}
