@@ -828,6 +828,55 @@ public static class IntegrationsEndpoints
             });
         });
 
+        // POST /api/integrations/ibkr/orders — CONTROLLED single market order to
+        // the PAPER account, to validate the confirmed order path end-to-end
+        // (auth → place → reply-confirm → real order id) BEFORE the daemon routes
+        // through it. Guarded THREE ways: (1) IsEnabled, (2) the AllowOrders
+        // kill-switch (403 when off), (3) the mode-resolved account (a paper
+        // secret can only ever place to the paper account). Places exactly ONE
+        // order and returns the FULL result — the real broker order id on
+        // success, or the rejection reason. FAIL-LOUD: never a silent success.
+        app.MapPost("/integrations/ibkr/orders", async (
+            IBKROrderRequest req,
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
+            ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("IBKROrderTest");
+            if (!ibkr.IsEnabled)
+                return Results.Json(new { error = "IBKR disabled — populate tradepro/ibkr + restart" }, statusCode: 503);
+            if (!ibkr.AllowOrders)
+                return Results.Json(new
+                {
+                    error = "IBKR order placement is disabled (read-only kill-switch). "
+                          + "Set IBKR:AllowOrders=true on the paper secret to enable.",
+                    allowOrders = false, mode = opts.Value.Mode, account = opts.Value.AccountId,
+                }, statusCode: 403);
+            if (req is null || string.IsNullOrWhiteSpace(req.Symbol)
+                || string.IsNullOrWhiteSpace(req.Side) || req.Quantity <= 0)
+                return Results.BadRequest(new { error = "symbol, side (BUY/SELL), quantity>0 required" });
+            var side = req.Side.Trim().ToUpperInvariant();
+            if (side is not ("BUY" or "SELL"))
+                return Results.BadRequest(new { error = "side must be BUY or SELL" });
+            var secType = string.IsNullOrWhiteSpace(req.SecType) ? "STK" : req.SecType!.Trim().ToUpperInvariant();
+            log.LogWarning(
+                "IBKR TEST ORDER: {Side} {Qty} {Sym} ({SecType}) → mode={Mode} account={Account}",
+                side, req.Quantity, req.Symbol, secType, opts.Value.Mode, opts.Value.AccountId);
+            var r = await ibkr.PlaceMarketOrderBySymbolAsync(req.Symbol, side, req.Quantity, secType, ct);
+            var ok = r.Status == "ACCEPTED" && r.OrderId is not null;
+            return Results.Json(new
+            {
+                placed = ok,
+                orderId = r.OrderId,
+                status = r.Status,
+                reason = r.StatusReason,
+                mode = opts.Value.Mode,
+                account = opts.Value.AccountId,
+                symbol = req.Symbol.ToUpperInvariant(), side, quantity = req.Quantity, secType,
+            }, statusCode: ok ? 200 : 502);
+        })
+        .WithName("PlaceIBKRTestOrder");
+
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
@@ -1420,3 +1469,8 @@ public static class IntegrationsEndpoints
 ///   Symbol set  → close every deal for that bare pair (e.g. "EURUSD").
 ///   neither     → flatten every open IG deal.
 public sealed record FlattenRequest(string? Symbol, string? DealId);
+
+/// Body for POST /integrations/ibkr/orders — a CONTROLLED single market order
+/// used to validate the confirmed IBKR order path end-to-end. SecType defaults
+/// to "STK" (equities); pass "CASH" for FX pairs.
+public sealed record IBKROrderRequest(string Symbol, string Side, decimal Quantity, string? SecType);
