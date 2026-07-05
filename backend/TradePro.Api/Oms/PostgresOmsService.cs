@@ -517,10 +517,16 @@ public sealed class PostgresOmsService : IOmsService
                         return approved;
                     }
                     var side = approved.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase) ? "BUY" : "SELL";
-                    var place = await ibkr.PlaceMarketOrderAsync(
+                    // Drive the FULL confirmation dance (place → reply/confirm →
+                    // real order id). The old PlaceMarketOrderAsync stopped at
+                    // NEEDS_CONFIRM and persisted the REPLY id as broker_order_id
+                    // while the order never actually placed — the exact reason the
+                    // clone's fills carried no broker id. Confirmed path returns a
+                    // real order id (ACCEPTED) or REJECTED; never a dangling reply.
+                    var place = await ibkr.PlaceMarketOrderConfirmedAsync(
                         conid: conid, side: side, quantity: Math.Abs(approved.Qty),
                         ct: CancellationToken.None);
-                    if (place.Status == "REJECTED" || (place.OrderId is null && place.Status != "NEEDS_CONFIRM"))
+                    if (place.Status == "REJECTED" || place.OrderId is null)
                     {
                         _log.LogWarning(
                             "IBKR order rejected at placement for OMS order {OrderId} ({Sym} {Side} {Qty}): {Reason}",

@@ -597,4 +597,104 @@ public sealed class IBKRClient
             return new IBKROrderResult(null, "PARSE_ERROR", ex.Message, 0);
         }
     }
+
+    /// <summary>
+    /// Confirm an IBKR order-precaution reply — the "are you sure" warning IBKR
+    /// returns for most orders (price/size/liquidity). POST /iserver/reply/{id}
+    /// {confirmed:true}. IBKR can CHAIN replies, so the caller loops while the
+    /// response is another NEEDS_CONFIRM. Behind the SAME kill-switch as
+    /// placement (a reply advances a live order), so a read-only deploy can
+    /// never confirm one either.
+    /// </summary>
+    public async Task<IBKROrderResult> ConfirmReplyAsync(string replyId, CancellationToken ct = default)
+    {
+        if (!_options.AllowOrders)
+            return new IBKROrderResult(null, "REJECTED", "IBKR order placement disabled (read-only)", 0);
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Post, $"v1/api/iserver/reply/{Uri.EscapeDataString(replyId)}",
+                new { confirmed = true }, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IBKROrderResult(null, "REJECTED", text, (int)resp.StatusCode);
+            var ack = IBKRResponseParser.ParseOrderAck(text);
+            if (ack.Error is not null)
+                return new IBKROrderResult(null, "REJECTED", ack.Error, (int)resp.StatusCode);
+            if (ack.OrderId is null && ack.ReplyId is not null)
+                return new IBKROrderResult(ack.ReplyId, "NEEDS_CONFIRM", "chained confirmation", (int)resp.StatusCode);
+            return new IBKROrderResult(ack.OrderId, "ACCEPTED", ack.OrderStatus, (int)resp.StatusCode);
+        }
+        catch (Exception ex) { return new IBKROrderResult(null, "PARSE_ERROR", ex.Message, 0); }
+    }
+
+    /// <summary>
+    /// Place a market order AND drive the confirmation dance to completion:
+    /// place → while NEEDS_CONFIRM, POST the reply (bounded to <c>MaxConfirms</c>)
+    /// → return the REAL broker order id. This is the entry the OMS calls so an
+    /// order comes back with a broker_order_id instead of stalling at
+    /// NEEDS_CONFIRM (the reason the clone's fills carried no broker id).
+    ///
+    /// Mode is resolved from the secret (paper/live) and LOGGED on every order
+    /// so routing is auditable — you can always answer "which account did this
+    /// hit?". The kill-switch (<see cref="IBKROptions.AllowOrders"/>) still gates
+    /// it, and the account is <see cref="IBKROptions.AccountId"/> (mode-resolved),
+    /// so a paper secret can only ever place to the paper account.
+    /// </summary>
+    public async Task<IBKROrderResult> PlaceMarketOrderConfirmedAsync(
+        long conid, string side, decimal quantity, CancellationToken ct = default)
+    {
+        _log.LogInformation(
+            "IBKR order routing: mode={Mode} account={Account} label={Label} conid={Conid} side={Side} qty={Qty}",
+            _options.Mode, _options.AccountId, _options.BrokerLabel, conid, side, quantity);
+
+        var result = await PlaceMarketOrderAsync(conid, side, quantity, ct);
+        const int MaxConfirms = 5;
+        for (int i = 0; i < MaxConfirms && result.Status == "NEEDS_CONFIRM" && result.OrderId is not null; i++)
+        {
+            _log.LogInformation(
+                "IBKR order needs confirmation (reply {ReplyId}) — confirming {N}/{Max}",
+                result.OrderId, i + 1, MaxConfirms);
+            result = await ConfirmReplyAsync(result.OrderId, ct);
+        }
+        if (result.Status == "NEEDS_CONFIRM")
+            return new IBKROrderResult(null, "REJECTED",
+                $"order still needs confirmation after {MaxConfirms} replies", result.HttpStatus);
+        return result;
+    }
+
+    /// <summary>
+    /// Symbol-level convenience: resolve symbol→conid (secdef search) then
+    /// place + confirm. The Python desks emit symbols, so this keeps conid
+    /// resolution in the one authenticated place. <paramref name="secType"/>
+    /// defaults to "STK" (equities); pass "CASH" for FX pairs. Fail-loud: an
+    /// unresolvable symbol REJECTS (never a silent no-op that looks placed).
+    /// </summary>
+    public async Task<IBKROrderResult> PlaceMarketOrderBySymbolAsync(
+        string symbol, string side, decimal quantity, string secType = "STK", CancellationToken ct = default)
+    {
+        if (!_options.AllowOrders)
+            return new IBKROrderResult(null, "REJECTED", "IBKR order placement disabled (read-only)", 0);
+        var conid = await ResolveConidAsync(symbol, secType, ct);
+        if (conid is null)
+            return new IBKROrderResult(null, "REJECTED", $"no IBKR contract for {symbol} ({secType})", 0);
+        return await PlaceMarketOrderConfirmedAsync(conid.Value, side, quantity, ct);
+    }
+
+    /// <summary>symbol → conid via secdef/search (best-first match). Null when
+    /// there's no match (caller FLAGS it — fail-loud). Shared helper so orders
+    /// and price-history resolve contracts the same way.</summary>
+    public async Task<long?> ResolveConidAsync(
+        string symbol, string secType = "STK", CancellationToken ct = default)
+    {
+        var sym = (symbol ?? string.Empty).Trim().ToUpperInvariant();
+        if (sym.Length == 0) return null;
+        using var searchResp = await SendWithAuthAsync(
+            HttpMethod.Get,
+            $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(sym)}&secType={Uri.EscapeDataString(secType)}",
+            null, ct);
+        if (!searchResp.IsSuccessStatusCode) return null;
+        var searchText = await searchResp.Content.ReadAsStringAsync(ct);
+        return IBKRResponseParser.ParseConidSearch(searchText);
+    }
 }
