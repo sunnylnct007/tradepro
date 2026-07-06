@@ -197,7 +197,7 @@ def main() -> int:
     # 'earnings' (shown, not hidden, so the trader sees WHY it's a skip). Only the
     # few 'consider' names are checked (limits the per-symbol earnings fetch).
     from ..earnings import fetch_upcoming_earnings
-    EARNINGS_GATE_DAYS = 21  # swing hold window
+    EARNINGS_GATE_DAYS = 25  # a swing hold typically spans this; a print inside it is gap risk
 
     rows, missing = [], []
     for sym in syms:
@@ -207,14 +207,19 @@ def main() -> int:
         s["symbol"] = sym
         if s["classification"] == "consider":
             try:
-                ev = fetch_upcoming_earnings(sym) or {}
+                ev = fetch_upcoming_earnings(sym, base, days=EARNINGS_GATE_DAYS + 10) or {}
                 du = ev.get("days_until")
                 if du is not None and du <= EARNINGS_GATE_DAYS:
                     s["classification"] = "earnings"
                     s["earnings_days"] = du
                     s["earnings_date"] = ev.get("date")
-            except Exception:  # noqa: BLE001 — fail-safe: an earnings hiccup never blocks the scan
-                s["earnings_unknown"] = True
+                elif du is None:
+                    # None = Finnhub disabled OR nothing scheduled — we can't
+                    # confirm it's clear, so FLAG it (fail-loud) rather than
+                    # silently presenting an unverified ⭐ as earnings-safe.
+                    s["earnings_unverified"] = True
+            except Exception as _e:  # noqa: BLE001 — an earnings hiccup must not block the scan, but SURFACE it
+                s["earnings_unverified"] = True
         s["why"] = _why(s)
         rows.append(s)
 
