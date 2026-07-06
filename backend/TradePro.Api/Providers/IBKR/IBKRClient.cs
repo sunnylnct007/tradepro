@@ -697,4 +697,31 @@ public sealed class IBKRClient
         var searchText = await searchResp.Content.ReadAsStringAsync(ct);
         return IBKRResponseParser.ParseConidSearch(searchText);
     }
+
+    /// <summary>
+    /// Cancel a working order by its broker order id —
+    /// DELETE /iserver/account/{accountId}/order/{orderId}. Behind the same
+    /// kill-switch as placement (a cancel mutates a live order). Used to pull a
+    /// PreSubmitted order before it fills.
+    /// </summary>
+    public async Task<IBKROrderResult> CancelOrderAsync(string brokerOrderId, CancellationToken ct = default)
+    {
+        if (!_options.AllowOrders)
+            return new IBKROrderResult(brokerOrderId, "REJECTED", "IBKR order actions disabled (read-only)", 0);
+        if (!_options.IsEnabled)
+            return new IBKROrderResult(brokerOrderId, "REJECTED", "IBKR disabled", 0);
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Delete,
+                $"v1/api/iserver/account/{_options.AccountId}/order/{Uri.EscapeDataString(brokerOrderId)}",
+                null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IBKROrderResult(brokerOrderId, "REJECTED", text, (int)resp.StatusCode);
+            _log.LogInformation("IBKR order {OrderId} cancel requested on {Account}", brokerOrderId, _options.AccountId);
+            return new IBKROrderResult(brokerOrderId, "CANCELLED", text, (int)resp.StatusCode);
+        }
+        catch (Exception ex) { return new IBKROrderResult(brokerOrderId, "PARSE_ERROR", ex.Message, 0); }
+    }
 }

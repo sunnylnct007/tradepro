@@ -877,6 +877,26 @@ public static class IntegrationsEndpoints
         })
         .WithName("PlaceIBKRTestOrder");
 
+        // POST /api/integrations/ibkr/orders/{orderId}/cancel — pull a working
+        // order at the broker (DELETE /iserver/.../order/{id}). Behind the same
+        // kill-switch. Broker is golden source, so cancelling here is the
+        // authoritative action; the OMS row is reflected to CANCELLED afterwards.
+        app.MapPost("/integrations/ibkr/orders/{orderId}/cancel", async (
+            string orderId,
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            CancellationToken ct) =>
+        {
+            if (!ibkr.IsEnabled)
+                return Results.Json(new { error = "IBKR disabled" }, statusCode: 503);
+            if (!ibkr.AllowOrders)
+                return Results.Json(new { error = "read-only kill-switch (AllowOrders=false)" }, statusCode: 403);
+            var r = await ibkr.CancelOrderAsync(orderId, ct);
+            var ok = r.Status == "CANCELLED";
+            return Results.Json(new { orderId, status = r.Status, reason = r.StatusReason },
+                statusCode: ok ? 200 : 502);
+        })
+        .WithName("CancelIBKROrder");
+
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
