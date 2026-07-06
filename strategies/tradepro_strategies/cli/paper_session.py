@@ -1693,11 +1693,22 @@ def main(argv: list[str] | None = None) -> int:
         _cache_dir = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
         marks = _fetch_broker_held_marks(broker_list[0])
         recon_px: dict[str, float] = {}
-        # 1) held names → broker mark (EXIT coverage). Long-only: skip (bug) shorts.
-        #    Always on — proven safe (held positions can only exit-or-hold) + wanted.
-        for _s, _q in seeded_positions.items():
-            if _q > 0:
-                recon_px[_s] = marks.get(_s) or seeded_avg_prices.get(_s) or 0.0
+        # 1) held names → EXIT coverage, priced from the CACHE latest close FIRST.
+        #    The cache close exists for every held name and is the SAME price that
+        #    computes the daily signal, so every held name gets a synthetic bar and
+        #    on_bar evaluates its exit deterministically. The broker mark is often
+        #    None and the seeded avg can be 0 → those dropped held names to px=0,
+        #    which line ~1712 filters out → the exit silently never fired (AMKR/STRL/
+        #    AEIS were left held for days despite signal=SELL, while TTMI/STX/WDC that
+        #    happened to have a price did exit). project_equity_exit_needs_trigger_bar.
+        #    Long-only: skip (bug) shorts. Mark/avg kept only as last-resort fallback.
+        _held = [_s for _s, _q in seeded_positions.items() if _q > 0]
+        _held_closes = _latest_daily_closes(_held, _cache_dir)
+        for _s in _held:
+            recon_px[_s] = (
+                _held_closes.get(_s) or marks.get(_s)
+                or seeded_avg_prices.get(_s) or 0.0
+            )
         # 2) universe names → cache latest close (ENTRY coverage). GATED behind
         #    --reconcile-entries (default OFF): this OPENS the missed-buy names, a real
         #    behaviour change, so it stays off until explicitly enabled after a review.
