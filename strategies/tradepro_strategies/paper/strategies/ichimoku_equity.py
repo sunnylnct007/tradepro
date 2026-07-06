@@ -69,7 +69,7 @@ from ..registry import register_strategy
 from ..signal_bridge import realised_vol_from_closes
 # The long/flat SIGNAL is a verbatim port of the trader's spec (docs/strategy.py),
 # kept in _equity_trader_signal so it can't drift. Parity-tested.
-from ._equity_trader_signal import latest_signal_and_meta, sleeve_weight
+from ._equity_trader_signal import latest_signal_and_meta, position_series, sleeve_weight
 # Coarse, auditable sector buckets for the optional concentration cap
 # (max_per_sector). Static table — see _equity_sectors for the rationale.
 from ._equity_sectors import sector_for as _sector_for
@@ -219,6 +219,13 @@ class IchimokuEquityStrategy(Strategy):
             # entry_rsi_max (float|None): SKIP a NEW long if RSI(14) > this
             #   (e.g. 75 ⇒ block overbought entries). None ⇒ no RSI gate.
             "entry_rsi_max": None,
+            # entry_max_flips (int|None): "don't chop" / regime gate — SKIP a
+            #   NEW long if the signal FLIPPED more than this many times in the
+            #   last 40 bars (a choppy name that whipsaws the strategy — the
+            #   diagnosed failure that lost 40/54 names even executed perfectly,
+            #   e.g. KO churned 4 round-trips → −5%). None ⇒ no regime gate.
+            #   Existing holdings/exits untouched.
+            "entry_max_flips": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -449,6 +456,27 @@ class IchimokuEquityStrategy(Strategy):
                         symbol=sym, bar_ts=bar.timestamp,
                         action="skip-extended",
                         reason=f"don't-chase gate: {why}",
+                        signal=signal, cloud_position=cloud_pos,
+                    )
+                    return []
+            # ── Regime / anti-whipsaw "don't chop" gate (OPT-IN) ────────────
+            # OFF by default (None) ⇒ no-op. When set, SKIP a NEW long on a
+            # CHOPPY name — one whose signal flipped > entry_max_flips times in
+            # the last 40 bars. Choppy names churn the strategy (buy-high/
+            # sell-low round-trips) and were the dominant loss (40/54 names lost
+            # even executed perfectly). Blocks the ENTRY only; holdings/exits
+            # untouched.
+            flips_max = p.get("entry_max_flips")
+            if flips_max is not None:
+                flips = meta.get("recent_flips") if meta else None
+                if flips is not None and flips > int(flips_max):
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp,
+                        action="skip-choppy",
+                        reason=(
+                            f"regime gate: {flips} signal flips in ~40 bars > "
+                            f"{int(flips_max)} — choppy, whipsaw risk; standing aside"
+                        ),
                         signal=signal, cloud_position=cloud_pos,
                     )
                     return []
@@ -1014,6 +1042,15 @@ class IchimokuEquityStrategy(Strategy):
                     meta = {**meta, "rsi": 100.0 - 100.0 / (1.0 + up / dn)}
                 elif up and up > 0:
                     meta = {**meta, "rsi": 100.0}
+                # Anti-whipsaw / regime metadata for the "don't-chop" gate:
+                # how many times the long/flat signal FLIPPED in the last 40
+                # bars. A name that keeps crossing the cloud (many flips) is
+                # choppy and churns the strategy (buy-high/sell-low round-trips)
+                # — the diagnosed failure that lost 40/54 names even executed
+                # perfectly. Consumed by the entry_max_flips gate in on_bar.
+                ps = position_series(close.to_numpy(), high.to_numpy(), low.to_numpy())
+                recent = ps.tail(40)
+                meta = {**meta, "recent_flips": max(int((recent != recent.shift()).sum()) - 1, 0)}
             except Exception:  # noqa: BLE001 — gate metadata is best-effort
                 pass
 
