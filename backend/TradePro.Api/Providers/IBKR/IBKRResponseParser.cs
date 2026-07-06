@@ -221,7 +221,52 @@ public static class IBKRResponseParser
         return bars;
     }
 
+    /// <summary>Parse GET /iserver/account/orders — the broker's live order
+    /// blotter (GOLDEN SOURCE for order status/fills). Field names vary by
+    /// gateway version; we read the common ones tolerantly.</summary>
+    public static IReadOnlyList<IBKRLiveOrder> ParseLiveOrders(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        JsonElement arr;
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("orders", out var o) && o.ValueKind == JsonValueKind.Array)
+            arr = o;
+        else if (root.ValueKind == JsonValueKind.Array)
+            arr = root;
+        else
+            return Array.Empty<IBKRLiveOrder>();
+        var list = new List<IBKRLiveOrder>();
+        foreach (var it in arr.EnumerateArray())
+        {
+            if (it.ValueKind != JsonValueKind.Object) continue;
+            list.Add(new IBKRLiveOrder(
+                OrderId: StrLoose(it, "orderId") ?? StrLoose(it, "order_id"),
+                Status: Str(it, "status") ?? Str(it, "order_status"),
+                Symbol: Str(it, "ticker") ?? Str(it, "symbol"),
+                Side: Str(it, "side"),
+                TotalSize: Dec(it, "totalSize") ?? Dec(it, "quantity"),
+                FilledQty: Dec(it, "filledQuantity") ?? Dec(it, "cumFill") ?? Dec(it, "filled"),
+                RemainingQty: Dec(it, "remainingQuantity") ?? Dec(it, "remaining"),
+                AvgPrice: Dec(it, "avgPrice") ?? Dec(it, "price")));
+        }
+        return list;
+    }
+
     // ─── helpers ────────────────────────────────────────────────────
+    /// <summary>String from a String OR Number field (IBKR order ids arrive as
+    /// numbers in some payloads, strings in others).</summary>
+    private static string? StrLoose(JsonElement el, string prop)
+    {
+        if (el.ValueKind != JsonValueKind.Object || !el.TryGetProperty(prop, out var v)) return null;
+        return v.ValueKind switch
+        {
+            JsonValueKind.String => v.GetString(),
+            JsonValueKind.Number => v.ToString(),
+            _ => null,
+        };
+    }
+
     private static string? Str(JsonElement el, string prop) =>
         el.ValueKind == JsonValueKind.Object
         && el.TryGetProperty(prop, out var v)
@@ -302,6 +347,23 @@ public sealed record IBKROrderResult(
     string? OrderId,
     string Status,           // ACCEPTED / REJECTED / NEEDS_CONFIRM / PARSE_ERROR
     string? StatusReason,
+    int HttpStatus);
+
+/// <summary>One row of the broker's live order blotter (GET /iserver/account/orders)
+/// — the golden source the OMS reconciles TO.</summary>
+public sealed record IBKRLiveOrder(
+    string? OrderId,
+    string? Status,          // PreSubmitted / Submitted / Filled / Cancelled / ...
+    string? Symbol,
+    string? Side,
+    decimal? TotalSize,
+    decimal? FilledQty,
+    decimal? RemainingQty,
+    decimal? AvgPrice);
+
+public sealed record IBKROrdersResult(
+    IReadOnlyList<IBKRLiveOrder> Orders,
+    string? Error,
     int HttpStatus);
 
 /// <summary>Read-only connectivity probe result (see

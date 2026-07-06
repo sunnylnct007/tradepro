@@ -699,6 +699,29 @@ public sealed class IBKRClient
     }
 
     /// <summary>
+    /// The broker's live order blotter (GET /iserver/account/orders) — the
+    /// GOLDEN SOURCE the OMS reconciles TO. Read-only (no kill-switch): reading
+    /// order status never mutates anything.
+    /// </summary>
+    public async Task<IBKROrdersResult> GetLiveOrdersAsync(CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled)
+            return new IBKROrdersResult(Array.Empty<IBKRLiveOrder>(), "IBKR disabled", 0);
+        try
+        {
+            using var resp = await SendWithAuthAsync(HttpMethod.Get, "v1/api/iserver/account/orders", null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IBKROrdersResult(Array.Empty<IBKRLiveOrder>(), text, (int)resp.StatusCode);
+            return new IBKROrdersResult(IBKRResponseParser.ParseLiveOrders(text), null, (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IBKROrdersResult(Array.Empty<IBKRLiveOrder>(), ex.Message, 0);
+        }
+    }
+
+    /// <summary>
     /// Cancel a working order by its broker order id —
     /// DELETE /iserver/account/{accountId}/order/{orderId}. Behind the same
     /// kill-switch as placement (a cancel mutates a live order). Used to pull a

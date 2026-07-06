@@ -897,6 +897,82 @@ public static class IntegrationsEndpoints
         })
         .WithName("CancelIBKROrder");
 
+        // POST /api/integrations/ibkr/reconcile-oms — BROKER IS GOLDEN SOURCE.
+        // Fetch the broker's live order blotter and sync the OMS to match: a
+        // broker-Filled order → RecordFillAsync (OMS→FILLED), a broker-Cancelled
+        // order → CancelAsync. The OMS FOLLOWS the broker, never leads — so an
+        // order can't go stale in the OMS (the exact bug that left the old clone
+        // orders stuck SUBMITTED). Read-only fetch; the OMS writes go through the
+        // proper state machine. Idempotent (records only the fill DELTA).
+        app.MapPost("/integrations/ibkr/reconcile-oms", async (
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            TradePro.Api.Oms.IOmsService oms,
+            ILoggerFactory lf, CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("IBKRReconcile");
+            if (!ibkr.IsEnabled)
+                return Results.Json(new { error = "IBKR disabled" }, statusCode: 503);
+            var res = await ibkr.GetLiveOrdersAsync(ct);
+            if (res.Error is not null)
+                return Results.Json(new { error = $"broker order fetch failed: {res.Error}" }, statusCode: 502);
+
+            var byId = new Dictionary<string, TradePro.Api.Providers.IBKR.IBKRLiveOrder>(StringComparer.OrdinalIgnoreCase);
+            foreach (var bo in res.Orders)
+                if (!string.IsNullOrWhiteSpace(bo.OrderId)) byId[bo.OrderId!] = bo;
+
+            var open = (await oms.ListAsync(new[] { "SUBMITTED", "WORKING", "PARTIALLY_FILLED" }, 500))
+                .Where(o => (o.Broker is "IBKR_PAPER" or "IBKR_LIVE") && !string.IsNullOrWhiteSpace(o.BrokerOrderId))
+                .ToList();
+
+            var applied = new List<object>();
+            foreach (var o in open)
+            {
+                if (!byId.TryGetValue(o.BrokerOrderId!, out var bo))
+                {
+                    applied.Add(new { o.Symbol, o.BrokerOrderId, action = "no-broker-match (aged out of blotter)" });
+                    continue;
+                }
+                var status = (bo.Status ?? "").ToLowerInvariant();
+                try
+                {
+                    if (status.Contains("fill"))
+                    {
+                        var totalFilled = bo.FilledQty ?? bo.TotalSize ?? o.Qty;
+                        var delta = totalFilled - o.FilledQty;   // record only the NEW fill (idempotent)
+                        var px = bo.AvgPrice ?? 0m;
+                        if (delta > 0m && px > 0m)
+                        {
+                            await oms.RecordFillAsync(o.Id, delta, px, 0m, "USD", $"recon:{o.BrokerOrderId}", "broker:reconcile");
+                            applied.Add(new { o.Symbol, o.BrokerOrderId, action = "FILLED from broker", qty = delta, price = px });
+                        }
+                        else
+                        {
+                            applied.Add(new { o.Symbol, o.BrokerOrderId, action = "broker Filled — no new qty/price yet" });
+                        }
+                    }
+                    else if (status.Contains("cancel"))
+                    {
+                        await oms.CancelAsync(o.Id, "broker:reconcile", "cancelled at broker");
+                        applied.Add(new { o.Symbol, o.BrokerOrderId, action = "CANCELLED from broker" });
+                    }
+                    // else still working at the broker → leave the OMS as-is
+                }
+                catch (Exception ex)
+                {
+                    log.LogWarning(ex, "reconcile failed for OMS {Id} / broker {Bid}", o.Id, o.BrokerOrderId);
+                    applied.Add(new { o.Symbol, o.BrokerOrderId, action = $"reconcile error: {ex.Message}" });
+                }
+            }
+            return Results.Ok(new
+            {
+                brokerOrders = res.Orders.Count,
+                omsOpen = open.Count,
+                appliedCount = applied.Count,
+                applied,
+            });
+        })
+        .WithName("ReconcileIBKROms");
+
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
