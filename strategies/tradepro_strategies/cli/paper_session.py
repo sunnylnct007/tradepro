@@ -46,6 +46,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from datetime import datetime
 
@@ -835,6 +836,74 @@ def _latest_daily_closes(symbols: list[str], cache_dir: str) -> dict[str, float]
         except Exception:  # noqa: BLE001 — one bad symbol never blocks the rest
             continue
     return out
+
+
+def _fetch_ibkr_rows_via_webapi() -> list[dict] | None:
+    """Effective IBKR paper book (held positions + pending orders) via the Web
+    API — the RELIABLE path with NO desktop-Gateway (:7500) dependency, the same
+    model as T212's REST-API seed. Returns rows [{ticker, quantity,
+    averagePricePaid}] (matching the gateway read), or None when the API is
+    unreachable / IBKR disabled server-side so the caller falls through to the
+    gateway path. Raises on a server-side error so the caller logs + degrades.
+    """
+    import requests
+    from . import push_to_api
+    base, token = push_to_api.load_credentials()
+    base = (base or "").rstrip("/")
+    if not base:
+        return None
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    rp = requests.get(f"{base}/api/integrations/ibkr/positions", headers=headers, timeout=15)
+    rp.raise_for_status()
+    pj = rp.json()
+    if not pj.get("enabled", True):
+        return None
+    if pj.get("error"):
+        raise RuntimeError(f"ibkr web positions error: {pj['error']}")
+
+    eff: dict[str, float] = {}
+    avg: dict[str, float] = {}
+    for p in (pj.get("positions") or []):
+        sym = p.get("ticker")
+        if not sym:
+            continue
+        try:
+            eff[sym] = eff.get(sym, 0.0) + float(p.get("quantity") or 0)
+        except (TypeError, ValueError):
+            continue
+        c = p.get("averagePricePaid")
+        if c:
+            try:
+                avg[sym] = float(c)
+            except (TypeError, ValueError):
+                pass
+
+    # Pending live orders count toward the effective book (a pre-market MOO sits
+    # PreSubmitted; counting it stops the desk re-placing + stacking duplicates).
+    ro = requests.get(f"{base}/api/integrations/ibkr/orders", headers=headers, timeout=15)
+    ro.raise_for_status()
+    oj = ro.json()
+    if oj.get("error"):
+        raise RuntimeError(f"ibkr web orders error: {oj['error']}")
+    for o in (oj.get("orders") or []):
+        st = (o.get("status") or "").lower()
+        if any(t in st for t in ("fill", "cancel", "inactive")):
+            continue
+        sym = o.get("symbol")
+        if not sym:
+            continue
+        try:
+            rem = float(o.get("remainingQty") or o.get("totalSize") or 0)
+        except (TypeError, ValueError):
+            rem = 0.0
+        side = (o.get("side") or "").upper()
+        eff[sym] = eff.get(sym, 0.0) + rem * (1 if side == "BUY" else -1)
+
+    return [
+        {"ticker": s, "quantity": q, "averagePricePaid": avg.get(s, 0.0)}
+        for s, q in eff.items() if q != 0
+    ]
 
 
 def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[str, int], dict[str, float]]:
