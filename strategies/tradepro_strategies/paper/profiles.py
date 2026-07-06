@@ -117,11 +117,28 @@ def build_session(
         # IBKRBarBus is for intraday and is driven by the intraday engine, not
         # this daily paper path (and pre-market it yields no real-time bars).
         bus = _yfinance_bus(symbols, session_date, interval, pace_seconds, lookback_days)
-        router = IBKRRouter(
-            connection=conn,
-            default_account=ibkr_default_account,
-            allow_real_orders=ibkr_allow_real_orders,
-        )
+        # ORDER ROUTING (flag-gated). Default = the legacy gateway-inbox
+        # IBKRRouter (fire-and-forget; records NULL broker_order_id = ghosts).
+        # TRADEPRO_IBKR_ORDERS_VIA_OMS=1 routes via the OMS CONFIRMED path
+        # instead — exactly like IG: T212OrderRouter posts to /api/oms/orders
+        # with broker_label=IBKR_PAPER, and .NET ApproveAsync places via
+        # IBKRClient.PlaceMarketOrderConfirmedAsync → a REAL broker order id +
+        # confirmed fill, reconciled by /reconcile-oms. Flag-gated so the live
+        # daemon is UNCHANGED until we deliberately flip it + test one order.
+        import os
+        if os.environ.get("TRADEPRO_IBKR_ORDERS_VIA_OMS") == "1":
+            router = T212OrderRouter(
+                mode="demo",                  # ignored — broker label overridden
+                allow_real_orders=False,      # no T212 HTTP calls; push→approve at OMS
+                placement_mode=t212_placement_mode,
+                broker_label_override="IBKR_PAPER",
+            )
+        else:
+            router = IBKRRouter(
+                connection=conn,
+                default_account=ibkr_default_account,
+                allow_real_orders=ibkr_allow_real_orders,
+            )
         return bus, router
 
     if broker == "stub_live":
@@ -223,12 +240,21 @@ def build_multi_broker_session(
                 placement_mode=t212_placement_mode,
             ))
         elif name == "ibkr":
-            conn = ibkr_connection or IBKRConnection()
-            multi.add(name, IBKRRouter(
-                connection=conn,
-                default_account=ibkr_default_account,
-                allow_real_orders=ibkr_allow_real_orders,
-            ))
+            import os
+            if os.environ.get("TRADEPRO_IBKR_ORDERS_VIA_OMS") == "1":
+                # OMS confirmed path (see build_session) — real broker id, no ghosts.
+                multi.add(name, T212OrderRouter(
+                    mode="demo", allow_real_orders=False,
+                    placement_mode=t212_placement_mode,
+                    broker_label_override="IBKR_PAPER",
+                ))
+            else:
+                conn = ibkr_connection or IBKRConnection()
+                multi.add(name, IBKRRouter(
+                    connection=conn,
+                    default_account=ibkr_default_account,
+                    allow_real_orders=ibkr_allow_real_orders,
+                ))
         else:
             raise ValueError(
                 f"Unknown broker in multi-broker list: {name!r}. "
