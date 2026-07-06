@@ -973,6 +973,32 @@ public static class IntegrationsEndpoints
         })
         .WithName("ReconcileIBKROms");
 
+        // GET /api/integrations/ibkr/orders — the broker's live order blotter
+        // (read-only, golden source). The Python position-seed reads this +
+        // /positions to build the EFFECTIVE book (held + pending) via the Web
+        // API instead of the desktop Gateway :7500.
+        app.MapGet("/integrations/ibkr/orders", async (
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr, CancellationToken ct) =>
+        {
+            if (!ibkr.IsEnabled)
+                return Results.Ok(new { enabled = false, note = "Populate tradepro/ibkr + restart", orders = Array.Empty<object>() });
+            var res = await ibkr.GetLiveOrdersAsync(ct);
+            if (res.Error is not null)
+                return Results.Json(new { enabled = true, error = res.Error, orders = Array.Empty<object>() }, statusCode: 502);
+            return Results.Ok(new
+            {
+                enabled = true,
+                count = res.Orders.Count,
+                orders = res.Orders.Select(o => new
+                {
+                    orderId = o.OrderId, status = o.Status, symbol = o.Symbol, side = o.Side,
+                    totalSize = o.TotalSize, filledQty = o.FilledQty,
+                    remainingQty = o.RemainingQty, avgPrice = o.AvgPrice,
+                }),
+            });
+        })
+        .WithName("GetIBKRLiveOrders");
+
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
