@@ -26,13 +26,25 @@ from .base import Provider, register_provider
 
 _log = logging.getLogger("tradepro.bar_cache.ibkr_web")
 
-# resolution -> IBKR bar size. Daily + hourly for now (what UNIVERSE_CORE needs).
-_BAR = {"1d": "1d", "1h": "1h"}
+# resolution -> IBKR bar size. NOTE: IBKR uses "1min"/"5min" for MINUTE bars;
+# "1m" in IBKR means one MONTH (a *period*, not a bar) — never confuse the two.
+# Intraday (1m/5m/15m/30m) added so the Web API is the source for the platform's
+# 1-min harvest — off the local Gateway entirely.
+_BAR = {"1d": "1d", "1h": "1h", "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min"}
+_INTRADAY_RES = {"1m", "5m", "15m", "30m"}
 
 
-def _ibkr_period(start: datetime, end: datetime) -> str:
-    """IBKR history 'period' window (counts back from now) that covers [start, end]."""
+def _ibkr_period(start: datetime, end: datetime, resolution: str = "1d") -> str:
+    """IBKR history 'period' window (counts back from now) covering [start, end].
+    Intraday resolutions are bounded — IBKR caps 1-min history (~1 month), and a
+    huge period on a minute bar is rejected/truncated."""
     days = max(1, (end - start).days)
+    if resolution in _INTRADAY_RES:
+        if days <= 1:
+            return "1d"
+        if days <= 7:
+            return "1w"
+        return "1m"  # ≈ IBKR's practical intraday ceiling (≈30d for 1-min)
     if days <= 30:
         return "1m"
     if days <= 180:
@@ -64,7 +76,10 @@ class IBKRWebProvider(Provider):
         return resolution in _BAR
 
     def max_history(self, resolution: str) -> timedelta:
-        return timedelta(days=365 * 5) if resolution in _BAR else timedelta(0)
+        if resolution not in _BAR:
+            return timedelta(0)
+        # IBKR caps intraday history (1-min ≈ a month); daily/hourly go back years.
+        return timedelta(days=30) if resolution in _INTRADAY_RES else timedelta(days=365 * 5)
 
     def _resolve_base(self) -> tuple[str, str | None]:
         if self._base:
@@ -83,11 +98,12 @@ class IBKRWebProvider(Provider):
         if not self.supports_resolution(resolution):
             raise ProviderParseError(
                 provider=self.name, canonical=canonical,
-                message=f"resolution {resolution!r} not supported by ibkr_web (1d/1h only)",
+                message=f"resolution {resolution!r} not supported by ibkr_web "
+                        f"(supported: {sorted(_BAR)})",
             )
         base, token = self._resolve_base()
         base = (base or "").rstrip("/")
-        period, bar = _ibkr_period(start, end), _BAR[resolution]
+        period, bar = _ibkr_period(start, end, resolution), _BAR[resolution]
         url = (f"{base}/api/integrations/ibkr/price-history"
                f"?symbol={canonical}&period={period}&bar={bar}")
         headers = {"Authorization": f"Bearer {token}"} if token else {}
