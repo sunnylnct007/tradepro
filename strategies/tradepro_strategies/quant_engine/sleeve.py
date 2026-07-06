@@ -185,8 +185,10 @@ class Sleeve:
         """Run the sleeve backtest and return a SleeveResult."""
         cfg = self.config
         tickers = list(self.data.keys())
-        n = cfg.sleeve_large  # used as denominator; actual count = len(tickers)
-        sleeve_size = max(len(tickers), 1)
+        # FIX: size each position at 1/sleeve_large (the config denominator, e.g.
+        # 1/20 = 5%), NOT 1/len(tickers) (1/50 = 2%) which diluted exposure to
+        # ~40-60% of intended and cut all returns by ~60% vs the backtest.
+        sleeve_size = max(int(cfg.sleeve_large), 1)
 
         # Compute raw positions (0/1 per ticker). Pass the entry-extension gate
         # kwargs ONLY when configured — so an injected custom compute_fn (tests)

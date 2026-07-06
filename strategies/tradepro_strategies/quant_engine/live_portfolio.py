@@ -217,6 +217,7 @@ def compute_live_portfolio(
             signal_value, gate_pass, vol_pct, detail = _per_symbol_context(
                 df, cfg, regime_active=sleeve_regime_gates.get(name, False),
                 is_bull_now=is_bull_now,
+                sleeve_weight=sleeve_w,  # FIX: stateful signal source (already computed above)
             )
 
             decisions.append(TargetPosition(
@@ -251,12 +252,21 @@ def _per_symbol_context(
     *,
     regime_active: bool,
     is_bull_now: bool,
+    sleeve_weight: float = 0.0,  # FIX: the Sleeve's STATEFUL weight for this symbol
 ) -> tuple[float, bool, float | None, dict[str, Any]]:
     """Compute the latest-bar signal + supporting indicator values
     for one symbol — enough context for the audit log / risk module
     / MCP "why did the algo recommend X?" tool.
 
     Returns (signal, regime_pass, vol_pct, detail).
+
+    FIX: the signal now comes from the Sleeve's STATEFUL weight
+    (sleeve_weight > 0) instead of re-deriving the ENTRY condition
+    statelessly. The old stateless check flickered when price
+    oscillated near cloud_top — dropping the position the moment price
+    dipped below cloud_TOP even while still above cloud_BOTTOM — which
+    caused duplicate buys + missed hold-through-cloud gains and made the
+    live signal diverge from the backtest state machine (32/50 names).
     """
     if "Close" not in df.columns or len(df) < max(cfg.tenkan, cfg.kijun, cfg.senkou_b) + cfg.displacement + 1:
         return 0.0, False, None, {"reason": "insufficient history for Ichimoku"}
@@ -272,11 +282,10 @@ def _per_symbol_context(
     cloud_bot = float(ich["cloud_low"].iloc[-1])
     tenkan = float(ich["tenkan"].iloc[-1])
     kijun = float(ich["kijun"].iloc[-1])
-    # Long when above the cloud AND tenkan > kijun; the per-bar state
-    # machine in Sleeve doesn't expose the live state directly, so we
-    # recompute the entry condition for the latest bar here.
-    is_long = (close > cloud_top) and (tenkan > kijun)
-    signal = 1.0 if is_long else 0.0
+
+    # FIX: read the signal from the Sleeve's stateful weight (matches the
+    # backtest exactly), not a stateless re-derivation of the entry rule.
+    signal = 1.0 if sleeve_weight > 0.0 else 0.0
     gate_pass = (not regime_active) or is_bull_now
 
     # Annualised vol — same vol_lookback the strategy uses.
@@ -288,6 +297,18 @@ def _per_symbol_context(
 
     cloud_above = close > cloud_top
     cloud_below = close < cloud_bot
+
+    # Audit reason — distinguishes a fresh entry from a hold-through-cloud.
+    entry_cond = (close > cloud_top) and (tenkan > kijun)
+    exit_cond = (close < cloud_bot) or (tenkan < kijun)
+    if signal == 1.0 and entry_cond:
+        signal_reason = "LONG (entry condition active)"
+    elif signal == 1.0 and not entry_cond:
+        signal_reason = "LONG (holding through cloud — STATEFUL)"
+    elif signal == 0.0 and exit_cond:
+        signal_reason = "FLAT (exit condition met)"
+    else:
+        signal_reason = "FLAT (no entry triggered)"
 
     detail: dict[str, Any] = {
         "close": close,
@@ -303,8 +324,9 @@ def _per_symbol_context(
         "tk_cross": "bullish" if tenkan > kijun else "bearish",
         "regime_active": regime_active,
         "regime_bull": is_bull_now,
+        "signal_reason": signal_reason,
     }
-    if is_long:
+    if signal == 1.0:
         # Distance above the cloud as a fraction — proxy for conviction.
         detail["above_cloud_pct"] = (close - cloud_top) / cloud_top * 100
     elif cloud_below:
