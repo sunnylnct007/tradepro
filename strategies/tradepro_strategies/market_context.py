@@ -19,6 +19,7 @@ The narrative `summary` remains informational for human review.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -26,6 +27,34 @@ import pandas as pd
 
 from .cache import ensure_cached
 from .regimes import REGIMES, Regime
+
+_log = logging.getLogger(__name__)
+
+# Plausibility bounds — a reading outside these is a corrupt feed (split /
+# adjustment / feed-drop artifact), NOT a real market move. We REJECT it (treat
+# as unavailable) rather than let it gate the whole book, and flag LOUD. This is
+# the same fail-loud-on-bad-input rule as the garbage-bar guard: one corrupt HYG
+# print (e.g. -89.7% "drawdown") must never silently force risk_mode=RED / 0x size.
+_VIX_MIN, _VIX_MAX = 5.0, 120.0        # VIX has never closed outside ~[9, 90]
+_HYG_DD_MIN = -40.0                    # HYG's worst real drawdown (2008/2020) was ~ -25%
+
+
+def _plausible_vix(v: float | None) -> float | None:
+    if v is None or pd.isna(v) or not (_VIX_MIN <= v <= _VIX_MAX):
+        if v is not None:
+            _log.warning("MACRO FEED REJECTED: VIX=%r implausible (outside [%s,%s]) — "
+                         "treating as unavailable, not gating on it", v, _VIX_MIN, _VIX_MAX)
+        return None
+    return v
+
+
+def _plausible_hyg_dd(d: float | None) -> float | None:
+    if d is None or pd.isna(d) or d < _HYG_DD_MIN or d > 5.0:
+        if d is not None:
+            _log.warning("MACRO FEED REJECTED: HYG drawdown=%.1f%% implausible (< %s%% = "
+                         "corrupt/split artifact) — NOT gating the book on it", d, _HYG_DD_MIN)
+        return None
+    return d
 
 
 @dataclass
@@ -152,7 +181,8 @@ def market_context(start: datetime, end: datetime) -> MarketContext:
     tnx_series = _series(tnx_df)
     spy_series = _series(spy_df)
 
-    vix_last = float(vix_series.iloc[-1]) if not vix_series.empty else None
+    vix_raw = float(vix_series.iloc[-1]) if not vix_series.empty else None
+    vix_last = _plausible_vix(vix_raw)
     # Yahoo's ^TNX gives the 10Y yield directly as a percent (e.g. 4.35).
     tnx_last = float(tnx_series.iloc[-1]) if not tnx_series.empty else None
     tnx_change = None
@@ -167,7 +197,17 @@ def market_context(start: datetime, end: datetime) -> MarketContext:
         if peak > 0:
             spy_dd_pct = (last / peak - 1.0) * 100.0
 
-    hyg_dd_pct = _hyg_drawdown(start, end)
+    hyg_raw = _hyg_drawdown(start, end)
+    hyg_dd_pct = _plausible_hyg_dd(hyg_raw)
+
+    # Which macro feeds were REJECTED as corrupt (fail-loud → surfaced in summary
+    # so a spurious/absent gate is never silent). risk_mode is then computed ONLY
+    # from the plausible inputs — a garbage HYG can't force RED any more.
+    rejected_feeds = []
+    if vix_raw is not None and vix_last is None:
+        rejected_feeds.append(f"VIX={vix_raw:.1f}")
+    if hyg_raw is not None and hyg_dd_pct is None:
+        rejected_feeds.append(f"HYG={hyg_raw:.0f}%")
 
     today = pd.Timestamp(datetime.now(timezone.utc))
     active = _active_regimes(today, REGIMES)
@@ -190,6 +230,10 @@ def market_context(start: datetime, end: datetime) -> MarketContext:
         parts.append(f"active stress regime: {', '.join(active)}")
     risk_labels = {1: "GREEN", 2: "AMBER", 3: "RED"}
     parts.append(f"risk_mode={risk_labels[risk_mode]}")
+    if rejected_feeds:
+        # LOUD: a corrupt feed was dropped. Surface it so nobody trusts a
+        # (possibly incomplete) macro read as if all inputs were clean.
+        parts.append(f"⚠ FEED REJECTED (corrupt): {', '.join(rejected_feeds)} — macro read incomplete")
 
     summary = " · ".join(parts) if parts else "calm market — no macro flags"
 

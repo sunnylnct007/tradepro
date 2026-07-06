@@ -151,6 +151,10 @@ def _why(s: dict) -> str:
                 f"({s['dist_atr']} ATR, {s['off_10d_high_pct']}% off 10d high — support hold, not a knife); "
                 f"{s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}% / 10d {s['momentum_10d_pct']}%, "
                 f"ATR {s['atr_pct']}%/day, {vol}; stop below kijun.")
+    if cls == "earnings":
+        return (f"clean pullback-to-kijun setup BUT reports earnings in {s.get('earnings_days')}d "
+                f"({s.get('earnings_date')}) — a binary print can gap it through the ${s['kijun']} stop. "
+                f"WATCH, don't enter before the report.")
     if cls == "reversal":
         return (f"at kijun ${s['kijun']} but via a SHARP DROP ({s['off_10d_high_pct']}% off the 10d high, "
                 f"10d {s['momentum_10d_pct']}%) — a falling knife slicing through support, NOT an entry. "
@@ -188,12 +192,29 @@ def main() -> int:
     syms = [s["ticker"] for s in requests.get(f"{base}/api/universes/{args.universe}",
             headers=headers, timeout=20).json().get("symbols", []) if s.get("effective", True)]
 
+    # A 'consider' name that reports earnings inside the swing hold is NOT a clean
+    # swing buy — a binary print can gap it through the stop. Downgrade those to
+    # 'earnings' (shown, not hidden, so the trader sees WHY it's a skip). Only the
+    # few 'consider' names are checked (limits the per-symbol earnings fetch).
+    from ..earnings import fetch_upcoming_earnings
+    EARNINGS_GATE_DAYS = 21  # swing hold window
+
     rows, missing = [], []
     for sym in syms:
         s = _setup_for(_load_daily(args.cache_dir, sym))
         if s is None:
             missing.append(sym); continue
         s["symbol"] = sym
+        if s["classification"] == "consider":
+            try:
+                ev = fetch_upcoming_earnings(sym) or {}
+                du = ev.get("days_until")
+                if du is not None and du <= EARNINGS_GATE_DAYS:
+                    s["classification"] = "earnings"
+                    s["earnings_days"] = du
+                    s["earnings_date"] = ev.get("date")
+            except Exception:  # noqa: BLE001 — fail-safe: an earnings hiccup never blocks the scan
+                s["earnings_unknown"] = True
         s["why"] = _why(s)
         rows.append(s)
 
@@ -204,14 +225,14 @@ def main() -> int:
     if newest:
         for r in rows:
             asof = (r.get("as_of") or "")[:10]
-            if asof and asof < newest and r["classification"] in ("consider", "extended", "hold", "reversal"):
+            if asof and asof < newest and r["classification"] in ("consider", "earnings", "extended", "hold", "reversal"):
                 r["stale"] = True
                 r["classification"] = "excluded"
 
     # Rank the actionable. consider (real entries) first, then the WARNINGS —
     # reversal (falling knife) and extended (chasing) are SHOWN, not hidden, so the
     # trader sees why a tempting name is a skip. weak/suspect/excluded stay hidden.
-    order = {"consider": 0, "reversal": 1, "extended": 2, "hold": 3}
+    order = {"consider": 0, "earnings": 1, "reversal": 2, "extended": 3, "hold": 4}
     actionable = [r for r in rows if r["classification"] in order]
     actionable.sort(key=lambda r: (order[r["classification"]], r.get("dist_atr") if r.get("dist_atr") is not None else 99))
     for i, r in enumerate(actionable):
@@ -221,8 +242,8 @@ def main() -> int:
     artifact = {
         "kind": "today_setups", "universe": args.universe,
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
-        "counts": {"consider": n("consider"), "reversal": n("reversal"), "extended": n("extended"),
-                   "hold": n("hold"), "weak": n("weak"), "suspect": n("suspect"),
+        "counts": {"consider": n("consider"), "earnings": n("earnings"), "reversal": n("reversal"),
+                   "extended": n("extended"), "hold": n("hold"), "weak": n("weak"), "suspect": n("suspect"),
                    "excluded": n("excluded"), "scanned": len(rows)},
         "setups": actionable[: args.top],
         "excluded_symbols": [r["symbol"] for r in rows if r["classification"] == "excluded"],
@@ -233,7 +254,7 @@ def main() -> int:
     }
 
     for r in artifact["setups"]:
-        log.info("%-2s %-9s %-8s %6.2f  %s", {"consider": "⭐", "reversal": "🔪", "extended": "⚠", "hold": "·"}.get(r["classification"], " "),
+        log.info("%-2s %-9s %-8s %6.2f  %s", {"consider": "⭐", "earnings": "📅", "reversal": "🔪", "extended": "⚠", "hold": "·"}.get(r["classification"], " "),
                  r["symbol"], r["classification"], r["close"], r["why"])
     log.info("counts: %s | suspect: %s | missing: %d", artifact["counts"], artifact["data_suspect"], len(missing))
 
