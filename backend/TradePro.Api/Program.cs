@@ -167,6 +167,16 @@ builder.Services
 builder.Services.AddSingleton<TradePro.Api.Providers.IG.IGHarvesterStatus>();
 builder.Services.AddHostedService<TradePro.Api.Providers.IG.IGSnapshotHarvester>();
 
+// Standalone intraday BAR harvester (IBKR primary, Yahoo fallback -> ibkr_price_bars).
+// OFF by default; flip `IBKR:Harvester:Enabled=true` once the universe + cadence
+// are reviewed. The timer polling holds the IBKR session warm (fixes "Chart data
+// unavailable"); decoupled from trading (charts/analysis feed only).
+builder.Services
+    .AddOptions<TradePro.Api.Providers.IBKR.IBKRHarvesterOptions>()
+    .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKRHarvesterOptions.SectionName));
+builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRHarvesterStatus>();
+builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRBarHarvester>();
+
 // IBKR (Interactive Brokers) — OAuth2 Web API. Off by default; turns on
 // once the standalone tradepro/ibkr secret is populated with mode !=
 // "disabled" + the RSA signing material. Singleton session cache shared
