@@ -117,27 +117,27 @@ def build_session(
         # IBKRBarBus is for intraday and is driven by the intraday engine, not
         # this daily paper path (and pre-market it yields no real-time bars).
         bus = _yfinance_bus(symbols, session_date, interval, pace_seconds, lookback_days)
-        # ORDER ROUTING (flag-gated). Default = the legacy gateway-inbox
-        # IBKRRouter (fire-and-forget; records NULL broker_order_id = ghosts).
-        # TRADEPRO_IBKR_ORDERS_VIA_OMS=1 routes via the OMS CONFIRMED path
-        # instead — exactly like IG: T212OrderRouter posts to /api/oms/orders
-        # with broker_label=IBKR_PAPER, and .NET ApproveAsync places via
-        # IBKRClient.PlaceMarketOrderConfirmedAsync → a REAL broker order id +
-        # confirmed fill, reconciled by /reconcile-oms. Flag-gated so the live
-        # daemon is UNCHANGED until we deliberately flip it + test one order.
+        # ORDER ROUTING. DEFAULT = the OMS CONFIRMED path (like IG): T212OrderRouter
+        # posts to /api/oms/orders with broker_label=IBKR_PAPER, and .NET ApproveAsync
+        # places via IBKRClient.PlaceMarketOrderConfirmedAsync → a REAL broker order id
+        # + confirmed fill, reconciled by /reconcile-oms. Proven end-to-end (real broker
+        # ids AAPL/PG). The legacy gateway-inbox IBKRRouter (fire-and-forget; records
+        # NULL broker_order_id = GHOSTS that never confirm) is now OPT-IN only via
+        # TRADEPRO_IBKR_ORDERS_VIA_OMS=0 — an escape hatch, not the default. "Off by
+        # default" was the bug: it left every clone order unconfirmed. project_ibkr_clone_unconfirmed_fills.
         import os
-        if os.environ.get("TRADEPRO_IBKR_ORDERS_VIA_OMS") == "1":
+        if os.environ.get("TRADEPRO_IBKR_ORDERS_VIA_OMS") == "0":
+            router = IBKRRouter(
+                connection=conn,
+                default_account=ibkr_default_account,
+                allow_real_orders=ibkr_allow_real_orders,
+            )
+        else:
             router = T212OrderRouter(
                 mode="demo",                  # ignored — broker label overridden
                 allow_real_orders=False,      # no T212 HTTP calls; push→approve at OMS
                 placement_mode=t212_placement_mode,
                 broker_label_override="IBKR_PAPER",
-            )
-        else:
-            router = IBKRRouter(
-                connection=conn,
-                default_account=ibkr_default_account,
-                allow_real_orders=ibkr_allow_real_orders,
             )
         return bus, router
 
@@ -241,19 +241,20 @@ def build_multi_broker_session(
             ))
         elif name == "ibkr":
             import os
-            if os.environ.get("TRADEPRO_IBKR_ORDERS_VIA_OMS") == "1":
-                # OMS confirmed path (see build_session) — real broker id, no ghosts.
-                multi.add(name, T212OrderRouter(
-                    mode="demo", allow_real_orders=False,
-                    placement_mode=t212_placement_mode,
-                    broker_label_override="IBKR_PAPER",
-                ))
-            else:
+            if os.environ.get("TRADEPRO_IBKR_ORDERS_VIA_OMS") == "0":
+                # Escape hatch: legacy gateway-inbox (ghosts). Opt-in only.
                 conn = ibkr_connection or IBKRConnection()
                 multi.add(name, IBKRRouter(
                     connection=conn,
                     default_account=ibkr_default_account,
                     allow_real_orders=ibkr_allow_real_orders,
+                ))
+            else:
+                # DEFAULT: OMS confirmed path (see build_session) — real broker id, no ghosts.
+                multi.add(name, T212OrderRouter(
+                    mode="demo", allow_real_orders=False,
+                    placement_mode=t212_placement_mode,
+                    broker_label_override="IBKR_PAPER",
                 ))
         else:
             raise ValueError(
