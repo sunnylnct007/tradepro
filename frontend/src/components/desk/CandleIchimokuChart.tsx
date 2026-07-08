@@ -108,6 +108,17 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
   // Live crosshair readout (OHLC + date) shown above the chart.
   const [hover, setHover] = useState<Candle | null>(null);
 
+  // "Did we enter late?" — latest BUY fill vs the IDEAL signal onset (first
+  // 5/32/50 cloud-cross at/before it). Drives a readout under the chart.
+  const [entryTiming, setEntryTiming] = useState<{
+    signalDate: string;
+    signalPrice: number;
+    entryDate: string;
+    entryPrice: number;
+    barsLate: number;
+    extPct: number;
+  } | null>(null);
+
   // Drag-resizable height: the user can drag the chart's bottom edge to make it
   // taller/shorter (CSS resize:vertical). A ResizeObserver mirrors the dragged
   // height into state so frequent re-renders (crosshair hover) don't snap it back
@@ -240,25 +251,75 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
     }
 
     // Trade markers: buy (▲ below bar) / sell (▼ above bar) at each fill,
-    // labelled with the fill price, so a closed round-trip reads off the chart
-    // — "entered here at X, exited here at Y". Snapped to the daily bar via
-    // toTime; sorted ascending as lightweight-charts requires.
-    if (fills && fills.length) {
-      const markers: SeriesMarker<Time>[] = fills
-        .filter((f) => f.atUtc)
-        .map((f) => ({
-          time: toTime(f.atUtc),
-          position: f.side === "BUY" ? ("belowBar" as const) : ("aboveBar" as const),
-          color: f.side === "BUY" ? "#1fc16b" : "#ef4444",
-          shape: f.side === "BUY" ? ("arrowUp" as const) : ("arrowDown" as const),
-          text: `${f.side === "BUY" ? "B" : "S"}${f.price != null ? " @" + f.price.toFixed(2) : ""}`,
-        }))
-        .sort((a, b) => (a.time as number) - (b.time as number));
-      if (markers.length) createSeriesMarkers(candleSeries, markers);
-    }
+    // labelled with the fill price. Built into a shared array so the IDEAL-entry
+    // signal marker (below) can be added before we apply them once.
+    const markers: SeriesMarker<Time>[] = (fills ?? [])
+      .filter((f) => f.atUtc)
+      .map((f) => ({
+        time: toTime(f.atUtc),
+        position: f.side === "BUY" ? ("belowBar" as const) : ("aboveBar" as const),
+        color: f.side === "BUY" ? "#1fc16b" : "#ef4444",
+        shape: f.side === "BUY" ? ("arrowUp" as const) : ("arrowDown" as const),
+        text: `${f.side === "BUY" ? "B" : "S"}${f.price != null ? " @" + f.price.toFixed(2) : ""}`,
+      }));
 
     // Ichimoku, computed on the FULL padded series.
     const ich = computeIchimoku(candles);
+
+    // IDEAL ENTRY (signal onset): the strategy's raw long rule turning true —
+    // close > cloud_high AND tenkan > kijun at 5/32/50. cloud_high[i] =
+    // max(spanA,spanB) LANDING on bar i (the displaced cloud). We pair the LATEST
+    // actual BUY with the onset at/before it → "signal fired here, you entered N
+    // bars later, X% more extended" = the did-we-chase-the-top check.
+    {
+      const spanAAt = new Map(ich.spanA.map((p) => [p.time as number, p.value]));
+      const spanBAt = new Map(ich.spanB.map((p) => [p.time as number, p.value]));
+      const tkAt = new Map(ich.tenkan.map((p) => [p.time as number, p.value]));
+      const kjAt = new Map(ich.kijun.map((p) => [p.time as number, p.value]));
+      const onsets: { t: number; price: number; idx: number }[] = [];
+      let wasLong = false;
+      candles.forEach((c, idx) => {
+        const ti = toTime(c.timestamp) as number;
+        const sa = spanAAt.get(ti);
+        const sb = spanBAt.get(ti);
+        const tk = tkAt.get(ti);
+        const kj = kjAt.get(ti);
+        if (sa === undefined || sb === undefined || tk === undefined || kj === undefined) return;
+        const isLong = c.close > Math.max(sa, sb) && tk > kj;
+        if (isLong && !wasLong) onsets.push({ t: ti, price: c.close, idx });
+        wasLong = isLong;
+      });
+      const buyFills = (fills ?? []).filter((f) => f.side === "BUY" && f.atUtc && f.price != null);
+      if (buyFills.length && onsets.length) {
+        const lastBuy = buyFills.reduce((a, b) => ((toTime(a.atUtc) as number) > (toTime(b.atUtc) as number) ? a : b));
+        const buyTs = toTime(lastBuy.atUtc) as number;
+        const prior = onsets.filter((o) => o.t <= buyTs);
+        const sig = prior.length ? prior[prior.length - 1] : onsets[0];
+        const buyIdx = candles.findIndex((c) => (toTime(c.timestamp) as number) >= buyTs);
+        const barsLate = buyIdx >= 0 ? Math.max(0, buyIdx - sig.idx) : 0;
+        const extPct = sig.price > 0 ? (lastBuy.price! / sig.price - 1) * 100 : 0;
+        markers.push({
+          time: sig.t as UTCTimestamp,
+          position: "aboveBar" as const,
+          color: "#4f8cff",
+          shape: "circle" as const,
+          text: "signal",
+        });
+        setEntryTiming({
+          signalDate: new Date(sig.t * 1000).toISOString().slice(0, 10),
+          signalPrice: sig.price,
+          entryDate: lastBuy.atUtc.slice(0, 10),
+          entryPrice: lastBuy.price!,
+          barsLate,
+          extPct,
+        });
+      } else {
+        setEntryTiming(null);
+      }
+    }
+
+    markers.sort((a, b) => (a.time as number) - (b.time as number));
+    if (markers.length) createSeriesMarkers(candleSeries, markers);
 
     const tenkan = lineSeries(chart, "#4f8cff", 1.5);
     tenkan.setData(ich.tenkan);
@@ -446,6 +507,39 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
           </div>
         )}
       </div>
+
+      {entryTiming && (
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: 11,
+            fontFamily: "monospace",
+            padding: "5px 8px",
+            borderRadius: 4,
+            border: "1px solid #1b2233",
+            background: entryTiming.barsLate > 5 || entryTiming.extPct > 8 ? "rgba(239,68,68,0.08)" : "rgba(31,193,107,0.06)",
+            display: "flex",
+            gap: 10,
+            flexWrap: "wrap",
+            alignItems: "baseline",
+          }}
+          title="Latest entry vs the ideal signal onset (first 5/32/50 cloud-cross before it)"
+        >
+          <span style={{ color: "#4f8cff", fontWeight: 700 }}>Entry timing</span>
+          <span>
+            signal {entryTiming.signalDate} @{entryTiming.signalPrice.toFixed(2)} → entered{" "}
+            {entryTiming.entryDate} @{entryTiming.entryPrice.toFixed(2)}
+          </span>
+          <span style={{ color: entryTiming.barsLate > 5 ? "#ef4444" : "#1fc16b", fontWeight: 700 }}>
+            {entryTiming.barsLate === 0 ? "on the signal" : `${entryTiming.barsLate} bars ${entryTiming.barsLate > 5 ? "LATE" : "late"}`}
+          </span>
+          <span style={{ color: entryTiming.extPct > 8 ? "#ef4444" : "var(--text-muted)" }}>
+            {entryTiming.extPct >= 0 ? "+" : ""}
+            {entryTiming.extPct.toFixed(1)}% vs signal price
+            {entryTiming.extPct > 8 ? " (chased)" : ""}
+          </span>
+        </div>
+      )}
 
       <div style={{ marginTop: 6, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>
         Daily candles (green up / red down). Ichimoku Kinko Hyo at the STRATEGY's
