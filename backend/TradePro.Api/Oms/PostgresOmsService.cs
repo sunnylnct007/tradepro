@@ -511,10 +511,24 @@ public sealed class PostgresOmsService : IOmsService
                     var brokerSymbol = await ResolveBrokerSymbolAsync(approved.Broker, approved.Symbol);
                     if (!long.TryParse(brokerSymbol, out var conid))
                     {
-                        _log.LogWarning(
-                            "IBKR order {OrderId} ({Sym}->{Broker}): no numeric conid mapping; leaving SUBMITTED for operator review",
-                            approved.Id, approved.Symbol, brokerSymbol);
-                        return approved;
+                        // Not a pre-mapped numeric conid. The clone posts tickers
+                        // like "AAPL_US_EQ" and there's no broker_ticker_map conid,
+                        // so the old code bailed here -> orders stranded SUBMITTED ->
+                        // auto-cancelled stale (broker_order_id always NULL). Resolve
+                        // the bare ticker -> conid via IBKR secdef search and place.
+                        var bare = brokerSymbol.Split('_')[0].Trim();
+                        var resolvedConid = await ibkr.ResolveConidAsync(bare, "STK", CancellationToken.None);
+                        if (resolvedConid is null)
+                        {
+                            _log.LogWarning(
+                                "IBKR order {OrderId} ({Sym}->{Broker}): could not resolve conid for '{Bare}'; leaving SUBMITTED for operator review",
+                                approved.Id, approved.Symbol, approved.Broker, bare);
+                            return approved;
+                        }
+                        conid = resolvedConid.Value;
+                        _log.LogInformation(
+                            "IBKR order {OrderId}: resolved {Bare} -> conid {Conid} for placement",
+                            approved.Id, bare, conid);
                     }
                     var side = approved.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase) ? "BUY" : "SELL";
                     // Drive the FULL confirmation dance (place → reply/confirm →
