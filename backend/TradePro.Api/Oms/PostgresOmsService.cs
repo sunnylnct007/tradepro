@@ -925,9 +925,13 @@ public sealed class PostgresOmsService : IOmsService
         // (broker-level reconcile/manual adjustments have strategy_id=NULL;
         // the old `IS NOT NULL` hid them, so "Sync OMS ← broker" wrote 21
         // fills that never showed up in the positions view).
+        // EXCLUDE soft-deleted orders: their fills must not count toward live
+        // positions (that's why the stale ichimoku_equity rows survived a full
+        // order soft-delete after the T212 reset). Deleted orders stay queryable
+        // for analytics via includeDeleted, but they're gone from positions.
         var (where, args) = strategyId is null
-            ? ("", (object)new { })
-            : ("WHERE o.strategy_id = @sid", (object)new { sid = strategyId });
+            ? ("WHERE o.deleted_at IS NULL", (object)new { })
+            : ("WHERE o.deleted_at IS NULL AND o.strategy_id = @sid", (object)new { sid = strategyId });
         var rows = await conn.QueryAsync<OmsPosition>($@"
             SELECT
                 COALESCE(o.strategy_id, '(unattributed)') AS StrategyId,
