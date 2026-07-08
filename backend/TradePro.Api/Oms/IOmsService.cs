@@ -20,8 +20,9 @@ public interface IOmsService
     Task<OmsOrder?> GetAsync(Guid orderId);
 
     /// <summary>List orders. `states` filters; null/empty = all states.
-    /// Newest first. Caller decides `limit`.</summary>
-    Task<IReadOnlyList<OmsOrder>> ListAsync(IReadOnlyCollection<string>? states, int limit);
+    /// `symbol` (bare ticker, e.g. "MS") filters in SQL so a symbol's FULL
+    /// history is reachable regardless of `limit`. Newest first.</summary>
+    Task<IReadOnlyList<OmsOrder>> ListAsync(IReadOnlyCollection<string>? states, int limit, string? symbol = null);
 
     /// <summary>PENDING_APPROVAL → SUBMITTED. Phase 1 stub: marks the
     /// row submitted. Phase 2 will actually post to the broker here.</summary>

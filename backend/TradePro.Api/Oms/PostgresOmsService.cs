@@ -229,12 +229,26 @@ public sealed class PostgresOmsService : IOmsService
     }
 
     public async Task<IReadOnlyList<OmsOrder>> ListAsync(
-        IReadOnlyCollection<string>? states, int limit)
+        IReadOnlyCollection<string>? states, int limit, string? symbol = null)
     {
         await using var conn = await _db.OpenConnectionAsync();
-        var (whereSql, args) = (states is { Count: > 0 })
-            ? ("WHERE state = ANY(@states)", (object)new { states = states.ToArray() })
-            : ("", new { });
+        var conds = new List<string>();
+        var args = new Dapper.DynamicParameters();
+        if (states is { Count: > 0 })
+        {
+            conds.Add("state = ANY(@states)");
+            args.Add("states", states.ToArray());
+        }
+        if (!string.IsNullOrWhiteSpace(symbol))
+        {
+            // Match the BARE ticker (part before the venue suffix) so "MS" matches
+            // "MS_US_EQ" but NOT "MSFT_US_EQ". Filtered in SQL (not post-fetch) so a
+            // symbol's FULL history is reachable, not just what fell inside the
+            // recent LIMIT window — the reason old entries looked "missing".
+            conds.Add("upper(split_part(symbol, '_', 1)) = upper(@sym)");
+            args.Add("sym", symbol.Trim());
+        }
+        var whereSql = conds.Count > 0 ? "WHERE " + string.Join(" AND ", conds) : "";
         var sql = $@"
             SELECT
                 id              AS Id,

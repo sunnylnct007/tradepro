@@ -83,15 +83,17 @@ export function SymbolDetailRail({
   // Ref used to scroll the rail into view when a symbol is selected.
   const railRef = useRef<HTMLElement>(null);
 
-  // Fetch orders once on mount (symbol change resets the component via key).
+  // Fetch THIS symbol's FULL order history (SQL-filtered by bare ticker), not
+  // the recent-100 window — so old entries (e.g. a 1-Jun buy) aren't hidden just
+  // because newer orders pushed them past the limit.
   useEffect(() => {
     let live = true;
     api
-      .omsOrders(undefined, ORDER_LIMIT)
+      .omsOrders(undefined, ORDER_LIMIT, bareSymbol(symbol))
       .then((r) => { if (live) { setOrders(r.orders); setOL(false); } })
       .catch(() => { if (live) setOL(false); });
     return () => { live = false; };
-  }, []);
+  }, [symbol]);
 
   // Scroll the rail into view when the component mounts (i.e. when a symbol is
   // selected). This handles the case where the user clicks a row that is low on

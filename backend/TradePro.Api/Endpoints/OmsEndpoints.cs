@@ -15,14 +15,16 @@ public static class OmsEndpoints
 
         // List orders. ?state=PENDING_APPROVAL,SUBMITTED filters; absent
         // = all states. Newest first.
-        orders.MapGet("/", async (string? states, int? limit, IOmsService oms) =>
+        orders.MapGet("/", async (string? states, int? limit, string? symbol, IOmsService oms) =>
         {
             var stateList = string.IsNullOrWhiteSpace(states)
                 ? null
                 : states.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             return Results.Ok(new
             {
-                orders = await oms.ListAsync(stateList, limit ?? 100),
+                // ?symbol=MS filters to that bare ticker's FULL history (SQL-side),
+                // so the symbol detail view isn't limited to the recent LIMIT window.
+                orders = await oms.ListAsync(stateList, limit ?? 100, symbol),
             });
         });
 
