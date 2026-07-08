@@ -234,6 +234,9 @@ public sealed class PostgresOmsService : IOmsService
         await using var conn = await _db.OpenConnectionAsync();
         var conds = new List<string>();
         var args = new Dapper.DynamicParameters();
+        // Soft-deleted orders (e.g. cleared after a paper-account reset) are kept in
+        // the table for analysis but hidden from the active list.
+        conds.Add("deleted_at IS NULL");
         if (states is { Count: > 0 })
         {
             conds.Add("state = ANY(@states)");
@@ -273,6 +276,20 @@ public sealed class PostgresOmsService : IOmsService
             LIMIT {limit};";
         var rows = await conn.QueryAsync<OmsOrder>(sql, args);
         return rows.ToList();
+    }
+
+    public async Task<int> SoftDeleteAsync(DateTime createdOnOrAfterUtc, string reason, string? brokerPrefix = null)
+    {
+        await using var conn = await _db.OpenConnectionAsync();
+        // Stamp deleted_at (rows retained). Optional broker prefix ("T212" matches
+        // T212_DEMO/T212_LIVE) so a reset can be scoped to one broker.
+        const string sql = @"
+            UPDATE oms_orders
+            SET deleted_at = now(), deleted_reason = @reason
+            WHERE created_at_utc >= @since
+              AND deleted_at IS NULL
+              AND (@broker IS NULL OR upper(broker) LIKE upper(@broker) || '%');";
+        return await conn.ExecuteAsync(sql, new { since = createdOnOrAfterUtc, reason, broker = brokerPrefix });
     }
 
     public async Task<OmsOrder> ApproveAsync(Guid orderId, string actor)

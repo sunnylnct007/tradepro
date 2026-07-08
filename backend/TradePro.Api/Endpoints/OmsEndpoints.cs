@@ -28,6 +28,17 @@ public static class OmsEndpoints
             });
         });
 
+        // POST /api/oms/orders/soft-delete — mark orders created on/after a date as
+        // deleted (rows KEPT for analysis, hidden from active views). Clears stale
+        // orders after a broker paper-account reset. Body: { sinceUtc?, reason?,
+        // brokerPrefix? }. Defaults to today (UTC), all brokers.
+        orders.MapPost("/soft-delete", async (SoftDeleteOrdersRequest? req, IOmsService oms) =>
+        {
+            var since = req?.SinceUtc ?? DateTime.UtcNow.Date;
+            var n = await oms.SoftDeleteAsync(since, req?.Reason ?? "paper-account reset cleanup", req?.BrokerPrefix);
+            return Results.Ok(new { softDeleted = n, sinceUtc = since, brokerPrefix = req?.BrokerPrefix });
+        });
+
         orders.MapGet("/{orderId:guid}", async (Guid orderId, IOmsService oms) =>
         {
             var o = await oms.GetAsync(orderId);
@@ -691,3 +702,7 @@ public sealed record SyncFromBrokerRequest(string? Broker, bool Force = false);
 /// <summary>Purge orphan (unattributed) OMS positions. Optional broker
 /// filter; Confirm=false (default) previews, Confirm=true executes.</summary>
 public sealed record PurgeUnattributedRequest(string? Broker = null, bool Confirm = false);
+
+/// <summary>Soft-delete OMS orders created on/after SinceUtc (rows kept for
+/// analysis, hidden from active views). Optional BrokerPrefix scope.</summary>
+public sealed record SoftDeleteOrdersRequest(DateTime? SinceUtc = null, string? Reason = null, string? BrokerPrefix = null);
