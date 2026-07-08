@@ -155,7 +155,7 @@ export function Desk() {
               display: "grid",
               gridTemplateColumns: wide
                 ? selectedSymbol
-                  ? "minmax(0, 1fr) min(640px, 46vw)"
+                  ? "minmax(0, 1fr) min(820px, 52vw)"
                   : "minmax(0, 1fr) 320px"
                 : "1fr",
               gap: 14,

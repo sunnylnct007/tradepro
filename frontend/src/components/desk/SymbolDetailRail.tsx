@@ -28,6 +28,7 @@ import { SymbolDecisionCard } from "./SymbolDecisionCard";
 import { SymbolRangeRiskCard } from "./SymbolRangeRiskCard";
 import { SymbolOrdersCard } from "./SymbolOrdersCard";
 import { SymbolValidationCard } from "./SymbolValidationCard";
+import { SymbolDetailModal } from "./SymbolDetailModal";
 
 const ORDER_LIMIT = 100;
 
@@ -47,6 +48,8 @@ export function SymbolDetailRail({
 }) {
   const [orders, setOrders]     = useState<OmsOrderRow[]>([]);
   const [ordersLoading, setOL] = useState(true);
+  // "Pop out" the detail into a large 2-column modal for comfortable validation.
+  const [popped, setPopped] = useState(false);
 
   // Entry price for the chart's "Entry" reference line — from the held
   // position (matched like SymbolDecisionCard), null when the symbol is flat.
@@ -152,21 +155,38 @@ export function SymbolDetailRail({
             ) : null;
           })()}
         </div>
-        <button
-          onClick={onClose}
-          title="Back to account overview"
-          style={{
-            background: "transparent",
-            border: "1px solid #1b2233",
-            borderRadius: 4,
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            fontSize: 11,
-            padding: "2px 8px",
-          }}
-        >
-          ← Back
-        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={() => setPopped(true)}
+            title="Pop out into a large 2-column view (Esc to close)"
+            style={{
+              background: "transparent",
+              border: "1px solid #1b2233",
+              borderRadius: 4,
+              color: "var(--accent, #4f8cff)",
+              cursor: "pointer",
+              fontSize: 11,
+              padding: "2px 8px",
+            }}
+          >
+            ⤢ Pop out
+          </button>
+          <button
+            onClick={onClose}
+            title="Back to account overview"
+            style={{
+              background: "transparent",
+              border: "1px solid #1b2233",
+              borderRadius: 4,
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 11,
+              padding: "2px 8px",
+            }}
+          >
+            ← Back
+          </button>
+        </div>
       </div>
 
       {/* 1. Chart — 400px tall so candles + axis labels are readable in the
@@ -192,6 +212,20 @@ export function SymbolDetailRail({
 
       {/* 5. Orders — raw per-symbol order log (scoped to the clicked strategy). */}
       <SymbolOrdersCard symbol={symbol} strategy={strategy} orders={orders} loading={ordersLoading} />
+
+      {popped && (
+        <SymbolDetailModal
+          symbol={symbol}
+          strategy={strategy}
+          positions={positions}
+          orders={orders}
+          ordersLoading={ordersLoading}
+          entryPrice={entryPrice}
+          entryDate={entryDate}
+          fills={fills}
+          onClose={() => setPopped(false)}
+        />
+      )}
     </aside>
   );
 }
