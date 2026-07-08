@@ -63,11 +63,14 @@ const WINDOW_DAYS: Record<string, number> = {
   "5Y": 365 * 5,
 };
 
-/** Ichimoku standard parameters. */
-const TENKAN = 9;
-const KIJUN = 26;
-const SENKOU_B = 52;
-const SHIFT = 26; // forward shift for the cloud + back shift for Chikou
+/** Ichimoku parameters — ALIGNED TO THE LIVE STRATEGY (ichimoku_equity uses
+ * tenkan=5, kijun=32, senkou_b=50, displacement=32), NOT the textbook 9/26/52.
+ * This is a VALIDATION surface: the cloud + signals shown must MATCH the signal
+ * that actually traded, or we'd be validating against a different picture. */
+const TENKAN = 5;
+const KIJUN = 32;
+const SENKOU_B = 50;
+const SHIFT = 32; // displacement: forward shift for the cloud + back shift for Chikou
 
 /** Leading-history pad (calendar days) so Ichimoku is valid at the LEFT edge of
  * the visible window. Senkou B needs 52 trading bars and the cloud is shifted
@@ -104,6 +107,23 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
   const [err, setErr] = useState<string | null>(null);
   // Live crosshair readout (OHLC + date) shown above the chart.
   const [hover, setHover] = useState<Candle | null>(null);
+
+  // Drag-resizable height: the user can drag the chart's bottom edge to make it
+  // taller/shorter (CSS resize:vertical). A ResizeObserver mirrors the dragged
+  // height into state so frequent re-renders (crosshair hover) don't snap it back
+  // to the fixed prop — the root cause of "can't resize the graph".
+  const outerRef = useRef<HTMLDivElement | null>(null);
+  const [boxH, setBoxH] = useState<number>(height);
+  useEffect(() => {
+    const el = outerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = Math.round(entries[0].contentRect.height);
+      if (h > 0) setBoxH((prev) => (Math.abs(prev - h) > 1 ? h : prev));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const windowDays = WINDOW_DAYS[timeframe] ?? 365;
 
@@ -381,13 +401,25 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
             <span>Vol {Number.isFinite(hover.volume) ? hover.volume.toLocaleString() : "—"}</span>
           </>
         ) : (
-          <span>Candles · Ichimoku cloud (9·26·52) — hover for OHLC</span>
+          <span>Candles · Ichimoku cloud (5·32·50 — strategy params) — hover for OHLC · scroll to zoom · drag bottom edge to resize</span>
         )}
       </div>
 
-      <div style={{ position: "relative", width: "100%", height }}>
+      <div
+        ref={outerRef}
+        style={{
+          position: "relative",
+          width: "100%",
+          height: boxH,
+          resize: "vertical",
+          overflow: "hidden",
+          minHeight: 220,
+          maxHeight: "85vh",
+        }}
+      >
         {/* The chart mounts here; the canvas overlay paints the cloud band on
-            top, pointer-events:none so it never blocks the crosshair. */}
+            top, pointer-events:none so it never blocks the crosshair. autoSize
+            makes the chart follow this container as the user drag-resizes it. */}
         <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
         <canvas
           ref={overlayRef}
@@ -416,13 +448,14 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
       </div>
 
       <div style={{ marginTop: 6, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>
-        Daily candles (green up / red down). Ichimoku Kinko Hyo: Tenkan-sen (9,
-        blue) · Kijun-sen (26, orange) · the cloud is the band between Senkou
-        Span A &amp; B (green when A&gt;B, red when below) shifted 26 bars
-        forward · Chikou span (close shifted 26 back, purple). Indicators are
-        computed on ~{PAD_DAYS} extra leading bars so the cloud spans the whole
-        window. No data is fabricated — points without enough history are
-        omitted.
+        Daily candles (green up / red down). Ichimoku Kinko Hyo at the STRATEGY's
+        params: Tenkan-sen (5, blue) · Kijun-sen (32, orange) · the cloud is the
+        band between Senkou Span A &amp; B (green when A&gt;B, red when below)
+        shifted 32 bars forward · Chikou span (close shifted 32 back, purple) —
+        so this matches the ichimoku_equity signal, not textbook 9/26/52.
+        Indicators are computed on ~{PAD_DAYS} extra leading bars so the cloud
+        spans the whole window. No data is fabricated — points without enough
+        history are omitted.
       </div>
     </div>
   );
