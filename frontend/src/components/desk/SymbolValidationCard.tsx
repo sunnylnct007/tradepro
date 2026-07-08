@@ -97,15 +97,23 @@ function daysBetween(a: string, b: string | null): number {
 
 export function SymbolValidationCard({
   symbol,
+  strategy,
   orders,
   loading,
 }: {
   symbol: string;
+  /** Scope to one strategy so another strategy's trades on the same ticker
+   * (e.g. the IBKR clone) don't pollute this strategy's round-trips. */
+  strategy?: string | null;
   orders: OmsOrderRow[];
   loading: boolean;
 }) {
   const bare = bareSymbol(symbol).toUpperCase();
-  const mine = orders.filter((o) => bareSymbol(o.symbol).toUpperCase() === bare);
+  const mine = orders.filter(
+    (o) =>
+      bareSymbol(o.symbol).toUpperCase() === bare &&
+      (!strategy || o.strategyId === strategy),
+  );
   const episodes = buildEpisodes(mine);
 
   const firstTraded = episodes.length ? episodes[episodes.length - 1].entryDate : null;

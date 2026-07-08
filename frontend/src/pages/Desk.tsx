@@ -85,6 +85,11 @@ export function Desk() {
   // null → account-value chart (DeskRightRail).
   // string → SymbolDetailRail for that Yahoo symbol.
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  // The STRATEGY the symbol was clicked under (from the strategy-grouped row) so
+  // the detail rail shows only THAT strategy's orders/fills — not another
+  // strategy that happens to hold the same ticker (e.g. the IBKR clone bleeding
+  // into ichimoku_equity's validation). null = show all strategies.
+  const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null);
 
   // Positions from PositionsByStrategy — fed into SymbolPositionCard via the
   // rail so the rail doesn't need its own fetch.
@@ -92,9 +97,10 @@ export function Desk() {
 
   // When the user clicks a symbol in positions or orders:
   //   - stay on "portfolio" (no view change)
-  //   - open the right rail for that symbol
-  const onSelectSymbol = useCallback((sym: string) => {
+  //   - open the right rail for that symbol, scoped to the clicked strategy
+  const onSelectSymbol = useCallback((sym: string, strategy?: string | null) => {
     setSelectedSymbol(sym);
+    setSelectedStrategy(strategy ?? null);
   }, []);
 
   // Navigating to another view clears the symbol selection so the rail
@@ -167,6 +173,7 @@ export function Desk() {
               <SymbolDetailRail
                 key={selectedSymbol}
                 symbol={selectedSymbol}
+                strategy={selectedStrategy}
                 onClose={() => setSelectedSymbol(null)}
                 positions={positions}
               />

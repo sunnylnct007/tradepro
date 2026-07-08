@@ -33,10 +33,15 @@ const ORDER_LIMIT = 100;
 
 export function SymbolDetailRail({
   symbol,
+  strategy,
   onClose,
   positions,
 }: {
   symbol: string;
+  /** The strategy the symbol was clicked under. When set, orders/fills/position
+   * shown are scoped to THIS strategy so another strategy holding the same
+   * ticker (e.g. the IBKR clone) doesn't bleed into the validation. */
+  strategy?: string | null;
   onClose: () => void;
   positions: PositionRow[];
 }) {
@@ -46,7 +51,9 @@ export function SymbolDetailRail({
   // Entry price for the chart's "Entry" reference line — from the held
   // position (matched like SymbolDecisionCard), null when the symbol is flat.
   const held = positions.find(
-    (r) => r.chartSymbol === symbol || r.ticker === symbol,
+    (r) =>
+      (r.chartSymbol === symbol || r.ticker === symbol) &&
+      (!strategy || r.strategyId === strategy),
   );
   const entryPrice = held?.avgPrice ?? null;
   // Position open date → shown on the chart's Entry line + the position panel,
@@ -58,7 +65,12 @@ export function SymbolDetailRail({
   // timeline. Only orders that actually filled (have an avg fill price).
   const bare = bareSymbol(symbol).toUpperCase();
   const fills = orders
-    .filter((o) => bareSymbol(o.symbol).toUpperCase() === bare && o.avgFillPrice != null)
+    .filter(
+      (o) =>
+        bareSymbol(o.symbol).toUpperCase() === bare &&
+        o.avgFillPrice != null &&
+        (!strategy || o.strategyId === strategy),
+    )
     .map((o) => ({
       side: o.side,
       price: o.avgFillPrice,
@@ -121,6 +133,14 @@ export function SymbolDetailRail({
       >
         <div style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 15, color: "var(--text)", display: "flex", alignItems: "baseline", gap: 8 }}>
           {symbol}
+          {strategy && (
+            <span
+              title={`Scoped to ${strategy} — other strategies holding ${symbol} are excluded`}
+              style={{ fontSize: 10, fontWeight: 600, color: "var(--accent, #4f8cff)", background: "rgba(79,140,255,0.12)", padding: "1px 6px", borderRadius: 4, fontFamily: "system-ui" }}
+            >
+              {strategy}
+            </span>
+          )}
           {(() => {
             const bp = held ? brokerPortal(held.broker) : null;
             return bp ? (
@@ -168,10 +188,10 @@ export function SymbolDetailRail({
       {/* 4. Validation — round-trips / first-traded / multiple-entries (factual
               from fills), for validating a symbol's trade history against the
               chart's cloud + fill markers above. */}
-      <SymbolValidationCard symbol={symbol} orders={orders} loading={ordersLoading} />
+      <SymbolValidationCard symbol={symbol} strategy={strategy} orders={orders} loading={ordersLoading} />
 
-      {/* 5. Orders — raw per-symbol order log. */}
-      <SymbolOrdersCard symbol={symbol} orders={orders} loading={ordersLoading} />
+      {/* 5. Orders — raw per-symbol order log (scoped to the clicked strategy). */}
+      <SymbolOrdersCard symbol={symbol} strategy={strategy} orders={orders} loading={ordersLoading} />
     </aside>
   );
 }

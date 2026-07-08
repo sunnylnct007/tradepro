@@ -18,16 +18,24 @@ const MAX_ROWS = 20;
 
 export function SymbolOrdersCard({
   symbol,
+  strategy,
   orders,
   loading,
 }: {
   symbol: string;
+  /** Scope to one strategy so the same ticker under another strategy (e.g. the
+   * IBKR clone) doesn't show here. */
+  strategy?: string | null;
   orders: OmsOrderRow[];
   loading: boolean;
 }) {
   const bare = bareSymbol(symbol).toUpperCase();
   const filtered = orders
-    .filter((o) => bareSymbol(o.symbol).toUpperCase() === bare)
+    .filter(
+      (o) =>
+        bareSymbol(o.symbol).toUpperCase() === bare &&
+        (!strategy || o.strategyId === strategy),
+    )
     .slice(0, MAX_ROWS);
 
   return (

@@ -80,7 +80,7 @@ export function PositionsByStrategy({
   onSelectSymbol,
   onRowsChange,
 }: {
-  onSelectSymbol?: (sym: string) => void;
+  onSelectSymbol?: (sym: string, strategyId?: string | null) => void;
   /** Called whenever the rows list changes, so the parent can pass them to SymbolPositionCard. */
   onRowsChange?: (rows: PositionRow[]) => void;
 }) {
@@ -369,7 +369,7 @@ function PositionSection({
 }: {
   section: Section;
   series: Record<string, number[] | null>;
-  onSelectSymbol?: (sym: string) => void;
+  onSelectSymbol?: (sym: string, strategyId?: string | null) => void;
 }) {
   // Collapsed state: initialise from localStorage (default = expanded).
   const lsKey = `${LS_PREFIX}${section.key}`;
@@ -486,7 +486,7 @@ function PositionSection({
                 return (
                   <tr
                     key={`${r.broker}:${r.ticker}:${i}`}
-                    onClick={clickable ? () => onSelectSymbol!(r.chartSymbol!) : undefined}
+                    onClick={clickable ? () => onSelectSymbol!(r.chartSymbol!, r.strategyId) : undefined}
                     title={clickable ? `Open ${r.chartSymbol} detail` : undefined}
                     style={{ borderBottom: "1px solid #141b2b", cursor: clickable ? "pointer" : "default" }}
                     className={clickable ? "desk-row-clickable" : undefined}

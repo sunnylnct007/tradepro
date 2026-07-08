@@ -30,6 +30,9 @@ export type PositionRow = {
   /** Position open date (broker-reported, e.g. T212 createdAt) — when the
    *  entry was first taken. Shown as "Opened" + on the chart's Entry line. */
   entryDate?: string | null;
+  /** Owning strategy (from OMS attribution) — lets the detail rail scope to the
+   *  clicked strategy when a ticker is held by more than one. */
+  strategyId?: string | null;
 };
 
 export function SymbolPositionCard({

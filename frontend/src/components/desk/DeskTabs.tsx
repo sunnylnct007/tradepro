@@ -51,7 +51,7 @@ export function DeskTabs({
   onOpenSymbol,
   onPositionsRowsChange,
 }: {
-  onOpenSymbol?: (symbol: string) => void;
+  onOpenSymbol?: (symbol: string, strategyId?: string | null) => void;
   /** Forwarded from PositionsByStrategy so Desk.tsx can keep a copy of rows
    * for the SymbolPositionCard in the right rail (avoids a second fetch). */
   onPositionsRowsChange?: (rows: PositionRow[]) => void;
