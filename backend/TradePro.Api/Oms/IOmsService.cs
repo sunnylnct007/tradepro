@@ -22,7 +22,7 @@ public interface IOmsService
     /// <summary>List orders. `states` filters; null/empty = all states.
     /// `symbol` (bare ticker, e.g. "MS") filters in SQL so a symbol's FULL
     /// history is reachable regardless of `limit`. Newest first.</summary>
-    Task<IReadOnlyList<OmsOrder>> ListAsync(IReadOnlyCollection<string>? states, int limit, string? symbol = null);
+    Task<IReadOnlyList<OmsOrder>> ListAsync(IReadOnlyCollection<string>? states, int limit, string? symbol = null, bool includeDeleted = false);
 
     /// <summary>SOFT-delete orders created on/after <paramref name="createdOnOrAfterUtc"/>
     /// (rows kept for analysis, stamped deleted_at + hidden from active views).

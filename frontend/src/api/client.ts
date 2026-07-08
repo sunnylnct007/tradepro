@@ -757,12 +757,15 @@ export const api = {
   // OMS — order lifecycle. /api/oms/* lives in OmsEndpoints.cs; backs
   // the OmsOrders page. Field names are PascalCase because .NET
   // serializes records that way (no [JsonPropertyName] overrides).
-  omsOrders: (states?: string[], limit = 100, symbol?: string) => {
+  omsOrders: (states?: string[], limit = 100, symbol?: string, includeDeleted?: boolean) => {
     const q: Record<string, string | number> = { limit };
     if (states && states.length) q.states = states.join(",");
     // ?symbol=MS pulls that bare ticker's FULL history (SQL-filtered), so the
     // symbol detail view isn't capped to the recent LIMIT window.
     if (symbol) q.symbol = symbol;
+    // includeDeleted=true = the "show archived" view (soft-deleted rows kept for
+    // execution-stats analytics).
+    if (includeDeleted) q.includeDeleted = "true";
     return get<{ orders: OmsOrderRow[] }>("/api/oms/orders", q);
   },
   omsOrderEvents: (orderId: string) =>

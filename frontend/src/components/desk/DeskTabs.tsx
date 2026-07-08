@@ -100,16 +100,44 @@ export function DeskTabs({
   );
 }
 
-/** Orders — all live OMS orders, newest-first, capped (no day window). */
+/** Orders — all live OMS orders, newest-first, capped (no day window).
+ * "Show archived" surfaces soft-deleted rows (kept for execution-stats analysis). */
 function OrdersTab({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void }) {
-  const orders = useOrders();
+  const [showArchived, setShowArchived] = useState(false);
+  const orders = useOrders(showArchived);
   return (
     <>
-      <WindowLabel
-        text={`Most recent ${ORDER_FETCH_LIMIT} orders · all states · newest first`}
-        sub="Across all dates (not today-only) — capped, not a time window."
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <WindowLabel
+          text={`Most recent ${ORDER_FETCH_LIMIT} orders · all states · newest first`}
+          sub={showArchived
+            ? "Including ARCHIVED (soft-deleted) orders — for execution-stats / analytical review."
+            : "Across all dates (not today-only) — capped, not a time window."}
+        />
+        <button
+          onClick={() => setShowArchived((v) => !v)}
+          title="Archived = soft-deleted orders (e.g. cleared after a reset), retained for analysis"
+          style={{
+            background: showArchived ? "rgba(79,140,255,0.14)" : "transparent",
+            border: "1px solid #1b2233",
+            borderRadius: 4,
+            color: showArchived ? "var(--accent, #4f8cff)" : "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: 11,
+            padding: "3px 10px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {showArchived ? "✓ Showing archived" : "Show archived"}
+        </button>
+      </div>
+      <OrderTable
+        rows={orders.rows}
+        loading={orders.loading}
+        err={orders.err}
+        empty={showArchived ? "No orders (including archived)." : "No orders."}
+        onOpenSymbol={onOpenSymbol}
       />
-      <OrderTable rows={orders.rows} loading={orders.loading} err={orders.err} empty="No orders." onOpenSymbol={onOpenSymbol} />
     </>
   );
 }
@@ -405,14 +433,14 @@ function orderChartSymbol(raw: string): string | null {
   return productOf(raw) === "Equity" ? bareSymbol(raw) : null;
 }
 
-function useOrdersWithLimit(limit: number) {
+function useOrdersWithLimit(limit: number, includeDeleted = false) {
   const [rows, setRows] = useState<OmsOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     const load = () => {
-      api.omsOrders(undefined, limit)
+      api.omsOrders(undefined, limit, undefined, includeDeleted)
         .then((r) => { if (live) { setRows(r.orders); setErr(null); } })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })
         .finally(() => { if (live) setLoading(false); });
@@ -420,12 +448,14 @@ function useOrdersWithLimit(limit: number) {
     void load();
     const t = setInterval(load, 60_000);
     return () => { live = false; clearInterval(t); };
-  }, [limit]);
+  }, [limit, includeDeleted]);
   return { rows, loading, err };
 }
 
-/** Orders tab: most-recent ORDER_FETCH_LIMIT orders (all states). */
-function useOrders() { return useOrdersWithLimit(ORDER_FETCH_LIMIT); }
+/** Orders tab: most-recent ORDER_FETCH_LIMIT orders (all states).
+ * includeDeleted=true = the "show archived" view (soft-deleted rows kept for
+ * execution-stats analytics). */
+function useOrders(includeDeleted = false) { return useOrdersWithLimit(ORDER_FETCH_LIMIT, includeDeleted); }
 
 /** Trades tab: fetch a larger window so fills don't fall outside the cap. */
 function useTrades() { return useOrdersWithLimit(TRADES_FETCH_LIMIT); }

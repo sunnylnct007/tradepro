@@ -229,14 +229,15 @@ public sealed class PostgresOmsService : IOmsService
     }
 
     public async Task<IReadOnlyList<OmsOrder>> ListAsync(
-        IReadOnlyCollection<string>? states, int limit, string? symbol = null)
+        IReadOnlyCollection<string>? states, int limit, string? symbol = null, bool includeDeleted = false)
     {
         await using var conn = await _db.OpenConnectionAsync();
         var conds = new List<string>();
         var args = new Dapper.DynamicParameters();
         // Soft-deleted orders (e.g. cleared after a paper-account reset) are kept in
-        // the table for analysis but hidden from the active list.
-        conds.Add("deleted_at IS NULL");
+        // the table for analysis but hidden from the active list. includeDeleted=true
+        // surfaces them (the "show archived" view for execution-stats analytics).
+        if (!includeDeleted) conds.Add("deleted_at IS NULL");
         if (states is { Count: > 0 })
         {
             conds.Add("state = ANY(@states)");
