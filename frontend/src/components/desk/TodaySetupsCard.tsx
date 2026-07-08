@@ -183,12 +183,19 @@ export function TodaySetupsCard() {
                   {dot} {s.symbol}
                   <span style={{ fontSize: 8, marginLeft: 4, padding: "0 3px", borderRadius: 3, color: hb ? "#d29922" : "var(--text-muted)", border: `1px solid ${hb ? "#5a4a1a" : "#1b2233"}` }}>{hb ? "HB" : "L50"}</span>
                 </span>
-                <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-dim)" }}>
-                  ${s.close.toFixed(2)}
-                  {livePx != null && Math.abs((livePx - s.close)) > 0.005 && (
-                    <span style={{ fontSize: 8.5, color: livePx >= s.close ? "#3fb950" : "#f85149", marginLeft: 2 }} title={`live ${livePx.toFixed(2)}`}>
-                      →{livePx.toFixed(0)}
-                    </span>
+                <span style={{ fontFamily: "monospace", fontSize: 11, lineHeight: 1.1 }}>
+                  {livePx != null ? (
+                    <>
+                      {/* LIVE (today) is the headline; prior close shown small as the scan basis. */}
+                      <span style={{ color: livePx >= s.close ? "#3fb950" : "#f85149", fontWeight: 700 }} title="live price (today)">
+                        ${livePx.toFixed(2)}
+                      </span>
+                      <span style={{ display: "block", fontSize: 8, color: "var(--text-muted)" }} title="prior close — the scan basis">
+                        cl {s.close.toFixed(2)}
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ color: "var(--text-dim)" }} title="prior close (no live quote)">${s.close.toFixed(2)}</span>
                   )}
                 </span>
                 <span style={{ fontSize: 10, color: hotAtr ? "#d29922" : "var(--text-muted)", fontWeight: hotAtr ? 700 : 400 }} title="ATR %/day — high = size down, wider stop">
