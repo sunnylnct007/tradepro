@@ -290,14 +290,25 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
         wasLong = isLong;
       });
       const buyFills = (fills ?? []).filter((f) => f.side === "BUY" && f.atUtc && f.price != null);
-      if (buyFills.length && onsets.length) {
-        const lastBuy = buyFills.reduce((a, b) => ((toTime(a.atUtc) as number) > (toTime(b.atUtc) as number) ? a : b));
-        const buyTs = toTime(lastBuy.atUtc) as number;
+      // ACTUAL ENTRY: prefer an OMS BUY fill; else fall back to the broker-reported
+      // POSITION entry (open date + avg price). Seeded positions (most held names)
+      // have no OMS fills but DO have a broker entry — so "entered late" still works
+      // for them, not just OMS-traded names.
+      const actualEntry: { atUtc: string; price: number } | null = buyFills.length
+        ? (() => {
+            const b = buyFills.reduce((a, b) => ((toTime(a.atUtc) as number) > (toTime(b.atUtc) as number) ? a : b));
+            return { atUtc: b.atUtc, price: b.price! };
+          })()
+        : entryDate && entryPrice != null && entryPrice > 0
+          ? { atUtc: entryDate, price: entryPrice }
+          : null;
+      if (actualEntry && onsets.length) {
+        const buyTs = toTime(actualEntry.atUtc) as number;
         const prior = onsets.filter((o) => o.t <= buyTs);
         const sig = prior.length ? prior[prior.length - 1] : onsets[0];
         const buyIdx = candles.findIndex((c) => (toTime(c.timestamp) as number) >= buyTs);
         const barsLate = buyIdx >= 0 ? Math.max(0, buyIdx - sig.idx) : 0;
-        const extPct = sig.price > 0 ? (lastBuy.price! / sig.price - 1) * 100 : 0;
+        const extPct = sig.price > 0 ? (actualEntry.price / sig.price - 1) * 100 : 0;
         markers.push({
           time: sig.t as UTCTimestamp,
           position: "aboveBar" as const,
@@ -308,8 +319,8 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
         setEntryTiming({
           signalDate: new Date(sig.t * 1000).toISOString().slice(0, 10),
           signalPrice: sig.price,
-          entryDate: lastBuy.atUtc.slice(0, 10),
-          entryPrice: lastBuy.price!,
+          entryDate: actualEntry.atUtc.slice(0, 10),
+          entryPrice: actualEntry.price,
           barsLate,
           extPct,
         });
