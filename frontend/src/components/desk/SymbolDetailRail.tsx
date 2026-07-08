@@ -27,6 +27,7 @@ import { SymbolPositionCard, type PositionRow } from "./SymbolPositionCard";
 import { SymbolDecisionCard } from "./SymbolDecisionCard";
 import { SymbolRangeRiskCard } from "./SymbolRangeRiskCard";
 import { SymbolOrdersCard } from "./SymbolOrdersCard";
+import { SymbolValidationCard } from "./SymbolValidationCard";
 
 const ORDER_LIMIT = 100;
 
@@ -164,7 +165,12 @@ export function SymbolDetailRail({
           signal: 52w-range position, ATR, kijun pullback level, 8% stop level. */}
       <SymbolRangeRiskCard symbol={symbol} />
 
-      {/* 4. Orders */}
+      {/* 4. Validation — round-trips / first-traded / multiple-entries (factual
+              from fills), for validating a symbol's trade history against the
+              chart's cloud + fill markers above. */}
+      <SymbolValidationCard symbol={symbol} orders={orders} loading={ordersLoading} />
+
+      {/* 5. Orders — raw per-symbol order log. */}
       <SymbolOrdersCard symbol={symbol} orders={orders} loading={ordersLoading} />
     </aside>
   );
