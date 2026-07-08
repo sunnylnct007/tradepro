@@ -1036,14 +1036,24 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[st
         except Exception:  # noqa: BLE001 — gateway down / stale → direct read
             rows = None
         # Direct read (with retry) ONLY if the gateway didn't give a fresh snapshot.
+        # PRIMARY = the IBKR Web API (reliable, NO desktop-Gateway :7500 dependency
+        # — the clone fail-closed all day when :7500 was refused). The legacy
+        # Gateway read is now only a last-resort fallback if the Web API is
+        # disabled server-side. "We've moved to API."
         if rows is None:
             for _attempt in range(3):
                 try:
+                    rows = _fetch_ibkr_rows_via_webapi()
+                    if rows is not None:
+                        log.info("POSITION SEED (ibkr-webapi): %s — %d position(s) via "
+                                 "the IBKR Web API (no Gateway dependency)", _sid, len(rows))
+                        break
+                    # None ⇒ IBKR disabled server-side → last-resort legacy Gateway.
                     rows = _aio.run(_fetch_ibkr_rows())
                     break
                 except Exception as exc:  # noqa: BLE001
                     _last_exc = exc
-                    log.warning("ibkr positions read attempt %d/3 failed: %s",
+                    log.warning("ibkr positions read attempt %d/3 (webapi→gateway) failed: %s",
                                 _attempt + 1, exc)
                     if _attempt < 2:
                         _time.sleep(2.0 * (_attempt + 1))
