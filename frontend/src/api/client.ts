@@ -124,6 +124,21 @@ export const api = {
   strategies: () => get<StrategyCatalogResponse>("/api/simulations/strategies"),
   candles: (params: { symbol: string; provider?: string; interval?: string; from?: string; to?: string }) =>
     get<CandleSeries>("/api/marketdata/candles", params),
+  /** LIVE intraday price via IBKR (any symbol, on-demand) — the Yahoo candles
+   * endpoint serves stale/prior-close data in this environment, so the freshness
+   * gate uses this. Returns the latest 1-min bar's close, or null on miss. */
+  ibkrLivePrice: async (symbol: string): Promise<number | null> => {
+    try {
+      const r = await get<{ bars?: Array<{ c: number }>; error?: string }>(
+        "/api/integrations/ibkr/price-history",
+        { symbol, period: "1d", bar: "1min" },
+      );
+      const bars = r.bars ?? [];
+      return bars.length ? bars[bars.length - 1].c : null;
+    } catch {
+      return null;
+    }
+  },
   runSimulation: (req: SimulationRequest) =>
     post<SimulationResult, SimulationRequest>("/api/simulations/run", req),
   evaluateSignal: (req: SignalRequest) =>

@@ -27,8 +27,8 @@ const UNIVERSES: Array<{ key: string; tag: string; label: string }> = [
   { key: "high_beta", tag: "high-β", label: "HB" },
 ];
 const HIGH_ATR = 6;      // %/day above which we flag a setup as a wild ride
-const FLAG_ATR = 0.75;   // live moved ≥ this many ATRs from the cached close → flag "moved"
-const EXPIRED_ATR = 1.0; // a ⭐ that ran UP ≥ this many ATRs → the pullback entry is gone
+const FLAG_ATR = 0.4;    // live moved ≥ this many ATRs from the cached close → flag "moved"
+const EXPIRED_ATR = 0.6; // a ⭐ that ran UP ≥ this many ATRs → the pullback entry is gone (chasing)
 
 type Setup = Awaited<ReturnType<typeof api.todaySetups>>["artifact"]["setups"][number] & { universe: string };
 type State = "loading" | "ok" | "nodata" | "error";
@@ -99,22 +99,19 @@ export function TodaySetupsCard() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Freshness gate: fetch the LIVE price for each setup symbol and compare to the
-  // cached close. Uses 5-min intraday bars (last close ≈ live). Best-effort per
-  // symbol; a failed/empty fetch just leaves that card unflagged.
+  // Freshness gate: fetch the LIVE price per actionable setup and compare to the
+  // cached close. Uses IBKR on-demand (api.ibkrLivePrice) — the Yahoo candles
+  // endpoint serves stale prior-close data in this environment. Capped to the
+  // consider/extended setups to keep IBKR load light; failed fetches leave a card
+  // unflagged (never a false "moved").
   useEffect(() => {
     if (state !== "ok" || setups.length === 0) return;
     let alive = true;
-    const syms = [...new Set(setups.map((s) => s.symbol))].slice(0, 40);
-    const to = new Date();
-    const from = new Date(Date.now() - 4 * 24 * 3600 * 1000);
+    const syms = [...new Set(
+      setups.filter((s) => s.classification === "consider" || s.classification === "extended").map((s) => s.symbol),
+    )].slice(0, 15);
     const fetchLive = () => {
-      Promise.allSettled(
-        syms.map((sym) =>
-          api.candles({ symbol: sym, interval: "5m", from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) })
-            .then((r) => ({ sym, px: r.candles?.length ? r.candles[r.candles.length - 1].close : null }))
-        )
-      ).then((res) => {
+      Promise.allSettled(syms.map((sym) => api.ibkrLivePrice(sym).then((px) => ({ sym, px })))).then((res) => {
         if (!alive) return;
         const m: Record<string, number | null> = {};
         res.forEach((r) => { if (r.status === "fulfilled" && r.value) m[r.value.sym] = r.value.px; });
@@ -122,7 +119,7 @@ export function TodaySetupsCard() {
       });
     };
     fetchLive();
-    const t = setInterval(fetchLive, 120_000); // re-check live every 2 min
+    const t = setInterval(fetchLive, 180_000); // re-check every 3 min (IBKR-friendly)
     return () => { alive = false; clearInterval(t); };
   }, [state, setups]);
 
