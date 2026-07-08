@@ -630,6 +630,9 @@ _SIM_BROKERS = frozenset({"paper", "replay", "yfinance", "stub_live"})
 _REAL_BROKER_POSITION_PATHS = {
     "t212": "/api/integrations/trading212/positions?account=demo",
     "ig":   "/api/integrations/ig/positions",
+    # IBKR paper clone's OWN book (DUP656969) — not shared, like T212. Enables the
+    # orphaned-exit union + held-exit sweep for the clone (was T212-only).
+    "ibkr": "/api/integrations/ibkr/positions",
 }
 
 
@@ -1578,7 +1581,7 @@ def main(argv: list[str] | None = None) -> int:
     # positions); the shared IG account is skipped so we don't pull another
     # strategy's instruments into this one's book (the seed already guards
     # that, but the universe drives bars + entries too).
-    if len(broker_list) == 1 and broker_list[0].lower() == "t212":
+    if len(broker_list) == 1 and broker_list[0].lower() in ("t212", "ibkr"):
         held = _fetch_broker_held_symbols(broker_list[0])
         existing = {s.upper() for s in symbols}
         added = [s for s in held if s.upper() not in existing]
@@ -1687,7 +1690,7 @@ def main(argv: list[str] | None = None) -> int:
     #
     # NOTE: this is a real behaviour change — it WILL open the missed-buy names that
     # signal long. Reviewed as such; entry logic unchanged, only its reachability.
-    if seeded_positions and len(broker_list) == 1 and broker_list[0].lower() == "t212":
+    if seeded_positions and len(broker_list) == 1 and broker_list[0].lower() in ("t212", "ibkr"):
         from ..paper.bar_bus import HeldReconciliationBus
         from ..paper.strategy import Bar as _ReconBar
         _cache_dir = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
