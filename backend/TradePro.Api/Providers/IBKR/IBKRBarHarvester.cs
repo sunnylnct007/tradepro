@@ -43,6 +43,9 @@ public sealed class IBKRBarHarvester : BackgroundService
     private readonly TimeSpan _interval;
     private readonly TimeSpan _perSymbolDelay;
     private readonly bool _disabled;
+    // Symbols whose deep history has been pulled once. Backfill runs once per
+    // symbol (spread across sweeps), then steady-state forward harvesting.
+    private readonly HashSet<string> _backfilled = new();
 
     public IBKRBarHarvester(
         IServiceScopeFactory scopes,
@@ -116,6 +119,13 @@ public sealed class IBKRBarHarvester : BackgroundService
         using var scope = _scopes.CreateScope();
         var sp = scope.ServiceProvider;
         var db = sp.GetRequiredService<NpgsqlDataSource>();
+        // CENTRAL CONNECTION (critical): resolve the SAME IBKRClient the OMS order
+        // path uses. It shares the singleton IBKRSessionCache -> ONE IBKR Web API
+        // session for BOTH harvest and trading. No separate connection = no
+        // per-account session contention that would break order placement. Requests
+        // serialize on the one session; the per-symbol delay + CAPPED backfill keep
+        // harvest load light so history-filling never starves an order. See
+        // project_ibkr_harvest_session_isolation.
         var ibkr = sp.GetService<IBKRClient>();
         var yahoo = sp.GetService<YahooFinanceProvider>();
 
@@ -123,7 +133,11 @@ public sealed class IBKRBarHarvester : BackgroundService
         var ibkrBar = IbkrBar(res);
         var yahooInterval = YahooInterval(res);
 
-        int ibkrOk = 0, yahooOk = 0, failed = 0, barsWritten = 0;
+        int ibkrOk = 0, yahooOk = 0, failed = 0, barsWritten = 0, backfilled = 0;
+        // Backfill is spread across sweeps (MaxBackfillPerSweep) so the first run
+        // doesn't burst a heavy 30-day pull for the whole universe onto the shared
+        // trading session at once.
+        int backfillBudget = Math.Max(0, _options.MaxBackfillPerSweep);
         await using var conn = await db.OpenConnectionAsync(ct);
 
         foreach (var symbol in _options.Symbols)
@@ -132,6 +146,11 @@ public sealed class IBKRBarHarvester : BackgroundService
             var sym = symbol?.Trim();
             if (string.IsNullOrEmpty(sym)) continue;
 
+            // A symbol not yet backfilled gets ONE deep history pull (BackfillPeriod),
+            // capped per sweep; everyone else pulls the small recent window (Period).
+            bool doBackfill = !_backfilled.Contains(sym) && backfillBudget > 0;
+            var period = doBackfill ? _options.BackfillPeriod : _options.Period;
+
             try
             {
                 // 1) PRIMARY: IBKR. This call also keeps the session warm.
@@ -139,7 +158,7 @@ public sealed class IBKRBarHarvester : BackgroundService
                 string source = "ibkr";
                 if (ibkr is not null)
                 {
-                    var hist = await ibkr.GetPriceHistoryAsync(sym, _options.Period, ibkrBar, ct);
+                    var hist = await ibkr.GetPriceHistoryAsync(sym, period, ibkrBar, ct);
                     if (hist.Bars.Count > 0)
                     {
                         foreach (var b in hist.Bars)
@@ -178,6 +197,9 @@ public sealed class IBKRBarHarvester : BackgroundService
                     var n = await UpsertAsync(conn, sym, res, source, rows);
                     barsWritten += n;
                     if (source == "ibkr") ibkrOk++; else yahooOk++;
+                    // Mark backfilled only on a real write — a failed deep pull retries
+                    // next sweep rather than silently dropping the symbol's history.
+                    if (doBackfill) { _backfilled.Add(sym); backfillBudget--; backfilled++; }
                 }
             }
             catch (Exception ex)
@@ -191,12 +213,13 @@ public sealed class IBKRBarHarvester : BackgroundService
         }
 
         _log.LogInformation(
-            "IBKRBarHarvester tick complete: ibkr={Ibkr} yahoo={Yahoo} failed={Failed} bars={Bars} of {Total} symbols",
-            ibkrOk, yahooOk, failed, barsWritten, _options.Symbols.Count);
+            "IBKRBarHarvester tick complete: ibkr={Ibkr} yahoo={Yahoo} failed={Failed} bars={Bars} backfilled={BF} ({Done}/{Total} symbols have history)",
+            ibkrOk, yahooOk, failed, barsWritten, backfilled, _backfilled.Count, _options.Symbols.Count);
         _status.LastTickIbkr = ibkrOk;
         _status.LastTickYahoo = yahooOk;
         _status.LastTickFailed = failed;
         _status.LastTickBarsWritten = barsWritten;
+        _status.BackfilledSymbols = _backfilled.Count;
     }
 
     private readonly record struct BarRow(
@@ -271,8 +294,18 @@ public sealed class IBKRHarvesterOptions
     /// <summary>Bar resolution: '1m' | '5m' | '15m' | '30m' | '1h' | '1d'.</summary>
     public string Resolution { get; set; } = "1m";
 
-    /// <summary>IBKR history window that covers the fetch (e.g. '1d','1w').</summary>
+    /// <summary>IBKR history window for STEADY-STATE forward harvesting (e.g. '1d').
+    /// Small = keeps recent bars current cheaply.</summary>
     public string Period { get; set; } = "1d";
+
+    /// <summary>IBKR history window for the ONE-TIME per-symbol BACKFILL — the deep
+    /// history pull. '1m' = ~30d (IBKR's 1-min ceiling); use '1y'/'2y' for 1h/1d.</summary>
+    public string BackfillPeriod { get; set; } = "1m";
+
+    /// <summary>Max symbols to backfill per sweep, so the deep pull is spread over
+    /// several ticks instead of bursting the whole universe onto the shared IBKR
+    /// session at once (protects order placement). 0 = disable backfill.</summary>
+    public int MaxBackfillPerSweep { get; set; } = 5;
 
     /// <summary>Milliseconds between symbol fetches within a sweep (pacing).</summary>
     public int PerSymbolDelayMs { get; set; } = 250;
@@ -289,6 +322,7 @@ public sealed class IBKRHarvesterStatus
     public int IntervalSeconds { get; set; }
     public string Resolution { get; set; } = "1m";
     public int ConfiguredSymbolCount { get; set; }
+    public int BackfilledSymbols { get; set; }
     public DateTime? LastTickAtUtc { get; set; }
     public DateTime? NextTickEtaUtc { get; set; }
     public int LastTickIbkr { get; set; }

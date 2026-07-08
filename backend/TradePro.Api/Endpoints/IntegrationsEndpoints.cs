@@ -999,6 +999,36 @@ public static class IntegrationsEndpoints
         })
         .WithName("GetIBKRLiveOrders");
 
+        // GET /api/integrations/ibkr/harvester-status — visibility into the
+        // continuous bar harvester: enabled, cadence, ticks, bars written,
+        // ibkr-vs-yahoo source split, backfill progress, last error. Reads the
+        // singleton status holder (no DB / no IBKR call). Fail-loud observability:
+        // a dead/stale harvester is visible here instead of silently not running.
+        app.MapGet("/integrations/ibkr/harvester-status",
+            (TradePro.Api.Providers.IBKR.IBKRHarvesterStatus status) => Results.Ok(status));
+
+        // GET /api/integrations/ibkr/bars?symbol=AAPL&resolution=1m&limit=200 —
+        // latest harvested bars from ibkr_price_bars, chronological. Powers charts
+        // + lets us VERIFY the harvest is landing real bars (and their source).
+        app.MapGet("/integrations/ibkr/bars", async (
+            string symbol, string? resolution, int? limit,
+            Npgsql.NpgsqlDataSource db, CancellationToken ct) =>
+        {
+            var res = string.IsNullOrWhiteSpace(resolution) ? "1m" : resolution;
+            var n = Math.Clamp(limit ?? 200, 1, 5000);
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var rows = (await conn.QueryAsync(@"
+                SELECT ts, open, high, low, close, volume, source
+                FROM ibkr_price_bars
+                WHERE symbol = @symbol AND resolution = @res
+                ORDER BY ts DESC
+                LIMIT @n;",
+                new { symbol, res, n })).AsList();
+            rows.Reverse(); // chronological for charts
+            var latest = rows.Count > 0 ? (object)rows[^1] : null;
+            return Results.Ok(new { symbol, resolution = res, count = rows.Count, latest, bars = rows });
+        });
+
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
