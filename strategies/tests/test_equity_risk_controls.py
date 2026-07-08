@@ -83,6 +83,10 @@ def _make_strategy(symbols, data_map, **extra_params) -> IchimokuEquityStrategy:
         # Tiny capital so sizing yields a small whole-share qty.
         "capital_usd": 100_000.0,
         "sleeve_size": 20,
+        # These tests build SUSTAINED uptrends (long for ~300 bars) to exercise
+        # OTHER gates (sector, extension, sizing). Turn the fresh-signal gate OFF
+        # so it doesn't block those entries — the fresh gate has its own tests.
+        "entry_fresh_only": False,
         **extra_params,
     }
     strat = IchimokuEquityStrategy(strategy_id="test-ichimoku-equity", params=params)
@@ -125,6 +129,22 @@ def test_default_off_entry_still_fires():
     assert len(orders) == 1
     assert orders[0].side == OrderSide.BUY
     assert orders[0].quantity > 0
+
+
+def test_fresh_gate_blocks_stale_long():
+    """entry_fresh_only (production default ON) SKIPS a name that's been long
+    since a prior day — a sustained uptrend is a PAST signal, not a fresh cross.
+    This is the fix for the 62-buy fresh-start backlog: trade the DELTA, not the
+    STATE. With the gate OFF the same sustained long still enters — proving the
+    gate is what blocks it (not the data)."""
+    df = {"AAPL": _uptrend_df()}
+    # Gate ON → stale long is skipped (no order).
+    on = _make_strategy(["AAPL"], df, entry_fresh_only=True)
+    assert on.on_bar(_bar("AAPL", 250.0)) == []
+    # Gate OFF → the same sustained long still enters (isolates the gate as cause).
+    off = _make_strategy(["AAPL"], df, entry_fresh_only=False)
+    o = off.on_bar(_bar("AAPL", 250.0))
+    assert len(o) == 1 and o[0].side == OrderSide.BUY
 
 
 def test_default_off_no_sector_cap():

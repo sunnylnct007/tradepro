@@ -226,6 +226,16 @@ class IchimokuEquityStrategy(Strategy):
             #   e.g. KO churned 4 round-trips → −5%). None ⇒ no regime gate.
             #   Existing holdings/exits untouched.
             "entry_max_flips": None,
+            # entry_fresh_only (bool): trade the DELTA, not the STATE. When True,
+            #   only ENTER a new long that CROSSED to long on the LATEST bar — a
+            #   fresh signal. A name long since a PRIOR day is a PAST signal and is
+            #   SKIPPED (the entry window was then; buying now chases a stale/
+            #   extended entry). Prevents importing the whole long backlog on a
+            #   re-seed (the 62-buy fresh-start bug). Default True — restores the
+            #   trader's trade-the-delta intent. In a continuous run every entry IS
+            #   a fresh cross, so this is a no-op there (parity-safe); it only
+            #   blocks entering an already-long name on a seed/re-seed.
+            "entry_fresh_only": True,
         }
 
     # ------------------------------------------------------------------ #
@@ -435,6 +445,21 @@ class IchimokuEquityStrategy(Strategy):
 
         # Long entry.
         if signal >= 1.0 and position == 0:
+            # ── Fresh-signal gate: trade the DELTA, not the STATE (OPT-IN) ──
+            # Only ENTER on a long that CROSSED on the latest bar. A name long
+            # since a PRIOR day is a PAST signal — the entry window was then;
+            # buying now chases a stale (often extended) entry, and on a re-seed
+            # imports the whole accumulated backlog (the 62-buy fresh-start bug).
+            # Restores the trader's trade-the-delta intent. Blocks the ENTRY only.
+            if p.get("entry_fresh_only") and not (meta and meta.get("long_fresh")):
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp,
+                    action="skip-stale-signal",
+                    reason=("long signal is not a fresh cross (long since a prior "
+                            "day) — trade-the-delta; don't chase past signals"),
+                    signal=signal, cloud_position=cloud_pos,
+                )
+                return []
             # ── Entry-extension "don't chase" gate (OPT-IN) ─────────────────
             # OFF by default (both None) ⇒ no-op. When set, SKIP a NEW long
             # that is already over-extended at entry — the diagnosed failure
@@ -1051,6 +1076,13 @@ class IchimokuEquityStrategy(Strategy):
                 ps = position_series(close.to_numpy(), high.to_numpy(), low.to_numpy())
                 recent = ps.tail(40)
                 meta = {**meta, "recent_flips": max(int((recent != recent.shift()).sum()) - 1, 0)}
+                # Fresh-signal flag: is the CURRENT long a cross on the LATEST bar
+                # (a fresh DELTA), or has it been long since a PRIOR bar (a PAST
+                # signal)? Consumed by the entry_fresh_only gate — trade the delta
+                # (buy the cross day), never chase an accumulated long state / import
+                # a backlog on a re-seed.
+                long_fresh = bool(len(ps) >= 1 and ps.iloc[-1] >= 1.0 and (len(ps) < 2 or ps.iloc[-2] < 1.0))
+                meta = {**meta, "long_fresh": long_fresh}
             except Exception:  # noqa: BLE001 — gate metadata is best-effort
                 pass
 

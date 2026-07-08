@@ -49,7 +49,10 @@ def _bar(symbol: str, close: float, is_live: bool = False) -> Bar:
 def _make_strategy(symbols, data_map, **extra):
     params = {"symbols": list(symbols), "use_regime_filter": False,
               "_data_fn": lambda s: data_map.get(s), "capital_usd": 100_000.0,
-              "sleeve_size": 20, **extra}
+              # Sustained-uptrend fixtures exercise reconciliation, not the fresh
+              # gate — turn it off so the sustained long still enters (the fresh
+              # gate has its own tests).
+              "sleeve_size": 20, "entry_fresh_only": False, **extra}
     strat = IchimokuEquityStrategy(strategy_id="test-held-exit", params=params)
     strat.on_session_start(_stale_ts())
     return strat
