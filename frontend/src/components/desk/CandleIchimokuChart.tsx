@@ -236,6 +236,28 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
       })),
     );
 
+    // ── Support / Resistance levels (pivot-based) ─────────────────────────
+    // Swing highs above price = resistance (red dotted); swing lows below =
+    // support (green dotted). Drawn as horizontal reference lines so the chart's
+    // structure — where price has repeatedly turned — reads at a glance. Nearest
+    // few each side; near-equal pivots are clustered into one level.
+    {
+      const last = candles[candles.length - 1].close;
+      const { highs, lows } = pivotLevels(candles);
+      const resistances = highs.filter((v) => v > last).sort((a, b) => a - b).slice(0, 3);
+      const supports = lows.filter((v) => v < last).sort((a, b) => b - a).slice(0, 3);
+      resistances.forEach((r) =>
+        candleSeries.createPriceLine({
+          price: r, color: "rgba(239,68,68,0.5)", lineWidth: 1,
+          lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: "R",
+        }));
+      supports.forEach((s) =>
+        candleSeries.createPriceLine({
+          price: s, color: "rgba(31,193,107,0.5)", lineWidth: 1,
+          lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: "S",
+        }));
+    }
+
     // Entry-price reference line for a held symbol (cost basis at a glance).
     if (entryPrice != null && Number.isFinite(entryPrice) && entryPrice > 0) {
       candleSeries.createPriceLine({
@@ -659,6 +681,39 @@ function dedupe(pts: IchiPoint[]): IchiPoint[] {
   const m = new Map<number, IchiPoint>();
   for (const p of pts) m.set(p.time as number, p);
   return [...m.values()].sort((a, b) => (a.time as number) - (b.time as number));
+}
+
+/** Pivot-based support/resistance from the candle highs/lows: a bar is a swing
+ * HIGH (resistance) if its high is the max over ±win bars, a swing LOW (support)
+ * if its low is the min. Near-equal levels are clustered so we don't draw ten
+ * lines a cent apart. Pure — scans the most recent `maxScan` bars only. */
+function pivotLevels(
+  candles: Candle[], win = 6, clusterPct = 0.012, maxScan = 240,
+): { highs: number[]; lows: number[] } {
+  const c = candles.slice(-maxScan);
+  const rawHi: number[] = [];
+  const rawLo: number[] = [];
+  for (let i = win; i < c.length - win; i++) {
+    let isHi = true;
+    let isLo = true;
+    for (let j = i - win; j <= i + win; j++) {
+      if (c[j].high > c[i].high) isHi = false;
+      if (c[j].low < c[i].low) isLo = false;
+    }
+    if (isHi) rawHi.push(c[i].high);
+    if (isLo) rawLo.push(c[i].low);
+  }
+  // Collapse near-equal levels (within clusterPct) into one, averaged.
+  const collapse = (xs: number[]): number[] => {
+    const out: number[] = [];
+    for (const v of [...xs].sort((a, b) => a - b)) {
+      const prev = out[out.length - 1];
+      if (prev === undefined || Math.abs(v - prev) / v > clusterPct) out.push(v);
+      else out[out.length - 1] = (prev + v) / 2;
+    }
+    return out;
+  };
+  return { highs: collapse(rawHi), lows: collapse(rawLo) };
 }
 
 // ---------------------------------------------------------------------------
