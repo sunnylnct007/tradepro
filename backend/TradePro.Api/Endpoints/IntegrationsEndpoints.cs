@@ -1164,6 +1164,69 @@ public static class IntegrationsEndpoints
             });
         });
 
+        // GET /api/integrations/ibkr/account-summary — the IBKR PAPER clone's OWN
+        // account snapshot (NLV / cash / unrealised P&L + position book) via the
+        // Web API ONLY — no local Gateway. This is the Web-API replacement for the
+        // Mac daemon's account-state read, which previously depended on the
+        // 127.0.0.1:7500 Gateway (dead after we moved to the Web API). Combines the
+        // ledger (GetCashAsync) + positions (GetPositionsAsync) into the exact
+        // shape /api/ingest/account-state expects, so the daemon just forwards it.
+        // FAIL-LOUD: any leg's error is surfaced verbatim, never a silent zero.
+        app.MapGet("/integrations/ibkr/account-summary", async (
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            CancellationToken ct) =>
+        {
+            if (!ibkr.IsEnabled)
+                return Results.Ok(new { enabled = false, note = "Populate tradepro/ibkr secret + restart" });
+
+            var cashTask = ibkr.GetCashAsync(ct);
+            var posTask = ibkr.GetPositionsAsync(ct);
+            await Task.WhenAll(cashTask, posTask);
+            var cash = await cashTask;
+            var pos = await posTask;
+
+            // Position book in the ingest shape (snake_case field names the
+            // /api/ingest/account-state handler + broker_account_state store read).
+            var positions = pos.Positions.Select(p =>
+            {
+                decimal? marketValue = (p.Quantity is decimal q && p.MarketPrice is decimal mp) ? q * mp : (decimal?)null;
+                return new
+                {
+                    symbol = p.Symbol,
+                    secType = "STK",              // Web API positions here are equities
+                    qty = p.Quantity,
+                    mark = p.MarketPrice,
+                    marketValue,
+                    avgCost = p.AvgCost,
+                    unrealisedPnl = p.UnrealizedPnl,
+                    currency = p.Currency,
+                };
+            }).ToArray();
+
+            // Sum the position book when the ledger doesn't carry account-level
+            // unrealised — so the row is never blank when we DO hold names.
+            decimal? unrl = cash.UnrealizedPnl;
+            if (unrl is null && positions.Length > 0)
+                unrl = positions.Where(x => x.unrealisedPnl is not null).Sum(x => x.unrealisedPnl ?? 0m);
+
+            return Results.Ok(new
+            {
+                enabled = true,
+                broker = ibkr.BrokerLabel,
+                currency = cash.Currency,
+                netLiquidation = cash.NetLiquidation,
+                cash = cash.Cash,
+                unrealisedPnl = unrl,
+                positions,
+                // daily_pnl (reqPnL) + session fills are Gateway-only; null here.
+                // The Web API path intentionally trades those extras for NOT
+                // depending on the dead local Gateway.
+                dailyPnl = (decimal?)null,
+                cashError = cash.Error,
+                positionsError = pos.Error,
+            });
+        });
+
         // GET /api/integrations/account-state — broker account snapshots the
         // Mac daemons pushed into broker_account_state. This is how the cockpit
         // sees an algo clone's OWN account (e.g. the IBKR PAPER clone DUP656969):

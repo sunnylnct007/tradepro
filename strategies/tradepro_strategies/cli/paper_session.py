@@ -1318,6 +1318,56 @@ def _apply_config_overrides(args, log) -> None:
         sorted(cfg.keys()))
 
 
+def _fetch_ibkr_account_state_via_webapi(log) -> dict | None:
+    """IBKR PAPER account-state (NLV / cash / unrealised P&L + position book) via
+    the Web API ONLY — NO desktop Gateway (:7500). The Web-API replacement for the
+    direct-Gateway account read: hits /api/integrations/ibkr/account-summary (the
+    server combines ledger + positions) and returns the /api/ingest/account-state
+    payload shape, or None when the API is unreachable / IBKR disabled server-side
+    so the caller can fall through. daily_pnl (reqPnL) + session fills are
+    Gateway-only, so they're absent here (daily_pnl carried through if present).
+    Raises on a server-side error so the caller logs + degrades — never pushes a
+    phantom zero."""
+    import requests
+    from . import push_to_api
+    base, token = push_to_api.load_credentials()
+    base = (base or "").rstrip("/")
+    if not base:
+        return None
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    r = requests.get(f"{base}/api/integrations/ibkr/account-summary", headers=headers, timeout=20)
+    r.raise_for_status()
+    j = r.json()
+    if not j.get("enabled", True):
+        return None
+    if j.get("cashError") or j.get("positionsError"):
+        raise RuntimeError(
+            f"ibkr web account-summary error: cash={j.get('cashError')} pos={j.get('positionsError')}")
+    positions = []
+    for p in (j.get("positions") or []):
+        positions.append({
+            "symbol": p.get("symbol"),
+            "secType": p.get("secType"),
+            "right": None, "strike": None, "expiry": None,
+            "qty": p.get("qty"),
+            "mark": p.get("mark"),
+            "marketValue": p.get("marketValue"),
+            "avgCost": p.get("avgCost"),
+            "unrealisedPnl": p.get("unrealisedPnl"),
+            "currency": p.get("currency"),
+        })
+    return {
+        "broker": "IBKR_PAPER",
+        "account_id": None,
+        "currency": j.get("currency"),
+        "net_liquidation": j.get("netLiquidation"),
+        "total_cash": j.get("cash"),
+        "unrealised_pnl": j.get("unrealisedPnl"),
+        "daily_pnl": j.get("dailyPnl"),
+        "positions": positions,
+    }
+
+
 def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
     """Push the IBKR PAPER account's NLV / cash / unrealised P&L + position book
     to /api/ingest/account-state so the cockpit can render the algo clone's OWN
@@ -1462,12 +1512,27 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
                  "— NLV=%s, %d positions, %d fills",
                  payload.get("net_liquidation"), len(payload.get("positions") or []), len(fills))
     else:
+        # Gateway cache stale/missing. PREFER the Web API (no :7500 dependency) —
+        # this is THE path now that we've moved off the local Gateway. A direct
+        # :7500 read is the last resort and only works if a Gateway is actually up
+        # (it usually isn't — that's what left the clone showing $0/idle).
         try:
-            payload = _aio.run(_read())
-            fills = payload.pop("_fills", [])
+            payload = _fetch_ibkr_account_state_via_webapi(log)
         except Exception as exc:  # noqa: BLE001
-            log.warning("account-state: gateway cache stale AND direct read failed (%s) — skip", exc)
-            return
+            log.warning("account-state: web-api read failed (%s) — trying direct", exc)
+            payload = None
+        if payload is not None:
+            fills = []  # session fills are Gateway-only; OMS reconcile covers prices
+            log.info("account-state: via IBKR WEB API (no gateway) — NLV=%s, %d positions",
+                     payload.get("net_liquidation"), len(payload.get("positions") or []))
+        else:
+            try:
+                payload = _aio.run(_read())
+                fills = payload.pop("_fills", [])
+            except Exception as exc:  # noqa: BLE001
+                log.warning("account-state: gateway cache stale, web-api unavailable "
+                            "AND direct :7500 read failed (%s) — skip", exc)
+                return
     try:
         import requests as _rq
         resp = _rq.post(
