@@ -44,6 +44,17 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Is the US cash session open right now? Weekdays 13:30–20:00 UTC (09:30–16:00 ET).
+ * Approximate — ignores holidays/DST edge — used only to FRAME the scan, never to
+ * gate trading. Pre-open, a daily-close scan is the correct next-session basis (not
+ * stale); intraday, an un-refreshed scan genuinely IS stale. */
+function usMarketOpen(now = new Date()): boolean {
+  const dow = now.getUTCDay();                 // 0 Sun … 6 Sat
+  if (dow === 0 || dow === 6) return false;
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return mins >= 13 * 60 + 30 && mins < 20 * 60;
+}
+
 /** Signed move of the live price from the cached close, in ATR units.
  * + = up since close. null when we can't compute (no live px / no ATR). */
 function moveAtr(s: Setup, livePx: number | null | undefined): number | null {
@@ -123,7 +134,13 @@ export function TodaySetupsCard() {
     return () => { alive = false; clearInterval(t); };
   }, [state, setups]);
 
-  const staleScan = state === "ok" && !!asOf && asOf.slice(0, 10) < todayUtc();
+  // The scan is a prior-session snapshot. Two very different meanings:
+  //  · market CLOSED  → this IS today's actionable basis (act at the open) — NOT stale.
+  //  · market OPEN    → the tape has moved since this scan → genuinely stale intraday.
+  const priorClose = state === "ok" && !!asOf && asOf.slice(0, 10) < todayUtc();
+  const mktOpen = usMarketOpen();
+  const staleScan = priorClose && mktOpen;        // the alarming case: stale during a live session
+  const nextSession = priorClose && !mktOpen;     // the benign case: pre-open next-session basis
   const shown = (showAll ? setups : setups.filter((s) => s.classification === "consider")).slice(0, showAll ? 30 : 12);
 
   return (
@@ -138,16 +155,26 @@ export function TodaySetupsCard() {
         )}
         {state === "ok" && asOf && (
           <span style={{ marginLeft: "auto", fontSize: 9.5, color: staleScan ? "#d29922" : "var(--text-muted)", fontWeight: staleScan ? 700 : 400 }}>
-            as of {asOf.slice(0, 10)}{staleScan ? " (prior close)" : ""}
+            {nextSession
+              ? `from ${asOf.slice(0, 10)} close · for today's open`
+              : `as of ${asOf.slice(0, 10)}${staleScan ? " (prior close)" : ""}`}
           </span>
         )}
       </div>
 
-      {/* Stale-scan banner: the whole board is a prior-close snapshot until EOD. */}
+      {/* Genuinely stale: market is OPEN and the tape has moved past this daily scan. */}
       {staleScan && (
         <div style={{ padding: "5px 10px", fontSize: 10, background: "rgba(210,153,34,0.12)", color: "#d29922", borderBottom: "1px solid #1b2233", lineHeight: 1.4 }}>
-          ⚠ Prices are <b>yesterday's close ({asOf!.slice(0, 10)})</b> — a daily snapshot, not live. Cards live-checked below;
+          ⚠ Market is open and these are <b>{asOf!.slice(0, 10)}'s close</b> — the tape has moved. Cards live-checked below;
           any that moved &gt;{FLAG_ATR} ATR since close are flagged, and ⭐ setups that ran are marked EXPIRED. Re-verify before acting — especially high-β.
+        </div>
+      )}
+
+      {/* Benign: pre-open. A daily scan from the last close IS today's actionable basis. */}
+      {nextSession && (
+        <div style={{ padding: "5px 10px", fontSize: 10, background: "rgba(88,166,255,0.10)", color: "#79c0ff", borderBottom: "1px solid #1b2233", lineHeight: 1.4 }}>
+          ⓘ Market closed. These are the setups from <b>{asOf!.slice(0, 10)}'s close</b> — the basis to act on at today's open, not stale data.
+          Prices refresh live once the session opens.
         </div>
       )}
 
