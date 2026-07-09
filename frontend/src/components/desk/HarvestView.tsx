@@ -17,6 +17,7 @@ import { PriceHistoryChart } from "../PriceHistoryChart";
 type Row = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
 type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
 type QRow = Quality["symbols"][number];
+type Harvester = Awaited<ReturnType<typeof api.ibkrHarvesterStatus>>;
 
 // Decision-grade tier → colour + glyph. The headline question: "good enough to
 // decide on TODAY?" GOOD/BRONZE = yes; PARTIAL/STALE/MISSING = no.
@@ -36,6 +37,18 @@ const TH: React.CSSProperties = {
 const TH_R: React.CSSProperties = { ...TH, textAlign: "right" };
 const TD: React.CSSProperties = { padding: "7px 10px", fontSize: 12, borderBottom: "1px solid #141b2b" };
 const TD_R: React.CSSProperties = { ...TD, textAlign: "right", fontFamily: "var(--font-mono)" };
+
+/** Compact relative time — "12s ago", "3m ago", "2h ago". Null-safe. */
+function ago(iso: string | null): string {
+  if (!iso) return "never";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "—";
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
 
 function daysSince(iso: string | null): number | null {
   if (!iso) return null;
@@ -63,6 +76,8 @@ const TONE: Record<string, string> = {
 export function HarvestView() {
   const [rows, setRows] = useState<Row[]>([]);
   const [quality, setQuality] = useState<Quality | null>(null);
+  const [harvester, setHarvester] = useState<Harvester | null>(null);
+  const [harvesterErr, setHarvesterErr] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);  // symbol → show its curve
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -81,6 +96,11 @@ export function HarvestView() {
       api.barCacheQuality()
         .then((r) => { if (live) setQuality(r); })
         .catch(() => { if (live) setQuality(null); });
+      // NEW C# IBKRBarHarvester (IBKR-primary → ibkr_price_bars). Own catch so a
+      // harvester hiccup never blanks the legacy bar-cache table.
+      api.ibkrHarvesterStatus()
+        .then((r) => { if (live) { setHarvester(r); setHarvesterErr(null); } })
+        .catch((e) => { if (live) { setHarvester(null); setHarvesterErr(e instanceof Error ? e.message : String(e)); } });
     };
     void load();
     const t = setInterval(load, 60_000);
@@ -126,6 +146,19 @@ export function HarvestView() {
         <h2 style={{ margin: 0, fontSize: 16 }}>Harvest · Data Health</h2>
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
           bar-cache coverage, freshness + missing-data issues · auto-refresh 60s
+        </span>
+      </div>
+
+      {/* NEW: C# IBKR bar harvester — the IBKR-primary intraday feed. This is the
+          answer to "is IBKR actually harvesting?" — separate from the legacy
+          yfinance bar-cache table below. */}
+      <HarvesterPanel h={harvester} err={harvesterErr} />
+
+      {/* Legacy yfinance bar-cache health (daily coverage / quality-for-today). */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>Legacy bar-cache (daily · yfinance)</span>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          daily coverage for backtests + decision-grade "good for today"
         </span>
       </div>
 
@@ -245,6 +278,100 @@ export function HarvestView() {
           <PriceHistoryChart symbol={selected} height={340} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** IBKR bar-harvester observability panel. Answers, at a glance: is it enabled,
+ * is IBKR actually the source (vs Yahoo fallback), how far is the backfill, and
+ * did the last sweep error? This is the NEW C# harvester → ibkr_price_bars. */
+function HarvesterPanel({ h, err }: { h: Harvester | null; err: string | null }) {
+  const enabled = !!h?.enabled;
+  const ibkr = h?.lastTickIbkr ?? 0;
+  const yahoo = h?.lastTickYahoo ?? 0;
+  const failed = h?.lastTickFailed ?? 0;
+  const total = ibkr + yahoo + failed;
+  // Source verdict: green when IBKR is carrying the feed, amber when it's all
+  // Yahoo fallback (cold session), grey when nothing ticked yet.
+  const srcTone = ibkr > 0 ? "var(--up)" : total > 0 ? "var(--warn)" : "var(--text-muted)";
+  const srcLabel = ibkr > 0
+    ? (yahoo > 0 ? `IBKR ${ibkr} · Yahoo ${yahoo}` : `IBKR ${ibkr}`)
+    : total > 0 ? `Yahoo-only ${yahoo} (IBKR cold)` : "no tick yet";
+  const cfg = h?.configuredSymbolCount ?? 0;
+  const bf = h?.backfilledSymbols ?? 0;
+
+  return (
+    <div style={{
+      background: "var(--surface-1)", border: `1px solid ${enabled ? "var(--border)" : "var(--warn)"}`,
+      borderRadius: 8, padding: "12px 16px", marginBottom: 14,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>IBKR Bar Harvester</span>
+        <span style={{
+          fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+          padding: "2px 8px", borderRadius: 999,
+          background: enabled ? "rgba(34,197,94,0.15)" : "rgba(250,204,21,0.15)",
+          color: enabled ? "var(--up)" : "var(--warn)",
+        }}>{enabled ? "● live" : "○ disabled"}</span>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          IBKR-primary intraday → ibkr_price_bars · Yahoo fallback (loud) · {h?.resolution || "1m"}
+        </span>
+        {h && (
+          <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto" }}>
+            last tick {ago(h.lastTickAtUtc)}{h.nextTickEtaUtc ? ` · next ~${ago(h.nextTickEtaUtc).replace(" ago", "")}` : ""}
+          </span>
+        )}
+      </div>
+
+      {err && (
+        <div style={{ fontSize: 12, color: "var(--down)" }}>
+          harvester-status unavailable: {err}
+        </div>
+      )}
+      {!err && !h && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading harvester status…</div>
+      )}
+      {!err && h && (
+        <>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <MiniStat label="Last-tick source" value={srcLabel} color={srcTone} />
+            <MiniStat label="Backfilled" value={`${bf}/${cfg}`}
+              color={cfg > 0 && bf >= cfg ? "var(--up)" : bf > 0 ? "var(--warn)" : "var(--text-muted)"} />
+            <MiniStat label="Bars written (last)" value={h.lastTickBarsWritten ?? 0}
+              color={(h.lastTickBarsWritten ?? 0) > 0 ? "var(--text)" : "var(--text-muted)"} />
+            <MiniStat label="Failed (last)" value={failed}
+              color={failed > 0 ? "var(--down)" : "var(--text-dim)"} />
+            <MiniStat label="Interval" value={`${h.intervalSeconds ?? 0}s`} color="var(--text-dim)" />
+          </div>
+          {cfg > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ height: 6, borderRadius: 999, background: "var(--surface-2)", overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", width: `${Math.min(100, (bf / cfg) * 100)}%`,
+                  background: bf >= cfg ? "var(--up)" : "var(--warn)", transition: "width .3s",
+                }} />
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+                backfill catching up — {bf} of {cfg} symbols have history in ibkr_price_bars
+              </div>
+            </div>
+          )}
+          {h.lastError && (
+            <div style={{ fontSize: 11, color: "var(--down)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
+              last error: {h.lastError}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, color }: { label: string; value: number | string; color: string }) {
+  return (
+    <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 12px", minWidth: 96 }}>
+      <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)" }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "var(--font-mono)", color }}>{value}</div>
     </div>
   );
 }

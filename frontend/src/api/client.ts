@@ -127,6 +127,25 @@ export const api = {
   /** LIVE intraday price via IBKR (any symbol, on-demand) — the Yahoo candles
    * endpoint serves stale/prior-close data in this environment, so the freshness
    * gate uses this. Returns the latest 1-min bar's close, or null on miss. */
+  /** Live status of the C# IBKRBarHarvester (the NEW IBKR-primary intraday
+   * harvester → ibkr_price_bars) — separate from the legacy yfinance bar_cache.
+   * Surfaces enabled/ticks/IBKR-vs-Yahoo split/backfill so IBKR harvesting is
+   * visible on the Data Health screen. */
+  ibkrHarvesterStatus: () =>
+    get<{
+      enabled: boolean;
+      intervalSeconds: number;
+      resolution: string;
+      configuredSymbolCount: number;
+      backfilledSymbols: number;
+      lastTickAtUtc: string | null;
+      nextTickEtaUtc: string | null;
+      lastTickIbkr: number;
+      lastTickYahoo: number;
+      lastTickFailed: number;
+      lastTickBarsWritten: number;
+      lastError: string | null;
+    }>("/api/integrations/ibkr/harvester-status"),
   ibkrLivePrice: async (symbol: string): Promise<number | null> => {
     try {
       const r = await get<{ bars?: Array<{ c: number }>; error?: string }>(
