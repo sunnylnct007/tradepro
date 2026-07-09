@@ -197,7 +197,12 @@ def main() -> int:
     # 'earnings' (shown, not hidden, so the trader sees WHY it's a skip). Only the
     # few 'consider' names are checked (limits the per-symbol earnings fetch).
     from ..earnings import fetch_upcoming_earnings
-    EARNINGS_GATE_DAYS = 25  # a swing hold typically spans this; a print inside it is gap risk
+    # A swing hold routinely runs 4–6 WEEKS, so any earnings print within ~5 weeks
+    # can gap the position through its stop mid-hold. 25d was too tight — it let
+    # ZBRA (26d) and HIMS (25d) slip through as clean ⭐ when both report inside a
+    # normal hold. The scan is also a daily EOD snapshot, so a name 26d out at scan
+    # time is <25d by the time you act — another reason to gate wider than the hold.
+    EARNINGS_GATE_DAYS = 35  # ≈5 weeks / ~25 trading days — covers a full swing hold
 
     rows, missing = [], []
     for sym in syms:
