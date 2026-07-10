@@ -185,6 +185,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[ichimoku_equity] Don't-chase gate: skip a NEW long >this %% above its 200-SMA (e.g. 50). Off by default.")
     p.add_argument("--entry-rsi-max", type=float, default=None,
                    help="[ichimoku_equity] Don't-chase gate: skip a NEW long with RSI(14) > this (e.g. 75). Off by default.")
+    p.add_argument("--entry-require-above-200sma", action="store_true", default=False,
+                   help="[ichimoku_equity clone] Primary-trend floor: skip a NEW long BELOW its own 200-SMA (the TSLA-below-200d case). Deviation from spec → clone only. Off by default.")
     # ── Cross-desk RISK GATE kill-switches (config-driven; ALL off by default →
     #    None → no halt → zero behaviour change until set in runtime_config) ────
     p.add_argument("--max-daily-loss-usd", type=float, default=None,
@@ -536,6 +538,9 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 # Entry-extension "don't chase" gate (whole percent / RSI level).
                 "entry_max_ext_pct": getattr(args, "entry_max_ext_pct", None),
                 "entry_rsi_max": getattr(args, "entry_rsi_max", None),
+                # Primary-trend floor (clone deviation): block new longs below
+                # their own 200-SMA. OFF for the verbatim T212 control.
+                "entry_require_above_200sma": bool(getattr(args, "entry_require_above_200sma", False)),
             },
         )
 
@@ -1298,7 +1303,7 @@ def _apply_config_overrides(args, log) -> None:
                 "interval", "placement_mode", "stop_loss_pct", "take_profit_pct",
                 "max_per_sector", "warmup_bars", "max_position_value_usd",
                 "target_vol", "max_leverage", "sleeve_size",
-                "entry_max_ext_pct", "entry_rsi_max",
+                "entry_max_ext_pct", "entry_rsi_max", "entry_require_above_200sma",
                 "top_n", "min_atr_pct", "min_strength",
                 "max_daily_loss_usd", "max_drawdown_pct",
                 "max_open_positions", "max_position_pct_of_capital",

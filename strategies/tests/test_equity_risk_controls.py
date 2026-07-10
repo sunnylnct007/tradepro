@@ -131,6 +131,33 @@ def test_default_off_entry_still_fires():
     assert orders[0].quantity > 0
 
 
+def _recovering_dip_df() -> pd.DataFrame:
+    """A RECOVERY: a high plateau, a decline, then a recent rip back above the
+    Ichimoku cloud (long signal) while price is STILL BELOW its own 200-day SMA
+    (the plateau keeps the 200-SMA elevated). The TSLA-below-$418 case the clone
+    primary-trend floor targets."""
+    plateau = np.full(200, 260.0)
+    decline = np.linspace(260.0, 150.0, 50)
+    recovery = np.linspace(150.0, 205.0, 50)
+    close = np.concatenate([plateau, decline, recovery])
+    return pd.DataFrame({"High": close * 1.01, "Low": close * 0.99, "Close": close})
+
+
+def test_require_above_200sma_blocks_below_trend_entry():
+    """Clone deviation: entry_require_above_200sma SKIPS a long whose close is
+    below its own 200-SMA (recovering dip, primary trend not reclaimed). Gate OFF
+    → the same signal enters, proving the gate blocks it, not the data. The
+    verbatim T212 control (gate OFF) is unaffected."""
+    df = {"AAPL": _recovering_dip_df()}
+    last = float(df["AAPL"]["Close"].iloc[-1])
+    assert last < float(df["AAPL"]["Close"].tail(200).mean())  # really below 200-SMA
+    off = _make_strategy(["AAPL"], df, entry_require_above_200sma=False, entry_fresh_only=False)
+    o_off = off.on_bar(_bar("AAPL", last))
+    assert len(o_off) == 1 and o_off[0].side == OrderSide.BUY   # gate OFF → enters
+    on = _make_strategy(["AAPL"], df, entry_require_above_200sma=True, entry_fresh_only=False)
+    assert on.on_bar(_bar("AAPL", last)) == []                  # gate ON → skip
+
+
 def test_fresh_gate_blocks_stale_long():
     """entry_fresh_only (production default ON) SKIPS a name that's been long
     since a prior day — a sustained uptrend is a PAST signal, not a fresh cross.

@@ -216,6 +216,15 @@ class IchimokuEquityStrategy(Strategy):
             #   entries that became the deepest losers (HPE +128%, CIEN +114%).
             #   None ⇒ no extension gate. Existing holdings/exits untouched.
             "entry_max_ext_pct": None,
+            # entry_require_above_200sma (bool): PRIMARY-TREND floor (OPT-IN). When
+            #   True, SKIP a NEW long whose Close is BELOW its own 200-day SMA. The
+            #   Ichimoku cloud can flash long on a recovering dip that hasn't
+            #   reclaimed its primary trend (TSLA bought $408 vs its 200-SMA $418).
+            #   This is a DEVIATION from the trader's spec — his 200-SMA is a SPY
+            #   MARKET-regime filter, not per-symbol — so it stays OFF here (verbatim)
+            #   and is enabled ONLY on the clone. False/None ⇒ no-op. Entry only;
+            #   never touches held positions or exits.
+            "entry_require_above_200sma": False,
             # entry_rsi_max (float|None): SKIP a NEW long if RSI(14) > this
             #   (e.g. 75 ⇒ block overbought entries). None ⇒ no RSI gate.
             "entry_rsi_max": None,
@@ -481,6 +490,23 @@ class IchimokuEquityStrategy(Strategy):
                         symbol=sym, bar_ts=bar.timestamp,
                         action="skip-extended",
                         reason=f"don't-chase gate: {why}",
+                        signal=signal, cloud_position=cloud_pos,
+                    )
+                    return []
+            # ── Primary-trend "must be above its own 200-SMA" floor (OPT-IN) ─
+            # OFF by default ⇒ no-op (verbatim spec). When True, SKIP a NEW long
+            # BELOW its own 200-day SMA — a primary trend not yet reclaimed (the
+            # TSLA-below-$418 case). Reuses the precomputed ext_pct (% over 200-SMA;
+            # <0 = below). Fail-open when ext is None (<200 bars — don't fabricate a
+            # gate). A DEVIATION from the trader's spec → enabled on the clone only.
+            if p.get("entry_require_above_200sma"):
+                ext = meta.get("ext_pct") if meta else None
+                if ext is not None and ext < 0:
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp,
+                        action="skip-below-200sma",
+                        reason=(f"{ext:+.1f}% vs its 200-SMA (below) — primary trend "
+                                f"not reclaimed; standing aside (require_above_200sma)"),
                         signal=signal, cloud_position=cloud_pos,
                     )
                     return []
