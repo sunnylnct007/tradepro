@@ -106,6 +106,14 @@ def _setup_for(df) -> dict | None:
     # 20d volume is a low-conviction move (ZBRA/UPS): keep it, but flag it.
     thin_vol = vol_ratio is not None and vol_ratio < 0.8
 
+    # 200-day SMA — the PRIMARY-TREND filter the cloud alone doesn't enforce. A name
+    # can sit ABOVE the Ichimoku cloud yet BELOW its 200d SMA (RH/TSLA both did):
+    # that's a recovering dip, not a reclaimed uptrend. Don't star those. None when
+    # we lack 200 bars — then fail-open (don't fabricate a gate on thin history).
+    sma200 = float(cl.rolling(200).mean().iloc[-1]) if len(cl) >= 200 else None
+    above_200sma = (sma200 is None) or (c >= sma200)
+    pct_vs_200sma = ((c / sma200 - 1) * 100) if sma200 else None
+
     if cloud != "ABOVE":
         cls = "excluded"        # not in an uptrend per the canonical cloud (PG-inside / GSL-below)
     elif sig in ("WAIT", "AVOID"):
@@ -118,6 +126,9 @@ def _setup_for(df) -> dict | None:
         cls = "extended"        # chasing — top of range / parabolic / far above kijun
     elif off_10d_high_pct < -8.0:
         cls = "reversal"        # sharp drop THROUGH the kijun — falling knife, not support
+    elif not above_200sma:
+        cls = "below_trend"     # above cloud but BELOW the 200d SMA — primary trend not
+                                # reclaimed (RH/TSLA): a recovering dip, never a clean ⭐
     elif dist_atr is None or dist_atr < 0:
         cls = "weak"            # above cloud but below kijun — support breaking
     elif dist_atr <= 2:
@@ -135,6 +146,9 @@ def _setup_for(df) -> dict | None:
         "dist_atr": round(dist_atr, 1) if dist_atr is not None else None,
         "off_10d_high_pct": round(off_10d_high_pct, 1),
         "momentum_10d_pct": round(mom10, 0) if mom10 is not None else None,
+        "sma200": round(sma200, 2) if sma200 is not None else None,
+        "above_200sma": bool(above_200sma),
+        "pct_vs_200sma": round(pct_vs_200sma, 1) if pct_vs_200sma is not None else None,
         "as_of": ms.as_of,
         "stop8": round(c * 0.92, 2),
         "volume_ratio": round(vol_ratio, 2) if vol_ratio is not None else None,
@@ -162,6 +176,10 @@ def _why(s: dict) -> str:
     if cls == "extended":
         return (f"above cloud but EXTENDED ({s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}%) — "
                 f"chasing a big run; wait for a deeper pullback toward kijun ${s['kijun']}.")
+    if cls == "below_trend":
+        return (f"above the cloud BUT below the 200-day SMA ${s.get('sma200')} "
+                f"({s.get('pct_vs_200sma')}%) — primary trend not reclaimed, a recovering dip not a "
+                f"confirmed uptrend. WATCH for a 200-day reclaim before entry.")
     if cls == "hold":
         return f"above cloud, mid-zone ({s['dist_atr']} ATR above kijun) — no edge entering here."
     if cls == "weak":
@@ -242,14 +260,14 @@ def main() -> int:
     if newest:
         for r in rows:
             asof = (r.get("as_of") or "")[:10]
-            if asof and asof < newest and r["classification"] in ("consider", "earnings", "extended", "hold", "reversal"):
+            if asof and asof < newest and r["classification"] in ("consider", "earnings", "extended", "below_trend", "hold", "reversal"):
                 r["stale"] = True
                 r["classification"] = "excluded"
 
     # Rank the actionable. consider (real entries) first, then the WARNINGS —
     # reversal (falling knife) and extended (chasing) are SHOWN, not hidden, so the
     # trader sees why a tempting name is a skip. weak/suspect/excluded stay hidden.
-    order = {"consider": 0, "earnings": 1, "reversal": 2, "extended": 3, "hold": 4}
+    order = {"consider": 0, "earnings": 1, "reversal": 2, "extended": 3, "below_trend": 4, "hold": 5}
     actionable = [r for r in rows if r["classification"] in order]
     actionable.sort(key=lambda r: (order[r["classification"]], r.get("dist_atr") if r.get("dist_atr") is not None else 99))
     for i, r in enumerate(actionable):
@@ -260,7 +278,8 @@ def main() -> int:
         "kind": "today_setups", "universe": args.universe,
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
         "counts": {"consider": n("consider"), "earnings": n("earnings"), "reversal": n("reversal"),
-                   "extended": n("extended"), "hold": n("hold"), "weak": n("weak"), "suspect": n("suspect"),
+                   "extended": n("extended"), "below_trend": n("below_trend"), "hold": n("hold"),
+                   "weak": n("weak"), "suspect": n("suspect"),
                    "excluded": n("excluded"), "scanned": len(rows)},
         "setups": actionable[: args.top],
         "excluded_symbols": [r["symbol"] for r in rows if r["classification"] == "excluded"],
@@ -271,7 +290,7 @@ def main() -> int:
     }
 
     for r in artifact["setups"]:
-        log.info("%-2s %-9s %-8s %6.2f  %s", {"consider": "⭐", "earnings": "📅", "reversal": "🔪", "extended": "⚠", "hold": "·"}.get(r["classification"], " "),
+        log.info("%-2s %-9s %-8s %6.2f  %s", {"consider": "⭐", "earnings": "📅", "reversal": "🔪", "extended": "⚠", "below_trend": "📉", "hold": "·"}.get(r["classification"], " "),
                  r["symbol"], r["classification"], r["close"], r["why"])
     log.info("counts: %s | suspect: %s | missing: %d", artifact["counts"], artifact["data_suspect"], len(missing))
 

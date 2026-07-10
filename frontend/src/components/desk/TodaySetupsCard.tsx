@@ -36,6 +36,7 @@ type State = "loading" | "ok" | "nodata" | "error";
 const TAG: Record<string, { dot: string; color: string }> = {
   consider: { dot: "⭐", color: "#3fb950" },
   extended: { dot: "⚠", color: "#d29922" },
+  below_trend: { dot: "📉", color: "#d29922" },  // above cloud but below 200d SMA — primary trend unconfirmed
   hold: { dot: "·", color: "var(--text-muted)" },
 };
 
