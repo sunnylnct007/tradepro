@@ -176,6 +176,13 @@ builder.Services
     .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKRHarvesterOptions.SectionName));
 builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRHarvesterStatus>();
 builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRBarHarvester>();
+// Deep DAILY history filler for the central ibkr_price_bars store (resolution=1d)
+// — separate cadence from the 1m harvester; runs until caught up, then tops up.
+builder.Services
+    .AddOptions<TradePro.Api.Providers.IBKR.IBKRDailyBackfillOptions>()
+    .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKRDailyBackfillOptions.SectionName));
+builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRDailyBackfillStatus>();
+builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRDailyBackfillService>();
 
 // IBKR (Interactive Brokers) — OAuth2 Web API. Off by default; turns on
 // once the standalone tradepro/ibkr secret is populated with mode !=

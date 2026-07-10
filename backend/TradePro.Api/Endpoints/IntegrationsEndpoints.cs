@@ -1007,6 +1007,12 @@ public static class IntegrationsEndpoints
         app.MapGet("/integrations/ibkr/harvester-status",
             (TradePro.Api.Providers.IBKR.IBKRHarvesterStatus status) => Results.Ok(status));
 
+        // GET /api/integrations/ibkr/daily-backfill-status — progress of the deep
+        // DAILY history filler (ibkr_price_bars resolution=1d): enabled, how many
+        // symbols are deep-done, what's in progress, bars written, last error.
+        app.MapGet("/integrations/ibkr/daily-backfill-status",
+            (TradePro.Api.Providers.IBKR.IBKRDailyBackfillStatus status) => Results.Ok(status));
+
         // GET /api/integrations/ibkr/bars?symbol=AAPL&resolution=1m&limit=200 —
         // latest harvested bars from ibkr_price_bars, chronological. Powers charts
         // + lets us VERIFY the harvest is landing real bars (and their source).
