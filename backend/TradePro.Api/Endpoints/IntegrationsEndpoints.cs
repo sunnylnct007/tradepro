@@ -1029,6 +1029,73 @@ public static class IntegrationsEndpoints
             return Results.Ok(new { symbol, resolution = res, count = rows.Count, latest, bars = rows });
         });
 
+        // GET /api/integrations/ibkr/bar-coverage — the HARVEST STATUS BOARD:
+        // for the ONE central store (ibkr_price_bars), what's been harvested and
+        // what's still pending. Per (symbol, resolution): earliest→latest bar,
+        // bar count, IBKR-vs-Yahoo source split, last capture. Plus a `pending`
+        // list = configured harvester symbols that have NO daily (1d) history yet,
+        // so a half-done deep backfill is visible, never silently "looks complete".
+        app.MapGet("/integrations/ibkr/bar-coverage", async (
+            Npgsql.NpgsqlDataSource db,
+            Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKRHarvesterOptions> harvesterOpts,
+            CancellationToken ct) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var rows = (await conn.QueryAsync(@"
+                SELECT symbol, resolution,
+                       min(ts)  AS first_ts,
+                       max(ts)  AS last_ts,
+                       count(*) AS bars,
+                       count(*) FILTER (WHERE source = 'ibkr')  AS ibkr_bars,
+                       count(*) FILTER (WHERE source = 'yahoo') AS yahoo_bars,
+                       max(captured_at_utc) AS last_captured_utc
+                FROM ibkr_price_bars
+                GROUP BY symbol, resolution
+                ORDER BY symbol, resolution;")).AsList();
+
+            // Per-resolution rollup (how many symbols covered at 1d / 1m / …).
+            var byRes = rows
+                .GroupBy(r => (string)r.resolution)
+                .Select(g => new
+                {
+                    resolution = g.Key,
+                    symbols = g.Count(),
+                    totalBars = g.Sum(r => (long)r.bars),
+                    ibkrBars = g.Sum(r => (long)r.ibkr_bars),
+                    yahooBars = g.Sum(r => (long)r.yahoo_bars),
+                })
+                .OrderBy(x => x.resolution)
+                .ToArray();
+
+            // Pending = harvester-configured symbols with NO daily history yet.
+            // Daily is the deep-backfill target; 1m is the always-on intraday feed.
+            var configured = (harvesterOpts.Value.Symbols ?? new List<string>())
+                .Select(s => s.Trim().ToUpperInvariant()).Where(s => s.Length > 0).ToHashSet();
+            var haveDaily = rows.Where(r => (string)r.resolution == "1d")
+                .Select(r => ((string)r.symbol).ToUpperInvariant()).ToHashSet();
+            var pendingDaily = configured.Where(s => !haveDaily.Contains(s)).OrderBy(s => s).ToArray();
+
+            return Results.Ok(new
+            {
+                generatedAtUtc = DateTime.UtcNow,
+                byResolution = byRes,
+                coverage = rows.Select(r => new
+                {
+                    symbol = (string)r.symbol,
+                    resolution = (string)r.resolution,
+                    firstTs = (DateTime?)r.first_ts,
+                    lastTs = (DateTime?)r.last_ts,
+                    bars = (long)r.bars,
+                    ibkrBars = (long)r.ibkr_bars,
+                    yahooBars = (long)r.yahoo_bars,
+                    lastCapturedUtc = (DateTime?)r.last_captured_utc,
+                }),
+                configuredSymbols = configured.Count,
+                pendingDaily,          // configured symbols with no 1d history yet
+                pendingDailyCount = pendingDaily.Length,
+            });
+        });
+
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
