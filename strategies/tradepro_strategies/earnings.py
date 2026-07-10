@@ -345,6 +345,29 @@ def fetch_upcoming_earnings(
     }
 
 
+def earnings_calendar_enabled(api_base: str, *, timeout: float = 10.0) -> bool:
+    """Is the Finnhub earnings-calendar source live + reachable right now?
+
+    fetch_upcoming_earnings returns None for THREE different things — Finnhub
+    disabled, the request failed, OR the symbol simply has no earnings in the
+    window (which means it's earnings-CLEAR, not unverified). Callers can't tell
+    those apart from None alone. Probe once per run with a name that always has a
+    calendar entry (AAPL); a True here means a later None is "clear", a False
+    means "couldn't verify". Any error → False (fail-safe: treat as can't-verify).
+    """
+    import requests
+    try:
+        resp = requests.get(
+            f"{api_base.rstrip('/')}/api/integrations/finnhub/earnings-calendar",
+            params={"symbol": "AAPL", "days": 400},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return bool((resp.json() or {}).get("enabled"))
+    except requests.RequestException:
+        return False
+
+
 def earnings_trace_row(signal: dict) -> dict | None:
     """Decision-trace row representation of the earnings signal so it
     surfaces in the same Compare-expand-panel ladder as RSI / SMA /

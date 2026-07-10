@@ -196,13 +196,18 @@ def main() -> int:
     # swing buy — a binary print can gap it through the stop. Downgrade those to
     # 'earnings' (shown, not hidden, so the trader sees WHY it's a skip). Only the
     # few 'consider' names are checked (limits the per-symbol earnings fetch).
-    from ..earnings import fetch_upcoming_earnings
+    from ..earnings import fetch_upcoming_earnings, earnings_calendar_enabled
     # A swing hold routinely runs 4–6 WEEKS, so any earnings print within ~5 weeks
     # can gap the position through its stop mid-hold. 25d was too tight — it let
     # ZBRA (26d) and HIMS (25d) slip through as clean ⭐ when both report inside a
     # normal hold. The scan is also a daily EOD snapshot, so a name 26d out at scan
     # time is <25d by the time you act — another reason to gate wider than the hold.
     EARNINGS_GATE_DAYS = 35  # ≈5 weeks / ~25 trading days — covers a full swing hold
+    # Probe the source ONCE: with Finnhub live, a per-symbol "no earnings" result
+    # means earnings-CLEAR (leave the ⭐), NOT unverified. Only flag unverified when
+    # the source itself is down — else a name whose next print is just beyond the
+    # window (e.g. RH, ~61d out) gets falsely tainted.
+    earnings_live = earnings_calendar_enabled(base)
 
     rows, missing = [], []
     for sym in syms:
@@ -218,11 +223,13 @@ def main() -> int:
                     s["classification"] = "earnings"
                     s["earnings_days"] = du
                     s["earnings_date"] = ev.get("date")
-                elif du is None:
-                    # None = Finnhub disabled OR nothing scheduled — we can't
-                    # confirm it's clear, so FLAG it (fail-loud) rather than
-                    # silently presenting an unverified ⭐ as earnings-safe.
+                elif du is None and not earnings_live:
+                    # Source down/unreachable — we genuinely can't confirm it's
+                    # clear, so FLAG it (fail-loud) rather than presenting an
+                    # unverified ⭐ as earnings-safe.
                     s["earnings_unverified"] = True
+                # else: du is None AND Finnhub live → verified CLEAR (no print in
+                # the window) → leave the clean ⭐, no false 'unverified' taint.
             except Exception as _e:  # noqa: BLE001 — an earnings hiccup must not block the scan, but SURFACE it
                 s["earnings_unverified"] = True
         s["why"] = _why(s)
