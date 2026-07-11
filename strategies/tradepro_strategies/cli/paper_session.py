@@ -635,10 +635,34 @@ _SIM_BROKERS = frozenset({"paper", "replay", "yfinance", "stub_live"})
 _REAL_BROKER_POSITION_PATHS = {
     "t212": "/api/integrations/trading212/positions?account=demo",
     "ig":   "/api/integrations/ig/positions",
-    # IBKR paper clone's OWN book (DUP656969) — not shared, like T212. Enables the
-    # orphaned-exit union + held-exit sweep for the clone (was T212-only).
+    # IBKR paper account (DUP656969). WARNING: this account is SHARED between the
+    # equity clone (ichimoku_equity_ibkr) AND the FX clone (ichimoku_fx_mr_ibkr),
+    # so its /positions mixes equities AND FX. The orphaned-exit union MUST filter
+    # to the running strategy's asset class (see _held_for_strategy_asset_class) or
+    # a strategy will pull the OTHER's instruments into its book (the FX-sold-META
+    # bug: the FX sweep saw the equity clone's META and emitted SELL META).
     "ibkr": "/api/integrations/ibkr/positions",
 }
+
+# ISO currency codes the FX clone trades. A bare held ticker is an FX PAIR when it
+# is two of these concatenated (EURUSD, GBPJPY) — used to keep the shared IBKR
+# account's equities OUT of the FX book and its FX pairs OUT of the equity book.
+_FX_CCY = frozenset({"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "SEK", "NOK"})
+
+
+def _is_fx_pair(sym: str) -> bool:
+    s = (sym or "").replace("=X", "").upper().strip()
+    return len(s) == 6 and s[:3] in _FX_CCY and s[3:] in _FX_CCY
+
+
+def _held_for_strategy_asset_class(held: dict, strategy_name: str) -> dict:
+    """Filter broker-held names to the running strategy's asset class, so the
+    orphaned-exit union on a SHARED account (IBKR paper) never pulls the other
+    strategy's instruments. FX strategies keep only FX pairs; everything else
+    (equity) keeps only non-FX. A no-op for single-asset brokers (T212 = all
+    equities anyway)."""
+    is_fx = "fx" in (strategy_name or "").lower()
+    return {s: p for s, p in held.items() if _is_fx_pair(s) == is_fx}
 
 
 def broker_requires_position_seed(broker: str) -> bool:
@@ -1663,6 +1687,10 @@ def main(argv: list[str] | None = None) -> int:
     # that, but the universe drives bars + entries too).
     if len(broker_list) == 1 and broker_list[0].lower() in ("t212", "ibkr"):
         held = _fetch_broker_held_symbols(broker_list[0])
+        # SHARED-ACCOUNT GUARD: the IBKR paper account mixes the equity clone's and
+        # FX clone's positions. Filter to THIS strategy's asset class so we never
+        # union the other strategy's instruments (the FX-sold-META bug).
+        held = _held_for_strategy_asset_class(held, getattr(args, "strategy", "") or "")
         existing = {s.upper() for s in symbols}
         added = [s for s in held if s.upper() not in existing]
         if added:
