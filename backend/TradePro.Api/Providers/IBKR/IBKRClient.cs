@@ -476,7 +476,8 @@ public sealed class IBKRClient
     /// symbol in the cockpit); an empty result is NEVER a silent "no data".
     /// </summary>
     public async Task<IBKRHistoryResult> GetPriceHistoryAsync(
-        string symbol, string period, string bar, CancellationToken ct = default)
+        string symbol, string period, string bar, CancellationToken ct = default,
+        string? startTime = null)
     {
         if (!_options.IsEnabled)
             return new IBKRHistoryResult(Array.Empty<IBKRBar>(), null, "IBKR disabled", 0);
@@ -503,11 +504,16 @@ public sealed class IBKRClient
                 conid = resolved.Value;
             }
 
-            // 2) conid → OHLCV history.
+            // 2) conid → OHLCV history. startTime (YYYYMMDD-HH:mm:ss) anchors the
+            //    MOST-RECENT point; IBKR returns `period` worth of bars BACKWARD
+            //    from it — the pagination lever for deep history (default = now).
+            var startParam = string.IsNullOrWhiteSpace(startTime)
+                ? string.Empty
+                : $"&startTime={Uri.EscapeDataString(startTime)}";
             using var histResp = await SendWithAuthAsync(
                 HttpMethod.Get,
                 $"v1/api/iserver/marketdata/history?conid={conid}&period={Uri.EscapeDataString(period)}"
-                + $"&bar={Uri.EscapeDataString(bar)}&outsideRth=false",
+                + $"&bar={Uri.EscapeDataString(bar)}&outsideRth=false{startParam}",
                 null, ct);
             var histText = await histResp.Content.ReadAsStringAsync(ct);
             if (!histResp.IsSuccessStatusCode)

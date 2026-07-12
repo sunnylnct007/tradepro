@@ -123,18 +123,20 @@ public sealed class IBKRDailyBackfillService : BackgroundService
             if (ct.IsCancellationRequested) return;
             if (_deepDone.Contains(sym)) continue;
 
+            // Count IBKR-NATIVE depth only — a symbol whose deep tail is Yahoo is
+            // NOT done; paging must run to replace those bronze bars with IBKR.
             var earliest = await conn.ExecuteScalarAsync<DateTime?>(
-                "SELECT min(ts) FROM ibkr_price_bars WHERE symbol=@sym AND resolution=@res;",
+                "SELECT min(ts) FROM ibkr_price_bars WHERE symbol=@sym AND resolution=@res AND source='ibkr';",
                 new { sym, res = Resolution });
             if (earliest is { } e && e <= deepThreshold)
             {
-                _deepDone.Add(sym);            // already deep from a prior run
+                _deepDone.Add(sym);            // already IBKR-deep from a prior run
                 _status.DeepBackfilled = _deepDone.Count;
                 continue;
             }
 
             _status.InProgressSymbol = sym;
-            var n = await FetchAndUpsertAsync(conn, sym, _options.Period, ct);
+            var n = await DeepFetchPagedAsync(conn, sym, ct);
             if (n > 0)
             {
                 barsWritten += n;
@@ -158,7 +160,8 @@ public sealed class IBKRDailyBackfillService : BackgroundService
         foreach (var sym in _symbols)
         {
             if (ct.IsCancellationRequested) return;
-            barsWritten += await FetchAndUpsertAsync(conn, sym, _options.TopUpPeriod, ct);
+            var (n, _) = await FetchAndUpsertAsync(conn, sym, _options.TopUpPeriod, null, ct);
+            barsWritten += n;
             try { await Task.Delay(_perSymbolDelay, ct); }
             catch (OperationCanceledException) { return; }
         }
@@ -166,10 +169,38 @@ public sealed class IBKRDailyBackfillService : BackgroundService
         _status.LastRunUtc = DateTime.UtcNow;
     }
 
+    /// <summary>Deep IBKR-native daily via PAGINATION. IBKR caps a single call at
+    /// ~999 bars (~4y), so page BACKWARD: anchor each call's startTime to the
+    /// oldest bar seen so far and pull the previous window, until we reach
+    /// DeepTargetYears, IBKR stops returning older bars (no progress), or the page
+    /// cap. Each page UPSERTs, so a crash mid-backfill just resumes.</summary>
+    private async Task<int> DeepFetchPagedAsync(NpgsqlConnection conn, string sym, CancellationToken ct)
+    {
+        int total = 0;
+        string? anchor = null;                 // startTime; null = now
+        DateTime? prevOldest = null;
+        var targetOldest = DateTime.UtcNow.AddYears(-_options.DeepTargetYears);
+        for (int page = 0; page < Math.Max(1, _options.MaxBackfillPages); page++)
+        {
+            if (ct.IsCancellationRequested) return total;
+            var (n, oldest) = await FetchAndUpsertAsync(conn, sym, _options.Period, anchor, ct);
+            total += n;
+            if (n == 0 || oldest is null) break;                 // IBKR (or Yahoo) gave nothing older
+            if (oldest.Value <= targetOldest) break;             // reached target depth
+            if (prevOldest is { } po && oldest.Value >= po.AddDays(-1)) break;  // no progress → exhausted
+            prevOldest = oldest;
+            anchor = oldest.Value.AddDays(-1).ToString("yyyyMMdd-HH:mm:ss");
+            try { await Task.Delay(_perSymbolDelay, ct); }
+            catch (OperationCanceledException) { return total; }
+        }
+        return total;
+    }
+
     /// <summary>IBKR-primary (keeps session warm) daily fetch → UPSERT; Yahoo
-    /// fallback only if IBKR returns nothing. Returns rows written.</summary>
-    private async Task<int> FetchAndUpsertAsync(
-        NpgsqlConnection conn, string sym, string period, CancellationToken ct)
+    /// fallback only if IBKR returns nothing. Returns (rows written, oldest bar ts
+    /// this fetch) — the oldest drives backward pagination.</summary>
+    private async Task<(int rows, DateTime? oldest)> FetchAndUpsertAsync(
+        NpgsqlConnection conn, string sym, string period, string? startTime, CancellationToken ct)
     {
         // Fresh scope per call — this is a long-lived singleton; don't hold a
         // scoped IBKRClient/YahooProvider for the process lifetime.
@@ -182,7 +213,7 @@ public sealed class IBKRDailyBackfillService : BackgroundService
             string source = "ibkr";
             if (ibkr is not null)
             {
-                var hist = await ibkr.GetPriceHistoryAsync(sym, period, "1d", ct);
+                var hist = await ibkr.GetPriceHistoryAsync(sym, period, "1d", ct, startTime);
                 if (hist.Bars.Count > 0)
                 {
                     foreach (var b in hist.Bars)
@@ -196,7 +227,11 @@ public sealed class IBKRDailyBackfillService : BackgroundService
                         sym, period, hist.Error ?? $"HTTP {hist.HttpStatus}");
                 }
             }
-            if (rows.Count == 0 && yahoo is not null)
+            // Yahoo fallback ONLY on the first (recent, startTime=null) pull — it
+            // returns its full ~20y in one shot, so re-pulling it on every paged
+            // call would loop on the same window. A paged call (startTime set) that
+            // gets nothing from IBKR simply means IBKR has no older bars → stop.
+            if (rows.Count == 0 && yahoo is not null && string.IsNullOrEmpty(startTime))
             {
                 var to = DateTime.UtcNow;
                 var from = to.AddYears(-20);   // Yahoo caps to what it has
@@ -208,9 +243,14 @@ public sealed class IBKRDailyBackfillService : BackgroundService
             }
             if (rows.Count == 0)
             {
-                _status.LastError = $"{sym}: no daily bars from IBKR or Yahoo";
-                _log.LogWarning("IBKRDailyBackfill: NO daily bars for {Sym} from IBKR or Yahoo", sym);
-                return 0;
+                // Only an ERROR on the first pull; an empty paged call is normal
+                // (IBKR exhausted its history) — not a failure.
+                if (string.IsNullOrEmpty(startTime))
+                {
+                    _status.LastError = $"{sym}: no daily bars from IBKR or Yahoo";
+                    _log.LogWarning("IBKRDailyBackfill: NO daily bars for {Sym} from IBKR or Yahoo", sym);
+                }
+                return (0, null);
             }
 
             const string sql = @"
@@ -227,15 +267,16 @@ public sealed class IBKRDailyBackfillService : BackgroundService
                 symbol = sym, resolution = Resolution, ts = r.Ts,
                 open = r.O, high = r.H, low = r.L, close = r.C, volume = r.V, source,
             }));
-            _log.LogInformation("IBKRDailyBackfill: {Sym} {Source} {N} daily bars (period {Period})",
-                sym, source, n, period);
-            return n;
+            var oldest = rows.Count > 0 ? rows.Min(r => r.Ts) : (DateTime?)null;
+            _log.LogInformation("IBKRDailyBackfill: {Sym} {Source} {N} daily bars (period {Period}, oldest {Oldest:yyyy-MM-dd})",
+                sym, source, n, period, oldest);
+            return (n, oldest);
         }
         catch (Exception ex)
         {
             _status.LastError = $"{sym}: {ex.Message}";
             _log.LogWarning(ex, "IBKRDailyBackfill: threw for {Sym}", sym);
-            return 0;
+            return (0, null);
         }
     }
 }
@@ -252,7 +293,12 @@ public sealed class IBKRDailyBackfillOptions
     public string TopUpPeriod { get; set; } = "1m";
     /// <summary>A symbol counts as "deep" once its earliest 1d bar is at least
     /// this many days old — else it gets a deep pull.</summary>
-    public int DeepMinCoverageDays { get; set; } = 1000;   // ~4 years
+    public int DeepMinCoverageDays { get; set; } = 5000;   // ~14 years (target)
+    /// <summary>How far back to page IBKR-native daily history.</summary>
+    public int DeepTargetYears { get; set; } = 15;
+    /// <summary>Cap on backward pages per symbol (each ~999 bars / ~4y). Backstop
+    /// against an infinite loop if IBKR keeps returning the same window.</summary>
+    public int MaxBackfillPages { get; set; } = 6;
     public int PerSymbolDelayMs { get; set; } = 750;
     public int TopUpIntervalHours { get; set; } = 12;
     /// <summary>Symbols to backfill. Null/empty → reuse IBKR:Harvester:Symbols.</summary>
