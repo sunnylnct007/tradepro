@@ -93,10 +93,17 @@ export function FillReplayCard() {
             // basket (all entries clustered). For organically-entered names the
             // forward window is truncated for recent buys → misleading. Gate it.
             const oneShot = u.entry_dates.length <= 1;
-            const absC = Math.abs(u.ext_return_corr);
-            const extWord = absC < 0.2
+            // corr / win-rate can be null when there are too few CLOSED trades to
+            // compute them (the clone's early / messy book). Guard so one null
+            // stat never white-screens the whole desk.
+            const corr = u.ext_return_corr;
+            const wr = u.win_rate_pct;
+            const absC = Math.abs(corr ?? 0);
+            const extWord = corr == null
+              ? "not enough closed trades to measure"
+              : absC < 0.2
               ? "doesn't separate winners from losers"
-              : u.ext_return_corr > 0
+              : corr > 0
                 ? "more-extended entries did BETTER (momentum healthy here)"
                 : "more-extended entries did WORSE (mean-reversion risk)";
             return (
@@ -108,11 +115,11 @@ export function FillReplayCard() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 8 }}>
                   <Stat label="return since entry" v={fmtPct(u.one_shot_return_pct)} good={u.one_shot_return_pct >= 0} />
                   {oneShot && <Stat label="if staggered 10d" v={fmtPct(u.staggered_return_pct)} good={u.staggered_return_pct >= 0} />}
-                  <Stat label="win rate" v={`${u.win_rate_pct.toFixed(0)}%`} good={u.win_rate_pct >= 50} />
-                  <Stat label="corr(ext,ret)" v={u.ext_return_corr >= 0 ? `+${u.ext_return_corr.toFixed(2)}` : u.ext_return_corr.toFixed(2)} />
+                  <Stat label="win rate" v={wr != null ? `${wr.toFixed(0)}%` : "—"} good={(wr ?? 0) >= 50} />
+                  <Stat label="corr(ext,ret)" v={corr == null ? "—" : corr >= 0 ? `+${corr.toFixed(2)}` : corr.toFixed(2)} />
                 </div>
                 <div style={{ marginTop: 5, fontSize: 10, color: "var(--text-dim)", lineHeight: 1.4 }}>
-                  entry-extension {extWord} (corr {u.ext_return_corr.toFixed(2)}); losers entered {fmtExt(u.ext_losers_avg)} vs winners {fmtExt(u.ext_winners_avg)} over 200-SMA.
+                  entry-extension {extWord}{corr != null ? ` (corr ${corr.toFixed(2)})` : ""}; losers entered {fmtExt(u.ext_losers_avg)} vs winners {fmtExt(u.ext_winners_avg)} over 200-SMA.
                   {oneShot && ` Staggering would${Math.abs(u.one_shot_return_pct - u.staggered_return_pct) < 1 ? " NOT" : ""} have helped (${fmtPct(u.one_shot_return_pct)} → ${fmtPct(u.staggered_return_pct)}).`}
                 </div>
               </div>
