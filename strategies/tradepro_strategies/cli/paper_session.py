@@ -655,14 +655,17 @@ def _is_fx_pair(sym: str) -> bool:
     return len(s) == 6 and s[:3] in _FX_CCY and s[3:] in _FX_CCY
 
 
-def _held_for_strategy_asset_class(held: dict, strategy_name: str) -> dict:
+def _held_for_strategy_asset_class(held, strategy_name: str):
     """Filter broker-held names to the running strategy's asset class, so the
     orphaned-exit union on a SHARED account (IBKR paper) never pulls the other
     strategy's instruments. FX strategies keep only FX pairs; everything else
     (equity) keeps only non-FX. A no-op for single-asset brokers (T212 = all
-    equities anyway)."""
+    equities anyway). Accepts either a list of symbols OR a {symbol: mark} dict
+    (the two shapes the held-position helpers return) and preserves that shape."""
     is_fx = "fx" in (strategy_name or "").lower()
-    return {s: p for s, p in held.items() if _is_fx_pair(s) == is_fx}
+    if isinstance(held, dict):
+        return {s: p for s, p in held.items() if _is_fx_pair(s) == is_fx}
+    return [s for s in (held or []) if _is_fx_pair(s) == is_fx]
 
 
 def broker_requires_position_seed(broker: str) -> bool:
