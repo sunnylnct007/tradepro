@@ -159,8 +159,15 @@ def main() -> int:
     return 0
 
 
+CLAUDE_ENABLED = False  # set to True to re-enable AI explanations
+
+
 def _add_explanations(wheel_top, swing_top):
     """Call Claude API for 2-sentence explanations per candidate."""
+    if not CLAUDE_ENABLED:
+        for c in wheel_top + swing_top:
+            c.explanation = "See metrics above."
+        return
     try:
         import anthropic
         from secrets import get_secret
