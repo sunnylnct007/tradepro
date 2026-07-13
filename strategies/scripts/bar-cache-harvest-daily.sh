@@ -44,10 +44,13 @@ else
     log "EC2 unreachable — local harvest only, telemetry skipped"
 fi
 
-log "daily 1d harvest (yfinance-only): $N symbols, $FROM → $TO"
-# --no-ibkr: daily bars come from yfinance (fast, reliable). IBKR historical
-# hangs under gateway contention with the trader daemon — and we don't need it
-# for daily resolution. This keeps the nightly job deterministic.
-exec "$UV" run tradepro-bar-cache-harvest --resolution 1d --asset us_etf --no-ibkr \
+log "daily 1d harvest (IBKR-primary: ibkr_web→ibkr→ig→yfinance): $N symbols, $FROM → $TO"
+# IBKR-PRIMARY (was --no-ibkr / yfinance-only): dropping --no-ibkr makes the
+# provider chain ibkr_web→ibkr→ig→yfinance. The IBKR *Web API* (central backend
+# endpoint, NOT the local Gateway that used to hang) fills the cache first, so the
+# strategy's daily bars are IBKR-GOOD; yfinance only fills names IBKR can't serve
+# (flagged BRONZE, never silent). Needs the API reachable for ibkr_web (checked
+# above); if EC2 is unreachable it degrades gracefully to yfinance.
+exec "$UV" run tradepro-bar-cache-harvest --resolution 1d --asset us_etf \
     --symbols "$SYMS" --from "$FROM" --to "$TO" --allow-partial --verbose \
     "${API_ARGS[@]+"${API_ARGS[@]}"}" >>"$LOG" 2>&1
