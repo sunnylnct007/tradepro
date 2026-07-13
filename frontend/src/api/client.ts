@@ -1797,6 +1797,9 @@ export const api = {
     }
     return resp.json() as Promise<{ id: number; status: string }>;
   },
+
+  runScreener: () =>
+    post<{ status: string; message: string }, Record<string, never>>("/api/screener/run", {}),
 };
 
 // Shape of the artifact emitted by strategies/cli/equity_pipeline.py

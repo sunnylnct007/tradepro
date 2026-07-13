@@ -14,7 +14,7 @@
  * Header shows generatedAtUtc + rowCount so data freshness is always visible.
  * Mobile: table scrolls horizontally inside its card (overflow-x + min-width).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { CompareLatestResponse, CompareRow, CompareUniverseSummary } from "../../api/types";
 import { SortTh } from "../SortTh";
@@ -32,6 +32,65 @@ const BUCKET_COLOUR: Record<string, string> = {
   WAIT: "#e0b341",
   AVOID: "#ef4444",
 };
+
+function WheelSwingCard() {
+  const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [msg, setMsg] = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function run() {
+    setStatus("running");
+    setMsg(null);
+    try {
+      const r = await api.runScreener();
+      setStatus("done");
+      setMsg(r.message);
+      timerRef.current = setTimeout(() => setStatus("idle"), 30_000);
+    } catch (e) {
+      setStatus("error");
+      setMsg(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  const btnStyle: React.CSSProperties = {
+    background: status === "running" ? "#334" : "var(--accent, #4f8cff)",
+    color: status === "running" ? "var(--text-muted)" : "#0a0e17",
+    border: "none", borderRadius: 5, padding: "7px 18px",
+    fontSize: 12, fontWeight: 700, cursor: status === "running" ? "not-allowed" : "pointer",
+    opacity: status === "running" ? 0.7 : 1,
+  };
+
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+        <div>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Wheel & Swing Screener</span>
+          <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 8 }}>
+            Top 5 wheel (put-selling) + top 5 swing candidates — results emailed to you
+          </span>
+        </div>
+        <button onClick={run} disabled={status === "running"} style={btnStyle}>
+          {status === "running" ? "Running…" : "▶ Run Now"}
+        </button>
+      </div>
+
+      {status === "running" && (
+        <Note>Screener running — fetching live IBKR data and scoring all watchlist tickers. Check your email in ~2 minutes.</Note>
+      )}
+      {status === "done" && msg && (
+        <Note tone="up">{msg}</Note>
+      )}
+      {status === "error" && msg && (
+        <Note tone="down">Error: {msg}</Note>
+      )}
+      {status === "idle" && (
+        <Note>Screens MO · BAC · T · ACN · KMI · NVDA · PFE · WFC · APLD · MSFT · TSLA — sends wheel + swing HTML emails via SES.</Note>
+      )}
+    </Card>
+  );
+}
 
 export function ScreenersView() {
   const [universes, setUniverses] = useState<CompareUniverseSummary[]>([]);
@@ -81,6 +140,9 @@ export function ScreenersView() {
   );
 
   return (
+    <>
+    <WheelSwingCard />
+    <div style={{ marginTop: 12 }} />
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Screeners</div>
@@ -166,6 +228,7 @@ export function ScreenersView() {
         </div>
       )}
     </Card>
+    </>
   );
 }
 
@@ -204,9 +267,10 @@ function Card({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Note({ children, tone }: { children: React.ReactNode; tone?: "down" }) {
+function Note({ children, tone }: { children: React.ReactNode; tone?: "down" | "up" }) {
+  const color = tone === "down" ? "var(--down, #ef4444)" : tone === "up" ? "#1fc16b" : "var(--text-muted)";
   return (
-    <div style={{ fontSize: 12, padding: 12, color: tone === "down" ? "var(--down, #ef4444)" : "var(--text-muted)" }}>
+    <div style={{ fontSize: 12, padding: 12, color }}>
       {children}
     </div>
   );

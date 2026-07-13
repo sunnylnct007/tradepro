@@ -358,6 +358,7 @@ api.MapSymbolAnalysisEndpoints();
 api.MapIntegrationsEndpoints();
 api.MapInstrumentEndpoints();
 api.MapPaperBacktestEndpoints();
+api.MapScreenerEndpoints();
 api.MapOrdersEndpoints();
 api.MapOmsEndpoints();
 // Data-trust P&L / position reconciliation report (GET /api/pnl/reconciliation)
