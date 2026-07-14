@@ -8,8 +8,8 @@ import boto3
 
 log = logging.getLogger("screener.email")
 
-TO_ADDRESS = "skumar@vpi.energy"
-FROM_ADDRESS = "tradepro@vpi.energy"  # must be SES-verified
+TO_ADDRESS = "info@coreconsultingit.com"
+FROM_ADDRESS = "info@coreconsultingit.com"  # must be SES-verified
 AWS_REGION = "eu-west-2"
 
 
