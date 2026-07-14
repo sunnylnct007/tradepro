@@ -65,6 +65,12 @@ def main() -> int:
     spy_bars = bars_from_mcp(spy_history) if spy_history else []
 
     wheel_passed, swing_passed = [], []
+    # Collect all errors/warnings keyed by ticker for inclusion in the report
+    run_errors: list[dict] = []  # {"ticker": str, "severity": "ERROR"|"WARN", "message": str}
+
+    def _record(ticker, severity, msg):
+        log.warning("%s [%s]: %s", ticker, severity, msg)
+        run_errors.append({"ticker": ticker, "severity": severity, "message": msg})
 
     for ticker, data in stocks.items():
         try:
@@ -74,7 +80,7 @@ def main() -> int:
 
             price = snap_fields["price"]
             if not price:
-                log.warning("%s: no price — skipping", ticker)
+                _record(ticker, "ERROR", "No price returned from snapshot — ticker skipped entirely")
                 continue
 
             log.info(
@@ -86,17 +92,23 @@ def main() -> int:
                 len(bars), earnings_date,
             )
 
-            # P0 fix 1: OHLC sanity gate — reject corrupt history
+            # P0-1: OHLC sanity gate
             ohlc_ok, ohlc_reason = _validate_ohlc(bars, snap_fields["low_52w"], snap_fields["high_52w"])
             if not ohlc_ok:
-                log.warning("%s OHLC CORRUPT — skipping both screens: %s", ticker, ohlc_reason)
+                _record(ticker, "ERROR", f"OHLC history corrupt — skipped both screens. {ohlc_reason}")
                 continue
 
-            # P0 fix 2: use real snapshot volume (fails loudly on zero)
+            # P0-2: real volume gate
             snap_avg_vol = snap_fields["avg_90d_vol"]
             if snap_avg_vol <= 0:
-                log.warning("%s: avg_90d_vol is zero — skipping (no real volume data)", ticker)
+                _record(ticker, "ERROR", "avg_90d_vol = 0 from snapshot — no real volume data, ticker skipped")
                 continue
+
+            if len(bars) < 50:
+                _record(ticker, "WARN", f"Only {len(bars)} bars returned — MA50/MA200 and RSI may be unreliable")
+
+            if not data.get("options"):
+                _record(ticker, "WARN", "No option chain data in JSON — strike uses BSM estimate, not real chain")
 
             premium_pct = estimate_put_premium_pct(bars, price)
             options = options_from_json(data.get("options"))
@@ -138,7 +150,9 @@ def main() -> int:
                 log.info("%s swing excluded: %s", ticker, sc.gate_fail_reason)
 
         except Exception as e:  # noqa: BLE001
-            log.warning("%s: unexpected error — skipping (%s: %s)", ticker, type(e).__name__, e)
+            import traceback
+            tb = traceback.format_exc()
+            _record(ticker, "ERROR", f"Unhandled exception — ticker skipped. {type(e).__name__}: {e}\n{tb}")
 
     # Sort and take top 5
     wheel_top = sorted(wheel_passed, key=lambda c: c.score, reverse=True)[:TOP_N]
@@ -148,6 +162,8 @@ def main() -> int:
              len(wheel_passed), len(wheel_top), [c.ticker for c in wheel_top])
     log.info("Swing: %d qualified → top %d: %s",
              len(swing_passed), len(swing_top), [c.ticker for c in swing_top])
+    if run_errors:
+        log.warning("Run errors/warnings: %d — will be included in emails", len(run_errors))
 
     # Overlap
     wheel_tickers = {c.ticker for c in wheel_top}
@@ -165,10 +181,10 @@ def main() -> int:
 
     # Send / dry-run
     if args.dry_run:
-        _dry_run_output(wheel_top, swing_top, run_date)
+        _dry_run_output(wheel_top, swing_top, run_date, run_errors)
     else:
-        wheel_ok = send_wheel_email(wheel_top, run_date)
-        swing_ok = send_swing_email(swing_top, run_date)
+        wheel_ok = send_wheel_email(wheel_top, run_date, run_errors=run_errors)
+        swing_ok = send_swing_email(swing_top, run_date, run_errors=run_errors)
         log.info("Emails sent — wheel: %s  swing: %s", wheel_ok, swing_ok)
 
     result = {
@@ -215,13 +231,13 @@ def _add_explanations(wheel_top, swing_top):
                 c.explanation = "See metrics above."
 
 
-def _dry_run_output(wheel_top, swing_top, run_date):
+def _dry_run_output(wheel_top, swing_top, run_date, run_errors=None):
     from email_sender import _build_wheel_html, _build_swing_html
     date_str = run_date.strftime("%d %b %Y")
     log.info("--- DRY RUN: Wheel email ---")
-    log.info("%s", _build_wheel_html(wheel_top, date_str)[:500])
+    log.info("%s", _build_wheel_html(wheel_top, date_str, run_errors or [])[:500])
     log.info("--- DRY RUN: Swing email ---")
-    log.info("%s", _build_swing_html(swing_top, date_str)[:500])
+    log.info("%s", _build_swing_html(swing_top, date_str, run_errors or [])[:500])
 
 
 def _validate_ohlc(bars: list, low_52w: float, high_52w: float) -> tuple[bool, str]:
