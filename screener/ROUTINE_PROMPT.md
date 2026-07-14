@@ -76,7 +76,7 @@ Write to `/tmp/screener_data.json`:
 ### 6 — Run the screener
 ```bash
 cd /home/user/tradepro
-pip install anthropic boto3 matplotlib -q
+pip install -r screener/requirements.txt -q
 python screener/daily_run.py --input-file /tmp/screener_data.json
 ```
 
