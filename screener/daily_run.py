@@ -86,6 +86,18 @@ def main() -> int:
                 len(bars), earnings_date,
             )
 
+            # P0 fix 1: OHLC sanity gate — reject corrupt history
+            ohlc_ok, ohlc_reason = _validate_ohlc(bars, snap_fields["low_52w"], snap_fields["high_52w"])
+            if not ohlc_ok:
+                log.warning("%s OHLC CORRUPT — skipping both screens: %s", ticker, ohlc_reason)
+                continue
+
+            # P0 fix 2: use real snapshot volume (fails loudly on zero)
+            snap_avg_vol = snap_fields["avg_90d_vol"]
+            if snap_avg_vol <= 0:
+                log.warning("%s: avg_90d_vol is zero — skipping (no real volume data)", ticker)
+                continue
+
             premium_pct = estimate_put_premium_pct(bars, price)
             options = options_from_json(data.get("options"))
 
@@ -102,6 +114,7 @@ def main() -> int:
                 options=options,
                 current_iv_pct=snap_fields["current_iv_annual"],
                 avg_option_volume=snap_fields["avg_option_volume"],
+                avg_vol_override=snap_avg_vol,
             )
             if wc.passed_gate():
                 wc._bars = bars
@@ -116,6 +129,7 @@ def main() -> int:
                 bars=bars,
                 spy_bars=spy_bars,
                 earnings_date=earnings_date,
+                avg_vol_override=snap_avg_vol,
             )
             if sc.passed_gate():
                 sc._bars = bars
@@ -208,6 +222,39 @@ def _dry_run_output(wheel_top, swing_top, run_date):
     log.info("%s", _build_wheel_html(wheel_top, date_str)[:500])
     log.info("--- DRY RUN: Swing email ---")
     log.info("%s", _build_swing_html(swing_top, date_str)[:500])
+
+
+def _validate_ohlc(bars: list, low_52w: float, high_52w: float) -> tuple[bool, str]:
+    """Sanity-check bar history against known 52w extremes.
+
+    Two assertions must hold:
+      1. min(low[-90:]) >= low_52w * 0.97   — bars can't go below 52w low (3% tolerance for intraday wicks / rounding)
+      2. If MA200 computable: low_52w <= MA200 <= high_52w
+    Returns (ok, reason_if_not_ok).
+    """
+    if not bars or not low_52w or not high_52w:
+        return True, ""  # can't validate without reference data
+
+    lows_90 = [float(b["l"]) for b in bars[-90:] if b.get("l")]
+    if lows_90:
+        min_low_90 = min(lows_90)
+        threshold = low_52w * 0.97
+        if min_low_90 < threshold:
+            return False, (
+                f"90d bar min low ${min_low_90:.2f} < 52w low ${low_52w:.2f} × 0.97 = ${threshold:.2f} "
+                f"— OHLC history is corrupt (likely GBM simulation or bad adjustment)"
+            )
+
+    closes = [float(b["c"]) for b in bars if b.get("c")]
+    if len(closes) >= 200:
+        ma200 = sum(closes[-200:]) / 200
+        if not (low_52w * 0.97 <= ma200 <= high_52w * 1.03):
+            return False, (
+                f"MA200 ${ma200:.2f} outside 52w range [${low_52w:.2f}, ${high_52w:.2f}] "
+                f"— OHLC history is corrupt"
+            )
+
+    return True, ""
 
 
 def _add_screener_to_path():

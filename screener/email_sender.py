@@ -357,7 +357,10 @@ def _build_pdf(candidates: list, kind: str, date_str: str) -> bytes | None:
                 ]))
                 story.append(ct)
 
-            analysis = getattr(c, "explanation", "See metrics above.")
+            if _ANALYSIS_ENABLED:
+                analysis = wheel_analysis(c) if kind == "wheel" else swing_analysis(c)
+            else:
+                analysis = getattr(c, "explanation", "See metrics above.")
             story.append(Spacer(1, 0.2*cm))
             story.append(Paragraph(f"<b>Analysis:</b> {analysis}", normal))
             story.append(Spacer(1, 0.5*cm))

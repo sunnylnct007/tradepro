@@ -40,6 +40,7 @@ def score_swing(
     bars: list[dict],
     spy_bars: list[dict],
     earnings_date: str | None,
+    avg_vol_override: float = 0.0,
 ) -> SwingCandidate:
     """Apply gate criteria then score. Returns SwingCandidate (check .gate_fail_reason)."""
 
@@ -49,7 +50,9 @@ def score_swing(
         if 0 <= days_to <= EARNINGS_BLACKOUT_DAYS:
             return _fail(ticker, price, f"earnings in {days_to}d (blackout {EARNINGS_BLACKOUT_DAYS}d)")
 
-    avg_vol = avg_volume(bars, 90)
+    avg_vol = avg_vol_override if avg_vol_override > 0 else avg_volume(bars, 90)
+    if avg_vol <= 0:
+        return _fail(ticker, price, "avg volume unavailable — no real data")
     if avg_vol < VOLUME_MIN:
         return _fail(ticker, price, f"avg vol {avg_vol:,.0f} < {VOLUME_MIN:,}")
 
