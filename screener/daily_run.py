@@ -67,53 +67,57 @@ def main() -> int:
     wheel_passed, swing_passed = [], []
 
     for ticker, data in stocks.items():
-        snap_fields = snapshot_to_fields(data.get("snapshot", {}))
-        bars = bars_from_mcp(data.get("history", {}))
-        earnings_date = data.get("earnings_date")
+        try:
+            snap_fields = snapshot_to_fields(data.get("snapshot", {}))
+            bars = bars_from_mcp(data.get("history", {}))
+            earnings_date = data.get("earnings_date")
 
-        price = snap_fields["price"]
-        if not price:
-            log.warning("%s: no price — skipping", ticker)
-            continue
+            price = snap_fields["price"]
+            if not price:
+                log.warning("%s: no price — skipping", ticker)
+                continue
 
-        log.info(
-            "%s price=%.2f ivp=%.1f div=%.1f%% hv=%.1f%% bars=%d earnings=%s",
-            ticker, price,
-            snap_fields["iv_percentile_52w"],
-            snap_fields["dividend_yield_pct"],
-            snap_fields["historical_vol_annual"],
-            len(bars), earnings_date,
-        )
+            log.info(
+                "%s price=%.2f ivp=%.1f div=%.1f%% hv=%.1f%% bars=%d earnings=%s",
+                ticker, price,
+                snap_fields["iv_percentile_52w"],
+                snap_fields["dividend_yield_pct"],
+                snap_fields["historical_vol_annual"],
+                len(bars), earnings_date,
+            )
 
-        premium_pct = estimate_put_premium_pct(bars, price)
+            premium_pct = estimate_put_premium_pct(bars, price)
 
-        wc = score_wheel(
-            ticker=ticker,
-            price=price,
-            ivr=snap_fields["iv_percentile_52w"],
-            div_yield=snap_fields["dividend_yield_pct"],
-            bars=bars,
-            low_52w=snap_fields["low_52w"],
-            high_52w=snap_fields["high_52w"],
-            premium_pct=premium_pct,
-            earnings_date=earnings_date,
-        )
-        if wc.passed_gate():
-            wheel_passed.append(wc)
-        else:
-            log.info("%s wheel excluded: %s", ticker, wc.gate_fail_reason)
+            wc = score_wheel(
+                ticker=ticker,
+                price=price,
+                ivr=snap_fields["iv_percentile_52w"],
+                div_yield=snap_fields["dividend_yield_pct"],
+                bars=bars,
+                low_52w=snap_fields["low_52w"],
+                high_52w=snap_fields["high_52w"],
+                premium_pct=premium_pct,
+                earnings_date=earnings_date,
+            )
+            if wc.passed_gate():
+                wheel_passed.append(wc)
+            else:
+                log.info("%s wheel excluded: %s", ticker, wc.gate_fail_reason)
 
-        sc = score_swing(
-            ticker=ticker,
-            price=price,
-            bars=bars,
-            spy_bars=spy_bars,
-            earnings_date=earnings_date,
-        )
-        if sc.passed_gate():
-            swing_passed.append(sc)
-        else:
-            log.info("%s swing excluded: %s", ticker, sc.gate_fail_reason)
+            sc = score_swing(
+                ticker=ticker,
+                price=price,
+                bars=bars,
+                spy_bars=spy_bars,
+                earnings_date=earnings_date,
+            )
+            if sc.passed_gate():
+                swing_passed.append(sc)
+            else:
+                log.info("%s swing excluded: %s", ticker, sc.gate_fail_reason)
+
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s: unexpected error — skipping (%s: %s)", ticker, type(e).__name__, e)
 
     # Sort and take top 5
     wheel_top = sorted(wheel_passed, key=lambda c: c.score, reverse=True)[:TOP_N]

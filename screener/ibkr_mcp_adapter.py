@@ -10,6 +10,14 @@ import math
 from typing import Any
 
 
+def _f(val, default: float = 0.0) -> float:
+    """Safe float conversion — returns default for None/null."""
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def bars_from_mcp(history: dict) -> list[dict]:
     """Convert an MCP get_price_history response to screener bar format."""
     times = history.get("time", [])
@@ -41,25 +49,25 @@ def snapshot_to_fields(snap: dict) -> dict:
       historical_vol_annual, dividend_yield_pct
     """
     last = snap.get("last", {})
-    price = float(last.get("price", 0)) if last else 0.0
+    price = _f(last.get("price")) if last else 0.0
 
     misc = snap.get("misc-statistics", {})
-    high_52w = float(misc.get("high_52w", 0)) if misc else 0.0
-    low_52w = float(misc.get("low_52w", 0)) if misc else 0.0
+    high_52w = _f(misc.get("high_52w")) if misc else 0.0
+    low_52w = _f(misc.get("low_52w")) if misc else 0.0
 
     vol_data = snap.get("avg-90d-usd-volume", {})
-    usd_volume = float(vol_data.get("volume", 0)) if vol_data else 0.0
+    usd_volume = _f(vol_data.get("volume")) if vol_data else 0.0
     # Convert USD volume to share volume (approx)
     avg_90d_vol = (usd_volume / price) if price else 0.0
 
     ivp = snap.get("implied-volatility-percentile", {})
-    iv_percentile_52w = float(ivp.get("high_52w", 0)) * 100 if ivp else 0.0
+    iv_percentile_52w = _f(ivp.get("high_52w")) * 100 if ivp else 0.0
 
     hv_data = snap.get("historical-vol", {})
-    hv_annual = float(hv_data.get("annual_pct", 0)) * 100 if hv_data else 0.0
+    hv_annual = _f(hv_data.get("annual_pct")) * 100 if hv_data else 0.0
 
     div_data = snap.get("dividend-yield", {})
-    div_yield = float(div_data.get("yield_pct", 0)) if div_data else 0.0
+    div_yield = _f(div_data.get("yield_pct")) if div_data else 0.0
 
     return {
         "price": price,
