@@ -34,6 +34,17 @@ class WheelCandidate:
     suggested_expiry: str
     gate_fail_reason: str = ""
     dual_candidate: bool = False
+    # Real option data (populated when options block present in JSON)
+    option_expiry: str = ""
+    atm_put_bid: float = 0.0
+    atm_put_ask: float = 0.0
+    atm_put_mid: float = 0.0
+    atm_put_iv_pct: float = 0.0
+    atm_put_oi: int = 0
+    option_chain: list = field(default_factory=list)
+    # Real underlying IV and option liquidity from snapshot
+    current_iv_pct: float = 0.0
+    avg_option_volume: float = 0.0
 
     def passed_gate(self) -> bool:
         return not self.gate_fail_reason
@@ -57,6 +68,9 @@ def score_wheel(
     high_52w: float,
     premium_pct: float,
     earnings_date: str | None,
+    options: dict | None = None,
+    current_iv_pct: float = 0.0,
+    avg_option_volume: float = 0.0,
 ) -> WheelCandidate:
     """Apply gate criteria then score. Returns WheelCandidate (check .gate_fail_reason)."""
 
@@ -73,8 +87,11 @@ def score_wheel(
     if avg_vol < VOLUME_MIN:
         return _fail(ticker, price, f"avg vol {avg_vol:,.0f} < {VOLUME_MIN:,}")
 
-    # OI gate is checked upstream (requires option chain fetch); assume passed if caller provides None
-    # i.e. the caller only passes stocks where OI gate passed.
+    # OI gate: check real option OI when available
+    if options and options.get("atm_put"):
+        atm_oi = options["atm_put"].get("open_interest", 0) or 0
+        if atm_oi < OPTION_OI_MIN:
+            return _fail(ticker, price, f"ATM put OI {atm_oi} < {OPTION_OI_MIN}")
 
     # --- Score ---
     score = 0
@@ -118,7 +135,11 @@ def score_wheel(
     elif dist_pct >= 5:
         score += 1
 
-    # S-W5 Premium estimate
+    # S-W5 Premium — use real ATM put mid if available, else BS estimate
+    real_atm = options.get("atm_put") if options else None
+    if real_atm and real_atm.get("mid") and price > 0:
+        real_premium_pct = real_atm["mid"] / price * 100
+        premium_pct = round(real_premium_pct, 2)
     if premium_pct > 2:
         score += 2
     elif premium_pct >= 1:
@@ -130,10 +151,20 @@ def score_wheel(
 
     vol_label, close_guidance = volatility_label_and_guidance(ivr)
 
-    # Suggested strike: nearest OTM put (approx 5% below spot, rounded to nearest $1)
-    suggested_strike = round(price * 0.95)
-    # Suggested expiry: ~30 days out (approximate)
-    suggested_expiry = (datetime.date.today() + datetime.timedelta(days=30)).strftime("%d %b %Y")
+    # Suggested strike and expiry — use real option data when available
+    if real_atm:
+        suggested_strike = float(real_atm.get("strike", round(price * 0.95)))
+    else:
+        suggested_strike = round(price * 0.95)
+
+    if options and options.get("expiry"):
+        try:
+            exp_date = datetime.date.fromisoformat(options["expiry"])
+            suggested_expiry = exp_date.strftime("%d %b %Y")
+        except ValueError:
+            suggested_expiry = (datetime.date.today() + datetime.timedelta(days=30)).strftime("%d %b %Y")
+    else:
+        suggested_expiry = (datetime.date.today() + datetime.timedelta(days=30)).strftime("%d %b %Y")
 
     return WheelCandidate(
         ticker=ticker,
@@ -148,6 +179,15 @@ def score_wheel(
         close_guidance=close_guidance,
         suggested_strike=suggested_strike,
         suggested_expiry=suggested_expiry,
+        option_expiry=options.get("expiry", "") if options else "",
+        atm_put_bid=float(real_atm["bid"]) if real_atm and real_atm.get("bid") else 0.0,
+        atm_put_ask=float(real_atm["ask"]) if real_atm and real_atm.get("ask") else 0.0,
+        atm_put_mid=float(real_atm["mid"]) if real_atm and real_atm.get("mid") else 0.0,
+        atm_put_iv_pct=float(real_atm["iv_pct"]) if real_atm and real_atm.get("iv_pct") else 0.0,
+        atm_put_oi=int(real_atm["open_interest"]) if real_atm and real_atm.get("open_interest") else 0,
+        option_chain=options.get("chain", []) if options else [],
+        current_iv_pct=current_iv_pct,
+        avg_option_volume=avg_option_volume,
     )
 
 

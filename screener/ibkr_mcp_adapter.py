@@ -10,6 +10,14 @@ import math
 from typing import Any
 
 
+def _f(val, default: float = 0.0) -> float:
+    """Safe float conversion — returns default for None/null."""
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def bars_from_mcp(history: dict) -> list[dict]:
     """Convert an MCP get_price_history response to screener bar format."""
     times = history.get("time", [])
@@ -38,28 +46,40 @@ def snapshot_to_fields(snap: dict) -> dict:
 
     Returns a flat dict with normalised keys:
       price, high_52w, low_52w, avg_90d_vol, iv_percentile_52w,
-      historical_vol_annual, dividend_yield_pct
+      historical_vol_annual, dividend_yield_pct,
+      current_iv_annual, avg_option_volume, today_option_volume
     """
     last = snap.get("last", {})
-    price = float(last.get("price", 0)) if last else 0.0
+    price = _f(last.get("price")) if last else 0.0
 
     misc = snap.get("misc-statistics", {})
-    high_52w = float(misc.get("high_52w", 0)) if misc else 0.0
-    low_52w = float(misc.get("low_52w", 0)) if misc else 0.0
+    high_52w = _f(misc.get("high_52w")) if misc else 0.0
+    low_52w = _f(misc.get("low_52w")) if misc else 0.0
 
     vol_data = snap.get("avg-90d-usd-volume", {})
-    usd_volume = float(vol_data.get("volume", 0)) if vol_data else 0.0
-    # Convert USD volume to share volume (approx)
+    usd_volume = _f(vol_data.get("volume")) if vol_data else 0.0
     avg_90d_vol = (usd_volume / price) if price else 0.0
 
     ivp = snap.get("implied-volatility-percentile", {})
-    iv_percentile_52w = float(ivp.get("high_52w", 0)) * 100 if ivp else 0.0
+    iv_percentile_52w = _f(ivp.get("high_52w")) * 100 if ivp else 0.0
 
     hv_data = snap.get("historical-vol", {})
-    hv_annual = float(hv_data.get("annual_pct", 0)) * 100 if hv_data else 0.0
+    hv_annual = _f(hv_data.get("annual_pct")) * 100 if hv_data else 0.0
 
     div_data = snap.get("dividend-yield", {})
-    div_yield = float(div_data.get("yield_pct", 0)) if div_data else 0.0
+    div_yield = _f(div_data.get("yield_pct")) if div_data else 0.0
+
+    # Current implied volatility of the underlying (annual %)
+    iv_underlying = snap.get("implied-vol-underlying", {})
+    current_iv_annual = _f(iv_underlying.get("annual_iv")) * 100 if iv_underlying else 0.0
+
+    # Option volume (avg and today) — liquidity signal for wheel candidates
+    avg_opt_vol_data = snap.get("underlying-avg-option-volume", {})
+    avg_option_volume = _f(avg_opt_vol_data.get("average_volume")) if avg_opt_vol_data else 0.0
+
+    today_opt_vol_data = snap.get("underlying-today-option-volume", {})
+    today_option_volume = _f(today_opt_vol_data.get("call_volume", 0)) + \
+                          _f(today_opt_vol_data.get("put_volume", 0)) if today_opt_vol_data else 0.0
 
     return {
         "price": price,
@@ -69,6 +89,26 @@ def snapshot_to_fields(snap: dict) -> dict:
         "iv_percentile_52w": iv_percentile_52w,
         "historical_vol_annual": hv_annual,
         "dividend_yield_pct": div_yield,
+        "current_iv_annual": current_iv_annual,
+        "avg_option_volume": avg_option_volume,
+        "today_option_volume": today_option_volume,
+    }
+
+
+def options_from_json(options: dict | None) -> dict:
+    """Parse the options block from the screener JSON input.
+
+    Returns a normalised dict:
+      expiry, atm_put (dict with strike/bid/ask/mid/iv_pct/open_interest/volume),
+      chain (list of strike dicts), or empty fields if options is None.
+    """
+    empty = {"expiry": None, "atm_put": None, "chain": []}
+    if not options:
+        return empty
+    return {
+        "expiry": options.get("expiry"),
+        "atm_put": options.get("atm_put"),
+        "chain": options.get("chain", []),
     }
 
 
