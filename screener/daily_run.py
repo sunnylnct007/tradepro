@@ -57,7 +57,7 @@ def main() -> int:
 
     # Import screener modules (same directory)
     _add_screener_to_path()
-    from ibkr_mcp_adapter import bars_from_mcp, snapshot_to_fields, estimate_put_premium_pct
+    from ibkr_mcp_adapter import bars_from_mcp, snapshot_to_fields, estimate_put_premium_pct, options_from_json
     from wheel_screener import score_wheel
     from swing_screener import score_swing
     from email_sender import send_wheel_email, send_swing_email
@@ -87,6 +87,7 @@ def main() -> int:
             )
 
             premium_pct = estimate_put_premium_pct(bars, price)
+            options = options_from_json(data.get("options"))
 
             wc = score_wheel(
                 ticker=ticker,
@@ -98,6 +99,9 @@ def main() -> int:
                 high_52w=snap_fields["high_52w"],
                 premium_pct=premium_pct,
                 earnings_date=earnings_date,
+                options=options,
+                current_iv_pct=snap_fields["current_iv_annual"],
+                avg_option_volume=snap_fields["avg_option_volume"],
             )
             if wc.passed_gate():
                 wc._bars = bars
