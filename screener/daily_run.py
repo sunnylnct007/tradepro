@@ -100,6 +100,8 @@ def main() -> int:
                 earnings_date=earnings_date,
             )
             if wc.passed_gate():
+                wc._bars = bars
+                wc.hv_annual = snap_fields["historical_vol_annual"]
                 wheel_passed.append(wc)
             else:
                 log.info("%s wheel excluded: %s", ticker, wc.gate_fail_reason)
@@ -112,6 +114,7 @@ def main() -> int:
                 earnings_date=earnings_date,
             )
             if sc.passed_gate():
+                sc._bars = bars
                 swing_passed.append(sc)
             else:
                 log.info("%s swing excluded: %s", ticker, sc.gate_fail_reason)

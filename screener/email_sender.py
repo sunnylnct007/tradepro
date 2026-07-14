@@ -6,6 +6,18 @@ import logging
 
 import boto3
 
+try:
+    from chart_generator import generate_chart_b64
+    _CHARTS_ENABLED = True
+except Exception:
+    _CHARTS_ENABLED = False
+
+try:
+    from analysis_generator import wheel_analysis, swing_analysis
+    _ANALYSIS_ENABLED = True
+except Exception:
+    _ANALYSIS_ENABLED = False
+
 log = logging.getLogger("screener.email")
 
 TO_ADDRESS = "info@coreconsultingit.com"
@@ -40,6 +52,14 @@ def _build_wheel_html(candidates: list, date_str: str) -> str:
     rows = ""
     for c in candidates:
         dual = "<div class='dual'>⚡ DUAL CANDIDATE</div>" if c.dual_candidate else ""
+        chart_html = ""
+        if _CHARTS_ENABLED and hasattr(c, "_bars") and c._bars:
+            b64 = generate_chart_b64(c._bars, c.ticker)
+            if b64:
+                chart_html = f"<img src='data:image/png;base64,{b64}' style='width:100%;border-radius:4px;margin:8px 0;' alt='{c.ticker} chart'/>"
+        analysis = wheel_analysis(c) if _ANALYSIS_ENABLED else c.explanation
+        # support / resistance from bars
+        sr_html = _sr_html(c)
         rows += f"""
         <div class='card'>
           {dual}
@@ -47,17 +67,19 @@ def _build_wheel_html(candidates: list, date_str: str) -> str:
             <span class='vol-label {c.volatility_label.lower()}'>{c.volatility_label}</span>
           </div>
           <table>
-            <tr><td>Score</td><td>{c.score}/14</td>
-                <td>IV Rank</td><td>{c.ivr:.0f}%</td>
-                <td>Dividend</td><td>{c.div_yield:.1f}%</td></tr>
+            <tr><td>Score</td><td><strong>{c.score}/14</strong></td>
+                <td>IV Rank</td><td><strong>{c.ivr:.0f}%</strong></td>
+                <td>Dividend</td><td><strong>{c.div_yield:.1f}%</strong></td></tr>
+            <tr><td>HV Annual</td><td>{getattr(c,'hv_annual',0):.1f}%</td>
+                <td>Premium est.</td><td>{c.premium_pct:.1f}%/mo</td>
+                <td>52w low dist</td><td>{c.dist_52w_low_pct:.1f}%</td></tr>
             <tr><td>Trend</td><td colspan='5'>{c.trend_status}</td></tr>
-            <tr><td>52w low dist</td><td>{c.dist_52w_low_pct:.1f}%</td>
-                <td>Premium est.</td><td>{c.premium_pct:.1f}%</td>
-                <td></td><td></td></tr>
           </table>
-          <div class='suggest'>Suggested: Sell ${c.suggested_strike:.0f} Put expiring {c.suggested_expiry}</div>
-          <div class='guidance'>Close guidance: {c.close_guidance}</div>
-          <div class='claude'><strong>Analysis:</strong> {c.explanation}</div>
+          {sr_html}
+          {chart_html}
+          <div class='suggest'>📌 Suggested: Sell ${c.suggested_strike:.0f} Put expiring {c.suggested_expiry}</div>
+          <div class='guidance'>⛔ Close guidance: {c.close_guidance}</div>
+          <div class='claude'><strong>Analysis:</strong> {analysis}</div>
         </div>"""
 
     return _wrap_html(f"🎡 TradePro Wheel — {date_str}", rows)
@@ -86,19 +108,28 @@ def _build_swing_html(candidates: list, date_str: str) -> str:
     rows = ""
     for c in candidates:
         dual = "<div class='dual'>⚡ DUAL CANDIDATE</div>" if c.dual_candidate else ""
+        chart_html = ""
+        if _CHARTS_ENABLED and hasattr(c, "_bars") and c._bars:
+            b64 = generate_chart_b64(c._bars, c.ticker)
+            if b64:
+                chart_html = f"<img src='data:image/png;base64,{b64}' style='width:100%;border-radius:4px;margin:8px 0;' alt='{c.ticker} chart'/>"
+        analysis = swing_analysis(c) if _ANALYSIS_ENABLED else c.explanation
+        sr_html = _sr_html(c)
         rows += f"""
         <div class='card'>
           {dual}
           <div class='header'>{c.ticker} — ${c.price:.2f}</div>
           <table>
-            <tr><td>Score</td><td>{c.score}/14</td>
-                <td>RSI</td><td>{c.rsi_val:.1f}</td>
-                <td>vs 20d MA</td><td>{c.ma20_dist_pct:+.1f}%</td></tr>
+            <tr><td>Score</td><td><strong>{c.score}/14</strong></td>
+                <td>RSI(14)</td><td><strong>{c.rsi_val:.1f}</strong></td>
+                <td>vs 20d MA</td><td><strong>{c.ma20_dist_pct:+.1f}%</strong></td></tr>
             <tr><td>Volume</td><td colspan='2'>{c.vol_signal}</td>
-                <td>vs SPY</td><td colspan='2'>{c.rs_status}</td></tr>
+                <td>vs SPY (20d)</td><td colspan='2'>{c.rs_status}</td></tr>
           </table>
-          <div class='trend'>Trend: {c.trend_status}</div>
-          <div class='claude'><strong>Analysis:</strong> {c.explanation}</div>
+          <div class='trend'>📊 Trend: {c.trend_status}</div>
+          {sr_html}
+          {chart_html}
+          <div class='claude'><strong>Analysis:</strong> {analysis}</div>
         </div>"""
 
     return _wrap_html(f"📈 TradePro Swing — {date_str}", rows)
@@ -107,6 +138,37 @@ def _build_swing_html(candidates: list, date_str: str) -> str:
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+def _sr_html(c) -> str:
+    """Build support/resistance row from candidate bars if available."""
+    if not hasattr(c, "_bars") or not c._bars:
+        return ""
+    bars = c._bars
+    try:
+        highs = [float(b["h"]) for b in bars if b.get("h")]
+        lows  = [float(b["l"]) for b in bars if b.get("l")]
+        closes = [float(b["c"]) for b in bars if b.get("c")]
+        if len(highs) < 20:
+            return ""
+        lookback = min(60, len(highs))
+        resistance = max(highs[-lookback:])
+        support    = min(lows[-lookback:])
+        ma20 = sum(closes[-20:]) / 20
+        ma50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else None
+        ma200 = sum(closes[-200:]) / 200 if len(closes) >= 200 else None
+        ma_str = f"MA20 ${ma20:.2f}"
+        if ma50:  ma_str += f" · MA50 ${ma50:.2f}"
+        if ma200: ma_str += f" · MA200 ${ma200:.2f}"
+        return f"""
+        <div class='srbox'>
+          <span class='resist'>⬆ Resistance: ${resistance:.2f}</span>
+          &nbsp;&nbsp;
+          <span class='supp'>⬇ Support: ${support:.2f}</span>
+          <br/><span class='maline'>{ma_str}</span>
+        </div>"""
+    except Exception:
+        return ""
+
 
 def _no_candidates_html(kind: str, msg: str, date_str: str) -> str:
     return _wrap_html(
@@ -135,6 +197,10 @@ def _wrap_html(title: str, body_content: str) -> str:
   .conservative {{ background: #d4edda; color: #155724; }}
   .medium {{ background: #fff3cd; color: #856404; }}
   .volatile {{ background: #f8d7da; color: #721c24; }}
+  .srbox {{ background: #f8f9fa; border-left: 3px solid #6c757d; padding: 6px 10px; margin: 6px 0; font-size: 12px; }}
+  .resist {{ color: #c0392b; font-weight: bold; }}
+  .supp {{ color: #27ae60; font-weight: bold; }}
+  .maline {{ color: #555; font-size: 11px; }}
 </style>
 </head><body>
 <h1>{title}</h1>
