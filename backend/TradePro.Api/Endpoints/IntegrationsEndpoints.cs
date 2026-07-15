@@ -1005,7 +1005,40 @@ public static class IntegrationsEndpoints
         // singleton status holder (no DB / no IBKR call). Fail-loud observability:
         // a dead/stale harvester is visible here instead of silently not running.
         app.MapGet("/integrations/ibkr/harvester-status",
-            (TradePro.Api.Providers.IBKR.IBKRHarvesterStatus status) => Results.Ok(status));
+            (TradePro.Api.Providers.IBKR.IBKRHarvesterStatus status,
+             TradePro.Api.Providers.IBKR.IBKRPauseState pause) =>
+                Results.Ok(new
+                {
+                    status.Enabled, status.IntervalSeconds, status.Resolution,
+                    status.ConfiguredSymbolCount, status.BackfilledSymbols,
+                    status.LastTickAtUtc, status.NextTickEtaUtc,
+                    status.LastTickIbkr, status.LastTickYahoo, status.LastTickFailed,
+                    status.LastTickBarsWritten, status.LastError,
+                    paused = pause.Paused, pausedAtUtc = pause.PausedAtUtc, pauseReason = pause.Reason,
+                }));
+
+        // POST /api/integrations/ibkr/pause — reclaim the single IBKR Web-API
+        // session so the user can log into the IBKR portal. Sets the runtime pause
+        // (harvester/backfill/account-state stop hitting IBKR) AND actively logs the
+        // brokerage session out so the portal accepts a fresh login.
+        app.MapPost("/integrations/ibkr/pause", async (
+            TradePro.Api.Providers.IBKR.IBKRPauseState pause,
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            string? reason, CancellationToken ct) =>
+        {
+            pause.Pause(reason);
+            await ibkr.LogoutAsync(ct);   // release the session for the portal
+            return Results.Ok(new { paused = true, pausedAtUtc = pause.PausedAtUtc, reason = pause.Reason,
+                note = "IBKR usage paused + session logged out — you can log into the IBKR portal now. Resume when done." });
+        });
+
+        // POST /api/integrations/ibkr/resume — hand the session back to TradePro.
+        app.MapPost("/integrations/ibkr/resume",
+            (TradePro.Api.Providers.IBKR.IBKRPauseState pause) =>
+            {
+                pause.Resume();
+                return Results.Ok(new { paused = false, note = "IBKR harvesting resumed — the next tick re-establishes the session." });
+            });
 
         // GET /api/integrations/ibkr/daily-backfill-status — progress of the deep
         // DAILY history filler (ibkr_price_bars resolution=1d): enabled, how many

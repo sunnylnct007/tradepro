@@ -43,18 +43,22 @@ public sealed class IBKRDailyBackfillService : BackgroundService
     // Symbols whose deep history has been confirmed pulled this process lifetime.
     private readonly HashSet<string> _deepDone = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly IBKRPauseState _pause;
+
     public IBKRDailyBackfillService(
         IServiceProvider sp,
         NpgsqlDataSource db,
         IOptions<IBKRDailyBackfillOptions> options,
         IOptions<IBKRHarvesterOptions> harvesterOptions,
         IBKRDailyBackfillStatus status,
+        IBKRPauseState pause,
         ILogger<IBKRDailyBackfillService> log)
     {
         _sp = sp;
         _db = db;
         _options = options.Value;
         _status = status;
+        _pause = pause;
         _log = log;
         // One universe, config-driven: use the backfill's own Symbols if set, else
         // reuse the harvester's list so daily + intraday cover the SAME names.
@@ -121,6 +125,7 @@ public sealed class IBKRDailyBackfillService : BackgroundService
         foreach (var sym in _symbols)
         {
             if (ct.IsCancellationRequested) return;
+            if (_pause.Paused) return;   // operator has the IBKR session (portal login)
             if (_deepDone.Contains(sym)) continue;
 
             // Count IBKR-NATIVE depth only — a symbol whose deep tail is Yahoo is
@@ -160,6 +165,7 @@ public sealed class IBKRDailyBackfillService : BackgroundService
         foreach (var sym in _symbols)
         {
             if (ct.IsCancellationRequested) return;
+            if (_pause.Paused) return;   // operator has the IBKR session (portal login)
             var (n, _) = await FetchAndUpsertAsync(conn, sym, _options.TopUpPeriod, null, ct);
             barsWritten += n;
             try { await Task.Delay(_perSymbolDelay, ct); }

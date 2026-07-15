@@ -47,15 +47,19 @@ public sealed class IBKRBarHarvester : BackgroundService
     // symbol (spread across sweeps), then steady-state forward harvesting.
     private readonly HashSet<string> _backfilled = new();
 
+    private readonly IBKRPauseState _pause;
+
     public IBKRBarHarvester(
         IServiceScopeFactory scopes,
         IOptions<IBKRHarvesterOptions> options,
         IBKRHarvesterStatus status,
+        IBKRPauseState pause,
         ILogger<IBKRBarHarvester> log)
     {
         _scopes = scopes;
         _options = options.Value;
         _status = status;
+        _pause = pause;
         _log = log;
         // Clamp so a misconfig can't spam IBKR (too low) or go dead (too high).
         var sec = Math.Clamp(_options.IntervalSeconds, 60, 3600);
@@ -90,6 +94,14 @@ public sealed class IBKRBarHarvester : BackgroundService
 
         while (!ct.IsCancellationRequested)
         {
+            // Paused: the operator has taken the IBKR session back (portal login).
+            // Skip the tick entirely so we don't re-auth behind them.
+            if (_pause.Paused)
+            {
+                _status.LastError = "paused — IBKR session released for portal use";
+                try { await Task.Delay(_interval, ct); } catch (OperationCanceledException) { break; }
+                continue;
+            }
             try
             {
                 await OneTickAsync(ct);

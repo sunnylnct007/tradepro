@@ -175,6 +175,9 @@ builder.Services
     .AddOptions<TradePro.Api.Providers.IBKR.IBKRHarvesterOptions>()
     .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKRHarvesterOptions.SectionName));
 builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRHarvesterStatus>();
+// Runtime pause for ALL IBKR usage — lets the user reclaim the single Web-API
+// session to log into the IBKR portal (harvester/backfill/account-state respect it).
+builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRPauseState>();
 builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRBarHarvester>();
 // Deep DAILY history filler for the central ibkr_price_bars store (resolution=1d)
 // — separate cadence from the 1m harvester; runs until caught up, then tops up.

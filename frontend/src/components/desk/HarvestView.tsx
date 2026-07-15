@@ -152,7 +152,14 @@ export function HarvestView() {
       {/* NEW: C# IBKR bar harvester — the IBKR-primary intraday feed. This is the
           answer to "is IBKR actually harvesting?" — separate from the legacy
           yfinance bar-cache table below. */}
-      <HarvesterPanel h={harvester} err={harvesterErr} />
+      <HarvesterPanel
+        h={harvester}
+        err={harvesterErr}
+        onChanged={() =>
+          api.ibkrHarvesterStatus()
+            .then((r) => { setHarvester(r); setHarvesterErr(null); })
+            .catch((e) => { setHarvester(null); setHarvesterErr(e instanceof Error ? e.message : String(e)); })}
+      />
 
       {/* Legacy yfinance bar-cache health (daily coverage / quality-for-today). */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px" }}>
@@ -285,7 +292,20 @@ export function HarvestView() {
 /** IBKR bar-harvester observability panel. Answers, at a glance: is it enabled,
  * is IBKR actually the source (vs Yahoo fallback), how far is the backfill, and
  * did the last sweep error? This is the NEW C# harvester → ibkr_price_bars. */
-function HarvesterPanel({ h, err }: { h: Harvester | null; err: string | null }) {
+function HarvesterPanel({ h, err, onChanged }: { h: Harvester | null; err: string | null; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const paused = !!h?.paused;
+  // Pause = hand the single IBKR Web-API session back so the user can log into
+  // the IBKR portal (only one session per account). Resume = take it back.
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      if (paused) await api.ibkrResume();
+      else await api.ibkrPause("portal login");
+      onChanged();
+    } catch { /* the status refresh will show the real state */ }
+    finally { setBusy(false); }
+  };
   const enabled = !!h?.enabled;
   const ibkr = h?.lastTickIbkr ?? 0;
   const yahoo = h?.lastTickYahoo ?? 0;
@@ -313,15 +333,41 @@ function HarvesterPanel({ h, err }: { h: Harvester | null; err: string | null })
           background: enabled ? "rgba(34,197,94,0.15)" : "rgba(250,204,21,0.15)",
           color: enabled ? "var(--up)" : "var(--warn)",
         }}>{enabled ? "● live" : "○ disabled"}</span>
+        {paused && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+            padding: "2px 8px", borderRadius: 999, background: "rgba(250,204,21,0.18)", color: "var(--warn)",
+          }}>⏸ paused · portal free</span>
+        )}
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           IBKR-primary intraday → ibkr_price_bars · Yahoo fallback (loud) · {h?.resolution || "1m"}
         </span>
-        {h && (
-          <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto" }}>
-            last tick {ago(h.lastTickAtUtc)}{h.nextTickEtaUtc ? ` · next ~${ago(h.nextTickEtaUtc).replace(" ago", "")}` : ""}
-          </span>
-        )}
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {h && (
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              last tick {ago(h.lastTickAtUtc)}{!paused && h.nextTickEtaUtc ? ` · next ~${ago(h.nextTickEtaUtc).replace(" ago", "")}` : ""}
+            </span>
+          )}
+          <button
+            onClick={toggle} disabled={busy}
+            title={paused ? "Resume IBKR harvesting (take the session back)" : "Pause IBKR + log the session out so you can use the IBKR portal"}
+            style={{
+              fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 6, cursor: busy ? "wait" : "pointer",
+              border: `1px solid ${paused ? "var(--up)" : "var(--warn)"}`,
+              background: paused ? "rgba(34,197,94,0.12)" : "rgba(250,204,21,0.12)",
+              color: paused ? "var(--up)" : "var(--warn)", opacity: busy ? 0.6 : 1,
+            }}>
+            {busy ? "…" : paused ? "▶ Resume IBKR" : "⏸ Pause for portal"}
+          </button>
+        </span>
       </div>
+
+      {paused && (
+        <div style={{ fontSize: 11, color: "var(--warn)", marginBottom: 8, lineHeight: 1.4 }}>
+          IBKR session released — <b>log into the IBKR Client Portal now</b>. Harvesting + account-state are paused
+          until you press Resume{h?.pausedAtUtc ? ` (paused ${ago(h.pausedAtUtc)})` : ""}.
+        </div>
+      )}
 
       {err && (
         <div style={{ fontSize: 12, color: "var(--down)" }}>

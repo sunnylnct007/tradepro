@@ -145,7 +145,17 @@ export const api = {
       lastTickFailed: number;
       lastTickBarsWritten: number;
       lastError: string | null;
+      paused: boolean;
+      pausedAtUtc: string | null;
+      pauseReason: string | null;
     }>("/api/integrations/ibkr/harvester-status"),
+  /** Pause ALL TradePro IBKR usage + log the session out, so the user can log
+   * into the IBKR Client Portal (only one Web-API session per account). */
+  ibkrPause: (reason?: string) =>
+    post<{ paused: boolean; note: string }, Record<string, never>>(
+      `/api/integrations/ibkr/pause${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`, {}),
+  ibkrResume: () =>
+    post<{ paused: boolean; note: string }, Record<string, never>>("/api/integrations/ibkr/resume", {}),
   ibkrLivePrice: async (symbol: string): Promise<number | null> => {
     try {
       const r = await get<{ bars?: Array<{ c: number }>; error?: string }>(
