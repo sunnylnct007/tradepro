@@ -225,6 +225,14 @@ class IchimokuEquityStrategy(Strategy):
             #   and is enabled ONLY on the clone. False/None ⇒ no-op. Entry only;
             #   never touches held positions or exits.
             "entry_require_above_200sma": False,
+            # entry_veto_ma_suspect (bool): PENDING-M&A veto (OPT-IN). When True,
+            #   SKIP a NEW long on a DEAL-PINNED name — a big 12m run now trading with
+            #   COLLAPSED realized vol + pinned near its high (the WBD/Paramount case).
+            #   Its "trend" is a deal ratchet: upside capped at the offer, downside a
+            #   break-gap that won't fill at an ATR stop — a binary the trend/vol
+            #   architecture can't see. NOT in the trader's spec (no M&A awareness), so
+            #   OFF here (verbatim) and enabled on the clone only. Entry-gate only.
+            "entry_veto_ma_suspect": False,
             # entry_rsi_max (float|None): SKIP a NEW long if RSI(14) > this
             #   (e.g. 75 ⇒ block overbought entries). None ⇒ no RSI gate.
             "entry_rsi_max": None,
@@ -510,6 +518,19 @@ class IchimokuEquityStrategy(Strategy):
                         signal=signal, cloud_position=cloud_pos,
                     )
                     return []
+            # ── Pending-M&A veto (OPT-IN, clone deviation) ──────────────────
+            # OFF by default ⇒ no-op (verbatim spec). When True, SKIP a NEW long on a
+            # DEAL-PINNED name (WBD/Paramount): perfect trend score, but a deal ratchet
+            # — upside capped at the offer, downside a break-gap that won't fill at an
+            # ATR stop. The trader's spec has no M&A awareness → clone-only. Entry only.
+            if p.get("entry_veto_ma_suspect") and meta and meta.get("ma_deal_suspect"):
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp,
+                    action="skip-ma-deal",
+                    reason=f"pending-M&A veto: {meta.get('ma_deal_reason', 'deal-pinned, not a trend')}",
+                    signal=signal, cloud_position=cloud_pos,
+                )
+                return []
             # ── Regime / anti-whipsaw "don't chop" gate (OPT-IN) ────────────
             # OFF by default (None) ⇒ no-op. When set, SKIP a NEW long on a
             # CHOPPY name — one whose signal flipped > entry_max_flips times in
@@ -1086,6 +1107,22 @@ class IchimokuEquityStrategy(Strategy):
                     sma200 = float(close.tail(200).mean())
                     if sma200 > 0:
                         meta = {**meta, "ext_pct": (last_close / sma200 - 1.0) * 100.0}
+                # Deal-pinned (pending-M&A) signature for the veto gate: a big 12m
+                # run now trading with COLLAPSED realized vol + pinned near its high
+                # (WBD). Real trends keep moving (20d≈1y vol); deal ratchets go quiet
+                # near the offer. Discriminator is the vol collapse (AMD +275% is a
+                # real trend at ~1.0x vol; WBD +130% at 0.38x is a deal).
+                if len(close) >= 252:
+                    ret12 = last_close / float(close.iloc[-252]) - 1.0
+                    dret = close.pct_change()
+                    v20 = float(dret.tail(20).std()); v252 = float(dret.tail(252).std())
+                    volratio = (v20 / v252) if v252 > 0 else 9.0
+                    hi52 = float(close.tail(252).max())
+                    offhi = (last_close / hi52 - 1.0) if hi52 > 0 else -1.0
+                    if ret12 > 0.6 and volratio < 0.5 and offhi > -0.12:
+                        meta = {**meta, "ma_deal_suspect": True,
+                                "ma_deal_reason": (f"+{ret12*100:.0f}% 12m but 20d vol {volratio:.0%} of 1y "
+                                                   f"+ {offhi*100:.0f}% off high — deal-pinned, not a trend")}
                 d = close.diff()
                 up = d.clip(lower=0).tail(14).mean()
                 dn = (-d.clip(upper=0)).tail(14).mean()
