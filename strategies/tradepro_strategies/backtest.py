@@ -141,6 +141,30 @@ def _compute_stats(equity: pd.Series, initial: float) -> dict:
             still_in_drawdown = True
             days_since_trough = int((equity.index[-1] - trough_idx).days)
 
+    # ── Garbage-bar guard: one corrupt price bar poisons max_dd + the 52w
+    # extremes while leaving CAGR/Sharpe intact (they average over thousands of
+    # days). That produced the USMV -78.6% DD on a min-vol fund and META -91.3%.
+    # Flag the stats as SUSPECT so the caller SUPPRESSES the row instead of
+    # publishing a fabricated number — fail loud, don't default.
+    suspect = False
+    suspect_reason: str | None = None
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_ret = np.log(equity / equity.shift(1)).replace([np.inf, -np.inf], np.nan).dropna()
+    if len(log_ret) > 30:
+        sd = float(log_ret.std())
+        mx = float(log_ret.abs().max())
+        if sd > 0 and mx > 5.0 * sd:                       # isolated >5σ bar
+            suspect = True
+            suspect_reason = f"outlier bar |log-ret|={mx:.2f} > 5σ ({5.0*sd:.2f}) — likely corrupt price"
+    # Recovery math is a free validator: recovering a drawdown d needs a gain of
+    # 1/(1+d)-1. A -80% DD needs +400%; that can't happen in a few hundred days.
+    if not suspect and max_dd < -0.6 and recovery_days is not None:
+        gain_needed = 1.0 / (1.0 + max_dd) - 1.0
+        if gain_needed > 1.5 and recovery_days < 500:      # >150% gain in <500d
+            suspect = True
+            suspect_reason = (f"max_dd {max_dd*100:.0f}% needs +{gain_needed*100:.0f}% to recover "
+                              f"but recovered in {recovery_days}d — physically implausible")
+
     return dict(
         final_equity=final,
         total_return_pct=total_return * 100.0,
@@ -150,4 +174,6 @@ def _compute_stats(equity: pd.Series, initial: float) -> dict:
         max_drawdown_recovery_days=recovery_days,
         max_drawdown_still_recovering=still_in_drawdown,
         days_since_max_dd_trough=days_since_trough,
+        stats_suspect=suspect,
+        stats_suspect_reason=suspect_reason,
     )

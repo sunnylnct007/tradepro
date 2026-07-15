@@ -611,9 +611,37 @@ def _text_block(items: list[dict], heading: str) -> str:
     return "\n".join(lines).rstrip()
 
 
+def _publishable(it: dict) -> tuple[bool, str | None]:
+    """Suppress-on-failure gate: a failed computation or a garbage-bar-poisoned
+    stat must NOT reach the inbox as a confident recommendation (the reviewer's #1
+    fix — no boundary between measured and defaulted). Returns (ok, drop_reason)."""
+    reason = f"{it.get('bucket_reason') or ''} {it.get('rationale') or ''}".lower()
+    if it.get("stats_suspect"):
+        return False, it.get("stats_suspect_reason") or "stats flagged suspect (corrupt bar)"
+    if "unverified" in reason or "couldn't compute" in reason or "rationale failed" in reason:
+        return False, "rationale/computation failed"
+    # Recovery-math sanity straight off the rendered numbers (catches USMV/META
+    # even before the source re-runs): recovering a drawdown d needs 1/(1+d)-1.
+    dd = it.get("max_drawdown_pct")
+    if isinstance(dd, (int, float)) and dd < -75:
+        # Recovering d needs 1/(1+d)-1. A DD past -75% needs >300% just to get
+        # back — a corrupt-bar artifact for anything but a wiped-out equity, and
+        # certainly for a min-vol ETF (USMV) or a mega-cap (META). Real deep-DD
+        # names (NVDA -66% -> +190%) stay above the line and are kept.
+        gain_needed = 1.0 / (1.0 + dd / 100.0) - 1.0
+        if gain_needed > 3.0:
+            return False, f"implausible: {dd:.0f}% DD needs +{gain_needed*100:.0f}% to recover"
+    return True, None
+
+
 def _html_block(items: list[dict], heading: str, accent: str) -> str:
     rows = []
+    dropped: list[str] = []
     for it in items:
+        ok, why = _publishable(it)
+        if not ok:
+            dropped.append(f"{it.get('symbol', '?')} ({why})")
+            continue
         rsi = _fmt(it.get("rsi_14"), digits=0)
         off_high = _fmt(it.get("pct_off_52w_high_pct"), "%", 1)
         cagr = _fmt(it.get("cagr_pct"), "%", 1)
@@ -637,7 +665,15 @@ def _html_block(items: list[dict], heading: str, accent: str) -> str:
             f"{escape(it.get('bucket_reason') or '')}</td></tr>"
         )
     body = "".join(rows) if rows else (
-        "<tr><td colspan=8 style='color:#999'>(none)</td></tr>"
+        "<tr><td colspan=8 style='color:#999'>(none passed verification)</td></tr>"
+    )
+    # Fail loud, don't hide: name the suppressed rows so a silent screen isn't
+    # mistaken for "nothing qualified today".
+    suppressed = (
+        f"<div style='color:#c0392b;font-size:11px;margin-top:6px'>"
+        f"⚠ {len(dropped)} suppressed (failed/suspect — not recommended): "
+        f"{escape(', '.join(dropped[:8]))}{'…' if len(dropped) > 8 else ''}</div>"
+        if dropped else ""
     )
     return (
         f"<h3 style='border-left:3px solid {accent};padding-left:8px;margin-top:24px'>"
@@ -646,7 +682,7 @@ def _html_block(items: list[dict], heading: str, accent: str) -> str:
         f"<thead><tr style='color:#666;text-align:left;font-size:11px'>"
         f"<th>Symbol</th><th>Universe</th><th>Long</th><th>RSI</th>"
         f"<th>52w</th><th>CAGR</th><th>Sharpe</th><th>MaxDD</th>"
-        f"</tr></thead><tbody>{body}</tbody></table>"
+        f"</tr></thead><tbody>{body}</tbody></table>{suppressed}"
     )
 
 
