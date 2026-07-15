@@ -29,6 +29,7 @@ public sealed class IBKRClient
     private readonly IBKROptions _options;
     private readonly IBKRSessionCache _session;
     private readonly IBKREgressIpResolver _ipResolver;
+    private readonly IBKRPauseState _pause;
     private readonly ILogger<IBKRClient> _log;
 
     public IBKRClient(
@@ -36,12 +37,14 @@ public sealed class IBKRClient
         IOptions<IBKROptions> options,
         IBKRSessionCache session,
         IBKREgressIpResolver ipResolver,
+        IBKRPauseState pause,
         ILogger<IBKRClient> log)
     {
         _http = http;
         _options = options.Value;
         _session = session;
         _ipResolver = ipResolver;
+        _pause = pause;
         _log = log;
         if (_options.IsEnabled)
         {
@@ -98,6 +101,13 @@ public sealed class IBKRClient
     private async Task EnsureSessionAsync(CancellationToken ct)
     {
         if (!_options.IsEnabled) return;
+        // Operator paused IBKR to reclaim the single Web-API session for the portal.
+        // Refuse to (re)establish OR keep-alive a session so TradePro can't grab the
+        // account back while the user is in the IBKR portal. Throwing makes EVERY
+        // authed call fail fast; callers already degrade (Yahoo fallback / skip).
+        if (_pause.Paused)
+            throw new InvalidOperationException(
+                "IBKR is PAUSED by the operator — the Web-API session is released for portal use. Resume to re-enable.");
         if (_session.IsValid && _session.IserverReady)
         {
             await KeepAliveAsync(ct);
