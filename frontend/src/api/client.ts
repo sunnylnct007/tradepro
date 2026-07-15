@@ -1558,6 +1558,8 @@ export const api = {
         suggested_premium: number | null;
       }>;
     }>("/api/options/candidates"),
+  runScreener: () =>
+    post<{ ok: boolean; result?: { run_date: string; tickers_screened: number; wheel_top: string[]; swing_top: string[]; dual_candidates: string[] }; stderr?: string }, Record<string, never>>("/api/screener/run", {}),
   // Options Desk — paper wheel positions (BRD §11 ledger). Record a paper
   // CSP entry + the risk-engine verdict, list/track them, transition state.
   optionsPositions: (state?: string) =>

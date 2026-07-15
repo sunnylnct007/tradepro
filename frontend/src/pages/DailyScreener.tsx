@@ -75,10 +75,26 @@ const TD: React.CSSProperties = {
 
 const TD_R: React.CSSProperties = { ...TD, textAlign: "right" };
 
+type RunResult = {
+  ok: boolean;
+  result?: {
+    run_date: string;
+    tickers_screened: number;
+    wheel_top: string[];
+    swing_top: string[];
+    dual_candidates: string[];
+  };
+  stderr?: string;
+};
+
 export function DailyScreener() {
   const [data, setData] = useState<CandidatesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [runErr, setRunErr] = useState<string | null>(null);
 
   useEffect(() => {
     api.optionsCandidates()
@@ -86,6 +102,20 @@ export function DailyScreener() {
       .catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleRunScreener() {
+    setRunning(true);
+    setRunResult(null);
+    setRunErr(null);
+    try {
+      const res = await api.runScreener();
+      setRunResult(res as RunResult);
+    } catch (e: unknown) {
+      setRunErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(false);
+    }
+  }
 
   const candidates = data?.candidates ?? [];
   const eligible = candidates.filter((c) => c.eligible);
@@ -98,27 +128,73 @@ export function DailyScreener() {
         <div>
           <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "var(--text)" }}>Daily Screener</h2>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted)" }}>
-            Wheel + options candidates from the last screener run. Full report sent via email.
+            Wheel + swing candidates. Run the screener on demand or wait for the scheduled daily email.
           </p>
         </div>
-        {data && (
-          <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "right" }}>
-            <div>Generated: {fmtTs(data.generated_at_utc)}</div>
-            <div style={{ marginTop: 2 }}>
-              Market: <span style={{ color: data.market_open ? "#1fc16b" : "#ef4444", fontWeight: 600 }}>
-                {data.market_open ? "Open" : "Closed"}
-              </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          {data && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "right" }}>
+              <div>Generated: {fmtTs(data.generated_at_utc)}</div>
+              <div style={{ marginTop: 2 }}>
+                Market: <span style={{ color: data.market_open ? "#1fc16b" : "#ef4444", fontWeight: 600 }}>
+                  {data.market_open ? "Open" : "Closed"}
+                </span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+          <button
+            onClick={handleRunScreener}
+            disabled={running}
+            style={{
+              background: running ? "rgba(31,193,107,0.15)" : "rgba(31,193,107,0.2)",
+              border: "1px solid rgba(31,193,107,0.4)",
+              borderRadius: 7,
+              color: running ? "var(--text-muted)" : "#1fc16b",
+              cursor: running ? "not-allowed" : "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+              padding: "8px 18px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {running ? "Running…" : "▶ Run Screener"}
+          </button>
+        </div>
       </div>
+
+      {/* Run result banner */}
+      {runErr && (
+        <Note tone="error" style={{ marginBottom: 14 }}>Run failed: {runErr}</Note>
+      )}
+      {runResult && (
+        <div style={{
+          marginBottom: 14,
+          padding: "12px 16px",
+          border: "1px solid rgba(31,193,107,0.25)",
+          borderRadius: 8,
+          background: "rgba(31,193,107,0.05)",
+          fontSize: 12,
+        }}>
+          <span style={{ fontWeight: 700, color: "#1fc16b" }}>Screener complete — {runResult.result?.run_date}</span>
+          <span style={{ color: "var(--text-muted)", marginLeft: 10 }}>
+            {runResult.result?.tickers_screened} tickers screened ·{" "}
+            Wheel top: {runResult.result?.wheel_top?.join(", ") || "none"} ·{" "}
+            Swing top: {runResult.result?.swing_top?.join(", ") || "none"}
+          </span>
+          {runResult.result?.dual_candidates && runResult.result.dual_candidates.length > 0 && (
+            <span style={{ color: "#e0b341", marginLeft: 8 }}>
+              ★ Dual: {runResult.result.dual_candidates.join(", ")}
+            </span>
+          )}
+        </div>
+      )}
 
       {err ? (
         <Note tone="error">Screener unavailable: {err}</Note>
       ) : loading ? (
         <Note>Loading screener results…</Note>
       ) : candidates.length === 0 ? (
-        <Note>No results yet. The screener runs each trading day — check back after market open.</Note>
+        <Note>No stored results yet — click <strong>Run Screener</strong> to fetch live data and run the screen now.</Note>
       ) : (
         <>
           {/* Summary strip */}
@@ -266,7 +342,7 @@ function Section({ title, children, collapsed = false }: { title: string; childr
   );
 }
 
-function Note({ children, tone }: { children: React.ReactNode; tone?: "error" }) {
+function Note({ children, tone, style }: { children: React.ReactNode; tone?: "error"; style?: React.CSSProperties }) {
   return (
     <div style={{
       fontSize: 13,
@@ -275,6 +351,7 @@ function Note({ children, tone }: { children: React.ReactNode; tone?: "error" })
       background: tone === "error" ? "rgba(239,68,68,0.05)" : "transparent",
       border: `1px solid ${tone === "error" ? "rgba(239,68,68,0.2)" : "var(--sep, #1b2233)"}`,
       borderRadius: 8,
+      ...style,
     }}>
       {children}
     </div>

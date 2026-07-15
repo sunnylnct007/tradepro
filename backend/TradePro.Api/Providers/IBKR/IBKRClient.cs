@@ -532,6 +532,36 @@ public sealed class IBKRClient
         }
     }
 
+    // ─── Market snapshot (read-only) ────────────────────────────────
+
+    /// <summary>
+    /// Fetch a live market-data snapshot for one or more conids via
+    /// GET /iserver/marketdata/snapshot?conids=…&amp;fields=…
+    ///
+    /// Returns a raw JSON string (the first element of the IBKR array) for
+    /// the requested conid.  Field numeric codes used by the screener:
+    ///   31=last, 7293=52w-high, 7294=52w-low, 7282=iv-pct-52w,
+    ///   7283=implied-vol-annual, 7631=hist-vol-30d, 7286=div-yield,
+    ///   7282=iv-pct, 87=avg-volume (usd ~90d), 7718=avg-opt-vol.
+    /// IBKR may return empty/null for fields that aren't yet "warm" — the
+    /// caller should use defaults for missing fields.
+    /// </summary>
+    public async Task<string?> GetSnapshotRawAsync(
+        long conid, string fields, CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled) return null;
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"v1/api/iserver/marketdata/snapshot?conids={conid}&fields={Uri.EscapeDataString(fields)}",
+                null, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch { return null; }
+    }
+
     // ─── Orders ─────────────────────────────────────────────────────
 
     /// <summary>
