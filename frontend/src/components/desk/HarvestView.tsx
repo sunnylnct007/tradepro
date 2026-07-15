@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import { PriceHistoryChart } from "../PriceHistoryChart";
+import { CandleIchimokuChart } from "./CandleIchimokuChart";
 
 type Row = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
 type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
@@ -79,6 +79,8 @@ export function HarvestView() {
   const [harvester, setHarvester] = useState<Harvester | null>(null);
   const [harvesterErr, setHarvesterErr] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);  // symbol → show its curve
+  const [analyzeInput, setAnalyzeInput] = useState("");            // free-text "analyze ANY symbol"
+  const [popOut, setPopOut] = useState(false);                     // large chart overlay
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -197,7 +199,22 @@ export function HarvestView() {
           <input type="checkbox" checked={onlyIssues} onChange={(e) => setOnlyIssues(e.target.checked)} />
           Issues only
         </label>
-        <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>{shown.length} shown</span>
+        {/* Analyze ANY symbol — type a ticker (not just the tracked ones) → chart it. */}
+        <form
+          onSubmit={(e) => { e.preventDefault(); const s = analyzeInput.trim().toUpperCase(); if (s) setSelected(s); }}
+          style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" }}
+        >
+          <input
+            value={analyzeInput} onChange={(e) => setAnalyzeInput(e.target.value)}
+            placeholder="Analyze any symbol…"
+            style={{ fontSize: 12, padding: "5px 9px", maxWidth: 180 }}
+          />
+          <button type="submit" style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, cursor: "pointer",
+            border: "1px solid var(--accent, #4f8cff)", background: "rgba(79,140,255,0.12)", color: "var(--accent, #4f8cff)" }}>
+            Chart
+          </button>
+        </form>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{shown.length} shown</span>
       </div>
 
       <div style={{ overflowX: "auto", maxWidth: "100%" }}>
@@ -277,12 +294,40 @@ export function HarvestView() {
       {selected && (
         <div style={{ marginTop: 16, background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 8, padding: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 14 }}>{selected} — price history</span>
-            <button onClick={() => setSelected(null)}
-              style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
-              title="Close">✕</button>
+            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 14 }}>{selected} — Ichimoku cloud + support/resistance</span>
+            <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <button onClick={() => setPopOut(true)}
+                style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+                  border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-dim)" }}
+                title="Pop out to a large view">⤢ Pop out</button>
+              <button onClick={() => setSelected(null)}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
+                title="Close">✕</button>
+            </span>
           </div>
-          <PriceHistoryChart symbol={selected} height={340} />
+          {/* Rich chart: candles + Ichimoku cloud + pivot support/resistance + drag-resize. */}
+          <CandleIchimokuChart symbol={selected} timeframe="3M" height={420} />
+        </div>
+      )}
+
+      {/* Pop-out: the same chart in a large, comfortable overlay. */}
+      {selected && popOut && (
+        <div
+          onClick={() => setPopOut(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+        >
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 10,
+              padding: 18, width: "min(1200px, 94vw)", maxHeight: "92vh", overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 16 }}>{selected} — Ichimoku cloud + S/R</span>
+              <button onClick={() => setPopOut(false)}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 22, lineHeight: 1 }}
+                title="Close">✕</button>
+            </div>
+            <CandleIchimokuChart symbol={selected} timeframe="3M" height={640} />
+          </div>
         </div>
       )}
     </div>
