@@ -64,6 +64,7 @@ const moreSections: NavSection[] = [
     { to: "/scanner",      label: "Scanner"    },
     { to: "/charts",       label: "Charts"     },
     { to: "/documents",    label: "Docs"       },
+    { to: "/screener",     label: "Daily Screener" },
   ]},
   { label: "Paper / History", items: [
     { to: "/paper-live",            label: "Paper sessions"  },
