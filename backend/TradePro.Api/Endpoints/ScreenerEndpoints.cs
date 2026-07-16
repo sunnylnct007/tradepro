@@ -128,11 +128,11 @@ public static class ScreenerEndpoints
             try
             {
                 var result = JsonSerializer.Deserialize<JsonElement>(resultLine);
-                return Results.Ok(new { ok = true, result, stderr = stderr[..Math.Min(2000, stderr.Length)] });
+                return Results.Ok(new { ok = true, result, stderr = stderr[..Math.Min(5000, stderr.Length)] });
             }
             catch
             {
-                return Results.Ok(new { ok = false, stdout, stderr = stderr[..Math.Min(2000, stderr.Length)] });
+                return Results.Ok(new { ok = false, stdout, stderr = stderr[..Math.Min(5000, stderr.Length)] });
             }
         });
 

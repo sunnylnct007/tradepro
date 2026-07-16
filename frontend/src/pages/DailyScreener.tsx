@@ -170,12 +170,14 @@ export function DailyScreener() {
         <div style={{
           marginBottom: 14,
           padding: "12px 16px",
-          border: "1px solid rgba(31,193,107,0.25)",
+          border: `1px solid ${runResult.ok ? "rgba(31,193,107,0.25)" : "rgba(239,68,68,0.25)"}`,
           borderRadius: 8,
-          background: "rgba(31,193,107,0.05)",
+          background: runResult.ok ? "rgba(31,193,107,0.05)" : "rgba(239,68,68,0.05)",
           fontSize: 12,
         }}>
-          <span style={{ fontWeight: 700, color: "#1fc16b" }}>Screener complete — {runResult.result?.run_date}</span>
+          <span style={{ fontWeight: 700, color: runResult.ok ? "#1fc16b" : "#ef4444" }}>
+            Screener complete — {runResult.result?.run_date}
+          </span>
           <span style={{ color: "var(--text-muted)", marginLeft: 10 }}>
             {runResult.result?.tickers_screened} tickers screened ·{" "}
             Wheel top: {runResult.result?.wheel_top?.join(", ") || "none"} ·{" "}
@@ -185,6 +187,16 @@ export function DailyScreener() {
             <span style={{ color: "#e0b341", marginLeft: 8 }}>
               ★ Dual: {runResult.result.dual_candidates.join(", ")}
             </span>
+          )}
+          {runResult.stderr && runResult.stderr.trim() && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer", color: "var(--text-muted)", fontSize: 11 }}>Show logs / errors</summary>
+              <pre style={{
+                marginTop: 6, padding: "8px 10px", background: "rgba(0,0,0,0.2)",
+                borderRadius: 4, fontSize: 10, overflowX: "auto", whiteSpace: "pre-wrap",
+                color: "var(--text-muted)", maxHeight: 200,
+              }}>{runResult.stderr}</pre>
+            </details>
           )}
         </div>
       )}
