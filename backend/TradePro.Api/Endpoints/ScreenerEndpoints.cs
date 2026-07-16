@@ -136,6 +136,86 @@ public static class ScreenerEndpoints
             }
         });
 
+        // GET /api/screener/live — real-time snapshot for all universe tickers
+        g.MapGet("/live", async (IBKRClient ibkr, ILogger<ScreenerRunRequest> log, CancellationToken ct) =>
+        {
+            // Fields: 31=last, 7293=52wHigh, 7294=52wLow, 7282=IVP(52w), 7283=IV-annual,
+            //         7631=HV30, 7286=divYield, 87=avgVol90d, 82=change%, 83=change$
+            const string LiveFields = "31,7293,7294,7282,7283,7631,7286,87,82,83";
+
+            var rows = new List<object>();
+            foreach (var (ticker, conid) in Universe)
+            {
+                try
+                {
+                    var raw = await ibkr.GetSnapshotRawAsync(conid, LiveFields, ct);
+                    if (string.IsNullOrWhiteSpace(raw)) continue;
+
+                    using var doc = JsonDocument.Parse(raw);
+                    var root = doc.RootElement;
+                    var elem = root.ValueKind == JsonValueKind.Array
+                        ? root.EnumerateArray().FirstOrDefault()
+                        : root;
+                    if (elem.ValueKind != JsonValueKind.Object) continue;
+
+                    static double? N(JsonElement e, string key)
+                    {
+                        if (!e.TryGetProperty(key, out var v)) return null;
+                        if (v.ValueKind == JsonValueKind.Number) return v.GetDouble();
+                        if (v.ValueKind == JsonValueKind.String && double.TryParse(v.GetString(), out var d)) return d;
+                        return null;
+                    }
+
+                    var price    = N(elem, "31");
+                    var high52w  = N(elem, "7293");
+                    var low52w   = N(elem, "7294");
+                    var ivp52w   = N(elem, "7282");   // 0-100
+                    var ivAnn    = N(elem, "7283");   // 0-100
+                    var hv30     = N(elem, "7631");   // 0-100
+                    var divYld   = N(elem, "7286");
+                    var avgVol   = N(elem, "87");
+                    var changePct = N(elem, "82");
+                    var changeAbs = N(elem, "83");
+
+                    // BS ATM put premium estimate: ~0.4 × σ × √(30/252) × S
+                    double? putYieldPct = null;
+                    if (ivAnn.HasValue && price.HasValue && ivAnn > 0 && price > 0)
+                    {
+                        var sigma = ivAnn.Value / 100.0;
+                        putYieldPct = Math.Round(0.4 * sigma * Math.Sqrt(30.0 / 252.0) * price.Value / price.Value * 100, 2);
+                    }
+
+                    // Distance from 52w low (upside buffer)
+                    double? distLowPct = null;
+                    if (price.HasValue && low52w.HasValue && low52w > 0)
+                        distLowPct = Math.Round((price.Value - low52w.Value) / low52w.Value * 100, 1);
+
+                    rows.Add(new
+                    {
+                        ticker,
+                        price,
+                        change_pct = changePct,
+                        change_abs = changeAbs,
+                        ivp_52w = ivp52w,
+                        iv_annual = ivAnn,
+                        hv30,
+                        div_yield = divYld,
+                        put_yield_pct = putYieldPct,
+                        high_52w = high52w,
+                        low_52w = low52w,
+                        dist_low_pct = distLowPct,
+                        avg_vol_90d = avgVol,
+                    });
+                }
+                catch (Exception ex)
+                {
+                    log.LogWarning("Live scan: {T} failed: {E}", ticker, ex.Message);
+                }
+            }
+
+            return Results.Ok(new { fetched_at_utc = DateTime.UtcNow.ToString("o"), rows });
+        });
+
         return app;
     }
 

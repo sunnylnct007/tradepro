@@ -1560,6 +1560,8 @@ export const api = {
     }>("/api/options/candidates"),
   runScreener: () =>
     post<{ ok: boolean; result?: { run_date: string; tickers_screened: number; wheel_top: string[]; swing_top: string[]; dual_candidates: string[] }; stderr?: string }, Record<string, never>>("/api/screener/run", {}),
+  screenerLive: () =>
+    get<{ fetched_at_utc: string; rows: Array<{ ticker: string; price: number | null; change_pct: number | null; change_abs: number | null; ivp_52w: number | null; iv_annual: number | null; hv30: number | null; div_yield: number | null; put_yield_pct: number | null; high_52w: number | null; low_52w: number | null; dist_low_pct: number | null; avg_vol_90d: number | null }> }>("/api/screener/live"),
   // Options Desk — paper wheel positions (BRD §11 ledger). Record a paper
   // CSP entry + the risk-engine verdict, list/track them, transition state.
   optionsPositions: (state?: string) =>
