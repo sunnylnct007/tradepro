@@ -725,6 +725,15 @@ public sealed class PostgresOmsService : IOmsService
     private static readonly string[] PlacementBrokers =
         { "T212_DEMO", "IG_DEMO", "IG_LIVE" };
 
+    // Brokers whose UN-ACKED (broker_order_id IS NULL) in-flight orders may be
+    // EXPIRED once past the grace. Broader than PlacementBrokers: it includes IBKR,
+    // because an IBKR order that sat SUBMITTED for days with no broker id was never
+    // accepted by the broker (the paused FX clone's ghost-inbox orders) and must not
+    // clutter the book as "in flight" forever. Expiry only cancels NULL-broker-id
+    // rows, so a real IBKR fill (which carries a broker id) is never touched.
+    private static readonly string[] ExpiryBrokers =
+        { "T212_DEMO", "IG_DEMO", "IG_LIVE", "IBKR_PAPER", "IBKR_LIVE" };
+
     // Post-approval in-flight states only — never PENDING_APPROVAL (which
     // has no broker id yet by definition and is awaiting human/auto approval,
     // not a failed dispatch).
@@ -745,7 +754,7 @@ public sealed class PostgresOmsService : IOmsService
                   AND last_state_change_at_utc < @cutoff
                 ORDER BY created_at_utc ASC
                 LIMIT 200;",
-                new { states = PostApprovalInFlight, brokers = PlacementBrokers, cutoff }))
+                new { states = PostApprovalInFlight, brokers = ExpiryBrokers, cutoff }))
                 .ToList();
         }
 
