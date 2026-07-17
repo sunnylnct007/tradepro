@@ -1528,6 +1528,7 @@ export const api = {
       qp.stale_after_days = String(params.staleAfterDays);
     return get<{
       as_of: string;
+      last_completed_session?: string;
       stale_after_days: number;
       summary: {
         total: number; good: number; bronze: number; partial: number;

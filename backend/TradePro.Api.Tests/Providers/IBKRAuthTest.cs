@@ -764,6 +764,7 @@ public class IBKRAuthTest
             Microsoft.Extensions.Options.Options.Create(options),
             new IBKRSessionCache(),
             ipResolver,
+            new IBKRPauseState(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<IBKRClient>.Instance);
     }
 

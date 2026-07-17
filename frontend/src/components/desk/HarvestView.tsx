@@ -165,7 +165,7 @@ export function HarvestView() {
 
       {/* Legacy yfinance bar-cache health (daily coverage / quality-for-today). */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px" }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>Legacy bar-cache (daily · yfinance)</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>Daily bar-cache (IBKR-primary · yfinance fallback)</span>
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           daily coverage for backtests + decision-grade "good for today"
         </span>
@@ -175,7 +175,9 @@ export function HarvestView() {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
         {quality && (
           <Stat
-            label="Good for today"
+            label={quality.last_completed_session
+              ? `Good as of ${quality.last_completed_session}`
+              : "Good for today"}
             value={`${quality.summary.good_for_today}/${quality.summary.total}`}
             tone={quality.summary.good_for_today === quality.summary.total ? "ok"
               : quality.summary.good_for_today === 0 ? "bad" : "warn"}
@@ -253,7 +255,9 @@ export function HarvestView() {
                       return (
                         <span title={qrow.reason} style={{ color: QTONE[qrow.score], fontWeight: 600, cursor: "help" }}>
                           {QGLYPH[qrow.score]} {qrow.score}
-                          {qrow.days_behind != null && qrow.score !== "GOOD" ? ` ${qrow.days_behind}d` : ""}
+                          {qrow.days_behind != null && qrow.days_behind > 0
+                            ? ` ${qrow.days_behind} session${qrow.days_behind === 1 ? "" : "s"} behind`
+                            : ""}
                         </span>
                       );
                     })()}

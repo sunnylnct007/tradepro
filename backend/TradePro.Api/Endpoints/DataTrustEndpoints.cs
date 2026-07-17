@@ -50,6 +50,44 @@ public static class DataTrustEndpoints
         _                    => "unknown",
     };
 
+    // ── Freshness reference: last COMPLETED US regular session ──────
+    //
+    // A daily bar for a session only exists AFTER that session closes
+    // (NYSE 16:00 America/New_York). So during (and just after the open
+    // of) a live session the freshest COMPLETE daily bar is the PRIOR
+    // trading day — that is not "stale", it is the latest bar that can
+    // exist. The data-quality gate must measure "days behind" against
+    // THIS, not the wall-clock calendar day, otherwise a normal intraday
+    // 1-day lag reads as -1d / STALE and every symbol looks behind.
+    //
+    // Limitation (honest, not silent): US market holidays are not
+    // modelled — on a holiday this returns the holiday date as if a
+    // session ran, which can over-report freshness by one day. The
+    // staleAfter slack (default 4) absorbs that without a holiday
+    // calendar; revisit if we ever tighten staleAfter below 2.
+    private static readonly TimeZoneInfo _easternTz =
+        TimeZoneInfo.FindSystemTimeZoneById(
+            OperatingSystem.IsWindows() ? "Eastern Standard Time" : "America/New_York");
+
+    // 16:00 ET close + a settle buffer so a bar isn't called "complete"
+    // the instant the bell rings (vendors publish the daily bar shortly
+    // after the close, not at 16:00:00 sharp).
+    private static readonly TimeSpan _usSessionCompleteEt = new(16, 15, 0);
+
+    public static DateOnly LastCompletedUsSession(DateTime utcNow)
+    {
+        var et = TimeZoneInfo.ConvertTimeFromUtc(
+            DateTime.SpecifyKind(utcNow, DateTimeKind.Utc), _easternTz);
+        var d = DateOnly.FromDateTime(et.Date);
+        bool todayComplete =
+            d.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday)
+            && et.TimeOfDay >= _usSessionCompleteEt;
+        if (!todayComplete) d = d.AddDays(-1);
+        while (d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+            d = d.AddDays(-1);
+        return d;
+    }
+
     public static IEndpointRouteBuilder MapDataTrustEndpoints(this IEndpointRouteBuilder app)
     {
         var g = app.MapGroup("/admin/data-trust").WithTags("Admin");
@@ -613,6 +651,11 @@ public static class DataTrustEndpoints
         {
             int staleAfter = Math.Clamp(stale_after_days ?? 4, 1, 30);
             var today = DateTime.UtcNow.Date;
+            // Freshness is measured against the last COMPLETED US session,
+            // not the calendar day — so having yesterday's close mid-session
+            // reads as 0-behind (the latest bar that can exist), not -1d.
+            var lastSession = LastCompletedUsSession(DateTime.UtcNow);
+            var lastSessionDate = lastSession.ToDateTime(TimeOnly.MinValue).Date;
             var trusted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ibkr", "ig" };
 
             await using var conn = await db.OpenConnectionAsync();
@@ -639,11 +682,18 @@ public static class DataTrustEndpoints
                 }
                 else
                 {
-                    int dB = (today - r.CoverageEnd.Value.Date).Days; daysBehind = dB;
+                    // Sessions behind the last COMPLETED US session. A symbol
+                    // that already holds that session's bar is 0-behind (fresh),
+                    // even though the wall-clock calendar day is +1. Clamp at 0
+                    // so a symbol carrying an intraday/partial today-bar (coverage
+                    // ahead of last completed session) isn't reported as negative.
+                    int dB = (lastSessionDate - r.CoverageEnd.Value.Date).Days;
+                    if (dB < 0) dB = 0;
+                    daysBehind = dB;
                     if (dB > staleAfter)
                     {
                         score = "STALE"; gft = false; stale++;
-                        reason = $"Last bar {dB}d old (> {staleAfter}d) — data pending; NOT good for today's decision.";
+                        reason = $"Last bar {dB} session(s) behind (> {staleAfter}) — data pending; NOT good for today's decision.";
                     }
                     else if (miss > 0)
                     {
@@ -658,7 +708,9 @@ public static class DataTrustEndpoints
                     else
                     {
                         score = "GOOD"; gft = true; good++;
-                        reason = $"Fresh ({dB}d) + complete + {prov.ToUpperInvariant()} — good for today.";
+                        reason = dB == 0
+                            ? $"Current (has the last completed session) + complete + {prov.ToUpperInvariant()} — good for today."
+                            : $"{dB} session(s) behind + complete + {prov.ToUpperInvariant()} — good for today.";
                     }
                 }
                 symbols.Add(new
@@ -672,6 +724,9 @@ public static class DataTrustEndpoints
             return Results.Ok(new
             {
                 as_of = today,
+                // The session freshness is measured against — clients can
+                // show "data as of <session>" instead of implying today.
+                last_completed_session = lastSession.ToString("yyyy-MM-dd"),
                 stale_after_days = staleAfter,
                 summary = new
                 {
