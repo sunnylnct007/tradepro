@@ -52,6 +52,7 @@ from datetime import datetime
 
 from ..paper import RiskLimits
 from ..paper.engine import Engine
+from ..ticker_renames import canonical_ticker
 from ..paper.profiles import build_multi_broker_session, build_session
 from ..paper.strategies.opening_range_breakout import OpeningRangeBreakout
 
@@ -734,6 +735,14 @@ def _parse_broker_position_rows(
                 bare = parts[2]
         elif "_" in t:
             bare = t.split("_", 1)[0]
+        # Corporate-action rename: a broker may still report a position under
+        # the OLD ticker (T212 holds Bath & Body Works as LB_US_EQ) after the
+        # universe/signal/data all moved to the CURRENT ticker (BBWI).
+        # Canonicalise BEFORE the universe filter so the held name is kept,
+        # priced, and exited under ONE identity — otherwise the old ticker
+        # falls outside the universe, drops from the seed, and the strategy
+        # re-buys every cycle (guard blind) while the orphan can't be exited.
+        bare = canonical_ticker(bare)
         if universe and bare not in universe:
             continue
         try:
