@@ -294,6 +294,15 @@ builder.Services.AddHostedService<TradePro.Api.Oms.OmsFillPoller>();
 // IG fill poller — separate impl because IG uses dealReference (GUID)
 // not a numeric order id and /confirms is a different endpoint shape.
 builder.Services.AddHostedService<TradePro.Api.Oms.IGOmsFillPoller>();
+// Unified GOLDEN-SOURCE reconciler — ONE invariant across every broker
+// (OMS positions must equal broker positions), replacing the per-broker
+// whack-a-mole. Each broker plugs in via an IBrokerPositionSource; the loop
+// never changes. Fail-loud drift is exposed via /api/oms/reconciliation.
+builder.Services.AddSingleton<TradePro.Api.Oms.IReconciliationStatus, TradePro.Api.Oms.ReconciliationStatus>();
+builder.Services.AddTransient<TradePro.Api.Oms.IBrokerPositionSource, TradePro.Api.Oms.Trading212PositionSource>();
+builder.Services.AddTransient<TradePro.Api.Oms.IBrokerPositionSource, TradePro.Api.Oms.IBKRPositionSource>();
+builder.Services.AddSingleton<TradePro.Api.Oms.GoldenSourceReconciler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<TradePro.Api.Oms.GoldenSourceReconciler>());
 builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderboardStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills
