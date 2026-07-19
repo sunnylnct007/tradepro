@@ -14,7 +14,7 @@ log = logging.getLogger("screener.wheel")
 
 EARNINGS_BLACKOUT_DAYS = 21
 PRICE_MIN = 15.0
-PRICE_MAX = 250.0
+PRICE_MAX = 2000.0
 OPTION_OI_MIN = 500
 VOLUME_MIN = 200_000
 

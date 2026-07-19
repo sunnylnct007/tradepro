@@ -261,7 +261,9 @@ public static class ScreenerEndpoints
                 ["implied-vol-underlying"]        = new { annual_iv = ivAnn, is_valid = ivAnn > 0 },
                 ["historical-vol"]                = new { annual_pct = hvAnn },
                 ["dividend-yield"]                = new { yield_pct = divYld },
-                ["avg-90d-usd-volume"]            = new { volume = avgVol },
+                // field 87 = avg daily SHARE volume; multiply by price → USD volume
+                // so Python's snapshot_to_fields (which divides back by price) recovers shares
+                ["avg-90d-usd-volume"]            = new { volume = avgVol * last },
                 ["underlying-avg-option-volume"]  = new { avgCallVolume = 0, avgPutVolume = 0 },
             };
         }
