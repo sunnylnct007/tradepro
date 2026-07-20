@@ -44,7 +44,7 @@ function WheelSwingCard() {
     try {
       const r = await api.runScreener();
       setStatus("done");
-      setMsg(r.message);
+      setMsg(r.ok ? `Screener complete — ${r.result?.tickers_screened ?? 0} tickers screened` : (r.stderr ?? "Screener finished"));
       timerRef.current = setTimeout(() => setStatus("idle"), 30_000);
     } catch (e) {
       setStatus("error");
