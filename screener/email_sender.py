@@ -45,21 +45,45 @@ def _ses_client():
 # Wheel email
 # ------------------------------------------------------------------
 
-def send_wheel_email(candidates: list, run_date: datetime.date | None = None) -> bool:
+def send_wheel_email(candidates: list, run_date: datetime.date | None = None,
+                     run_errors: list | None = None) -> bool:
     date = run_date or datetime.date.today()
     date_str = date.strftime("%d %b %Y")
     n = len(candidates)
+    errors = run_errors or []
 
     subject = f"🎡 TradePro Wheel — {n} candidates — {date_str}"
-    body = _build_wheel_html(candidates, date_str)
-    pdf_bytes = _build_pdf(candidates, "wheel", date_str) if _PDF_ENABLED else None
+    if any(e["severity"] == "ERROR" for e in errors):
+        subject += " ⚠️ ERRORS"
+    body = _build_wheel_html(candidates, date_str, errors)
+    pdf_bytes = _build_pdf(candidates, "wheel", date_str, errors) if _PDF_ENABLED else None
     return _send(subject, body, pdf_bytes=pdf_bytes, pdf_name=f"wheel_{date.isoformat()}.pdf")
 
 
-def _build_wheel_html(candidates: list, date_str: str) -> str:
+def _errors_html(errors: list) -> str:
+    if not errors:
+        return ""
+    rows = ""
+    for e in errors:
+        colour = "#f8d7da" if e["severity"] == "ERROR" else "#fff3cd"
+        icon = "🔴" if e["severity"] == "ERROR" else "🟡"
+        msg = e["message"].replace("\n", "<br>")
+        rows += f"<tr style='background:{colour}'><td><strong>{e['ticker']}</strong></td><td>{icon} {e['severity']}</td><td style='font-size:12px'>{msg}</td></tr>"
+    return f"""
+    <div class='errbox'>
+      <strong>⚠️ Run Errors &amp; Warnings ({len(errors)})</strong>
+      <table style='width:100%;border-collapse:collapse;margin-top:6px;font-size:13px'>
+        <tr style='background:#ccc;font-weight:bold'><td width='60'>Ticker</td><td width='70'>Level</td><td>Detail</td></tr>
+        {rows}
+      </table>
+    </div>"""
+
+
+def _build_wheel_html(candidates: list, date_str: str, run_errors: list | None = None) -> str:
+    errors = run_errors or []
     if not candidates:
         return _no_candidates_html(
-            "wheel", "No wheel candidates today — all failed gate or scored < 5/14", date_str
+            "wheel", "No wheel candidates today — all failed gate or scored < 5/14", date_str, errors
         )
 
     rows = ""
@@ -96,28 +120,33 @@ def _build_wheel_html(candidates: list, date_str: str) -> str:
           <div class='claude'><strong>Analysis:</strong> {analysis}</div>
         </div>"""
 
-    return _wrap_html(f"🎡 TradePro Wheel — {date_str}", rows)
+    return _wrap_html(f"🎡 TradePro Wheel — {date_str}", _errors_html(errors) + rows)
 
 
 # ------------------------------------------------------------------
 # Swing email
 # ------------------------------------------------------------------
 
-def send_swing_email(candidates: list, run_date: datetime.date | None = None) -> bool:
+def send_swing_email(candidates: list, run_date: datetime.date | None = None,
+                     run_errors: list | None = None) -> bool:
     date = run_date or datetime.date.today()
     date_str = date.strftime("%d %b %Y")
     n = len(candidates)
+    errors = run_errors or []
 
     subject = f"📈 TradePro Swing — {n} candidates — {date_str}"
-    body = _build_swing_html(candidates, date_str)
-    pdf_bytes = _build_pdf(candidates, "swing", date_str) if _PDF_ENABLED else None
+    if any(e["severity"] == "ERROR" for e in errors):
+        subject += " ⚠️ ERRORS"
+    body = _build_swing_html(candidates, date_str, errors)
+    pdf_bytes = _build_pdf(candidates, "swing", date_str, errors) if _PDF_ENABLED else None
     return _send(subject, body, pdf_bytes=pdf_bytes, pdf_name=f"swing_{date.isoformat()}.pdf")
 
 
-def _build_swing_html(candidates: list, date_str: str) -> str:
+def _build_swing_html(candidates: list, date_str: str, run_errors: list | None = None) -> str:
+    errors = run_errors or []
     if not candidates:
         return _no_candidates_html(
-            "swing", "No swing candidates today — all failed gate or scored < 5/14", date_str
+            "swing", "No swing candidates today — all failed gate or scored < 5/14", date_str, errors
         )
 
     rows = ""
@@ -147,7 +176,7 @@ def _build_swing_html(candidates: list, date_str: str) -> str:
           <div class='claude'><strong>Analysis:</strong> {analysis}</div>
         </div>"""
 
-    return _wrap_html(f"📈 TradePro Swing — {date_str}", rows)
+    return _wrap_html(f"📈 TradePro Swing — {date_str}", _errors_html(errors) + rows)
 
 
 # ------------------------------------------------------------------
@@ -228,10 +257,10 @@ def _sr_html(c) -> str:
         return ""
 
 
-def _no_candidates_html(kind: str, msg: str, date_str: str) -> str:
+def _no_candidates_html(kind: str, msg: str, date_str: str, errors: list | None = None) -> str:
     return _wrap_html(
         f"TradePro {kind.title()} — {date_str}",
-        f"<p style='color:#888'>{msg}</p>",
+        _errors_html(errors or []) + f"<p style='color:#888'>{msg}</p>",
     )
 
 
@@ -261,6 +290,8 @@ def _wrap_html(title: str, body_content: str) -> str:
   .maline {{ color: #555; font-size: 11px; }}
   .optchain {{ background: #f9f9f9; border: 1px solid #ccc; border-radius: 4px; padding: 8px; margin: 6px 0; }}
   .optchain table td {{ padding: 2px 6px; border-bottom: 1px solid #eee; }}
+  .errbox {{ background: #fff8f0; border: 2px solid #e74c3c; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; }}
+  .errbox table td {{ padding: 3px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }}
 </style>
 </head><body>
 <h1>{title}</h1>
@@ -269,10 +300,11 @@ def _wrap_html(title: str, body_content: str) -> str:
 </body></html>"""
 
 
-def _build_pdf(candidates: list, kind: str, date_str: str) -> bytes | None:
+def _build_pdf(candidates: list, kind: str, date_str: str, run_errors: list | None = None) -> bytes | None:
     """Build a PDF report using ReportLab and return raw bytes, or None on failure."""
     if not _PDF_ENABLED or not candidates:
         return None
+    errors = run_errors or []
     try:
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4,
@@ -286,6 +318,25 @@ def _build_pdf(candidates: list, kind: str, date_str: str) -> bytes | None:
 
         story.append(Paragraph(f"TradePro {kind.title()} Screener — {date_str}", title_style))
         story.append(Spacer(1, 0.4*cm))
+
+        # Errors / warnings section at top of PDF
+        if errors:
+            story.append(Paragraph(f"⚠️ Run Errors & Warnings ({len(errors)})", styles["Heading2"]))
+            err_data = [["Ticker", "Level", "Detail"]]
+            for e in errors:
+                err_data.append([e["ticker"], e["severity"], e["message"]])
+            err_tbl = Table(err_data, colWidths=[2*cm, 2*cm, 14*cm])
+            err_tbl.setStyle(TableStyle([
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.Color(0.85, 0.1, 0.1)),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.Color(1, 0.9, 0.9), colors.Color(1, 0.95, 0.85)]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("WORDWRAP", (2, 1), (2, -1), True),
+            ]))
+            story.append(err_tbl)
+            story.append(Spacer(1, 0.5*cm))
 
         for c in candidates:
             dual = " ⚡ DUAL CANDIDATE" if c.dual_candidate else ""
@@ -357,7 +408,10 @@ def _build_pdf(candidates: list, kind: str, date_str: str) -> bytes | None:
                 ]))
                 story.append(ct)
 
-            analysis = getattr(c, "explanation", "See metrics above.")
+            if _ANALYSIS_ENABLED:
+                analysis = wheel_analysis(c) if kind == "wheel" else swing_analysis(c)
+            else:
+                analysis = getattr(c, "explanation", "See metrics above.")
             story.append(Spacer(1, 0.2*cm))
             story.append(Paragraph(f"<b>Analysis:</b> {analysis}", normal))
             story.append(Spacer(1, 0.5*cm))

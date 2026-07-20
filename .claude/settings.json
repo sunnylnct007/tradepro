@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Interactive_Brokers_IBKR__get_price_snapshot",
+      "mcp__Interactive_Brokers_IBKR__get_price_history",
+      "mcp__Interactive_Brokers_IBKR__search_contracts",
+      "mcp__Interactive_Brokers_IBKR__get_option_data",
+      "mcp__Interactive_Brokers_IBKR__get_option_parameters",
+      "mcp__Interactive_Brokers_IBKR__get_account_summary",
+      "mcp__Interactive_Brokers_IBKR__get_account_positions",
+      "mcp__Interactive_Brokers_IBKR__get_account_orders",
+      "mcp__Interactive_Brokers_IBKR__get_account_trades",
+      "mcp__Interactive_Brokers_IBKR__get_account_balances",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(git *)",
+      "Bash(aws *)"
+    ],
+    "defaultMode": "acceptEdits"
+  }
+}

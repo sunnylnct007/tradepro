@@ -20,16 +20,12 @@ ARG DOTNET_RUNTIME=mcr.microsoft.com/dotnet/aspnet:8.0
 FROM ${DOTNET_SDK} AS build
 WORKDIR /src
 
-# Restore the API project only. The .sln also references
-# TradePro.Api.Tests/ now (xUnit + Testcontainers, OMS Phase 1a) but
-# tests don't belong in the runtime image — building the sln would
-# fail here because the tests csproj isn't COPY'd in.
-COPY TradePro.Api/TradePro.Api.csproj TradePro.Api/
+# Build context is repo root (set in aws-build-push.yml).
+# Restore the API project only.
+COPY backend/TradePro.Api/TradePro.Api.csproj TradePro.Api/
 RUN dotnet restore TradePro.Api/TradePro.Api.csproj
 
-# Source + publish. COPY only the API source to keep the image lean
-# and avoid pulling in tests on the next layer change.
-COPY TradePro.Api/ TradePro.Api/
+COPY backend/TradePro.Api/ TradePro.Api/
 RUN dotnet publish TradePro.Api/TradePro.Api.csproj \
     --configuration Release \
     --no-restore \
@@ -39,10 +35,18 @@ RUN dotnet publish TradePro.Api/TradePro.Api.csproj \
 FROM ${DOTNET_RUNTIME} AS runtime
 WORKDIR /app
 
-# `curl` is needed for the compose healthcheck. apt is fine here —
-# the runtime image already has the package manager set up.
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# curl = healthcheck; python3 + pip = screener subprocess (daily_run.py)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl python3 python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+# Install screener Python deps into a venv (keeps system Python clean)
+COPY screener/requirements.txt /screener/requirements.txt
+RUN python3 -m venv /screener/.venv \
+    && /screener/.venv/bin/pip install --no-cache-dir -r /screener/requirements.txt
+
+# Copy screener scripts
+COPY screener/ /screener/
 
 COPY --from=build /app/publish .
 
@@ -59,7 +63,9 @@ ENV BACKEND_COMMIT=${BACKEND_COMMIT} \
     ASPNETCORE_URLS=http://+:5080 \
     ASPNETCORE_ENVIRONMENT=Production \
     DOTNET_RUNNING_IN_CONTAINER=true \
-    DOTNET_PRINT_TELEMETRY_MESSAGE=false
+    DOTNET_PRINT_TELEMETRY_MESSAGE=false \
+    MPLBACKEND=Agg \
+    SCREENER_PYTHON=/screener/.venv/bin/python3
 
 EXPOSE 5080
 

@@ -70,7 +70,7 @@ jobs:
       - name: Build + push API image (linux/arm64)
         uses: docker/build-push-action@v6
         with:
-          context: ./backend
+          context: .
           file: ./backend/Dockerfile
           platforms: linux/arm64
           push: true

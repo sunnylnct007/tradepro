@@ -26,6 +26,7 @@ import { IchimokuEquity } from "./pages/IchimokuEquity";
 import { IchimokuFx } from "./pages/IchimokuFx";
 import { AdminDataBrowser } from "./pages/AdminDataBrowser";
 import { Desk } from "./pages/Desk";
+import { DailyScreener } from "./pages/DailyScreener";
 
 const router = createBrowserRouter([
   // /desk — the new IBKR-Desktop-style northstar cockpit. Mounted as a
@@ -48,6 +49,7 @@ const router = createBrowserRouter([
       // DeskShell via ?view=.
       { path: "compare", element: <Navigate to="/desk?view=decide" replace /> },
       { path: "scanner", element: <Scanner /> },
+      { path: "screener", element: <DailyScreener /> },
       { path: "portfolio", element: <Portfolio /> },
       { path: "documents", element: <Documents /> },
       { path: "documents/:docId", element: <DocumentDetail /> },

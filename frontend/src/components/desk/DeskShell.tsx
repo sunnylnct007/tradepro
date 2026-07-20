@@ -34,7 +34,7 @@ import { NavLink } from "react-router-dom";
 import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options";
+export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener";
 
 type NavEntry = {
   key: string;
@@ -54,7 +54,8 @@ const NAV: NavEntry[] = [
   { key: "scan",      label: "Scan",      icon: "🔭", view: "scan",      title: "Universe scan" },
   { key: "watchlist", label: "Watchlist", icon: "👁",  view: "watchlist", title: "Watchlist" },
   { key: "quote",     label: "Quote",     icon: "💲",  view: "quote",     title: "Quote / Chart" },
-  { key: "screeners", label: "Screeners", icon: "🔎", view: "screeners", title: "Screeners" },
+  { key: "screeners",      label: "Screeners",  icon: "🔎", view: "screeners",      title: "Screeners" },
+  { key: "daily-screener", label: "Daily Scan", icon: "📡", view: "daily-screener", title: "Daily Screener — IV rank, put yield, email" },
   { key: "simulate",  label: "Simulate",  icon: "🎲", view: "simulation", title: "Monte Carlo simulation" },
   { key: "oms",       label: "Orders",    icon: "📋", view: "oms",        title: "Order Management (OMS)" },
   { key: "risk",      label: "Risk",      icon: "🛡", view: "risk",       title: "Risk module" },

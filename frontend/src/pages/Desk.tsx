@@ -53,6 +53,7 @@ import { OmsOrders } from "./OmsOrders";
 import { RiskPage } from "./RiskPage";
 import { Compare } from "./Compare";
 import { UniverseScan } from "./UniverseScan";
+import { DailyScreener } from "./DailyScreener";
 import type { PositionRow } from "../components/desk/PositionsByStrategy";
 
 const WIDE_BREAKPOINT = 1024;
@@ -69,7 +70,7 @@ function useWide(): boolean {
   return wide;
 }
 
-const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options"];
+const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options", "daily-screener"];
 
 export function Desk() {
   const wide = useWide();
@@ -195,8 +196,9 @@ export function Desk() {
       {view === "risk"       && <RiskPage />}
       {view === "harvest"    && <HarvestView />}
       {view === "options"    && <OptionsDesk />}
-      {view === "decide"     && <Compare />}
-      {view === "scan"       && <UniverseScan />}
+      {view === "decide"         && <Compare />}
+      {view === "scan"           && <UniverseScan />}
+      {view === "daily-screener" && <DailyScreener />}
     </DeskShell>
   );
 }

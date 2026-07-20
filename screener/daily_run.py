@@ -65,6 +65,12 @@ def main() -> int:
     spy_bars = bars_from_mcp(spy_history) if spy_history else []
 
     wheel_passed, swing_passed = [], []
+    # Collect all errors/warnings keyed by ticker for inclusion in the report
+    run_errors: list[dict] = []  # {"ticker": str, "severity": "ERROR"|"WARN", "message": str}
+
+    def _record(ticker, severity, msg):
+        log.warning("%s [%s]: %s", ticker, severity, msg)
+        run_errors.append({"ticker": ticker, "severity": severity, "message": msg})
 
     for ticker, data in stocks.items():
         try:
@@ -134,6 +140,8 @@ def main() -> int:
              len(wheel_passed), len(wheel_top), [c.ticker for c in wheel_top])
     log.info("Swing: %d qualified → top %d: %s",
              len(swing_passed), len(swing_top), [c.ticker for c in swing_top])
+    if run_errors:
+        log.warning("Run errors/warnings: %d — will be included in emails", len(run_errors))
 
     # Overlap
     wheel_tickers = {c.ticker for c in wheel_top}
@@ -151,10 +159,10 @@ def main() -> int:
 
     # Send / dry-run
     if args.dry_run:
-        _dry_run_output(wheel_top, swing_top, run_date)
+        _dry_run_output(wheel_top, swing_top, run_date, run_errors)
     else:
-        wheel_ok = send_wheel_email(wheel_top, run_date)
-        swing_ok = send_swing_email(swing_top, run_date)
+        wheel_ok = send_wheel_email(wheel_top, run_date, run_errors=run_errors)
+        swing_ok = send_swing_email(swing_top, run_date, run_errors=run_errors)
         log.info("Emails sent — wheel: %s  swing: %s", wheel_ok, swing_ok)
 
     result = {
@@ -201,13 +209,46 @@ def _add_explanations(wheel_top, swing_top):
                 c.explanation = "See metrics above."
 
 
-def _dry_run_output(wheel_top, swing_top, run_date):
+def _dry_run_output(wheel_top, swing_top, run_date, run_errors=None):
     from email_sender import _build_wheel_html, _build_swing_html
     date_str = run_date.strftime("%d %b %Y")
     log.info("--- DRY RUN: Wheel email ---")
-    log.info("%s", _build_wheel_html(wheel_top, date_str)[:500])
+    log.info("%s", _build_wheel_html(wheel_top, date_str, run_errors or [])[:500])
     log.info("--- DRY RUN: Swing email ---")
-    log.info("%s", _build_swing_html(swing_top, date_str)[:500])
+    log.info("%s", _build_swing_html(swing_top, date_str, run_errors or [])[:500])
+
+
+def _validate_ohlc(bars: list, low_52w: float, high_52w: float) -> tuple[bool, str]:
+    """Sanity-check bar history against known 52w extremes.
+
+    Two assertions must hold:
+      1. min(low[-90:]) >= low_52w * 0.97   — bars can't go below 52w low (3% tolerance for intraday wicks / rounding)
+      2. If MA200 computable: low_52w <= MA200 <= high_52w
+    Returns (ok, reason_if_not_ok).
+    """
+    if not bars or not low_52w or not high_52w:
+        return True, ""  # can't validate without reference data
+
+    lows_90 = [float(b["l"]) for b in bars[-90:] if b.get("l")]
+    if lows_90:
+        min_low_90 = min(lows_90)
+        threshold = low_52w * 0.97
+        if min_low_90 < threshold:
+            return False, (
+                f"90d bar min low ${min_low_90:.2f} < 52w low ${low_52w:.2f} × 0.97 = ${threshold:.2f} "
+                f"— OHLC history is corrupt (likely GBM simulation or bad adjustment)"
+            )
+
+    closes = [float(b["c"]) for b in bars if b.get("c")]
+    if len(closes) >= 200:
+        ma200 = sum(closes[-200:]) / 200
+        if not (low_52w * 0.97 <= ma200 <= high_52w * 1.03):
+            return False, (
+                f"MA200 ${ma200:.2f} outside 52w range [${low_52w:.2f}, ${high_52w:.2f}] "
+                f"— OHLC history is corrupt"
+            )
+
+    return True, ""
 
 
 def _add_screener_to_path():

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import math
 from dataclasses import dataclass, field
 
 from indicators import (
@@ -13,7 +14,7 @@ log = logging.getLogger("screener.wheel")
 
 EARNINGS_BLACKOUT_DAYS = 21
 PRICE_MIN = 15.0
-PRICE_MAX = 250.0
+PRICE_MAX = 2000.0
 OPTION_OI_MIN = 500
 VOLUME_MIN = 200_000
 
@@ -58,6 +59,39 @@ def volatility_label_and_guidance(ivr: float) -> tuple[str, str]:
     return "Volatile", "Close at 50% profit — gamma risk"
 
 
+def _delta_based_strike(price: float, iv_annual_pct: float, days: int = 30,
+                         target_delta: float = 0.25) -> float:
+    """Select OTM put strike targeting ~target_delta using BSM approximation.
+
+    For N(-d1) = target_delta:  d1 = N_inv(target_delta) ≈ -0.674 for 0.25Δ
+    Strike = price × exp(z × σ × √T)  where z = N_inv(target_delta)
+    z for common targets: 0.30Δ → -0.524, 0.25Δ → -0.674, 0.20Δ → -0.842
+    """
+    if iv_annual_pct <= 0 or price <= 0:
+        return round(price * 0.95)
+    sigma = iv_annual_pct / 100.0
+    T = days / 365.0
+    # Normal quantile for target delta (put delta = N(d1) so invert)
+    # Using approximation: for target_delta=0.25 → z ≈ -0.674
+    z = -0.674 if abs(target_delta - 0.25) < 0.05 else (-0.524 if abs(target_delta - 0.30) < 0.05 else -0.842)
+    raw_strike = price * math.exp(z * sigma * math.sqrt(T))
+    # Snap to nearest 0.5 (standard strike grid)
+    return round(raw_strike * 2) / 2
+
+
+def _select_chain_strike(chain: list[dict], price: float, target_delta: float = 0.25,
+                          iv_annual_pct: float = 0.0, days: int = 30) -> dict | None:
+    """Pick the chain strike closest to the delta-targeted theoretical strike."""
+    if not chain:
+        return None
+    theoretical = _delta_based_strike(price, iv_annual_pct, days, target_delta)
+    # Among strikes below spot, find closest to theoretical
+    puts_below = [r for r in chain if r.get("strike", price) <= price]
+    if not puts_below:
+        puts_below = chain
+    return min(puts_below, key=lambda r: abs(r.get("strike", 0) - theoretical))
+
+
 def score_wheel(
     ticker: str,
     price: float,
@@ -71,6 +105,7 @@ def score_wheel(
     options: dict | None = None,
     current_iv_pct: float = 0.0,
     avg_option_volume: float = 0.0,
+    avg_vol_override: float = 0.0,
 ) -> WheelCandidate:
     """Apply gate criteria then score. Returns WheelCandidate (check .gate_fail_reason)."""
 
@@ -83,7 +118,10 @@ def score_wheel(
     if not (PRICE_MIN <= price <= PRICE_MAX):
         return _fail(ticker, price, f"price ${price:.2f} outside ${PRICE_MIN}–${PRICE_MAX}")
 
-    avg_vol = avg_volume(bars, 90)
+    # Use real snapshot volume when available (bars volume may be GBM/default)
+    avg_vol = avg_vol_override if avg_vol_override > 0 else avg_volume(bars, 90)
+    if avg_vol <= 0:
+        return _fail(ticker, price, "avg volume unavailable — no real data")
     if avg_vol < VOLUME_MIN:
         return _fail(ticker, price, f"avg vol {avg_vol:,.0f} < {VOLUME_MIN:,}")
 
@@ -151,11 +189,27 @@ def score_wheel(
 
     vol_label, close_guidance = volatility_label_and_guidance(ivr)
 
-    # Suggested strike and expiry — use real option data when available
-    if real_atm:
-        suggested_strike = float(real_atm.get("strike", round(price * 0.95)))
+    # P0 fix 3: delta-based strike selection (target 0.25Δ)
+    # Use IV from real option data if available, else fall back to historical vol
+    iv_for_strike = (real_atm["iv_pct"] if real_atm and real_atm.get("iv_pct") else
+                     current_iv_pct if current_iv_pct > 0 else
+                     None)
+    hv_annual = None
+    if iv_for_strike is None:
+        closes_all = [float(b["c"]) for b in bars if b.get("c")]
+        if len(closes_all) >= 30:
+            rets = [math.log(closes_all[i] / closes_all[i-1]) for i in range(max(1, len(closes_all)-30), len(closes_all))]
+            hv_annual = (sum(r**2 for r in rets) / len(rets))**0.5 * math.sqrt(252) * 100
+        iv_for_strike = hv_annual or 30.0
+
+    if options and options.get("chain"):
+        best = _select_chain_strike(options["chain"], price, target_delta=0.25,
+                                     iv_annual_pct=iv_for_strike, days=30)
+        suggested_strike = float(best["strike"]) if best else _delta_based_strike(price, iv_for_strike)
+    elif real_atm and real_atm.get("strike"):
+        suggested_strike = float(real_atm["strike"])
     else:
-        suggested_strike = round(price * 0.95)
+        suggested_strike = _delta_based_strike(price, iv_for_strike)
 
     if options and options.get("expiry"):
         try:
