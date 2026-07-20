@@ -36,7 +36,7 @@ import { api } from "../../api/client";
 import { SortTh } from "../SortTh";
 import { useSort } from "../../util/useSort";
 import { fmtQty } from "../../util/numbers";
-import { bareSymbol, chartSymbolFor } from "../../util/brokerSymbols";
+import { canonicalSymbol, chartSymbolFor } from "../../util/brokerSymbols";
 import { Sparkline } from "./Sparkline";
 import { loadSparkline } from "./sparklineCache";
 import { fmtMoney, fmtNum, fmtPct, signColour, accountMode, type AccountMode } from "./deskFormat";
@@ -260,7 +260,9 @@ export function PositionsTable({ onOpenSymbol }: { onOpenSymbol?: (symbol: strin
 /** OMS attribution key: broker + bare ticker, case-folded, so a holding lines
  * up with its OMS-ledger row regardless of broker symbol encoding. */
 function attrKey(broker: string, symbol: string): string {
-  return `${broker.toLowerCase()}:${bareSymbol(symbol)}`;
+  // canonicalSymbol so a renamed holding (T212 LB_US_EQ) lines up with the
+  // OMS's current-ticker row (BBWI) instead of showing as unattributed.
+  return `${broker.toLowerCase()}:${canonicalSymbol(symbol)}`;
 }
 
 /** Bucket rows into ordered sections. Strategy mode: one section per strategyId
