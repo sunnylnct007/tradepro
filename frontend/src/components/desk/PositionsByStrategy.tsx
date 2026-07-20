@@ -26,7 +26,7 @@ import { api } from "../../api/client";
 import { SortTh } from "../SortTh";
 import { useSort } from "../../util/useSort";
 import { fmtQty } from "../../util/numbers";
-import { bareSymbol, chartSymbolFor } from "../../util/brokerSymbols";
+import { canonicalSymbol, chartSymbolFor } from "../../util/brokerSymbols";
 import { Sparkline } from "./Sparkline";
 import { loadSparkline } from "./sparklineCache";
 import { fmtMoney, fmtNum, fmtPct, signColour, accountMode, type AccountMode } from "./deskFormat";
@@ -73,7 +73,10 @@ function brokerModeOf(label: string): AccountMode {
 // demo/live split. bareSymbol unifies the symbol formats (AAPL_US_EQ → AAPL,
 // CS.D.GBPUSD.MINI.IP → GBPUSD) — verified identical on both sources.
 function attrKey(family: string, mode: AccountMode, symbol: string): string {
-  return `${family}:${mode}:${bareSymbol(symbol)}`;
+  // canonicalSymbol (not bareSymbol) so a broker still reporting a renamed
+  // holding under its OLD code (T212 LB_US_EQ) matches the OMS's current-ticker
+  // position (BBWI) instead of falling to "unattributed".
+  return `${family}:${mode}:${canonicalSymbol(symbol)}`;
 }
 
 export function PositionsByStrategy({

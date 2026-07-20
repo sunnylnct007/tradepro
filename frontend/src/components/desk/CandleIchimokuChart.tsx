@@ -244,17 +244,22 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
     {
       const last = candles[candles.length - 1].close;
       const { highs, lows } = pivotLevels(candles);
-      const resistances = highs.filter((v) => v > last).sort((a, b) => a - b).slice(0, 3);
-      const supports = lows.filter((v) => v < last).sort((a, b) => b - a).slice(0, 3);
+      // Nearest FOUR each side (was 3) so the multi-level structure shows, not a
+      // single ceiling/floor. Multi-touch levels are labelled "R×3"/"S×2" so the
+      // strong lines (price turned there repeatedly) read at a glance.
+      const resistances = highs.filter((v) => v.level > last).sort((a, b) => a.level - b.level).slice(0, 4);
+      const supports = lows.filter((v) => v.level < last).sort((a, b) => b.level - a.level).slice(0, 4);
       resistances.forEach((r) =>
         candleSeries.createPriceLine({
-          price: r, color: "rgba(239,68,68,0.5)", lineWidth: 1,
-          lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: "R",
+          price: r.level, color: "rgba(239,68,68,0.5)", lineWidth: 1,
+          lineStyle: LineStyle.Dotted, axisLabelVisible: true,
+          title: r.touches > 1 ? `R×${r.touches}` : "R",
         }));
       supports.forEach((s) =>
         candleSeries.createPriceLine({
-          price: s, color: "rgba(31,193,107,0.5)", lineWidth: 1,
-          lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: "S",
+          price: s.level, color: "rgba(31,193,107,0.5)", lineWidth: 1,
+          lineStyle: LineStyle.Dotted, axisLabelVisible: true,
+          title: s.touches > 1 ? `S×${s.touches}` : "S",
         }));
     }
 
@@ -687,9 +692,13 @@ function dedupe(pts: IchiPoint[]): IchiPoint[] {
  * HIGH (resistance) if its high is the max over ±win bars, a swing LOW (support)
  * if its low is the min. Near-equal levels are clustered so we don't draw ten
  * lines a cent apart. Pure — scans the most recent `maxScan` bars only. */
+// A clustered level + how many swing pivots fell in it. A level price turned at
+// REPEATEDLY (higher `touches`) is stronger structure than a one-off spike.
+type SRLevel = { level: number; touches: number };
+
 function pivotLevels(
-  candles: Candle[], win = 6, clusterPct = 0.012, maxScan = 240,
-): { highs: number[]; lows: number[] } {
+  candles: Candle[], win = 5, clusterPct = 0.005, maxScan = 240,
+): { highs: SRLevel[]; lows: SRLevel[] } {
   const c = candles.slice(-maxScan);
   const rawHi: number[] = [];
   const rawLo: number[] = [];
@@ -703,13 +712,19 @@ function pivotLevels(
     if (isHi) rawHi.push(c[i].high);
     if (isLo) rawLo.push(c[i].low);
   }
-  // Collapse near-equal levels (within clusterPct) into one, averaged.
-  const collapse = (xs: number[]): number[] => {
-    const out: number[] = [];
+  // Collapse near-equal pivots (within clusterPct — tightened to 0.5% so distinct
+  // shelves on a range-bound name like WBD, e.g. 27.35 vs 27.62, stay SEPARATE
+  // instead of merging into one line). Track touch count as pivots fold in.
+  const collapse = (xs: number[]): SRLevel[] => {
+    const out: SRLevel[] = [];
     for (const v of [...xs].sort((a, b) => a - b)) {
       const prev = out[out.length - 1];
-      if (prev === undefined || Math.abs(v - prev) / v > clusterPct) out.push(v);
-      else out[out.length - 1] = (prev + v) / 2;
+      if (prev === undefined || Math.abs(v - prev.level) / v > clusterPct) {
+        out.push({ level: v, touches: 1 });
+      } else {
+        prev.level = (prev.level * prev.touches + v) / (prev.touches + 1);
+        prev.touches += 1;
+      }
     }
     return out;
   };

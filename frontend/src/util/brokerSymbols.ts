@@ -17,6 +17,26 @@ export function bareSymbol(raw: string): string {
   return s;
 }
 
+// Corporate-action ticker renames (OLD → CURRENT). MIRRORED from the backend
+// (strategies/tradepro_strategies/ticker_renames.py + C# Oms/PositionReconcile).
+// KEEP IN SYNC — this is the 4th copy; consolidating all four onto the DB
+// broker_ticker_map is the durable de-fragmentation (tracked separately).
+const TICKER_RENAMES: Record<string, string> = {
+  LB: "BBWI", // L Brands → Bath & Body Works (2021)
+  FB: "META", // Facebook → Meta Platforms (2022)
+};
+
+/**
+ * Bare ticker resolved to its CURRENT ticker, so a broker still reporting a
+ * renamed position under its OLD code (T212 holds Bath & Body Works as
+ * "LB_US_EQ") matches the OMS's current-ticker ("BBWI") position in the
+ * per-strategy attribution join — instead of falling to "unattributed".
+ */
+export function canonicalSymbol(raw: string): string {
+  const bare = bareSymbol(raw);
+  return TICKER_RENAMES[bare] ?? bare;
+}
+
 /**
  * Yahoo-style candle symbol for a broker holding, or `null` when there is no
  * honest mapping (so the caller renders "No data" / a non-clickable row rather

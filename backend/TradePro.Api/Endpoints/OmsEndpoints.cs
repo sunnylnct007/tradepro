@@ -41,6 +41,26 @@ public static class OmsEndpoints
             return Results.Ok(new { softDeleted = n, sinceUtc = since, brokerPrefix = req?.BrokerPrefix });
         });
 
+        // ── Golden-source reconciliation surface ──────────────────────
+        // GoldenSourceReconciler enforces ONE invariant across every broker:
+        // OMS positions must equal the broker's golden-source positions. This
+        // exposes its last-run status (fail-loud drift the cockpit shows) and
+        // an on-demand trigger so an operator can reconcile without waiting for
+        // the next tick.
+        var recon = app.MapGroup("/oms/reconciliation").WithTags("OMS");
+
+        recon.MapGet("/status", (IReconciliationStatus status) =>
+        {
+            var brokers = status.Snapshot();
+            return Results.Ok(new { brokers, needs_attention = brokers.Any(b => b.NeedsAttention) });
+        });
+
+        recon.MapPost("/run", async (GoldenSourceReconciler reconciler, CancellationToken ct) =>
+        {
+            var results = await reconciler.ReconcileAllAsync(ct);
+            return Results.Ok(new { ran = true, brokers = results, needs_attention = results.Any(b => b.NeedsAttention) });
+        });
+
         orders.MapGet("/{orderId:guid}", async (Guid orderId, IOmsService oms) =>
         {
             var o = await oms.GetAsync(orderId);

@@ -25,6 +25,8 @@ import glob
 import logging
 import os
 
+from ..ticker_renames import canonical_ticker
+
 log = logging.getLogger("tradepro.signal_audit")
 
 # strategy → how to read its golden book + its starting capital.
@@ -81,8 +83,11 @@ def _fetch_book(base: str, headers: dict, cfg: dict) -> tuple[list[dict], dict]:
                           headers=headers, timeout=25).json()
         cj = requests.get(f"{base}/api/integrations/trading212/cash",
                           headers=headers, timeout=25).json()
+        # Canonicalise corporate-action renames (broker reports LB/FB; the
+        # universe/signal/bar-cache use BBWI/META) so held names match the
+        # signal — else BBWI shows as a "missed buy" and LB/FB read "blind".
         positions = [
-            {"symbol": p.get("yahooSymbol"), "qty": p.get("quantity") or 0,
+            {"symbol": canonical_ticker(p.get("yahooSymbol")), "qty": p.get("quantity") or 0,
              "entry": p.get("averagePricePaid"), "price": p.get("currentPrice")}
             for p in pj.get("positions", [])
         ]
@@ -109,7 +114,7 @@ def _fetch_book(base: str, headers: dict, cfg: dict) -> tuple[list[dict], dict]:
         if is_opt:
             continue
         inv_cost += (p.get("avgCost") or 0) * q
-        positions.append({"symbol": p.get("symbol"), "qty": q,
+        positions.append({"symbol": canonical_ticker(p.get("symbol")), "qty": q,
                           "entry": p.get("avgCost"), "price": p.get("mark")})
     account = {"nlv": acct.get("netLiquidation"), "cash": acct.get("totalCash"),
                "invested_cost": inv_cost, "unrealised": acct.get("unrealisedPnl")}

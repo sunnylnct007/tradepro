@@ -276,6 +276,27 @@ def _gems_text_block(items: list[dict]) -> str:
     return "\n".join(lines).rstrip()
 
 
+# Non-US-exchange suffixes we can't actually trade in the T212/IBKR book.
+_FOREIGN_SUFFIXES = (
+    ".SW", ".AX", ".L", ".DE", ".PA", ".AS", ".MI", ".MC", ".TO", ".V",
+    ".HK", ".SS", ".SZ", ".NS", ".BO", ".T", ".KS", ".TW", ".SA", ".ST",
+    ".HE", ".OL", ".CO", ".BR", ".LS", ".VI", ".WA", ".SI",
+)
+
+
+def _is_tradeable(symbol: str | None) -> bool:
+    """False for symbols the book can't actually trade — indices (^GDAXI),
+    futures (CL=F, ES=F), and foreign-exchange listings (ROG.SW, CBA.AX). These
+    must never reach the digest as a BUY/AVOID/WAIT candidate; showing a
+    non-actionable index as a "BUY" is exactly the noise the reviewer flagged."""
+    if not symbol:
+        return False
+    s = symbol.strip().upper()
+    if s.startswith("^") or "=" in s:
+        return False
+    return not any(s.endswith(suf) for suf in _FOREIGN_SUFFIXES)
+
+
 def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
     """Walk every universe payload, return one summary row per symbol
     whose best-rank row matches the requested bucket."""
@@ -611,9 +632,37 @@ def _text_block(items: list[dict], heading: str) -> str:
     return "\n".join(lines).rstrip()
 
 
+def _publishable(it: dict) -> tuple[bool, str | None]:
+    """Suppress-on-failure gate: a failed computation or a garbage-bar-poisoned
+    stat must NOT reach the inbox as a confident recommendation (the reviewer's #1
+    fix — no boundary between measured and defaulted). Returns (ok, drop_reason)."""
+    reason = f"{it.get('bucket_reason') or ''} {it.get('rationale') or ''}".lower()
+    if it.get("stats_suspect"):
+        return False, it.get("stats_suspect_reason") or "stats flagged suspect (corrupt bar)"
+    if "unverified" in reason or "couldn't compute" in reason or "rationale failed" in reason:
+        return False, "rationale/computation failed"
+    # Recovery-math sanity straight off the rendered numbers (catches USMV/META
+    # even before the source re-runs): recovering a drawdown d needs 1/(1+d)-1.
+    dd = it.get("max_drawdown_pct")
+    if isinstance(dd, (int, float)) and dd < -75:
+        # Recovering d needs 1/(1+d)-1. A DD past -75% needs >300% just to get
+        # back — a corrupt-bar artifact for anything but a wiped-out equity, and
+        # certainly for a min-vol ETF (USMV) or a mega-cap (META). Real deep-DD
+        # names (NVDA -66% -> +190%) stay above the line and are kept.
+        gain_needed = 1.0 / (1.0 + dd / 100.0) - 1.0
+        if gain_needed > 3.0:
+            return False, f"implausible: {dd:.0f}% DD needs +{gain_needed*100:.0f}% to recover"
+    return True, None
+
+
 def _html_block(items: list[dict], heading: str, accent: str) -> str:
     rows = []
+    dropped: list[str] = []
     for it in items:
+        ok, why = _publishable(it)
+        if not ok:
+            dropped.append(f"{it.get('symbol', '?')} ({why})")
+            continue
         rsi = _fmt(it.get("rsi_14"), digits=0)
         off_high = _fmt(it.get("pct_off_52w_high_pct"), "%", 1)
         cagr = _fmt(it.get("cagr_pct"), "%", 1)
@@ -637,7 +686,15 @@ def _html_block(items: list[dict], heading: str, accent: str) -> str:
             f"{escape(it.get('bucket_reason') or '')}</td></tr>"
         )
     body = "".join(rows) if rows else (
-        "<tr><td colspan=8 style='color:#999'>(none)</td></tr>"
+        "<tr><td colspan=8 style='color:#999'>(none passed verification)</td></tr>"
+    )
+    # Fail loud, don't hide: name the suppressed rows so a silent screen isn't
+    # mistaken for "nothing qualified today".
+    suppressed = (
+        f"<div style='color:#c0392b;font-size:11px;margin-top:6px'>"
+        f"⚠ {len(dropped)} suppressed (failed/suspect — not recommended): "
+        f"{escape(', '.join(dropped[:8]))}{'…' if len(dropped) > 8 else ''}</div>"
+        if dropped else ""
     )
     return (
         f"<h3 style='border-left:3px solid {accent};padding-left:8px;margin-top:24px'>"
@@ -646,7 +703,7 @@ def _html_block(items: list[dict], heading: str, accent: str) -> str:
         f"<thead><tr style='color:#666;text-align:left;font-size:11px'>"
         f"<th>Symbol</th><th>Universe</th><th>Long</th><th>RSI</th>"
         f"<th>52w</th><th>CAGR</th><th>Sharpe</th><th>MaxDD</th>"
-        f"</tr></thead><tbody>{body}</tbody></table>"
+        f"</tr></thead><tbody>{body}</tbody></table>{suppressed}"
     )
 
 
@@ -881,9 +938,15 @@ def build_digest(
     top with each position cross-referenced against today's verdict.
     `portfolio_mode` is "demo" / "live" / None — surfaces in the
     summary card so the user can see broker mode at a glance."""
-    buys = _filter_bucket(payloads, "BUY")
-    avoids = _filter_bucket(payloads, "AVOID")
-    waits = _filter_bucket(payloads, "WAIT")
+    # Drop non-tradeable names (indices / futures / foreign listings) up front
+    # so an index never appears as a BUY/AVOID/WAIT candidate.
+    buys = [b for b in _filter_bucket(payloads, "BUY") if _is_tradeable(b.get("symbol"))]
+    avoids = [a for a in _filter_bucket(payloads, "AVOID") if _is_tradeable(a.get("symbol"))]
+    waits = [w for w in _filter_bucket(payloads, "WAIT") if _is_tradeable(w.get("symbol"))]
+    # The ONLY BUY number the reader should ever see is the VERIFIED count —
+    # never advertise N buys in the subject/heading and then deliver 0 after
+    # verification suppresses them (the "11 BUY → none passed" garbage).
+    n_buy = sum(1 for b in buys if _publishable(b)[0])
     # Phase G: gem hunter — surfaces names that match the contrarian
     # profile (down ≥25% from peak, near 52w low, CHEAP, recovery
     # signal firing). Built off the same per-row fields the bucket
@@ -893,7 +956,7 @@ def build_digest(
     today = _now_str()
 
     subject = (
-        f"TradePro Digest {today} — {len(buys)} BUY · "
+        f"TradePro Digest {today} — {n_buy} BUY · "
         f"{len(waits)} WAIT · {len(avoids)} AVOID"
         + (f" · {len(gems)} GEMS" if gems else "")
     )
@@ -911,7 +974,7 @@ def build_digest(
     if holdings_block:
         sections.append(holdings_block)
     sections.extend([
-        f"BUY candidates ({len(buys)})",
+        f"BUY candidates ({n_buy} verified)",
         _text_block(buys, "BUY") if buys else "(none today)",
     ])
     if gems:
@@ -971,7 +1034,7 @@ def build_digest(
         f"{banner_html}"
         f"{donut_html}"
         f"{holdings_chart_html}"
-        f"{_html_block(buys, f'BUY candidates ({len(buys)})', '#1fc16b')}"
+        f"{_html_block(buys, f'BUY candidates ({n_buy} verified)', '#1fc16b')}"
         f"{sparklines_html}"
         f"{_html_block(avoids, f'AVOID ({len(avoids)})', '#e2483a')}"
         f"{_html_block(waits, f'WAIT ({len(waits)})', '#e8a23a')}"

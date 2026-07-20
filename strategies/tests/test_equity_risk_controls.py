@@ -158,6 +158,43 @@ def test_require_above_200sma_blocks_below_trend_entry():
     assert on.on_bar(_bar("AAPL", last)) == []                  # gate ON → skip
 
 
+def _real_trend_df(n: int = 300) -> pd.DataFrame:
+    """A genuine trend: steady drift with CONSTANT ~2% daily vol (like AMD's real
+    +275% run). Must NOT be flagged deal-pinned."""
+    rng = np.random.default_rng(1)
+    close = 100.0 * np.exp(np.cumsum(rng.normal(0.004, 0.02, n)))
+    return pd.DataFrame({"High": close * 1.01, "Low": close * 0.99, "Close": close})
+
+
+def _deal_pinned_df() -> pd.DataFrame:
+    """The WBD signature: a clean uptrend (a reliable long signal) that FLATTENS —
+    vol collapses — in the last ~25 bars as it pins near its high, the way a name
+    stalls once it's pinned to a takeover offer. Big 12m run + collapsed recent vol
+    + near the high ⇒ deal-pinned."""
+    up = np.linspace(100.0, 260.0, 265)
+    rng = np.random.default_rng(3)
+    flat = 260.0 + np.cumsum(rng.normal(0.0, 0.06, 25))  # ~0.02% vol pin near the high
+    close = np.concatenate([up, flat])
+    return pd.DataFrame({"High": close * 1.003, "Low": close * 0.997, "Close": close})
+
+
+def test_ma_veto_blocks_deal_pinned_but_not_real_trend():
+    """entry_veto_ma_suspect (clone deviation) vetoes a DEAL-PINNED name (WBD-like:
+    big 12m run + collapsed vol + pinned near its high) but NOT a genuine trend.
+    Gate OFF ⇒ the deal-pinned name still enters (verbatim spec unaffected)."""
+    deal = {"AAPL": _deal_pinned_df()}
+    last_d = float(deal["AAPL"]["Close"].iloc[-1])
+    off = _make_strategy(["AAPL"], deal, entry_veto_ma_suspect=False, entry_fresh_only=False)
+    assert len(off.on_bar(_bar("AAPL", last_d))) == 1                  # gate OFF → enters
+    on = _make_strategy(["AAPL"], deal, entry_veto_ma_suspect=True, entry_fresh_only=False)
+    assert on.on_bar(_bar("AAPL", last_d)) == []                       # gate ON → vetoed
+    trend = {"AAPL": _real_trend_df()}
+    last_t = float(trend["AAPL"]["Close"].iloc[-1])
+    on2 = _make_strategy(["AAPL"], trend, entry_veto_ma_suspect=True, entry_fresh_only=False)
+    o = on2.on_bar(_bar("AAPL", last_t))
+    assert len(o) == 1 and o[0].side == OrderSide.BUY                  # real trend → NOT vetoed
+
+
 def test_fresh_gate_blocks_stale_long():
     """entry_fresh_only (production default ON) SKIPS a name that's been long
     since a prior day — a sustained uptrend is a PAST signal, not a fresh cross.

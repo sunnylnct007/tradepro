@@ -102,9 +102,12 @@ def _setup_for(df) -> dict | None:
                or (mom3 is not None and mom3 > 100)
                or (dist_atr is not None and dist_atr > 3)
                or boll == "AT_UPPER")                 # %B≥1: above the upper Bollinger band — overextended (V case)
-    # Thin volume isn't a hard veto — it's a CONVICTION reducer. A ⭐ on <0.8x
-    # 20d volume is a low-conviction move (ZBRA/UPS): keep it, but flag it.
+    # Thin volume: <0.8x 20d is a CONVICTION reducer (flag, keep the ⭐ — ZBRA/UPS).
+    # But EXTREME thinness (<0.3x, e.g. BLK's 0.02x) is no participation at all —
+    # levels fail on light selling and fills are bad both ways, so it must NOT wear
+    # a clean ⭐. That's a de-star, not just a flag (no false confidence).
     thin_vol = vol_ratio is not None and vol_ratio < 0.8
+    very_thin = vol_ratio is not None and vol_ratio < 0.3
 
     # 200-day SMA — the PRIMARY-TREND filter the cloud alone doesn't enforce. A name
     # can sit ABOVE the Ichimoku cloud yet BELOW its 200d SMA (RH/TSLA both did):
@@ -131,10 +134,14 @@ def _setup_for(df) -> dict | None:
                                 # reclaimed (RH/TSLA): a recovering dip, never a clean ⭐
     elif dist_atr is None or dist_atr < 0:
         cls = "weak"            # above cloud but below kijun — support breaking
-    elif dist_atr <= 2:
-        cls = "consider"        # uptrend + engine-BUY + not extended + not a knife + at kijun
+    elif dist_atr <= 1.0 and not very_thin:
+        cls = "consider"        # GENUINELY at the kijun (≤1 ATR) + real participation.
+                                # A pullback entry means price is ON the base line, not
+                                # 1.2 ATR above it (BLK) — that's chasing the bounce, not
+                                # buying the dip. Extreme-thin is de-starred here too.
     else:
-        cls = "hold"            # uptrend but mid-zone (2-3 ATR above kijun)
+        cls = "hold"            # above kijun but not a pullback entry (1-3 ATR), OR at the
+                                # kijun but too thin to trust — constructive, no clean edge
     return {
         "close": round(c, 2), "classification": cls,
         "cloud": cloud, "signal": sig,
@@ -153,6 +160,7 @@ def _setup_for(df) -> dict | None:
         "stop8": round(c * 0.92, 2),
         "volume_ratio": round(vol_ratio, 2) if vol_ratio is not None else None,
         "thin_volume": bool(thin_vol),
+        "very_thin": bool(very_thin),
         "bollinger": boll,
     }
 
@@ -161,8 +169,10 @@ def _why(s: dict) -> str:
     cls = s["classification"]
     if cls == "consider":
         vol = f"{s['volume_ratio']}x vol" + (" ⚠ THIN (low conviction)" if s.get("thin_volume") else "")
-        return (f"engine: {s['signal']}, above cloud, pulled back to kijun ${s['kijun']} "
-                f"({s['dist_atr']} ATR, {s['off_10d_high_pct']}% off 10d high — support hold, not a knife); "
+        # dist_atr ≤ 1.0 here (band tightened), so "at the kijun" is now TRUE, not a
+        # stale-pullback narrative stitched onto a price that already ran.
+        return (f"engine: {s['signal']}, above cloud, at the kijun ${s['kijun']} "
+                f"({s['dist_atr']} ATR above, {s['off_10d_high_pct']}% off 10d high — support hold, not a knife); "
                 f"{s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}% / 10d {s['momentum_10d_pct']}%, "
                 f"ATR {s['atr_pct']}%/day, {vol}; stop below kijun.")
     if cls == "earnings":
@@ -181,7 +191,11 @@ def _why(s: dict) -> str:
                 f"({s.get('pct_vs_200sma')}%) — primary trend not reclaimed, a recovering dip not a "
                 f"confirmed uptrend. WATCH for a 200-day reclaim before entry.")
     if cls == "hold":
-        return f"above cloud, mid-zone ({s['dist_atr']} ATR above kijun) — no edge entering here."
+        if s.get("very_thin"):
+            return (f"above cloud, near the kijun BUT only {s['volume_ratio']}x volume — too thin to "
+                    f"trust (levels fail on light selling, bad fills both ways); no clean entry.")
+        return (f"above cloud but {s['dist_atr']} ATR above the kijun — not a pullback entry "
+                f"(you'd be buying the bounce, not the base); no edge here. Wait for a dip to kijun ${s['kijun']}.")
     if cls == "weak":
         return f"above cloud but BELOW kijun ({s['dist_atr']} ATR) — support breaking, not an entry."
     return f"engine: {s.get('signal','-')} / cloud {s.get('cloud','-')} — no long entry."

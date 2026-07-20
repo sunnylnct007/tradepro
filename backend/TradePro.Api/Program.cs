@@ -175,6 +175,9 @@ builder.Services
     .AddOptions<TradePro.Api.Providers.IBKR.IBKRHarvesterOptions>()
     .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKRHarvesterOptions.SectionName));
 builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRHarvesterStatus>();
+// Runtime pause for ALL IBKR usage — lets the user reclaim the single Web-API
+// session to log into the IBKR portal (harvester/backfill/account-state respect it).
+builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRPauseState>();
 builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRBarHarvester>();
 // Deep DAILY history filler for the central ibkr_price_bars store (resolution=1d)
 // — separate cadence from the 1m harvester; runs until caught up, then tops up.
@@ -291,6 +294,15 @@ builder.Services.AddHostedService<TradePro.Api.Oms.OmsFillPoller>();
 // IG fill poller — separate impl because IG uses dealReference (GUID)
 // not a numeric order id and /confirms is a different endpoint shape.
 builder.Services.AddHostedService<TradePro.Api.Oms.IGOmsFillPoller>();
+// Unified GOLDEN-SOURCE reconciler — ONE invariant across every broker
+// (OMS positions must equal broker positions), replacing the per-broker
+// whack-a-mole. Each broker plugs in via an IBrokerPositionSource; the loop
+// never changes. Fail-loud drift is exposed via /api/oms/reconciliation.
+builder.Services.AddSingleton<TradePro.Api.Oms.IReconciliationStatus, TradePro.Api.Oms.ReconciliationStatus>();
+builder.Services.AddTransient<TradePro.Api.Oms.IBrokerPositionSource, TradePro.Api.Oms.Trading212PositionSource>();
+builder.Services.AddTransient<TradePro.Api.Oms.IBrokerPositionSource, TradePro.Api.Oms.IBKRPositionSource>();
+builder.Services.AddSingleton<TradePro.Api.Oms.GoldenSourceReconciler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<TradePro.Api.Oms.GoldenSourceReconciler>());
 builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderboardStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills
@@ -358,6 +370,7 @@ api.MapSymbolAnalysisEndpoints();
 api.MapIntegrationsEndpoints();
 api.MapInstrumentEndpoints();
 api.MapPaperBacktestEndpoints();
+api.MapScreenerEndpoints();
 api.MapOrdersEndpoints();
 api.MapScreenerEndpoints();
 api.MapOmsEndpoints();

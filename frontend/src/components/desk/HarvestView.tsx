@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import { PriceHistoryChart } from "../PriceHistoryChart";
+import { CandleIchimokuChart } from "./CandleIchimokuChart";
 
 type Row = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
 type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
@@ -79,6 +79,8 @@ export function HarvestView() {
   const [harvester, setHarvester] = useState<Harvester | null>(null);
   const [harvesterErr, setHarvesterErr] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);  // symbol → show its curve
+  const [analyzeInput, setAnalyzeInput] = useState("");            // free-text "analyze ANY symbol"
+  const [popOut, setPopOut] = useState(false);                     // large chart overlay
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -152,11 +154,18 @@ export function HarvestView() {
       {/* NEW: C# IBKR bar harvester — the IBKR-primary intraday feed. This is the
           answer to "is IBKR actually harvesting?" — separate from the legacy
           yfinance bar-cache table below. */}
-      <HarvesterPanel h={harvester} err={harvesterErr} />
+      <HarvesterPanel
+        h={harvester}
+        err={harvesterErr}
+        onChanged={() =>
+          api.ibkrHarvesterStatus()
+            .then((r) => { setHarvester(r); setHarvesterErr(null); })
+            .catch((e) => { setHarvester(null); setHarvesterErr(e instanceof Error ? e.message : String(e)); })}
+      />
 
       {/* Legacy yfinance bar-cache health (daily coverage / quality-for-today). */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px" }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>Legacy bar-cache (daily · yfinance)</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>Daily bar-cache (IBKR-primary · yfinance fallback)</span>
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           daily coverage for backtests + decision-grade "good for today"
         </span>
@@ -166,7 +175,9 @@ export function HarvestView() {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
         {quality && (
           <Stat
-            label="Good for today"
+            label={quality.last_completed_session
+              ? `Good as of ${quality.last_completed_session}`
+              : "Good for today"}
             value={`${quality.summary.good_for_today}/${quality.summary.total}`}
             tone={quality.summary.good_for_today === quality.summary.total ? "ok"
               : quality.summary.good_for_today === 0 ? "bad" : "warn"}
@@ -190,7 +201,22 @@ export function HarvestView() {
           <input type="checkbox" checked={onlyIssues} onChange={(e) => setOnlyIssues(e.target.checked)} />
           Issues only
         </label>
-        <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>{shown.length} shown</span>
+        {/* Analyze ANY symbol — type a ticker (not just the tracked ones) → chart it. */}
+        <form
+          onSubmit={(e) => { e.preventDefault(); const s = analyzeInput.trim().toUpperCase(); if (s) setSelected(s); }}
+          style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" }}
+        >
+          <input
+            value={analyzeInput} onChange={(e) => setAnalyzeInput(e.target.value)}
+            placeholder="Analyze any symbol…"
+            style={{ fontSize: 12, padding: "5px 9px", maxWidth: 180 }}
+          />
+          <button type="submit" style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, cursor: "pointer",
+            border: "1px solid var(--accent, #4f8cff)", background: "rgba(79,140,255,0.12)", color: "var(--accent, #4f8cff)" }}>
+            Chart
+          </button>
+        </form>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{shown.length} shown</span>
       </div>
 
       <div style={{ overflowX: "auto", maxWidth: "100%" }}>
@@ -229,7 +255,9 @@ export function HarvestView() {
                       return (
                         <span title={qrow.reason} style={{ color: QTONE[qrow.score], fontWeight: 600, cursor: "help" }}>
                           {QGLYPH[qrow.score]} {qrow.score}
-                          {qrow.days_behind != null && qrow.score !== "GOOD" ? ` ${qrow.days_behind}d` : ""}
+                          {qrow.days_behind != null && qrow.days_behind > 0
+                            ? ` ${qrow.days_behind} session${qrow.days_behind === 1 ? "" : "s"} behind`
+                            : ""}
                         </span>
                       );
                     })()}
@@ -270,12 +298,40 @@ export function HarvestView() {
       {selected && (
         <div style={{ marginTop: 16, background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 8, padding: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 14 }}>{selected} — price history</span>
-            <button onClick={() => setSelected(null)}
-              style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
-              title="Close">✕</button>
+            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 14 }}>{selected} — Ichimoku cloud + support/resistance</span>
+            <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <button onClick={() => setPopOut(true)}
+                style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+                  border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-dim)" }}
+                title="Pop out to a large view">⤢ Pop out</button>
+              <button onClick={() => setSelected(null)}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
+                title="Close">✕</button>
+            </span>
           </div>
-          <PriceHistoryChart symbol={selected} height={340} />
+          {/* Rich chart: candles + Ichimoku cloud + pivot support/resistance + drag-resize. */}
+          <CandleIchimokuChart symbol={selected} timeframe="3M" height={420} />
+        </div>
+      )}
+
+      {/* Pop-out: the same chart in a large, comfortable overlay. */}
+      {selected && popOut && (
+        <div
+          onClick={() => setPopOut(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+        >
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 10,
+              padding: 18, width: "min(1200px, 94vw)", maxHeight: "92vh", overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 16 }}>{selected} — Ichimoku cloud + S/R</span>
+              <button onClick={() => setPopOut(false)}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 22, lineHeight: 1 }}
+                title="Close">✕</button>
+            </div>
+            <CandleIchimokuChart symbol={selected} timeframe="3M" height={640} />
+          </div>
         </div>
       )}
     </div>
@@ -285,7 +341,20 @@ export function HarvestView() {
 /** IBKR bar-harvester observability panel. Answers, at a glance: is it enabled,
  * is IBKR actually the source (vs Yahoo fallback), how far is the backfill, and
  * did the last sweep error? This is the NEW C# harvester → ibkr_price_bars. */
-function HarvesterPanel({ h, err }: { h: Harvester | null; err: string | null }) {
+function HarvesterPanel({ h, err, onChanged }: { h: Harvester | null; err: string | null; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const paused = !!h?.paused;
+  // Pause = hand the single IBKR Web-API session back so the user can log into
+  // the IBKR portal (only one session per account). Resume = take it back.
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      if (paused) await api.ibkrResume();
+      else await api.ibkrPause("portal login");
+      onChanged();
+    } catch { /* the status refresh will show the real state */ }
+    finally { setBusy(false); }
+  };
   const enabled = !!h?.enabled;
   const ibkr = h?.lastTickIbkr ?? 0;
   const yahoo = h?.lastTickYahoo ?? 0;
@@ -313,15 +382,41 @@ function HarvesterPanel({ h, err }: { h: Harvester | null; err: string | null })
           background: enabled ? "rgba(34,197,94,0.15)" : "rgba(250,204,21,0.15)",
           color: enabled ? "var(--up)" : "var(--warn)",
         }}>{enabled ? "● live" : "○ disabled"}</span>
+        {paused && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+            padding: "2px 8px", borderRadius: 999, background: "rgba(250,204,21,0.18)", color: "var(--warn)",
+          }}>⏸ paused · portal free</span>
+        )}
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           IBKR-primary intraday → ibkr_price_bars · Yahoo fallback (loud) · {h?.resolution || "1m"}
         </span>
-        {h && (
-          <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto" }}>
-            last tick {ago(h.lastTickAtUtc)}{h.nextTickEtaUtc ? ` · next ~${ago(h.nextTickEtaUtc).replace(" ago", "")}` : ""}
-          </span>
-        )}
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {h && (
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              last tick {ago(h.lastTickAtUtc)}{!paused && h.nextTickEtaUtc ? ` · next ~${ago(h.nextTickEtaUtc).replace(" ago", "")}` : ""}
+            </span>
+          )}
+          <button
+            onClick={toggle} disabled={busy}
+            title={paused ? "Resume IBKR harvesting (take the session back)" : "Pause IBKR + log the session out so you can use the IBKR portal"}
+            style={{
+              fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 6, cursor: busy ? "wait" : "pointer",
+              border: `1px solid ${paused ? "var(--up)" : "var(--warn)"}`,
+              background: paused ? "rgba(34,197,94,0.12)" : "rgba(250,204,21,0.12)",
+              color: paused ? "var(--up)" : "var(--warn)", opacity: busy ? 0.6 : 1,
+            }}>
+            {busy ? "…" : paused ? "▶ Resume IBKR" : "⏸ Pause for portal"}
+          </button>
+        </span>
       </div>
+
+      {paused && (
+        <div style={{ fontSize: 11, color: "var(--warn)", marginBottom: 8, lineHeight: 1.4 }}>
+          IBKR session released — <b>log into the IBKR Client Portal now</b>. Harvesting + account-state are paused
+          until you press Resume{h?.pausedAtUtc ? ` (paused ${ago(h.pausedAtUtc)})` : ""}.
+        </div>
+      )}
 
       {err && (
         <div style={{ fontSize: 12, color: "var(--down)" }}>

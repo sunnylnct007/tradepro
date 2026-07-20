@@ -145,7 +145,17 @@ export const api = {
       lastTickFailed: number;
       lastTickBarsWritten: number;
       lastError: string | null;
+      paused: boolean;
+      pausedAtUtc: string | null;
+      pauseReason: string | null;
     }>("/api/integrations/ibkr/harvester-status"),
+  /** Pause ALL TradePro IBKR usage + log the session out, so the user can log
+   * into the IBKR Client Portal (only one Web-API session per account). */
+  ibkrPause: (reason?: string) =>
+    post<{ paused: boolean; note: string }, Record<string, never>>(
+      `/api/integrations/ibkr/pause${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`, {}),
+  ibkrResume: () =>
+    post<{ paused: boolean; note: string }, Record<string, never>>("/api/integrations/ibkr/resume", {}),
   ibkrLivePrice: async (symbol: string): Promise<number | null> => {
     try {
       const r = await get<{ bars?: Array<{ c: number }>; error?: string }>(
@@ -1518,6 +1528,7 @@ export const api = {
       qp.stale_after_days = String(params.staleAfterDays);
     return get<{
       as_of: string;
+      last_completed_session?: string;
       stale_after_days: number;
       summary: {
         total: number; good: number; bronze: number; partial: number;
@@ -1801,6 +1812,9 @@ export const api = {
     }
     return resp.json() as Promise<{ id: number; status: string }>;
   },
+
+  runScreener: () =>
+    post<{ status: string; message: string }, Record<string, never>>("/api/screener/run", {}),
 };
 
 // Shape of the artifact emitted by strategies/cli/equity_pipeline.py

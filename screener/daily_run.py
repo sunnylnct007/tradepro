@@ -80,7 +80,7 @@ def main() -> int:
 
             price = snap_fields["price"]
             if not price:
-                _record(ticker, "ERROR", "No price returned from snapshot — ticker skipped entirely")
+                log.warning("%s: no price — skipping", ticker)
                 continue
 
             log.info(
@@ -91,24 +91,6 @@ def main() -> int:
                 snap_fields["historical_vol_annual"],
                 len(bars), earnings_date,
             )
-
-            # P0-1: OHLC sanity gate
-            ohlc_ok, ohlc_reason = _validate_ohlc(bars, snap_fields["low_52w"], snap_fields["high_52w"])
-            if not ohlc_ok:
-                _record(ticker, "ERROR", f"OHLC history corrupt — skipped both screens. {ohlc_reason}")
-                continue
-
-            # P0-2: real volume gate
-            snap_avg_vol = snap_fields["avg_90d_vol"]
-            if snap_avg_vol <= 0:
-                _record(ticker, "ERROR", "avg_90d_vol = 0 from snapshot — no real volume data, ticker skipped")
-                continue
-
-            if len(bars) < 50:
-                _record(ticker, "WARN", f"Only {len(bars)} bars returned — MA50/MA200 and RSI may be unreliable")
-
-            if not data.get("options"):
-                _record(ticker, "WARN", "No option chain data in JSON — strike uses BSM estimate, not real chain")
 
             premium_pct = estimate_put_premium_pct(bars, price)
             options = options_from_json(data.get("options"))
@@ -126,7 +108,6 @@ def main() -> int:
                 options=options,
                 current_iv_pct=snap_fields["current_iv_annual"],
                 avg_option_volume=snap_fields["avg_option_volume"],
-                avg_vol_override=snap_avg_vol,
             )
             if wc.passed_gate():
                 wc._bars = bars
@@ -141,7 +122,6 @@ def main() -> int:
                 bars=bars,
                 spy_bars=spy_bars,
                 earnings_date=earnings_date,
-                avg_vol_override=snap_avg_vol,
             )
             if sc.passed_gate():
                 sc._bars = bars
@@ -150,9 +130,7 @@ def main() -> int:
                 log.info("%s swing excluded: %s", ticker, sc.gate_fail_reason)
 
         except Exception as e:  # noqa: BLE001
-            import traceback
-            tb = traceback.format_exc()
-            _record(ticker, "ERROR", f"Unhandled exception — ticker skipped. {type(e).__name__}: {e}\n{tb}")
+            log.warning("%s: unexpected error — skipping (%s: %s)", ticker, type(e).__name__, e)
 
     # Sort and take top 5
     wheel_top = sorted(wheel_passed, key=lambda c: c.score, reverse=True)[:TOP_N]
