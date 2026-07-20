@@ -181,7 +181,7 @@ export function DailyScreener() {
     setRunErr(null);
     try {
       const res = await api.runScreener();
-      setRunResult(res as RunResult);
+      setRunResult(res as unknown as RunResult);
       // refresh stored candidates after run
       api.optionsCandidates().then(setData).catch(() => {});
     } catch (e: unknown) {
