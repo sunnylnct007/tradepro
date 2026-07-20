@@ -108,8 +108,9 @@ public static class ScreenerEndpoints
             if (screenerScript is null)
                 return Results.Problem("screener/daily_run.py not found on the server");
 
-            // Run the Python screener
-            var psi = new ProcessStartInfo("python3", $"\"{screenerScript}\" --input-file \"{inputFile}\"")
+            // Use venv python if available (Docker image sets SCREENER_PYTHON env var)
+            var python = Environment.GetEnvironmentVariable("SCREENER_PYTHON") ?? "python3";
+            var psi = new ProcessStartInfo(python, $"\"{screenerScript}\" --input-file \"{inputFile}\"")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError  = true,
@@ -310,6 +311,7 @@ public static class ScreenerEndpoints
         var asm = AppContext.BaseDirectory;
         var candidates = new[]
         {
+            "/screener/daily_run.py",                                          // Docker image path
             Path.Combine(asm, "../../../../screener/daily_run.py"),
             Path.Combine(asm, "../../../../../screener/daily_run.py"),
             "/home/user/tradepro/screener/daily_run.py",
