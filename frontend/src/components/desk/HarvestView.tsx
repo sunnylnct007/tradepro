@@ -16,6 +16,7 @@ import { CandleIchimokuChart } from "./CandleIchimokuChart";
 
 type Row = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
 type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
+type Coverage = Awaited<ReturnType<typeof api.ibkrBarCoverage>>;
 type QRow = Quality["symbols"][number];
 type Harvester = Awaited<ReturnType<typeof api.ibkrHarvesterStatus>>;
 
@@ -78,6 +79,7 @@ export function HarvestView() {
   const [quality, setQuality] = useState<Quality | null>(null);
   const [harvester, setHarvester] = useState<Harvester | null>(null);
   const [harvesterErr, setHarvesterErr] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [selected, setSelected] = useState<string | null>(null);  // symbol → show its curve
   const [analyzeInput, setAnalyzeInput] = useState("");            // free-text "analyze ANY symbol"
   const [popOut, setPopOut] = useState(false);                     // large chart overlay
@@ -103,6 +105,11 @@ export function HarvestView() {
       api.ibkrHarvesterStatus()
         .then((r) => { if (live) { setHarvester(r); setHarvesterErr(null); } })
         .catch((e) => { if (live) { setHarvester(null); setHarvesterErr(e instanceof Error ? e.message : String(e)); } });
+      // How far the central ibkr_price_bars store has been harvested (1m/1d depth
+      // per symbol). Own catch so a coverage hiccup never blanks the page.
+      api.ibkrBarCoverage()
+        .then((r) => { if (live) setCoverage(r); })
+        .catch(() => { if (live) setCoverage(null); });
     };
     void load();
     const t = setInterval(load, 60_000);
@@ -162,6 +169,9 @@ export function HarvestView() {
             .then((r) => { setHarvester(r); setHarvesterErr(null); })
             .catch((e) => { setHarvester(null); setHarvesterErr(e instanceof Error ? e.message : String(e)); })}
       />
+
+      {/* HOW FAR harvested — the central ibkr_price_bars depth (1m/1d, per symbol). */}
+      <CoveragePanel c={coverage} />
 
       {/* Legacy yfinance bar-cache health (daily coverage / quality-for-today). */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px" }}>
@@ -332,6 +342,73 @@ export function HarvestView() {
             </div>
             <CandleIchimokuChart symbol={selected} timeframe="3M" height={640} />
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "How far has data been harvested" — the central ibkr_price_bars store depth.
+ * Per-resolution totals (IBKR vs Yahoo split + earliest bar) and, on expand, the
+ * per-symbol first→last window + bar counts. Answers "do we have enough 1m data,
+ * and how far back does it go?" directly on screen. */
+function CoveragePanel({ c }: { c: Coverage | null }) {
+  const [open, setOpen] = useState(false);
+  if (!c || c.byResolution.length === 0) return null;
+  const fmtBars = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n));
+  const earliest = (res: string) => {
+    const ts = c.coverage.filter((x) => x.resolution === res && x.firstTs).map((x) => x.firstTs!);
+    return ts.length ? [...ts].sort()[0].slice(0, 10) : "—";
+  };
+  const rows = [...c.coverage].sort(
+    (a, b) => a.symbol.localeCompare(b.symbol) || a.resolution.localeCompare(b.resolution));
+  return (
+    <div style={{ marginBottom: 16, border: "1px solid #1b2233", borderRadius: 8, padding: "10px 12px", background: "#0d1320" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Central store — how far harvested</span>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          ibkr_price_bars · IBKR-primary, Yahoo fallback · as of {ago(c.generatedAtUtc)}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "10px 0 6px" }}>
+        {c.byResolution.map((r) => (
+          <div key={r.resolution} style={{ border: "1px solid #1b2233", borderRadius: 6, padding: "6px 12px", minWidth: 190 }}>
+            <div style={{ fontSize: 12, fontWeight: 700 }}>{r.resolution} · {r.symbols} symbols</div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+              {fmtBars(r.totalBars)} bars · {fmtBars(r.ibkrBars)} IBKR + {fmtBars(r.yahooBars)} Yahoo
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>back to {earliest(r.resolution)}</div>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ fontSize: 11, background: "none", border: "1px solid #1b2233", borderRadius: 5, color: "var(--text-dim)", padding: "3px 8px", cursor: "pointer" }}>
+        {open ? "Hide" : "Show"} per-symbol depth ({c.coverage.length} rows)
+      </button>
+      {open && (
+        <div style={{ maxHeight: 360, overflow: "auto", marginTop: 8 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead><tr>
+              <th style={TH}>Symbol</th><th style={TH}>Res</th><th style={TH}>First → Last</th>
+              <th style={TH_R}>Bars</th><th style={TH_R}>IBKR</th><th style={TH_R}>Yahoo</th><th style={TH}>Last capture</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={`${r.symbol}:${r.resolution}:${i}`}>
+                  <td style={{ ...TD, fontWeight: 700 }}>{r.symbol}</td>
+                  <td style={TD}>{r.resolution}</td>
+                  <td style={{ ...TD, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                    {(r.firstTs?.slice(0, 10) ?? "—")} → {(r.lastTs?.slice(0, 10) ?? "—")}
+                  </td>
+                  <td style={TD_R}>{r.bars}</td>
+                  <td style={TD_R}>{r.ibkrBars}</td>
+                  <td style={{ ...TD_R, color: r.yahooBars > 0 ? "var(--warn)" : "var(--text-muted)" }}>{r.yahooBars}</td>
+                  <td style={{ ...TD, color: "var(--text-muted)" }}>{ago(r.lastCapturedUtc)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

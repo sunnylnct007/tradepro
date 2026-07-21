@@ -149,6 +149,30 @@ export const api = {
       pausedAtUtc: string | null;
       pauseReason: string | null;
     }>("/api/integrations/ibkr/harvester-status"),
+  /** How far the central ibkr_price_bars store has been harvested: per-resolution
+   * totals (IBKR vs Yahoo split) + per-symbol first→last timestamp and bar count.
+   * Answers "how much 1m/1d data do we actually have, and how far back?" */
+  ibkrBarCoverage: () =>
+    get<{
+      generatedAtUtc: string;
+      byResolution: Array<{
+        resolution: string;
+        symbols: number;
+        totalBars: number;
+        ibkrBars: number;
+        yahooBars: number;
+      }>;
+      coverage: Array<{
+        symbol: string;
+        resolution: string;
+        firstTs: string | null;
+        lastTs: string | null;
+        bars: number;
+        ibkrBars: number;
+        yahooBars: number;
+        lastCapturedUtc: string | null;
+      }>;
+    }>("/api/integrations/ibkr/bar-coverage"),
   /** Pause ALL TradePro IBKR usage + log the session out, so the user can log
    * into the IBKR Client Portal (only one Web-API session per account). */
   ibkrPause: (reason?: string) =>
