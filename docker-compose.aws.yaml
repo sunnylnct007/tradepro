@@ -102,6 +102,12 @@ services:
       Trading212Demo__ApiKey: "${TRADEPRO_T212_DEMO_API_KEY:-}"
       Trading212Demo__ApiSecret: "${TRADEPRO_T212_DEMO_API_SECRET:-}"
       Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
+      # AWS credentials for the Python screener (boto3 SES calls).
+      # Set these in the .env file on the EC2 host using an IAM user
+      # that has ses:SendEmail permission in eu-west-2.
+      AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION:-eu-west-2}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
       # Postgres connection string. Hostname is the docker-compose
       # service name; the postgres container exposes 5432 on the
       # default user-defined network without a host port mapping.
