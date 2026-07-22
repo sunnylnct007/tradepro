@@ -66,7 +66,11 @@ function verdict(r: Row): { tone: "ok" | "warn" | "bad" | "none"; label: string 
   const stale = (daysSince(r.last_fetched_at_utc) ?? 99) > 4;
   if (r.manifest_violations_last_30d > 0) return { tone: "bad", label: `${r.manifest_violations_last_30d} violations` };
   if (r.missing_days_count > 5 || stale) return { tone: "warn", label: stale ? "stale" : `${r.missing_days_count} gaps` };
-  if (res === "partial") return { tone: "warn", label: "partial" };
+  // A "partial" LAST FETCH is almost always just today's INCOMPLETE session
+  // during market hours (or ≤5 harmless historical gaps, caught above) — not a
+  // data problem for a symbol that is fresh with a complete deep history. Don't
+  // flag the whole hub yellow for it; it's healthy, just mid-session.
+  if (res === "partial") return { tone: "ok", label: "fresh · today partial" };
   return { tone: "ok", label: "healthy" };
 }
 

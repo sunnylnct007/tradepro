@@ -656,7 +656,14 @@ public static class DataTrustEndpoints
             // reads as 0-behind (the latest bar that can exist), not -1d.
             var lastSession = LastCompletedUsSession(DateTime.UtcNow);
             var lastSessionDate = lastSession.ToDateTime(TimeOnly.MinValue).Date;
-            var trusted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ibkr", "ig" };
+            // ibkr_web IS IBKR data (the OAuth Web API, Option B) — trust it the
+            // same as the local-gateway "ibkr". Otherwise every ibkr_web symbol
+            // is wrongly capped to BRONZE.
+            var trusted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ibkr", "ibkr_web", "ig" };
+            // Today's session bar is incomplete during market hours and counts as
+            // a "missing day"; a symbol otherwise fresh + deep should not be
+            // demoted to "not good for today" for that (or one trivial old gap).
+            const int minorGapTolerance = 2;
 
             await using var conn = await db.OpenConnectionAsync();
             var rows = (await conn.QueryAsync<(string Canonical, string AssetClass,
@@ -695,10 +702,10 @@ public static class DataTrustEndpoints
                         score = "STALE"; gft = false; stale++;
                         reason = $"Last bar {dB} session(s) behind (> {staleAfter}) — data pending; NOT good for today's decision.";
                     }
-                    else if (miss > 0)
+                    else if (miss > minorGapTolerance)
                     {
                         score = "PARTIAL"; gft = false; partial++;
-                        reason = $"Fresh but {miss} session(s) missing inside coverage — gaps; not high-conviction.";
+                        reason = $"{miss} session(s) missing inside coverage — gappy; not high-conviction.";
                     }
                     else if (!trusted.Contains(prov))
                     {
