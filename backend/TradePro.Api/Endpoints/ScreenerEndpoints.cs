@@ -65,10 +65,13 @@ public static class ScreenerEndpoints
             CancellationToken ct) =>
         {
             log.LogInformation("Screener run triggered via API");
+            try
+            {
             var runDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
             var stocks = new Dictionary<string, object>();
 
-            // SPY history for regime detection
+            // SPY history for regime detection (unguarded before — a single IBKR
+            // hiccup here threw straight to a bare 500 with no diagnosable detail).
             var spyHistory = await FetchHistoryDict(ibkr, "SPY", 756733, log, ct);
 
             foreach (var (ticker, conid) in Universe)
@@ -134,6 +137,20 @@ public static class ScreenerEndpoints
             catch
             {
                 return Results.Ok(new { ok = false, stdout, stderr = stderr[..Math.Min(5000, stderr.Length)] });
+            }
+            }
+            catch (Exception ex)
+            {
+                // Fail-loud: surface the REAL error instead of a bare 500, so the
+                // opaque "screener keeps failing" is diagnosable. The SPY fetch +
+                // the subprocess launch were previously unguarded — any throw
+                // there (IBKR paused/session, bad conid, python not found) 500'd
+                // with an empty body.
+                log.LogError(ex, "Screener run failed");
+                return Results.Problem(
+                    title: "Screener run failed",
+                    detail: ex.Message,
+                    statusCode: 500);
             }
         });
 
