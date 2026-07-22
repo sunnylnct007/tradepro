@@ -56,6 +56,8 @@ import type { Candle, CandleSeries } from "../../api/types";
 
 /** Timeframe pill → visible window in calendar days. Matches QuoteView's pills. */
 const WINDOW_DAYS: Record<string, number> = {
+  "1D": 1,   // intraday ranges (used with a 1m/5m resolution)
+  "5D": 5,
   "1M": 31,
   "3M": 93,
   "6M": 186,
@@ -80,6 +82,10 @@ const PAD_DAYS = 130;
 type Props = {
   symbol: string;
   timeframe: string; // one of WINDOW_DAYS keys
+  /** Bar resolution. "1d" (default) fetches Yahoo daily candles; an intraday
+   *  value ("1m"/"5m"/"15m"/"1h") fetches from the deep IBKR store
+   *  (ibkr_price_bars) instead, so the harvested intraday data is chartable. */
+  resolution?: string;
   height?: number;
   ccy?: string | null;
   /** When the symbol is HELD, the position's average entry price — drawn as a
@@ -97,7 +103,11 @@ type Props = {
 
 type IchiPoint = { time: UTCTimestamp; value: number };
 
-export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entryPrice, entryDate, fills }: Props) {
+// Approx regular-session bars per day per resolution — turns a day-window into
+// a bar LIMIT for the intraday fetch (the store returns the latest N bars).
+const BARS_PER_DAY: Record<string, number> = { "1m": 390, "5m": 78, "15m": 26, "1h": 7, "1d": 1 };
+
+export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", height = 360, ccy, entryPrice, entryDate, fills }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -146,30 +156,45 @@ export function CandleIchimokuChart({ symbol, timeframe, height = 360, ccy, entr
     setErr(null);
     setSeries(null);
     setHover(null);
-    const to = new Date();
-    // Fetch the visible window PLUS leading pad so indicators span the window.
-    const from = new Date(Date.now() - (windowDays + PAD_DAYS) * 24 * 3600 * 1000);
-    api
-      .candles({
-        symbol,
-        provider: config.defaultProvider,
-        interval: "1d",
-        from: from.toISOString().slice(0, 10),
-        to: to.toISOString().slice(0, 10),
-      })
-      .then((s) => {
-        if (live) setSeries(s);
-      })
-      .catch((e) => {
-        if (live) setErr(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
+    const isIntraday = resolution !== "1d";
+    const fetchP = isIntraday
+      // Deep IBKR store (ibkr_price_bars) — the harvested intraday data. Returns
+      // the latest N bars; map to the same candle shape the chart already draws.
+      ? api
+          .ibkrBars({
+            symbol,
+            resolution,
+            limit: Math.min(5000, Math.max(50, (BARS_PER_DAY[resolution] ?? 390) * windowDays)),
+          })
+          .then((r) => {
+            if (!live) return;
+            setSeries({
+              symbol,
+              interval: resolution,
+              candles: r.bars.map((b) => ({
+                timestamp: b.ts,
+                open: b.open, high: b.high, low: b.low, close: b.close,
+                volume: b.volume ?? 0,
+              })),
+            } as unknown as CandleSeries);
+          })
+      // Daily: Yahoo candles + leading pad so the Ichimoku cloud spans the window.
+      : api
+          .candles({
+            symbol,
+            provider: config.defaultProvider,
+            interval: "1d",
+            from: new Date(Date.now() - (windowDays + PAD_DAYS) * 24 * 3600 * 1000).toISOString().slice(0, 10),
+            to: new Date().toISOString().slice(0, 10),
+          })
+          .then((s) => { if (live) setSeries(s); });
+    fetchP
+      .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (live) setLoading(false); });
     return () => {
       live = false;
     };
-  }, [symbol, windowDays]);
+  }, [symbol, windowDays, resolution]);
 
   // ---- Build / update the chart ------------------------------------------
   useEffect(() => {
@@ -754,8 +779,15 @@ function lineSeries(
 
 /** ISO date (or datetime) → UTC seconds Time for a daily series. */
 function toTime(iso: string): UTCTimestamp {
-  const d = iso.slice(0, 10);
-  return Math.floor(new Date(`${d}T00:00:00Z`).getTime() / 1000) as UTCTimestamp;
+  // Preserve the time-of-day when the timestamp carries one (intraday 1m/5m
+  // bars) — truncating to the date collapsed every intraday bar of a day onto
+  // one point. Date-only strings (daily bars) still resolve to 00:00:00Z, so
+  // daily behaviour is unchanged.
+  const hasTime = iso.includes("T") || iso.includes(" ");
+  const ms = hasTime
+    ? Date.parse(iso.replace(" ", "T"))
+    : Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+  return Math.floor(ms / 1000) as UTCTimestamp;
 }
 
 function fmt(v: number | null | undefined, ccy?: string | null): string {

@@ -173,6 +173,20 @@ export const api = {
         lastCapturedUtc: string | null;
       }>;
     }>("/api/integrations/ibkr/bar-coverage"),
+  /** Harvested candles straight from the central ibkr_price_bars store, at any
+   * resolution (1m/5m/1d) — this is the DEEP IBKR intraday data, not Yahoo's
+   * shallow 7-day 1m. Powers the flexible chart's intraday view. */
+  ibkrBars: (params: { symbol: string; resolution?: string; limit?: number }) => {
+    const qp: Record<string, string> = { symbol: params.symbol };
+    if (params.resolution) qp.resolution = params.resolution;
+    if (params.limit != null) qp.limit = String(params.limit);
+    return get<{
+      symbol: string;
+      resolution: string;
+      count: number;
+      bars: Array<{ ts: string; open: number; high: number; low: number; close: number; volume: number | null; source: string | null }>;
+    }>("/api/integrations/ibkr/bars", qp);
+  },
   /** Pause ALL TradePro IBKR usage + log the session out, so the user can log
    * into the IBKR Client Portal (only one Web-API session per account). */
   ibkrPause: (reason?: string) =>

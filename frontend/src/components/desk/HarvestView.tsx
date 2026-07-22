@@ -81,6 +81,8 @@ export function HarvestView() {
   const [harvesterErr, setHarvesterErr] = useState<string | null>(null);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [selected, setSelected] = useState<string | null>(null);  // symbol → show its curve
+  const [chartRes, setChartRes] = useState("1d");                  // 1m / 5m / 1d
+  const [chartTf, setChartTf] = useState("3M");                    // range window
   const [analyzeInput, setAnalyzeInput] = useState("");            // free-text "analyze ANY symbol"
   const [popOut, setPopOut] = useState(false);                     // large chart overlay
   const [loading, setLoading] = useState(true);
@@ -319,8 +321,10 @@ export function HarvestView() {
                 title="Close">✕</button>
             </span>
           </div>
+          <FlexChartControls coverage={coverage} symbol={selected}
+            res={chartRes} setRes={setChartRes} tf={chartTf} setTf={setChartTf} />
           {/* Rich chart: candles + Ichimoku cloud + pivot support/resistance + drag-resize. */}
-          <CandleIchimokuChart symbol={selected} timeframe="3M" height={420} />
+          <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes} height={420} />
         </div>
       )}
 
@@ -340,10 +344,69 @@ export function HarvestView() {
                 style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 22, lineHeight: 1 }}
                 title="Close">✕</button>
             </div>
-            <CandleIchimokuChart symbol={selected} timeframe="3M" height={640} />
+            <FlexChartControls coverage={coverage} symbol={selected}
+              res={chartRes} setRes={setChartRes} tf={chartTf} setTf={setChartTf} />
+            <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes} height={640} />
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Range windows offered per resolution — intraday resolutions get short
+// windows, daily gets the long ones. (Resolution "1m"/"5m" pull from the deep
+// IBKR store; "1d" pulls Yahoo daily.)
+const TF_FOR_RES: Record<string, string[]> = {
+  "1m": ["1D", "5D", "1M"],
+  "5m": ["5D", "1M", "3M"],
+  "1d": ["3M", "6M", "1Y", "5Y"],
+};
+const RES_OPTS = [
+  { k: "1m", label: "1-min" },
+  { k: "5m", label: "5-min" },
+  { k: "1d", label: "Daily" },
+];
+
+/** Resolution + range pills for the flexible chart, plus a "what data exists"
+ * strip for the selected symbol (from the harvest coverage) so the user can see
+ * exactly what's available before/while charting it. */
+function FlexChartControls({ coverage, symbol, res, setRes, tf, setTf }: {
+  coverage: Coverage | null; symbol: string;
+  res: string; setRes: (r: string) => void; tf: string; setTf: (t: string) => void;
+}) {
+  const tfs = TF_FOR_RES[res] ?? TF_FOR_RES["1d"];
+  const rows = (coverage?.coverage ?? []).filter((c) => c.symbol === symbol);
+  const pill = (active: boolean): React.CSSProperties => ({
+    fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 6, cursor: "pointer",
+    border: `1px solid ${active ? "var(--accent, #3b82f6)" : "var(--border)"}`,
+    background: active ? "var(--accent, #3b82f6)" : "var(--surface-2)",
+    color: active ? "#fff" : "var(--text-dim)",
+  });
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginRight: 2 }}>Resolution</span>
+        {RES_OPTS.map((o) => (
+          <button key={o.k} style={pill(res === o.k)}
+            onClick={() => { setRes(o.k); if (!(TF_FOR_RES[o.k] ?? []).includes(tf)) setTf((TF_FOR_RES[o.k] ?? ["3M"])[0]); }}>
+            {o.label}
+          </button>
+        ))}
+        <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", margin: "0 2px 0 10px" }}>Range</span>
+        {tfs.map((t) => (
+          <button key={t} style={pill(tf === t)} onClick={() => setTf(t)}>{t}</button>
+        ))}
+      </div>
+      <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 6, fontFamily: "var(--font-mono)" }}>
+        {res !== "1d" && <span style={{ color: "var(--warn)" }}>deep IBKR store · </span>}
+        {rows.length === 0
+          ? "no harvested data for this symbol yet"
+          : rows.map((r) => {
+              const ib = r.bars > 0 ? Math.round((100 * r.ibkrBars) / r.bars) : 0;
+              return `${r.resolution}: ${(r.firstTs ?? "?").slice(0, 10)}→${(r.lastTs ?? "?").slice(0, 10)} · ${r.bars.toLocaleString()} bars · ${ib}% IBKR`;
+            }).join("   |   ")}
+      </div>
     </div>
   );
 }
