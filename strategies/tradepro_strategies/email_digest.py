@@ -286,14 +286,17 @@ _FOREIGN_SUFFIXES = (
 
 def _is_tradeable(symbol: str | None) -> bool:
     """False for symbols the book can't actually trade — indices (^GDAXI),
-    futures (CL=F, ES=F), and foreign-exchange listings (ROG.SW, CBA.AX). These
-    must never reach the digest as a BUY/AVOID/WAIT candidate; showing a
-    non-actionable index as a "BUY" is exactly the noise the reviewer flagged."""
+    futures (CL=F, ES=F), crypto pairs (BTC-USD, SOL-USD, ETH-USDT), and
+    foreign-exchange listings (ROG.SW, CBA.AX). These must never reach the
+    digest as a BUY/AVOID/WAIT candidate; showing a non-actionable index or a
+    crypto pair as a signal is exactly the noise the reviewer flagged."""
     if not symbol:
         return False
     s = symbol.strip().upper()
     if s.startswith("^") or "=" in s:
         return False
+    if s.endswith("-USD") or s.endswith("-USDT") or s.endswith("-USDC"):
+        return False  # Yahoo crypto notation (BTC-USD, SOL-USD, …)
     return not any(s.endswith(suf) for suf in _FOREIGN_SUFFIXES)
 
 
@@ -1011,7 +1014,9 @@ def build_digest(
             buy_sparklines_png, img_block,
         )
         donut_html = img_block(
-            bucket_donut_png(len(buys), len(waits), len(avoids)),
+            # VERIFIED buy count (n_buy) so the donut agrees with the header —
+            # not the raw len(buys) that showed "BUY 6" next to a "0 verified".
+            bucket_donut_png(n_buy, len(waits), len(avoids)),
             alt="Bucket distribution: BUY / WAIT / AVOID",
         )
         holdings_chart_html = img_block(

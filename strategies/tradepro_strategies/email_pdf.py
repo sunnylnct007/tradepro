@@ -30,6 +30,11 @@ from datetime import datetime, timezone
 from html import escape as _html_escape
 from typing import Any
 
+# Shared candidate hygiene so the PDF agrees with the email body (they were
+# diverging: email filtered non-tradeable + counted verified, the PDF did
+# neither → "8 BUY incl. ^GDAXI" vs the email's "0 BUY").
+from .email_digest import _is_tradeable, _publishable  # noqa: E402
+
 # Lazy / soft import — reportlab pulled in on first use, not at
 # module import. The whole module is itself imported lazily by
 # email_digest, so a deployment with no PDF dep produces a clean
@@ -90,13 +95,19 @@ def build_digest_pdf(
     flow: list[Any] = []
     styles = _build_styles()
 
-    buys = _filter_bucket(payloads, "BUY")
-    waits = _filter_bucket(payloads, "WAIT")
-    avoids = _filter_bucket(payloads, "AVOID")
+    # Drop non-tradeable (indices/futures/crypto/foreign) so the PDF universe
+    # matches the email — otherwise ^GDAXI shows as a "Top BUY" here while the
+    # email correctly excludes it.
+    buys = [b for b in _filter_bucket(payloads, "BUY") if _is_tradeable(b.get("symbol"))]
+    waits = [w for w in _filter_bucket(payloads, "WAIT") if _is_tradeable(w.get("symbol"))]
+    avoids = [a for a in _filter_bucket(payloads, "AVOID") if _is_tradeable(a.get("symbol"))]
+    # Only VERIFIED buys are counted/previewed on the cover — never advertise a
+    # BUY count the verification then suppresses (the email's honest-count rule).
+    pub_buys = [b for b in buys if _publishable(b)[0]]
 
     # ---- Cover ----
     flow.extend(_cover_page(
-        styles, buys, waits, avoids,
+        styles, buys, waits, avoids, pub_buys=pub_buys,
         holdings=holdings or [], portfolio_mode=portfolio_mode,
     ))
     flow.append(PageBreak())
@@ -180,15 +191,20 @@ def _build_styles() -> dict[str, ParagraphStyle]:
 
 def _cover_page(
     styles, buys, waits, avoids, *,
+    pub_buys: list[dict] | None = None,
     holdings: list[dict], portfolio_mode: str | None,
 ) -> list[Any]:
+    # Verified buys only for the headline/donut/preview — a BUY count the
+    # verification suppresses must never be advertised.
+    verified = pub_buys if pub_buys is not None else buys
+    n_buy = len(verified)
     flow: list[Any] = []
     flow.append(Paragraph(
         f"TradePro Daily Digest", styles["title"],
     ))
     flow.append(Paragraph(
         f"<font color='#666'>{_today_iso()} UTC · "
-        f"{len(buys)} BUY · {len(waits)} WAIT · {len(avoids)} AVOID"
+        f"{n_buy} BUY · {len(waits)} WAIT · {len(avoids)} AVOID"
         + (f" · T212 {portfolio_mode.upper()}" if portfolio_mode else "")
         + "</font>",
         styles["dim"],
@@ -196,7 +212,7 @@ def _cover_page(
     flow.append(Spacer(1, 10))
 
     # Bucket donut + headline summary side-by-side.
-    donut_png = _maybe_png(_make_donut, len(buys), len(waits), len(avoids))
+    donut_png = _maybe_png(_make_donut, n_buy, len(waits), len(avoids))
     if donut_png is not None:
         flow.append(Image(donut_png, width=100 * mm, height=58 * mm))
 
@@ -225,11 +241,11 @@ def _cover_page(
     # Top-3 BUYs preview — one-line each so the cover already
     # answers "what should I look at?" without the user opening the
     # full per-symbol pages.
-    if buys:
+    if verified:
         flow.append(Paragraph(
             "<b>Top BUYs at a glance</b>", styles["h3"],
         ))
-        for it in buys[:3]:
+        for it in verified[:3]:
             sym = it.get("symbol") or "?"
             label = it.get("label") or ""
             flow.append(Paragraph(
