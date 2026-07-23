@@ -828,6 +828,50 @@ public static class IntegrationsEndpoints
             });
         });
 
+        // GET /api/integrations/ibkr/quote?symbol=AAPL[&fields=31,84,86,...] —
+        // live L1 + rich snapshot straight from IBKR (resolve symbol→conid via
+        // secdef/search, then market-data snapshot). Default fields cover the
+        // "latest orderbook/quote" set: last, bid/ask (+sizes), change, volume,
+        // day range, 52w range, IV/IV-rank, dividend yield. Leverage IBKR's rich
+        // data — this is the live-quote source for the desk + the MCP quote tool.
+        app.MapGet("/integrations/ibkr/quote", async (
+            string symbol, string? fields,
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(symbol))
+                return Results.BadRequest(new { error = "symbol is required" });
+            // 31=last 84=bid 86=ask 85=askSize 88=bidSize 82=changeAbs 83=change%
+            // 87=avgVol 70=high 71=low 7295=open 7293=52wHigh 7294=52wLow
+            // 7283=IV 7282=IVrank(52w) 7286=divYield
+            var f = string.IsNullOrWhiteSpace(fields)
+                ? "31,84,86,85,88,82,83,87,70,71,7295,7293,7294,7283,7282,7286"
+                : fields;
+            try
+            {
+                var conid = await ibkr.ResolveConidAsync(symbol, "STK", ct);
+                if (conid is null)
+                    return Results.Json(new { symbol = symbol.ToUpperInvariant(), error = "symbol not found at IBKR (secdef/search)" }, statusCode: 404);
+                var raw = await ibkr.GetSnapshotRawAsync(conid.Value, f, ct);
+                if (string.IsNullOrWhiteSpace(raw))
+                    return Results.Json(new { symbol = symbol.ToUpperInvariant(), conid, error = "no snapshot (market data unavailable / not subscribed)" }, statusCode: 502);
+                using var doc = System.Text.Json.JsonDocument.Parse(raw);
+                var el = doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array
+                    ? doc.RootElement.EnumerateArray().FirstOrDefault()
+                    : doc.RootElement;
+                return Results.Ok(new
+                {
+                    symbol = symbol.ToUpperInvariant(), conid, fields = f,
+                    // Pass the raw IBKR field map through — callers/LLM read the
+                    // documented field ids; never fabricate a missing quote.
+                    snapshot = el.Clone(),
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { symbol = symbol.ToUpperInvariant(), error = ex.Message }, statusCode: 500);
+            }
+        });
+
         // POST /api/integrations/ibkr/orders — CONTROLLED single market order to
         // the PAPER account, to validate the confirmed order path end-to-end
         // (auth → place → reply-confirm → real order id) BEFORE the daemon routes

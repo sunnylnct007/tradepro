@@ -3271,6 +3271,28 @@ def get_reconciliation_status() -> dict:
     return _ibkr_passthrough("get_reconciliation_status", "/api/oms/reconciliation/status")
 
 
+def get_ibkr_quote(symbol: str, fields: str | None = None) -> dict:
+    """Live L1 + rich IBKR snapshot for a symbol (resolves symbol→conid at IBKR):
+    last, bid/ask (+sizes), change, volume, day range, 52w range, IV/IV-rank,
+    dividend yield — the 'latest quote / orderbook'. Use for 'what's AAPL trading
+    at right now / bid-ask / IV'. Returns 404 if IBKR can't find the symbol, 502
+    if the market-data snapshot is unavailable (never a fabricated price)."""
+    params = {"symbol": symbol}
+    if fields:
+        params["fields"] = fields
+    return _ibkr_passthrough("get_ibkr_quote", "/api/integrations/ibkr/quote", params)
+
+
+def list_watchlists() -> dict:
+    """Names of all TradePro watchlists."""
+    return _ibkr_passthrough("list_watchlists", "/api/watchlists")
+
+
+def get_watchlist(name: str) -> dict:
+    """Symbols in one TradePro watchlist by name."""
+    return _ibkr_passthrough("get_watchlist", f"/api/watchlists/{name}")
+
+
 def serialize(obj: Any) -> str:
     """Strict JSON serialisation that the FastMCP layer can hand back
     to the LLM. Handles dataclasses + datetime defensively."""

@@ -573,6 +573,26 @@ def build_server():
         auto-settled, and fail-loud drift the reconciler couldn't safely settle."""
         return _json(t.get_reconciliation_status())
 
+    @mcp.tool()
+    @instrumented("get_ibkr_quote")
+    def get_ibkr_quote(symbol: str, fields: str | None = None) -> str:
+        """Live L1 + rich IBKR snapshot for a symbol: last, bid/ask (+sizes),
+        change, volume, day + 52w range, IV/IV-rank, dividend yield — the latest
+        quote/orderbook. Never a fabricated price (404/502 when unavailable)."""
+        return _json(t.get_ibkr_quote(symbol, fields))
+
+    @mcp.tool()
+    @instrumented("list_watchlists")
+    def list_watchlists() -> str:
+        """Names of all TradePro watchlists."""
+        return _json(t.list_watchlists())
+
+    @mcp.tool()
+    @instrumented("get_watchlist")
+    def get_watchlist(name: str) -> str:
+        """Symbols in one TradePro watchlist by name."""
+        return _json(t.get_watchlist(name))
+
     # ---- Track-record validation: hitrate, scan, evaluate one signal ----
 
     @mcp.tool()
