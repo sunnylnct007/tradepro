@@ -421,14 +421,22 @@ function FlexChartControls({ coverage, symbol, res, setRes, tf, setTf }: {
  * and how far back does it go?" directly on screen. */
 function CoveragePanel({ c }: { c: Coverage | null }) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
   if (!c || c.byResolution.length === 0) return null;
   const fmtBars = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n));
   const earliest = (res: string) => {
     const ts = c.coverage.filter((x) => x.resolution === res && x.firstTs).map((x) => x.firstTs!);
     return ts.length ? [...ts].sort()[0].slice(0, 10) : "—";
   };
-  const rows = [...c.coverage].sort(
+  const allRows = [...c.coverage].sort(
     (a, b) => a.symbol.localeCompare(b.symbol) || a.resolution.localeCompare(b.resolution));
+  const rows = q.trim()
+    ? allRows.filter((r) => r.symbol.toLowerCase().includes(q.trim().toLowerCase()))
+    : allRows;
+  // Clear per-symbol indication: which symbols have 1m (intraday-chartable) vs
+  // only 1d, so a gap is obvious at a glance.
+  const has1m = new Set(c.coverage.filter((x) => x.resolution === "1m" && x.bars > 0).map((x) => x.symbol));
+  const symCount = new Set(c.coverage.map((x) => x.symbol)).size;
   return (
     <div style={{ marginBottom: 16, border: "1px solid #1b2233", borderRadius: 8, padding: "10px 12px", background: "#0d1320" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
@@ -448,13 +456,30 @@ function CoveragePanel({ c }: { c: Coverage | null }) {
           </div>
         ))}
       </div>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{ fontSize: 11, background: "none", border: "1px solid #1b2233", borderRadius: 5, color: "var(--text-dim)", padding: "3px 8px", cursor: "pointer" }}>
-        {open ? "Hide" : "Show"} per-symbol depth ({c.coverage.length} rows)
-      </button>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          style={{ fontSize: 11, background: "none", border: "1px solid #1b2233", borderRadius: 5, color: "var(--text-dim)", padding: "3px 8px", cursor: "pointer" }}>
+          {open ? "Hide" : "Show"} per-symbol depth ({symCount} symbols)
+        </button>
+        {/* Clear indication: how many symbols actually have intraday 1m data. */}
+        <span style={{ fontSize: 10.5, color: has1m.size === symCount ? "var(--up)" : "var(--warn)" }}>
+          {has1m.size}/{symCount} have 1-min data
+        </span>
+        {open && (
+          <input
+            value={q} onChange={(e) => setQ(e.target.value)} placeholder="search symbol…"
+            style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, border: "1px solid #1b2233",
+              background: "var(--surface-1)", color: "var(--text)", width: 160 }} />
+        )}
+      </div>
       {open && (
         <div style={{ maxHeight: 360, overflow: "auto", marginTop: 8 }}>
+          {rows.length === 0 && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "8px 2px" }}>
+              No harvested rows match “{q}”. {!has1m.has(q.trim().toUpperCase()) && q.trim() ? "(this symbol has no 1-min harvest yet)" : ""}
+            </div>
+          )}
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead><tr>
               <th style={TH}>Symbol</th><th style={TH}>Res</th><th style={TH}>First → Last</th>
