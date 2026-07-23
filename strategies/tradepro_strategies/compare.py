@@ -25,6 +25,14 @@ import pandas as pd
 from .backtest import BacktestConfig, FeeModel, run_backtest
 from .cache import ensure_cached
 from .catalysts import extract_catalysts
+from .gates.earnings_proximity import (
+    EarningsGate as _EarningsGate,
+    EarningsGateConfig,
+    classify as _eg_classify,
+    route as _eg_route,
+    sessions_since as _eg_sessions_since,
+    sessions_to as _eg_sessions_to,
+)
 from .combined_verdict import derive_combined_verdict
 from .external_consensus import ExternalConsensus, _fetch_info, fetch_consensus
 from .fundamentals import Fundamentals, fetch_fundamentals
@@ -534,22 +542,48 @@ def _attach_bucket_and_rationale(
             bucket=bucket, reason=reason, conviction=conviction,
         )
 
-        # Earnings-proximity suppressor — ④ of the Alpha Engine.
-        # When earnings land inside the 7d window, refuse to call BUY
-        # (post-print gap swallows the reward leg of a 1:2 setup).
-        # earnings_signal.upcoming.days_until is populated upstream
-        # from the Finnhub-backed /api/integrations/finnhub/earnings-
-        # calendar endpoint; absent / disabled → no suppression.
+        # Earnings-proximity GATE — session-based 5-state classification
+        # (pre-blackout / post-digest = veto, post-drift / unknown = penalty),
+        # replacing the old calendar-day suppressor. Runs BEFORE the ATR exit
+        # block below: an earnings gap contaminates ATR(14) for ~14 sessions, so
+        # a genuine post-earnings decline mislabels as "0.1 ATR above kijun,
+        # support hold" unless veto/penalty lands first. Sessions counted on the
+        # XNYS calendar from the REAL report dates (upcoming.date / earnings.
+        # announce_date). Fail-loud: a missing date is UNKNOWN (penalise+flag),
+        # never CLEAR — a stale feed can't launder earnings names into pristine
+        # setups. ETFs (no earnings concept) map to CLEAR, not UNKNOWN.
+        from .fees import is_known_etf as _is_etf
         earnings_sig = best.get("earnings_signal") or {}
-        days_until_earnings = (
-            (earnings_sig.get("upcoming") or {}).get("days_until")
-        )
-        bucket, reason, conviction, earnings_suppressed = apply_earnings_suppressor(
-            bucket=bucket,
-            reason=reason,
-            conviction=conviction,
-            days_until_earnings=days_until_earnings,
-        )
+        _eg_cfg = EarningsGateConfig.from_env()
+        _has_earnings = not _is_etf(symbol)
+        _next_date = (earnings_sig.get("upcoming") or {}).get("date")
+        _last_date = (earnings_sig.get("earnings") or {}).get("announce_date")
+        _est = bool((earnings_sig.get("upcoming") or {}).get("isEstimate"))
+        _s_to = _eg_sessions_to(_next_date) if _next_date else None
+        _s_since = _eg_sessions_since(_last_date) if _last_date else None
+        _eg_state = _eg_classify(_s_to, _s_since, _est, _eg_cfg, has_earnings=_has_earnings)
+        _eg_dec = _eg_route(_eg_state, _eg_cfg, sessions_to_next=_s_to, sessions_since_last=_s_since)
+        earnings_gate_info = {
+            "state": _eg_state.value, "action": _eg_dec.action, "flag": _eg_dec.flag,
+            "score_mult": _eg_dec.score_mult, "rank_cap": _eg_dec.rank_cap,
+            "reason": _eg_dec.reason, "sessions_to_next": _s_to,
+            "sessions_since_last": _s_since,
+        }
+        earnings_suppressed = _eg_dec.action == "veto"
+        if _eg_dec.action == "veto":
+            if bucket == "BUY":
+                bucket = "WAIT"
+            if conviction == "HIGH":
+                conviction = "MEDIUM"
+            reason = f"{reason} | earnings gate: {_eg_dec.reason}" if reason else _eg_dec.reason
+        elif _eg_dec.action == "penalize":
+            # POST_DRIFT (real recent report, ATR still inflated) caps conviction.
+            # UNKNOWN (missing feed) is FLAG-ONLY — a down earnings feed must not
+            # silently degrade every name's conviction; the flag + data-gap make
+            # the gap visible (fail-loud) without nuking the whole Decide screen.
+            if _eg_state == _EarningsGate.POST_DRIFT and conviction == "HIGH":
+                conviction = "MEDIUM"
+            reason = f"{reason} | {_eg_dec.flag}: {_eg_dec.reason}" if reason else _eg_dec.reason
 
         # FAIL-VISIBLE data-gap integrity (NO FALSE POSITIVES). A degraded LLM
         # means the rationale / sentiment-scoring / catalyst layers COULDN'T be
@@ -740,7 +774,12 @@ def _attach_bucket_and_rationale(
             # change (already WAIT). days_until carried for the
             # tooltip "earnings in Nd".
             r["earnings_suppressed"] = earnings_suppressed
-            r["earnings_proximity_days"] = days_until_earnings
+            # Session-based earnings-proximity gate: state (CLEAR/PRE_BLACKOUT/
+            # POST_DIGEST/POST_DRIFT/UNKNOWN), action, flag (EARNINGS_DRIFT/
+            # UNKNOWN), score/rank penalty — surfaced so the digest/scanner can
+            # show "reported 4 sessions ago — drift, ×0.5" and rank-cap it.
+            r["earnings_gate"] = earnings_gate_info
+            r["earnings_proximity_days"] = earnings_gate_info.get("sessions_to_next")
             # News context block — ⑤ of the Alpha Engine. Reshapes the
             # existing sentiment_summary + news + earnings fields into
             # the SIGNAL_CARD_SPEC §2.3 / §3 shape. Pure transformation,
@@ -750,7 +789,7 @@ def _attach_bucket_and_rationale(
             nc = compute_news_context(
                 sentiment_summary=r.get("sentiment_summary"),
                 news_items=r.get("news"),
-                earnings_proximity_days=days_until_earnings,
+                earnings_proximity_days=earnings_gate_info.get("sessions_to_next"),
             )
             r["news_context"] = nc.to_dict()
             # Exit framework block per SIGNAL_CARD_SPEC_v1.md §3. Carry
