@@ -3202,6 +3202,75 @@ def ibkr_fetch_bars(
         )
 
 
+# ─── IBKR live passthrough ───────────────────────────────────────────────
+# Thin wrappers over the TradePro API's /api/integrations/ibkr/* endpoints so
+# an LLM can query the live IBKR account + the harvested store on the fly:
+# positions, orders, account balances, real candles (harvested or on-demand),
+# and the harvest coverage board. TradePro is the broker-agnostic brain; these
+# expose IBKR — the hands — through it, with the same auth + fail-loud envelope.
+
+def _ibkr_passthrough(tool: str, path: str, params: dict | None = None) -> dict:
+    """Shared helper: GET a TradePro IBKR endpoint, wrap in the standard
+    envelope, and fail loud (never fabricate) on unreachable/error."""
+    try:
+        body = _get(path, params=params or {})
+        return {"_source": f"tradepro://{path}", "fetched_at": _now_iso(), "ok": True, **({} if not isinstance(body, dict) else body), **({"data": body} if not isinstance(body, dict) else {})}
+    except ApiUnreachable as e:
+        return _unreachable_envelope(tool, e, **(params or {}))
+    except Exception as e:  # noqa: BLE001
+        return _err(tool, str(e), **(params or {}))
+
+
+def get_ibkr_positions() -> dict:
+    """Live IBKR account positions (the golden source): symbol, quantity
+    (negative = short), average cost, current price, unrealised P&L, currency.
+    Use for 'what do I hold at IBKR?', 'am I short anything?', 'IBKR P&L'."""
+    return _ibkr_passthrough("get_ibkr_positions", "/api/integrations/ibkr/positions")
+
+
+def get_ibkr_orders(limit: int = 100) -> dict:
+    """Recent IBKR orders (open + terminal) with side, qty, state, broker id.
+    Use for 'what IBKR orders are open/filled?'."""
+    return _ibkr_passthrough("get_ibkr_orders", "/api/integrations/ibkr/orders",
+                             {"limit": max(1, min(int(limit), 500))})
+
+
+def get_ibkr_account_summary() -> dict:
+    """IBKR account balances/summary: net liquidation, cash, buying power, etc.
+    Use for 'IBKR account value / NLV / cash'."""
+    return _ibkr_passthrough("get_ibkr_account_summary", "/api/integrations/ibkr/account-summary")
+
+
+def get_ibkr_bars(symbol: str, resolution: str = "1m", limit: int = 200) -> dict:
+    """HARVESTED candles from the central ibkr_price_bars store (deep IBKR 1m/5m/1d
+    with the IBKR-vs-Yahoo source per bar). Fast, no live IBKR call. Use for
+    charting/analysis of any harvested symbol at any resolution."""
+    return _ibkr_passthrough("get_ibkr_bars", "/api/integrations/ibkr/bars",
+                             {"symbol": symbol, "resolution": resolution, "limit": max(1, min(int(limit), 5000))})
+
+
+def get_ibkr_price_history(symbol: str, period: str = "1y", bar: str = "1d") -> dict:
+    """ON-DEMAND IBKR price history via the Web API (live fetch, any US symbol) —
+    use when a symbol isn't in the harvested store, or for a longer/ad-hoc range
+    than harvested. `period` e.g. '1d','1m','1y'; `bar` e.g. '1m','1h','1d'."""
+    return _ibkr_passthrough("get_ibkr_price_history", "/api/integrations/ibkr/price-history",
+                             {"symbol": symbol, "period": period, "bar": bar})
+
+
+def get_ibkr_harvest_coverage() -> dict:
+    """Harvest coverage board for ibkr_price_bars: per-resolution totals
+    (symbols, bars, IBKR-vs-Yahoo split, earliest bar) + per-symbol first→last
+    window. Use for 'how much 1m data do we have and how far back?'."""
+    return _ibkr_passthrough("get_ibkr_harvest_coverage", "/api/integrations/ibkr/bar-coverage")
+
+
+def get_reconciliation_status() -> dict:
+    """Golden-source OMS reconciliation status per broker: open sells checked,
+    auto-settled, and fail-loud DRIFT (positions the reconciler couldn't safely
+    settle). Use for 'is the OMS in sync with the brokers?'."""
+    return _ibkr_passthrough("get_reconciliation_status", "/api/oms/reconciliation/status")
+
+
 def serialize(obj: Any) -> str:
     """Strict JSON serialisation that the FastMCP layer can hand back
     to the LLM. Handles dataclasses + datetime defensively."""

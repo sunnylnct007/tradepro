@@ -520,6 +520,59 @@ def build_server():
             allow_partial=allow_partial,
         ))
 
+    # ---- IBKR live passthrough — query the IBKR account + harvested store ----
+    # TradePro is the broker-agnostic brain; these expose IBKR (the hands) via
+    # it so any LLM can pull live positions/orders/account + real candles + the
+    # harvest coverage + OMS reconciliation on the fly.
+
+    @mcp.tool()
+    @instrumented("get_ibkr_positions")
+    def get_ibkr_positions() -> str:
+        """Live IBKR account positions (golden source): symbol, quantity (neg =
+        short), avg cost, current price, unrealised P&L, currency."""
+        return _json(t.get_ibkr_positions())
+
+    @mcp.tool()
+    @instrumented("get_ibkr_orders")
+    def get_ibkr_orders(limit: int = 100) -> str:
+        """Recent IBKR orders (open + terminal): side, qty, state, broker id."""
+        return _json(t.get_ibkr_orders(limit))
+
+    @mcp.tool()
+    @instrumented("get_ibkr_account_summary")
+    def get_ibkr_account_summary() -> str:
+        """IBKR account balances/summary: net liquidation, cash, buying power."""
+        return _json(t.get_ibkr_account_summary())
+
+    @mcp.tool()
+    @instrumented("get_ibkr_bars")
+    def get_ibkr_bars(symbol: str, resolution: str = "1m", limit: int = 200) -> str:
+        """HARVESTED candles from ibkr_price_bars (deep IBKR 1m/5m/1d + per-bar
+        source). Fast, no live IBKR call. For charting/analysis of any harvested
+        symbol at any resolution."""
+        return _json(t.get_ibkr_bars(symbol, resolution, limit))
+
+    @mcp.tool()
+    @instrumented("get_ibkr_price_history")
+    def get_ibkr_price_history(symbol: str, period: str = "1y", bar: str = "1d") -> str:
+        """ON-DEMAND IBKR price history via the Web API (live, any US symbol) —
+        for symbols not harvested or an ad-hoc range."""
+        return _json(t.get_ibkr_price_history(symbol, period, bar))
+
+    @mcp.tool()
+    @instrumented("get_ibkr_harvest_coverage")
+    def get_ibkr_harvest_coverage() -> str:
+        """Harvest coverage board: per-resolution totals (symbols, bars,
+        IBKR-vs-Yahoo split, earliest bar) + per-symbol first→last window."""
+        return _json(t.get_ibkr_harvest_coverage())
+
+    @mcp.tool()
+    @instrumented("get_reconciliation_status")
+    def get_reconciliation_status() -> str:
+        """Golden-source OMS reconciliation per broker: open sells checked,
+        auto-settled, and fail-loud drift the reconciler couldn't safely settle."""
+        return _json(t.get_reconciliation_status())
+
     # ---- Track-record validation: hitrate, scan, evaluate one signal ----
 
     @mcp.tool()
