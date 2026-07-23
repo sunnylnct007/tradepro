@@ -33,6 +33,7 @@ from .gates.earnings_proximity import (
     sessions_since as _eg_sessions_since,
     sessions_to as _eg_sessions_to,
 )
+from .gates.catalyst_signal import CatalystConfig, detect_news_catalyst
 from .combined_verdict import derive_combined_verdict
 from .external_consensus import ExternalConsensus, _fetch_info, fetch_consensus
 from .fundamentals import Fundamentals, fetch_fundamentals
@@ -792,6 +793,21 @@ def _attach_bucket_and_rationale(
                 earnings_proximity_days=earnings_gate_info.get("sessions_to_next"),
             )
             r["news_context"] = nc.to_dict()
+            # News CATALYST signal — the missing half of "news in signals":
+            # sentiment only DEMOTES; this SURFACES event-driven names (a news-
+            # volume spike + its sentiment direction — the oil-breakout case a
+            # technically-quiet Ichimoku read misses). Flag only, never flips the
+            # verdict to BUY (discretionary entry). Uses the counts news_context
+            # just computed — no extra network/LLM call.
+            _cat = detect_news_catalyst(
+                articles_today=r["news_context"].get("article_count_today"),
+                articles_30d_avg=r["news_context"].get("article_count_30d_avg"),
+                mean_sentiment=(r.get("sentiment_summary") or {}).get("mean_sentiment"),
+                cfg=CatalystConfig.from_env(),
+            )
+            r["catalyst_signal"] = _cat.to_dict()
+            if _cat.active:
+                r["catalyst_flag"] = f"CATALYST_{_cat.direction.upper()}"
             # Exit framework block per SIGNAL_CARD_SPEC_v1.md §3. Carry
             # stop / target / RR alongside the verdict so the UI /
             # MCP / IBKR-order-instructions panel can render the
