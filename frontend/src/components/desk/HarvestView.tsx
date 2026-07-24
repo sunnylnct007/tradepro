@@ -87,6 +87,14 @@ export function HarvestView() {
   const [selected, setSelected] = useState<string | null>(null);  // symbol → show its curve
   const [chartRes, setChartRes] = useState("1d");                  // 1m / 5m / 1d
   const [chartTf, setChartTf] = useState("3M");                    // range window
+  // Narrow-screen flag → stack the chart under the table + full-screen pop-out.
+  const [isNarrow, setIsNarrow] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 900 : false);
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < 900);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const [analyzeInput, setAnalyzeInput] = useState("");            // free-text "analyze ANY symbol"
   const [popOut, setPopOut] = useState(false);                     // large chart overlay
   const [loading, setLoading] = useState(true);
@@ -235,7 +243,10 @@ export function HarvestView() {
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{shown.length} shown</span>
       </div>
 
-      <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+      {/* Table LEFT + chart RAIL right (like the cockpit) so the chart is
+          visible without scrolling to the bottom. Stacks on narrow screens. */}
+      <div style={{ display: "flex", flexDirection: isNarrow ? "column" : "row", gap: 14, alignItems: "flex-start", marginTop: 4 }}>
+      <div style={{ flex: 1, minWidth: 0, width: "100%", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
           <thead>
             <tr>
@@ -308,13 +319,20 @@ export function HarvestView() {
             )}
           </tbody>
         </table>
-      </div>
+      </div>{/* end table left column */}
 
-      {/* Click a row → show that symbol's harvested price curve. */}
+      {/* Chart RAIL — sticky on the right (cockpit-style), so it stays in view
+          the moment you click a symbol. Stacks full-width under the table on
+          narrow / mobile screens. */}
       {selected && (
-        <div style={{ marginTop: 16, background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 8, padding: 16 }}>
+        <div style={{
+          width: isNarrow ? "100%" : 480, flexShrink: 0,
+          position: isNarrow ? "static" : "sticky", top: 8, alignSelf: "flex-start",
+          maxHeight: isNarrow ? undefined : "calc(100vh - 24px)", overflow: "auto",
+          background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 8, padding: 14,
+        }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 14 }}>{selected} — Ichimoku cloud + support/resistance</span>
+            <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 14 }}>{selected} — Ichimoku + S/R</span>
             <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <button onClick={() => setPopOut(true)}
                 style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
@@ -327,10 +345,10 @@ export function HarvestView() {
           </div>
           <FlexChartControls coverage={coverage} symbol={selected}
             res={chartRes} setRes={setChartRes} tf={chartTf} setTf={setChartTf} />
-          {/* Rich chart: candles + Ichimoku cloud + pivot support/resistance + drag-resize. */}
-          <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes} height={420} />
+          <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes} height={360} />
         </div>
       )}
+      </div>{/* end flex row */}
 
       {/* Pop-out: the same chart in a large, comfortable overlay. */}
       {selected && popOut && (
