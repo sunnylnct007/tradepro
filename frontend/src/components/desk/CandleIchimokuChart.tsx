@@ -505,6 +505,17 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
   // ---- States ------------------------------------------------------------
   const noData = !loading && !err && (series?.candles?.length ?? 0) === 0;
 
+  // Fail-loud staleness: if the LAST bar isn't current, SAY it on the chart —
+  // never let stale candles read as live (the GOOGL case: daily 2 sessions
+  // behind through a -7% gap, drawn as if it were the market now). Daily
+  // tolerates a weekend (3 calendar days); intraday must be same-day.
+  const _lastCandle = series?.candles?.[(series?.candles?.length ?? 0) - 1];
+  const _lastMs = _lastCandle ? Date.parse(String(_lastCandle.timestamp).replace(" ", "T")) : NaN;
+  const _ageDays = Number.isFinite(_lastMs) ? (Date.now() - _lastMs) / 86_400_000 : null;
+  const _staleAfterDays = resolution === "1d" ? 3 : 1;
+  const isStale = _ageDays !== null && _ageDays > _staleAfterDays;
+  const lastBarDate = _lastCandle ? String(_lastCandle.timestamp).slice(0, 10) : "";
+
   return (
     <div>
       {/* Crosshair OHLC readout (a plus over the basic chart). */}
@@ -535,6 +546,17 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
           <span>Candles · Ichimoku cloud (5·32·50 — strategy params) — hover for OHLC · scroll to zoom · drag bottom edge to resize</span>
         )}
       </div>
+
+      {/* FAIL-LOUD staleness banner — never let stale candles read as current. */}
+      {isStale && !loading && (
+        <div style={{
+          fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(239,68,68,0.85)",
+          border: "1px solid #ef4444", borderRadius: 5, padding: "4px 9px", marginBottom: 4,
+        }}>
+          ⚠ STALE DATA — last {resolution} bar is {lastBarDate} ({Math.floor(_ageDays as number)} days old).
+          The latest price/move is NOT shown here. Do not trade off this chart.
+        </div>
+      )}
 
       <div
         ref={outerRef}
