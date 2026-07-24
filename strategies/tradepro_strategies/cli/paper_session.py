@@ -857,6 +857,70 @@ def _fetch_broker_held_marks(broker: str) -> dict[str, float]:
         return {}
 
 
+def _overlay_live_marks_and_pnl(snapshot: dict, broker: str, log) -> None:
+    """Re-mark every open position in the snapshot to the broker's LIVE current
+    price (golden source) and recompute SINCE-ENTRY P&L off it — so the displayed
+    unrealised P&L can never drift from broker truth.
+
+    The bug this fixes (ANET): the ledger's ``last_mark`` is the last BAR it saw.
+    For a held/thin name with no intraday trigger that's the reconciliation bar's
+    DAILY CLOSE — priced there deliberately so the EXIT signal evaluates
+    deterministically (see the HeldReconciliationBus comment). That stale close
+    then leaked into the displayed P&L: ANET read +$4.92 when the broker's live
+    mark said -$13.32. Here we correct only the DISPLAY mark; the reconciliation
+    bar that drives on_bar / exit evaluation is left untouched, so strategy
+    behaviour + parity are unchanged (feedback_strategy_verbatim_port_parity).
+
+    Fail-loud, never fabricate (feedback_no_false_positives):
+      - ``mark_source``  = "broker_live" | "ledger_stale" | "no_mark"
+      - ``mark_is_stale`` flags any non-live mark so the UI can grey the number
+      - ``since_entry_pnl`` = (live_mark - avg_entry) * qty; set to None (NOT 0,
+        not a guess) when we lack a trustworthy cost basis (avg_entry<=0) or a
+        usable mark — the number is unknown, and we say so rather than invent one.
+    """
+    live = _fetch_broker_held_marks(broker)   # {SYM: currentPrice}; {} on error
+    for book in snapshot.get("strategies") or []:
+        positions = book.get("positions") or []
+        u_total = 0.0
+        n_unknown = 0
+        for pos in positions:
+            sym = str(pos.get("symbol") or "").upper().strip()
+            qty = pos.get("quantity") or 0
+            avg = pos.get("avg_entry_price") or 0.0
+            lm = live.get(sym)
+            if lm and lm > 0:
+                pos["last_mark"] = round(float(lm), 4)
+                pos["mark_source"] = "broker_live"
+                pos["mark_is_stale"] = False
+            else:
+                # Keep whatever mark the ledger had, but say plainly it's not live.
+                pos["mark_source"] = "ledger_stale" if pos.get("last_mark") else "no_mark"
+                pos["mark_is_stale"] = True
+            mark = pos.get("last_mark") or 0.0
+            if avg > 0 and mark > 0:
+                sep = round((mark - avg) * qty, 2)
+                pos["since_entry_pnl"] = sep
+                pos["unrealised_pnl"] = sep      # since-entry IS the open MTM P&L
+                u_total += sep
+            else:
+                pos["since_entry_pnl"] = None     # no trustworthy cost basis → unknown
+                pos["mark_is_stale"] = True
+                n_unknown += 1
+        # Roll the corrected per-position P&L up to the strategy level.
+        realised = book.get("realised_pnl") or 0.0
+        book["unrealised_pnl"] = round(u_total, 2)
+        book["equity"] = round(realised + u_total, 2)
+        book["marks_source"] = "broker_live" if live else "ledger_only"
+        if n_unknown:
+            book["unrealised_pnl_partial"] = True
+            book["positions_without_cost_basis"] = n_unknown
+    if not live:
+        log.warning(
+            "live-mark overlay: broker %s returned no live marks — displayed P&L "
+            "falls back to ledger (possibly stale) marks; positions flagged stale",
+            broker)
+
+
 def _latest_daily_closes(symbols: list[str], cache_dir: str) -> dict[str, float]:
     """{bare_symbol: latest daily close} from the local bar cache — used to PRICE
     the signal-reconciliation bars for UNIVERSE names (entry coverage). The close
@@ -1886,6 +1950,12 @@ def main(argv: list[str] | None = None) -> int:
     # Re-snapshot with recent fills so the Paper page Live tab renders
     # the per-strategy fill log + open positions.
     snapshot = engine.ledger.to_snapshot(include_fills=args.push_fills)
+    # Re-mark open positions to the broker's LIVE price + recompute since-entry
+    # P&L, so the displayed unrealised P&L can't be a stale daily close (the ANET
+    # +$4.92-vs-real-$13.32 bug). Only when we actually hold something — a flat
+    # session has nothing to re-mark and shouldn't make a broker round-trip.
+    if any((b.get("positions") or []) for b in (snapshot.get("strategies") or [])):
+        _overlay_live_marks_and_pnl(snapshot, args.broker, log)
     # Re-apply decisions / bars_seen / charts: ledger.to_snapshot doesn't
     # know about strategy instances, so the engine owns these side-
     # channels. attach_charts was missing here previously which is why
