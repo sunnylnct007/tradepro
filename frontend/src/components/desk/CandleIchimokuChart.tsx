@@ -50,6 +50,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { api } from "../../api/client";
+import { canonicalSymbol } from "../../util/brokerSymbols";
 import { config } from "../../config";
 import { fmtEntryDate } from "./deskFormat";
 import type { Candle, CandleSeries } from "../../api/types";
@@ -156,13 +157,19 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     setErr(null);
     setSeries(null);
     setHover(null);
+    // Canonicalise corporate-action renames for the DATA fetch (FB→META,
+    // LB→BBWI). The broker holds the position under the OLD ticker (FB), but
+    // fetching candles for the literal "FB" resolves to a DIFFERENT ~$44
+    // instrument — charting the wrong company against a $607 META position.
+    // Display keeps the original symbol; only the fetch is canonicalised.
+    const fetchSymbol = canonicalSymbol(symbol);
     const isIntraday = resolution !== "1d";
     const fetchP = isIntraday
       // Deep IBKR store (ibkr_price_bars) — the harvested intraday data. Returns
       // the latest N bars; map to the same candle shape the chart already draws.
       ? api
           .ibkrBars({
-            symbol,
+            symbol: fetchSymbol,
             resolution,
             limit: Math.min(5000, Math.max(50, (BARS_PER_DAY[resolution] ?? 390) * windowDays)),
           })
@@ -181,7 +188,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
       // Daily: Yahoo candles + leading pad so the Ichimoku cloud spans the window.
       : api
           .candles({
-            symbol,
+            symbol: fetchSymbol,
             provider: config.defaultProvider,
             interval: "1d",
             from: new Date(Date.now() - (windowDays + PAD_DAYS) * 24 * 3600 * 1000).toISOString().slice(0, 10),
