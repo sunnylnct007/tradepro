@@ -355,20 +355,24 @@ export function HarvestView() {
         <div
           onClick={() => setPopOut(false)}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000,
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+            display: "flex", alignItems: "center", justifyContent: "center", padding: isNarrow ? 0 : 24 }}
         >
+          {/* Full-screen on mobile so the chart is actually readable. */}
           <div onClick={(e) => e.stopPropagation()}
-            style={{ background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 10,
-              padding: 18, width: "min(1200px, 94vw)", maxHeight: "92vh", overflow: "auto" }}>
+            style={{ background: "var(--surface-1)", border: isNarrow ? "none" : "1px solid var(--border)",
+              borderRadius: isNarrow ? 0 : 10, padding: isNarrow ? 12 : 18,
+              width: isNarrow ? "100vw" : "min(1200px, 94vw)",
+              height: isNarrow ? "100vh" : undefined,
+              maxHeight: isNarrow ? "100vh" : "92vh", overflow: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 16 }}>{selected} — Ichimoku cloud + S/R</span>
               <button onClick={() => setPopOut(false)}
-                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 22, lineHeight: 1 }}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 26, lineHeight: 1, padding: "0 6px" }}
                 title="Close">✕</button>
             </div>
             <FlexChartControls coverage={coverage} symbol={selected}
               res={chartRes} setRes={setChartRes} tf={chartTf} setTf={setChartTf} />
-            <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes} height={640} />
+            <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes} height={isNarrow ? 440 : 640} />
           </div>
         </div>
       )}
