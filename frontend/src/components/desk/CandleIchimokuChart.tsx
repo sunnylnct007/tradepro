@@ -531,20 +531,31 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
           marginBottom: 4,
         }}
       >
-        {hover ? (
-          <>
-            <span>{hover.timestamp.slice(0, 10)}</span>
-            <span>O {fmt(hover.open, ccy)}</span>
-            <span>H {fmt(hover.high, ccy)}</span>
-            <span>L {fmt(hover.low, ccy)}</span>
-            <span style={{ color: hover.close >= hover.open ? "#1fc16b" : "#ef4444" }}>
-              C {fmt(hover.close, ccy)}
-            </span>
-            <span>Vol {Number.isFinite(hover.volume) ? hover.volume.toLocaleString() : "—"}</span>
-          </>
-        ) : (
-          <span>Candles · Ichimoku cloud (5·32·50 — strategy params) — hover for OHLC · scroll to zoom · drag bottom edge to resize</span>
-        )}
+        {(() => {
+          // Show the hovered bar; otherwise show the LATEST bar (never generic
+          // help text) so it's unambiguous which session the chart ends on — the
+          // "why isn't the 24th here?" confusion was that only a hover revealed a
+          // date, and that date was wherever the cursor sat.
+          const bar = hover ?? _lastCandle;
+          if (!bar) {
+            return <span>Candles · Ichimoku cloud (5·32·50) — hover for OHLC · scroll to zoom</span>;
+          }
+          return (
+            <>
+              <span style={{ fontWeight: 700, color: isStale ? "#ef4444" : "var(--text-dim)" }}>
+                {hover ? "" : "LATEST "}{bar.timestamp.slice(0, 10)}
+              </span>
+              <span>O {fmt(bar.open, ccy)}</span>
+              <span>H {fmt(bar.high, ccy)}</span>
+              <span>L {fmt(bar.low, ccy)}</span>
+              <span style={{ color: bar.close >= bar.open ? "#1fc16b" : "#ef4444" }}>
+                C {fmt(bar.close, ccy)}
+              </span>
+              <span>Vol {Number.isFinite(bar.volume) ? bar.volume.toLocaleString() : "—"}</span>
+              {!hover && <span style={{ color: "var(--text-muted)" }}>· hover for any bar · scroll to zoom</span>}
+            </>
+          );
+        })()}
       </div>
 
       {/* FAIL-LOUD staleness banner — never let stale candles read as current. */}
