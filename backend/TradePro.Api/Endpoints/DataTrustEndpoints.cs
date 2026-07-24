@@ -88,6 +88,22 @@ public static class DataTrustEndpoints
         return d;
     }
 
+    /// <summary>Trading sessions (weekdays) between a coverage-end date and the
+    /// last completed session, counting days strictly AFTER coverageEnd up to and
+    /// including lastSession. Weekend-safe (a Friday bar is 0 behind on the
+    /// following Monday); holidays are not modelled (over-counts by at most the
+    /// rare holiday, absorbed by the 1-session grace). 0 when coverage is at/after
+    /// the last session.</summary>
+    private static int SessionsBehind(DateTime coverageEnd, DateTime lastSession)
+    {
+        var c = coverageEnd.Date; var l = lastSession.Date;
+        if (c >= l) return 0;
+        int n = 0;
+        for (var day = c.AddDays(1); day <= l; day = day.AddDays(1))
+            if (day.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday)) n++;
+        return n;
+    }
+
     public static IEndpointRouteBuilder MapDataTrustEndpoints(this IEndpointRouteBuilder app)
     {
         var g = app.MapGroup("/admin/data-trust").WithTags("Admin");
@@ -649,7 +665,12 @@ public static class DataTrustEndpoints
             string? asset_class,
             int? stale_after_days) =>
         {
-            int staleAfter = Math.Clamp(stale_after_days ?? 4, 1, 30);
+            // Default 1 SESSION of grace (a bar can be one session behind between
+            // a close and the nightly harvest). ≥2 sessions behind = STALE (a
+            // real missed harvest), so a daily 2 sessions stale can't read
+            // "fresh" through a gap day. Was 4 (calendar-day era) — too loose now
+            // that dB is session-counted.
+            int staleAfter = Math.Clamp(stale_after_days ?? 1, 1, 30);
             var today = DateTime.UtcNow.Date;
             // Freshness is measured against the last COMPLETED US session,
             // not the calendar day — so having yesterday's close mid-session
@@ -689,13 +710,14 @@ public static class DataTrustEndpoints
                 }
                 else
                 {
-                    // Sessions behind the last COMPLETED US session. A symbol
-                    // that already holds that session's bar is 0-behind (fresh),
-                    // even though the wall-clock calendar day is +1. Clamp at 0
-                    // so a symbol carrying an intraday/partial today-bar (coverage
-                    // ahead of last completed session) isn't reported as negative.
-                    int dB = (lastSessionDate - r.CoverageEnd.Value.Date).Days;
-                    if (dB < 0) dB = 0;
+                    // TRADING SESSIONS (weekdays) behind the last COMPLETED US
+                    // session — NOT calendar days. Calendar-days over-counted
+                    // weekends (a Fri bar read 3 behind on Monday) which forced a
+                    // loose staleAfter=4, and THAT let a genuinely 2-session-stale
+                    // daily (e.g. GOOGL two sessions behind through a -7% gap) read
+                    // "fresh". Session-counting lets us tighten honestly. A symbol
+                    // holding the last completed session's bar is 0-behind (fresh).
+                    int dB = SessionsBehind(r.CoverageEnd.Value.Date, lastSessionDate);
                     daysBehind = dB;
                     if (dB > staleAfter)
                     {
