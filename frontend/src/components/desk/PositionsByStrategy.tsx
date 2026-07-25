@@ -93,6 +93,10 @@ export function PositionsByStrategy({
   const [err,      setErr]     = useState<string | null>(null);
   const [notes,    setNotes]   = useState<string[]>([]);
   const [series,   setSeries]  = useState<Record<string, number[] | null>>({});
+  // IBKR clone account-state is a CACHED broker read (broker_account_state), not
+  // live — track when it was pushed so we can fail loud if it goes stale (a stale
+  // book once showed 28 phantom shorts after a broker reset).
+  const [ibkrAsOf, setIbkrAsOf] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -244,6 +248,7 @@ export function PositionsByStrategy({
       }
 
       if (!live) return;
+      setIbkrAsOf(paper?.updatedAtUtc ?? null);
       setGrouping(out.some((r) => r.strategyId) ? "strategy" : "broker");
       setRows(out);
       setNotes(msgs);
@@ -319,6 +324,7 @@ export function PositionsByStrategy({
             key={`${sec.key}:${collapseGen}`}
             section={sec}
             series={series}
+            asOfUtc={sec.rows.some((r) => r.broker === "IBKR" && r.mode === "DEMO") ? ibkrAsOf : null}
             onSelectSymbol={onSelectSymbol}
           />
         ))}
@@ -368,10 +374,12 @@ function buildSections(rows: InternalRow[], grouping: "strategy" | "broker"): Se
 function PositionSection({
   section,
   series,
+  asOfUtc,
   onSelectSymbol,
 }: {
   section: Section;
   series: Record<string, number[] | null>;
+  asOfUtc?: string | null;
   onSelectSymbol?: (sym: string, strategyId?: string | null) => void;
 }) {
   // Collapsed state: initialise from localStorage (default = expanded).
@@ -458,6 +466,28 @@ function PositionSection({
             EXECUTION UNCONFIRMED
           </span>
         )}
+        {/* Fail-loud staleness: the IBKR book is a CACHED broker read. Always show
+            when it was last pushed; turn red if it's old, so a stale snapshot can
+            never masquerade as the live position (the 28-phantom-shorts case). */}
+        {unconfirmedExec && asOfUtc && (() => {
+          const ageMs = Date.now() - Date.parse(asOfUtc);
+          const ageH = ageMs / 3_600_000;
+          const stale = ageH > 8;
+          const rel = ageH >= 1 ? `${Math.floor(ageH)}h ago` : `${Math.max(1, Math.round(ageMs / 60000))}m ago`;
+          return (
+            <span
+              title={`Position book snapshot pushed ${new Date(asOfUtc).toLocaleString()}. This is a CACHED broker read, not live — if it is stale the positions/P&L may not match your broker.`}
+              style={{
+                fontSize: 8, fontWeight: 700, padding: "0px 4px", borderRadius: 4,
+                background: stale ? "rgba(248,81,73,0.15)" : "rgba(148,163,184,0.12)",
+                border: `1px solid ${stale ? "rgba(248,81,73,0.6)" : "rgba(148,163,184,0.35)"}`,
+                color: stale ? "#f85149" : "var(--text-muted)", letterSpacing: "0.03em", cursor: "help",
+              }}
+            >
+              {stale ? "⚠ STALE " : "as of "}{rel}
+            </span>
+          );
+        })()}
         <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>
           {section.rows.length} holding{section.rows.length === 1 ? "" : "s"}
         </span>
