@@ -19,6 +19,12 @@ public sealed class IBKRPositionSource : IBrokerPositionSource
 
     public string BrokerLabel => "IBKR_PAPER";
 
+    // IBKR_PAPER is the DEMO clone whose orders route through an ack-less gateway
+    // (no broker fill id), so its OMS book drifts into phantom positions the broker
+    // never held. The broker (Web API) is the sole truth here → opt into auto-clear
+    // of broker-flat standing drift. Demo only; still config-gated in the reconciler.
+    public bool AutoFlattenStandingDrift => true;
+
     public async Task<BrokerPositionsRead> ReadPositionsAsync(CancellationToken ct)
     {
         try

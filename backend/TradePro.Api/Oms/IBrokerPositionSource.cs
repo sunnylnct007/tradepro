@@ -32,6 +32,18 @@ public interface IBrokerPositionSource
     /// <summary>OMS broker label this source reconciles (e.g. "T212_DEMO").</summary>
     string BrokerLabel { get; }
 
+    /// <summary>
+    /// When true, the reconciler may AUTO-CLEAR a standing OMS position the broker
+    /// holds NONE of (net 0) — the ack-less-execution case where the OMS book is
+    /// unreliable and the broker is the sole truth (the IBKR paper clone, whose
+    /// gateway wrote unconfirmed fills that opened phantom shorts). Deliberately
+    /// OFF by default: a confirmed-execution / real-money broker must never have
+    /// its book auto-mutated — it only ever FLAGS standing drift for an operator.
+    /// Auto-clear is further gated by config (Oms:AutoFlattenDemoDrift) and only
+    /// ever touches positions the broker holds exactly zero of.
+    /// </summary>
+    bool AutoFlattenStandingDrift => false;
+
     /// <summary>Read current positions from the broker (the golden source).
     /// Must return <see cref="BrokerPositionsRead.Fail"/> on ANY error rather
     /// than an empty success — the distinction is load-bearing.</summary>

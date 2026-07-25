@@ -37,6 +37,7 @@ public sealed class GoldenSourceReconciler : BackgroundService
     private readonly ILogger<GoldenSourceReconciler> _log;
     private readonly TimeSpan _tick;
     private readonly TimeSpan _grace;
+    private readonly bool _autoFlattenDemoDrift;
 
     public GoldenSourceReconciler(
         IServiceProvider services,
@@ -49,6 +50,9 @@ public sealed class GoldenSourceReconciler : BackgroundService
         _log = log;
         _tick = TimeSpan.FromSeconds(Math.Clamp(config.GetValue<int?>("Oms:ReconcileSeconds") ?? 60, 15, 600));
         _grace = TimeSpan.FromSeconds(Math.Clamp(config.GetValue<int?>("Oms:ReconcileGraceSeconds") ?? 300, 60, 3600));
+        // Kill-switch for the demo auto-clear (default on). Set Oms:AutoFlattenDemoDrift=false
+        // to make even the demo IBKR clone flag-only if the auto-clear ever misbehaves.
+        _autoFlattenDemoDrift = config.GetValue<bool?>("Oms:AutoFlattenDemoDrift") ?? true;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -161,9 +165,66 @@ public sealed class GoldenSourceReconciler : BackgroundService
                 src.BrokerLabel, o.Symbol, o.Qty, price, price == 0m ? " (unconfirmed)" : "");
         }
 
+        // --- Standing-position reconcile (FILLED book vs the broker's held book) ---
+        // The loop above only settles in-flight SELLs. A position recorded FILLED
+        // that the broker never actually held — the IBKR clone's ack-less gateway
+        // wrote unconfirmed fills, opening phantom shorts — is invisible to it and
+        // ACCUMULATES silently (the 34 shorts that survived a broker reset). Compare
+        // the OMS net book to the broker: FLAG every mismatch loudly; for a source
+        // that opts into auto-clear (the demo IBKR clone, whose execution is
+        // unconfirmed so the broker is the sole truth) net-zero any symbol the
+        // broker holds NONE of. Only brokerQty==0 is auto-cleared — a partial
+        // mismatch is ambiguous (whose strategy owns the residual) so it is flagged,
+        // never guessed. Grace-guarded so we never race a just-recorded fill.
+        int flattened = 0;
+        var canAutoClear = _autoFlattenDemoDrift && src.AutoFlattenStandingDrift;
+        var omsBook = (await oms.ListPositionsAsync(null))
+            .Where(p => string.Equals(p.Broker, src.BrokerLabel, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var pos in omsBook)
+        {
+            if (ct.IsCancellationRequested) break;
+            held.TryGetValue(PositionReconcile.Canonical(pos.Symbol), out var brokerQty);
+            var action = PositionReconcile.ClassifyStanding(
+                pos.Quantity, brokerQty, pos.LastFillAtUtc, canAutoClear, _grace, DateTime.UtcNow);
+            if (action is PositionReconcile.StandingAction.InSync or PositionReconcile.StandingAction.SkipGrace)
+                continue;
+
+            if (action == PositionReconcile.StandingAction.AutoClear)
+            {
+                // Offset to zero, attributed to the SAME strategy so the per-strategy
+                // view zeroes cleanly. Price 0-flagged (unconfirmed) — never fabricate.
+                var side = pos.Quantity < 0m ? "BUY" : "SELL";
+                var qty = Math.Abs(pos.Quantity);
+                var intent = new OrderIntent(
+                    ClientOrderId: Guid.NewGuid(),
+                    Broker: src.BrokerLabel,
+                    Symbol: pos.Symbol,
+                    Side: side,
+                    Qty: qty,
+                    OrderType: "MKT",
+                    StrategyId: pos.StrategyId == "(unattributed)" ? null : pos.StrategyId,
+                    PlacedBy: "STRATEGY_AUTO");
+                var order = await oms.EnqueueAsync(intent, $"reconciler:{src.BrokerLabel}");
+                await oms.RecordFillAsync(
+                    order.Id, qty, price: 0m, fee: 0m, currency: "USD",
+                    brokerFillId: "standing_reconcile_broker_flat",
+                    actor: $"reconciler:{src.BrokerLabel}");
+                flattened++;
+                drift.Add($"{pos.Symbol} standing OMS={pos.Quantity}→0 auto-cleared (broker holds none; price unconfirmed)");
+                _log.LogInformation(
+                    "reconcile {Broker}: {Sym} standing position {Qty} auto-cleared to broker-flat",
+                    src.BrokerLabel, pos.Symbol, pos.Quantity);
+            }
+            else
+            {
+                drift.Add($"{pos.Symbol} standing OMS={pos.Quantity} but broker={brokerQty} — not auto-reconciling (needs check)");
+            }
+        }
+
         var status = new ReconciliationBrokerStatus(
             src.BrokerLabel, DateTime.UtcNow, true, null,
-            openSells.Count, settled, unconfirmed, drift);
+            openSells.Count, settled + flattened, unconfirmed, drift);
         _status.Record(status);
         return status;
     }

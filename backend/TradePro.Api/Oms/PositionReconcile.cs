@@ -72,4 +72,36 @@ public static class PositionReconcile
         if (!heldByCanonical.TryGetValue(canon, out var q)) return true; // not held → gone
         return System.Math.Abs(q) < 1e-9m;                               // netted flat
     }
+
+    /// <summary>What the reconciler should do with ONE standing (filled) OMS
+    /// position given the broker's held quantity for that symbol.</summary>
+    public enum StandingAction
+    {
+        InSync,     // OMS matches the broker — nothing to do
+        SkipGrace,  // recently filled — don't race broker settlement
+        AutoClear,  // broker holds NONE and the source opted into auto-clear → net to 0
+        Flag,       // mismatch we must NOT auto-mutate — surface for a human
+    }
+
+    /// <summary>
+    /// Pure decision for the standing-position reconcile — extracted so the
+    /// safety-critical rule (which drift the background loop may auto-mutate) is
+    /// unit-tested without a DB or DI. DELIBERATELY conservative
+    /// (feedback_no_false_positives):
+    ///   • equal qty → InSync (no action).
+    ///   • filled within the grace window → SkipGrace (settlement may still be
+    ///     landing at the broker; never reverse a fresh fill).
+    ///   • AutoClear ONLY when the source opted in AND the broker holds EXACTLY
+    ///     zero — a partial/opposite mismatch is ambiguous (whose strategy owns
+    ///     the residual, is the read complete) so it is Flagged, never guessed.
+    /// </summary>
+    public static StandingAction ClassifyStanding(
+        decimal omsQty, decimal brokerQty, DateTime lastFillUtc,
+        bool canAutoClear, TimeSpan grace, DateTime nowUtc)
+    {
+        if (omsQty == brokerQty) return StandingAction.InSync;
+        if (lastFillUtc > nowUtc - grace) return StandingAction.SkipGrace;
+        if (canAutoClear && brokerQty == 0m) return StandingAction.AutoClear;
+        return StandingAction.Flag;
+    }
 }
