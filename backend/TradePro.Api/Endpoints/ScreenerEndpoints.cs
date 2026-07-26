@@ -102,9 +102,11 @@ public static class ScreenerEndpoints
             var payload = new { run_date = runDate, spy_history = spyHistory, stocks };
             var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = false });
 
-            // Write temp input file
+            // Write temp input file. UTF-8 WITHOUT a BOM: Encoding.UTF8 emits a
+            // byte-order mark, and daily_run.py's json.load chokes on it
+            // ("Unexpected UTF-8 BOM"). JSON must not carry a BOM.
             var inputFile = Path.Combine(Path.GetTempPath(), $"screener_{runDate}.json");
-            await File.WriteAllTextAsync(inputFile, json, Encoding.UTF8, ct);
+            await File.WriteAllTextAsync(inputFile, json, new UTF8Encoding(false), ct);
 
             // Locate daily_run.py relative to this assembly
             var screenerScript = FindScreenerScript();
