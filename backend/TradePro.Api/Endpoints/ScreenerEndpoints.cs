@@ -141,16 +141,20 @@ public static class ScreenerEndpoints
             }
             catch (Exception ex)
             {
-                // Fail-loud: surface the REAL error instead of a bare 500, so the
-                // opaque "screener keeps failing" is diagnosable. The SPY fetch +
-                // the subprocess launch were previously unguarded — any throw
-                // there (IBKR paused/session, bad conid, python not found) 500'd
-                // with an empty body.
+                // Fail-loud AND diagnosable: return the real error as a 200 with
+                // ok:false (same shape as the other return paths). A Problem(500)
+                // is stripped to an empty body by the front nginx
+                // (proxy_intercept_errors), so the portal only ever saw "500 :" —
+                // undiagnosable. 200 lets the actual exception reach the caller.
                 log.LogError(ex, "Screener run failed");
-                return Results.Problem(
-                    title: "Screener run failed",
-                    detail: ex.Message,
-                    statusCode: 500);
+                return Results.Ok(new
+                {
+                    ok = false,
+                    error = ex.Message,
+                    type = ex.GetType().Name,
+                    stack = (ex.StackTrace ?? "").Split('\n').Take(8).ToArray(),
+                    inner = ex.InnerException?.Message,
+                });
             }
         });
 
