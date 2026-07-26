@@ -545,6 +545,12 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 # their own 200-SMA. OFF for the verbatim T212 control.
                 "entry_require_above_200sma": bool(getattr(args, "entry_require_above_200sma", False)),
                 "entry_veto_ma_suspect": bool(getattr(args, "entry_veto_ma_suspect", False)),
+                # Entry-quality gate: skip a NEW long that's an RS laggard or on
+                # thin volume (the ANET case). OFF for the verbatim T212 control;
+                # enabled on the protected clone via runtime_config.
+                "entry_quality_gate": bool(getattr(args, "entry_quality_gate", False)),
+                "entry_min_rs": getattr(args, "entry_min_rs", 5.0),
+                "entry_min_volume_ratio": getattr(args, "entry_min_volume_ratio", 0.8),
             },
         )
 
@@ -1407,6 +1413,7 @@ def _apply_config_overrides(args, log) -> None:
                 "max_per_sector", "warmup_bars", "max_position_value_usd",
                 "target_vol", "max_leverage", "sleeve_size",
                 "entry_max_ext_pct", "entry_rsi_max", "entry_require_above_200sma", "entry_veto_ma_suspect",
+                "entry_quality_gate", "entry_min_rs", "entry_min_volume_ratio",
                 "top_n", "min_atr_pct", "min_strength",
                 "max_daily_loss_usd", "max_drawdown_pct",
                 "max_open_positions", "max_position_pct_of_capital",
