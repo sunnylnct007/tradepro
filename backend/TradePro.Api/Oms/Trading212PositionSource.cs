@@ -19,8 +19,18 @@ public sealed class Trading212PositionSource : IBrokerPositionSource
         {
             var r = await _client.GetPositionsAsync(ct);
             if (r.Error is not null) return BrokerPositionsRead.Fail(r.Error);
+            // T212 nests the ticker in `instrument` on /equity/portfolio; the
+            // top-level Ticker is NULL in the wild. Reading p.Ticker alone made
+            // every held position look tickerless → the reconciler saw an EMPTY
+            // book and (a) falsely settled every in-flight sell and (b) flagged
+            // every real holding as broker-flat drift. Same fallback the
+            // sync-from-broker path uses (ReconcileMath). Drop any still-null.
             return BrokerPositionsRead.From(
-                r.Positions.Select(p => (p.Ticker, p.Quantity)).ToList());
+                r.Positions
+                 .Select(p => (Ticker: p.Instrument?.Ticker ?? p.Ticker, p.Quantity))
+                 .Where(x => !string.IsNullOrWhiteSpace(x.Ticker))
+                 .Select(x => (x.Ticker!, x.Quantity))
+                 .ToList());
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
