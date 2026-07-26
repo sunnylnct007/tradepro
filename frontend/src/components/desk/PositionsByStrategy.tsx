@@ -340,7 +340,7 @@ export function PositionsByStrategy({
       )}
       <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
         {grouping === "strategy"
-          ? "Grouped by strategy · unattributed = IBKR LIVE account holdings · "
+          ? "Grouped by strategy · unattributed = broker positions the OMS can't tie to a strategy (manual/pre-existing broker trades, or an OMS fill-tracking gap) · "
           : "Grouped by broker (no OMS attribution) · "}
         native currency · click a row to open symbol detail (equity only) ·
         P&amp;L = since entry (last − avg × qty), not today's move ·
