@@ -51,10 +51,14 @@ def rank_by_momentum(
     sorted_desc = sorted(valid, key=lambda kv: kv[1], reverse=True)
     rank_by_symbol: dict[str, int] = {s: i + 1 for i, (s, _) in enumerate(sorted_desc)}
 
-    values = [v for _, v in valid]
+    values = [float(v) for _, v in valid]
     basket_mean = float(mean(values))
     basket_median = _median(values)
-    basket_stdev = float(pstdev(values)) if n > 1 else 0.0
+    # Manual population stdev instead of statistics.pstdev: pstdev raises
+    # "'float' object has no attribute 'numerator'" under some Python 3.12 builds
+    # (its Fraction path returns a float for mss), which crashed multi-symbol
+    # compare at rank_by_momentum. sqrt(mean((x-μ)²)) is version-proof.
+    basket_stdev = (sum((x - basket_mean) ** 2 for x in values) / n) ** 0.5 if n > 1 else 0.0
     top_quartile_threshold = max(1, n // 4)
 
     out: dict[str, dict] = {}
