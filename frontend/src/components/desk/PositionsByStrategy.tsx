@@ -140,7 +140,11 @@ export function PositionsByStrategy({
             company: p.yahooSymbol ?? null,
             qty: fmtQty(p.quantity),
             last: p.currentPrice,
-            changePct: p.unrealisedPct,
+            // Change% is TODAY's move; the T212 position feed carries no daily
+            // change, so leave it "—" rather than duplicating the since-entry %
+            // (that duplication made the P&L look like a daily number). P&L below
+            // is the broker's since-entry unrealised = (last − avg) × qty.
+            changePct: null,
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: p.currency,
@@ -172,7 +176,7 @@ export function PositionsByStrategy({
             company: p.instrumentName ?? null,
             qty: fmtQty(p.quantity),
             last: p.currentPrice,
-            changePct: p.unrealisedPct,
+            changePct: null,   // no daily-move field; P&L below is since-entry
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: null,
@@ -339,6 +343,7 @@ export function PositionsByStrategy({
           ? "Grouped by strategy · unattributed = IBKR LIVE account holdings · "
           : "Grouped by broker (no OMS attribution) · "}
         native currency · click a row to open symbol detail (equity only) ·
+        P&amp;L = since entry (last − avg × qty), not today's move ·
         Trend = ~30 daily closes (not fabricated)
       </div>
     </div>
