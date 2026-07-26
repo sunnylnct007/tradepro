@@ -74,6 +74,8 @@ from ._equity_trader_signal import latest_signal_and_meta, position_series, slee
 # (max_per_sector). Static table — see _equity_sectors for the rationale.
 from ._equity_sectors import sector_for as _sector_for
 from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
+from ...gates.entry_quality import EntryQualityConfig, evaluate_entry_quality
+from ...market_state import _volume_ratio_20d
 
 
 _log = logging.getLogger("tradepro.paper.ichimoku_equity")
@@ -253,6 +255,18 @@ class IchimokuEquityStrategy(Strategy):
             #   a fresh cross, so this is a no-op there (parity-safe); it only
             #   blocks entering an already-long name on a seed/re-seed.
             "entry_fresh_only": True,
+            # entry_quality_gate (bool): OPT-IN. When True, SKIP a NEW long that is
+            #   a relative-strength LAGGARD (rs_score < entry_min_rs) OR entering on
+            #   THIN volume (volume_ratio_20d < entry_min_volume_ratio) — the ANET
+            #   low-quality-entry case (rs 2/10 drifting up on 0.45x volume). OFF by
+            #   default ⇒ verbatim/no-network parity. Vetoes the ENTRY only; held
+            #   positions + exits are untouched. FAIL-OPEN: a MISSING input never
+            #   blocks (only a confirmed floor breach vetoes), so a transient RS
+            #   feed outage can't halt trading. RS needs a per-symbol sector-RS
+            #   fetch, paid only when this gate is enabled.
+            "entry_quality_gate": False,
+            "entry_min_rs": 5.0,
+            "entry_min_volume_ratio": 0.8,
         }
 
     # ------------------------------------------------------------------ #
@@ -498,6 +512,29 @@ class IchimokuEquityStrategy(Strategy):
                         symbol=sym, bar_ts=bar.timestamp,
                         action="skip-extended",
                         reason=f"don't-chase gate: {why}",
+                        signal=signal, cloud_position=cloud_pos,
+                    )
+                    return []
+            # ── Entry-quality gate: RS + volume floors (OPT-IN) ─────────────
+            # OFF by default ⇒ no-op (verbatim parity). When on, SKIP a NEW long
+            # that is a relative-strength LAGGARD OR entering on THIN volume — the
+            # ANET case (rs 2/10 on 0.45x volume). FAIL-OPEN: only a confirmed floor
+            # breach (action == "veto") blocks; a missing RS/volume input never
+            # halts the entry. Blocks the ENTRY only; held positions/exits untouched.
+            if p.get("entry_quality_gate"):
+                _eq = evaluate_entry_quality(
+                    rs_score=(meta.get("rs_score") if meta else None),
+                    volume_ratio=(meta.get("volume_ratio_20d") if meta else None),
+                    cfg=EntryQualityConfig(
+                        min_rs_score=float(p.get("entry_min_rs", 5.0)),
+                        min_volume_ratio=float(p.get("entry_min_volume_ratio", 0.8)),
+                    ),
+                )
+                if _eq.action == "veto":
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp,
+                        action="skip-low-quality-entry",
+                        reason=f"entry-quality gate: {_eq.to_dict()['summary']}",
                         signal=signal, cloud_position=cloud_pos,
                     )
                     return []
@@ -1146,6 +1183,19 @@ class IchimokuEquityStrategy(Strategy):
                 # a backlog on a re-seed.
                 long_fresh = bool(len(ps) >= 1 and ps.iloc[-1] >= 1.0 and (len(ps) < 2 or ps.iloc[-2] < 1.0))
                 meta = {**meta, "long_fresh": long_fresh}
+                # Entry-quality inputs (consumed by entry_quality_gate in on_bar).
+                # volume_ratio is free from the df already in hand; rs_score needs a
+                # per-symbol network fetch, so only pay it when the gate is enabled.
+                vcol = cols.get("volume")
+                if vcol is not None:
+                    meta = {**meta, "volume_ratio_20d": _volume_ratio_20d(df[vcol])}
+                if p.get("entry_quality_gate"):
+                    try:
+                        from ...sector_rs import compute_sector_rs
+                        _rs = (compute_sector_rs(symbol) or {}).get("rs_score")
+                    except Exception:  # noqa: BLE001 — RS is best-effort, fail-open
+                        _rs = None
+                    meta = {**meta, "rs_score": _rs}
             except Exception:  # noqa: BLE001 — gate metadata is best-effort
                 pass
 
