@@ -34,6 +34,7 @@ from .gates.earnings_proximity import (
     sessions_to as _eg_sessions_to,
 )
 from .gates.catalyst_signal import CatalystConfig, detect_news_catalyst
+from .gates.entry_quality import EntryQualityConfig, evaluate_entry_quality
 from .combined_verdict import derive_combined_verdict
 from .external_consensus import ExternalConsensus, _fetch_info, fetch_consensus
 from .fundamentals import Fundamentals, fetch_fundamentals
@@ -558,7 +559,10 @@ def _attach_bucket_and_rationale(
         _eg_cfg = EarningsGateConfig.from_env()
         _has_earnings = not _is_etf(symbol)
         _next_date = (earnings_sig.get("upcoming") or {}).get("date")
-        _last_date = (earnings_sig.get("earnings") or {}).get("announce_date")
+        _last_date = (
+            earnings_sig.get("last_report_date")  # Finnhub history (this env)
+            or (earnings_sig.get("earnings") or {}).get("announce_date")  # yfinance
+        )
         _est = bool((earnings_sig.get("upcoming") or {}).get("isEstimate"))
         _s_to = _eg_sessions_to(_next_date) if _next_date else None
         _s_since = _eg_sessions_since(_last_date) if _last_date else None
@@ -719,6 +723,7 @@ def _attach_bucket_and_rationale(
         # row below.  Uses data already assembled in `best`; sector RS and
         # EPS revision are best-effort (None → neutral factor score 5).
         # Wrapped in a broad try/except so a scorer bug never breaks compare.
+        _sector_rs_res = None
         try:
             from .compass_scorer import compute_compass_score
             from .sector_rs import compute_sector_rs
@@ -733,6 +738,28 @@ def _attach_bucket_and_rationale(
             _compass_dict = _compass_res.to_dict()
         except Exception:  # noqa: BLE001 — never break compare run
             _compass_dict = None
+
+        # Entry-quality GATE — a technical BUY on a relative-strength LAGGARD or
+        # on THIN volume is the low-quality entry a discretionary trader passes on
+        # (the ANET case: RS ~2/10 drifting up on ~0.5× volume near its highs).
+        # Demote such a BUY to WAIT + cap conviction; a BUY we CAN'T check (missing
+        # RS/volume) is capped, never waved through as a clean high-conviction rec.
+        # Only ever touches BUY — never upgrades a WAIT/AVOID.
+        _rs_score = (_sector_rs_res or {}).get("rs_score") if isinstance(_sector_rs_res, dict) else None
+        _eq = evaluate_entry_quality(
+            rs_score=_rs_score,
+            volume_ratio=ms.get("volume_ratio_20d"),
+            cfg=EntryQualityConfig.from_env(),
+        )
+        entry_quality_info = _eq.to_dict()
+        if bucket == "BUY":
+            if _eq.action == "veto":
+                bucket = "WAIT"
+                reason = f"{reason} · entry-quality veto: {entry_quality_info['summary']}"
+                if conviction == "HIGH":
+                    conviction = "MEDIUM"
+            elif _eq.action == "flag_missing" and conviction == "HIGH":
+                conviction = "MEDIUM"
 
         # Copy bucket + reason + sentiment-demoted flag + rationale onto
         # every row for this symbol so the frontend can render any row's
@@ -767,6 +794,10 @@ def _attach_bucket_and_rationale(
             r["conviction"] = conviction
             r["conviction_reason"] = conviction_reason
             r["conviction_demoted"] = conviction_demoted
+            # Entry-quality gate result (RS + volume floors) — surfaced so the
+            # card/digest can show "BUY → WAIT: weak RS 2/10, thin volume 0.5×"
+            # and never present a laggard/thin entry as a clean BUY.
+            r["entry_quality"] = entry_quality_info
             # Surfaced data gaps ("couldn't compute" checks) so the Decide UI
             # shows "BUY (unverified: …)" instead of a clean confident verdict.
             r["data_gaps"] = gap_labels(data_gaps)
@@ -1037,6 +1068,22 @@ def compare(
                             logger.emit("compare.earnings_history_failed",
                                         symbol=symbol, error=str(e))
                         earnings_history_cache[symbol] = []
+                    # Most recent PAST report from the Finnhub earnings history —
+                    # feeds the earnings-proximity gate's post-report (digest /
+                    # drift) side when yfinance has no recent date (e.g. this env).
+                    try:
+                        import datetime as _d0
+                        _today0 = _d0.date.today()
+                        _past = [
+                            str(e.get("date"))[:10]
+                            for e in (earnings_history_cache.get(symbol) or [])
+                            if e.get("date")
+                            and _d0.date.fromisoformat(str(e["date"])[:10]) <= _today0
+                        ]
+                        if _past:
+                            sig["last_report_date"] = max(_past)
+                    except Exception:  # noqa: BLE001 — best-effort, gate falls back to UNKNOWN
+                        pass
                     # Attach the next upcoming earnings (Finnhub) so
                     # the digest can warn about position-into-earnings
                     # volatility. Off-by-default: returns None when
