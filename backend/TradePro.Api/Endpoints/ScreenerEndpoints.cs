@@ -74,11 +74,13 @@ public static class ScreenerEndpoints
             // hiccup here threw straight to a bare 500 with no diagnosable detail).
             var spyHistory = await FetchHistoryDict(ibkr, "SPY", 756733, log, ct);
 
+            var liveIvCount = 0;
             foreach (var (ticker, conid) in Universe)
             {
                 try
                 {
-                    var snapshot = await FetchSnapshotDict(ibkr, conid, log, ct);
+                    var (snapshot, hasLiveIv) = await FetchSnapshotDict(ibkr, conid, log, ct);
+                    if (hasLiveIv) liveIvCount++;
                     var history = ticker == "SPY"
                         ? spyHistory
                         : await FetchHistoryDict(ibkr, ticker, conid, log, ct);
@@ -97,6 +99,29 @@ public static class ScreenerEndpoints
                     log.LogWarning("Screener: failed {Ticker}: {Err}", ticker, ex.Message);
                     stocks[ticker] = new { conid, snapshot = new { }, history = new { }, earnings_date = (string?)null };
                 }
+            }
+
+            // Market-closed / cold-feed guard: IBKR serves 0 for IV & HV outside
+            // regular hours. If NOT ONE ticker has a live IV, the options/vol feed
+            // is cold — the screener would score every name to 0 and email a
+            // misleading "0 candidates". Say NO DATA plainly instead, and DON'T
+            // run the screener / send those empty emails (feedback: never present
+            // an absence of data as a confident empty result).
+            if (liveIvCount == 0)
+            {
+                log.LogInformation("Screener: skipped — IV feed cold across all {N} tickers (market closed?)", stocks.Count);
+                return Results.Ok(new
+                {
+                    ok = false,
+                    skipped = true,
+                    reason = "Market closed — live IV/volatility data unavailable from IBKR "
+                           + "(the options feed is cold outside regular trading hours). The screener "
+                           + "was NOT run and no email was sent, to avoid a misleading '0 candidates' "
+                           + "result. Re-run during US market hours for real wheel/swing candidates.",
+                    run_date = runDate,
+                    tickers_fetched = stocks.Count,
+                    live_iv_tickers = liveIvCount,
+                });
             }
 
             var payload = new { run_date = runDate, spy_history = spyHistory, stocks };
@@ -243,11 +268,15 @@ public static class ScreenerEndpoints
         return app;
     }
 
-    private static async Task<Dictionary<string, object>> FetchSnapshotDict(
+    // Returns the snapshot dict + whether the IV feed is LIVE (annual IV > 0).
+    // IBKR serves 0 for IV/HV outside regular hours, so HasLiveIv==false across
+    // every ticker means the options/vol feed is cold (market closed / pre-market)
+    // — the caller uses this to avoid emailing a misleading "0 candidates".
+    private static async Task<(Dictionary<string, object> Dict, bool HasLiveIv)> FetchSnapshotDict(
         IBKRClient ibkr, long conid, ILogger log, CancellationToken ct)
     {
         var raw = await ibkr.GetSnapshotRawAsync(conid, SnapshotFields, ct);
-        if (string.IsNullOrWhiteSpace(raw)) return [];
+        if (string.IsNullOrWhiteSpace(raw)) return ([], false);
 
         try
         {
@@ -258,7 +287,7 @@ public static class ScreenerEndpoints
                 ? root.EnumerateArray().FirstOrDefault()
                 : root;
 
-            if (elem.ValueKind != JsonValueKind.Object) return [];
+            if (elem.ValueKind != JsonValueKind.Object) return ([], false);
 
             static double Num(JsonElement e, string key, double def = 0.0)
             {
@@ -277,7 +306,7 @@ public static class ScreenerEndpoints
             var divYld = Num(elem, "7286");
             var avgVol = Num(elem, "87");   // avg daily USD volume
 
-            return new Dictionary<string, object>
+            return (new Dictionary<string, object>
             {
                 ["last"]                          = new { price = last },
                 ["misc-statistics"]               = new { high_52w = h52w, low_52w = l52w },
@@ -289,12 +318,12 @@ public static class ScreenerEndpoints
                 // so Python's snapshot_to_fields (which divides back by price) recovers shares
                 ["avg-90d-usd-volume"]            = new { volume = avgVol * last },
                 ["underlying-avg-option-volume"]  = new { avgCallVolume = 0, avgPutVolume = 0 },
-            };
+            }, ivAnn > 0);
         }
         catch (Exception ex)
         {
             log.LogWarning("Snapshot parse failed for conid {C}: {E}", conid, ex.Message);
-            return [];
+            return ([], false);
         }
     }
 
