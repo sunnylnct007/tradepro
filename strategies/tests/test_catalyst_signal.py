@@ -48,3 +48,13 @@ def test_baseline_floor_prevents_noise_explosion():
     # present → active. Confirms the floor is applied (no div-by-zero, no inf).
     c = _d(3, 0.0, 0.3)
     assert c.active and c.spike_ratio == 10.0
+
+
+def test_none_baseline_inactive_never_fabricates_spike():
+    # No real 30d baseline (we don't store news-volume history) → NEVER a spike,
+    # even with many articles today + strong sentiment. This is the guard against
+    # the fabricated len/30 baseline that made every recent-news name a "catalyst".
+    c = detect_news_catalyst(articles_today=9, articles_30d_avg=None,
+                             mean_sentiment=0.5, cfg=CFG)
+    assert not c.active and c.direction == "none"
+    assert "baseline" in c.reason

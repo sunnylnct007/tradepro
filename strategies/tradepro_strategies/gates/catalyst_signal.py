@@ -71,6 +71,12 @@ def detect_news_catalyst(
     (direction='none') when there's no spike or the inputs are missing — never
     fabricate a catalyst from thin data."""
     at = int(articles_today or 0)
+    # No REAL 30d baseline → we cannot tell a spike from normal coverage, so we
+    # NEVER fabricate one (feedback_no_false_positives). A fabricated baseline
+    # made every name with a few recent articles look like a catalyst. Inactive
+    # until a genuine per-ticker news-volume history exists.
+    if articles_30d_avg is None:
+        return CatalystSignal(False, "none", 0.0, 0.0, at, "no news-volume baseline")
     base = max(float(articles_30d_avg or 0.0), cfg.baseline_floor)
     ratio = at / base if base > 0 else 0.0
     if at < cfg.min_articles_today or ratio < cfg.spike_ratio:

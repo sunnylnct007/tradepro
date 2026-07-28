@@ -151,13 +151,14 @@ def compute_news_context(
         if isinstance(title, str) and title.strip():
             headlines.append(title.strip())
 
-    # article_count_30d_avg: we don't have a 30d window today, so
-    # approximate as len(news_items) / 30 — gives a rough articles-
-    # per-day rate that the UI can compare against today's count. None
-    # when there's no news at all.
+    # article_count_30d_avg: we do NOT store a per-ticker news-volume history,
+    # and the source only serves ~10 recent items (1-2 days) — so a genuine 30d
+    # baseline is not derivable here. It stays None (unknown), NOT a fabricated
+    # len(items)/30: that fake rate made EVERY name with a few recent articles
+    # read as a huge "spike", which would drive false catalyst promotions
+    # (feedback_no_false_positives). A real baseline needs a daily article-count
+    # store — until then downstream catalyst detection treats None as "no spike".
     avg_count: float | None = None
-    if items:
-        avg_count = len(items) / 30.0
 
     today_count = _today_count(items)
 
