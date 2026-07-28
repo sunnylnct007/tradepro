@@ -92,3 +92,32 @@ def test_missing_inputs_fail_open(monkeypatch):
     s = _strategy({"AAPL": _uptrend_df_no_volume()},
                   entry_quality_gate=True, entry_min_rs=5, entry_min_volume_ratio=0.8)
     assert len(s.on_bar(_bar("AAPL", 250.0))) == 1   # missing → enters, not blocked
+
+
+# ── Earnings-proximity gate (needs exchange_calendars → run under uv) ──────────
+def test_earnings_blackout_vetoes(monkeypatch):
+    import datetime as d
+    import tradepro_strategies.earnings as earn
+    nxt = (d.date.today() + d.timedelta(days=3)).isoformat()   # ~2-3 sessions out
+    monkeypatch.setattr(earn, "fetch_upcoming_earnings", lambda s, api: {"date": nxt})
+    monkeypatch.setattr(earn, "fetch_earnings_in_range", lambda s, lookback_days=1825: [])
+    s = _strategy({"AAPL": _uptrend_df(last_vol_ratio=1.5)}, entry_earnings_gate=True)
+    assert s.on_bar(_bar("AAPL", 250.0)) == []          # reports within blackout → veto
+
+
+def test_no_upcoming_earnings_enters(monkeypatch):
+    import tradepro_strategies.earnings as earn
+    monkeypatch.setattr(earn, "fetch_upcoming_earnings", lambda s, api: None)
+    monkeypatch.setattr(earn, "fetch_earnings_in_range", lambda s, lookback_days=1825: [])
+    s = _strategy({"AAPL": _uptrend_df(last_vol_ratio=1.5)}, entry_earnings_gate=True)
+    assert len(s.on_bar(_bar("AAPL", 250.0))) == 1      # no earnings soon → enters (fail-open)
+
+
+def test_earnings_gate_off_enters(monkeypatch):
+    import datetime as d
+    import tradepro_strategies.earnings as earn
+    nxt = (d.date.today() + d.timedelta(days=1)).isoformat()
+    monkeypatch.setattr(earn, "fetch_upcoming_earnings", lambda s, api: {"date": nxt})
+    monkeypatch.setattr(earn, "fetch_earnings_in_range", lambda s, lookback_days=1825: [])
+    s = _strategy({"AAPL": _uptrend_df(last_vol_ratio=1.5)}, entry_earnings_gate=False)
+    assert len(s.on_bar(_bar("AAPL", 250.0))) == 1      # gate off → enters (parity)

@@ -78,6 +78,24 @@ from ...gates.entry_quality import EntryQualityConfig, evaluate_entry_quality
 from ...market_state import _volume_ratio_20d
 
 
+def _resolve_api_base_light() -> str:
+    """API base for the earnings-gate Finnhub/yfinance fetches. Env override →
+    ~/.tradepro credentials (same box the pusher targets, which has FINNHUB_API_KEY)
+    → localhost fallback. Kept light so importing this strategy never pulls compare."""
+    import os as _os
+    b = _os.environ.get("TRADEPRO_API_URL")
+    if b:
+        return b
+    try:
+        from ...cli.push_to_api import load_credentials
+        base, _ = load_credentials()
+        if base:
+            return base
+    except Exception:  # noqa: BLE001
+        pass
+    return "http://localhost:5080"
+
+
 _log = logging.getLogger("tradepro.paper.ichimoku_equity")
 
 
@@ -267,6 +285,14 @@ class IchimokuEquityStrategy(Strategy):
             "entry_quality_gate": False,
             "entry_min_rs": 5.0,
             "entry_min_volume_ratio": 0.8,
+            # entry_earnings_gate (bool): OPT-IN. When True, SKIP a NEW long that
+            #   reports within the pre-earnings blackout (a binary print can gap it
+            #   through the stop) or just reported (ATR still contaminated). OFF by
+            #   default ⇒ verbatim/no-network parity. Vetoes the ENTRY only; held
+            #   positions/exits untouched. FAIL-OPEN: a missing/failed earnings feed
+            #   (UNKNOWN) never blocks. Needs a per-symbol earnings fetch (Finnhub
+            #   upcoming + yfinance history via the API), paid only when enabled.
+            "entry_earnings_gate": False,
         }
 
     # ------------------------------------------------------------------ #
@@ -538,6 +564,19 @@ class IchimokuEquityStrategy(Strategy):
                         signal=signal, cloud_position=cloud_pos,
                     )
                     return []
+            # ── Earnings-proximity gate (OPT-IN) ────────────────────────────
+            # OFF by default ⇒ no-op. When on, SKIP a NEW long reporting within the
+            # pre-earnings blackout (a binary print can gap it through the stop) or
+            # just-reported. FAIL-OPEN: only a confirmed blackout (earnings_veto)
+            # blocks; a missing feed (UNKNOWN) never halts. Blocks the ENTRY only.
+            if p.get("entry_earnings_gate") and meta and meta.get("earnings_veto"):
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp,
+                    action="skip-earnings-blackout",
+                    reason=f"earnings gate: {meta.get('earnings_reason', 'earnings proximity')}",
+                    signal=signal, cloud_position=cloud_pos,
+                )
+                return []
             # ── Primary-trend "must be above its own 200-SMA" floor (OPT-IN) ─
             # OFF by default ⇒ no-op (verbatim spec). When True, SKIP a NEW long
             # BELOW its own 200-day SMA — a primary trend not yet reclaimed (the
@@ -1196,6 +1235,34 @@ class IchimokuEquityStrategy(Strategy):
                     except Exception:  # noqa: BLE001 — RS is best-effort, fail-open
                         _rs = None
                     meta = {**meta, "rs_score": _rs}
+                # Earnings-proximity veto input (consumed by entry_earnings_gate).
+                # Finnhub upcoming + yfinance history via the API → classify. Only
+                # a confirmed blackout sets earnings_veto; a missing feed stays
+                # UNKNOWN (no veto). Paid only when the gate is on.
+                if p.get("entry_earnings_gate"):
+                    try:
+                        from ...earnings import fetch_upcoming_earnings, fetch_earnings_in_range
+                        from ...gates.earnings_proximity import (
+                            EarningsGateConfig as _EQC, classify as _ecl,
+                            route as _ert, sessions_to as _est_to, sessions_since as _est_since)
+                        import datetime as _ed0
+                        _api = _resolve_api_base_light()
+                        _up = fetch_upcoming_earnings(symbol, _api)
+                        _nd = _up.get("date") if _up else None
+                        _hist = fetch_earnings_in_range(symbol, lookback_days=1825) or []
+                        _t0s = _ed0.date.today().isoformat()
+                        _pastd = [str(e["date"])[:10] for e in _hist
+                                  if e.get("date") and str(e["date"])[:10] <= _t0s]
+                        _ld = max(_pastd) if _pastd else None
+                        _sto = _est_to(_nd) if _nd else None
+                        _ssi = _est_since(_ld) if _ld else None
+                        _ecfg = _EQC.from_env()
+                        _est = _ecl(_sto, _ssi, bool(_up and _up.get("_estimated")), _ecfg, has_earnings=True)
+                        _edec = _ert(_est, _ecfg, sessions_to_next=_sto, sessions_since_last=_ssi)
+                        meta = {**meta, "earnings_veto": (_edec.action == "veto"),
+                                "earnings_state": _est.name, "earnings_reason": _edec.reason}
+                    except Exception:  # noqa: BLE001 — earnings is best-effort, fail-open
+                        pass
             except Exception:  # noqa: BLE001 — gate metadata is best-effort
                 pass
 

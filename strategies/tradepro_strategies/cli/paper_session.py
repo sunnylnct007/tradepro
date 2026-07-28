@@ -551,6 +551,8 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "entry_quality_gate": bool(getattr(args, "entry_quality_gate", False)),
                 "entry_min_rs": getattr(args, "entry_min_rs", 5.0),
                 "entry_min_volume_ratio": getattr(args, "entry_min_volume_ratio", 0.8),
+                # Earnings-proximity gate: skip a NEW long into an earnings blackout.
+                "entry_earnings_gate": bool(getattr(args, "entry_earnings_gate", False)),
             },
         )
 
@@ -1414,6 +1416,7 @@ def _apply_config_overrides(args, log) -> None:
                 "target_vol", "max_leverage", "sleeve_size",
                 "entry_max_ext_pct", "entry_rsi_max", "entry_require_above_200sma", "entry_veto_ma_suspect",
                 "entry_quality_gate", "entry_min_rs", "entry_min_volume_ratio",
+                "entry_earnings_gate",
                 "top_n", "min_atr_pct", "min_strength",
                 "max_daily_loss_usd", "max_drawdown_pct",
                 "max_open_positions", "max_position_pct_of_capital",
