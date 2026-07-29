@@ -102,6 +102,39 @@ class OptionsRiskConfig:
     brake3_no_new_gbp: float = 1500.0
     circuit_breaker_gbp: float = 2500.0
 
+    @staticmethod
+    def from_env() -> "OptionsRiskConfig":
+        """Env-tunable CAPITAL sizing so the wheel sleeve can match the account.
+        The £12k pot / £10k per-position defaults were the trader's ORIGINAL
+        stated capacity — a larger account should deploy more (a £17k JNJ
+        contract blocks only because it doesn't fit a £12k pot). Set
+        TRADEPRO_WHEEL_POT_GBP / _MAX_DEPLOY_GBP / _PER_POSITION_GBP /
+        _MAX_POSITIONS to raise it. Greek + liquidity gates keep their BRD
+        defaults (feedback_config_driven_no_hardcoding)."""
+        import os as _os
+        from dataclasses import replace as _replace
+
+        def _f(k: str, cur: float) -> float:
+            try:
+                return float(_os.environ[k])
+            except (KeyError, TypeError, ValueError):
+                return cur
+
+        def _i(k: str, cur: int) -> int:
+            try:
+                return int(_os.environ[k])
+            except (KeyError, TypeError, ValueError):
+                return cur
+
+        d = OptionsRiskConfig()
+        return _replace(
+            d,
+            pot_gbp=_f("TRADEPRO_WHEEL_POT_GBP", d.pot_gbp),
+            max_deploy_gbp=_f("TRADEPRO_WHEEL_MAX_DEPLOY_GBP", d.max_deploy_gbp),
+            per_position_gbp=_f("TRADEPRO_WHEEL_PER_POSITION_GBP", d.per_position_gbp),
+            max_positions=_i("TRADEPRO_WHEEL_MAX_POSITIONS", d.max_positions),
+        )
+
 
 @dataclass(frozen=True)
 class TradeCandidate:

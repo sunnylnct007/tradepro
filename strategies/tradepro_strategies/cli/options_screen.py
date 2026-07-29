@@ -243,7 +243,7 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     from ..paper import market_hours
 
     universe = symbols or DEFAULT_UNIVERSE
-    cfg = OptionsRiskConfig()
+    cfg = OptionsRiskConfig.from_env()   # capital sizing env-tunable (TRADEPRO_WHEEL_*)
     host = os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
     port = int(os.environ.get("TRADEPRO_IBKR_PORT", "7500"))
     cid = int(os.environ.get("TRADEPRO_IBKR_DATA_CLIENT_ID", "97"))
