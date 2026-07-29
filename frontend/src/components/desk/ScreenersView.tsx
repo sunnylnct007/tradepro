@@ -44,7 +44,14 @@ function WheelSwingCard() {
     try {
       const r = await api.runScreener();
       setStatus("done");
-      setMsg(r.ok ? `Screener complete — ${r.result?.tickers_screened ?? 0} tickers screened` : (r.stderr ?? "Screener finished"));
+      // On a skipped run (e.g. market-closed → no IV data → no email sent) the
+      // backend returns { ok:false, skipped:true, reason }. Surface that reason
+      // so the user knows WHY no email arrived instead of a blank "finished".
+      setMsg(
+        r.ok
+          ? `Screener complete — ${r.result?.tickers_screened ?? 0} tickers screened · email sent`
+          : (r.reason ?? r.stderr ?? "Screener finished"),
+      );
       timerRef.current = setTimeout(() => setStatus("idle"), 30_000);
     } catch (e) {
       setStatus("error");
