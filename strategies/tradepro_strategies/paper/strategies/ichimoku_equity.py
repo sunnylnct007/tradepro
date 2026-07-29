@@ -293,6 +293,14 @@ class IchimokuEquityStrategy(Strategy):
             #   (UNKNOWN) never blocks. Needs a per-symbol earnings fetch (Finnhub
             #   upcoming + yfinance history via the API), paid only when enabled.
             "entry_earnings_gate": False,
+            # entry_max_gap_pct (float|None): OPT-IN "don't chase the gap" cap. The
+            #   signal fires on a daily CLOSE but the entry lands NEXT session at the
+            #   live price — if that price is more than this % ABOVE the signal-bar
+            #   close, the entry is chasing a gap (KO: signal $84.07 → entered $89.21
+            #   = +6.1% into an earnings gap). SKIP it. None/OFF ⇒ verbatim parity.
+            #   Distinct from entry_max_ext_pct (which is vs the 200-SMA, not the
+            #   signal). Blocks the ENTRY only; a healthy pullback entry is unaffected.
+            "entry_max_gap_pct": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -577,6 +585,26 @@ class IchimokuEquityStrategy(Strategy):
                     signal=signal, cloud_position=cloud_pos,
                 )
                 return []
+            # ── "Don't chase the gap" cap: entry vs the SIGNAL price (OPT-IN) ─
+            # OFF by default (None) ⇒ no-op. The signal fires on a daily CLOSE but
+            # the entry lands NEXT session at the live price — if that price gapped
+            # more than entry_max_gap_pct ABOVE the signal close, we're chasing (KO:
+            # $84.07 signal → $89.21 entry = +6.1% into an earnings gap). SKIP it.
+            # Fail-open: no signal_close (thin history) ⇒ don't block. Entry only.
+            gap_max = p.get("entry_max_gap_pct")
+            if gap_max is not None and meta:
+                sig_px = meta.get("signal_close")
+                if sig_px and sig_px > 0 and bar.close > 0:
+                    gap_pct = (float(bar.close) / float(sig_px) - 1.0) * 100.0
+                    if gap_pct > float(gap_max):
+                        self.log_decision(
+                            symbol=sym, bar_ts=bar.timestamp,
+                            action="skip-gap-chase",
+                            reason=(f"entry {bar.close:,.2f} is {gap_pct:+.1f}% above the "
+                                    f"signal price {sig_px:,.2f} (> {gap_max}% cap) — chasing a gap"),
+                            signal=signal, cloud_position=cloud_pos,
+                        )
+                        return []
             # ── Primary-trend "must be above its own 200-SMA" floor (OPT-IN) ─
             # OFF by default ⇒ no-op (verbatim spec). When True, SKIP a NEW long
             # BELOW its own 200-day SMA — a primary trend not yet reclaimed (the
@@ -1174,6 +1202,11 @@ class IchimokuEquityStrategy(Strategy):
         if signal >= 1.0:
             cloud_top = meta.get("cloud_top")
             last_close = float(close.iloc[-1])
+            # The price the signal FIRED on (last complete daily close). The entry
+            # happens on the NEXT session at the live price, so entry-vs-signal_close
+            # measures how far the entry chased a gap (the KO case: signal $84.07 →
+            # entered $89.21 = +6.1%). Consumed by the entry_max_gap_pct gate.
+            meta = {**meta, "signal_close": last_close}
             if cloud_top and cloud_top > 0:
                 meta = {**meta, "conviction": (last_close - float(cloud_top)) / float(cloud_top)}
             # At-entry extension for the "don't chase" gate (consumed in on_bar).

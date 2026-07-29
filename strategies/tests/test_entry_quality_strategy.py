@@ -121,3 +121,21 @@ def test_earnings_gate_off_enters(monkeypatch):
     monkeypatch.setattr(earn, "fetch_earnings_in_range", lambda s, lookback_days=1825: [])
     s = _strategy({"AAPL": _uptrend_df(last_vol_ratio=1.5)}, entry_earnings_gate=False)
     assert len(s.on_bar(_bar("AAPL", 250.0))) == 1      # gate off → enters (parity)
+
+
+# ── Don't-chase-the-gap cap (entry vs signal price) ──────────────────────────
+# The signal price = _uptrend_df's last close = level*2.5 = 250. The bar close
+# passed to on_bar is the LIVE entry price, so a bar close above 250 is the gap.
+def test_gap_chase_vetoed():
+    s = _strategy({"AAPL": _uptrend_df()}, entry_max_gap_pct=3)   # signal price ~250
+    assert s.on_bar(_bar("AAPL", 265.0)) == []                    # entry +6% → chasing → veto
+
+
+def test_small_gap_enters():
+    s = _strategy({"AAPL": _uptrend_df()}, entry_max_gap_pct=3)
+    assert len(s.on_bar(_bar("AAPL", 253.0))) == 1                # entry +1.2% → within cap → enters
+
+
+def test_gap_cap_off_enters_on_big_gap():
+    s = _strategy({"AAPL": _uptrend_df()})                        # cap unset → verbatim parity
+    assert len(s.on_bar(_bar("AAPL", 275.0))) == 1                # +10% but no cap → enters
