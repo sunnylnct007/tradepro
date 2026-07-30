@@ -1488,6 +1488,62 @@ def _fetch_ibkr_account_state_via_webapi(log) -> dict | None:
     }
 
 
+def _parse_ibkr_trade_time(s):
+    """IBKR /iserver/account/trades gives varied time formats; parse best-effort
+    (UTC). None → caller falls back to now, so a parse miss never drops a fill."""
+    import datetime as _dt
+    if not s:
+        return None
+    txt = str(s)
+    for fmt in ("%Y%m%d-%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return _dt.datetime.strptime(txt[:19], fmt).replace(tzinfo=_dt.timezone.utc)
+        except (ValueError, TypeError):
+            pass
+    try:  # epoch ms
+        v = float(txt)
+        if v > 1e11:
+            return _dt.datetime.fromtimestamp(v / 1000.0, _dt.timezone.utc)
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _fetch_ibkr_ledger_fills(strategy_id: str, log):
+    """Today's IBKR executions (Web API /account-summary `trades[]`) → Fill
+    objects for the audit-only ledger recorder. Bare-symbol + BUY/SELL
+    normalised; qty<=0 / symbol-less rows dropped. Returns [] on any error
+    (caller treats [] as 'nothing to record' — never fails the session)."""
+    import datetime as _dt
+    import requests
+    from . import push_to_api
+    from ..paper.strategy import Fill, OrderSide
+
+    base, token = push_to_api.load_credentials()
+    base = (base or "").rstrip("/")
+    if not base:
+        return []
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    r = requests.get(f"{base}/api/integrations/ibkr/account-summary", headers=headers, timeout=20)
+    r.raise_for_status()
+    j = r.json()
+    if j.get("tradesError"):
+        log.warning("IBKR trades feed error: %s", j.get("tradesError"))
+    out = []
+    for t in (j.get("trades") or []):
+        sym = str(t.get("symbol") or "").upper().strip()
+        qty = int(abs(float(t.get("size") or 0)))
+        if not sym or qty <= 0:
+            continue
+        side = OrderSide.BUY if str(t.get("side") or "").upper().startswith("B") else OrderSide.SELL
+        ft = _parse_ibkr_trade_time(t.get("trade_time")) or _dt.datetime.now(_dt.timezone.utc)
+        oid = str(t.get("exec_id") or f"{sym}-{t.get('trade_time')}-{side.value}-{qty}")
+        out.append(Fill(order_id=oid, strategy_id=strategy_id, symbol=sym, side=side,
+                        quantity=qty, fill_price=float(t.get("price") or 0.0),
+                        fill_time=ft, commission=0.0))
+    return out
+
+
 def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
     """Push the IBKR PAPER account's NLV / cash / unrealised P&L + position book
     to /api/ingest/account-state so the cockpit can render the algo clone's OWN
@@ -1958,6 +2014,22 @@ def main(argv: list[str] | None = None) -> int:
         args.strategy, strategy.strategy_id, symbols, args.broker, args.interval,
     )
     asyncio.run(engine.run(session_date or datetime.utcnow()))
+
+    # Record the IBKR clone's ACTUAL executions as ledger fills BEFORE the
+    # snapshot — its orders route through an ack-less path that never emits a
+    # FillEvent, so without this fills_count=0, no realised trail, no chart
+    # markers, and the book trails the broker (the "KO shows held when flat"
+    # confusion). AUDIT-ONLY: record_broker_fills never mutates the broker-seeded
+    # position, so no double-count. Fail-safe: any error records nothing.
+    if args.broker.strip().lower() == "ibkr":
+        try:
+            _fills = _fetch_ibkr_ledger_fills(strategy.strategy_id, log)
+            if _fills:
+                _n = engine.ledger.record_broker_fills(strategy.strategy_id, _fills)
+                log.info("recorded %d IBKR execution(s) as ledger fills for %s",
+                         _n, strategy.strategy_id)
+        except Exception as exc:  # noqa: BLE001 — audit is best-effort, never fail the session
+            log.warning("IBKR fill recording skipped: %s", exc)
 
     # Re-snapshot with recent fills so the Paper page Live tab renders
     # the per-strategy fill log + open positions.

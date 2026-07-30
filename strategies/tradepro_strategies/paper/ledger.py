@@ -224,6 +224,30 @@ class Ledger:
                 fill.fill_time,
             )
 
+    def record_broker_fills(self, strategy_id: str, fills: "list[Fill]") -> int:
+        """AUDIT-ONLY fill recording — append broker executions to the fills log
+        + bump fills_count, WITHOUT mutating positions or realised P&L.
+
+        For a clone whose orders route through an ack-less path (no FillEvent),
+        this restores fills_count > 0, recent_fills (→ chart entry/exit markers),
+        and a real "did it execute" trail — while positions stay the broker-SEEDED
+        truth (seed_positions sets quantity directly), so there is NO double-count
+        and no bogus realised P&L from mis-basing a carried-over close. De-duped by
+        order_id so a re-run within a session can't stack the same executions.
+        Returns the count newly recorded."""
+        book = self.register(strategy_id)
+        seen = {f.order_id for f in book.fills_log}
+        added = 0
+        for f in fills:
+            if f.order_id in seen:
+                continue
+            book.fills_log.append(f)
+            book.fills_count += 1
+            book.commission_paid += f.commission
+            seen.add(f.order_id)
+            added += 1
+        return added
+
     def apply_mark(self, symbol: str, price: float, when: datetime) -> None:
         """Refresh `last_mark` on every open position + update the
         per-symbol latest-mark map. The map is updated unconditionally
