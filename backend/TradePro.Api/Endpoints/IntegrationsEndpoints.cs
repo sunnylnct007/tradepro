@@ -1331,9 +1331,11 @@ public static class IntegrationsEndpoints
 
             var cashTask = ibkr.GetCashAsync(ct);
             var posTask = ibkr.GetPositionsAsync(ct);
-            await Task.WhenAll(cashTask, posTask);
+            var tradesTask = ibkr.GetTradesAsync(ct);   // today's executions → recorded as ledger fills
+            await Task.WhenAll(cashTask, posTask, tradesTask);
             var cash = await cashTask;
             var pos = await posTask;
+            var trades = await tradesTask;
 
             // Position book in the ingest shape (snake_case field names the
             // /api/ingest/account-state handler + broker_account_state store read).
@@ -1368,9 +1370,20 @@ public static class IntegrationsEndpoints
                 cash = cash.Cash,
                 unrealisedPnl = unrl,
                 positions,
-                // daily_pnl (reqPnL) + session fills are Gateway-only; null here.
-                // The Web API path intentionally trades those extras for NOT
-                // depending on the dead local Gateway.
+                // Today's executions (Web API /iserver/account/trades) — so the
+                // Mac daemon can record them as LEDGER fills (fills_count / markers
+                // / realised P&L). side is IBKR raw B/S; the daemon normalises.
+                trades = trades.Trades.Select(t => new
+                {
+                    symbol = t.Symbol,
+                    side = t.Side,
+                    size = t.Size,
+                    price = t.Price,
+                    trade_time = t.TradeTime,
+                    exec_id = t.ExecId,
+                }).ToArray(),
+                tradesError = trades.Error,
+                // daily_pnl (reqPnL) is Gateway-only; null here.
                 dailyPnl = (decimal?)null,
                 cashError = cash.Error,
                 positionsError = pos.Error,

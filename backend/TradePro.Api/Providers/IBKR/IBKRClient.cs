@@ -768,6 +768,37 @@ public sealed class IBKRClient
     }
 
     /// <summary>
+    /// Today's EXECUTIONS — GET /iserver/account/trades. Read-only (no order is
+    /// placed). Used to record the paper clone's actual fills into the ledger so
+    /// fills_count &gt; 0, realised P&amp;L computes, and chart markers appear — the
+    /// clone's orders route through an ack-less path that never emits a fill event.
+    /// Filtered to this client's account (the endpoint returns all accounts).
+    /// </summary>
+    public async Task<IBKRTradesResult> GetTradesAsync(CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled)
+            return new IBKRTradesResult(Array.Empty<IBKRTrade>(), "IBKR disabled", 0);
+        try
+        {
+            using var resp = await SendWithAuthAsync(HttpMethod.Get, "v1/api/iserver/account/trades", null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IBKRTradesResult(Array.Empty<IBKRTrade>(), text, (int)resp.StatusCode);
+            var all = IBKRResponseParser.ParseTrades(text);
+            var acct = _options.AccountId;
+            var mine = string.IsNullOrWhiteSpace(acct)
+                ? all
+                : all.Where(t => string.IsNullOrWhiteSpace(t.Account)
+                                 || string.Equals(t.Account, acct, StringComparison.OrdinalIgnoreCase)).ToList();
+            return new IBKRTradesResult(mine, null, (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IBKRTradesResult(Array.Empty<IBKRTrade>(), ex.Message, 0);
+        }
+    }
+
+    /// <summary>
     /// Cancel a working order by its broker order id —
     /// DELETE /iserver/account/{accountId}/order/{orderId}. Behind the same
     /// kill-switch as placement (a cancel mutates a live order). Used to pull a

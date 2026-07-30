@@ -253,6 +253,36 @@ public static class IBKRResponseParser
         return list;
     }
 
+    /// <summary>Parse GET /iserver/account/trades — an array of last-day
+    /// executions. Defensive on field names (IBKR varies: side B/S, size/qty).</summary>
+    public static IReadOnlyList<IBKRTrade> ParseTrades(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        JsonElement arr;
+        if (root.ValueKind == JsonValueKind.Array)
+            arr = root;
+        else if (root.ValueKind == JsonValueKind.Object
+                 && root.TryGetProperty("trades", out var t) && t.ValueKind == JsonValueKind.Array)
+            arr = t;
+        else
+            return Array.Empty<IBKRTrade>();
+        var list = new List<IBKRTrade>();
+        foreach (var it in arr.EnumerateArray())
+        {
+            if (it.ValueKind != JsonValueKind.Object) continue;
+            list.Add(new IBKRTrade(
+                Symbol: Str(it, "symbol") ?? Str(it, "ticker"),
+                Side: Str(it, "side"),
+                Size: Dec(it, "size") ?? Dec(it, "quantity") ?? 0m,
+                Price: Dec(it, "price") ?? 0m,
+                TradeTime: Str(it, "trade_time") ?? StrLoose(it, "trade_time_r"),
+                ExecId: Str(it, "execution_id") ?? Str(it, "exec_id"),
+                Account: Str(it, "account") ?? Str(it, "acctNumber")));
+        }
+        return list;
+    }
+
     // ─── helpers ────────────────────────────────────────────────────
     /// <summary>String from a String OR Number field (IBKR order ids arrive as
     /// numbers in some payloads, strings in others).</summary>
@@ -363,6 +393,22 @@ public sealed record IBKRLiveOrder(
 
 public sealed record IBKROrdersResult(
     IReadOnlyList<IBKRLiveOrder> Orders,
+    string? Error,
+    int HttpStatus);
+
+/// <summary>One executed trade from GET /iserver/account/trades (last-day
+/// executions). Side is IBKR's raw "B"/"S" (or "BOT"/"SLD"); callers normalise.</summary>
+public sealed record IBKRTrade(
+    string? Symbol,
+    string? Side,
+    decimal Size,
+    decimal Price,
+    string? TradeTime,
+    string? ExecId,
+    string? Account);
+
+public sealed record IBKRTradesResult(
+    IReadOnlyList<IBKRTrade> Trades,
     string? Error,
     int HttpStatus);
 
