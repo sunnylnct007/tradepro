@@ -8,9 +8,19 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
+import pytest
 
+from tradepro_strategies.paper.strategies import ichimoku_equity as _ich
 from tradepro_strategies.paper.strategies.ichimoku_equity import IchimokuEquityStrategy
 from tradepro_strategies.paper.strategy import Bar
+
+
+@pytest.fixture(autouse=True)
+def _bypass_daily_cache(monkeypatch):
+    """The RS/earnings fetches are wrapped in a per-day DISK cache in prod; bypass
+    it in tests so each case's monkeypatched fetch runs live (no cross-test
+    contamination via the cached file)."""
+    monkeypatch.setattr(_ich, "_daily_cached", lambda kind, symbol, fn: fn())
 
 
 def _stale_ts():

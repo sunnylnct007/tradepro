@@ -78,6 +78,32 @@ from ...gates.entry_quality import EntryQualityConfig, evaluate_entry_quality
 from ...market_state import _volume_ratio_20d
 
 
+def _daily_cached(kind: str, symbol: str, fetch_fn):
+    """Disk-cache a per-symbol fetch for the CURRENT DAY. The gated clone runs a
+    fresh process every 15 min (no in-memory carry), so without this it re-fetches
+    sector-RS + Finnhub earnings for every signal name EVERY session → 429 rate-
+    limits → retry storms → 2h sessions + a multi-GB log. RS + earnings dates don't
+    change intraday, so one fetch per symbol per day is correct. Best-effort:
+    any cache error just falls through to a live fetch (never blocks the signal)."""
+    import os as _os, json as _json, datetime as _dt
+    d = _os.path.expanduser(f"~/.tradepro/cache/{kind}")
+    path = _os.path.join(d, f"{symbol}_{_dt.date.today().isoformat()}.json")
+    try:
+        if _os.path.exists(path):
+            with open(path) as _f:
+                return _json.load(_f)
+    except Exception:  # noqa: BLE001
+        pass
+    val = fetch_fn()
+    try:
+        _os.makedirs(d, exist_ok=True)
+        with open(path, "w") as _f:
+            _json.dump(val, _f, default=str)
+    except Exception:  # noqa: BLE001
+        pass
+    return val
+
+
 def _resolve_api_base_light() -> str:
     """API base for the earnings-gate Finnhub/yfinance fetches. Env override →
     ~/.tradepro credentials (same box the pusher targets, which has FINNHUB_API_KEY)
@@ -1264,7 +1290,10 @@ class IchimokuEquityStrategy(Strategy):
                 if p.get("entry_quality_gate"):
                     try:
                         from ...sector_rs import compute_sector_rs
-                        _rs = (compute_sector_rs(symbol) or {}).get("rs_score")
+                        # Day-cached: RS is a daily factor, don't re-fetch every 15m.
+                        _rsres = _daily_cached("sector_rs", symbol,
+                                               lambda: compute_sector_rs(symbol) or {})
+                        _rs = (_rsres or {}).get("rs_score")
                     except Exception:  # noqa: BLE001 — RS is best-effort, fail-open
                         _rs = None
                     meta = {**meta, "rs_score": _rs}
@@ -1280,9 +1309,13 @@ class IchimokuEquityStrategy(Strategy):
                             route as _ert, sessions_to as _est_to, sessions_since as _est_since)
                         import datetime as _ed0
                         _api = _resolve_api_base_light()
-                        _up = fetch_upcoming_earnings(symbol, _api)
+                        # Day-cached: earnings dates don't move intraday — fetching
+                        # them every 15m per name is what caused the 429 storm.
+                        _up = _daily_cached("earnings_upcoming", symbol,
+                                            lambda: fetch_upcoming_earnings(symbol, _api))
                         _nd = _up.get("date") if _up else None
-                        _hist = fetch_earnings_in_range(symbol, lookback_days=1825) or []
+                        _hist = _daily_cached("earnings_history", symbol,
+                                              lambda: fetch_earnings_in_range(symbol, lookback_days=1825)) or []
                         _t0s = _ed0.date.today().isoformat()
                         _pastd = [str(e["date"])[:10] for e in _hist
                                   if e.get("date") and str(e["date"])[:10] <= _t0s]
