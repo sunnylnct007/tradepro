@@ -70,6 +70,31 @@ public static class ScreenerEndpoints
             var runDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
             var stocks = new Dictionary<string, object>();
 
+            // Market-hours guard (CLOCK, not IV). The options/IV feed is only
+            // meaningful during US regular hours, so skip OUTSIDE 9:30-16:00 ET —
+            // an after-hours click shouldn't fetch a cold feed + email "0
+            // candidates". IANA zone → DST automatic. (Previously we skipped when
+            // IV==0, but IBKR serves 0 IV INTERMITTENTLY during RTH too, which
+            // wrongly skipped the mid-session auto-run and sent no email — so the
+            // gate is the clock, and during RTH we run whatever the data supports.)
+            var nowEt = TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, "America/New_York");
+            var etT = nowEt.TimeOfDay;
+            var isRth = nowEt.DayOfWeek is >= DayOfWeek.Monday and <= DayOfWeek.Friday
+                        && etT >= new TimeSpan(9, 30, 0) && etT < new TimeSpan(16, 0, 0);
+            if (!isRth)
+            {
+                log.LogInformation("Screener: skipped — {Et} ET is outside RTH", nowEt.ToString("ddd HH:mm"));
+                return Results.Ok(new
+                {
+                    ok = false,
+                    skipped = true,
+                    reason = $"Market closed — it is {nowEt:HH:mm} ET (outside 9:30-16:00 ET, Mon-Fri). "
+                           + "The screener needs the live options/IV feed, only available during US regular "
+                           + "trading hours. Not run; no email sent. Re-run during market hours.",
+                    run_date = runDate,
+                });
+            }
+
             // SPY history for regime detection (unguarded before — a single IBKR
             // hiccup here threw straight to a bare 500 with no diagnosable detail).
             var spyHistory = await FetchHistoryDict(ibkr, "SPY", 756733, log, ct);
@@ -101,28 +126,11 @@ public static class ScreenerEndpoints
                 }
             }
 
-            // Market-closed / cold-feed guard: IBKR serves 0 for IV & HV outside
-            // regular hours. If NOT ONE ticker has a live IV, the options/vol feed
-            // is cold — the screener would score every name to 0 and email a
-            // misleading "0 candidates". Say NO DATA plainly instead, and DON'T
-            // run the screener / send those empty emails (feedback: never present
-            // an absence of data as a confident empty result).
-            if (liveIvCount == 0)
-            {
-                log.LogInformation("Screener: skipped — IV feed cold across all {N} tickers (market closed?)", stocks.Count);
-                return Results.Ok(new
-                {
-                    ok = false,
-                    skipped = true,
-                    reason = "Market closed — live IV/volatility data unavailable from IBKR "
-                           + "(the options feed is cold outside regular trading hours). The screener "
-                           + "was NOT run and no email was sent, to avoid a misleading '0 candidates' "
-                           + "result. Re-run during US market hours for real wheel/swing candidates.",
-                    run_date = runDate,
-                    tickers_fetched = stocks.Count,
-                    live_iv_tickers = liveIvCount,
-                });
-            }
+            // We're in RTH (gated above). Don't skip on IV==0 here: IBKR's IV feed
+            // is intermittently cold even mid-session, and the swing screener needs
+            // no IV while the wheel honestly shows fewer candidates when IV is thin.
+            // Just log the IV coverage so a thin-wheel day is diagnosable.
+            log.LogInformation("Screener: RTH run — live IV for {Live}/{Total} tickers", liveIvCount, stocks.Count);
 
             var payload = new { run_date = runDate, spy_history = spyHistory, stocks };
             var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = false });
