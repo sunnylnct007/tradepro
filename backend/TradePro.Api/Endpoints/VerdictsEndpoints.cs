@@ -75,7 +75,10 @@ public static class VerdictsEndpoints
                 FROM verdicts
                 WHERE (@symbol IS NULL OR symbol = @symbol)
                   AND (@horizon IS NULL OR horizon = @horizon)
-                  AND (@from IS NULL OR ts >= @from)
+                  -- explicit cast: a NULL @from with no other typed use in this
+                  -- branch leaves Postgres unable to infer its type (42P08
+                  -- indeterminate_datatype) when the value is actually null.
+                  AND (@from::timestamptz IS NULL OR ts >= @from::timestamptz)
                 ORDER BY ts DESC
                 LIMIT @limit;",
                 new
