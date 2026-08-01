@@ -852,7 +852,19 @@ def _fetch_broker_held_marks(broker: str) -> dict[str, float]:
         out: dict[str, float] = {}
         for r in resp.json().get("positions") or []:
             sym = (r.get("yahooSymbol") or r.get("ticker") or r.get("epic") or "")
-            sym = sym.replace("_US_EQ", "").upper().strip()
+            sym = sym.upper().strip()
+            # Strip broker suffixes — same mapping as _fetch_broker_held_symbols:
+            #   CS.D.EURUSD.MINI.IP -> EURUSD (IG epic), AAPL_US_EQ -> AAPL (T212).
+            # Without this, IG's epic never matches pos["symbol"] (bare "EURUSD"),
+            # live.get(sym) always misses, and every FX position silently falls
+            # back to the stale ledger mark this function exists to replace.
+            if sym.endswith(".IP") and "." in sym:
+                parts = sym.split(".")
+                if len(parts) >= 4:
+                    sym = parts[2]
+            elif "_" in sym:
+                sym = sym.split("_", 1)[0]
+            sym = canonical_ticker(sym)
             px = r.get("currentPrice") or r.get("mark") or r.get("price")
             qty = r.get("quantity") or r.get("qty") or 0
             if sym and px and qty:
