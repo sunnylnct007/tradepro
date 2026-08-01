@@ -270,10 +270,10 @@ function TechnicalColumn(props: { row: CompareRow }) {
         } />
       )}
 
-      {exit && (exit.stop_loss || exit.take_profit) && (
+      {exit && (exit.stop_loss?.price != null || exit.take_profit?.price != null) && (
         <Kv label="Exit" value={
           <span>
-            stop {fmt(exit.stop_loss)} · target {fmt(exit.take_profit)}
+            stop {fmt(exit.stop_loss?.price ?? null)} · target {fmt(exit.take_profit?.price ?? null)}
             {exit.time_exit ? ` · ${exit.time_exit}` : ""}
           </span>
         } />
@@ -587,9 +587,24 @@ const track2BoxStyle: React.CSSProperties = {
 // types.ts is regenerated they'll move there.
 // ──────────────────────────────────────────────────────────────────
 
+/** The backend's exit block carries ATR-adjusted stop/target metadata, not a
+ * bare price — stop_loss/take_profit are objects with `.price` plus method/
+ * distance context. This type used to (wrongly) declare them as `number |
+ * null`; the `as unknown as {exit?: ExitBlock}` cast at the call site
+ * bypassed structural checking, so tsc never caught the drift and
+ * fmt(exit.stop_loss) crashed at runtime ("x.toFixed is not a function")
+ * for any symbol with a live exit plan (e.g. NVDA). */
+interface ExitLeg {
+  price: number | null;
+  type?: string;
+  method?: string;
+  distance_pct?: number;
+  tif?: string;
+}
 interface ExitBlock {
-  stop_loss: number | null;
-  take_profit: number | null;
+  stop_loss: ExitLeg | null;
+  take_profit: ExitLeg | null;
+  trailing_stop?: ExitLeg | null;
   time_exit?: string | null;
 }
 interface RRGate {
