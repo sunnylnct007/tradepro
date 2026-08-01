@@ -2681,7 +2681,7 @@ function Th({
       }}
     >
       {children}
-      {help && <Info k={help as Parameters<typeof Info>[0]["k"]} />}
+      {help && <Info k={help as Parameters<typeof Info>[0]["k"]} direction="down" />}
     </th>
   );
 }
