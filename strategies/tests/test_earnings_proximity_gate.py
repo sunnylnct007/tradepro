@@ -119,33 +119,44 @@ def test_canary_clean_when_reporters_return_dates():
     assert degraded is False and dead == []
 
 
-# ── Canary escalation (the MA hole, 2026-07-31) ──────────────────────────────
-def test_unknown_escalates_to_veto_when_feed_degraded():
+# ── Canary resolution (the MA hole — alert-not-suppress, 2026-08-01) ────────
+def _unknown_dec():
     from tradepro_strategies.gates.earnings_proximity import (
-        EarningsGate, EarningsGateConfig, classify, route,
-        escalate_unknown_when_degraded)
+        EarningsGateConfig, classify, route)
     cfg = EarningsGateConfig()
-    st = classify(None, None, False, cfg, has_earnings=True)     # UNKNOWN
-    dec = route(st, cfg)
-    assert dec.action == "penalize"                              # healthy feed: flag-only
-    esc = escalate_unknown_when_degraded(dec, feed_degraded=True)
-    assert esc.action == "veto" and esc.flag == "EARNINGS_FEED_DEGRADED"
-    assert esc.rank_cap is True and esc.score_mult == 0.0
+    return route(classify(None, None, False, cfg, has_earnings=True), cfg)
 
 
-def test_unknown_not_escalated_when_feed_healthy():
+def test_degraded_unknown_stays_visible_with_alert():
+    # User 2026-08-01: continue WITH an alert, don't fully suppress. Degraded
+    # feed + no news evidence → penalize (visible) with EARNINGS_UNVERIFIED,
+    # rank-capped (never a star), score halved — NOT a veto.
+    from tradepro_strategies.gates.earnings_proximity import resolve_unknown_when_degraded
+    dec = resolve_unknown_when_degraded(_unknown_dec(), feed_degraded=True,
+                                        recent_earnings_hint=None)
+    assert dec.action == "penalize" and dec.flag == "EARNINGS_UNVERIFIED"
+    assert dec.rank_cap is True and dec.score_mult == 0.5
+    assert "VERIFY" in dec.reason
+
+
+def test_degraded_unknown_with_news_evidence_vetoes():
+    # Configured news feeds mention a recent report → positive evidence it just
+    # reported → hard veto (the MA post-digest case).
+    from tradepro_strategies.gates.earnings_proximity import resolve_unknown_when_degraded
+    dec = resolve_unknown_when_degraded(_unknown_dec(), feed_degraded=True,
+                                        recent_earnings_hint=True)
+    assert dec.action == "veto" and dec.flag == "EARNINGS_RECENT_NEWS"
+
+
+def test_healthy_feed_unknown_unchanged():
+    from tradepro_strategies.gates.earnings_proximity import resolve_unknown_when_degraded
+    dec = _unknown_dec()
+    assert resolve_unknown_when_degraded(dec, feed_degraded=False) == dec
+
+
+def test_non_unknown_states_never_resolved():
     from tradepro_strategies.gates.earnings_proximity import (
-        EarningsGateConfig, classify, route, escalate_unknown_when_degraded)
-    cfg = EarningsGateConfig()
-    dec = route(classify(None, None, False, cfg, has_earnings=True), cfg)
-    esc = escalate_unknown_when_degraded(dec, feed_degraded=False)
-    assert esc == dec                                            # unchanged
-
-
-def test_non_unknown_states_never_escalated():
-    from tradepro_strategies.gates.earnings_proximity import (
-        EarningsGateConfig, classify, route, escalate_unknown_when_degraded)
+        EarningsGateConfig, classify, route, resolve_unknown_when_degraded)
     cfg = EarningsGateConfig()
     clear = route(classify(15, 40, False, cfg, has_earnings=True), cfg)
-    esc = escalate_unknown_when_degraded(clear, feed_degraded=True)
-    assert esc == clear                                          # CLEAR stays CLEAR
+    assert resolve_unknown_when_degraded(clear, True, True) == clear

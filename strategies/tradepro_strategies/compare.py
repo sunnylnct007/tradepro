@@ -424,8 +424,9 @@ def _attach_bucket_and_rationale(
     # instead of trusting per-name penalties on a broken feed).
     from .gates.earnings_proximity import (
         CANARY_SYMBOLS as _EG_CANARIES,
-        escalate_unknown_when_degraded as _eg_escalate,
+        resolve_unknown_when_degraded as _eg_resolve,
     )
+    _news_hint_cache: dict[str, bool | None] = {}
     _dead_canaries: list[str] = []
     for _c in _EG_CANARIES:
         _crows = by_symbol.get(_c)
@@ -595,9 +596,21 @@ def _attach_bucket_and_rationale(
         _s_since = _eg_sessions_since(_last_date) if _last_date else None
         _eg_state = _eg_classify(_s_to, _s_since, _est, _eg_cfg, has_earnings=_has_earnings)
         _eg_dec = _eg_route(_eg_state, _eg_cfg, sessions_to_next=_s_to, sessions_since_last=_s_since)
-        # Canary escalation: feed degraded run-wide → UNKNOWN becomes a veto
-        # (a just-reported name must not ride through as merely penalised).
-        _eg_dec = _eg_escalate(_eg_dec, earnings_feed_degraded)
+        # Canary resolution (alert-not-suppress): feed degraded + UNKNOWN →
+        # crawl the CONFIGURED news feeds for a recent-earnings mention. Positive
+        # mention = just reported → hard veto. No mention/outage → the name stays
+        # VISIBLE with an EARNINGS_UNVERIFIED alert (capped, never ⭐) telling the
+        # user to verify the date manually — never silently suppressed.
+        _eg_hint: bool | None = None
+        if earnings_feed_degraded and _eg_state == _EarningsGate.UNKNOWN and _has_earnings:
+            if symbol not in _news_hint_cache:
+                try:
+                    from .news_sites import recent_earnings_mention
+                    _news_hint_cache[symbol] = recent_earnings_mention(symbol)
+                except Exception:  # noqa: BLE001 — crawl outage = unknown, not "no news"
+                    _news_hint_cache[symbol] = None
+            _eg_hint = _news_hint_cache[symbol]
+        _eg_dec = _eg_resolve(_eg_dec, earnings_feed_degraded, recent_earnings_hint=_eg_hint)
         earnings_gate_info = {
             "state": _eg_state.value, "action": _eg_dec.action, "flag": _eg_dec.flag,
             "score_mult": _eg_dec.score_mult, "rank_cap": _eg_dec.rank_cap,
@@ -618,7 +631,12 @@ def _attach_bucket_and_rationale(
             # UNKNOWN (missing feed) is FLAG-ONLY — a down earnings feed must not
             # silently degrade every name's conviction; the flag + data-gap make
             # the gap visible (fail-loud) without nuking the whole Decide screen.
-            if _eg_state == _EarningsGate.POST_DRIFT and conviction == "HIGH":
+            # EARNINGS_UNVERIFIED (degraded feed, alert-not-suppress) caps like
+            # drift: visible BUY, but never a confident/high-conviction one.
+            if conviction == "HIGH" and (
+                _eg_state == _EarningsGate.POST_DRIFT
+                or _eg_dec.flag == "EARNINGS_UNVERIFIED"
+            ):
                 conviction = "MEDIUM"
             reason = f"{reason} | {_eg_dec.flag}: {_eg_dec.reason}" if reason else _eg_dec.reason
 

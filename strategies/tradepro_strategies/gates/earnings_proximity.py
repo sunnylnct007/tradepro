@@ -217,19 +217,39 @@ def sessions_to(next_report, *, today=None) -> int | None:
 CANARY_SYMBOLS = ("MA", "V", "AXP", "JPM", "MSFT", "AAPL")
 
 
-def escalate_unknown_when_degraded(decision: GateDecision, feed_degraded: bool) -> GateDecision:
-    """Close the §9 hole live-demonstrated by MA: UNKNOWN is deliberately
-    flag-only when the feed is healthy (one odd name must not nuke the run),
-    but when the CANARY reporters came back dateless the whole feed is
-    degraded — and a just-reported name would slip through as merely
-    penalised. In that state UNKNOWN escalates to a hard veto."""
+def resolve_unknown_when_degraded(
+    decision: GateDecision,
+    feed_degraded: bool,
+    recent_earnings_hint: bool | None = None,
+) -> GateDecision:
+    """Close the §9 hole (MA: reported yesterday, feed dateless, surfaced as a
+    healthy BUY) WITHOUT hiding names the user could verify themselves:
+
+    - hint TRUE  (configured news feeds mention a recent report): we have
+      positive evidence this JUST reported → hard veto (post-digest risk).
+    - hint False/None (no evidence either way): the name stays VISIBLE with a
+      loud EARNINGS_UNVERIFIED alert — conviction-capped, rank-capped (never a
+      ⭐/top pick), score halved — telling the user to verify the date manually
+      before entering. Alert-not-suppress (user 2026-08-01: "continue with alert
+      shown that the news need to be verified as opposed to completely
+      suppressing").
+    Healthy feed keeps UNKNOWN flag-only (one odd name must not nuke a run)."""
     if decision.state != EarningsGate.UNKNOWN or not feed_degraded:
         return decision
+    if recent_earnings_hint:
+        return GateDecision(
+            decision.state, "veto", "EARNINGS_RECENT_NEWS", 0.0, True,
+            "earnings feed degraded AND configured news feeds mention a recent "
+            "report — treating as just-reported (post-digest veto).")
     return GateDecision(
-        decision.state, "veto", "EARNINGS_FEED_DEGRADED", 0.0, True,
-        "earnings feed DEGRADED this run (canary reporters returned no dates) — "
-        "proximity unverifiable; vetoing so a just-reported name can't slip "
-        "through as merely penalised (the MA hole).")
+        decision.state, "penalize", "EARNINGS_UNVERIFIED", 0.5, True,
+        "earnings feed DEGRADED (canary reporters dateless) — proximity "
+        "UNVERIFIED. Shown with alert, conviction capped, not starrable: "
+        "VERIFY the earnings date manually before entering.")
+
+
+# Backwards-compat alias (older callers/tests).
+escalate_unknown_when_degraded = resolve_unknown_when_degraded
 
 
 def stale_feed_canary(canary_results: dict[str, tuple]) -> tuple[bool, list[str]]:
