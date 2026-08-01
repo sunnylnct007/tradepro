@@ -7,8 +7,14 @@ namespace TradePro.Api.Oms;
 public sealed class Trading212PositionSource : IBrokerPositionSource
 {
     private readonly Trading212DemoClient _client;
+    private readonly Trading212DemoPositionsCache _positionsCache;
 
-    public Trading212PositionSource(Trading212DemoClient client) => _client = client;
+    public Trading212PositionSource(
+        Trading212DemoClient client, Trading212DemoPositionsCache positionsCache)
+    {
+        _client = client;
+        _positionsCache = positionsCache;
+    }
 
     public string BrokerLabel => "T212_DEMO";
 
@@ -17,7 +23,13 @@ public sealed class Trading212PositionSource : IBrokerPositionSource
         if (!_client.IsEnabled) return BrokerPositionsRead.Fail("T212 demo disabled");
         try
         {
-            var r = await _client.GetPositionsAsync(ct);
+            // Route through the shared 30s-TTL cache (serves stale on 429) instead
+            // of hitting T212 raw on every reconciler tick (60s default) — T212
+            // enforces 1 req/1s, and the UI's Portfolio + OMS drift endpoint also
+            // read the same demo positions, so an uncached reconciler tick was one
+            // more caller tripping "TooManyRequests" (see Trading212DemoPositionsCache
+            // docstring — same problem it was built to solve, just not wired here).
+            var r = await _positionsCache.GetAsync(ct);
             if (r.Error is not null) return BrokerPositionsRead.Fail(r.Error);
             // T212 nests the ticker in `instrument` on /equity/portfolio; the
             // top-level Ticker is NULL in the wild. Reading p.Ticker alone made
