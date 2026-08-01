@@ -1544,6 +1544,71 @@ def _fetch_ibkr_ledger_fills(strategy_id: str, log):
     return out
 
 
+def _fetch_oms_ledger_fills(strategy_id: str, broker_label: str, log):
+    """This strategy's FILLED OMS orders for `broker_label` (e.g. "T212_DEMO",
+    "IG_DEMO") -> Fill objects for the audit-only ledger recorder.
+
+    T212 and IG orders route through the OMS-confirmed push path
+    (T212OrderRouter, placement_mode="auto"/"manual") and never emit a local
+    FillEvent onto the paper engine's fill_queue — see _fetch_ibkr_ledger_fills
+    above for the IBKR-specific equivalent of this problem. Without this,
+    their paper-engine ledgers show fills_count=0 even though the OMS's own
+    fill pollers (OmsFillPoller / IGOmsFillPoller) already reconcile the real
+    fill price/qty into oms_orders. This reads that existing, already-correct
+    OMS state instead of re-implementing a broker-specific execution poller.
+
+    Bare-symbol + BUY/SELL normalised (same suffix-stripping as
+    _fetch_broker_held_symbols: "AAPL_US_EQ" -> "AAPL", "CS.D.EURUSD.MINI.IP"
+    -> "EURUSD"), then corporate-action-renamed via canonical_ticker() so a
+    fill under an old ticker still matches the strategy's current universe.
+    qty<=0 / symbol-less rows dropped. Returns [] on any error (caller treats
+    [] as 'nothing to record' — never fails the session)."""
+    import datetime as _dt
+    import requests
+    from . import push_to_api
+    from ..paper.strategy import Fill, OrderSide
+    from ..ticker_renames import canonical_ticker
+
+    base, token = push_to_api.load_credentials()
+    base = (base or "").rstrip("/")
+    if not base:
+        return []
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    r = requests.get(f"{base}/api/oms/orders", params={"states": "FILLED", "limit": 200},
+                      headers=headers, timeout=20)
+    r.raise_for_status()
+    j = r.json()
+    out = []
+    for o in (j.get("orders") or []):
+        if o.get("strategyId") != strategy_id or o.get("broker") != broker_label:
+            continue
+        t = str(o.get("symbol") or "").upper().strip()
+        bare = t
+        if t.endswith(".IP") and "." in t:
+            parts = t.split(".")
+            if len(parts) >= 4:
+                bare = parts[2]
+        elif "_" in t:
+            bare = t.split("_", 1)[0]
+        bare = canonical_ticker(bare)
+        qty = int(abs(float(o.get("filledQty") or 0)))
+        if not bare or qty <= 0:
+            continue
+        side = OrderSide.BUY if str(o.get("side") or "").upper().startswith("B") else OrderSide.SELL
+        ft = _parse_ibkr_trade_time(o.get("lastStateChangeAtUtc")) or _dt.datetime.now(_dt.timezone.utc)
+        oid = str(o.get("id") or f"{bare}-{o.get('lastStateChangeAtUtc')}-{side.value}-{qty}")
+        out.append(Fill(order_id=oid, strategy_id=strategy_id, symbol=bare, side=side,
+                        quantity=qty, fill_price=float(o.get("avgFillPrice") or 0.0),
+                        fill_time=ft, commission=0.0))
+    return out
+
+
+# broker CLI key -> the OMS `broker` label its orders post under (see
+# paper/profiles.py broker_label_override). Drives which strategy this
+# session's fill-recording queries for.
+_OMS_BROKER_LABEL = {"t212": "T212_DEMO", "ig": "IG_DEMO", "ibkr": "IBKR_PAPER"}
+
+
 def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
     """Push the IBKR PAPER account's NLV / cash / unrealised P&L + position book
     to /api/ingest/account-state so the cockpit can render the algo clone's OWN
@@ -2015,21 +2080,34 @@ def main(argv: list[str] | None = None) -> int:
     )
     asyncio.run(engine.run(session_date or datetime.utcnow()))
 
-    # Record the IBKR clone's ACTUAL executions as ledger fills BEFORE the
-    # snapshot — its orders route through an ack-less path that never emits a
-    # FillEvent, so without this fills_count=0, no realised trail, no chart
-    # markers, and the book trails the broker (the "KO shows held when flat"
-    # confusion). AUDIT-ONLY: record_broker_fills never mutates the broker-seeded
-    # position, so no double-count. Fail-safe: any error records nothing.
-    if args.broker.strip().lower() == "ibkr":
+    # Record each broker leg's ACTUAL executions as ledger fills BEFORE the
+    # snapshot. T212/IG/IBKR-via-OMS orders all route through an ack-less push
+    # path that never emits a local FillEvent, so without this fills_count=0,
+    # no realised trail, no chart markers, and the book trails the broker (the
+    # "KO shows held when flat" confusion). IBKR reads its own execution log
+    # (_fetch_ibkr_ledger_fills); T212/IG read the OMS's already-reconciled
+    # fill state instead (_fetch_oms_ledger_fills — see its docstring for why
+    # a broker-specific poller isn't needed there). AUDIT-ONLY: record_broker_
+    # fills never mutates the broker-seeded position, so no double-count.
+    # Fail-safe per broker: one leg's error never blocks another's recording
+    # or fails the session. Checked against broker_list (not args.broker
+    # verbatim) so a multi-broker session (--broker ibkr,t212) records both.
+    for _broker_key in broker_list:
+        _bk = _broker_key.strip().lower()
+        _label = _OMS_BROKER_LABEL.get(_bk)
+        if _label is None:
+            continue
         try:
-            _fills = _fetch_ibkr_ledger_fills(strategy.strategy_id, log)
+            if _bk == "ibkr":
+                _fills = _fetch_ibkr_ledger_fills(strategy.strategy_id, log)
+            else:
+                _fills = _fetch_oms_ledger_fills(strategy.strategy_id, _label, log)
             if _fills:
                 _n = engine.ledger.record_broker_fills(strategy.strategy_id, _fills)
-                log.info("recorded %d IBKR execution(s) as ledger fills for %s",
-                         _n, strategy.strategy_id)
+                log.info("recorded %d %s execution(s) as ledger fills for %s",
+                         _n, _label, strategy.strategy_id)
         except Exception as exc:  # noqa: BLE001 — audit is best-effort, never fail the session
-            log.warning("IBKR fill recording skipped: %s", exc)
+            log.warning("%s fill recording skipped: %s", _label, exc)
 
     # Re-snapshot with recent fills so the Paper page Live tab renders
     # the per-strategy fill log + open positions.
@@ -2069,8 +2147,10 @@ def main(argv: list[str] | None = None) -> int:
         # IBKR: also push the PAPER account's NLV / cash / P&L + position book
         # so the cockpit renders the algo clone's OWN account row + per-position
         # P&L. The live IBKRClient only sees IBKR_LIVE, so without this the clone
-        # is invisible (£0/n.a). Best-effort — never fails the session.
-        if args.broker.strip().lower() == "ibkr":
+        # is invisible (£0/n.a). Best-effort — never fails the session. Checked
+        # against broker_list (see the fill-recording gate above) so multi-broker
+        # sessions still push IBKR's account state.
+        if "ibkr" in (b.lower() for b in broker_list):
             _push_ibkr_account_state(getattr(args, "account", None), base, token, log)
     return 0
 
