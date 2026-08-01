@@ -1,0 +1,100 @@
+# ============================================================
+# Nightly verdict scoring (TRADEPRO_REDESIGN_SPEC.md §5.3).
+#
+# Calls POST /api/verdicts/score-pending, which scores every verdict
+# whose horizon has passed (swing/invest: 20/60 calendar days; wheel:
+# option expiry) against real broker-provider prices and writes
+# verdict_outcomes. Idempotent — safe to re-run, only scores what's
+# actually due and not already scored.
+#
+# The endpoint needs the API itself up, and the box auto-stops nightly
+# (22:00 UTC) and only auto-starts weekdays (aws-scheduled-start,
+# 12:50 UTC) — so this self-heals a stopped instance rather than
+# assuming that schedule, same pattern as aws-redeploy.
+#
+# Manual run: Actions → verdicts-score-nightly → Run workflow.
+# ============================================================
+
+name: verdicts-score-nightly
+
+on:
+  schedule:
+    - cron: "15 6 * * *"   # 06:15 UTC daily (every day — verdicts aren't weekday-only)
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find instance, start if stopped, wait for SSM Online
+        id: find
+        run: |
+          ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_PREFIX}*" \
+                      "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text | tr -s '\t\n' ' ' | awk '{print $1}')
+          if [ -z "$ID" ]; then
+            echo "::error::No instance found with name prefix ${INSTANCE_NAME_PREFIX}"
+            exit 1
+          fi
+          STATE=$(aws ec2 describe-instances --instance-ids "$ID" \
+                  --query 'Reservations[0].Instances[0].State.Name' --output text)
+          echo "Instance $ID is '$STATE'"
+          if [ "$STATE" != "running" ]; then
+            echo "Starting instance (was '$STATE') ..."
+            aws ec2 start-instances --instance-ids "$ID"
+            aws ec2 wait instance-running --instance-ids "$ID"
+          fi
+          echo "Waiting for SSM agent to report Online ..."
+          for i in $(seq 1 30); do
+            PING=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$ID" \
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || echo "")
+            echo "  attempt $i: PingStatus=${PING:-none}"
+            if [ "$PING" = "Online" ]; then break; fi
+            sleep 10
+          done
+
+      - name: Load secrets from AWS (tradepro/all)
+        run: |
+          SECRET=$(aws secretsmanager get-secret-value --secret-id tradepro/all --region eu-west-2 --query SecretString --output text)
+          for k in api-base-url api-token; do
+            v=$(echo "$SECRET" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$k',''))")
+            echo "::add-mask::$v"
+            env_name=$(echo "TRADEPRO_${k}" | tr 'a-z-' 'A-Z_')
+            echo "$env_name=$v" >> "$GITHUB_ENV"
+          done
+
+      - name: Wait for /health, then score pending verdicts
+        run: |
+          for i in {1..30}; do
+            if curl -sfo /dev/null --max-time 5 "${TRADEPRO_API_BASE_URL}/health"; then
+              echo "API healthy after $((i*5))s"
+              break
+            fi
+            sleep 5
+          done
+          RESULT=$(curl -sf -X POST --max-time 60 \
+            -H "Authorization: Bearer ${TRADEPRO_API_TOKEN}" \
+            "${TRADEPRO_API_BASE_URL}/api/verdicts/score-pending")
+          echo "$RESULT"
+          echo "## Verdict scoring" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$RESULT" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

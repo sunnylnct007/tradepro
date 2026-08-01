@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Dapper;
 using Npgsql;
+using TradePro.Api.Providers;
 
 namespace TradePro.Api.Endpoints;
 
@@ -130,6 +131,157 @@ public static class VerdictsEndpoints
                 ORDER BY v.horizon;",
                 cancellationToken: ct));
             return Results.Ok(new { scorecard = rows });
+        });
+
+        // POST /api/verdicts/score-pending — spec §5.3, the nightly scoring job.
+        // Idempotent (safe to call more than once a day, or by hand): every
+        // query it runs is itself the "is this due AND not already scored"
+        // filter, so a re-run just finds nothing new to do. Called on a
+        // schedule by .github/workflows/verdicts-score-nightly.yml.
+        group.MapPost("/score-pending", async (
+            NpgsqlDataSource db, IMarketDataRegistry providers,
+            ILogger<Program> log, CancellationToken ct) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var priceCache = new Dictionary<string, decimal?>();
+
+            async Task<decimal?> LatestPriceAsync(string symbol)
+            {
+                if (priceCache.TryGetValue(symbol, out var cached)) return cached;
+                decimal? px = null;
+                try
+                {
+                    var provider = providers.Resolve(null);
+                    var series = await provider.GetCandlesAsync(
+                        symbol, "1d", DateTime.UtcNow.AddDays(-10), DateTime.UtcNow, ct);
+                    if (series.Candles.Count > 0) px = series.Candles[^1].AdjOrClose;
+                }
+                catch (Exception ex)
+                {
+                    log.LogWarning(ex, "score-pending: price fetch failed for {Symbol}", symbol);
+                }
+                priceCache[symbol] = px;
+                return px;
+            }
+
+            // ---- swing/invest: directional calls, scored 20/60 calendar days
+            // after the verdict. NOT_YET/WAIT are explicitly non-committal — no
+            // false positives: scoring them would fabricate a call that was
+            // never actually made. YES = act (win if price rose); NO = avoid
+            // (win if price DIDN'T run away without you — correctly avoiding a
+            // loser is the point of a NO call, not a coin flip against it).
+            var due = (await conn.QueryAsync(new CommandDefinition(@"
+                SELECT v.id AS verdict_id, v.symbol, v.spot, v.verdict, hd.horizon_days
+                FROM verdicts v
+                CROSS JOIN (VALUES (20), (60)) AS hd(horizon_days)
+                WHERE v.horizon IN ('swing', 'invest')
+                  AND v.verdict IN ('YES', 'NO')
+                  AND v.ts <= now() - make_interval(days => hd.horizon_days)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM verdict_outcomes o
+                      WHERE o.verdict_id = v.id AND o.horizon_days = hd.horizon_days
+                  );",
+                cancellationToken: ct))).ToList();
+
+            var scoredDirectional = 0;
+            foreach (var row in due)
+            {
+                string symbol = row.symbol;
+                decimal spot = row.spot;
+                string verdict = row.verdict;
+                int horizonDays = row.horizon_days;
+
+                var px = await LatestPriceAsync(symbol);
+                if (px is null || px <= 0) continue; // stays unscored — retried next run, never guessed
+
+                var returnPct = (px.Value - spot) / spot * 100m;
+                var outcome = verdict == "YES"
+                    ? (returnPct > 0 ? "WIN" : "LOSS")
+                    : (returnPct <= 0 ? "WIN" : "LOSS");
+
+                await conn.ExecuteAsync(new CommandDefinition(@"
+                    INSERT INTO verdict_outcomes (verdict_id, horizon_days, scored_at, ref_price, return_pct, outcome)
+                    VALUES (@verdict_id, @horizon_days, now(), @ref_price, @return_pct, @outcome);",
+                    new
+                    {
+                        verdict_id = (long)row.verdict_id, horizon_days = horizonDays,
+                        ref_price = px.Value, return_pct = returnPct, outcome,
+                    },
+                    cancellationToken: ct));
+                scoredDirectional++;
+            }
+
+            // ---- wheel: scored at option EXPIRY, not a fixed day-count. Only
+            // handles the structured spec shape {action,strike,expiry,premium}
+            // (spec §5.1's own DDL example) — a free-text spec (e.g. imported
+            // seed rows) is skipped, not guessed at by parsing prose. SELL_PUT
+            // only for now (covered-call/other structures are future work,
+            // same honesty principle: score what we can prove, skip the rest).
+            var dueWheel = (await conn.QueryAsync(new CommandDefinition(@"
+                SELECT v.id AS verdict_id, v.symbol, v.spot, v.spec::text AS spec
+                FROM verdicts v
+                WHERE v.horizon = 'wheel' AND v.verdict = 'YES'
+                  AND NOT EXISTS (SELECT 1 FROM verdict_outcomes o WHERE o.verdict_id = v.id);",
+                cancellationToken: ct))).ToList();
+
+            var scoredWheel = 0;
+            var wheelSkippedUnstructured = 0;
+            foreach (var row in dueWheel)
+            {
+                string symbol = row.symbol;
+                string? specText = row.spec;
+                if (string.IsNullOrWhiteSpace(specText)) { wheelSkippedUnstructured++; continue; }
+
+                JsonElement root;
+                try { root = JsonDocument.Parse(specText).RootElement; }
+                catch (JsonException) { wheelSkippedUnstructured++; continue; }
+
+                if (!root.TryGetProperty("action", out var actionEl)
+                    || actionEl.GetString() != "SELL_PUT"
+                    || !root.TryGetProperty("strike", out var strikeEl)
+                    || !root.TryGetProperty("expiry", out var expiryEl)
+                    || !root.TryGetProperty("premium", out var premiumEl)
+                    || !DateTime.TryParse(expiryEl.GetString(), out var expiry))
+                {
+                    wheelSkippedUnstructured++;
+                    continue;
+                }
+                if (expiry > DateTime.UtcNow) continue; // not due yet — not an error, just not expired
+
+                var strike = strikeEl.GetDecimal();
+                var premium = premiumEl.GetDecimal();
+                var px = await LatestPriceAsync(symbol);
+                if (px is null) continue;
+
+                string outcome;
+                decimal returnPct;
+                if (px.Value < strike)
+                {
+                    outcome = "ASSIGNED";
+                    returnPct = (premium - (strike - px.Value)) / strike * 100m;
+                }
+                else
+                {
+                    outcome = "EXPIRED_WORTHLESS";
+                    returnPct = premium / strike * 100m;
+                }
+
+                await conn.ExecuteAsync(new CommandDefinition(@"
+                    INSERT INTO verdict_outcomes (verdict_id, horizon_days, scored_at, ref_price, return_pct, outcome)
+                    VALUES (@verdict_id, NULL, now(), @ref_price, @return_pct, @outcome);",
+                    new { verdict_id = (long)row.verdict_id, ref_price = px.Value, return_pct = returnPct, outcome },
+                    cancellationToken: ct));
+                scoredWheel++;
+            }
+
+            return Results.Ok(new
+            {
+                scoredDirectional,
+                directionalChecked = due.Count,
+                scoredWheel,
+                wheelChecked = dueWheel.Count,
+                wheelSkippedUnstructuredSpec = wheelSkippedUnstructured,
+            });
         });
 
         return app;
