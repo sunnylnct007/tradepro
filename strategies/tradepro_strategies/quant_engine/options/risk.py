@@ -87,6 +87,12 @@ class OptionsRiskConfig:
     #   run 50–500 OI); 250 is enough for 1-lot paper/wheel fills without bad
     #   slippage. Raise for size.
     spread_max_usd: float = 0.10
+    # Spread cap is PREMIUM-RELATIVE when the mid is known: a $0.10 absolute cap
+    # is only realistic for sub-$1 premiums — a $315-strike JPM put quoting a
+    # $5.90 mid will never show a dime-wide market, so the absolute cap alone
+    # blocked every mid/high-priced underlying forever. Allowed spread =
+    # max(spread_max_usd, spread_max_pct_of_mid × mid).
+    spread_max_pct_of_mid: float = 0.15
     # Capital rules (§9.1) — GBP. Pot ≈ £12k with ~£10k deployable (the trader's
     # stated capacity); a single position may use the full deploy so mid-priced
     # quality names (e.g. a $76 strike ≈ £6k cash-secured) aren't blocked on
@@ -157,6 +163,7 @@ class MarketContext:
     iv_rank: float | None = None           # %, from 52w IV history
     open_interest: int | None = None       # near-month OI at the strike
     bid_ask_spread_usd: float | None = None
+    premium_mid_usd: float | None = None   # mid of the short leg — scales the spread cap
     earnings_in_expiry_window: bool | None = None   # §9.4 blackout
     ex_div_in_expiry_window: bool | None = None      # §9.4 (covered calls)
     data_fresh: bool = True                # chain/greeks fresh + valid (§9.2 last check)
@@ -276,10 +283,16 @@ def evaluate(
         blocks.append("Open interest unavailable — cannot confirm fillable liquidity.")
     elif ctx.open_interest < cfg.oi_min:
         blocks.append(f"Open interest {ctx.open_interest} < {cfg.oi_min} — illiquid, bad fills.")
+    # Premium-relative spread cap: the absolute $0.10 floor only fits sub-$1
+    # premiums; scale by the mid when we have one so mid/high-priced quality
+    # names aren't permanently blocked on a structurally-wider (but fair) market.
+    _spread_allowed = cfg.spread_max_usd
+    if ctx.premium_mid_usd is not None and ctx.premium_mid_usd > 0:
+        _spread_allowed = max(cfg.spread_max_usd, cfg.spread_max_pct_of_mid * ctx.premium_mid_usd)
     if ctx.bid_ask_spread_usd is None:
         blocks.append("Bid-ask spread unavailable.")
-    elif ctx.bid_ask_spread_usd > cfg.spread_max_usd:
-        _msg = f"Bid-ask ${ctx.bid_ask_spread_usd:.2f} > ${cfg.spread_max_usd:.2f} — spread too wide"
+    elif ctx.bid_ask_spread_usd > _spread_allowed:
+        _msg = f"Bid-ask ${ctx.bid_ask_spread_usd:.2f} > ${_spread_allowed:.2f} — spread too wide"
         if ctx.quotes_delayed:
             # DELAYED quote (no OPRA): the wide spread is a data artifact, not a
             # real market. Advise, don't block — but make it loud so nobody

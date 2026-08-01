@@ -37,8 +37,21 @@ log = logging.getLogger("tradepro.options_screen")
 # DUK/D for defensive yield. Re-run tradepro-wheel-backtest to revisit.
 #   CVX 12.2%/-7%  ABBV 11.7%/-16%  XOM 11.1%/-8%  VZ 10.3%/-11%
 #   DUK 8.8%/-8%   JNJ 6.3%/-10%    MO 5.7%/-10%   PG 5.0%/-13%
+# Wheel universe — liquid option chains, quality underlyings you'd accept
+# assignment on, weighted toward strikes that FIT the configurable pot
+# (TRADEPRO_WHEEL_PER_POSITION_GBP; a $315 JPM strike needs a raised cap).
+# Expanded 10 → 30 (user: "only 14 symbols — we should evaluate more").
 DEFAULT_UNIVERSE = [
+    # original core
     "CVX", "XOM", "ABBV", "JNJ", "VZ", "MO", "PG", "DUK", "D", "PEP",
+    # affordable, liquid chains (fit a £10k/pos pot)
+    "KO", "T", "PFE", "F", "INTC", "BAC", "WFC", "CSCO", "MU", "GM",
+    "SLB", "OXY", "KMI", "DVN", "GILD", "BMY", "CMCSA", "DOW", "WMB", "HPE",
+    # mega-liquid chains — the deepest/tightest option markets there are. Their
+    # strikes only fit a RAISED pot (TRADEPRO_WHEEL_PER_POSITION_GBP): the
+    # notional gate decides affordability per the user's configured capital,
+    # the universe just makes them CANDIDATES (config-driven, not pre-filtered).
+    "NVDA", "GOOGL", "AAPL", "MSFT", "AMD", "QCOM",
 ]
 
 _FX_GBPUSD = 1.27  # BRD display rate; USD strike×100 → GBP notional
@@ -195,6 +208,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         falling_knife=falling_knife,
         iv_rank=ivr.iv_rank if ivr.available else None,
         open_interest=oi, bid_ask_spread_usd=spread,
+        premium_mid_usd=premium,   # scales the spread cap (relative, not $0.10 flat)
         earnings_in_expiry_window=earnings_in_window,
         # Screen on best-available data: a usable chain is enough to ASSESS
         # eligibility (execution still needs live quotes at the open).

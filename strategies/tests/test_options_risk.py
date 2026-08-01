@@ -212,3 +212,29 @@ def test_delayed_quote_spread_is_advisory_not_block():
     dly = evaluate(cand, MarketContext(**{**base, "quotes_delayed": True}), _flat())
     assert not live.allowed and any("spread too wide" in b for b in live.blocks)
     assert dly.allowed and any("DELAYED" in w for w in dly.warnings)
+
+
+# ── Premium-relative spread cap (JPM $5.90-mid puts never quote $0.10 wide) ──
+def test_relative_spread_allows_fair_market_on_pricier_premium():
+    # mid $2.00 → allowed = max(0.10, 15% × 2.00) = $0.30; a $0.25 spread is a
+    # fair market for that premium and must NOT block.
+    ctx = MarketContext(**{**_good_ctx().__dict__,
+                           "bid_ask_spread_usd": 0.25, "premium_mid_usd": 2.00})
+    d = evaluate(_good_csp(), ctx, _flat())
+    assert not any("spread too wide" in b for b in d.blocks), d.blocks
+
+
+def test_relative_spread_still_blocks_genuinely_wide():
+    # mid $2.00 → allowed $0.30; a $0.90 spread is genuinely wide → block.
+    ctx = MarketContext(**{**_good_ctx().__dict__,
+                           "bid_ask_spread_usd": 0.90, "premium_mid_usd": 2.00})
+    d = evaluate(_good_csp(), ctx, _flat())
+    assert any("spread too wide" in b for b in d.blocks)
+
+
+def test_absolute_cap_still_applies_without_mid():
+    # No mid known → the conservative absolute $0.10 cap stands.
+    ctx = MarketContext(**{**_good_ctx().__dict__,
+                           "bid_ask_spread_usd": 0.25, "premium_mid_usd": None})
+    d = evaluate(_good_csp(), ctx, _flat())
+    assert any("spread too wide" in b for b in d.blocks)
