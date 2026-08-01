@@ -416,6 +416,33 @@ def _attach_bucket_and_rationale(
     for r in rows:
         by_symbol.setdefault(r["symbol"], []).append(r)
 
+    # Run-level earnings-feed CANARY (the MA hole). If a GUARANTEED quarterly
+    # reporter in this run has no earnings date, the feed is degraded — and a
+    # just-reported name (MA: reported yesterday, feed dateless) would surface
+    # as a merely-penalised BUY instead of a POST_DIGEST veto. When the canary
+    # trips, UNKNOWN escalates to veto for the whole run (fail-loud, run-wide,
+    # instead of trusting per-name penalties on a broken feed).
+    from .gates.earnings_proximity import (
+        CANARY_SYMBOLS as _EG_CANARIES,
+        escalate_unknown_when_degraded as _eg_escalate,
+    )
+    _dead_canaries: list[str] = []
+    for _c in _EG_CANARIES:
+        _crows = by_symbol.get(_c)
+        if not _crows:
+            continue
+        _csig = _crows[0].get("earnings_signal") or {}
+        _has_date = bool(
+            (_csig.get("upcoming") or {}).get("date")
+            or _csig.get("last_report_date")
+            or (_csig.get("earnings") or {}).get("announce_date")
+        )
+        if not _has_date:
+            _dead_canaries.append(_c)
+    earnings_feed_degraded = bool(_dead_canaries)
+    if earnings_feed_degraded and logger:
+        logger.emit("compare.earnings_feed_degraded", canaries=_dead_canaries)
+
     from .factor_types import (
         factor_type_for, horizon_for, incompatible_strategies_for,
         is_compatible, strategy_type_for,
@@ -568,11 +595,16 @@ def _attach_bucket_and_rationale(
         _s_since = _eg_sessions_since(_last_date) if _last_date else None
         _eg_state = _eg_classify(_s_to, _s_since, _est, _eg_cfg, has_earnings=_has_earnings)
         _eg_dec = _eg_route(_eg_state, _eg_cfg, sessions_to_next=_s_to, sessions_since_last=_s_since)
+        # Canary escalation: feed degraded run-wide → UNKNOWN becomes a veto
+        # (a just-reported name must not ride through as merely penalised).
+        _eg_dec = _eg_escalate(_eg_dec, earnings_feed_degraded)
         earnings_gate_info = {
             "state": _eg_state.value, "action": _eg_dec.action, "flag": _eg_dec.flag,
             "score_mult": _eg_dec.score_mult, "rank_cap": _eg_dec.rank_cap,
             "reason": _eg_dec.reason, "sessions_to_next": _s_to,
             "sessions_since_last": _s_since,
+            "feed_degraded": earnings_feed_degraded,
+            "dead_canaries": _dead_canaries or None,
         }
         earnings_suppressed = _eg_dec.action == "veto"
         if _eg_dec.action == "veto":

@@ -209,6 +209,29 @@ def sessions_to(next_report, *, today=None) -> int | None:
 
 # ── stale-feed canary ─────────────────────────────────────────────────────────
 
+# Guaranteed quarterly reporters — mega-caps whose report dates sit on every
+# public calendar weeks ahead. If the feed returns NO date for one of THESE,
+# the FEED is degraded, not the name (the MA case: reported July 30, feed
+# returned nothing, and a next-session post-earnings name surfaced as a
+# merely-penalised BUY instead of a POST_DIGEST veto).
+CANARY_SYMBOLS = ("MA", "V", "AXP", "JPM", "MSFT", "AAPL")
+
+
+def escalate_unknown_when_degraded(decision: GateDecision, feed_degraded: bool) -> GateDecision:
+    """Close the §9 hole live-demonstrated by MA: UNKNOWN is deliberately
+    flag-only when the feed is healthy (one odd name must not nuke the run),
+    but when the CANARY reporters came back dateless the whole feed is
+    degraded — and a just-reported name would slip through as merely
+    penalised. In that state UNKNOWN escalates to a hard veto."""
+    if decision.state != EarningsGate.UNKNOWN or not feed_degraded:
+        return decision
+    return GateDecision(
+        decision.state, "veto", "EARNINGS_FEED_DEGRADED", 0.0, True,
+        "earnings feed DEGRADED this run (canary reporters returned no dates) — "
+        "proximity unverifiable; vetoing so a just-reported name can't slip "
+        "through as merely penalised (the MA hole).")
+
+
 def stale_feed_canary(canary_results: dict[str, tuple]) -> tuple[bool, list[str]]:
     """Assert a small set of guaranteed quarterly reporters returned plausible
     dates this run. `canary_results` maps symbol → (sessions_to_next,

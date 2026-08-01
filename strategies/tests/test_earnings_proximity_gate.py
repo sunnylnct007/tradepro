@@ -117,3 +117,35 @@ def test_canary_raises_when_guaranteed_reporter_returns_none():
 def test_canary_clean_when_reporters_return_dates():
     degraded, dead = stale_feed_canary({"AAPL": (30, 20), "JPM": (5, 60)})
     assert degraded is False and dead == []
+
+
+# ── Canary escalation (the MA hole, 2026-07-31) ──────────────────────────────
+def test_unknown_escalates_to_veto_when_feed_degraded():
+    from tradepro_strategies.gates.earnings_proximity import (
+        EarningsGate, EarningsGateConfig, classify, route,
+        escalate_unknown_when_degraded)
+    cfg = EarningsGateConfig()
+    st = classify(None, None, False, cfg, has_earnings=True)     # UNKNOWN
+    dec = route(st, cfg)
+    assert dec.action == "penalize"                              # healthy feed: flag-only
+    esc = escalate_unknown_when_degraded(dec, feed_degraded=True)
+    assert esc.action == "veto" and esc.flag == "EARNINGS_FEED_DEGRADED"
+    assert esc.rank_cap is True and esc.score_mult == 0.0
+
+
+def test_unknown_not_escalated_when_feed_healthy():
+    from tradepro_strategies.gates.earnings_proximity import (
+        EarningsGateConfig, classify, route, escalate_unknown_when_degraded)
+    cfg = EarningsGateConfig()
+    dec = route(classify(None, None, False, cfg, has_earnings=True), cfg)
+    esc = escalate_unknown_when_degraded(dec, feed_degraded=False)
+    assert esc == dec                                            # unchanged
+
+
+def test_non_unknown_states_never_escalated():
+    from tradepro_strategies.gates.earnings_proximity import (
+        EarningsGateConfig, classify, route, escalate_unknown_when_degraded)
+    cfg = EarningsGateConfig()
+    clear = route(classify(15, 40, False, cfg, has_earnings=True), cfg)
+    esc = escalate_unknown_when_degraded(clear, feed_degraded=True)
+    assert esc == clear                                          # CLEAR stays CLEAR
