@@ -596,6 +596,15 @@ def build_server():
     # ---- Track-record validation: hitrate, scan, evaluate one signal ----
 
     @mcp.tool()
+    @instrumented("list_hitrate_strategies")
+    def list_hitrate_strategies() -> str:
+        """The technical-indicator strategy names get_hitrate accepts —
+        call this before get_hitrate to avoid a 400 from an unrecognized
+        `strategy` value (it's a different vocabulary from paper-strategy
+        ids or COMPASS/CATALYST signal sources)."""
+        return _json(t.list_hitrate_strategies())
+
+    @mcp.tool()
     @instrumented("get_hitrate")
     def get_hitrate(
         symbol: str,

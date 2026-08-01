@@ -1763,6 +1763,20 @@ def list_paper_strategies() -> dict:
 # Track-record validation: hitrate, signal scan, evaluate one signal
 # ---------------------------------------------------------------------------
 
+def list_hitrate_strategies() -> dict:
+    """The technical-indicator strategy names accepted by `get_hitrate`'s
+    `strategy` argument. A DIFFERENT, smaller vocabulary from paper-strategy
+    ids (see list_paper_strategies) or COMPASS/CATALYST signal sources —
+    passing one of those to get_hitrate instead of one of these 400s."""
+    from ..strategies import available as _available_hitrate_strategies
+    return {
+        "_source": "tradepro://hitrate/strategies",
+        "fetched_at": _now_iso(),
+        "ok": True,
+        "strategies": _available_hitrate_strategies(),
+    }
+
+
 def get_hitrate(
     symbol: str,
     strategy: str,
@@ -1774,15 +1788,29 @@ def get_hitrate(
     `horizon_days`? Answers "does this strategy actually work on this
     symbol?" with backtested evidence, not just current signal value.
 
+    `strategy` must be one of the technical-indicator names returned by
+    `list_hitrate_strategies` (buy_and_hold, sma_crossover, rsi_mean_reversion,
+    macd_signal_cross, donchian_breakout, ichimoku_cloud, bollinger_bounce) —
+    a DIFFERENT vocabulary from paper-strategy ids (list_paper_strategies) or
+    COMPASS/CATALYST signal sources. Passing one of those instead 400s.
+
     Cite as `tradepro://hitrate/{symbol}/{strategy}`.
     """
     if not symbol or not strategy:
         return _err("get_hitrate", "symbol and strategy are required")
+    from ..strategies import available as _available_hitrate_strategies
+    _valid = _available_hitrate_strategies()
+    if strategy not in _valid:
+        return _err(
+            "get_hitrate",
+            f"unknown strategy {strategy!r}. Valid values: {', '.join(_valid)} "
+            "(call list_hitrate_strategies to fetch this list programmatically)",
+            symbol=symbol, strategy=strategy,
+        )
     body = {
         "symbol": symbol,
         "strategy": strategy,
         "lookbackYears": int(lookback_years),
-        "horizonDays": int(horizon_days),
     }
     try:
         payload = _post("/api/signals/hitrate", json_body=body)
