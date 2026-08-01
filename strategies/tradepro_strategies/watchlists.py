@@ -92,28 +92,6 @@ WATCHLISTS: dict[str, list[str]] = {
     # Stocks + ETFs are well covered. Indian MUTUAL FUNDS are NOT on Yahoo
     # (no standard ticker) — they need an AMFI / mfapi.in feed (data-provider
     # gap, see ROADMAP), so they're deliberately omitted here until that lands.
-    "india_largecap": [
-        "^NSEI",          # Nifty 50 index
-        "^BSESN",         # BSE Sensex index
-        "RELIANCE.NS",    # Reliance Industries
-        "TCS.NS",         # Tata Consultancy Services
-        "HDFCBANK.NS",    # HDFC Bank
-        "INFY.NS",        # Infosys
-        "ICICIBANK.NS",   # ICICI Bank
-        "HINDUNILVR.NS",  # Hindustan Unilever
-        "BHARTIARTL.NS",  # Bharti Airtel
-        "ITC.NS",         # ITC
-        "SBIN.NS",        # State Bank of India
-        "KOTAKBANK.NS",   # Kotak Mahindra Bank
-        "LT.NS",          # Larsen & Toubro
-        "AXISBANK.NS",    # Axis Bank
-        "BAJFINANCE.NS",  # Bajaj Finance
-        "ASIANPAINT.NS",  # Asian Paints
-        "MARUTI.NS",      # Maruti Suzuki
-        "SUNPHARMA.NS",   # Sun Pharma
-        "TATAMOTORS.NS",  # Tata Motors
-        "WIPRO.NS",       # Wipro
-    ],
     "india_etf": [
         "NIFTYBEES.NS",   # Nippon India Nifty 50 ETF
         "BANKBEES.NS",    # Nippon India Nifty Bank ETF
@@ -121,7 +99,7 @@ WATCHLISTS: dict[str, list[str]] = {
         "GOLDBEES.NS",    # Nippon India Gold ETF
     ],
     # The Nifty 50 constituents (user, 2026-06-14) — the canonical Indian
-    # large-cap index, vs the curated 20 in india_largecap. Yahoo .NS tickers.
+    # large-cap index. Yahoo .NS tickers.
     "nifty50": [
         "RELIANCE.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS", "TCS.NS",
         "ITC.NS", "BHARTIARTL.NS", "SBIN.NS", "LT.NS", "KOTAKBANK.NS",
