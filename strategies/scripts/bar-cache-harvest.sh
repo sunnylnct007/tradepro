@@ -65,11 +65,28 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
 done
 
 # ---------------------------------------------------------------------------
+# Default to a trailing 7-day window when the caller gave no explicit --from.
+# Without it the harvest runs "daily mode" for a single session that yfinance
+# cannot serve as 1m (Yahoo only allows ~8 days of 1m per request) → 0 bars,
+# which were then falsely logged as "bronze ok". A rolling window lets yfinance
+# land real recent 1m on every run; IBKR fills deeper history when the gateway
+# is reachable. (Deep historical 1m backfill still REQUIRES IBKR — yahoo can
+# only ever serve the trailing ~8 days.)
+# ---------------------------------------------------------------------------
+WINDOW_ARGS=()
+if [[ "$*" != *"--from"* ]]; then
+    FROM_DATE=$(date -u -v-7d +%F 2>/dev/null || date -u -d '7 days ago' +%F)
+    TO_DATE=$(date -u +%F)
+    WINDOW_ARGS=(--from "$FROM_DATE" --to "$TO_DATE")
+    log "no --from given → defaulting to trailing window $FROM_DATE → $TO_DATE"
+fi
+
+# ---------------------------------------------------------------------------
 # Run harvest.
 # ---------------------------------------------------------------------------
 if [[ $EC2_REACHABLE -eq 1 ]]; then
-    log "Running tradepro-bar-cache-harvest (with backend telemetry) args: $*"
-    exec "$UV" run tradepro-bar-cache-harvest "$@" >>"$LOG_FILE" 2>&1
+    log "Running tradepro-bar-cache-harvest (with backend telemetry) args: $* ${WINDOW_ARGS[*]:-}"
+    exec "$UV" run tradepro-bar-cache-harvest "$@" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} >>"$LOG_FILE" 2>&1
 else
     log "EC2 unreachable — harvesting locally only, telemetry skipped"
     # Pass all args EXCEPT any existing --api-base / --api-url flags the
@@ -94,5 +111,5 @@ else
                 ;;
         esac
     done
-    exec "$UV" run tradepro-bar-cache-harvest "${FILTERED_ARGS[@]}" >>"$LOG_FILE" 2>&1
+    exec "$UV" run tradepro-bar-cache-harvest "${FILTERED_ARGS[@]}" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} >>"$LOG_FILE" 2>&1
 fi
