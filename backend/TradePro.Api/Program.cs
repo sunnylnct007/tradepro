@@ -373,6 +373,7 @@ api.MapPaperBacktestEndpoints();
 api.MapScreenerEndpoints();
 api.MapOrdersEndpoints();
 api.MapOmsEndpoints();
+api.MapVerdictsEndpoints();
 // Data-trust P&L / position reconciliation report (GET /api/pnl/reconciliation)
 // — invariants checked against the broker (golden source); fails loudly on drift.
 api.MapReconciliationEndpoints();
