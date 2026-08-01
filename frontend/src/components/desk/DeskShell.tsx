@@ -2,7 +2,7 @@
  * DeskShell — the IBKR-Desktop-style app shell for the new /desk cockpit.
  *
  * Three zones, mounted as a CSS grid:
- *   1. Top bar (full width): search placeholder · TradePro wordmark ·
+ *   1. Top bar (full width): global symbol search (SymbolSearch, ⌘K) · TradePro wordmark ·
  *      account chip. (No single NET LIQ / DAILY P&L: it can only ever be one
  *      broker's value in one currency, so a lone number reads like a blended
  *      portfolio total and misleads — the per-broker KPI strip owns that.)
@@ -32,6 +32,7 @@
 import { type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
+import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
 export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener";
@@ -144,22 +145,7 @@ function TopBar() {
         minWidth: 0,
       }}
     >
-      {/* Search placeholder — non-functional shell affordance for now. */}
-      <div
-        style={{
-          display: "flex", alignItems: "center", gap: 8,
-          background: "#0a0e17", border: `1px solid ${SEP}`, borderRadius: 6,
-          padding: "6px 10px", color: "var(--text-muted)", fontSize: 12,
-          width: 220, maxWidth: "32vw", flexShrink: 1, minWidth: 0,
-        }}
-        title="Search (not yet wired)"
-      >
-        <span>🔍</span>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          Search
-        </span>
-        <span style={{ marginLeft: "auto", opacity: 0.7 }}>⌘K</span>
-      </div>
+      <SymbolSearch />
 
       <div
         style={{

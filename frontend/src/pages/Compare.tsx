@@ -76,6 +76,16 @@ interface SymbolView {
   total: number;
   bucket: "BUY" | "WAIT" | "AVOID";
   bucketReason: string;
+  /** True when the bucket the UI displays differs from best.bucket, the
+   * server's original value — i.e. a client-side guard/promotion (horizon
+   * BUY, majority-long, sentiment/entry-quality downgrade, …) changed the
+   * verdict AFTER the server generated `rationale.summary`. When true,
+   * bucketReason (not the now-stale rationale.summary) is the trustworthy
+   * "why" — see RationalePanel. This is the fix for the AVGO contradiction
+   * (BUY NOW badge + RISK·EXTREME + a rationale panel still saying WAIT):
+   * one symbol, one reconciled verdict; the raw pre-gate rationale moves to
+   * an expansion instead of standing in as the primary explanation. */
+  bucketOverridden: boolean;
   /** True when the bucket would have been BUY by price + strategy
    * consensus, but was demoted to WAIT because of sentiment data. The
    * UI surfaces this explicitly so the user sees the rule fire. */
@@ -570,6 +580,9 @@ function buildSymbolViews(
     // bucket fields yet (defence-in-depth, not a parallel decision).
     let bucket: SymbolView["bucket"];
     let reason: string;
+    // Set true the moment `bucket` is changed to something other than the
+    // server's own best.bucket — see SymbolView.bucketOverridden.
+    let bucketOverridden = false;
     if (best.bucket) {
       bucket = best.bucket;
       reason = best.bucket_reason ?? "";
@@ -613,6 +626,7 @@ function buildSymbolViews(
       reason = `Downgraded from BUY: market_state says ${priceVerdict}` +
         (ms?.entry_reason ? ` — ${ms.entry_reason}` : "") +
         ` (was: ${reason || "majority long"})`;
+      bucketOverridden = true;
     }
 
     // Sentiment demotion display flag. With the server bucket as the
@@ -665,12 +679,13 @@ function buildSymbolViews(
           .filter(([, v]) => (v as { signal?: string } | undefined)?.signal === "BUY")
           .map(([k]) => k).join(", ") +
         `)` + (reason ? ` · ${reason}` : "");
+      bucketOverridden = true;
     }
 
     views.push({
       symbol, rows: sorted, bestRow: best,
       marketSignal: priceVerdict, marketReason: ms?.entry_reason ?? "",
-      longCount, total, bucket, bucketReason: reason,
+      longCount, total, bucket, bucketReason: reason, bucketOverridden,
       sentimentDemoted: demoted,
       sentimentDemotionReason: demotionReason,
     });
@@ -1370,7 +1385,14 @@ function ExpandedDetail({ view }: { view: SymbolView }) {
       {(view.bucket === "WAIT" || view.bucket === "AVOID") && (
         <VerdictLede bucket={view.bucket} reason={view.bucketReason} />
       )}
-      {rationale && <RationalePanel rationale={rationale} bucket={view.bucket} />}
+      {rationale && (
+        <RationalePanel
+          rationale={rationale}
+          bucket={view.bucket}
+          bucketOverridden={view.bucketOverridden}
+          bucketReason={view.bucketReason}
+        />
+      )}
       {view.sentimentDemoted && view.sentimentDemotionReason && (
         <div
           style={{
@@ -1592,13 +1614,24 @@ function VerdictLede({ bucket, reason }: { bucket: "WAIT" | "AVOID"; reason: str
 function RationalePanel({
   rationale,
   bucket,
+  bucketOverridden,
+  bucketReason,
 }: {
   rationale: CompareRationale;
   /** Lets the panel de-emphasise itself for WAIT/AVOID so the
    *  prominent message is the VerdictLede that sits above it. */
   bucket?: "BUY" | "WAIT" | "AVOID";
+  /** True when a client-side guard/promotion changed the displayed bucket
+   * AFTER the server generated `rationale.summary` (see SymbolView.
+   * bucketOverridden) — the AVGO bug: rationale.summary can still read
+   * "...is a WAIT..." under a promoted BUY NOW badge. When true, the
+   * server text is demoted into an expansion and bucketReason (which DOES
+   * track every override) becomes the primary explanation — one symbol,
+   * one reconciled verdict, per spec §6a. */
+  bucketOverridden?: boolean;
+  bucketReason?: string;
 }) {
-  const muted = bucket === "WAIT" || bucket === "AVOID";
+  const muted = !bucketOverridden && (bucket === "WAIT" || bucket === "AVOID");
   // Verification status drives the badge colour + icon. The previous
   // version always showed a green ✓ when `verified=true`, but the
   // template-fallback rationale is `verified=true` even when the LLM
@@ -1640,7 +1673,7 @@ function RationalePanel({
         }}
       >
         <span className="stat-label">
-          {muted ? "Detail (verdict is above)" : "In plain English"}
+          {bucketOverridden ? "Gated verdict (overrides the rationale below)" : muted ? "Detail (verdict is above)" : "In plain English"}
         </span>
         <span
           style={{ fontSize: 10, color: sourceColour, fontWeight: 600 }}
@@ -1650,36 +1683,59 @@ function RationalePanel({
           {badgeIcon}
         </span>
       </div>
-      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: muted ? "var(--text-dim)" : "var(--text)" }}>
-        {rationale.summary}
-      </p>
-      {rationale.key_factors && rationale.key_factors.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div className="stat-label" style={{ fontSize: 10, marginBottom: 2 }}>Why</div>
-          <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 12, color: "var(--text-dim)" }}>
-            {rationale.key_factors.map((f, i) => <li key={i}>{f}</li>)}
-          </ul>
-        </div>
-      )}
-      {rationale.caveats && rationale.caveats.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div className="stat-label" style={{ fontSize: 10, marginBottom: 2, color: "var(--down)" }}>
-            Caveats
-          </div>
-          <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 12, color: "var(--text-dim)" }}>
-            {rationale.caveats.map((c, i) => <li key={i}>{c}</li>)}
-          </ul>
-        </div>
-      )}
-      {rationale.verification_notes && rationale.verification_notes.length > 0 && (
-        <details style={{ marginTop: 8, fontSize: 11, color: "var(--neutral)" }}>
-          <summary style={{ cursor: "pointer", fontWeight: 600 }}>
-            ⚠ Verification notes ({rationale.verification_notes.length})
-          </summary>
-          <ul style={{ margin: "4px 0 0 16px", padding: 0, color: "var(--text-dim)" }}>
-            {rationale.verification_notes.map((n, i) => <li key={i} style={{ marginBottom: 4 }}>{n}</li>)}
-          </ul>
-        </details>
+      {bucketOverridden ? (
+        <>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
+            {bucketReason}
+          </p>
+          <details style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+              Raw model rationale (pre-gate — verdict has since changed)
+            </summary>
+            <div style={{ marginTop: 6 }}>
+              <p style={{ margin: 0, lineHeight: 1.5, color: "var(--text-dim)" }}>{rationale.summary}</p>
+              {rationale.key_factors && rationale.key_factors.length > 0 && (
+                <ul style={{ margin: "6px 0 0 16px", padding: 0, color: "var(--text-dim)" }}>
+                  {rationale.key_factors.map((f, i) => <li key={i}>{f}</li>)}
+                </ul>
+              )}
+            </div>
+          </details>
+        </>
+      ) : (
+        <>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: muted ? "var(--text-dim)" : "var(--text)" }}>
+            {rationale.summary}
+          </p>
+          {rationale.key_factors && rationale.key_factors.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div className="stat-label" style={{ fontSize: 10, marginBottom: 2 }}>Why</div>
+              <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 12, color: "var(--text-dim)" }}>
+                {rationale.key_factors.map((f, i) => <li key={i}>{f}</li>)}
+              </ul>
+            </div>
+          )}
+          {rationale.caveats && rationale.caveats.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div className="stat-label" style={{ fontSize: 10, marginBottom: 2, color: "var(--down)" }}>
+                Caveats
+              </div>
+              <ul style={{ margin: 0, padding: "0 0 0 16px", fontSize: 12, color: "var(--text-dim)" }}>
+                {rationale.caveats.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            </div>
+          )}
+          {rationale.verification_notes && rationale.verification_notes.length > 0 && (
+            <details style={{ marginTop: 8, fontSize: 11, color: "var(--neutral)" }}>
+              <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                ⚠ Verification notes ({rationale.verification_notes.length})
+              </summary>
+              <ul style={{ margin: "4px 0 0 16px", padding: 0, color: "var(--text-dim)" }}>
+                {rationale.verification_notes.map((n, i) => <li key={i} style={{ marginBottom: 4 }}>{n}</li>)}
+              </ul>
+            </details>
+          )}
+        </>
       )}
     </div>
   );
