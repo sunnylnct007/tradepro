@@ -578,15 +578,24 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
     # spike) that would corrupt the 52w high / range-position / drawdown and, via
     # the dip-buy rules, fire a FALSE BUY. (VLUE showed "91.7% off 52w high / 4th
     # percentile" off a phantom ~2300 bar while it was really ~6% off its high.)
-    # Drop ISOLATED spikes — a bar that is >4x (or <1/4x) BOTH neighbours is not
+    # Drop ISOLATED spikes — a bar that is >3x (or <1/3x) BOTH neighbours is not
     # a real price for a listed instrument (adj_close already handles real
     # splits, so legitimate moves are never this large). Only isolated bars are
     # removed, so a genuine rally/gap is untouched.
+    #
+    # Threshold was 4.0x/0.25x until a second real case (confirmed live, this
+    # session): USMV (a min-vol ETF, ~9% annualised vol) printed $337.92 on
+    # 2025-11-27 sandwiched between $93.85 and $94.25 — a 3.6x isolated spike
+    # that slipped through the 4x cutoff and corrupted its 52w-high/vol figures
+    # (RISK EXTREME on a min-vol fund; the "5Y PEAK" field showing the identical
+    # bogus value/date confirms this same bar poisons that calc too — same class
+    # of bug as the VLUE case above, just under the old threshold). Tightened to
+    # 3.0x with headroom below the 3.6x this case needed to be caught by.
     if len(series) >= 3:
         prev_s = series.shift(1)
         next_s = series.shift(-1)
-        hi_spike = (series > prev_s * 4.0) & (series > next_s * 4.0)
-        lo_spike = (series < prev_s * 0.25) & (series < next_s * 0.25)
+        hi_spike = (series > prev_s * 3.0) & (series > next_s * 3.0)
+        lo_spike = (series < prev_s / 3.0) & (series < next_s / 3.0)
         bad = (hi_spike | lo_spike).fillna(False)
         if bool(bad.any()):
             series = series[~bad]
