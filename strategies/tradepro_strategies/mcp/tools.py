@@ -1828,6 +1828,76 @@ def get_hitrate(
     }
 
 
+def get_option_expirations(symbol: str) -> dict:
+    """Underlying conid + listed option expiration months for a symbol
+    (e.g. "AUG26", "SEP26"). Cheap first call — use before
+    get_option_chain to pick a real `month` value rather than guessing."""
+    if not symbol:
+        return _err("get_option_expirations", "symbol is required")
+    sym = symbol.strip().upper()
+    try:
+        data = _get(f"/api/ibkr/chain/{sym}/months")
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_option_expirations", e, symbol=sym)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_option_expirations", str(e), symbol=sym)
+    return {
+        "_source": f"tradepro://ibkr/chain/{sym}/months",
+        "fetched_at": _now_iso(),
+        "ok": data.get("error") is None,
+        **data,
+    }
+
+
+def get_option_chain(
+    symbol: str,
+    month: str | None = None,
+    right: str | None = None,
+    max_strikes: int = 20,
+) -> dict:
+    """Live IBKR option chain for one symbol/expiration — real bid/ask/
+    delta/gamma/theta/vega/open-interest per contract (TradePro's G3 chain
+    feed, TRADEPRO_SPEC_V2.md). This is a LIVE proxy to Interactive Brokers,
+    not a cached/backtested number — use for "what strike/premium is
+    available right now" questions (CSP/covered-call candidate sizing),
+    not for historical analysis.
+
+    `month`: one of the values from get_option_expirations (e.g. "SEP26");
+      omitted = nearest listed expiration.
+    `right`: "C", "P", or omitted for both calls and puts.
+    `max_strikes`: cap on strikes returned PER side, nearest to spot first
+      — keeps the response small and bounds live IBKR call volume; the
+      full chain is available by passing a large value.
+
+    NOT YET VERIFIED end-to-end against a live IBKR session as of the
+    initial G3 build — if bid/ask/greeks come back all null, that's the
+    field-code mapping needing a live check, not "no market" for that
+    contract; say so rather than presenting nulls as zero/no-interest."""
+    if not symbol:
+        return _err("get_option_chain", "symbol is required")
+    sym = symbol.strip().upper()
+    params: dict[str, Any] = {"maxStrikes": max_strikes}
+    if month:
+        params["month"] = month
+    if right:
+        params["right"] = right.strip().upper()
+    try:
+        data = _get(f"/api/ibkr/chain/{sym}", params=params)
+    except ApiUnreachable as e:
+        return _unreachable_envelope("get_option_chain", e, symbol=sym)
+    except Exception as e:  # noqa: BLE001
+        return _err("get_option_chain", str(e), symbol=sym)
+    legs = data.get("legs") or []
+    return {
+        "_source": f"tradepro://ibkr/chain/{sym}",
+        "fetched_at": _now_iso(),
+        "ok": data.get("error") is None,
+        "symbol": sym,
+        "leg_count": len(legs),
+        **data,
+    }
+
+
 def evaluate_signal(
     symbol: str,
     strategy: str,

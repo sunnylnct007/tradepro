@@ -618,6 +618,30 @@ def build_server():
         on this symbol?' with backtested evidence."""
         return _json(t.get_hitrate(symbol, strategy, lookback_years, horizon_days))
 
+    # ---- Option chain (G3 — TRADEPRO_SPEC_V2.md, live IBKR proxy) ----
+
+    @mcp.tool()
+    @instrumented("get_option_expirations")
+    def get_option_expirations(symbol: str) -> str:
+        """Underlying conid + listed option expiration months for a
+        symbol. Cheap first call — use before get_option_chain to pick
+        a real `month` value instead of guessing."""
+        return _json(t.get_option_expirations(symbol))
+
+    @mcp.tool()
+    @instrumented("get_option_chain")
+    def get_option_chain(
+        symbol: str,
+        month: str | None = None,
+        right: str | None = None,
+        max_strikes: int = 20,
+    ) -> str:
+        """Live IBKR option chain — real bid/ask/delta/gamma/theta/vega/
+        open-interest per contract, for CSP/covered-call candidate
+        sizing. `right` is "C", "P", or omitted for both; `max_strikes`
+        caps strikes returned per side, nearest spot first."""
+        return _json(t.get_option_chain(symbol, month, right, max_strikes))
+
     @mcp.tool()
     @instrumented("evaluate_signal")
     def evaluate_signal(

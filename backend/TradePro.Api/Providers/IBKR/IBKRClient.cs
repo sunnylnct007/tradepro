@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -570,6 +571,163 @@ public sealed class IBKRClient
             return await resp.Content.ReadAsStringAsync(ct);
         }
         catch { return null; }
+    }
+
+    // ─── Option chain (read-only, G3 — TRADEPRO_SPEC_V2.md) ─────────
+    //
+    // IBKR's documented 3-call option-chain flow: secdef/search (underlying
+    // conid + expiration months) -> secdef/strikes (strikes for one month)
+    // -> secdef/info (conid per strike/right for one month), then a 4th call
+    // -- marketdata/snapshot -- for live bid/ask/greeks/OI on the resolved
+    // conids. Same OAuth/session plumbing as every other method on this
+    // client (SendWithAuthAsync); no separate auth path.
+
+    /// <summary>
+    /// Step 1: resolve a symbol's underlying conid AND its available option
+    /// expiration months in one call — GET /iserver/secdef/search?symbol=X.
+    /// </summary>
+    public async Task<IBKROptionMonthsResult> GetOptionMonthsAsync(
+        string symbol, CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled)
+            return new IBKROptionMonthsResult(null, Array.Empty<string>(), "IBKR disabled", 0);
+        var sym = (symbol ?? string.Empty).Trim().ToUpperInvariant();
+        if (sym.Length == 0)
+            return new IBKROptionMonthsResult(null, Array.Empty<string>(), "empty symbol", 0);
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(sym)}",
+                null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IBKROptionMonthsResult(null, Array.Empty<string>(),
+                    $"secdef/search failed for {sym}: {text}", (int)resp.StatusCode);
+            var (conId, months) = IBKRResponseParser.ParseOptionMonths(text);
+            if (conId is null)
+                return new IBKROptionMonthsResult(null, Array.Empty<string>(),
+                    $"no IBKR contract for {sym}", (int)resp.StatusCode);
+            if (months.Count == 0)
+                return new IBKROptionMonthsResult(conId, Array.Empty<string>(),
+                    $"{sym} has no listed option chain", (int)resp.StatusCode);
+            return new IBKROptionMonthsResult(conId, months, null, (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IBKROptionMonthsResult(null, Array.Empty<string>(), ex.Message, 0);
+        }
+    }
+
+    /// <summary>
+    /// Step 2: strikes available for one underlying + expiration month —
+    /// GET /iserver/secdef/strikes?conid=U&amp;sectype=OPT&amp;month=MMMYY.
+    /// </summary>
+    public async Task<IBKROptionStrikesResult> GetOptionStrikesAsync(
+        long underlyingConId, string month, CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled)
+            return new IBKROptionStrikesResult(Array.Empty<decimal>(), Array.Empty<decimal>(), "IBKR disabled", 0);
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"v1/api/iserver/secdef/strikes?conid={underlyingConId}&sectype=OPT&month={Uri.EscapeDataString(month)}",
+                null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IBKROptionStrikesResult(Array.Empty<decimal>(), Array.Empty<decimal>(),
+                    $"secdef/strikes failed for conid {underlyingConId} month {month}: {text}", (int)resp.StatusCode);
+            var (calls, puts) = IBKRResponseParser.ParseStrikes(text);
+            if (calls.Count == 0 && puts.Count == 0)
+                return new IBKROptionStrikesResult(calls, puts,
+                    $"IBKR returned NO strikes for conid {underlyingConId} month {month}", (int)resp.StatusCode);
+            return new IBKROptionStrikesResult(calls, puts, null, (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IBKROptionStrikesResult(Array.Empty<decimal>(), Array.Empty<decimal>(), ex.Message, 0);
+        }
+    }
+
+    /// <summary>
+    /// Step 3: the tradeable option CONTRACTS (conid + strike) for one underlying
+    /// + month + right — GET /iserver/secdef/info?conid=U&amp;sectype=OPT&amp;month=MMMYY&amp;right=C|P.
+    /// Strike is deliberately omitted: IBKR then returns the full right-side chain
+    /// for that month in one call instead of one round trip per strike.
+    /// </summary>
+    public async Task<IBKROptionContractsResult> GetOptionContractsAsync(
+        long underlyingConId, string month, string right, CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled)
+            return new IBKROptionContractsResult(Array.Empty<IBKROptionContract>(), "IBKR disabled", 0);
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"v1/api/iserver/secdef/info?conid={underlyingConId}&sectype=OPT&month={Uri.EscapeDataString(month)}&right={Uri.EscapeDataString(right)}",
+                null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return new IBKROptionContractsResult(Array.Empty<IBKROptionContract>(),
+                    $"secdef/info failed for conid {underlyingConId} month {month} right {right}: {text}", (int)resp.StatusCode);
+            var contracts = IBKRResponseParser.ParseOptionContracts(text);
+            if (contracts.Count == 0)
+                return new IBKROptionContractsResult(contracts,
+                    $"IBKR returned NO {right} contracts for conid {underlyingConId} month {month}", (int)resp.StatusCode);
+            return new IBKROptionContractsResult(contracts, null, (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return new IBKROptionContractsResult(Array.Empty<IBKROptionContract>(), ex.Message, 0);
+        }
+    }
+
+    /// <summary>
+    /// Step 4: batched live quote — GET /iserver/marketdata/snapshot?conids=...&amp;fields=...
+    /// for bid/ask/last/greeks/OI on option conids, chunked to IBKR's documented 50-conid
+    /// cap per call. Field codes are IBKR's documented cpapi numbering, cross-checked
+    /// against the Voyz/ibind open-source client (IBKR's own field-reference page
+    /// returned HTTP 403 from this environment, so it could not be read directly) —
+    /// treat these as NEEDING LIVE VERIFICATION against the paper account (e.g. a known
+    /// SPY strike) before the wheel loop depends on them: 31 last, 84 bid, 86 ask,
+    /// 88 bid size, 85 ask size, 87 volume, 7308 delta, 7309 gamma, 7310 theta,
+    /// 7311 vega, 7633 IV%, 7638 open interest.
+    /// </summary>
+    public async Task<IBKROptionQuotesResult> GetOptionSnapshotBatchAsync(
+        IReadOnlyList<long> conids, CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled)
+            return new IBKROptionQuotesResult(Array.Empty<IBKROptionQuote>(), "IBKR disabled", 0);
+        if (conids.Count == 0)
+            return new IBKROptionQuotesResult(Array.Empty<IBKROptionQuote>(), null, 0);
+        const int ChunkSize = 50;
+        const string Fields = "31,84,86,88,85,87,7308,7309,7310,7311,7633,7638";
+        var all = new List<IBKROptionQuote>();
+        var lastStatus = 0;
+        for (int i = 0; i < conids.Count; i += ChunkSize)
+        {
+            var chunk = conids.Skip(i).Take(ChunkSize).ToArray();
+            var conidsParam = string.Join(",", chunk);
+            try
+            {
+                using var resp = await SendWithAuthAsync(
+                    HttpMethod.Get,
+                    $"v1/api/iserver/marketdata/snapshot?conids={conidsParam}&fields={Fields}",
+                    null, ct);
+                var text = await resp.Content.ReadAsStringAsync(ct);
+                lastStatus = (int)resp.StatusCode;
+                if (!resp.IsSuccessStatusCode)
+                    return new IBKROptionQuotesResult(all,
+                        $"marketdata/snapshot failed for {chunk.Length} conids: {text}", lastStatus);
+                all.AddRange(IBKRResponseParser.ParseOptionSnapshot(text));
+            }
+            catch (Exception ex)
+            {
+                return new IBKROptionQuotesResult(all, ex.Message, lastStatus);
+            }
+        }
+        return new IBKROptionQuotesResult(all, null, lastStatus);
     }
 
     // ─── Orders ─────────────────────────────────────────────────────

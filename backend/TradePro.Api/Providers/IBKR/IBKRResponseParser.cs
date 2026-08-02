@@ -283,6 +283,153 @@ public static class IBKRResponseParser
         return list;
     }
 
+    /// <summary>Parse GET /iserver/secdef/search?symbol=X for the option chain flow:
+    /// the underlying's conid plus its listed expiration months. IBKR has been seen
+    /// to carry the months two different ways — a `sections` array with a
+    /// secType="OPT" entry's `months` field, or a top-level semicolon string (`opt`
+    /// or `optType`) — so both are tried; first match wins. Best-first array entry
+    /// (matches <see cref="ParseConidSearch"/>'s convention).</summary>
+    public static (long? ConId, IReadOnlyList<string> Months) ParseOptionMonths(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Array) return (null, Array.Empty<string>());
+        foreach (var m in root.EnumerateArray())
+        {
+            if (m.ValueKind != JsonValueKind.Object) continue;
+            long? conId = null;
+            if (m.TryGetProperty("conid", out var c))
+            {
+                if (c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n)) conId = n;
+                else if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var s)) conId = s;
+            }
+            if (conId is null) continue;
+
+            var months = new List<string>();
+            if (m.TryGetProperty("sections", out var sections) && sections.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var sec in sections.EnumerateArray())
+                {
+                    if (sec.ValueKind != JsonValueKind.Object) continue;
+                    if (Str(sec, "secType") != "OPT") continue;
+                    var raw = Str(sec, "months");
+                    if (!string.IsNullOrWhiteSpace(raw))
+                        months.AddRange(raw.Split(';', StringSplitOptions.RemoveEmptyEntries));
+                }
+            }
+            if (months.Count == 0)
+            {
+                var flat = Str(m, "opt") ?? Str(m, "optType");
+                if (!string.IsNullOrWhiteSpace(flat))
+                    months.AddRange(flat.Split(';', StringSplitOptions.RemoveEmptyEntries));
+            }
+            return (conId, months);
+        }
+        return (null, Array.Empty<string>());
+    }
+
+    /// <summary>Parse GET /iserver/secdef/strikes — <c>{"call": [...], "put": [...]}</c>
+    /// of numeric strikes (may arrive as JSON numbers or strings; tolerant either way).</summary>
+    public static (IReadOnlyList<decimal> Calls, IReadOnlyList<decimal> Puts) ParseStrikes(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return (Array.Empty<decimal>(), Array.Empty<decimal>());
+        return (StrikeArray(root, "call"), StrikeArray(root, "put"));
+
+        static IReadOnlyList<decimal> StrikeArray(JsonElement el, string prop)
+        {
+            var list = new List<decimal>();
+            if (!el.TryGetProperty(prop, out var arr) || arr.ValueKind != JsonValueKind.Array) return list;
+            foreach (var v in arr.EnumerateArray())
+            {
+                var d = v.ValueKind switch
+                {
+                    JsonValueKind.Number when v.TryGetDecimal(out var dn) => (decimal?)dn,
+                    JsonValueKind.String when decimal.TryParse(v.GetString(), out var ds) => ds,
+                    _ => null,
+                };
+                if (d is not null) list.Add(d.Value);
+            }
+            return list;
+        }
+    }
+
+    /// <summary>Parse GET /iserver/secdef/info (strike omitted) — an array of
+    /// contract objects, each carrying its own <c>conid</c> and <c>strike</c>.</summary>
+    public static IReadOnlyList<IBKROptionContract> ParseOptionContracts(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var list = new List<IBKROptionContract>();
+        if (root.ValueKind != JsonValueKind.Array) return list;
+        foreach (var it in root.EnumerateArray())
+        {
+            if (it.ValueKind != JsonValueKind.Object) continue;
+            long? conId = null;
+            if (it.TryGetProperty("conid", out var c))
+            {
+                if (c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n)) conId = n;
+                else if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var s)) conId = s;
+            }
+            var strike = DecLoose(it, "strike");
+            if (conId is not null && strike is not null)
+                list.Add(new IBKROptionContract(conId.Value, strike.Value));
+        }
+        return list;
+    }
+
+    /// <summary>Parse GET /iserver/marketdata/snapshot for option conids — field values
+    /// arrive as either JSON numbers or strings depending on gateway version, so every
+    /// value is read via <see cref="DecLoose"/>. See <c>IBKRClient.GetOptionSnapshotBatchAsync</c>
+    /// for the field-code table and its provenance caveat.</summary>
+    public static IReadOnlyList<IBKROptionQuote> ParseOptionSnapshot(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var list = new List<IBKROptionQuote>();
+        if (root.ValueKind != JsonValueKind.Array) return list;
+        foreach (var it in root.EnumerateArray())
+        {
+            if (it.ValueKind != JsonValueKind.Object) continue;
+            long? conId = null;
+            if (it.TryGetProperty("conid", out var c))
+            {
+                if (c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n)) conId = n;
+                else if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var s)) conId = s;
+            }
+            if (conId is null) continue;
+            list.Add(new IBKROptionQuote(
+                ConId: conId.Value,
+                Last: DecLoose(it, "31"),
+                Bid: DecLoose(it, "84"),
+                Ask: DecLoose(it, "86"),
+                BidSize: DecLoose(it, "88"),
+                AskSize: DecLoose(it, "85"),
+                Volume: DecLoose(it, "87"),
+                Delta: DecLoose(it, "7308"),
+                Gamma: DecLoose(it, "7309"),
+                Theta: DecLoose(it, "7310"),
+                Vega: DecLoose(it, "7311"),
+                ImpliedVolPct: DecLoose(it, "7633"),
+                OpenInterest: DecLoose(it, "7638")));
+        }
+        return list;
+    }
+
+    /// <summary>Parse the single-conid raw snapshot body returned by
+    /// <c>IBKRClient.GetSnapshotRawAsync</c> for field 31 (last price) — used to
+    /// find an underlying's spot price for near-the-money strike filtering.</summary>
+    public static decimal? ParseSnapshotLast(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var el = root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0
+            ? root[0]
+            : root;
+        return el.ValueKind == JsonValueKind.Object ? DecLoose(el, "31") : null;
+    }
+
     // ─── helpers ────────────────────────────────────────────────────
     /// <summary>String from a String OR Number field (IBKR order ids arrive as
     /// numbers in some payloads, strings in others).</summary>
@@ -295,6 +442,24 @@ public static class IBKRResponseParser
             JsonValueKind.Number => v.ToString(),
             _ => null,
         };
+    }
+
+    /// <summary>Decimal from a String OR Number field — IBKR's marketdata/snapshot
+    /// encodes quote/greek values as strings on some gateway versions, raw numbers
+    /// on others. Strips a trailing 'C'/'H' halted-market marker IBKR sometimes
+    /// prefixes onto string values (e.g. "C168.42").</summary>
+    private static decimal? DecLoose(JsonElement el, string prop)
+    {
+        if (el.ValueKind != JsonValueKind.Object || !el.TryGetProperty(prop, out var v)) return null;
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var dn)) return dn;
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            var s = v.GetString();
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            s = s.TrimStart('C', 'H');
+            if (decimal.TryParse(s, out var ds)) return ds;
+        }
+        return null;
     }
 
     private static string? Str(JsonElement el, string prop) =>
@@ -435,5 +600,57 @@ public sealed record IBKRBar(
 public sealed record IBKRHistoryResult(
     IReadOnlyList<IBKRBar> Bars,
     long? ConId,
+    string? Error,
+    int HttpStatus);
+
+// ─── Option chain (G3) DTOs ─────────────────────────────────────────
+
+/// <summary>Result of step 1 (secdef/search): underlying conid + listed
+/// expiration months (e.g. "AUG26", "SEP26", ...).</summary>
+public sealed record IBKROptionMonthsResult(
+    long? ConId,
+    IReadOnlyList<string> Months,
+    string? Error,
+    int HttpStatus);
+
+/// <summary>Result of step 2 (secdef/strikes): available call/put strikes
+/// for one underlying + expiration month.</summary>
+public sealed record IBKROptionStrikesResult(
+    IReadOnlyList<decimal> Calls,
+    IReadOnlyList<decimal> Puts,
+    string? Error,
+    int HttpStatus);
+
+/// <summary>One resolved option contract — its own tradeable conid + strike
+/// (right and month are the caller's request context, not repeated here).</summary>
+public sealed record IBKROptionContract(long ConId, decimal Strike);
+
+/// <summary>Result of step 3 (secdef/info, strike omitted): every contract
+/// for one underlying + month + right.</summary>
+public sealed record IBKROptionContractsResult(
+    IReadOnlyList<IBKROptionContract> Contracts,
+    string? Error,
+    int HttpStatus);
+
+/// <summary>One option conid's live quote — bid/ask/last/greeks/OI. Null
+/// fields mean IBKR hadn't warmed that field yet (never treat null as zero).</summary>
+public sealed record IBKROptionQuote(
+    long ConId,
+    decimal? Last,
+    decimal? Bid,
+    decimal? Ask,
+    decimal? BidSize,
+    decimal? AskSize,
+    decimal? Volume,
+    decimal? Delta,
+    decimal? Gamma,
+    decimal? Theta,
+    decimal? Vega,
+    decimal? ImpliedVolPct,
+    decimal? OpenInterest);
+
+/// <summary>Result of step 4 (marketdata/snapshot, batched/chunked).</summary>
+public sealed record IBKROptionQuotesResult(
+    IReadOnlyList<IBKROptionQuote> Quotes,
     string? Error,
     int HttpStatus);
