@@ -138,10 +138,13 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (no false positive)
         log.warning("%s regime fetch failed: %s", sym, e)
 
-    # Options chain — IBKR FIRST (real model greeks/IV/OI, so delta is real and
-    # the wheel can actually fire), yfinance as fallback (delayed/patchy; its IV
-    # is often missing → BS delta ≈ 0 → nothing clears the band). Select the put
-    # nearest 0.27 delta (BRD strike rule).
+    # Options chain — G3 FIRST (TradePro's own API-hosted chain feed, real
+    # broker delta/greeks/OI, OAuth REST session — no local Gateway needed),
+    # then ib_insync/TWS IBKR (real model greeks too, but needs a reachable
+    # local Gateway — the session-contention path G3 exists to avoid), then
+    # yfinance as last resort (delayed/patchy; its IV is often missing → BS
+    # delta ≈ 0 → nothing clears the band). Select the put nearest 0.27 delta
+    # (BRD strike rule).
     oi = strike = delta = premium = notional_gbp = None
     spread = None
     dte = 35
@@ -150,27 +153,51 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     spot_divergence = None  # |yf spot / IBKR close − 1| when both known
     from ..quant_engine.options.black_scholes import BlackScholesPricer
     from ..quant_engine.options.chains import fetch_chain, select_by_abs_delta, delta_of
+    from ..quant_engine.options.chains_g3 import fetch_chain_g3
     from ..quant_engine.options.chains_ibkr import fetch_chain_ibkr
     pricer = BlackScholesPricer()
 
-    # 1) IBKR (authoritative). Reuse the screen's connection + IBKR close as spot.
+    # 0) G3 — TradePro's own chain feed (backend/TradePro.Api ChainEndpoints).
     try:
-        ic = fetch_chain_ibkr(sym, target_dte=35, ib=ib, pricer=pricer, spot=ref_close)
-        if ic and ic.puts and ic.spot > 0:
-            t = max(ic.dte, 1) / 365.0
-            q = select_by_abs_delta(ic.puts, 0.27, ic.spot, t, pricer)
+        gc = fetch_chain_g3(sym, target_dte=35, right="P")
+        if gc and gc.puts and gc.spot > 0:
+            t = max(gc.dte, 1) / 365.0
+            q = select_by_abs_delta(gc.puts, 0.27, gc.spot, t, pricer)
             if q is not None:
-                dte = ic.dte
+                dte = gc.dte
                 strike = q.strike
-                delta = abs(delta_of(q, ic.spot, t, pricer))
+                delta = abs(delta_of(q, gc.spot, t, pricer))
                 oi = q.open_interest
                 spread = q.spread if (q.bid > 0 and q.ask > 0) else None
                 premium = q.mid if q.mid > 0 else None
                 notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                 chain_ok = True
-                chain_source = "ibkr"
-    except Exception as e:  # noqa: BLE001 — fall through to yfinance
-        log.warning("%s IBKR chain failed, trying yfinance: %s", sym, e)
+                chain_source = "g3"
+                if ref_close is None:
+                    ref_close = gc.spot
+    except Exception as e:  # noqa: BLE001 — fall through to ib_insync/yfinance
+        log.warning("%s G3 chain failed, trying ib_insync: %s", sym, e)
+
+    # 1) IBKR via ib_insync/TWS (authoritative, needs local Gateway). Reuse the
+    # screen's connection + IBKR close as spot. Skipped when G3 already worked.
+    if not chain_ok:
+        try:
+            ic = fetch_chain_ibkr(sym, target_dte=35, ib=ib, pricer=pricer, spot=ref_close)
+            if ic and ic.puts and ic.spot > 0:
+                t = max(ic.dte, 1) / 365.0
+                q = select_by_abs_delta(ic.puts, 0.27, ic.spot, t, pricer)
+                if q is not None:
+                    dte = ic.dte
+                    strike = q.strike
+                    delta = abs(delta_of(q, ic.spot, t, pricer))
+                    oi = q.open_interest
+                    spread = q.spread if (q.bid > 0 and q.ask > 0) else None
+                    premium = q.mid if q.mid > 0 else None
+                    notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
+                    chain_ok = True
+                    chain_source = "ibkr"
+        except Exception as e:  # noqa: BLE001 — fall through to yfinance
+            log.warning("%s IBKR chain failed, trying yfinance: %s", sym, e)
 
     # 2) yfinance fallback (only if IBKR gave nothing usable).
     if not chain_ok:

@@ -11,13 +11,14 @@ namespace TradePro.Api.Endpoints;
 /// as <c>IBKRClient.GetPriceHistoryAsync</c> for equities — no persistence,
 /// nothing to migrate.
 ///
-/// NOT YET VERIFIED against a live IBKR session. The exact JSON shapes for
-/// secdef/search's `sections`, secdef/info's contract array, and the
-/// marketdata/snapshot field encoding are IBKR's documented cpapi
-/// conventions (IBKR's own field-reference page returned HTTP 403 from this
-/// environment, so it could not be read directly during this build) —
-/// verify against the paper account on a known chain (e.g. SPY) before the
-/// wheel loop trusts these numbers for sizing or strike selection.
+/// LIVE-VERIFIED against the real IBKR paper account 2 Aug 2026 (SPY: real
+/// conid, real strikes, real delta/gamma/theta/vega/OI from IBKR's tick
+/// greeks). bid/ask/last were null in that check — plausibly just the
+/// market being closed at the time rather than a feed bug; re-verify
+/// in-session before trusting bid/ask for real premium sizing. The field
+/// codes themselves are still cross-checked against an open-source client
+/// rather than IBKR's own docs (their field-reference page 403's from this
+/// environment).
 /// </summary>
 public static class ChainEndpoints
 {
@@ -77,14 +78,28 @@ public static class ChainEndpoints
             // GetOptionContractsAsync), so without a spot to rank by we'd have to
             // resolve EVERY listed strike individually — a null spot fails the
             // whole request rather than silently doing that.
+            //
+            // Live-verified 2 Aug 2026: IBKR's marketdata/snapshot needs a
+            // "warm-up" — the FIRST request against a conid that isn't already
+            // subscribed often comes back with the field still empty, and a
+            // second request ~1s later returns the real value (documented IBKR
+            // behaviour, confirmed here by hand: an immediate retry against SPY
+            // succeeded where the first call returned nothing). One retry only.
             decimal? spot = null;
             var spotRaw = await ibkr.GetSnapshotRawAsync(underlyingConId, "31", ct);
             if (spotRaw is not null)
                 spot = IBKRResponseParser.ParseSnapshotLast(spotRaw);
             if (spot is null)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1.2), ct);
+                spotRaw = await ibkr.GetSnapshotRawAsync(underlyingConId, "31", ct);
+                if (spotRaw is not null)
+                    spot = IBKRResponseParser.ParseSnapshotLast(spotRaw);
+            }
+            if (spot is null)
                 return Results.Ok(new ChainResponse(
                     sym, underlyingConId, chosenMonth, null, Array.Empty<ChainLeg>(),
-                    $"could not read {sym} spot price (needed to select near-the-money strikes)"));
+                    $"could not read {sym} spot price after warm-up retry (needed to select near-the-money strikes)"));
 
             // Strikes for the chosen month, narrowed to maxStrikes nearest spot
             // PER SIDE before any per-contract resolution — each selected strike
@@ -113,6 +128,11 @@ public static class ChainEndpoints
             // this whole flow already shares one session-cached client (see
             // IBKRClient's SESSION MODEL doc) — bursting these would risk the same
             // pacing lockouts already seen on the historical-data path.
+            // Live-verified 2 Aug 2026: secdef/info for one (month, strike, right)
+            // can return SEVERAL conids, not one — different listings/routings of
+            // what a trader thinks of as "the same contract" (seen: 13 conids for
+            // a single SPY strike). Only the first is kept; a wheel candidate
+            // needs one tradeable contract per strike, not every routing variant.
             var contracts = new List<IBKROptionContract>();
             var contractRight = new Dictionary<long, string>();
             string? contractsError = null;
@@ -121,10 +141,11 @@ public static class ChainEndpoints
                 var cr = await ibkr.GetOptionContractsAsync(underlyingConId, chosenMonth, strike, r, ct);
                 if (cr.Error is not null)
                     contractsError = contractsError is null ? cr.Error : $"{contractsError}; {cr.Error}";
-                foreach (var c in cr.Contracts)
+                var first = cr.Contracts.FirstOrDefault();
+                if (first is not null)
                 {
-                    contracts.Add(c);
-                    contractRight[c.ConId] = r;
+                    contracts.Add(first);
+                    contractRight[first.ConId] = r;
                 }
             }
             if (contracts.Count == 0)

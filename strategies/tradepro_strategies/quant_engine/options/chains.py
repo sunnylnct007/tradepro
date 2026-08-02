@@ -25,6 +25,11 @@ class OptionQuote:
     ask: float
     iv: float                   # implied vol (decimal); may be model-filled
     open_interest: int = 0      # contracts outstanding (liquidity gate)
+    # Real broker-reported delta (signed; put deltas negative), when the
+    # source provides one (G3/IBKR tick greeks). None for adapters that only
+    # give strike/bid/ask/IV (yfinance) — delta_of() then falls back to a
+    # Black-Scholes derivation from `iv`. Real > modelled whenever available.
+    delta: float | None = None
     @property
     def mid(self) -> float:
         if self.bid > 0 and self.ask > 0:
@@ -54,7 +59,12 @@ class OptionChain:
 
 
 def delta_of(q: OptionQuote, spot: float, t_years: float, pricer: BlackScholesPricer) -> float:
-    """Signed BS delta for a quote (put delta is negative)."""
+    """Signed delta for a quote (put delta is negative). Prefers the quote's
+    own real broker-reported delta (q.delta, e.g. from G3/IBKR tick greeks)
+    over a Black-Scholes derivation — only falls back to BS when the source
+    didn't provide one (the yfinance adapter)."""
+    if q.delta is not None:
+        return q.delta
     return pricer.greeks(spot, q.strike, t_years, max(q.iv, 1e-4), q.kind).delta
 
 
@@ -64,9 +74,12 @@ def select_by_abs_delta(
 ) -> OptionQuote | None:
     """Pick the quote whose |delta| is closest to the target (e.g. the
     '30-delta put' = |delta|≈0.30). Ignores quotes with no usable IV."""
+    # Usable = has a real delta already, OR has IV to derive one from — a
+    # G3 quote can have delta warm before IV is (or vice versa); require
+    # only that delta_of() will actually be able to return something.
     scored = [
         (abs(abs(delta_of(q, spot, t_years, pricer)) - target_abs_delta), q)
-        for q in quotes if q.iv and q.iv > 0
+        for q in quotes if q.delta is not None or (q.iv and q.iv > 0)
     ]
     return min(scored, key=lambda x: x[0])[1] if scored else None
 
