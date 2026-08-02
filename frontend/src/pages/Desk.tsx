@@ -111,12 +111,24 @@ export function Desk() {
     if (v !== "portfolio") setSelectedSymbol(null);
   }, []);
 
+  // Global top-bar search (SymbolSearch, ⌘K) picking a result. Search can
+  // fire from any view, so this switches to "portfolio" (the only view with
+  // a mounted SymbolDetailRail) THEN opens the rail — the reverse order of
+  // onSelectView's clear-on-leave, so it doesn't get wiped. This is the fix
+  // for search dropping the user into the old legacy <Layout> shell via
+  // /symbol/:ticker: it never navigates away from /desk at all now.
+  const onSearchSelectSymbol = useCallback((sym: string) => {
+    setView("portfolio");
+    setSelectedSymbol(sym);
+    setSelectedStrategy(null);
+  }, []);
+
   const handleRowsChange = useCallback((rows: PositionRow[]) => {
     setPositions(rows);
   }, []);
 
   return (
-    <DeskShell active={view} onSelect={onSelectView}>
+    <DeskShell active={view} onSelect={onSelectView} onSelectSymbol={onSearchSelectSymbol}>
       {view === "portfolio" && (
         <>
           {/* Compact-UX pass: always-visible KPI strip + a per-strategy health bar

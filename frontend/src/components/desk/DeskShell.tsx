@@ -84,10 +84,16 @@ export function DeskShell({
   children,
   active,
   onSelect,
+  onSelectSymbol,
 }: {
   children: ReactNode;
   active: DeskView;
   onSelect: (view: DeskView) => void;
+  /** Global top-bar search picking a result. Optional so DeskShell doesn't
+   * require every caller to wire it — when absent, SymbolSearch falls back
+   * to navigating to /symbol/:ticker (the legacy route, outside this
+   * shell) rather than silently doing nothing. */
+  onSelectSymbol?: (symbol: string) => void;
 }) {
   const mobile = useIsMobile();
 
@@ -112,7 +118,7 @@ export function DeskShell({
           : `"topbar topbar" "rail main"`,
       }}
     >
-      <TopBar />
+      <TopBar onSelectSymbol={onSelectSymbol} />
       {!mobile && <LeftRail active={active} onSelect={onSelect} />}
       <main
         style={{
@@ -131,7 +137,7 @@ export function DeskShell({
 }
 
 /** Top bar: search · wordmark · account chip. */
-function TopBar() {
+function TopBar({ onSelectSymbol }: { onSelectSymbol?: (symbol: string) => void }) {
   return (
     <header
       style={{
@@ -145,7 +151,7 @@ function TopBar() {
         minWidth: 0,
       }}
     >
-      <SymbolSearch />
+      <SymbolSearch onSelectSymbol={onSelectSymbol} />
 
       <div
         style={{

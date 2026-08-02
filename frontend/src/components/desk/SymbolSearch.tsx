@@ -40,7 +40,16 @@ function pushRecent(match: InstrumentMatch) {
   }
 }
 
-export function SymbolSearch() {
+export function SymbolSearch({
+  onSelectSymbol,
+}: {
+  /** When provided (i.e. rendered inside /desk via DeskShell), a picked
+   * result opens in-place via SymbolDetailRail — /desk is a single
+   * composite cockpit that never navigates away (see Desk.tsx). Falls back
+   * to navigating to the legacy /symbol/:ticker route only when absent,
+   * so SymbolSearch still works standalone outside the desk shell. */
+  onSelectSymbol?: (symbol: string) => void;
+}) {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -114,7 +123,11 @@ export function SymbolSearch() {
     setQuery("");
     setOpen(false);
     inputRef.current?.blur();
-    navigate(`/symbol/${encodeURIComponent(match.symbol)}`);
+    if (onSelectSymbol) {
+      onSelectSymbol(match.symbol);
+    } else {
+      navigate(`/symbol/${encodeURIComponent(match.symbol)}`);
+    }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
