@@ -153,8 +153,19 @@ public static class ChainEndpoints
                     sym, underlyingConId, chosenMonth, spot, Array.Empty<ChainLeg>(),
                     contractsError ?? $"no contracts resolved for {sym} {chosenMonth}"));
 
-            var quotesResult = await ibkr.GetOptionSnapshotBatchAsync(
-                contracts.Select(c => c.ConId).ToArray(), ct);
+            // Same warm-up quirk as the spot snapshot above, live-verified 2 Aug
+            // 2026 on a month never requested before (SEP26): every leg came back
+            // with delta/bid/ask/OI all null on the first call, populated on an
+            // immediate retry. Detect "still cold" as ALL legs missing delta (the
+            // field that's cheapest for IBKR to warm and most load-bearing for
+            // strike selection) and retry the whole batch once.
+            var conIds = contracts.Select(c => c.ConId).ToArray();
+            var quotesResult = await ibkr.GetOptionSnapshotBatchAsync(conIds, ct);
+            if (quotesResult.Quotes.Count > 0 && quotesResult.Quotes.All(q => q.Delta is null))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1.2), ct);
+                quotesResult = await ibkr.GetOptionSnapshotBatchAsync(conIds, ct);
+            }
             var byConId = quotesResult.Quotes.ToDictionary(q => q.ConId, q => q);
 
             var legs = contracts
