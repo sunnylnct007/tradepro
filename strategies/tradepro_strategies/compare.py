@@ -1062,6 +1062,20 @@ def compare(
                 logger.emit("compare.symbol.start", symbol=symbol)
             try:
                 price_cache[symbol] = ensure_cached(cfg.provider, symbol, start, end)
+                # A provider occasionally serves a real trading day with a
+                # NaN close (confirmed live: SPY 2026-07-28) rather than
+                # omitting the row entirely. Left in, it silently nulls
+                # cagr_pct/final_equity (run_backtest reads equity.iloc[-1]
+                # off this series) and last_price/sma_200 (market_state) —
+                # while 52w-high/low and RSI keep working since those skip
+                # NaN by default. Same "don't propagate garbage" principle
+                # market_state.py already applies to isolated price spikes;
+                # scoped to this compare/digest pipeline only, not the
+                # shared ensure_cached() cache read (live strategies read
+                # that directly and get their own review separately).
+                _close_col = "adj_close" if "adj_close" in price_cache[symbol].columns else "close"
+                if _close_col in price_cache[symbol].columns:
+                    price_cache[symbol] = price_cache[symbol][price_cache[symbol][_close_col].notna()]
             except Exception as e:  # noqa: BLE001
                 price_cache[symbol] = pd.DataFrame()
                 errors.append({"symbol": symbol, "stage": "fetch", "error": str(e)})
@@ -1540,6 +1554,14 @@ def compare(
         },
         "rows": rows,
         "errors": errors,
+        # Run-level earnings-feed health. Per-row earnings_gate_info.feed_
+        # degraded already carries this, but buried inside 40+ individual
+        # rows it reads like organic per-symbol signal rather than the one
+        # outage it actually is — this lets a consumer (the digest email,
+        # the UI) render ONE top-line summary instead of reconstructing it
+        # by counting rows. See _dead_canaries above (unchanged otherwise).
+        "earnings_feed_degraded": earnings_feed_degraded,
+        "dead_canaries": _dead_canaries or None,
         "best_per_strategy": best_per_strategy,
         "best_overall": (
             {"symbol": best_overall["symbol"], "strategy": best_overall["strategy"],

@@ -32,10 +32,37 @@ def test_publishable_keeps_clean_row():
 
 
 def test_publishable_rejects_impossible_recovery():
-    # A -90% DD needs +900% to recover — corrupt-bar artifact, not a real buy.
-    ok, why = _publishable({"symbol": "USMV", "max_drawdown_pct": -90})
+    # A -90% DD needing +900% back in just 100 days — corrupt-bar artifact,
+    # not a real buy. recovery_days matters: without a bound on HOW FAST the
+    # recovery happened, this check used to fire on any -90% DD regardless
+    # of timeframe, which wrongly suppressed real multi-year recoveries on
+    # high-beta names (PLTR/TSLA/META) — a normal several-year recovery from
+    # a deep drawdown is not implausible, only a suspiciously fast one is.
+    ok, why = _publishable({
+        "symbol": "USMV", "max_drawdown_pct": -90,
+        "max_drawdown_recovery_days": 100,
+    })
     assert ok is False
     assert "implausible" in why
+
+
+def test_publishable_keeps_deep_drawdown_with_normal_recovery():
+    # Same -90% DD, but recovered over ~3 years (1100 days) — routine for a
+    # volatile growth name, not a data artifact. Must NOT be suppressed.
+    ok, _ = _publishable({
+        "symbol": "TSLA", "max_drawdown_pct": -90,
+        "max_drawdown_recovery_days": 1100,
+    })
+    assert ok is True
+
+
+def test_publishable_keeps_deep_drawdown_with_unknown_recovery():
+    # recovery_days missing/unknown (position may still be recovering) —
+    # can't compute the implausibility ratio without it, so don't suppress.
+    # Matches backtest.py's own original check (source of stats_suspect),
+    # which also requires recovery_days is not None before it fires.
+    ok, _ = _publishable({"symbol": "USMV", "max_drawdown_pct": -90})
+    assert ok is True
 
 
 def test_verified_count_is_zero_when_all_unverified():
