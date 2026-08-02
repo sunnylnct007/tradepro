@@ -651,13 +651,17 @@ public sealed class IBKRClient
     }
 
     /// <summary>
-    /// Step 3: the tradeable option CONTRACTS (conid + strike) for one underlying
-    /// + month + right — GET /iserver/secdef/info?conid=U&amp;sectype=OPT&amp;month=MMMYY&amp;right=C|P.
-    /// Strike is deliberately omitted: IBKR then returns the full right-side chain
-    /// for that month in one call instead of one round trip per strike.
+    /// Step 3: resolve the tradeable option CONTRACT (conid) for one underlying +
+    /// month + strike + right — GET /iserver/secdef/info?conid=U&amp;sectype=OPT&amp;
+    /// month=MMMYY&amp;strike=S&amp;right=C|P. CORRECTED 2 Aug 2026: strike is NOT
+    /// optional on this IBKR gateway — omitting it 400s ("strike is required for
+    /// warrant and option"), confirmed against the live paper account. One call
+    /// per strike (the caller narrows to near-the-money strikes FIRST via
+    /// GetOptionStrikesAsync + spot before calling this, to bound IBKR call
+    /// volume — the earlier "bulk chain in one call" design was wrong).
     /// </summary>
     public async Task<IBKROptionContractsResult> GetOptionContractsAsync(
-        long underlyingConId, string month, string right, CancellationToken ct = default)
+        long underlyingConId, string month, decimal strike, string right, CancellationToken ct = default)
     {
         if (!_options.IsEnabled)
             return new IBKROptionContractsResult(Array.Empty<IBKROptionContract>(), "IBKR disabled", 0);
@@ -665,16 +669,20 @@ public sealed class IBKRClient
         {
             using var resp = await SendWithAuthAsync(
                 HttpMethod.Get,
-                $"v1/api/iserver/secdef/info?conid={underlyingConId}&sectype=OPT&month={Uri.EscapeDataString(month)}&right={Uri.EscapeDataString(right)}",
+                $"v1/api/iserver/secdef/info?conid={underlyingConId}&sectype=OPT&month={Uri.EscapeDataString(month)}"
+                + $"&strike={Uri.EscapeDataString(strike.ToString(System.Globalization.CultureInfo.InvariantCulture))}"
+                + $"&right={Uri.EscapeDataString(right)}",
                 null, ct);
             var text = await resp.Content.ReadAsStringAsync(ct);
             if (!resp.IsSuccessStatusCode)
                 return new IBKROptionContractsResult(Array.Empty<IBKROptionContract>(),
-                    $"secdef/info failed for conid {underlyingConId} month {month} right {right}: {text}", (int)resp.StatusCode);
+                    $"secdef/info failed for conid {underlyingConId} month {month} strike {strike} right {right}: {text}",
+                    (int)resp.StatusCode);
             var contracts = IBKRResponseParser.ParseOptionContracts(text);
             if (contracts.Count == 0)
                 return new IBKROptionContractsResult(contracts,
-                    $"IBKR returned NO {right} contracts for conid {underlyingConId} month {month}", (int)resp.StatusCode);
+                    $"IBKR returned NO contract for conid {underlyingConId} month {month} strike {strike} right {right}",
+                    (int)resp.StatusCode);
             return new IBKROptionContractsResult(contracts, null, (int)resp.StatusCode);
         }
         catch (Exception ex)

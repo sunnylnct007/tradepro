@@ -72,19 +72,53 @@ public static class ChainEndpoints
                 ? new[] { "C", "P" }
                 : new[] { right.Trim().ToUpperInvariant() };
 
-            // Spot, for near-the-money filtering — best-effort; a null spot just
-            // means maxStrikes can't narrow the set (the full chain is still returned).
+            // Spot, for near-the-money filtering. Unlike the equity-history path,
+            // this ISN'T optional here: secdef/info needs a strike per call (see
+            // GetOptionContractsAsync), so without a spot to rank by we'd have to
+            // resolve EVERY listed strike individually — a null spot fails the
+            // whole request rather than silently doing that.
             decimal? spot = null;
             var spotRaw = await ibkr.GetSnapshotRawAsync(underlyingConId, "31", ct);
             if (spotRaw is not null)
                 spot = IBKRResponseParser.ParseSnapshotLast(spotRaw);
+            if (spot is null)
+                return Results.Ok(new ChainResponse(
+                    sym, underlyingConId, chosenMonth, null, Array.Empty<ChainLeg>(),
+                    $"could not read {sym} spot price (needed to select near-the-money strikes)"));
 
+            // Strikes for the chosen month, narrowed to maxStrikes nearest spot
+            // PER SIDE before any per-contract resolution — each selected strike
+            // costs one secdef/info call, so this bounds IBKR call volume (and
+            // pacing-limit risk) up front rather than after the fact.
+            var strikesResult = await ibkr.GetOptionStrikesAsync(underlyingConId, chosenMonth, ct);
+            if (strikesResult.Error is not null && strikesResult.Calls.Count == 0 && strikesResult.Puts.Count == 0)
+                return Results.Ok(new ChainResponse(
+                    sym, underlyingConId, chosenMonth, spot, Array.Empty<ChainLeg>(), strikesResult.Error));
+
+            var wanted = new List<(decimal Strike, string Right)>();
+            var cap = maxStrikes is > 0 ? maxStrikes.Value : 20;
+            foreach (var r in rights)
+            {
+                var side = r == "C" ? strikesResult.Calls : strikesResult.Puts;
+                wanted.AddRange(
+                    side.OrderBy(s => Math.Abs(s - spot.Value)).Take(cap).Select(s => (Strike: s, Right: r)));
+            }
+            if (wanted.Count == 0)
+                return Results.Ok(new ChainResponse(
+                    sym, underlyingConId, chosenMonth, spot, Array.Empty<ChainLeg>(),
+                    $"no strikes for {sym} {chosenMonth}"));
+
+            // Resolve each selected (strike, right) to its tradeable conid.
+            // Sequential, not parallel: IBKR's Web API rate-limits aggressively and
+            // this whole flow already shares one session-cached client (see
+            // IBKRClient's SESSION MODEL doc) — bursting these would risk the same
+            // pacing lockouts already seen on the historical-data path.
             var contracts = new List<IBKROptionContract>();
             var contractRight = new Dictionary<long, string>();
             string? contractsError = null;
-            foreach (var r in rights)
+            foreach (var (strike, r) in wanted)
             {
-                var cr = await ibkr.GetOptionContractsAsync(underlyingConId, chosenMonth, r, ct);
+                var cr = await ibkr.GetOptionContractsAsync(underlyingConId, chosenMonth, strike, r, ct);
                 if (cr.Error is not null)
                     contractsError = contractsError is null ? cr.Error : $"{contractsError}; {cr.Error}";
                 foreach (var c in cr.Contracts)
@@ -96,18 +130,13 @@ public static class ChainEndpoints
             if (contracts.Count == 0)
                 return Results.Ok(new ChainResponse(
                     sym, underlyingConId, chosenMonth, spot, Array.Empty<ChainLeg>(),
-                    contractsError ?? $"no contracts for {sym} {chosenMonth}"));
-
-            var selected = contracts.AsEnumerable();
-            if (spot is not null && maxStrikes is > 0)
-                selected = contracts.OrderBy(c => Math.Abs(c.Strike - spot.Value)).Take(maxStrikes.Value * rights.Length);
-            var selectedList = selected.ToList();
+                    contractsError ?? $"no contracts resolved for {sym} {chosenMonth}"));
 
             var quotesResult = await ibkr.GetOptionSnapshotBatchAsync(
-                selectedList.Select(c => c.ConId).ToArray(), ct);
+                contracts.Select(c => c.ConId).ToArray(), ct);
             var byConId = quotesResult.Quotes.ToDictionary(q => q.ConId, q => q);
 
-            var legs = selectedList
+            var legs = contracts
                 .Select(c =>
                 {
                     byConId.TryGetValue(c.ConId, out var q);
