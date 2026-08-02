@@ -399,7 +399,7 @@ def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
                 # explanation via bucket_reason. This lets the digest-level
                 # summary line (see the degraded-feed banner below) count
                 # affected names without re-parsing free text.
-                "earnings_gate_flag": (best.get("earnings_gate_info") or {}).get("flag"),
+                "earnings_gate_flag": (best.get("earnings_gate") or {}).get("flag"),
                 "swing_score": best.get("swing_score"),
                 # Horizon classification — three independent verdicts
                 # per row so the email can show that a "BUY" bucket

@@ -1554,14 +1554,28 @@ def compare(
         },
         "rows": rows,
         "errors": errors,
-        # Run-level earnings-feed health. Per-row earnings_gate_info.feed_
-        # degraded already carries this, but buried inside 40+ individual
-        # rows it reads like organic per-symbol signal rather than the one
-        # outage it actually is — this lets a consumer (the digest email,
-        # the UI) render ONE top-line summary instead of reconstructing it
-        # by counting rows. See _dead_canaries above (unchanged otherwise).
-        "earnings_feed_degraded": earnings_feed_degraded,
-        "dead_canaries": _dead_canaries or None,
+        # Run-level earnings-feed health. Per-row row["earnings_gate"]["feed_
+        # degraded"] already carries this (set inside _attach_bucket_and_
+        # rationale, a DIFFERENT function — earnings_feed_degraded/
+        # _dead_canaries are its locals, not visible here; a first version
+        # of this referenced them directly and crashed every single compare
+        # run with NameError, silently, for hours), but buried inside 40+
+        # individual rows it reads like organic per-symbol signal rather
+        # than the one outage it actually is — this lets a consumer (the
+        # digest email, the UI) render ONE top-line summary instead of
+        # reconstructing it by counting rows. Same value on every row in a
+        # single run (computed once), so checking any one row is correct.
+        "earnings_feed_degraded": any(
+            (r.get("earnings_gate") or {}).get("feed_degraded") for r in rows
+        ),
+        "dead_canaries": next(
+            (
+                (r.get("earnings_gate") or {}).get("dead_canaries")
+                for r in rows
+                if (r.get("earnings_gate") or {}).get("dead_canaries")
+            ),
+            None,
+        ),
         "best_per_strategy": best_per_strategy,
         "best_overall": (
             {"symbol": best_overall["symbol"], "strategy": best_overall["strategy"],
