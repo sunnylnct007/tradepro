@@ -65,6 +65,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .formatting import ordinal_suffix
+
 
 # Tighter v2 thresholds. Constants at the top so a reader can argue
 # with any number and we change it in one place.
@@ -273,11 +275,15 @@ def evaluate_gem(row: dict) -> GemVerdict:
     # ---- Bottom of the range ----
     rp = _f(ms.get("range_position_pct"))
     if rp is not None and rp <= RANGE_LOW_PCTILE:
-        reasons.range_position.append(f"{rp:.0f}th pctile of 52w range (≤ {RANGE_LOW_PCTILE:.0f}th)")
+        reasons.range_position.append(
+            f"{rp:.0f}{ordinal_suffix(rp)} pctile of 52w range "
+            f"(≤ {RANGE_LOW_PCTILE:.0f}{ordinal_suffix(RANGE_LOW_PCTILE)})"
+        )
     else:
+        _rp_disp = rp or 0
         required_pass = False
         reasons.failed_filters.append(
-            f"{rp or 0:.0f}th pctile of 52w — not near the floor"
+            f"{_rp_disp:.0f}{ordinal_suffix(_rp_disp)} pctile of 52w — not near the floor"
         )
 
     # ---- Valuation lens (CHEAP per basket-relative) ----

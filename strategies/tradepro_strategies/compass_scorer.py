@@ -47,6 +47,8 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .formatting import ordinal_suffix
+
 # Module-level import so BDD steps can patch
 # tradepro_strategies.compass_scorer.macro_regime.get_risk_mode
 try:
@@ -511,7 +513,7 @@ def _build_entry_note(
     parts = [f"COMPASS {score:.0f}/100"]
     if signal == "BUY":
         if range_pct is not None:
-            parts.append(f"range {range_pct:.0f}th pctile")
+            parts.append(f"range {range_pct:.0f}{ordinal_suffix(range_pct)} pctile")
         if rsi is not None:
             parts.append(f"RSI {rsi:.0f}")
     if macro_gated:

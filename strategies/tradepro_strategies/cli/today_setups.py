@@ -26,6 +26,8 @@ import glob
 import logging
 import os
 
+from ..formatting import ordinal_suffix
+
 log = logging.getLogger("tradepro.today_setups")
 
 # Cloud position + BUY/WAIT/AVOID verdict + garbage-guard all come from the
@@ -173,7 +175,7 @@ def _why(s: dict) -> str:
         # stale-pullback narrative stitched onto a price that already ran.
         return (f"engine: {s['signal']}, above cloud, at the kijun ${s['kijun']} "
                 f"({s['dist_atr']} ATR above, {s['off_10d_high_pct']}% off 10d high — support hold, not a knife); "
-                f"{s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}% / 10d {s['momentum_10d_pct']}%, "
+                f"{s['range_pctile']:.0f}{ordinal_suffix(s['range_pctile'])} pctile, 3m {s['momentum_3m_pct']}% / 10d {s['momentum_10d_pct']}%, "
                 f"ATR {s['atr_pct']}%/day, {vol}; stop below kijun.")
     if cls == "earnings":
         return (f"clean pullback-to-kijun setup BUT reports earnings in {s.get('earnings_days')}d "
@@ -184,7 +186,7 @@ def _why(s: dict) -> str:
                 f"10d {s['momentum_10d_pct']}%) — a falling knife slicing through support, NOT an entry. "
                 f"Wait for it to base.")
     if cls == "extended":
-        return (f"above cloud but EXTENDED ({s['range_pctile']:.0f}th pctile, 3m {s['momentum_3m_pct']}%) — "
+        return (f"above cloud but EXTENDED ({s['range_pctile']:.0f}{ordinal_suffix(s['range_pctile'])} pctile, 3m {s['momentum_3m_pct']}%) — "
                 f"chasing a big run; wait for a deeper pullback toward kijun ${s['kijun']}.")
     if cls == "below_trend":
         return (f"above the cloud BUT below the 200-day SMA ${s.get('sma200')} "

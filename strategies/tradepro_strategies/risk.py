@@ -38,6 +38,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .formatting import ordinal_suffix
+
 
 # Tier ladder, ordered low → high.
 _TIERS: tuple[str, ...] = ("LOW", "MEDIUM", "HIGH", "EXTREME")
@@ -134,7 +136,7 @@ def compute_risk_rating(row: dict, *, max_escalators: int = 2) -> RiskRating:
     rp = ms.get("range_position_pct")
     if bucket == "BUY" and isinstance(rp, (int, float)) and rp >= 80:
         bumps += 1
-        factors.append(f"BUY at {rp:.0f}th percentile of 52w range")
+        factors.append(f"BUY at {rp:.0f}{ordinal_suffix(rp)} percentile of 52w range")
 
     # Escalator 4: cross-basket outlier. |z| > 2.5 means the symbol is
     # ~2.5σ away from its peer group on momentum — real outlier risk,

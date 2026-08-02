@@ -36,6 +36,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .formatting import ordinal_suffix
+
 # Single source of truth for the score → signal grade mapping.
 # Bands aligned (2026-06-13) with swing.evaluate_swing's OWN bands (BUY ≥4,
 # HOLD/WATCH ≥2). They had diverged — horizons re-banded the composite at ≥6=BUY,
@@ -231,11 +233,11 @@ def _score_swing(
     if range_pct is not None:
         if range_pct < 35:
             score += 1
-            reasons.append(f"Near annual lows ({range_pct:.0f}th pctile) — +1")
+            reasons.append(f"Near annual lows ({range_pct:.0f}{ordinal_suffix(range_pct)} pctile) — +1")
         elif range_pct >= 65:
             score = max(0, score - 1)
             reasons.append(
-                f"Near 52w highs ({range_pct:.0f}th pctile) — −1 (extended)"
+                f"Near 52w highs ({range_pct:.0f}{ordinal_suffix(range_pct)} pctile) — −1 (extended)"
             )
 
     score = max(0, min(8, score))

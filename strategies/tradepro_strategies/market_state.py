@@ -23,6 +23,7 @@ from typing import Any
 
 import pandas as pd
 
+from .formatting import ordinal_suffix
 from .indicators import atr, bollinger, ichimoku, rsi, sma
 
 
@@ -351,18 +352,18 @@ def _build_trace(state: MarketState) -> list[dict[str, Any]]:
     elif rp >= RANGE_HIGH_PCTILE:
         trace.append({"name": "Range position (52w)", "status": "fail",
                       "detail": (
-                          f"{rp:.0f}th percentile — near 52w highs, "
+                          f"{rp:.0f}{ordinal_suffix(rp)} percentile — near 52w highs, "
                           f"asymmetric risk/reward for a swing entry"
                       )})
     elif rp <= RANGE_LOW_PCTILE:
         trace.append({"name": "Range position (52w)", "status": "pass",
                       "detail": (
-                          f"{rp:.0f}th percentile — closer to 52w lows, "
+                          f"{rp:.0f}{ordinal_suffix(rp)} percentile — closer to 52w lows, "
                           f"genuine dip territory"
                       )})
     else:
         trace.append({"name": "Range position (52w)", "status": "warn",
-                      "detail": f"{rp:.0f}th percentile — mid-range"})
+                      "detail": f"{rp:.0f}{ordinal_suffix(rp)} percentile — mid-range"})
 
     # 12-month momentum
     mom12 = state.momentum_12m_pct
@@ -543,7 +544,7 @@ def _classify(state: MarketState) -> tuple[str, str]:
                 rp = state.range_position_pct
                 if rp is not None and rp >= RANGE_HIGH_PCTILE:
                     return ("WAIT",
-                            f"above 200-day SMA but at {rp:.0f}th percentile "
+                            f"above 200-day SMA but at {rp:.0f}{ordinal_suffix(rp)} percentile "
                             f"of 52w range — near the highs, asymmetric risk/"
                             f"reward for a fresh entry. Wait for a pullback.")
                 return ("BUY",
@@ -590,8 +591,22 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         if bool(bad.any()):
             series = series[~bad]
 
-    last_price = _safe_float(series.iloc[-1])
-    as_of = prices.index[-1].isoformat()
+    # A provider occasionally serves a real trading day with a NaN close
+    # (confirmed live: SPY 2026-07-28 — genuine gap, not a garbage spike).
+    # Left in, a NaN at the tail silently nulls every field that reads
+    # .iloc[-1] (last_price, as_of) or a rolling window touching it
+    # (sma_200 -> above_sma_200), while max()/min()-based fields (52w
+    # high/low) keep working since those skip NaN by default — the exact
+    # "SPY shows blank CAGR/off-high while RSI/52w-range are fine" pattern.
+    # Per §9.1's own directive ("fix the insufficient-history pathway to be
+    # explicit, not NaN"): use the last REAL price instead of a non-price,
+    # same "don't propagate garbage" principle as the spike filter above —
+    # this never fabricates a value, it just declines to treat a missing
+    # bar as if it were one.
+    series = series.dropna()
+
+    last_price = _safe_float(series.iloc[-1]) if len(series) else None
+    as_of = series.index[-1].isoformat() if len(series) else prices.index[-1].isoformat()
 
     sma_series = sma(series, 200)
     sma_200 = _safe_float(sma_series.iloc[-1])

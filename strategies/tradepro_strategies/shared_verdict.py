@@ -14,6 +14,8 @@ visible rather than buried as magic default-args.
 """
 from __future__ import annotations
 
+from .formatting import ordinal_suffix
+
 # --- Canonical verdict thresholds (the pipeline's OWN knobs) ----------- #
 VOLUME_CONFIRM_RATIO = 1.2        # vol_ratio_20d ≥ this → HIGH conviction
 EARNINGS_SUPPRESS_DAYS = 7        # BUY suppressed if earnings within N days
@@ -452,7 +454,7 @@ def apply_horizon_and_range_demotion(
         if swing_signal_b != "BUY":
             return (
                 "WAIT",
-                (f"Range demotion: {range_pct:.0f}th percentile of 52w range "
+                (f"Range demotion: {range_pct:.0f}{ordinal_suffix(range_pct)} percentile of 52w range "
                  f"(≥ {extreme_range_threshold:.0f}) AND swing horizon not BUY "
                  f"— buying near the top without a fresh catalyst. {reason}"),
                 True,

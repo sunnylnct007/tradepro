@@ -34,6 +34,7 @@ from typing import Any
 # diverging: email filtered non-tradeable + counted verified, the PDF did
 # neither → "8 BUY incl. ^GDAXI" vs the email's "0 BUY").
 from .email_digest import _is_tradeable, _publishable  # noqa: E402
+from .formatting import ordinal_suffix
 
 # Lazy / soft import — reportlab pulled in on first use, not at
 # module import. The whole module is itself imported lazily by
@@ -474,9 +475,10 @@ def _symbol_pages(styles, items, bucket_label, section_title, accent) -> list[An
             ))
             page_blocks.append(_horizon_table(hz))
             if hz.get("range_pct") is not None:
+                _rp = hz["range_pct"]
                 page_blocks.append(Paragraph(
                     f"<font color='#555'>Range position: "
-                    f"{hz['range_pct']:.0f}th percentile of 52w range</font>",
+                    f"{_rp:.0f}{ordinal_suffix(_rp)} percentile of 52w range</font>",
                     styles["small"],
                 ))
             page_blocks.append(Spacer(1, 4))

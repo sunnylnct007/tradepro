@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from html import escape
 from typing import Any
 
+from .formatting import ordinal_suffix
+
 
 @dataclass
 class EmailDigest:
@@ -182,6 +184,40 @@ def _staleness_banner(payloads: list[dict]) -> str | None:
     )
 
 
+_DEGRADED_EARNINGS_FLAGS = ("EARNINGS_UNKNOWN", "EARNINGS_UNVERIFIED")
+
+
+def _earnings_degraded_banner(payloads: list[dict], items: list[dict]) -> str | None:
+    """One top-line summary when the earnings-calendar feed left most of a
+    run's names unresolved (EARNINGS_UNKNOWN — no date at all — or
+    EARNINGS_UNVERIFIED — feed degraded, alert-not-suppress). Per-symbol,
+    the no-silent-CLEAR rule is already doing its job correctly (nothing
+    falls through to a false CLEAR); the bug this fixes is presentation —
+    when e.g. 44/54 names hit this on the SAME run, that's one outage, not
+    44 independent data gaps, and the reader shouldn't have to reconstruct
+    that by counting individual bucket_reason sentences by hand. None when
+    the affected share is small enough to plausibly be organic (a handful
+    of names with genuinely missing calendar coverage is normal; a run
+    where MOST names are affected is not)."""
+    degraded_any = any(bool(env.get("payload", env).get("earnings_feed_degraded")) for env in payloads)
+    n_degraded = sum(1 for it in items if it.get("earnings_gate_flag") in _DEGRADED_EARNINGS_FLAGS)
+    n_total = len(items)
+    if n_total == 0 or n_degraded == 0:
+        return None
+    # Threshold matches the spirit of the canary check itself: this is
+    # about flagging a RUN-LEVEL outage, not chasing every individual
+    # unresolved date — a third or more of the run affected is the "this
+    # isn't organic" line the user's own diagnosis drew.
+    if not degraded_any and n_degraded / n_total < (1 / 3):
+        return None
+    return (
+        f"⚠ Earnings feed degraded — {n_degraded}/{n_total} names affected "
+        f"today (no confirmed date or feed unverified). AVOID/WAIT calls on "
+        f"those names are a safe-default heuristic, not a real earnings-date "
+        f"read — treat with caution until the feed is confirmed healthy."
+    )
+
+
 def _best_row_for_symbol(rows: list[dict]) -> dict | None:
     """The comparator pushes one row per (symbol, strategy). Pick the
     rank-1 row for each symbol — that's what the Compare page shows."""
@@ -254,7 +290,8 @@ def _gems_text_block(items: list[dict]) -> str:
         ms = row.get("market_state") or {}
         last = _fmt(ms.get("last_price"), "", 2)
         dd = _fmt(ms.get("drawdown_from_peak_pct"), "%", 1)
-        rp = _fmt(ms.get("range_position_pct"), "th", 0)
+        _rp_val = ms.get("range_position_pct")
+        rp = _fmt(_rp_val, ordinal_suffix(_rp_val) if _rp_val is not None else "", 0)
         rsi = _fmt(ms.get("rsi_14"), digits=0)
         risk = ((row.get("risk_rating") or {}).get("rating")) or "—"
         lines.append(
@@ -358,6 +395,11 @@ def _filter_bucket(payloads: list[dict], bucket: str) -> list[dict]:
                 "cross_sectional_momentum": best.get("cross_sectional_momentum"),
                 "valuation_flag": best.get("valuation_flag"),
                 "earnings_signal": best.get("earnings_signal"),
+                # Flag only — the per-symbol prose already carries the full
+                # explanation via bucket_reason. This lets the digest-level
+                # summary line (see the degraded-feed banner below) count
+                # affected names without re-parsing free text.
+                "earnings_gate_flag": (best.get("earnings_gate_info") or {}).get("flag"),
                 "swing_score": best.get("swing_score"),
                 # Horizon classification — three independent verdicts
                 # per row so the email can show that a "BUY" bucket
@@ -647,14 +689,29 @@ def _publishable(it: dict) -> tuple[bool, str | None]:
     # Recovery-math sanity straight off the rendered numbers (catches USMV/META
     # even before the source re-runs): recovering a drawdown d needs 1/(1+d)-1.
     dd = it.get("max_drawdown_pct")
-    if isinstance(dd, (int, float)) and dd < -75:
+    recov = it.get("max_drawdown_recovery_days")
+    # The time bound matters: PLTR/TSLA/META all got wrongly suppressed here —
+    # this check used to fire on ANY dd < -75% needing > 300% to recover,
+    # regardless of how long the recovery took. A multi-year recovery from a
+    # deep drawdown is routine for high-beta growth names, not implausible;
+    # backtest.py's own original check (source of stats_suspect above) only
+    # flags a drawdown as suspect when the recovery ITSELF was implausibly
+    # fast (< 500 sessions). Restoring that same bound here so this
+    # "belt and suspenders" re-check can't be stricter than the source.
+    if (
+        isinstance(dd, (int, float)) and dd < -75
+        and isinstance(recov, (int, float)) and recov < 500
+    ):
         # Recovering d needs 1/(1+d)-1. A DD past -75% needs >300% just to get
-        # back — a corrupt-bar artifact for anything but a wiped-out equity, and
-        # certainly for a min-vol ETF (USMV) or a mega-cap (META). Real deep-DD
-        # names (NVDA -66% -> +190%) stay above the line and are kept.
+        # back in under ~500 sessions — a corrupt-bar artifact for anything but
+        # a wiped-out equity, and certainly for a min-vol ETF (USMV). Real
+        # deep-DD names with a normal multi-year recovery stay above the line.
         gain_needed = 1.0 / (1.0 + dd / 100.0) - 1.0
         if gain_needed > 3.0:
-            return False, f"implausible: {dd:.0f}% DD needs +{gain_needed*100:.0f}% to recover"
+            return False, (
+                f"implausible: {dd:.0f}% DD needs +{gain_needed*100:.0f}% to "
+                f"recover in {recov:.0f}d"
+            )
     return True, None
 
 
@@ -964,7 +1021,9 @@ def build_digest(
         + (f" · {len(gems)} GEMS" if gems else "")
     )
 
-    banner = _staleness_banner(payloads)
+    staleness_banner = _staleness_banner(payloads)
+    earnings_banner = _earnings_degraded_banner(payloads, buys + avoids + waits)
+    banner = " ".join(b for b in (staleness_banner, earnings_banner) if b) or None
     summary = _summary_card(
         buys, waits, avoids, holdings or [], banner,
         portfolio_mode=portfolio_mode,
