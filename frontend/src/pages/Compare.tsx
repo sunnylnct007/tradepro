@@ -672,13 +672,43 @@ function buildSymbolViews(
     // is still visible in the HORIZON SPLIT detail.
     const rp = (best as unknown as { market_state?: { range_pct?: number } }).market_state?.range_pct;
     const tooExtended = typeof rp === "number" && rp >= 90;
-    if (horizonBuy && bucket === "WAIT" && !tooExtended) {
+    // Weak-consensus guard (2026-08-02 — the CRWD "Top buy" bug): a horizon
+    // BUY used to promote WAIT->BUY unconditionally, so a name at 2-of-7
+    // strategies long (bucketReason literally reading "wait for broader
+    // confirmation") could still headline the page as BUY — the exact same
+    // contradiction tooExtended above was added to prevent, just on the
+    // consensus axis instead of the range axis. majorityLong is already
+    // computed above for the server-mirroring bucket rules; reuse it here
+    // rather than invent a second threshold.
+    if (horizonBuy && bucket === "WAIT" && !tooExtended && majorityLong) {
       bucket = "BUY";
       reason = `Horizon BUY (` +
         [["swing", hc?.swing], ["long-term", hc?.long_term]]
           .filter(([, v]) => (v as { signal?: string } | undefined)?.signal === "BUY")
           .map(([k]) => k).join(", ") +
         `)` + (reason ? ` · ${reason}` : "");
+      bucketOverridden = true;
+    }
+
+    // Garbage-bar integrity guard (2026-08-02): backtest.py flags a row
+    // stats_suspect when its equity curve carries an outlier bar (>5sigma
+    // log-return) or a physically-impossible drawdown/recovery — the exact
+    // check that already suppresses these rows from the email digest
+    // (_publishable in email_digest.py). The frontend never read this flag,
+    // so a name the digest correctly hid as corrupt (MU/KLAC/AMAT, 2 Aug)
+    // still rendered BUY on this page. Downgrade unconditionally — a
+    // verdict built on a flagged-corrupt series is never safe to show,
+    // BUY or otherwise, regardless of what promoted it above.
+    const statsSuspect = Boolean(
+      (best as unknown as { stats?: { stats_suspect?: boolean; stats_suspect_reason?: string } })
+        .stats?.stats_suspect,
+    );
+    if (statsSuspect && bucket !== "AVOID") {
+      const suspectReason = (best as unknown as { stats?: { stats_suspect_reason?: string } })
+        .stats?.stats_suspect_reason;
+      bucket = "WAIT";
+      reason = `DATA FAIL — flagged corrupt: ${suspectReason ?? "outlier bar or implausible drawdown/recovery in the underlying series"}. No verdict until the bar is fixed` +
+        (reason ? ` (was: ${reason})` : "");
       bucketOverridden = true;
     }
 

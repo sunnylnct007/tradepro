@@ -360,7 +360,17 @@ def _row_for(
         "strategy_label": strategy.label,
         "params": dict(strategy.params),
         "bars": int(len(prices)),
-        "stats": {k: _safe_float(v) for k, v in result.stats.items()},
+        # _safe_float is for NUMERIC stats only — result.stats also carries
+        # stats_suspect (bool) and stats_suspect_reason (str | None), the
+        # garbage-bar integrity flag the digest's _publishable() suppresses
+        # on. Blindly _safe_float-ing every value ran float("outlier bar...")
+        # on the reason string, threw, and silently replaced it with NaN —
+        # so the flag survived (bool -> 1.0/0.0) but its human-readable
+        # reason was destroyed on every row before it ever left this process.
+        "stats": {
+            k: (v if k in ("stats_suspect", "stats_suspect_reason") else _safe_float(v))
+            for k, v in result.stats.items()
+        },
         "regimes": regime_rows,
         "current_action": _action_from_signal(latest_signal),
         "latest_signal": latest_signal,
