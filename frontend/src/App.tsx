@@ -58,6 +58,17 @@ const router = createBrowserRouter([
       // by stitching every relevant data source into one linear scroll.
       // Spec: strategies/docs/tradepro_claude.pdf (v0.1). 10 sections —
       // header lands today, sections 2-10 follow incrementally.
+      //
+      // NOTE: still under the legacy <Layout>, not /desk. A direct URL
+      // still shows the old menu — considered redirecting into /desk's
+      // SymbolDetailRail instead (matching the other legacy-route
+      // redirects), but SymbolDetailRail (233 lines: chart+position+WHY+
+      // orders) is far thinner than this page (1525 lines: hit-rate panel,
+      // decision trace, analyst consensus, full rationale) — that redirect
+      // would have silently downgraded every direct link/bookmark. Left
+      // as-is; the real fix is migrating THIS page's content into /desk,
+      // not routing around it. Search-from-within-/desk already opens
+      // SymbolDetailRail in-place without navigating here at all.
       { path: "symbol/:ticker", element: <SymbolDeepDive /> },
       { path: "simulations", element: <Simulations /> },
       { path: "strategies", element: <Strategies /> },
