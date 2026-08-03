@@ -35,6 +35,18 @@ interface Candidate {
   dte?: number | null;
   annualized_yield_pct?: number | null;  // ranking metric
   is_best?: boolean;                      // the single best eligible CSP
+  // v1 §F0.3-4 — morning-candidates additions (2 Aug 2026): put-vs-buy
+  // side-by-side and size-fit vs NAV. Both null until a real premium/spot
+  // (put_vs_buy) or a reachable account NAV (size_fit_pct) exist — never
+  // fabricated from partial data.
+  put_vs_buy?: {
+    buy_now_price: number;
+    sell_put_strike: number;
+    sell_put_premium: number;
+    sell_put_effective_cost_if_assigned: number;
+    discount_vs_buy_now_pct: number;
+  } | null;
+  size_fit_pct?: number | null;           // contract notional as % of account NAV
 }
 interface ScreenResp {
   generated_at_utc: string | null;
@@ -222,7 +234,7 @@ export function OptionsDesk() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Regime", "IV-Rank", "OI / Spread", "Eligible (CSP)", "Annual yield", "Suggested", "Why / why-not", ""].map((h) => (
+                {["Symbol", "Regime", "IV-Rank", "OI / Spread", "Eligible (CSP)", "Annual yield", "Suggested", "Put vs buy now", "Size fit", "Why / why-not", ""].map((h) => (
                   <th key={h} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -253,6 +265,26 @@ export function OptionsDesk() {
                     {c.suggested_strike != null
                       ? `$${c.suggested_strike} · Δ${(c.suggested_delta ?? 0).toFixed(2)}${c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)}` : ""}`
                       : "—"}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
+                    {c.put_vs_buy ? (
+                      <span title={
+                        `Buy now: $${c.put_vs_buy.buy_now_price.toFixed(2)} · `
+                        + `Sell put: $${c.put_vs_buy.sell_put_strike} strike, `
+                        + `$${c.put_vs_buy.sell_put_premium.toFixed(2)} premium, `
+                        + `effective cost if assigned $${c.put_vs_buy.sell_put_effective_cost_if_assigned.toFixed(2)}`
+                      }>
+                        <span style={{ color: "var(--text-muted)" }}>buy </span>${c.put_vs_buy.buy_now_price.toFixed(0)}
+                        <span style={{ color: "var(--text-muted)" }}> vs put </span>${c.put_vs_buy.sell_put_effective_cost_if_assigned.toFixed(0)}
+                        <span style={{ color: c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? TONE.ok : TONE.bad, marginLeft: 4 }}>
+                          ({c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? "-" : "+"}{Math.abs(c.put_vs_buy.discount_vs_buy_now_pct).toFixed(1)}%)
+                        </span>
+                      </span>
+                    ) : "—"}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}
+                      title="Contract notional as a share of account NAV — informational only, never a hard gate here (the risk engine's own notional cap does that)">
+                    {c.size_fit_pct != null ? `${c.size_fit_pct.toFixed(1)}%` : "—"}
                   </td>
                   <td style={{ padding: "8px 10px", color: c.eligible ? TONE.warn : TONE.bad, maxWidth: 320 }}>
                     {(c.blocks?.length ? c.blocks : c.warnings)?.join("; ") || (c.eligible ? "all gates pass" : "—")}
