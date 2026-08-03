@@ -146,16 +146,54 @@ def _compute_stats(equity: pd.Series, initial: float) -> dict:
     # days). That produced the USMV -78.6% DD on a min-vol fund and META -91.3%.
     # Flag the stats as SUSPECT so the caller SUPPRESSES the row instead of
     # publishing a fabricated number — fail loud, don't default.
+    #
+    # FIXED 3 Aug 2026 — this was comparing the single biggest daily move
+    # against the FULL-HISTORY std (often 10-16 years). Over that long a
+    # window, calm periods dilute the average down so far that a real crash
+    # day reads as "statistically impossible": live-verified this was
+    # flagging 2020-03-16 (the worst day of the COVID crash — real, -12 to
+    # -14% single-day moves across SPY/QQQ/semis, not corruption) as
+    # "suspect" on ~100% of symbols with pre-2021 history, which is why
+    # every universe showed 0 BUY two days running. Now compares against a
+    # LOCAL (60-trading-day, centred on the flagged bar, excluding the bar
+    # itself) std instead — a real crash clusters with other volatile days
+    # nearby, so it's NOT extreme relative to its own regime; an isolated
+    # corrupt print in an otherwise calm stretch still is. Verified against
+    # real history: QQQ/MU/AVGO/AMAT's 2020-03-16 all clear the new bar
+    # (3.6-4.4x local-sigma, was 7-9x full-history), a synthetic isolated
+    # 40%-bad-print stayed flagged (7.6x). Threshold raised from 5x to 6x to
+    # match the new (higher, since local vol is elevated during real
+    # volatile stretches) baseline.
+    #
+    # KNOWN RESIDUAL LIMITATION, not solved by this fix: a genuine isolated
+    # SINGLE-STOCK event (M&A announcement, a huge earnings-day gap) looks
+    # statistically identical to a corrupt print — both are one extreme day
+    # with calm neighbours either side. No purely-statistical check can
+    # fully separate those; cross-referencing a real corporate-action feed
+    # would be the actual fix, not attempted here. Confirmed example: KLAC's
+    # flagged bar is 2015-10-21 (the real Lam Research merger-announcement
+    # day), still flags at 12.5x local-sigma even after this change — a real
+    # event, not corruption, and still suppressed. Rare compared to the
+    # COVID-day mass false-positive this fix targets, but not zero.
     suspect = False
     suspect_reason: str | None = None
     with np.errstate(divide="ignore", invalid="ignore"):
         log_ret = np.log(equity / equity.shift(1)).replace([np.inf, -np.inf], np.nan).dropna()
     if len(log_ret) > 30:
-        sd = float(log_ret.std())
-        mx = float(log_ret.abs().max())
-        if sd > 0 and mx > 5.0 * sd:                       # isolated >5σ bar
+        abs_ret = log_ret.abs()
+        mx = float(abs_ret.max())
+        mx_idx = abs_ret.idxmax()
+        pos = log_ret.index.get_loc(mx_idx)
+        lo, hi = max(0, pos - 30), min(len(log_ret), pos + 31)
+        local = log_ret.iloc[lo:hi].drop(index=mx_idx, errors="ignore")
+        local_sd = float(local.std()) if len(local) > 10 else float(log_ret.std())
+        if local_sd > 0 and mx > 6.0 * local_sd:            # isolated >6 local-sigma bar
             suspect = True
-            suspect_reason = f"outlier bar |log-ret|={mx:.2f} > 5σ ({5.0*sd:.2f}) — likely corrupt price"
+            suspect_reason = (
+                f"outlier bar |log-ret|={mx:.2f} > 6x local-60d-sigma ({6.0*local_sd:.2f}) "
+                f"on {mx_idx.date()} — likely corrupt price, or (rarer) a real isolated "
+                f"single-stock event (M&A/earnings gap) this check can't distinguish from one"
+            )
     # Recovery math is a free validator: recovering a drawdown d needs a gain of
     # 1/(1+d)-1. A -80% DD needs +400%; that can't happen in a few hundred days.
     if not suspect and max_dd < -0.6 and recovery_days is not None:
