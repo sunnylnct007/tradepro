@@ -120,18 +120,37 @@ def regime_from_closes(closes: list[float]) -> tuple[str | None, bool | None]:
 
 
 def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open: bool) -> dict:
-    """Build one candidate row: IV-Rank + regime + (live) chain → risk engine."""
-    ivr = fetch_iv_rank(sym, ib=ib)
-    # Daily closes for the regime (TRADES; historical, available any time).
-    # The last IBKR close also serves as the AUTHORITATIVE reference spot to
-    # sanity-check the (free, sometimes garbage) yfinance chain spot against.
+    """Build one candidate row: IV-Rank + regime + (live) chain → risk engine.
+
+    `ib` may be None (Gateway unreachable) — IV-Rank then fails closed
+    (available=False, visible reason) rather than attempting its own
+    connection per symbol; regime and chain don't need it at all any more
+    (bar-cache and G3 respectively), so the screen still produces real,
+    honest candidates in that mode — just always BLOCKed on the IV-rank
+    gate, which is the correct behaviour when that gate's input is
+    genuinely unavailable, not a crash.
+    """
+    if ib is not None:
+        ivr = fetch_iv_rank(sym, ib=ib)
+    else:
+        from ..quant_engine.options.iv_rank import IvRankResult
+        ivr = IvRankResult(sym, available=False, reason="IBKR Gateway unreachable — IV-Rank needs its 52w OPTION_IMPLIED_VOLATILITY history, no non-Gateway source exists yet")
+
+    # Daily closes for the regime (Ichimoku on the bar cache — yfinance-
+    # backed, the same source get_market_state/the digest already use.
+    # No Gateway needed: this used to require an ib_insync TRADES bars
+    # request, which is exactly the session-contention dependency G3 was
+    # built to remove from the chain fetch — removing it here too so
+    # regime works even when no Gateway is reachable at all.
     regime = falling_knife = ref_close = None
     try:
-        c = ib_insync.Stock(sym, "SMART", "USD"); ib.qualifyContracts(c)
-        bars = ib.reqHistoricalData(
-            c, endDateTime="", durationStr="1 Y", barSizeSetting="1 day",
-            whatToShow="TRADES", useRTH=True, formatDate=1, timeout=30)
-        closes = [b.close for b in bars]
+        from datetime import timedelta
+        from ..cache import ensure_cached
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=400)
+        prices = ensure_cached("yahoo", sym, start, end)
+        close_col = "adj_close" if "adj_close" in prices.columns else "close"
+        closes = prices[close_col].dropna().tolist()
         regime, falling_knife = regime_from_closes(closes)
         if closes and closes[-1] > 0:
             ref_close = closes[-1]
@@ -293,15 +312,28 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     except Exception:  # noqa: BLE001
         market_open = False
 
+    # Gateway is now OPTIONAL: chain (G3) and regime (bar cache) no longer
+    # need it — only IV-Rank still does (no non-Gateway source for 52w
+    # OPTION_IMPLIED_VOLATILITY history exists yet). A degraded run without
+    # Gateway still produces real regime + real chain data for every symbol,
+    # just permanently BLOCKed on the IV-rank gate — honest, not a crash.
     ib = ib_insync.IB()
-    ib.connect(host, port, clientId=cid, timeout=20)
+    connected = False
+    try:
+        ib.connect(host, port, clientId=cid, timeout=20)
+        connected = True
+    except Exception as e:  # noqa: BLE001
+        log.warning("IBKR Gateway unreachable (%s) — running degraded: "
+                    "chain via G3, regime via bar cache, IV-rank BLOCKED", e)
+
     rows = []
     try:
         for sym in universe:
-            rows.append(_screen_symbol(ib, ib_insync, sym, cfg, market_open))
+            rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open))
             log.info("screened %s", sym)
     finally:
-        ib.disconnect()
+        if connected:
+            ib.disconnect()
 
     # Crown the single BEST eligible CSP: highest annualised yield, GREEN
     # preferred over YELLOW as a tiebreak. NEVER crown a non-eligible name —
@@ -318,6 +350,7 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "market_open": market_open,
+        "gateway_available": connected,
         "candidates": rows,
         "best_symbol": best["symbol"] if best else None,
         "eligible_count": len(eligible_rows),
