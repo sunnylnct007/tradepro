@@ -119,7 +119,34 @@ def regime_from_closes(closes: list[float]) -> tuple[str | None, bool | None]:
     return Regime.ORANGE.value, False
 
 
-def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open: bool) -> dict:
+def _fetch_nav_gbp() -> float | None:
+    """Account NAV in GBP, best-effort, for the size-fit annotation (v1
+    §F0.3-4: "contract notional vs NAV vs target allocation" — INFORMATIONAL
+    only; per project_wheel_signal_vs_paper_capital_split candidates are
+    NEVER capital-gated here, the risk engine's own notional cap already
+    handles hard sizing). Reads the unified cross-broker account-state table
+    (backend/TradePro.Api IntegrationsEndpoints, /integrations/account-state)
+    and sums netLiquidation across accounts. IBKR reports in its account base
+    currency (USD for the paper account this screen targets); converted to
+    GBP with the same _FX_GBPUSD rate the rest of this file already uses for
+    strike notional, so the two numbers are comparable. None on ANY failure
+    — size-fit just doesn't render rather than showing a wrong number."""
+    try:
+        from . import push_to_api as _pta
+        import requests
+        base, tok = _pta.load_credentials()
+        r = requests.get(f"{base}/api/integrations/account-state",
+                          headers={"Authorization": f"Bearer {tok}"}, timeout=15)
+        r.raise_for_status()
+        accounts = (r.json() or {}).get("accounts") or []
+        total_usd = sum(a.get("netLiquidation") or 0 for a in accounts)
+        return round(total_usd / _FX_GBPUSD, 0) if total_usd else None
+    except Exception as e:  # noqa: BLE001
+        log.warning("NAV fetch failed (size-fit will be omitted): %s", e)
+        return None
+
+
+def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open: bool, nav_gbp: float | None = None) -> dict:
     """Build one candidate row: IV-Rank + regime + (live) chain → risk engine.
 
     `ib` may be None (Gateway unreachable) — IV-Rank then fails closed
@@ -276,6 +303,28 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     if premium and strike and strike > 0 and dte > 0:
         ann_yield_pct = round((premium / strike) * (365.0 / dte) * 100, 1)
 
+    # Put-vs-buy side-by-side (v1 §F0.3-4) — the two ways to get long this
+    # name. Selling the CSP: collect premium now; if assigned, effective cost
+    # basis = strike - premium. If not assigned, the premium is pure income.
+    # Only rendered with a real spot AND a real premium+strike — never a
+    # fabricated comparison from a partial chain.
+    put_vs_buy = None
+    if ref_close and premium and strike:
+        effective_cost = strike - premium
+        put_vs_buy = {
+            "buy_now_price": round(ref_close, 2),
+            "sell_put_strike": strike,
+            "sell_put_premium": round(premium, 2),
+            "sell_put_effective_cost_if_assigned": round(effective_cost, 2),
+            "discount_vs_buy_now_pct": round((ref_close - effective_cost) / ref_close * 100, 1),
+        }
+
+    # Size-fit — contract notional as a share of account NAV. Informational
+    # only (see _fetch_nav_gbp docstring); None when NAV wasn't reachable.
+    size_fit_pct = None
+    if notional_gbp and nav_gbp:
+        size_fit_pct = round(notional_gbp / nav_gbp * 100, 1)
+
     return {
         "symbol": sym,
         "regime": regime,
@@ -294,6 +343,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "chain_source": chain_source,
         "ref_close": round(ref_close, 2) if ref_close else None,
         "spot_divergence_pct": round(spot_divergence * 100, 1) if spot_divergence is not None else None,
+        "put_vs_buy": put_vs_buy,
+        "size_fit_pct": size_fit_pct,
     }
 
 
@@ -311,6 +362,7 @@ def run_screen(symbols: list[str] | None = None) -> dict:
         market_open = market_hours.is_open("us_equity", datetime.now(timezone.utc))
     except Exception:  # noqa: BLE001
         market_open = False
+    nav_gbp = _fetch_nav_gbp()
 
     # Gateway is now OPTIONAL: chain (G3) and regime (bar cache) no longer
     # need it — only IV-Rank still does (no non-Gateway source for 52w
@@ -329,7 +381,7 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     rows = []
     try:
         for sym in universe:
-            rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open))
+            rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open, nav_gbp))
             log.info("screened %s", sym)
     finally:
         if connected:
