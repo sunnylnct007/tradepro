@@ -1,5 +1,6 @@
 using Dapper;
 using Npgsql;
+using TradePro.Api.Providers.IBKR;
 
 namespace TradePro.Api.Endpoints;
 
@@ -115,6 +116,118 @@ public static class OptionsEndpoints
             return n == 0 ? Results.NotFound(new { error = "no such position" }) : Results.Ok(new { ok = true });
         });
 
+        // ── Position watchdog (v1 §F0.1 + BABA addendum) ─────────────
+        // Expiry clock + assignment-risk (moneyness) + a dead-collateral flag
+        // for every OPEN paper position — the thing D6c calls "does the trader
+        // need to look at this today". Live spot comes from the same IBKRClient
+        // G3 already uses (GetSnapshotRawAsync field 31), so a symbol that fails
+        // to resolve surfaces spot=null + a visible reason rather than a fabricated
+        // "all clear" (NO FALSE POSITIVES). Read-only — never mutates a position.
+        g.MapGet("/watchdog", async (NpgsqlDataSource db, IBKRClient ibkr, CancellationToken ct) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var rows = (await conn.QueryAsync(@"
+                SELECT id, symbol, structure, state, strike::float8 AS strike,
+                       expiry, dte, delta::float8 AS delta, contracts,
+                       cash_secured_gbp::float8 AS cash_secured_gbp,
+                       opened_at_utc, premium::float8 AS premium
+                FROM options_paper_position
+                WHERE state NOT IN ('CLOSED')
+                ORDER BY expiry NULLS LAST;")).ToList();
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var alerts = new List<WatchdogAlert>();
+            foreach (var r in rows)
+            {
+                string symbol = r.symbol;
+                DateOnly? expiry = r.expiry is DateTime dt ? DateOnly.FromDateTime(dt) : null;
+                int? daysToExpiry = expiry.HasValue ? expiry.Value.DayNumber - today.DayNumber : null;
+
+                string expiryUrgency = daysToExpiry switch
+                {
+                    null => "unknown",
+                    <= 0 => "expired",
+                    <= 5 => "urgent",
+                    <= 10 => "warn",
+                    _ => "ok",
+                };
+
+                // Live spot — best-effort. A resolve/fetch failure surfaces as
+                // spot=null + error text; the row still renders (expiry clock
+                // alone is still useful), it just can't show moneyness.
+                decimal? spot = null;
+                string? spotError = null;
+                try
+                {
+                    var conid = await ibkr.ResolveConidAsync(symbol, "STK", ct);
+                    if (conid is null)
+                    {
+                        spotError = $"no IBKR contract for {symbol}";
+                    }
+                    else
+                    {
+                        var raw = await ibkr.GetSnapshotRawAsync(conid.Value, "31", ct);
+                        spot = raw is not null ? IBKRResponseParser.ParseSnapshotLast(raw) : null;
+                        if (spot is null) spotError = $"no live snapshot for {symbol}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    spotError = ex.Message;
+                }
+
+                // Moneyness — CASH_SECURED_PUT only for now (the covered-call leg
+                // has the opposite ITM direction; add when the wheel actually
+                // reaches that state in the ledger). Distance is signed: negative
+                // = spot below strike = assignment risk.
+                decimal? strike = r.strike;
+                decimal? distancePct = null;
+                string? moneyness = null;
+                if (spot is decimal s && strike is decimal k && s > 0)
+                {
+                    distancePct = (s - k) / s * 100m;
+                    moneyness = s < k ? "ITM (assignment risk)" : "OTM";
+                }
+
+                // Dead-collateral heuristic — deep OTM with most of the contract's
+                // life still ahead: cash is tied up capturing very little further
+                // theta. No live option mark needed for this first pass; refine
+                // with a real premium/greeks check (G3) once this is proven useful.
+                bool deadCollateral = distancePct is decimal d && d > 20m
+                    && daysToExpiry is int dte && dte > 15;
+
+                alerts.Add(new WatchdogAlert(
+                    Id: (long)r.id,
+                    Symbol: symbol,
+                    Structure: (string)r.structure,
+                    State: (string)r.state,
+                    Strike: strike,
+                    Expiry: expiry,
+                    DaysToExpiry: daysToExpiry,
+                    ExpiryUrgency: expiryUrgency,
+                    Spot: spot,
+                    SpotError: spotError,
+                    DistancePct: distancePct.HasValue ? Math.Round(distancePct.Value, 1) : (decimal?)null,
+                    Moneyness: moneyness,
+                    DeadCollateral: deadCollateral,
+                    Contracts: (int)r.contracts,
+                    CashSecuredGbp: (decimal?)r.cash_secured_gbp,
+                    Premium: (decimal?)r.premium));
+            }
+
+            var needsAttention = alerts.Count(a =>
+                a.ExpiryUrgency is "urgent" or "expired" || a.DeadCollateral
+                || a.Moneyness == "ITM (assignment risk)");
+
+            return Results.Ok(new
+            {
+                generatedAtUtc = DateTime.UtcNow,
+                count = alerts.Count,
+                needsAttention,
+                positions = alerts,
+            });
+        });
+
         return app;
     }
 
@@ -124,4 +237,10 @@ public static class OptionsEndpoints
         decimal? CashSecuredGbp, string? Regime, string? Notes, string? RiskDecisionJson);
 
     public sealed record PaperPositionEventBody(string? State, decimal? RealisedPnlGbp, string? Notes);
+
+    public sealed record WatchdogAlert(
+        long Id, string Symbol, string Structure, string State,
+        decimal? Strike, DateOnly? Expiry, int? DaysToExpiry, string ExpiryUrgency,
+        decimal? Spot, string? SpotError, decimal? DistancePct, string? Moneyness,
+        bool DeadCollateral, int Contracts, decimal? CashSecuredGbp, decimal? Premium);
 }
