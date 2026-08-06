@@ -155,6 +155,10 @@ public static class OptionsEndpoints
                 // Live spot — best-effort. A resolve/fetch failure surfaces as
                 // spot=null + error text; the row still renders (expiry clock
                 // alone is still useful), it just can't show moneyness.
+                //
+                // Same IBKR snapshot warm-up quirk live-verified on the G3 chain
+                // feed: a conid's first marketdata/snapshot request often comes
+                // back empty, a retry ~1s later returns the real value. One retry.
                 decimal? spot = null;
                 string? spotError = null;
                 try
@@ -168,7 +172,13 @@ public static class OptionsEndpoints
                     {
                         var raw = await ibkr.GetSnapshotRawAsync(conid.Value, "31", ct);
                         spot = raw is not null ? IBKRResponseParser.ParseSnapshotLast(raw) : null;
-                        if (spot is null) spotError = $"no live snapshot for {symbol}";
+                        if (spot is null)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(1.2), ct);
+                            raw = await ibkr.GetSnapshotRawAsync(conid.Value, "31", ct);
+                            spot = raw is not null ? IBKRResponseParser.ParseSnapshotLast(raw) : null;
+                        }
+                        if (spot is null) spotError = $"no live snapshot for {symbol} after warm-up retry";
                     }
                 }
                 catch (Exception ex)
