@@ -180,7 +180,7 @@ public static class OptionsEndpoints
                 // has the opposite ITM direction; add when the wheel actually
                 // reaches that state in the ledger). Distance is signed: negative
                 // = spot below strike = assignment risk.
-                decimal? strike = r.strike;
+                decimal? strike = (decimal?)(double?)r.strike;
                 decimal? distancePct = null;
                 string? moneyness = null;
                 if (spot is decimal s && strike is decimal k && s > 0)
@@ -211,8 +211,8 @@ public static class OptionsEndpoints
                     Moneyness: moneyness,
                     DeadCollateral: deadCollateral,
                     Contracts: (int)r.contracts,
-                    CashSecuredGbp: (decimal?)r.cash_secured_gbp,
-                    Premium: (decimal?)r.premium));
+                    CashSecuredGbp: (decimal?)(double?)r.cash_secured_gbp,
+                    Premium: (decimal?)(double?)r.premium));
             }
 
             var needsAttention = alerts.Count(a =>
