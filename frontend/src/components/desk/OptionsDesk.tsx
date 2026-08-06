@@ -73,10 +73,20 @@ export function OptionsDesk() {
   const [busy, setBusy] = useState(false);
   const [seed, setSeed] = useState<PayoffSeed | undefined>(undefined);
 
+  type WatchdogResp = Awaited<ReturnType<typeof api.optionsWatchdog>>;
+  const [watchdog, setWatchdog] = useState<WatchdogResp | null>(null);
+  const [watchdogErr, setWatchdogErr] = useState<string | null>(null);
+
   const loadPositions = useCallback(() => {
     api.optionsPositions()
       .then((d) => { setPositions(d.positions ?? []); setPosErr(null); })
       .catch((e) => setPosErr(String(e?.message || e)));
+  }, []);
+
+  const loadWatchdog = useCallback(() => {
+    api.optionsWatchdog()
+      .then((d) => { setWatchdog(d); setWatchdogErr(null); })
+      .catch((e) => setWatchdogErr(String(e?.message || e)));
   }, []);
 
   useEffect(() => {
@@ -86,20 +96,22 @@ export function OptionsDesk() {
       .catch((e) => { if (live) setErr(String(e?.message || e)); })
       .finally(() => { if (live) setLoading(false); });
     loadPositions();
+    loadWatchdog();
     return () => { live = false; };
-  }, [loadPositions]);
+  }, [loadPositions, loadWatchdog]);
 
   const record = useCallback(async (body: RecordOptionsPositionBody) => {
     setBusy(true);
     try {
       await api.recordOptionsPosition(body);
       loadPositions();
+      loadWatchdog();
     } catch (e) {
       setPosErr(String((e as Error)?.message || e));
     } finally {
       setBusy(false);
     }
-  }, [loadPositions]);
+  }, [loadPositions, loadWatchdog]);
 
   const recordCandidate = useCallback((c: Candidate) => {
     if (c.suggested_strike == null) return;
@@ -125,12 +137,13 @@ export function OptionsDesk() {
     try {
       await api.optionsPositionEvent(id, { state, realisedPnlGbp: pnl ?? null, notes: notes ?? null });
       loadPositions();
+      loadWatchdog();
     } catch (e) {
       setPosErr(String((e as Error)?.message || e));
     } finally {
       setBusy(false);
     }
-  }, [loadPositions]);
+  }, [loadPositions, loadWatchdog]);
 
   const removePosition = useCallback(async (id: number, symbol: string) => {
     if (!window.confirm(`Delete paper position ${symbol} (#${id})? This can't be undone.`)) return;
@@ -138,12 +151,13 @@ export function OptionsDesk() {
     try {
       await api.deleteOptionsPosition(id);
       loadPositions();
+      loadWatchdog();
     } catch (e) {
       setPosErr(String((e as Error)?.message || e));
     } finally {
       setBusy(false);
     }
-  }, [loadPositions]);
+  }, [loadPositions, loadWatchdog]);
 
   const placeFromExplorer = useCallback((p: PayoffPlacement) => {
     const lbl = p.structure === "CASH_SECURED_PUT" ? "cash-secured put" : "covered call";
@@ -317,6 +331,73 @@ export function OptionsDesk() {
         <SectionTitle>Payoff explorer — max gain / loss / breakeven · place a paper trade</SectionTitle>
         <OptionsPayoff seed={seed} onPlace={placeFromExplorer} placing={busy} />
       </div>
+
+      {/* ── Position watchdog ──────────────────────────────────── */}
+      {/* v1 F0.1 + BABA addendum: expiry clock + assignment-risk + dead-
+          collateral for every open position, so the trader sees "does this
+          need attention today" without reading every row. Hidden entirely
+          when there's nothing open and nothing errored — an empty watchdog
+          on an empty ledger isn't worth a panel. */}
+      {(watchdog && watchdog.count > 0) || watchdogErr ? (
+        <div style={{ marginBottom: 18 }}>
+          <SectionTitle>
+            Position watchdog
+            {watchdog && watchdog.needsAttention > 0 && (
+              <span style={{ marginLeft: 8, color: TONE.bad, fontWeight: 700 }}>
+                {watchdog.needsAttention} need{watchdog.needsAttention === 1 ? "s" : ""} attention
+              </span>
+            )}
+          </SectionTitle>
+          {watchdogErr && <div style={{ color: TONE.bad, padding: "8px 0" }}>Watchdog unavailable: {watchdogErr}</div>}
+          {watchdog && watchdog.positions.length > 0 && (
+            <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
+                    {["Symbol", "Structure", "Strike", "Expiry", "Spot", "Moneyness", "Flags"].map((h) => (
+                      <th key={h} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {watchdog.positions.map((w) => {
+                    const urgencyTone = w.expiryUrgency === "expired" || w.expiryUrgency === "urgent"
+                      ? TONE.bad : w.expiryUrgency === "warn" ? TONE.warn : "var(--text-dim)";
+                    return (
+                      <tr key={w.id} style={{ borderTop: "1px solid #141b2b" }}>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{w.symbol}</td>
+                        <td style={{ padding: "8px 10px", color: "var(--text-dim)" }}>{w.structure}</td>
+                        <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>{w.strike != null ? `$${w.strike}` : "—"}</td>
+                        <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: urgencyTone }}
+                            title={w.expiryUrgency}>
+                          {w.expiry ?? "—"}{w.daysToExpiry != null ? ` (${w.daysToExpiry}d)` : ""}
+                        </td>
+                        <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}
+                            title={w.spotError ?? undefined}>
+                          {w.spot != null ? `$${w.spot}` : (w.spotError ? "n/a" : "—")}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: w.moneyness?.startsWith("ITM") ? TONE.bad : "var(--text-dim)" }}>
+                          {w.moneyness ?? "—"}
+                          {w.distancePct != null ? ` (${w.distancePct > 0 ? "+" : ""}${w.distancePct}%)` : ""}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {(w.expiryUrgency === "urgent" || w.expiryUrgency === "expired") && (
+                              <Flag tone={TONE.bad}>{w.expiryUrgency === "expired" ? "expired" : "expiry soon"}</Flag>
+                            )}
+                            {w.moneyness?.startsWith("ITM") && <Flag tone={TONE.bad}>assignment risk</Flag>}
+                            {w.deadCollateral && <Flag tone={TONE.warn}>dead collateral</Flag>}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* ── Paper ledger ───────────────────────────────────────── */}
       <SectionTitle>Paper ledger — wheel positions</SectionTitle>
@@ -522,6 +603,17 @@ function IvGauge({ rank }: { rank: number | null }) {
       </div>
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, color: c, width: 30, textAlign: "right" }}>{rank.toFixed(0)}%</span>
     </div>
+  );
+}
+
+function Flag({ tone, children }: { tone: string; children: React.ReactNode }) {
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999,
+      color: tone, border: `1px solid ${tone}`, whiteSpace: "nowrap",
+    }}>
+      {children}
+    </span>
   );
 }
 

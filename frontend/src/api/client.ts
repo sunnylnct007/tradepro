@@ -1620,6 +1620,32 @@ export const api = {
   optionsPositionEvent: (id: number, body: OptionsPositionEventBody) =>
     post<{ ok: boolean }, OptionsPositionEventBody>(`/api/options/positions/${id}/event`, body),
   deleteOptionsPosition: (id: number) => del<{ ok: boolean }>(`/api/options/positions/${id}`),
+  // Position watchdog (v1 F0.1 + BABA addendum) — expiry clock + assignment-
+  // risk (moneyness) + a dead-collateral flag per open paper position.
+  optionsWatchdog: () =>
+    get<{
+      generatedAtUtc: string;
+      count: number;
+      needsAttention: number;
+      positions: Array<{
+        id: number;
+        symbol: string;
+        structure: string;
+        state: string;
+        strike: number | null;
+        expiry: string | null;
+        daysToExpiry: number | null;
+        expiryUrgency: "unknown" | "expired" | "urgent" | "warn" | "ok";
+        spot: number | null;
+        spotError: string | null;
+        distancePct: number | null;
+        moneyness: string | null;
+        deadCollateral: boolean;
+        contracts: number;
+        cashSecuredGbp: number | null;
+        premium: number | null;
+      }>;
+    }>("/api/options/watchdog"),
   // Phase F-3 — fill-quality analytics. Empty payload until F-2
   // capture starts landing in production. Sign convention: positive
   // realised_bps = worse than mid (BUY above mid, SELL below mid),
