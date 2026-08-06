@@ -232,8 +232,17 @@ export function OptionsDesk() {
         </span>
       </div>
 
+      {/* ── Morning candidates (v1 F0.3-4) ─────────────────────── */}
+      {/* Action-first: merit-ranked eligible names, one line each, so the
+          2-minute morning loop doesn't require reading the full data table
+          below. Never capital-gated here (project_wheel_signal_vs_paper_
+          capital_split) — size-fit is informational, shown not filtered. */}
+      {!loading && !err && cands.length > 0 && (
+        <MorningCandidatesPanel candidates={eligible.slice(0, 5)} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />
+      )}
+
       {/* ── Candidate screen ───────────────────────────────────── */}
-      <SectionTitle>Candidate screen</SectionTitle>
+      <SectionTitle>Full candidate screen</SectionTitle>
       {!loading && !err && cands.length > 0 && <BestPick best={best} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />}
       {loading && <div style={{ color: "var(--text-muted)", padding: 16 }}>Loading screen…</div>}
       {err && <div style={{ color: TONE.bad, padding: 16 }}>Screen unavailable: {err}</div>}
@@ -542,6 +551,61 @@ function btnStyle(enabled: boolean, color = TONE.ok): React.CSSProperties {
     color: enabled ? color : "var(--text-muted)",
     cursor: enabled ? "pointer" : "not-allowed", whiteSpace: "nowrap",
   };
+}
+
+function MorningCandidatesPanel({ candidates, onAnalyze, onRecord, busy }: {
+  candidates: Candidate[]; onAnalyze: (c: Candidate) => void; onRecord: (c: Candidate) => void; busy: boolean;
+}) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <SectionTitle>
+        Today's candidates
+        <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--text-muted)", textTransform: "none" }}>
+          {candidates.length === 0 ? "none eligible right now" : `top ${candidates.length}, ranked by annualised yield`}
+        </span>
+      </SectionTitle>
+      {candidates.length === 0 ? (
+        <div style={{ color: "var(--text-muted)", padding: "10px 14px", border: "1px dashed var(--border)", borderRadius: 8 }}>
+          No eligible candidates today — see the full screen below for why each name is blocked.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {candidates.map((c) => (
+            <div key={c.symbol} style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "10px 14px",
+              borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", flexWrap: "wrap",
+            }}>
+              <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", minWidth: 56 }}>{c.symbol}</span>
+              <span style={{ fontSize: 12 }}>
+                SELL PUT ${c.suggested_strike} · Δ{(c.suggested_delta ?? 0).toFixed(2)}
+                {c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)} premium` : ""}
+              </span>
+              {c.annualized_yield_pct != null && (
+                <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", fontWeight: 600, color: TONE.ok }}>
+                  {c.annualized_yield_pct.toFixed(0)}%/yr
+                </span>
+              )}
+              {c.size_fit_pct != null && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }} title="contract notional as % of account NAV — informational, not a gate">
+                  {c.size_fit_pct.toFixed(1)}% of NAV
+                </span>
+              )}
+              {c.put_vs_buy && (
+                <span style={{ fontSize: 11, color: c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? TONE.ok : TONE.dim }}
+                      title={`Buy now $${c.put_vs_buy.buy_now_price} vs effective cost if assigned $${c.put_vs_buy.sell_put_effective_cost_if_assigned}`}>
+                  {c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? "-" : "+"}{Math.abs(c.put_vs_buy.discount_vs_buy_now_pct).toFixed(1)}% vs buying now
+                </span>
+              )}
+              <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                <button onClick={() => onAnalyze(c)} style={btnStyle(true, TONE.line)}>Analyze</button>
+                <button disabled={busy} onClick={() => onRecord(c)} style={btnStyle(!busy)}>Record CSP</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function BestPick({ best, onAnalyze, onRecord, busy }: { best: Candidate | null; onAnalyze: (c: Candidate) => void; onRecord: (c: Candidate) => void; busy: boolean }) {
