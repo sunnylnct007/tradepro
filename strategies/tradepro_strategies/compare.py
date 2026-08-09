@@ -438,11 +438,36 @@ def _attach_bucket_and_rationale(
     )
     _news_hint_cache: dict[str, bool | None] = {}
     _dead_canaries: list[str] = []
+    _canary_api_base: str | None = None
     for _c in _EG_CANARIES:
         _crows = by_symbol.get(_c)
-        if not _crows:
-            continue
-        _csig = _crows[0].get("earnings_signal") or {}
+        if _crows:
+            _csig = _crows[0].get("earnings_signal") or {}
+        else:
+            # Canary not in THIS scan's universe (e.g. a narrow us_growth_tech
+            # / us_semis scan contains none of MA/V/AXP/JPM/MSFT/AAPL) — fetch
+            # its date independently instead of silently skipping it. Without
+            # this, a scan whose universe happens to exclude every canary gets
+            # ZERO degraded-feed protection: earnings_feed_degraded stays
+            # False no matter how broken the feed is, so a name's own
+            # EARNINGS_UNKNOWN never escalates past the flat per-name 0.5x
+            # penalty (the NVDA case, 2026-08-08 — real Aug-26 earnings date,
+            # feed returned nothing, us_semis scan had no canary to catch it).
+            _csig = {}
+            try:
+                from .earnings import fetch_earnings_in_range, fetch_upcoming_earnings
+                if _canary_api_base is None:
+                    _canary_api_base = _resolve_api_base()
+                _hist = fetch_earnings_in_range(_c, lookback_days=120)
+                _past_dates = [str(e.get("date"))[:10] for e in _hist if e.get("date")]
+                if _past_dates:
+                    _csig["last_report_date"] = max(_past_dates)
+                _up = fetch_upcoming_earnings(_c, _canary_api_base)
+                if _up:
+                    _csig["upcoming"] = _up
+            except Exception as _exc:  # noqa: BLE001 — best-effort, never block the run
+                if logger:
+                    logger.emit("compare.canary_fetch_failed", symbol=_c, error=str(_exc))
         _has_date = bool(
             (_csig.get("upcoming") or {}).get("date")
             or _csig.get("last_report_date")
