@@ -154,6 +154,16 @@ export function OptionsPayoff({ seed, onPlace, placing }: { seed?: PayoffSeed; o
         <Num label="DTE" v={dte} on={(x) => setDte(Math.max(1, Math.round(Number(x) || 1)))} w={60} />
       </div>
 
+      {/* No symbol = no chart. Rendering the default placeholder numbers
+          ($100/$95/$1.5) as a full payoff read as REAL analysis of nothing —
+          the exact fabricated-output pattern the desk bans. */}
+      {!symbol.trim() ? (
+      <div style={{ padding: "28px 16px", textAlign: "center", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
+        Nothing to chart yet — click <b>Analyze</b> on a candidate row above to load its real strike,
+        premium and DTE here, or type a symbol and the actual quote values by hand.
+        No payoff is drawn until the numbers are real.
+      </div>
+      ) : (<>
       {/* headline stats */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
         <Metric label="Max gain" v={`£${fmt(m.maxGainGbp)}`} tone="ok" sub="premium kept" tip="Most you can make: the full premium (CSP) / strike−cost+premium (CC)." />
@@ -244,6 +254,7 @@ export function OptionsPayoff({ seed, onPlace, placing }: { seed?: PayoffSeed; o
           ? <>Short put: keep the <b>£{fmt(m.maxGainGbp)}</b> premium if {symbol || "the stock"} stays above <b>${round2(strike)}</b> at expiry (<b>{pct(m.pop)}</b> chance). Below breakeven <b>${round2(m.breakeven)}</b> you're assigned and start losing — worst case <b>£{fmt(m.maxLossGbp)}</b> at zero. The wheel's entry: get paid to set a buy limit.</>
           : <>Covered call: own 100 shares @ <b>${round2(costBasis)}</b>, sold the <b>${round2(strike)}</b> call. Upside capped at <b>£{fmt(m.maxGainGbp)}</b> (called away above strike); downside is the stock minus the <b>£{fmt(premium * m.mult / FX_GBPUSD)}</b> premium cushion.</>}
       </div>
+      </>)}
 
       {onPlace && (
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>

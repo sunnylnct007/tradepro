@@ -193,15 +193,22 @@ export function OptionsDesk() {
       contracts: 1,
       dte: 35,
     });
-    document.getElementById("options-payoff")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // block:"start" — "nearest" left the payoff pinned to the bottom edge of
+    // the viewport (chart half off-screen), which read as "opens an unusable
+    // chart at the bottom". Bring it to the top so the whole panel is visible.
+    document.getElementById("options-payoff")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   const rawCands = data?.candidates ?? [];
-  // Eligible first, ranked by annualised yield; the rest keep screen order.
+  // Eligible first (by annualised yield); then NEAR-MISSES — fewest blocks,
+  // best yield — so with 66 names the top of the table is signal, not an
+  // alphabetical wall of identical rejections.
   const cands = [...rawCands].sort((a, b) => {
     if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
     if (a.eligible && b.eligible) return (b.annualized_yield_pct ?? 0) - (a.annualized_yield_pct ?? 0);
-    return 0;
+    const ab = a.blocks?.length ?? 99, bb = b.blocks?.length ?? 99;
+    if (ab !== bb) return ab - bb;
+    return (b.annualized_yield_pct ?? 0) - (a.annualized_yield_pct ?? 0);
   });
   const eligible = cands.filter((c) => c.eligible);
   const best = cands.find((c) => c.is_best) ?? null;
@@ -215,9 +222,12 @@ export function OptionsDesk() {
         <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 2 }}>
           Cash-secured puts on quality names, risk-first. A candidate is <b>eligible</b> only when it
           clears <b>every</b> gate: constructive regime (in/above the Ichimoku cloud, not a falling knife),
-          <b> IV-Rank &gt; 30</b> (premium rich), delta 0.20–0.35, 25–50 DTE, OI &gt; 1,000, spread ≤ $0.10,
-          no earnings in the window, and within capital limits. Anything we can't verify shows
-          <b> BLOCKED with the reason</b> — never a silent green light.
+          a <b>vega edge</b> (IV-Rank &gt; 30 once our IV dataset matures; until then the IV/HV&nbsp;≥&nbsp;1.0
+          bridge — implied must at least pay for realised vol), delta 0.20–0.35, 25–50 DTE, OI ≥ 250,
+          spread within the premium-relative cap, a <b>premium floor</b> (≥ $0.20 and ≥ 8%/yr annualised —
+          no selling for pennies), no earnings in the window (ETFs structurally exempt), and within capital
+          limits. Anything we can't verify shows <b>BLOCKED with the reason</b> — hover a row's why-not for
+          the full list. Never a silent green light.
         </div>
       </div>
 
@@ -309,8 +319,19 @@ export function OptionsDesk() {
                       title="Contract notional as a share of account NAV — informational only, never a hard gate here (the risk engine's own notional cap does that)">
                     {c.size_fit_pct != null ? `${c.size_fit_pct.toFixed(1)}%` : "—"}
                   </td>
-                  <td style={{ padding: "8px 10px", color: c.eligible ? TONE.warn : TONE.bad, maxWidth: 320 }}>
-                    {(c.blocks?.length ? c.blocks : c.warnings)?.join("; ") || (c.eligible ? "all gates pass" : "—")}
+                  <td
+                    style={{ padding: "8px 10px", color: c.eligible ? TONE.warn : TONE.bad, maxWidth: 300,
+                             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                    title={[...(c.blocks ?? []), ...(c.warnings ?? [])].join("\n") || undefined}
+                  >
+                    {(() => {
+                      // One PRIMARY reason per row; the rest live in the hover
+                      // tooltip. 66 rows × every block joined was unreadable.
+                      const list = c.blocks?.length ? c.blocks : (c.warnings ?? []);
+                      if (!list.length) return c.eligible ? "all gates pass" : "—";
+                      const extra = list.length - 1;
+                      return <>{list[0]}{extra > 0 && <span style={{ color: "var(--text-muted)" }}> +{extra} more</span>}</>;
+                    })()}
                   </td>
                   <td style={{ padding: "8px 10px" }}>
                     <div style={{ display: "flex", gap: 6 }}>

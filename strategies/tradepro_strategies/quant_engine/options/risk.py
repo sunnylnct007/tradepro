@@ -281,21 +281,21 @@ def evaluate(
     # it for the rank gate. Neither available → BLOCK (no false positives).
     if s in SHORT_PREMIUM_STRUCTURES:
         checked.append("iv_rank")
-        _win = (f" (IV dataset {ctx.iv_rank_window_days}d deep)"
+        _win = (f", {ctx.iv_rank_window_days}d data"
                 if ctx.iv_rank_window_days is not None else "")
         if ctx.iv_rank is not None:
             if ctx.iv_rank < cfg.iv_rank_min:
                 blocks.append(f"IV-Rank {ctx.iv_rank:.0f}% < {cfg.iv_rank_min:.0f}% — premium too cheap, skip.")
         elif ctx.iv_hv_ratio is not None:
             checked.append("iv_hv_bridge")
+            # Terse on purpose — this fires on most of the universe at once and
+            # the screen repeats it per row; boilerplate goes in the UI tooltip.
             if ctx.iv_hv_ratio < cfg.iv_hv_min:
                 blocks.append(
-                    f"IV/HV {ctx.iv_hv_ratio:.2f} < {cfg.iv_hv_min:.2f} — implied vol not rich vs "
-                    f"realised, no premium edge (bridge gate{_win}; rank gate takes over as the dataset matures).")
+                    f"IV/HV {ctx.iv_hv_ratio:.2f} < {cfg.iv_hv_min:.2f} — premium thin vs realised (bridge{_win}).")
             else:
                 warnings.append(
-                    f"Vega edge passed on the IV/HV BRIDGE ({ctx.iv_hv_ratio:.2f} ≥ {cfg.iv_hv_min:.2f})"
-                    f"{_win} — not the 52w IV-Rank gate; treat as provisional until the rank window matures.")
+                    f"Vega edge via IV/HV bridge {ctx.iv_hv_ratio:.2f} ≥ {cfg.iv_hv_min:.2f}{_win} — provisional until rank window matures.")
         else:
             blocks.append("IV-Rank unavailable — cannot confirm the vega edge for selling premium.")
 

@@ -139,7 +139,7 @@ class TestVegaGateTwoTier:
         d = evaluate(_cand(), _ctx(iv_rank=None, iv_hv_ratio=1.25,
                                    iv_rank_window_days=12), PortfolioState())
         assert d.allowed is True
-        assert any("BRIDGE" in w for w in d.warnings)
+        assert any("IV/HV bridge" in w for w in d.warnings)
         assert any("12d" in w for w in d.warnings)
 
     def test_bridge_blocks_thin_premium(self):
