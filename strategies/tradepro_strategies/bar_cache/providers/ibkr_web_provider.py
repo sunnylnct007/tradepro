@@ -61,6 +61,10 @@ class IBKRWebProvider(Provider):
 
     name = "ibkr_web"
 
+    # Process-wide budget of auth-cooldown waits (see the 60s-cooldown note in
+    # fetch) — class-level so one harvest run can't stall on every symbol.
+    _cooldown_waits = 0
+
     def __init__(
         self,
         base: str | None = None,
@@ -127,10 +131,44 @@ class IBKRWebProvider(Provider):
 
         payload = payload or {}
         if status != 200:
-            # The endpoint FAILS LOUD (502 + reason); propagate the reason.
             reason = payload.get("error") or f"HTTP {status}"
-            raise ProviderNetworkError(
-                provider=self.name, canonical=canonical, message=f"ibkr_web: {reason}")
+            # AUTH-COOLDOWN WAIT (found live 2026-08-09): one failed IBKR auth
+            # puts the backend in a 60s cooldown during which EVERY request
+            # fast-fails "backing off" — without this wait, a single cooldown
+            # window drains dozens of symbols to yfinance/BRONZE in seconds.
+            # Wait it out ONCE per event, bounded to 3 events per process so a
+            # persistently-broken auth still fails loud instead of stalling
+            # the whole harvest.
+            if ("backing off" in str(reason) and "cooldown" in str(reason)
+                    and IBKRWebProvider._cooldown_waits < 3):
+                IBKRWebProvider._cooldown_waits += 1
+                _log.warning(
+                    "%s: backend IBKR auth in cooldown — waiting 65s for re-auth "
+                    "(wait %d/3 this run) instead of falling through to yfinance",
+                    canonical, IBKRWebProvider._cooldown_waits)
+                import time as _time
+                _time.sleep(65)
+                try:
+                    if self._get is not None:
+                        status, payload = self._get(url, headers, _TIMEOUT_S)
+                    else:
+                        import requests
+                        r = requests.get(url, headers=headers, timeout=_TIMEOUT_S)
+                        status, payload = r.status_code, (r.json() if r.content else {})
+                except Exception as exc:  # noqa: BLE001
+                    raise ProviderNetworkError(
+                        provider=self.name, canonical=canonical,
+                        message=f"ibkr_web request failed after cooldown wait: {exc}") from exc
+                payload = payload or {}
+                if status != 200:
+                    reason = payload.get("error") or f"HTTP {status}"
+                    raise ProviderNetworkError(
+                        provider=self.name, canonical=canonical,
+                        message=f"ibkr_web (after cooldown wait): {reason}")
+            else:
+                # The endpoint FAILS LOUD (502 + reason); propagate the reason.
+                raise ProviderNetworkError(
+                    provider=self.name, canonical=canonical, message=f"ibkr_web: {reason}")
 
         bars = payload.get("bars") or []
         if not bars:
