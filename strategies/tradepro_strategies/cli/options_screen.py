@@ -454,6 +454,45 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     }
 
 
+def screen_data_health(rows: list[dict], market_open: bool) -> dict:
+    """Grade the RUN itself (owner rule 2026-08-09: 'if it's missing some
+    dataset we should make it loud and clear'). A data problem must never be
+    distinguishable from a market verdict only by reading 66 rows — this
+    rolls the run's data gaps into one loud, honest summary the UI banners.
+    Pure function, unit-tested."""
+    n = len(rows) or 1
+    iv_dark = sum(1 for r in rows if r.get("vega_gate") is None)
+    no_chain = sum(1 for r in rows if not r.get("chain_source"))
+    no_premium = sum(1 for r in rows if r.get("suggested_premium") is None)
+    # IMPORTANT (owner 2026-08-09): "even today we should have a good Friday
+    # snapshot from IBKR" — correct, and today's runs proved it (real Friday-
+    # close premiums/OI on many names). So MARKET CLOSED IS NOT AN EXCUSE for
+    # dark fields: off-hours, IBKR still serves the last session's snapshot.
+    # Gaps are graded as DATA problems to chase, never waved off as "closed".
+    degraded = (iv_dark > n * 0.2) or (no_premium > n * 0.3) or (no_chain > n * 0.2)
+    reasons = []
+    if iv_dark:
+        reasons.append(f"{iv_dark}/{len(rows)} symbols have NO vega-edge data (IV snapshot dark)")
+    if no_chain:
+        reasons.append(f"{no_chain}/{len(rows)} symbols returned no usable chain from any provider")
+    if no_premium:
+        reasons.append(f"{no_premium}/{len(rows)} symbols have no premium quote")
+    ctx_note = ("market CLOSED — IBKR should still serve the last session's "
+                "(e.g. Friday-close) snapshot, so these gaps are DATA issues to fix, "
+                "not market absence" if not market_open else "market OPEN")
+    return {
+        "degraded": degraded,
+        "iv_dark_count": iv_dark,
+        "no_chain_count": no_chain,
+        "no_premium_count": no_premium,
+        "symbols": len(rows),
+        "summary": (f"DATA-DEGRADED RUN ({ctx_note}): " + "; ".join(reasons)
+                    + ". Verdicts are provisional until the data gaps clear.")
+                   if degraded and reasons else
+                   f"Data healthy: {len(rows)} symbols screened ({ctx_note}).",
+    }
+
+
 def run_screen(symbols: list[str] | None = None) -> dict:
     import ib_insync
     from . import push_to_api as _pta
@@ -509,6 +548,7 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     for r in rows:
         r["is_best"] = bool(best and r["symbol"] == best["symbol"])
 
+    data_health = screen_data_health(rows, market_open)
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "market_open": market_open,
@@ -516,7 +556,24 @@ def run_screen(symbols: list[str] | None = None) -> dict:
         "candidates": rows,
         "best_symbol": best["symbol"] if best else None,
         "eligible_count": len(eligible_rows),
+        "data_health": data_health,
     }
+    # Central observability (feedback_central_observability_fail_loud): the
+    # run's data-health verdict goes to the run log, so a degraded screen is
+    # LOUD in ops — not just discoverable by reading 66 UI rows.
+    try:
+        from ..run_log import log_run
+        log_run(
+            "options-screen", "screen",
+            "degraded" if data_health["degraded"] else "ok",
+            error=(data_health["summary"] if data_health["degraded"] else None),
+            summary=(f"{len(rows)} screened, {len(eligible_rows)} eligible, "
+                     f"best={best['symbol'] if best else 'none'}; "
+                     f"iv_dark={data_health['iv_dark_count']}, "
+                     f"no_premium={data_health['no_premium_count']}"),
+        )
+    except Exception:  # noqa: BLE001 — logging must never fail the screen
+        pass
     # Push to the API for the Options tab.
     import requests
     base, tok = _pta.load_credentials()

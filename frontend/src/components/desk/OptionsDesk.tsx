@@ -63,6 +63,17 @@ interface ScreenResp {
   candidates: Candidate[];
   best_symbol?: string | null;
   eligible_count?: number;
+  // Run-level data-health verdict (9 Aug 2026, owner rule: "if it's missing
+  // some dataset we should make it loud and clear") — a data problem must
+  // never be distinguishable from a market verdict only by reading 66 rows.
+  data_health?: {
+    degraded: boolean;
+    iv_dark_count: number;
+    no_chain_count: number;
+    no_premium_count: number;
+    symbols: number;
+    summary: string;
+  } | null;
 }
 
 const FX_GBPUSD = 1.27;
@@ -258,6 +269,17 @@ export function OptionsDesk() {
           {data && !data.market_open ? " · market closed (chain/Δ pending open)" : ""}
         </span>
       </div>
+
+      {/* ── DATA HEALTH — loud when the run itself is degraded ──── */}
+      {data?.data_health?.degraded && (
+        <div style={{
+          marginBottom: 12, padding: "10px 14px", borderRadius: 8,
+          border: `1px solid ${TONE.warn}`, background: `${TONE.warn}14`,
+          color: TONE.warn, fontSize: 12, lineHeight: 1.5, fontWeight: 600,
+        }}>
+          ⚠ {data.data_health.summary}
+        </div>
+      )}
 
       {/* ── Morning candidates (v1 F0.3-4) ─────────────────────── */}
       {/* Action-first: merit-ranked eligible names, one line each, so the
