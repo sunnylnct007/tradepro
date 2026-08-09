@@ -88,6 +88,13 @@ class OptionsRiskConfig:
     # over automatically once the window matures (fetch_iv_rank_web sets
     # iv_rank only then).
     iv_hv_min: float = 1.0
+    # Premium floor (owner 2026-08-09: "avoid selling options not paying
+    # much") — an otherwise-clean candidate that only pays pennies ties up
+    # collateral for nothing. Both must clear: an absolute per-share floor
+    # (fees/slippage swamp a $0.10 credit) AND an annualised yield that
+    # meaningfully beats the ~4.5% bank rate the capital could earn instead.
+    min_premium_usd: float = 0.20
+    min_ann_yield_pct: float = 8.0
     # Liquidity gates (§6.1 filter 1, §9.2)
     oi_min: int = 250          # per-strike OI floor. 1,000 was index-level and
     #   rejected every single-name equity strike (KO/F/INTC near-month strikes
@@ -146,6 +153,8 @@ class OptionsRiskConfig:
             max_deploy_gbp=_f("TRADEPRO_WHEEL_MAX_DEPLOY_GBP", d.max_deploy_gbp),
             per_position_gbp=_f("TRADEPRO_WHEEL_PER_POSITION_GBP", d.per_position_gbp),
             max_positions=_i("TRADEPRO_WHEEL_MAX_POSITIONS", d.max_positions),
+            min_premium_usd=_f("TRADEPRO_WHEEL_MIN_PREMIUM_USD", d.min_premium_usd),
+            min_ann_yield_pct=_f("TRADEPRO_WHEEL_MIN_ANN_YIELD_PCT", d.min_ann_yield_pct),
         )
 
 
@@ -328,6 +337,28 @@ def evaluate(
                 "verify the live spread before you place. Enable OPRA for real-time.")
         else:
             blocks.append(_msg + ".")
+
+    # ── Premium floor — "not paying much" gate ───────────────────────────
+    # A short-premium trade must actually PAY: per-share credit above the
+    # fees/slippage floor AND an annualised yield that beats parking the
+    # collateral in the bank. Missing premium = could-not-verify = BLOCK.
+    if s in SHORT_PREMIUM_STRUCTURES:
+        checked.append("premium_floor")
+        if ctx.premium_mid_usd is None:
+            blocks.append("Premium (mid) unavailable — cannot verify the trade pays enough to be worth the collateral.")
+        else:
+            if ctx.premium_mid_usd < cfg.min_premium_usd:
+                blocks.append(
+                    f"Premium ${ctx.premium_mid_usd:.2f} < ${cfg.min_premium_usd:.2f} floor — "
+                    f"pennies; fees/slippage eat the credit.")
+            if (candidate.strike is not None and candidate.strike > 0
+                    and candidate.dte is not None and candidate.dte > 0):
+                checked.append("annualised_yield")
+                ann = ctx.premium_mid_usd / candidate.strike * (365.0 / candidate.dte) * 100.0
+                if ann < cfg.min_ann_yield_pct:
+                    blocks.append(
+                        f"Annualised yield {ann:.1f}% < {cfg.min_ann_yield_pct:.1f}% — "
+                        f"not paying enough over the bank rate for assignment risk.")
 
     # ── Earnings blackout (§9.4) ─────────────────────────────────────────
     if s in SHORT_PREMIUM_STRUCTURES:

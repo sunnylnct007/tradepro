@@ -37,6 +37,11 @@ class IvRankResult:
     # trustworthy rank window. None when the snapshot didn't serve HV.
     hv30: float | None = None
     iv_hv_ratio: float | None = None
+    # Dividend yield (snapshot field 7286) — feeds the Black-Scholes-Merton
+    # q so the FALLBACK delta/assignment math prices off the forward, not
+    # spot (matters for this dividend-heavy wheel universe). None when the
+    # field wasn't served — callers must default q=0, never guess.
+    div_yield: float | None = None
 
 
 def iv_rank_from_history(symbol: str, iv_history: list[float]) -> IvRankResult:
@@ -70,6 +75,20 @@ def _pct_to_frac(v) -> float | None:
     # (0 < v < 3 with no '%') is already what we want; vol >300% is garbage.
     frac = f / 100.0 if (isinstance(v, str) and "%" in v) or f > 3.0 else f
     return frac if 0.0 < frac <= 5.0 else None
+
+
+def _div_yield_frac(v) -> float | None:
+    """Dividend yield from snapshot field 7286. ONLY a '%'-suffixed display
+    string is trusted ('3.4%' → 0.034): a bare number is ambiguous (IBKR
+    serves dividend AMOUNT per share on some routes) and misreading $2.72
+    as 272% yield would poison every forward-price calc. Unverifiable → None."""
+    if not isinstance(v, str) or "%" not in v:
+        return None
+    try:
+        y = float(v.strip().rstrip("%")) / 100.0
+    except ValueError:
+        return None
+    return y if 0.0 <= y <= 0.25 else None
 
 
 def fetch_iv_rank_web(
@@ -119,14 +138,15 @@ def fetch_iv_rank_web(
         # HV comes from field 7284 (verified live 2026-08-09: 7284='27.205%'
         # for CVX while 7631 never arrived on this gateway); 7631 kept as a
         # secondary in case IBKR serves it elsewhere.
-        iv = hv30 = None
+        iv = hv30 = divy = None
         for attempt in range(1, warmup_retries + 1):
             r = http.get(
-                f"{base}/api/integrations/ibkr/quote?symbol={sym}&fields=31,7283,7284,7631",
+                f"{base}/api/integrations/ibkr/quote?symbol={sym}&fields=31,7283,7284,7631,7286",
                 headers=headers, timeout=30)
             snap = (r.json() or {}).get("snapshot") or {}
             iv = _pct_to_frac(snap.get("7283")) or iv
             hv30 = _pct_to_frac(snap.get("7284")) or _pct_to_frac(snap.get("7631")) or hv30
+            divy = _div_yield_frac(snap.get("7286")) or divy
             if iv is not None and hv30 is not None:
                 break
             if attempt < warmup_retries:
@@ -168,11 +188,11 @@ def fetch_iv_rank_web(
                 return IvRankResult(
                     sym, available=True, iv=iv, iv_rank=ranked.iv_rank,
                     low_52w=ranked.low_52w, high_52w=ranked.high_52w, days=days,
-                    hv30=hv30, iv_hv_ratio=ratio,
+                    hv30=hv30, iv_hv_ratio=ratio, div_yield=divy,
                     reason=f"rank over own {days}d dataset (52w at 252d)")
         return IvRankResult(
             sym, available=True, iv=iv, iv_rank=None, days=days,
-            hv30=hv30, iv_hv_ratio=ratio,
+            hv30=hv30, iv_hv_ratio=ratio, div_yield=divy,
             reason=f"IV-rank window {days}d < {min_window_days}d — IV/HV bridge mode"
                    + ("" if ratio is not None else " (HV30 dark too — no bridge either)"))
     except Exception as e:  # noqa: BLE001 — fail closed, visibly

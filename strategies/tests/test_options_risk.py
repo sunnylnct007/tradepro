@@ -26,6 +26,10 @@ def _good_ctx() -> MarketContext:
     return MarketContext(
         regime=Regime.GREEN, falling_knife=False, iv_rank=45.0,
         open_interest=5000, bid_ask_spread_usd=0.05,
+        # Premium is now a REQUIRED short-premium input (the 2026-08-09
+        # "not paying much" floor): $0.55 on the $55 KO strike over 35d
+        # ≈ 10.4%/yr — clears both the absolute and yield floors.
+        premium_mid_usd=0.55,
         earnings_in_expiry_window=False, ex_div_in_expiry_window=False, data_fresh=True,
     )
 

@@ -197,16 +197,23 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # delta ≈ 0 → nothing clears the band). Select the put nearest 0.27 delta
     # (BRD strike rule).
     oi = strike = delta = premium = notional_gbp = None
-    spread = None
+    spread = bid = ask = None
     dte = 35
     chain_ok = False
     chain_source = None
+    chain_iv = None         # the selected quote's own IV — feeds the model cross-check
     spot_divergence = None  # |yf spot / IBKR close − 1| when both known
     from ..quant_engine.options.black_scholes import BlackScholesPricer
     from ..quant_engine.options.chains import fetch_chain, select_by_abs_delta, delta_of
     from ..quant_engine.options.chains_g3 import fetch_chain_g3
     from ..quant_engine.options.chains_ibkr import fetch_chain_ibkr
-    pricer = BlackScholesPricer()
+    # Forward-aware BSM: r from env (bank/risk-free proxy), q = the name's own
+    # dividend yield when the snapshot served one (field 7286; None → 0, never
+    # guessed). On this dividend-heavy universe pricing off spot instead of
+    # the forward skews the fallback put deltas — the Google OTM→ITM lesson.
+    _r = float(os.environ.get("TRADEPRO_RISK_FREE_RATE", "0.04"))
+    pricer = BlackScholesPricer(risk_free_rate=_r,
+                                dividend_yield=(ivr.div_yield or 0.0) if ivr.available else 0.0)
 
     # 0) G3 — TradePro's own chain feed (backend/TradePro.Api ChainEndpoints).
     try:
@@ -221,6 +228,9 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                 oi = q.open_interest
                 spread = q.spread if (q.bid > 0 and q.ask > 0) else None
                 premium = q.mid if q.mid > 0 else None
+                bid = q.bid if q.bid > 0 else None
+                ask = q.ask if q.ask > 0 else None
+                chain_iv = q.iv if q.iv and q.iv > 0 else None
                 notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                 chain_ok = True
                 chain_source = "g3"
@@ -244,6 +254,9 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     oi = q.open_interest
                     spread = q.spread if (q.bid > 0 and q.ask > 0) else None
                     premium = q.mid if q.mid > 0 else None
+                    bid = q.bid if q.bid > 0 else None
+                    ask = q.ask if q.ask > 0 else None
+                    chain_iv = q.iv if q.iv and q.iv > 0 else None
                     notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                     chain_ok = True
                     chain_source = "ibkr"
@@ -273,6 +286,9 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     oi = q.open_interest
                     spread = q.spread if (q.bid > 0 and q.ask > 0) else None
                     premium = q.mid if q.mid > 0 else None
+                    bid = q.bid if q.bid > 0 else None
+                    ask = q.ask if q.ask > 0 else None
+                    chain_iv = q.iv if q.iv and q.iv > 0 else None
                     notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                     chain_ok = True
                     chain_source = "yfinance"
@@ -332,6 +348,23 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     if notional_gbp and nav_gbp:
         size_fit_pct = round(notional_gbp / nav_gbp * 100, 1)
 
+    # Model cross-check (the pricer's documented job (b): sanity-check the
+    # quoted mid vs BSM fair value so a stale/fat-fingered chain can't drive
+    # the signal). Priced at the QUOTE's own IV with the forward-aware pricer
+    # (r from env, q = dividend yield) — only when every input is real.
+    model_price = model_vs_mid_pct = None
+    if premium and strike and chain_iv and ref_close and dte > 0:
+        try:
+            model_price = round(pricer.price(ref_close, strike, max(dte, 1) / 365.0,
+                                             chain_iv, "put"), 3)
+            if model_price > 0:
+                model_vs_mid_pct = round((premium - model_price) / model_price * 100, 1)
+        except Exception:  # noqa: BLE001 — a failed model check renders as n/a, never a guess
+            model_price = model_vs_mid_pct = None
+
+    spread_pct_of_mid = (round(spread / premium * 100, 1)
+                         if (spread is not None and premium and premium > 0) else None)
+
     return {
         "symbol": sym,
         "regime": regime,
@@ -343,7 +376,16 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                       else "bridge" if (ivr.available and ivr.iv_hv_ratio is not None)
                       else None),
         "open_interest": oi,
+        # Concrete quote parameters (owner 2026-08-09: "quote a few technical
+        # parameters and price needs to be checked to make it concrete") —
+        # the raw buy/sell numbers behind every suggested trade.
+        "bid": bid,
+        "ask": ask,
         "spread_usd": spread,
+        "spread_pct_of_mid": spread_pct_of_mid,
+        "model_price": model_price,
+        "model_vs_mid_pct": model_vs_mid_pct,
+        "div_yield": ivr.div_yield if ivr.available else None,
         "eligible": decision.allowed,
         "blocks": decision.blocks,
         "warnings": decision.warnings,
