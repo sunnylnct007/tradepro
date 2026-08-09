@@ -16,6 +16,17 @@ LOG="$LOG_DIR/options-screen-$(date -u +%F).log"
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
 
 export PATH="/opt/homebrew/bin:/opt/anaconda3/bin:$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
+
+# Wheel capital sizing (owner 2026-08-09: "I can place something of 25K as
+# well" — the old £10k/pos cap was the ORIGINAL £12k-pot default and was
+# blocking mid-priced quality names on notional). Per-position and total
+# deploy raised to £25k; pot £30k headroom; max 2 concurrent positions
+# unchanged. These only gate the SCREEN's eligibility labels — no real
+# orders are placed from here. Edit here (or the future UI knob) to resize.
+export TRADEPRO_WHEEL_POT_GBP=30000
+export TRADEPRO_WHEEL_MAX_DEPLOY_GBP=25000
+export TRADEPRO_WHEEL_PER_POSITION_GBP=25000
+export TRADEPRO_WHEEL_MAX_POSITIONS=2
 UV="$(command -v uv || true)"
 [[ -x "$UV" ]] || { log "FATAL: uv not found"; exit 1; }
 
