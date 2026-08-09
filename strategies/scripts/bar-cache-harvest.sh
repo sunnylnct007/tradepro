@@ -81,11 +81,39 @@ if [[ "$*" != *"--from"* ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Default to the FULL tracked universe when the caller gave no explicit
+# --symbols (this used to silently fall back to the harvester's small
+# built-in _DEFAULT_SYMBOLS list — 12 mega-caps — so 1m/5m coverage was a
+# fraction of what 1d gets). Same derivation as bar-cache-harvest-daily.sh:
+# every dir already tracked under the asset's cache, filtered to ticker-
+# shaped uppercase names and excluding the asset-class dir name itself (the
+# 2026-08-08 phantom "US_ETF" incident — a stray nested dir got `ls`-derived
+# into a fake symbol every provider correctly 404'd on).
+# ---------------------------------------------------------------------------
+SYMBOL_ARGS=()
+if [[ "$*" != *"--symbols"* ]]; then
+    ASSET="us_etf"
+    if [[ "$*" == *"--asset "* ]]; then
+        ASSET=$(printf '%s\n' "$@" | grep -A1 -- '^--asset$' | tail -1)
+    fi
+    CACHE_DIR="$HOME/.tradepro/bar_cache/$ASSET"
+    SYMS=$(ls "$CACHE_DIR" 2>/dev/null | grep -v -i "^$ASSET$" \
+        | grep -E '^[A-Z0-9.-]+$' | tr '\n' ',' | sed 's/,$//')
+    if [[ -n "$SYMS" ]]; then
+        N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)
+        SYMBOL_ARGS=(--symbols "$SYMS")
+        log "no --symbols given → defaulting to full tracked $ASSET universe ($N symbols)"
+    else
+        log "no --symbols given and $CACHE_DIR is empty → falling back to harvester default list"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Run harvest.
 # ---------------------------------------------------------------------------
 if [[ $EC2_REACHABLE -eq 1 ]]; then
-    log "Running tradepro-bar-cache-harvest (with backend telemetry) args: $* ${WINDOW_ARGS[*]:-}"
-    exec "$UV" run tradepro-bar-cache-harvest "$@" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} >>"$LOG_FILE" 2>&1
+    log "Running tradepro-bar-cache-harvest (with backend telemetry) args: $* ${WINDOW_ARGS[*]:-} ${SYMBOL_ARGS[*]:-}"
+    exec "$UV" run tradepro-bar-cache-harvest "$@" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} ${SYMBOL_ARGS[@]+"${SYMBOL_ARGS[@]}"} >>"$LOG_FILE" 2>&1
 else
     log "EC2 unreachable — harvesting locally only, telemetry skipped"
     # Pass all args EXCEPT any existing --api-base / --api-url flags the
@@ -110,5 +138,5 @@ else
                 ;;
         esac
     done
-    exec "$UV" run tradepro-bar-cache-harvest "${FILTERED_ARGS[@]}" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} >>"$LOG_FILE" 2>&1
+    exec "$UV" run tradepro-bar-cache-harvest "${FILTERED_ARGS[@]}" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} ${SYMBOL_ARGS[@]+"${SYMBOL_ARGS[@]}"} >>"$LOG_FILE" 2>&1
 fi

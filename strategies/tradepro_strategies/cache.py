@@ -16,6 +16,7 @@ re-run the same window without losing history.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,8 @@ from pathlib import Path
 import pandas as pd
 
 from .data import DataRequest, load_candles
+
+_log = logging.getLogger("tradepro.cache")
 
 CACHE_ROOT = Path.home() / ".tradepro" / "cache"
 
@@ -69,7 +72,7 @@ def load_meta(provider: str, symbol: str, interval: str = "1d") -> CacheMeta | N
     return CacheMeta(**json.loads(mp.read_text()))
 
 
-def _drop_garbage_bars(df: pd.DataFrame) -> pd.DataFrame:
+def _drop_garbage_bars(df: pd.DataFrame, *, symbol: str | None = None, provider: str | None = None) -> pd.DataFrame:
     """Drop isolated garbage bars before caching.
 
     Providers (Yahoo) occasionally emit phantom bars on US market HOLIDAYS — an
@@ -80,13 +83,34 @@ def _drop_garbage_bars(df: pd.DataFrame) -> pd.DataFrame:
     neighbours is not a real price for a listed instrument (real splits are
     handled via adj_close) — drop the whole row. Only ISOLATED spikes are
     removed, so genuine rallies/gaps are untouched.
+
+    Also drops any row with a NaN close — a partial-fetch bar (seen on SPY
+    2026-08-03: open/high/low/volume populated, close missing) that silently
+    poisons every downstream close-comparison to False forever (NaN
+    comparisons are always False in Python), e.g. the regime-filter gate in
+    ichimoku_equity reading "not green" market-wide with no error raised.
     """
-    if df is None or len(df) < 3 or "close" not in df.columns:
+    if df is None or len(df) < 1 or "close" not in df.columns:
         return df
     c = df["close"]
-    prev, nxt = c.shift(1), c.shift(-1)
-    bad = (((c > prev * 4) & (c > nxt * 4)) | ((c < prev * 0.25) & (c < nxt * 0.25))).fillna(False)
+    nan_bad = c.isna()
+    bad = nan_bad
+    if len(df) >= 3:
+        prev, nxt = c.shift(1), c.shift(-1)
+        spike = (((c > prev * 4) & (c > nxt * 4)) | ((c < prev * 0.25) & (c < nxt * 0.25))).fillna(False)
+        bad = bad | spike
     if bool(bad.any()):
+        n_nan, n_spike = int(nan_bad.sum()), int((bad & ~nan_bad).sum())
+        dates = [str(d) for d in df.index[bad]]
+        detail = (f"dropped {int(bad.sum())} garbage bar(s) for {symbol or '?'} "
+                  f"({n_nan} NaN-close, {n_spike} price-spike): {dates}")
+        _log.warning(detail)
+        try:
+            from .run_log import log_run
+            log_run("bar-cache", "garbage-bar-drop", "warn",
+                     broker=provider, symbol=symbol, error=detail)
+        except Exception:  # noqa: BLE001 — observability must never break the fetch
+            _log.debug("garbage-bar-drop run_log post failed (non-fatal)", exc_info=True)
         df = df.loc[~bad]
     return df
 
@@ -121,7 +145,7 @@ def refresh_symbol(
     # Strip provider garbage (holiday/glitch spike bars) so the cache stays
     # clean for every consumer (signals, backtests, charts). Self-heals any
     # already-cached bad bars on the next refresh.
-    merged = _drop_garbage_bars(merged)
+    merged = _drop_garbage_bars(merged, symbol=symbol, provider=provider)
 
     merged.to_parquet(p)
 

@@ -37,7 +37,7 @@ from datetime import datetime, timedelta, timezone
 
 import yfinance as yf  # module-level so steps can patch tradepro_strategies.sector_rs.yf
 
-from .cache import ensure_cached
+from .ibkr_bars import fetch_daily_bars
 
 _log = logging.getLogger(__name__)
 
@@ -179,11 +179,13 @@ def compute_sector_rs(symbol: str, *, provider: str = "yahoo") -> dict:
 # ---------------------------------------------------------------------------
 
 def _price_return(symbol: str, start: datetime, end: datetime, provider: str) -> float | None:
-    """12-week price return from cache. Returns None on any failure."""
+    """12-week price return, IBKR-first with legacy-cache fallback. Returns
+    None on any failure (both paths exhausted)."""
     try:
-        df = ensure_cached(provider, symbol, start, end)
+        df = fetch_daily_bars(symbol, start, end, fetched_by="sector_rs",
+                               legacy_provider=provider)
     except Exception as exc:  # noqa: BLE001
-        _log.debug("cache fetch failed for %s: %s", symbol, exc)
+        _log.debug("bar fetch failed for %s: %s", symbol, exc)
         return None
 
     if df is None or df.empty:

@@ -209,6 +209,28 @@ class UsEtfPlugin(AssetClassPlugin):
                         f"{col!r}"
                     ),
                 )
+        # Isolated holiday/glitch spike bars — same rule as the legacy
+        # cache.py `_drop_garbage_bars` guard (VLUE-style phantom prints:
+        # absurd close, tiny volume, on a real holiday). A bar whose close
+        # is >4x or <1/4x BOTH neighbours is not a real listed-instrument
+        # price (real splits are handled via adj_factor). Reject the whole
+        # frame here (rather than silently dropping the row) so the caller
+        # falls through to the next provider in the chain instead of
+        # caching a gap-shaped hole with no record of why.
+        if "close" in df.columns and len(df) >= 3:
+            c = df["close"]
+            prev, nxt = c.shift(1), c.shift(-1)
+            spike = (((c > prev * 4) & (c > nxt * 4)) | ((c < prev * 0.25) & (c < nxt * 0.25))).fillna(False)
+            if bool(spike.any()):
+                raise ProviderParseError(
+                    provider="us_etf_validator",
+                    canonical="<unknown>",
+                    message=(
+                        f"provider returned {int(spike.sum())} isolated "
+                        f"price-spike bar(s) (>4x or <0.25x both neighbours): "
+                        f"{[str(t) for t in df.index[spike]]}"
+                    ),
+                )
 
     # ── Internal helpers ────────────────────────────────────────────
 

@@ -1484,14 +1484,15 @@ class IntradayFlatStrategy(Strategy):
                 _log.debug("intraday_flat _data_fn failed for %s: %s", symbol, exc)
                 return None
         try:
-            from ...cache import ensure_cached
+            from ...ibkr_bars import fetch_daily_bars
             end = datetime.now(timezone.utc)
             start = end - timedelta(days=self.default_lookback_days)
-            return ensure_cached(
-                p.get("provider", "yahoo"), symbol, start, end, interval="1d",
+            return fetch_daily_bars(
+                symbol, start, end, fetched_by=self.strategy_id,
+                legacy_provider=p.get("provider", "yahoo"),
             )
         except Exception as exc:  # noqa: BLE001
-            _log.debug("intraday_flat cache fetch failed for %s: %s", symbol, exc)
+            _log.debug("intraday_flat bar fetch failed for %s: %s", symbol, exc)
             return None
 
     def _compute_atr(
@@ -1539,8 +1540,22 @@ class IntradayFlatStrategy(Strategy):
                 "regime_symbol": regime_sym,
                 "reason": f"only {len(close)} bars < {period}; default BULL",
             }
-        sma = float(close.tail(period).mean())
-        last = float(close.iloc[-1])
+        sma_raw = close.tail(period).mean()
+        last_raw = close.iloc[-1]
+        if pd.isna(sma_raw) or pd.isna(last_raw):
+            # Same failure class as the 2026-08-03 SPY incident in
+            # ichimoku_equity: a NaN close (partial-fetch bar) makes
+            # `NaN > sma` evaluate False forever, silently reading as a
+            # hard BEAR veto instead of "data broken." Treat it as missing
+            # data (default BULL, per this function's own stated intent)
+            # and say so explicitly rather than let it masquerade as a
+            # real bearish regime read.
+            return True, {
+                "regime_symbol": regime_sym,
+                "reason": "NaN in regime calc (close or sma); defaulting to BULL",
+            }
+        sma = float(sma_raw)
+        last = float(last_raw)
         is_bull = last > sma
         return is_bull, {
             "regime_symbol": regime_sym,

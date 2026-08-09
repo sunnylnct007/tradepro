@@ -23,7 +23,16 @@ log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
 
 # Universe = every symbol already tracked in the daily cache (keeps the existing
 # 127 current; adding new symbols is a separate seed step).
-SYMS=$(ls "$CACHE_DIR" 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+#
+# Filtered to real ticker-shaped dir names (uppercase alnum/dot/hyphen), and
+# explicitly excludes the asset-class dir name itself — a stray mis-nested
+# ~/.tradepro/bar_cache/us_etf/us_etf/ leftover got `ls`-derived into a
+# phantom "US_ETF" symbol that every provider correctly 404'd on, silently
+# marking every daily harvest FAIL from ~6 Jul 2026 to 8 Aug 2026 (37+ runs)
+# even though all 179 real symbols harvested fine. Directory removed; this
+# guard is the durable fix so a stray dir can't masquerade as a ticker again.
+SYMS=$(ls "$CACHE_DIR" 2>/dev/null | grep -v -i "^$(basename "$CACHE_DIR")$" \
+    | grep -E '^[A-Z0-9.-]+$' | tr '\n' ',' | sed 's/,$//')
 [[ -n "$SYMS" ]] || { log "FATAL: no symbols in $CACHE_DIR"; exit 1; }
 N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)
 

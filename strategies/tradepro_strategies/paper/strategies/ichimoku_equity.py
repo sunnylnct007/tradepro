@@ -166,6 +166,10 @@ class IchimokuEquityStrategy(Strategy):
     _daily_signals: dict[str, tuple[float, float, dict]] = field(default_factory=dict)
     _realised_vols: dict[str, float | None] = field(default_factory=dict)
     _moo_fired: set[str] = field(default_factory=set)
+    # Set once per session the first time _regime_ok can't get a real read
+    # (missing/NaN regime data) — stops one broken feed from spamming
+    # run_log/log_decision once per symbol in the universe.
+    _regime_issue_logged: bool = False
     # Names cleared for a NEW entry this session — the top-N-by-conviction
     # winners per sleeve. Empty set + no sleeves config = no cap (every
     # signalling name may enter, the pre-sleeve behaviour).
@@ -353,6 +357,7 @@ class IchimokuEquityStrategy(Strategy):
         self._closes_for_vol.clear()
         self._vol_scalar = 1.0
         self._moo_fired.clear()
+        self._regime_issue_logged = False
         # Pre-load positions from params.initial_positions so the
         # strategy knows what we ALREADY hold at the broker. Without
         # this, every session starts thinking it owns nothing → fires
@@ -1162,17 +1167,16 @@ class IchimokuEquityStrategy(Strategy):
                 _log.debug("IchimokuEquity _data_fn failed for %s: %s", symbol, exc)
                 return None
 
-        try:
-            from ...cache import ensure_cached
-            end = datetime.now(timezone.utc)
-            # Enough history for Ichimoku cloud + 200-SMA regime + 60d vol.
-            start = end - timedelta(days=700)
-            return ensure_cached(
-                p.get("provider", "yahoo"), symbol, start, end, interval="1d"
-            )
-        except Exception as exc:  # noqa: BLE001
-            _log.debug("IchimokuEquity cache fetch failed for %s: %s", symbol, exc)
-            return None
+        # IBKR-golden-source path first (ibkr_web -> ibkr -> ig -> yfinance),
+        # legacy yahoo cache as fallback only — see [[feedback_ibkr_golden_source_yahoo_fallback]].
+        from ...ibkr_bars import fetch_daily_bars
+        end = datetime.now(timezone.utc)
+        # Enough history for Ichimoku cloud + 200-SMA regime + 60d vol.
+        start = end - timedelta(days=700)
+        return fetch_daily_bars(
+            symbol, start, end, fetched_by=self.strategy_id,
+            legacy_provider=p.get("provider", "yahoo"),
+        )
 
     def _compute_signal(
         self,
@@ -1216,9 +1220,10 @@ class IchimokuEquityStrategy(Strategy):
 
         # Regime gate -- only blocks NEW long entries.
         if p.get("use_regime_filter", True) and signal >= 1.0:
-            if not self._regime_ok(p):
+            regime_green, regime_reason = self._regime_ok(p)
+            if not regime_green:
                 signal = 0.0
-                meta = {**meta, "regime_block": True}
+                meta = {**meta, "regime_block": True, "regime_block_reason": regime_reason}
 
         # Conviction score for top-N ranking: how far the close sits above
         # the cloud top, as a fraction. Only meaningful for a long signal
@@ -1343,22 +1348,72 @@ class IchimokuEquityStrategy(Strategy):
         self._daily_signals[symbol] = (signal, vol or 0.0, meta)
         return signal, vol, meta
 
-    def _regime_ok(self, p: dict[str, Any]) -> bool:
-        """SPY > 200-SMA = GREEN, allow new longs. Missing data = OK
-        (don't block trading because the regime feed is broken)."""
+    def _regime_ok(self, p: dict[str, Any]) -> tuple[bool, str]:
+        """SPY > 200-SMA = GREEN, allow new longs. Missing/unreadable data
+        fails OPEN (True, "data_missing"/"data_nan"/...) — don't block every
+        long trade in the universe because the regime feed is broken — but
+        unlike before, that condition is now DISTINGUISHABLE from a real
+        bearish read and gets logged loudly (once/session) to the central
+        run_log, not silently indistinguishable from "market is bearish".
+
+        This is the exact bug behind the 2026-08-03 SPY incident: a NaN
+        close (partial Yahoo fetch) made `NaN > sma` evaluate False, so
+        "missing data" fell straight past every explicit missing-data check
+        below (df non-empty, close column present, enough history) and read
+        as a hard bearish veto for 9 days with no error anywhere."""
         regime_sym = p.get("regime_symbol", "SPY")
         df = self._fetch_df(regime_sym, p)
         if df is None or df.empty:
-            return True
+            self._log_regime_issue(regime_sym, "no data returned")
+            return True, "data_missing"
         cols = {c.lower(): c for c in df.columns}
         if "close" not in cols:
-            return True
+            self._log_regime_issue(regime_sym, "no close column in cached data")
+            return True, "data_no_close_column"
         close = df[cols["close"]]
         period = int(p.get("regime_sma_period", 200))
         if len(close) < period:
-            return True
+            self._log_regime_issue(
+                regime_sym, f"only {len(close)} bars cached, need {period}+"
+            )
+            return True, "data_insufficient_history"
+        last_close = close.iloc[-1]
         sma = close.tail(period).mean()
-        return float(close.iloc[-1]) > float(sma)
+        if pd.isna(last_close) or pd.isna(sma):
+            self._log_regime_issue(
+                regime_sym,
+                f"NaN in regime calc (last_close={last_close}, sma={sma}) "
+                "— likely a partial-fetch bar; treating as missing, not bearish",
+            )
+            return True, "data_nan"
+        return float(last_close) > float(sma), "ok"
+
+    def _log_regime_issue(self, regime_sym: str, detail: str) -> None:
+        """Fires once per session (not once per symbol) so a broken regime
+        feed is loud in the central run_log + decision trace instead of
+        silently vetoing every long, universe-wide, with nothing to grep
+        for (see [[feedback_central_observability_fail_loud]])."""
+        if self._regime_issue_logged:
+            return
+        self._regime_issue_logged = True
+        _log.warning("IchimokuEquity[%s] regime data issue on %s: %s",
+                      self.strategy_id, regime_sym, detail)
+        self.log_decision(
+            symbol=f"portfolio:regime-data-{regime_sym}",
+            action="regime-data-degraded",
+            reason=detail,
+            regime_symbol=regime_sym,
+        )
+        try:
+            from ...run_log import log_run
+            log_run(
+                self.strategy_id, "regime-data", "warn",
+                symbol=regime_sym,
+                error=detail,
+                summary="regime filter fell back to fail-open (no block) — feed is broken, not bearish",
+            )
+        except Exception as exc:  # noqa: BLE001 — observability must never break trading
+            _log.debug("regime-issue run_log post failed (non-fatal): %s", exc)
 
 
 # ---------------------------------------------------------------------- #
