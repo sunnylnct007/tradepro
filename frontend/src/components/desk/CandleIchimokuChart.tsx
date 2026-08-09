@@ -319,7 +319,11 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
         position: f.side === "BUY" ? ("belowBar" as const) : ("aboveBar" as const),
         color: f.side === "BUY" ? "#1fc16b" : "#ef4444",
         shape: f.side === "BUY" ? ("arrowUp" as const) : ("arrowDown" as const),
-        text: `${f.side === "BUY" ? "B" : "S"}${f.price != null ? " @" + f.price.toFixed(2) : ""}`,
+        // price===0 on a fill is never a real execution (see
+        // isUnconfirmedFill in SymbolValidationCard.tsx) — a reconciler-
+        // manufactured settle, not a $0 trade. Show the side with no price
+        // rather than a misleading "@0.00".
+        text: `${f.side === "BUY" ? "B" : "S"}${f.price != null && f.price > 0 ? " @" + f.price.toFixed(2) : ""}`,
       }));
 
     // Ichimoku, computed on the FULL padded series.
@@ -348,7 +352,10 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
         if (isLong && !wasLong) onsets.push({ t: ti, price: c.close, idx });
         wasLong = isLong;
       });
-      const buyFills = (fills ?? []).filter((f) => f.side === "BUY" && f.atUtc && f.price != null);
+      // f.price===0 is an unconfirmed reconciler-settled fill, not a real
+      // entry price — excluded here too, so entry-timing math (extPct below)
+      // can't compute a bogus "-100% vs signal" off a $0 execution.
+      const buyFills = (fills ?? []).filter((f) => f.side === "BUY" && f.atUtc && f.price != null && f.price > 0);
       // ACTUAL ENTRY: prefer an OMS BUY fill; else fall back to the broker-reported
       // POSITION entry (open date + avg price). Seeded positions (most held names)
       // have no OMS fills but DO have a broker entry — so "entered late" still works

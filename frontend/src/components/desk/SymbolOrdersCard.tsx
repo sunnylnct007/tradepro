@@ -97,11 +97,23 @@ export function SymbolOrdersCard({
                   </td>
                   <td style={TD_R}>{fmtQty(o.filledQty || o.qty)}</td>
                   <td style={TD_R}>
-                    {o.avgFillPrice != null
-                      ? o.avgFillPrice.toFixed(2)
-                      : o.limitPrice != null
-                        ? <span style={{ color: "var(--text-muted)" }}>{o.limitPrice.toFixed(2)}</span>
-                        : "—"}
+                    {(o.state === "FILLED" || o.state === "PARTIALLY_FILLED") && o.avgFillPrice === 0 ? (
+                      // A real market-order fill can never execute at exactly $0 —
+                      // this is a reconciler-manufactured settle (broker-flat
+                      // auto-clear / unconfirmed position reconcile), not a price.
+                      <span
+                        title="No confirmed broker price for this fill (reconciler auto-clear/settle) — not a real $0 execution."
+                        style={{ color: "#e0b341" }}
+                      >
+                        unconfirmed
+                      </span>
+                    ) : o.avgFillPrice != null ? (
+                      o.avgFillPrice.toFixed(2)
+                    ) : o.limitPrice != null ? (
+                      <span style={{ color: "var(--text-muted)" }}>{o.limitPrice.toFixed(2)}</span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td style={{ ...TD, fontSize: 10 }}>{o.state}</td>
                   <td style={{ ...TD, color: "var(--text-muted)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

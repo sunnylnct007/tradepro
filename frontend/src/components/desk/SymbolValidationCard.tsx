@@ -27,11 +27,28 @@ type Episode = {
   sells: number;
   qtyIn: number;
   costIn: number;
+  pricedQtyIn: number;
   qtyOut: number;
   proceedsOut: number;
+  pricedQtyOut: number;
+  /** A reconciler-manufactured fill (broker-flat auto-clear / unconfirmed
+   * position-reconcile settle — see GoldenSourceReconciler.cs) records
+   * avgFillPrice=0 by design rather than fabricate a price ("2026-08-08 LLY
+   * $0 fill" incident). A real market order can never fill at exactly $0, so
+   * FILLED + price===0 is an unambiguous unconfirmed-price signal. Excluded
+   * from the priced cost/proceeds basis so one $0 fill can't silently drag
+   * avgIn/avgOut toward zero; flagged instead of averaged in. */
+  hasUnconfirmedFill: boolean;
   strategy: string | null;
   open: boolean;
 };
+
+function isUnconfirmedFill(o: OmsOrderRow): boolean {
+  return (
+    (o.state === "FILLED" || o.state === "PARTIALLY_FILLED") &&
+    o.avgFillPrice === 0
+  );
+}
 
 /** Group a symbol's FILLED orders (chronological) into round-trip episodes:
  * an episode opens on the first BUY from flat and closes when the running
@@ -50,6 +67,7 @@ function buildEpisodes(orders: OmsOrderRow[]): Episode[] {
   for (const o of fills) {
     const q = o.filledQty || o.qty;
     const px = o.avgFillPrice ?? o.limitPrice ?? 0;
+    const unconfirmed = isUnconfirmedFill(o);
     if (o.side === "BUY") {
       if (!ep) {
         ep = {
@@ -59,22 +77,35 @@ function buildEpisodes(orders: OmsOrderRow[]): Episode[] {
           sells: 0,
           qtyIn: 0,
           costIn: 0,
+          pricedQtyIn: 0,
           qtyOut: 0,
           proceedsOut: 0,
+          pricedQtyOut: 0,
+          hasUnconfirmedFill: false,
           strategy: o.strategyId ?? null,
           open: true,
         };
       }
       ep.buys++;
       ep.qtyIn += q;
-      ep.costIn += q * px;
+      if (unconfirmed) {
+        ep.hasUnconfirmedFill = true;
+      } else {
+        ep.costIn += q * px;
+        ep.pricedQtyIn += q;
+      }
       pos += q;
     } else {
       // SELL
       if (ep) {
         ep.sells++;
         ep.qtyOut += q;
-        ep.proceedsOut += q * px;
+        if (unconfirmed) {
+          ep.hasUnconfirmedFill = true;
+        } else {
+          ep.proceedsOut += q * px;
+          ep.pricedQtyOut += q;
+        }
       }
       pos -= q;
       if (ep && pos <= 1e-9) {
@@ -157,10 +188,17 @@ export function SymbolValidationCard({
               </thead>
               <tbody>
                 {episodes.map((e, i) => {
-                  const avgIn = e.qtyIn > 0 ? e.costIn / e.qtyIn : null;
-                  const avgOut = e.qtyOut > 0 ? e.proceedsOut / e.qtyOut : null;
+                  // Priced-only basis — an unconfirmed ($0) fill is excluded, not
+                  // averaged in, so it can't silently drag avgIn/avgOut toward zero.
+                  const avgIn = e.pricedQtyIn > 0 ? e.costIn / e.pricedQtyIn : null;
+                  const avgOut = e.pricedQtyOut > 0 ? e.proceedsOut / e.pricedQtyOut : null;
                   // Realised on the closed portion: proceeds − avg-entry × qtyOut.
-                  const pnl = avgIn != null && e.qtyOut > 0 ? e.proceedsOut - avgIn * e.qtyOut : null;
+                  // Withheld (not just wrong) when any leg has an unconfirmed price —
+                  // a partial P&L number here would look exact and not be.
+                  const pnl =
+                    avgIn != null && e.pricedQtyOut > 0 && !e.hasUnconfirmedFill
+                      ? e.proceedsOut - avgIn * e.pricedQtyOut
+                      : null;
                   const held = daysBetween(e.entryDate, e.exitDate);
                   return (
                     <tr key={i} style={{ borderBottom: "1px solid #141b2b" }}>
@@ -171,7 +209,17 @@ export function SymbolValidationCard({
                         {e.buys}
                         {e.buys > 1 && <span title="entered multiple times" style={{ color: "#e0b341" }}> ⤴</span>}
                       </td>
-                      <td style={TD_R}>{avgIn != null ? avgIn.toFixed(2) : "—"}</td>
+                      <td style={TD_R}>
+                        {avgIn != null ? avgIn.toFixed(2) : "—"}
+                        {e.hasUnconfirmedFill && (
+                          <span
+                            title="At least one fill in this episode recorded no confirmed broker price (reconciler auto-clear/settle) — excluded from this average, not averaged in as $0."
+                            style={{ color: "#e0b341", marginLeft: 3 }}
+                          >
+                            ⚠
+                          </span>
+                        )}
+                      </td>
                       <td style={{ ...TD, color: "var(--text-muted)" }}>
                         {e.open ? <span style={{ color: "#e0b341" }}>OPEN</span> : fmtWhenDate(e.exitDate!).slice(0, 11)}
                       </td>
@@ -194,7 +242,10 @@ export function SymbolValidationCard({
           </div>
 
           <div style={{ fontSize: 9, color: "var(--text-dim)", marginTop: 6, lineHeight: 1.4 }}>
-            ⤴ = multiple entries in one episode. P&amp;L is realised on the closed
+            ⤴ = multiple entries in one episode. ⚠ = at least one fill has no
+            confirmed broker price (a reconciler auto-clear/settle, never a real
+            $0 execution) — excluded from the average, P&amp;L withheld for that
+            episode rather than shown wrong. P&amp;L is realised on the closed
             quantity (broker fills only). Entry quality vs the cloud is on the chart
             above (5·32·50, actual fill markers).
           </div>
