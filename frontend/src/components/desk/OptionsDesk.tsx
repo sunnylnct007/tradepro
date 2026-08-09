@@ -54,6 +54,8 @@ interface Candidate {
   } | null;
   size_fit_pct?: number | null;           // contract notional as % of account NAV
   ref_close?: number | null;              // last daily close — seeds the payoff spot
+  forward_price?: number | null;          // F = S·e^((r−q)T) — the real OTM anchor at expiry
+  forward_basis?: string | null;          // "r_and_div_yield" | "r_only_div_yield_unavailable"
 }
 interface ScreenResp {
   generated_at_utc: string | null;
@@ -324,9 +326,25 @@ export function OptionsDesk() {
                     {c.annualized_yield_pct != null ? `${c.annualized_yield_pct.toFixed(0)}%/yr` : "—"}
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
-                    {c.suggested_strike != null
-                      ? `$${c.suggested_strike} · Δ${(c.suggested_delta ?? 0).toFixed(2)}${c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)}` : ""}`
-                      : "—"}
+                    {c.suggested_strike != null ? (
+                      <span>
+                        {`$${c.suggested_strike} · Δ${(c.suggested_delta ?? 0).toFixed(2)}${c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)}` : ""}`}
+                        {c.forward_price != null && (
+                          <span
+                            style={{ display: "block", fontSize: 10, color: "var(--text-muted)" }}
+                            title={`Forward price at expiry (F = S·e^((r−q)T)) — the honest "how far OTM" anchor: `
+                              + `strike vs forward, not vs spot. `
+                              + (c.forward_basis === "r_and_div_yield"
+                                ? "Includes this name's dividend yield."
+                                : "Rates-only (dividend yield not served) — slightly overstated for dividend payers.")}
+                          >
+                            fwd ${c.forward_price.toFixed(1)}
+                            {c.suggested_strike != null && c.forward_price > 0 &&
+                              ` · strike ${((1 - c.suggested_strike / c.forward_price) * 100).toFixed(1)}% below fwd`}
+                          </span>
+                        )}
+                      </span>
+                    ) : "—"}
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
                     {c.put_vs_buy ? (

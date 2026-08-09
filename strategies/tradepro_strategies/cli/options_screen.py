@@ -403,6 +403,18 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     spread_pct_of_mid = (round(spread / premium * 100, 1)
                          if (spread is not None and premium and premium > 0) else None)
 
+    # Forward price at expiry — F = S·e^((r−q)T). THE honest anchor for "how
+    # far OTM is this strike really": dividend payers' forwards sit below
+    # spot, so a strike that looks 5% OTM vs spot is closer at expiry. Basis
+    # is labeled: without a served dividend yield the forward is rates-only
+    # (slightly overstated for payers) — shown, never silently wrong.
+    forward_price = forward_basis = None
+    if ref_close and dte > 0:
+        import math as _m
+        _q = ivr.div_yield if (ivr.available and ivr.div_yield is not None) else None
+        forward_price = round(ref_close * _m.exp((_r - (_q or 0.0)) * dte / 365.0), 2)
+        forward_basis = "r_and_div_yield" if _q is not None else "r_only_div_yield_unavailable"
+
     return {
         "symbol": sym,
         "regime": regime,
@@ -424,6 +436,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "model_price": model_price,
         "model_vs_mid_pct": model_vs_mid_pct,
         "div_yield": ivr.div_yield if ivr.available else None,
+        "forward_price": forward_price,
+        "forward_basis": forward_basis,
         "eligible": decision.allowed,
         "blocks": decision.blocks,
         "warnings": decision.warnings,
