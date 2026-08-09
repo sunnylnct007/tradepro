@@ -173,8 +173,20 @@ def _why(s: dict) -> str:
         vol = f"{s['volume_ratio']}x vol" + (" ⚠ THIN (low conviction)" if s.get("thin_volume") else "")
         # dist_atr ≤ 1.0 here (band tightened), so "at the kijun" is now TRUE, not a
         # stale-pullback narrative stitched onto a price that already ran.
+        # "support hold, not a knife" is a CLAIM that buyers actually defended the
+        # level — it must not be asserted on THIN volume (<0.8x 20d), where price
+        # just drifted down to the kijun with no real participation either way.
+        # Without this gate every thin_volume name got the identical demand-
+        # confirmed narrative regardless of the vol_ratio it was flagged with two
+        # clauses later in the same sentence — an internal contradiction, not a
+        # style choice.
+        hold_clause = (
+            "sitting on the kijun, but light volume hasn't confirmed a hold — could be drift, not defense"
+            if s.get("thin_volume")
+            else "support hold, not a knife"
+        )
         return (f"engine: {s['signal']}, above cloud, at the kijun ${s['kijun']} "
-                f"({s['dist_atr']} ATR above, {s['off_10d_high_pct']}% off 10d high — support hold, not a knife); "
+                f"({s['dist_atr']} ATR above, {s['off_10d_high_pct']}% off 10d high — {hold_clause}); "
                 f"{s['range_pctile']:.0f}{ordinal_suffix(s['range_pctile'])} pctile, 3m {s['momentum_3m_pct']}% / 10d {s['momentum_10d_pct']}%, "
                 f"ATR {s['atr_pct']}%/day, {vol}; stop below kijun.")
     if cls == "earnings":
