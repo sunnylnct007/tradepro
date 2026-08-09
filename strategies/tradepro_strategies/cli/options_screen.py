@@ -190,6 +190,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # built to remove from the chain fetch — removing it here too so
     # regime works even when no Gateway is reachable at all.
     regime = falling_knife = ref_close = None
+    closes: list[float] = []
     try:
         from datetime import timedelta
         from ..cache import ensure_cached
@@ -203,6 +204,25 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             ref_close = closes[-1]
     except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (no false positive)
         log.warning("%s regime fetch failed: %s", sym, e)
+
+    # HV fallback from our own cached closes: IBKR's snapshot HV (field 7284)
+    # is dark for ETFs, which killed the IV/HV bridge for exactly the names
+    # with no earnings risk. 30d realised vol from the SAME daily closes the
+    # regime just used is honest, real math on GOOD data — labeled as the
+    # computed variant so nobody mistakes it for the broker-served figure.
+    if (ivr.available and ivr.iv and ivr.iv_hv_ratio is None and len(closes) >= 31):
+        import math as _math
+        rets = [_math.log(closes[i] / closes[i - 1])
+                for i in range(len(closes) - 30, len(closes)) if closes[i - 1] > 0]
+        if len(rets) >= 20:
+            mean = sum(rets) / len(rets)
+            var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+            hv = _math.sqrt(var) * _math.sqrt(252.0)
+            if hv > 0:
+                from dataclasses import replace as _dc_replace
+                ivr = _dc_replace(ivr, hv30=round(hv, 5),
+                                  iv_hv_ratio=round(ivr.iv / hv, 3),
+                                  reason=ivr.reason + " (HV computed from cached closes)")
 
     # Options chain — G3 FIRST (TradePro's own API-hosted chain feed, real
     # broker delta/greeks/OI, OAuth REST session — no local Gateway needed),

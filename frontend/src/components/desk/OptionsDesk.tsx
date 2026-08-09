@@ -22,8 +22,14 @@ import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsP
 interface Candidate {
   symbol: string;
   regime: string | null;          // GREEN/YELLOW/ORANGE/RED
-  iv_rank: number | null;         // 0-100
+  iv_rank: number | null;         // 0-100 (only once our IV dataset window matures)
   iv: number | null;              // fraction
+  // Vega-edge bridge (9 Aug 2026): IV ÷ HV30 + which gate variant applied
+  // ("rank" | "bridge" | null) + how deep the IV dataset is, so the UI can
+  // show a real number instead of a dead "n/a" column while rank accumulates.
+  iv_hv_ratio?: number | null;
+  iv_rank_days?: number | null;
+  vega_gate?: "rank" | "bridge" | null;
   open_interest: number | null;
   spread_usd: number | null;
   eligible: boolean;              // passes the risk engine for a CSP
@@ -248,7 +254,7 @@ export function OptionsDesk() {
           below. Never capital-gated here (project_wheel_signal_vs_paper_
           capital_split) — size-fit is informational, shown not filtered. */}
       {!loading && !err && cands.length > 0 && (
-        <MorningCandidatesPanel candidates={eligible.slice(0, 5)} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />
+        <MorningCandidatesPanel candidates={eligible.slice(0, 5)} all={cands} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />
       )}
 
       {/* ── Candidate screen ───────────────────────────────────── */}
@@ -267,7 +273,7 @@ export function OptionsDesk() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Regime", "IV-Rank", "OI / Spread", "Eligible (CSP)", "Annual yield", "Suggested", "Put vs buy now", "Size fit", "Why / why-not", ""].map((h) => (
+                {["Symbol", "Regime", "Vega edge", "OI / Spread", "Eligible (CSP)", "Annual yield", "Suggested", "Put vs buy now", "Size fit", "Why / why-not", ""].map((h) => (
                   <th key={h} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -282,7 +288,21 @@ export function OptionsDesk() {
                     {c.regime ? <RegimePill regime={c.regime} /> : <span style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>}
                   </td>
                   <td style={{ padding: "8px 10px" }}>
-                    <IvGauge rank={c.iv_rank} />
+                    {c.iv_rank != null ? (
+                      <IvGauge rank={c.iv_rank} />
+                    ) : c.iv_hv_ratio != null ? (
+                      <span
+                        title={`IV/HV bridge gate: implied vol ÷ 30d realised. ≥ 1.00 = premium at least pays for realised risk. `
+                          + `Used while our own IV dataset (${c.iv_rank_days ?? "?"}d so far) grows toward the 60d needed for a true IV-Rank.`}
+                        style={{ fontFamily: "var(--font-mono)", fontWeight: 600,
+                                 color: c.iv_hv_ratio >= 1 ? TONE.ok : "var(--text-dim)" }}
+                      >
+                        {c.iv_hv_ratio.toFixed(2)}<span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: 10 }}> IV/HV</span>
+                      </span>
+                    ) : (
+                      <span title="No vega-edge metric available — IV snapshot dark; blocked, not assumed."
+                            style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>
+                    )}
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
                     {c.open_interest == null ? "—" : c.open_interest.toLocaleString()}
@@ -313,7 +333,12 @@ export function OptionsDesk() {
                           ({c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? "-" : "+"}{Math.abs(c.put_vs_buy.discount_vs_buy_now_pct).toFixed(1)}%)
                         </span>
                       </span>
-                    ) : "—"}
+                    ) : (
+                      <span style={{ color: "var(--text-muted)", fontSize: 11 }}
+                            title="This comparison needs a live option premium; chains are cold when the market is closed. It fills in-session.">
+                        needs live premium
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}
                       title="Contract notional as a share of account NAV — informational only, never a hard gate here (the risk engine's own notional cap does that)">
@@ -574,9 +599,19 @@ function btnStyle(enabled: boolean, color = TONE.ok): React.CSSProperties {
   };
 }
 
-function MorningCandidatesPanel({ candidates, onAnalyze, onRecord, busy }: {
-  candidates: Candidate[]; onAnalyze: (c: Candidate) => void; onRecord: (c: Candidate) => void; busy: boolean;
+function MorningCandidatesPanel({ candidates, all, onAnalyze, onRecord, busy }: {
+  candidates: Candidate[]; all: Candidate[]; onAnalyze: (c: Candidate) => void; onRecord: (c: Candidate) => void; busy: boolean;
 }) {
+  // Market-level verdict + nearest-to-eligible: "0 eligible" with no context
+  // reads as a broken screen. Say WHAT the market is doing (median IV/HV) and
+  // WHO is closest to clearing, with the one thing in the way.
+  const ratios = all.map((c) => c.iv_hv_ratio).filter((r): r is number => r != null).sort((a, b) => a - b);
+  const medianRatio = ratios.length ? ratios[Math.floor(ratios.length / 2)] : null;
+  const nearMisses = [...all]
+    .filter((c) => !c.eligible && (c.blocks?.length ?? 0) > 0)
+    .sort((a, b) => (a.blocks!.length - b.blocks!.length)
+      || ((b.annualized_yield_pct ?? 0) - (a.annualized_yield_pct ?? 0)))
+    .slice(0, 3);
   return (
     <div style={{ marginBottom: 18 }}>
       <SectionTitle>
@@ -586,8 +621,26 @@ function MorningCandidatesPanel({ candidates, onAnalyze, onRecord, busy }: {
         </span>
       </SectionTitle>
       {candidates.length === 0 ? (
-        <div style={{ color: "var(--text-muted)", padding: "10px 14px", border: "1px dashed var(--border)", borderRadius: 8 }}>
-          No eligible candidates today — see the full screen below for why each name is blocked.
+        <div style={{ padding: "12px 14px", border: "1px dashed var(--border)", borderRadius: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 12, color: "var(--text)" }}>
+            <b>No trade is the verdict, not a failure.</b>{" "}
+            {medianRatio != null
+              ? <>Premium is {medianRatio < 1 ? "THIN" : "mixed"} across the universe (median IV/HV {medianRatio.toFixed(2)}
+                 {medianRatio < 1 ? " — sellers aren't being paid for realised risk; the correct wheel action is to wait" : ""}).</>
+              : <>Vega-edge data is dark (market closed) — gates re-evaluate in-session.</>}
+          </div>
+          {nearMisses.length > 0 && (
+            <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              <span style={{ textTransform: "uppercase", fontSize: 10, letterSpacing: "0.05em", color: "var(--text-muted)" }}>Closest to clearing: </span>
+              {nearMisses.map((c, i) => (
+                <span key={c.symbol}>
+                  {i > 0 && " · "}
+                  <b style={{ fontFamily: "var(--font-mono)" }}>{c.symbol}</b>
+                  <span style={{ color: "var(--text-muted)" }}> ({c.blocks!.length} gate{c.blocks!.length > 1 ? "s" : ""}: {c.blocks![0].split("—")[0].trim()}{c.blocks!.length > 1 ? ", …" : ""})</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
