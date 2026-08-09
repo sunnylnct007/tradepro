@@ -180,12 +180,31 @@ public static class ChainEndpoints
                 .OrderBy(l => l.Right).ThenBy(l => l.Strike)
                 .ToList();
 
+            // FAIL-LOUD (NO FALSE POSITIVES): a chain whose every leg is
+            // quote-less after the warm-up retry is NOT a tradeable chain —
+            // without an error here it flowed downstream as "success", where
+            // consumers zero-filled the nulls into fabricated $0-premium /
+            // 0-IV quotes (the Route-B gap flagged 8 Aug 2026). Legs are still
+            // returned (strikes/conids are real); the error tells the caller
+            // the QUOTES are not.
             var error = quotesResult.Error ?? contractsError;
+            if (error is null && AllLegsQuoteless(legs))
+                error = $"option quotes still cold after warm-up retry for {sym} {chosenMonth} — "
+                    + "every leg returned null bid/ask/delta (market closed or IBKR quote cache cold); "
+                    + "strikes are real but this is NOT a tradeable chain";
             return Results.Ok(new ChainResponse(sym, underlyingConId, chosenMonth, spot, legs, error));
         });
 
         return app;
     }
+
+    /// <summary>True when a non-empty chain carries NO quote data at all —
+    /// every leg's bid, ask AND delta are null. One populated field on one
+    /// leg is enough to call the chain warm (partial coverage is normal:
+    /// far-from-the-money legs legitimately have no bid).</summary>
+    public static bool AllLegsQuoteless(IReadOnlyList<ChainLeg> legs)
+        => legs.Count > 0
+           && legs.All(l => l.Bid is null && l.Ask is null && l.Delta is null);
 }
 
 public sealed record ChainLeg(

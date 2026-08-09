@@ -108,12 +108,17 @@ class IBKRWebProvider(Provider):
                f"?symbol={canonical}&period={period}&bar={bar}")
         headers = {"Authorization": f"Bearer {token}"} if token else {}
 
+        # 60s (not 30s): the backend retries IBKR's transient history errors
+        # in-request (up to 3 attempts, ~10s each worst-case + backoff) — a
+        # 30s client timeout would abort mid-retry and turn a recoverable
+        # fetch into a yfinance/BRONZE fallthrough.
+        _TIMEOUT_S = 60
         try:
             if self._get is not None:
-                status, payload = self._get(url, headers, 30)
+                status, payload = self._get(url, headers, _TIMEOUT_S)
             else:
                 import requests
-                r = requests.get(url, headers=headers, timeout=30)
+                r = requests.get(url, headers=headers, timeout=_TIMEOUT_S)
                 status, payload = r.status_code, (r.json() if r.content else {})
         except Exception as exc:  # noqa: BLE001 — surface as a typed network error
             raise ProviderNetworkError(

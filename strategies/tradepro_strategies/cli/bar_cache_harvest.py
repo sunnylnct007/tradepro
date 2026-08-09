@@ -415,13 +415,20 @@ def main() -> int:
 
 
 def _quality_tier(provider_used: str | None, complete: bool) -> str:
-    """Map provider + completeness → quality tier label."""
+    """Map provider + completeness → quality tier label.
+
+    ``provider_used`` is the store's chain outcome — ``"<provider>_ok"``
+    (e.g. ``ibkr_web_ok``) or ``"cache"`` — NOT the bare provider name.
+    Until 2026-08-09 this compared the suffixed value against ``"ibkr"``,
+    so every IBKR-sourced fetch (gateway AND web) displayed as 🥉 bronze
+    and the G/S/B run summary under-reported IBKR success."""
     if not provider_used or provider_used == "none":
         return "missing"
-    p = (provider_used or "").lower()
-    if p == "ibkr":
+    p = (provider_used or "").lower().removesuffix("_ok")
+    if p in ("ibkr", "ibkr_web"):
         return "gold" if complete else "silver"
-    # ig / yfinance / cache (derived from yf/ig)
+    # ig / yfinance / cache (cache = whatever source is already on disk;
+    # the stored `source` column, not this label, drives real quality grading)
     return "bronze"
 
 

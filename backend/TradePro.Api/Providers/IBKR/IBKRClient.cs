@@ -518,24 +518,51 @@ public sealed class IBKRClient
             // 2) conid → OHLCV history. startTime (YYYYMMDD-HH:mm:ss) anchors the
             //    MOST-RECENT point; IBKR returns `period` worth of bars BACKWARD
             //    from it — the pagination lever for deep history (default = now).
+            //
+            //    BOUNDED RETRY on transient signatures ("Chart data unavailable",
+            //    HMDS 503/5xx/429): the failed request itself warms IBKR's chart
+            //    cache, so a short-backoff re-request usually succeeds (verified
+            //    live 2026-08-09 — a 0/20 burst, immediate retry succeeded).
+            //    Without this, every transient sent bar_cache consumers to the
+            //    yfinance/BRONZE fallback. Elapsed-time cap keeps the worst case
+            //    (IBKR truly down, ~10s per failed attempt) inside the Python
+            //    provider's HTTP timeout instead of retrying forever.
             var startParam = string.IsNullOrWhiteSpace(startTime)
                 ? string.Empty
                 : $"&startTime={Uri.EscapeDataString(startTime)}";
-            using var histResp = await SendWithAuthAsync(
-                HttpMethod.Get,
+            var histPath =
                 $"v1/api/iserver/marketdata/history?conid={conid}&period={Uri.EscapeDataString(period)}"
-                + $"&bar={Uri.EscapeDataString(bar)}&outsideRth=false{startParam}",
-                null, ct);
-            var histText = await histResp.Content.ReadAsStringAsync(ct);
-            if (!histResp.IsSuccessStatusCode)
-                return new IBKRHistoryResult(Array.Empty<IBKRBar>(), conid,
-                    $"history fetch failed for {sym} (conid {conid}): {histText}", (int)histResp.StatusCode);
+                + $"&bar={Uri.EscapeDataString(bar)}&outsideRth=false{startParam}";
+
+            const int maxAttempts = 3;
+            var retryBudget = TimeSpan.FromSeconds(25);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            string histText;
+            int histStatus;
+            var attempt = 0;
+            while (true)
+            {
+                attempt++;
+                using var histResp = await SendWithAuthAsync(HttpMethod.Get, histPath, null, ct);
+                histText = await histResp.Content.ReadAsStringAsync(ct);
+                histStatus = (int)histResp.StatusCode;
+                if (histResp.IsSuccessStatusCode) break;
+                var transient = IBKRResponseParser.IsTransientHistoryError(histStatus, histText);
+                if (!transient || attempt >= maxAttempts || sw.Elapsed > retryBudget)
+                    return new IBKRHistoryResult(Array.Empty<IBKRBar>(), conid,
+                        $"history fetch failed for {sym} (conid {conid}, attempt {attempt}/{maxAttempts}): {histText}",
+                        histStatus);
+                _log.LogInformation(
+                    "IBKR history transient for {Symbol} (conid {Conid}, attempt {Attempt}/{Max}, HTTP {Status}) — retrying: {Body}",
+                    sym, conid, attempt, maxAttempts, histStatus, Truncate(histText, 160));
+                await Task.Delay(TimeSpan.FromSeconds(attempt), ct);
+            }
             var bars = IBKRResponseParser.ParseHistory(histText);
             if (bars.Count == 0)
                 return new IBKRHistoryResult(Array.Empty<IBKRBar>(), conid,
                     $"IBKR returned NO bars for {sym} (conid {conid}, period {period}, bar {bar})",
-                    (int)histResp.StatusCode);
-            return new IBKRHistoryResult(bars, conid, null, (int)histResp.StatusCode);
+                    histStatus);
+            return new IBKRHistoryResult(bars, conid, null, histStatus);
         }
         catch (Exception ex)
         {
@@ -990,4 +1017,7 @@ public sealed class IBKRClient
         }
         catch (Exception ex) { return new IBKROrderResult(brokerOrderId, "PARSE_ERROR", ex.Message, 0); }
     }
+
+    private static string Truncate(string s, int max)
+        => s.Length <= max ? s : s[..max] + "…";
 }

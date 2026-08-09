@@ -199,6 +199,22 @@ public static class IBKRResponseParser
         return null;
     }
 
+    /// <summary>Classify a failed /iserver/marketdata/history response as
+    /// TRANSIENT (retry-worthy) vs permanent. IBKR's history backend has two
+    /// well-known transient signatures, both observed live 2026-08-09 (a 0/20
+    /// failure burst where an immediate re-request of the same symbols
+    /// succeeded — the failed request itself warms IBKR's chart cache):
+    ///   * "Chart data unavailable" — cold chart cache, fast fail;
+    ///   * "Service Unavailable" / HTTP 5xx / 429 — HMDS throttle burst.
+    /// Permanent errors (no contract, bad period/bar) must NOT be retried.</summary>
+    public static bool IsTransientHistoryError(int statusCode, string? body)
+    {
+        if (statusCode == 429 || statusCode >= 500) return true;
+        var b = body ?? string.Empty;
+        return b.Contains("Chart data unavailable", StringComparison.OrdinalIgnoreCase)
+            || b.Contains("Service Unavailable", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Parse GET /iserver/marketdata/history — OHLCV bars in the "data"
     /// array ({t: epoch-MILLISECONDS UTC, o,h,l,c, v}). Empty list when there are
     /// no bars; the caller FLAGS that (never a silent empty).</summary>

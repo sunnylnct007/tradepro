@@ -1888,12 +1888,23 @@ def get_option_chain(
     except Exception as e:  # noqa: BLE001
         return _err("get_option_chain", str(e), symbol=sym)
     legs = data.get("legs") or []
+    # legs_with_quotes counts legs carrying ANY market data (bid/ask/delta).
+    # A chain can come back structurally fine (real strikes/conids) with every
+    # quote field null — cold IBKR quote cache or market closed. The backend
+    # now sets `error` for the all-null case (so ok flips false), but surface
+    # the count regardless: leg_count alone reads as "20 tradeable contracts"
+    # when the truth may be "20 strikes, 3 with a live quote".
+    with_quotes = sum(
+        1 for l in legs
+        if l.get("bid") is not None or l.get("ask") is not None or l.get("delta") is not None
+    )
     return {
         "_source": f"tradepro://ibkr/chain/{sym}",
         "fetched_at": _now_iso(),
-        "ok": data.get("error") is None,
+        "ok": data.get("error") is None and len(legs) > 0,
         "symbol": sym,
         "leg_count": len(legs),
+        "legs_with_quotes": with_quotes,
         **data,
     }
 

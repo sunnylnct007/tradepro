@@ -128,21 +128,36 @@ def fetch_chain_g3(
         strike = leg.get("strike")
         if strike is None:
             return None
-        bid = leg.get("bid") or 0.0
-        ask = leg.get("ask") or 0.0
+        # NO FALSE POSITIVES: a leg with NO market data at all (bid, ask AND
+        # delta all null — the cold-quote-cache / market-closed signature) is
+        # DROPPED, not zero-filled. Coercing nulls to 0.0 here is exactly the
+        # fabricated $0-premium / 0-IV quote the module contract forbids: a
+        # $0 bid prices a CSP at zero yield and 0 IV breaks every vol-based
+        # screen downstream. A leg with a real quote on ONE side (deep OTM
+        # often has ask but no bid) keeps 0.0 on the silent side — that IS
+        # the market saying "no bid", not missing data.
+        bid, ask, delta = leg.get("bid"), leg.get("ask"), leg.get("delta")
+        if bid is None and ask is None and delta is None:
+            return None
         iv_pct = leg.get("impliedVolPct")
         return OptionQuote(
             kind="put" if leg.get("right") == "P" else "call",
             strike=float(strike),
-            bid=float(bid),
-            ask=float(ask),
+            bid=float(bid or 0.0),
+            ask=float(ask or 0.0),
             iv=(float(iv_pct) / 100.0) if iv_pct is not None else 0.0,
             open_interest=int(leg.get("openInterest") or 0),
-            delta=(float(leg["delta"]) if leg.get("delta") is not None else None),
+            delta=(float(delta) if delta is not None else None),
         )
 
     puts = [q for leg in legs if leg.get("right") == "P" and (q := to_quote(leg))]
     calls = [q for leg in legs if leg.get("right") == "C" and (q := to_quote(leg))]
+    if not puts and not calls:
+        log.warning(
+            "%s: G3 chain had %d leg(s) but none carried quote data "
+            "(bid/ask/delta all null — cold quote cache or market closed); "
+            "returning None, not a fabricated chain", symbol, len(legs))
+        return None
 
     return OptionChain(
         symbol=symbol, spot=float(spot), expiry=expiry_iso or chosen_month, dte=dte,
