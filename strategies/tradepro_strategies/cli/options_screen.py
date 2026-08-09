@@ -52,7 +52,22 @@ DEFAULT_UNIVERSE = [
     # notional gate decides affordability per the user's configured capital,
     # the universe just makes them CANDIDATES (config-driven, not pre-filtered).
     "NVDA", "GOOGL", "AAPL", "MSFT", "AMD", "QCOM",
+    # expansion 36 → 66 (owner 2026-08-09: "we need more symbols to compare").
+    # Same bar: liquid chains, names you'd accept assignment on.
+    # financials / healthcare / consumer / tech / energy / industrials
+    "IBM", "JPM", "C", "USB", "SCHW", "MRK", "CVS", "TGT", "SBUX", "NKE",
+    "KHC", "MDLZ", "ORCL", "DELL", "HPQ", "HAL", "FCX", "NEM", "DAL", "UPS", "ON",
+    # ETFs — natural wheel underlyings: deep chains and STRUCTURALLY no
+    # earnings event inside any expiry window (see _ETF_UNDERLYINGS).
+    "XLE", "XLF", "XLI", "XLU", "GDX", "SLV", "TLT", "IWM", "KRE",
 ]
+
+# ETFs have no earnings — the blackout gate gets a structural False, not a
+# "calendar unavailable" block. Keep in sync with the ETF rows above.
+_ETF_UNDERLYINGS = frozenset({
+    "XLE", "XLF", "XLI", "XLU", "GDX", "SLV", "TLT", "IWM", "KRE",
+    "SPY", "QQQ", "GLD", "EEM", "HYG",
+})
 
 _FX_GBPUSD = 1.27  # BRD display rate; USD strike×100 → GBP notional
 
@@ -295,7 +310,10 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (fail-visible)
             log.warning("%s yfinance chain fetch failed: %s", sym, e)
 
-    earnings_in_window = _earnings_in_window(sym, dte)
+    # ETFs have no earnings event — structural False (a fact of the security
+    # type), NOT a skipped check. Single names still go through the calendar
+    # lookup and BLOCK when it can't be verified.
+    earnings_in_window = False if sym in _ETF_UNDERLYINGS else _earnings_in_window(sym, dte)
 
     ctx = MarketContext(
         regime=Regime(regime) if regime else None,
@@ -407,7 +425,11 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     from . import push_to_api as _pta
     from ..paper import market_hours
 
-    universe = symbols or DEFAULT_UNIVERSE
+    # Universe: explicit arg > TRADEPRO_WHEEL_UNIVERSE env (comma-separated,
+    # config-driven per feedback_config_driven_no_hardcoding) > curated default.
+    env_universe = [s.strip().upper() for s in
+                    os.environ.get("TRADEPRO_WHEEL_UNIVERSE", "").split(",") if s.strip()]
+    universe = symbols or env_universe or DEFAULT_UNIVERSE
     cfg = OptionsRiskConfig.from_env()   # capital sizing env-tunable (TRADEPRO_WHEEL_*)
     host = os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
     port = int(os.environ.get("TRADEPRO_IBKR_PORT", "7500"))
