@@ -53,6 +53,7 @@ interface Candidate {
     discount_vs_buy_now_pct: number;
   } | null;
   size_fit_pct?: number | null;           // contract notional as % of account NAV
+  ref_close?: number | null;              // last daily close — seeds the payoff spot
 }
 interface ScreenResp {
   generated_at_utc: string | null;
@@ -190,20 +191,28 @@ export function OptionsDesk() {
     });
   }, [record]);
 
+  // Analyze opens a MODAL (owner: the bottom-of-page chart was unusable) —
+  // bigger canvas, taller chart, Esc / backdrop / ✕ to close. Seeded with the
+  // candidate's REAL values (spot from ref_close, its actual DTE).
+  const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const analyze = useCallback((c: Candidate) => {
     setSeed({
       symbol: c.symbol,
       structure: "CASH_SECURED_PUT",
       strike: c.suggested_strike,
       premium: c.suggested_premium,
+      spot: c.ref_close ?? null,
       contracts: 1,
-      dte: 35,
+      dte: c.dte ?? 35,
     });
-    // block:"start" — "nearest" left the payoff pinned to the bottom edge of
-    // the viewport (chart half off-screen), which read as "opens an unusable
-    // chart at the bottom". Bring it to the top so the whole panel is visible.
-    document.getElementById("options-payoff")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setAnalyzeOpen(true);
   }, []);
+  useEffect(() => {
+    if (!analyzeOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setAnalyzeOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [analyzeOpen]);
 
   const rawCands = data?.candidates ?? [];
   // Eligible first (by annualised yield); then NEAR-MISSES — fewest blocks,
@@ -381,10 +390,36 @@ export function OptionsDesk() {
         </div>
       )}
 
-      {/* ── Payoff explorer ────────────────────────────────────── */}
+      {/* ── Analyze modal — big, zoomable payoff for one candidate ── */}
+      {analyzeOpen && (
+        <div
+          onClick={() => setAnalyzeOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.65)",
+                   display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "min(1100px, 96vw)", maxHeight: "92vh", overflowY: "auto",
+                     background: "var(--surface)", border: "1px solid var(--border)",
+                     borderRadius: 12, padding: 16, boxShadow: "0 18px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>
+                Analyze{seed?.symbol ? <span style={{ fontFamily: "var(--font-mono)" }}> · {seed.symbol}</span> : ""} — payoff &amp; greeks
+              </div>
+              <button onClick={() => setAnalyzeOpen(false)} title="Close (Esc)"
+                      style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6,
+                               color: "var(--text-dim)", padding: "4px 10px", cursor: "pointer", fontSize: 13 }}>✕</button>
+            </div>
+            <OptionsPayoff seed={seed} onPlace={placeFromExplorer} placing={busy} chartHeight={430} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Payoff explorer (manual entry) ─────────────────────── */}
       <div id="options-payoff" style={{ marginBottom: 18 }}>
         <SectionTitle>Payoff explorer — max gain / loss / breakeven · place a paper trade</SectionTitle>
-        <OptionsPayoff seed={seed} onPlace={placeFromExplorer} placing={busy} />
+        <OptionsPayoff onPlace={placeFromExplorer} placing={busy} />
       </div>
 
       {/* ── Position watchdog ──────────────────────────────────── */}

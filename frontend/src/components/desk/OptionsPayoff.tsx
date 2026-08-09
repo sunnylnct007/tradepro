@@ -45,7 +45,11 @@ export interface PayoffPlacement {
   iv: number | null;
 }
 
-export function OptionsPayoff({ seed, onPlace, placing }: { seed?: PayoffSeed; onPlace?: (p: PayoffPlacement) => void; placing?: boolean }) {
+export function OptionsPayoff({ seed, onPlace, placing, chartHeight = 240 }: {
+  seed?: PayoffSeed; onPlace?: (p: PayoffPlacement) => void; placing?: boolean;
+  // Taller chart when hosted in the analyze modal — same math, more zoom.
+  chartHeight?: number;
+}) {
   const [structure, setStructure] = useState<Structure>(seed?.structure ?? "CASH_SECURED_PUT");
   const [symbol, setSymbol] = useState(seed?.symbol ?? "");
   const [spot, setSpot] = useState(num(seed?.spot, 100));
@@ -185,7 +189,7 @@ export function OptionsPayoff({ seed, onPlace, placing }: { seed?: PayoffSeed; o
       </div>
 
       {/* dual payoff chart */}
-      <div style={{ height: 240 }}>
+      <div style={{ height: chartHeight }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={m.curve} margin={{ top: 6, right: 12, bottom: 4, left: 0 }}>
             <defs>
