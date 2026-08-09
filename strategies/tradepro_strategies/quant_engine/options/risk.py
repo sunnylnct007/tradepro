@@ -81,6 +81,13 @@ class OptionsRiskConfig:
     dte_min: int = 25
     dte_max: int = 50
     iv_rank_min: float = 30.0          # %
+    # BRIDGE vega gate (OAuth-only architecture, 2026-08-09): while our own
+    # options_iv_daily dataset accumulates toward a trustworthy rank window,
+    # the edge check is IV vs 30d realised vol — the variance risk premium.
+    # ≥1.0 means implied is at least paying for realised; the rank gate takes
+    # over automatically once the window matures (fetch_iv_rank_web sets
+    # iv_rank only then).
+    iv_hv_min: float = 1.0
     # Liquidity gates (§6.1 filter 1, §9.2)
     oi_min: int = 250          # per-strike OI floor. 1,000 was index-level and
     #   rejected every single-name equity strike (KO/F/INTC near-month strikes
@@ -160,7 +167,9 @@ class MarketContext:
     could-not-verify → BLOCK (no false positives)."""
     regime: Regime | None = None
     falling_knife: bool | None = None      # §8 detector result
-    iv_rank: float | None = None           # %, from 52w IV history
+    iv_rank: float | None = None           # %, from accumulated IV history (only set when window honest)
+    iv_hv_ratio: float | None = None       # IV ÷ HV30 — bridge vega gate while the rank window accumulates
+    iv_rank_window_days: int | None = None # depth of the IV dataset behind iv_rank/bridge (for honest reasons)
     open_interest: int | None = None       # near-month OI at the strike
     bid_ask_spread_usd: float | None = None
     premium_mid_usd: float | None = None   # mid of the short leg — scales the spread cap
@@ -256,13 +265,30 @@ def evaluate(
         checked.append("falling_knife")
         blocks.append(f"{candidate.symbol} in FALLING-KNIFE state — short-put / wheel entry blocked (high IV ≠ invitation).")
 
-    # ── Short-premium IV-rank edge (§4, §5.3) ────────────────────────────
+    # ── Short-premium vega edge (§4, §5.3) ───────────────────────────────
+    # Two-tier: IV-Rank when our accumulated IV dataset is deep enough to be
+    # honest (caller only sets iv_rank then); otherwise the IV/HV-ratio BRIDGE
+    # (variance risk premium) — passed loudly as a warning so nobody mistakes
+    # it for the rank gate. Neither available → BLOCK (no false positives).
     if s in SHORT_PREMIUM_STRUCTURES:
         checked.append("iv_rank")
-        if ctx.iv_rank is None:
+        _win = (f" (IV dataset {ctx.iv_rank_window_days}d deep)"
+                if ctx.iv_rank_window_days is not None else "")
+        if ctx.iv_rank is not None:
+            if ctx.iv_rank < cfg.iv_rank_min:
+                blocks.append(f"IV-Rank {ctx.iv_rank:.0f}% < {cfg.iv_rank_min:.0f}% — premium too cheap, skip.")
+        elif ctx.iv_hv_ratio is not None:
+            checked.append("iv_hv_bridge")
+            if ctx.iv_hv_ratio < cfg.iv_hv_min:
+                blocks.append(
+                    f"IV/HV {ctx.iv_hv_ratio:.2f} < {cfg.iv_hv_min:.2f} — implied vol not rich vs "
+                    f"realised, no premium edge (bridge gate{_win}; rank gate takes over as the dataset matures).")
+            else:
+                warnings.append(
+                    f"Vega edge passed on the IV/HV BRIDGE ({ctx.iv_hv_ratio:.2f} ≥ {cfg.iv_hv_min:.2f})"
+                    f"{_win} — not the 52w IV-Rank gate; treat as provisional until the rank window matures.")
+        else:
             blocks.append("IV-Rank unavailable — cannot confirm the vega edge for selling premium.")
-        elif ctx.iv_rank < cfg.iv_rank_min:
-            blocks.append(f"IV-Rank {ctx.iv_rank:.0f}% < {cfg.iv_rank_min:.0f}% — premium too cheap, skip.")
 
     # ── Greek entry gates (§9.2) ─────────────────────────────────────────
     checked.append("delta")

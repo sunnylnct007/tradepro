@@ -48,6 +48,62 @@ public static class OptionsEndpoints
             return Results.Ok(new { ok = true });
         });
 
+        // ── IV-history dataset (OAuth-only IV-Rank, migration 061) ───
+        // The Mac/AWS screen job snapshots current IV (IBKR Web API field
+        // 7283) per wheel underlying and upserts it here daily; IV-Rank is
+        // then computed from OUR accumulated series — the honest replacement
+        // for the retired Gateway's OPTION_IMPLIED_VOLATILITY history.
+        g.MapPost("/iv-daily", async (IvDailyBatchBody body, NpgsqlDataSource db) =>
+        {
+            if (body?.Rows is null || body.Rows.Count == 0)
+                return Results.BadRequest(new { error = "rows required" });
+            var bad = body.Rows.FirstOrDefault(r =>
+                string.IsNullOrWhiteSpace(r.Symbol) || r.Iv <= 0 || r.Iv > 5.0);
+            if (bad is not null)
+                return Results.BadRequest(new
+                {
+                    error = $"invalid row for '{bad?.Symbol}': iv must be a fraction in (0, 5] "
+                          + "(0.25 = 25% annualised) — refusing to poison the rank dataset",
+                });
+            await using var conn = await db.OpenConnectionAsync();
+            foreach (var r in body.Rows)
+            {
+                await conn.ExecuteAsync(@"
+                    INSERT INTO options_iv_daily (symbol, trade_date, iv, hv30, source)
+                    VALUES (@Symbol, COALESCE(@TradeDate::date, CURRENT_DATE), @Iv, @Hv30,
+                            COALESCE(@Source, 'ibkr_web_7283'))
+                    ON CONFLICT (symbol, trade_date) DO UPDATE SET
+                        iv = EXCLUDED.iv, hv30 = EXCLUDED.hv30,
+                        source = EXCLUDED.source, captured_at_utc = NOW();",
+                    new { Symbol = r.Symbol.Trim().ToUpperInvariant(), r.TradeDate, r.Iv, r.Hv30, r.Source });
+            }
+            return Results.Ok(new { ok = true, upserted = body.Rows.Count });
+        });
+
+        // Accumulated IV series for one symbol, oldest→newest, capped to ~52w.
+        // The caller (iv_rank_from_history) decides whether the window is deep
+        // enough to call the result a rank — this endpoint just serves the data
+        // plus the window depth so nobody has to guess.
+        g.MapGet("/iv-daily/{symbol}", async (string symbol, NpgsqlDataSource db, int? days) =>
+        {
+            var sym = symbol.Trim().ToUpperInvariant();
+            var window = days is > 0 and <= 400 ? days.Value : 370;
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = (await conn.QueryAsync(@"
+                SELECT trade_date, iv, hv30, source
+                FROM options_iv_daily
+                WHERE symbol = @sym AND trade_date >= CURRENT_DATE - @window
+                ORDER BY trade_date ASC;",
+                new { sym, window })).AsList();
+            return Results.Ok(new
+            {
+                symbol = sym,
+                days = rows.Count,
+                windowDays = window,
+                series = rows,
+            });
+        });
+
         // ── Paper wheel positions (BRD §11 ledger) ──────────────────
         // Record a paper CSP entry + its risk-engine verdict; list/track them.
         g.MapGet("/positions", async (NpgsqlDataSource db, string? state) =>
@@ -123,8 +179,13 @@ public static class OptionsEndpoints
         // G3 already uses (GetSnapshotRawAsync field 31), so a symbol that fails
         // to resolve surfaces spot=null + a visible reason rather than a fabricated
         // "all clear" (NO FALSE POSITIVES). Read-only — never mutates a position.
-        g.MapGet("/watchdog", async (NpgsqlDataSource db, IBKRClient ibkr, CancellationToken ct) =>
+        g.MapGet("/watchdog", async (NpgsqlDataSource db, IBKRClient ibkr, CancellationToken ct,
+            decimal? profitTarget) =>
         {
+            // The wheel's profit-capture rule: captured ≥ this % of the entry
+            // premium → suggest closing and redeploying (owner: "75% recovered
+            // — roll it off to a better one"). Query-tunable for the UI knob.
+            var target = profitTarget is > 0 and <= 100 ? profitTarget.Value : 75m;
             await using var conn = await db.OpenConnectionAsync(ct);
             var rows = (await conn.QueryAsync(@"
                 SELECT id, symbol, structure, state, strike::float8 AS strike,
@@ -206,6 +267,61 @@ public static class OptionsEndpoints
                 bool deadCollateral = distancePct is decimal d && d > 20m
                     && daysToExpiry is int dte && dte > 15;
 
+                // Live option mark → premium-captured % → the roll rule. Chain
+                // resolution is per-position (months → contract at the stored
+                // strike → snapshot); max_positions caps this at a handful of
+                // IBKR calls. Any failure = mark null + visible reason — the
+                // suggestion then simply doesn't render (never fabricated).
+                decimal? currentMark = null;
+                string? markError = null;
+                var right = (string)r.structure == "COVERED_CALL" ? "C" : "P";
+                decimal? entryPremium = (decimal?)(double?)r.premium;
+                if (strike is decimal k2 && expiry is DateOnly exp && daysToExpiry is > 0)
+                {
+                    try
+                    {
+                        var monthLabel = ExpiryToMonthLabel(exp);
+                        var mr = await ibkr.GetOptionMonthsAsync(symbol, ct);
+                        if (mr.Error is not null || mr.ConId is null)
+                            markError = mr.Error ?? $"no underlying contract for {symbol}";
+                        else if (!mr.Months.Contains(monthLabel, StringComparer.OrdinalIgnoreCase))
+                            markError = $"expiry month {monthLabel} not in listed months ({string.Join(",", mr.Months.Take(6))})";
+                        else
+                        {
+                            var cr = await ibkr.GetOptionContractsAsync(mr.ConId.Value, monthLabel, k2, right, ct);
+                            var contract = cr.Contracts.FirstOrDefault();
+                            if (contract is null)
+                                markError = cr.Error ?? $"no {right} contract at strike {k2} {monthLabel}";
+                            else
+                            {
+                                var qr = await ibkr.GetOptionSnapshotBatchAsync(new[] { contract.ConId }, ct);
+                                var q = qr.Quotes.FirstOrDefault();
+                                if (q is not null && (q.Bid is null && q.Ask is null && q.Last is null))
+                                {
+                                    // Same snapshot warm-up quirk as spot above.
+                                    await Task.Delay(TimeSpan.FromSeconds(1.2), ct);
+                                    qr = await ibkr.GetOptionSnapshotBatchAsync(new[] { contract.ConId }, ct);
+                                    q = qr.Quotes.FirstOrDefault();
+                                }
+                                if (q is null)
+                                    markError = qr.Error ?? "no option quote returned";
+                                else if (q.Bid is decimal b2 && q.Ask is decimal a2 && a2 >= b2 && b2 >= 0)
+                                    currentMark = Math.Round((b2 + a2) / 2m, 4);
+                                else if (q.Last is decimal l2 && l2 > 0)
+                                    currentMark = l2;   // stale-but-real; better than nothing, still not fabricated
+                                else
+                                    markError = "option quote had no usable bid/ask/last after warm-up retry";
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        markError = ex.Message;
+                    }
+                }
+                var capturedPct = PremiumCapturedPct(entryPremium, currentMark);
+                var suggestion = RollSuggestion(capturedPct, moneyness, target);
+
                 alerts.Add(new WatchdogAlert(
                     Id: (long)r.id,
                     Symbol: symbol,
@@ -222,12 +338,17 @@ public static class OptionsEndpoints
                     DeadCollateral: deadCollateral,
                     Contracts: (int)r.contracts,
                     CashSecuredGbp: (decimal?)(double?)r.cash_secured_gbp,
-                    Premium: (decimal?)(double?)r.premium));
+                    Premium: entryPremium,
+                    CurrentMark: currentMark,
+                    MarkError: markError,
+                    PremiumCapturedPct: capturedPct,
+                    Suggestion: suggestion));
             }
 
             var needsAttention = alerts.Count(a =>
                 a.ExpiryUrgency is "urgent" or "expired" || a.DeadCollateral
-                || a.Moneyness == "ITM (assignment risk)");
+                || a.Moneyness == "ITM (assignment risk)"
+                || a.Suggestion is not null);
 
             return Results.Ok(new
             {
@@ -241,6 +362,43 @@ public static class OptionsEndpoints
         return app;
     }
 
+    // ── Pure helpers (unit-tested) ───────────────────────────────────
+
+    /// <summary>IBKR month label for an expiry date — "SEP26" for 2026-09-18.
+    /// The chain endpoints key months by this label, so the watchdog can find
+    /// the live mark for a stored position's expiry.</summary>
+    public static string ExpiryToMonthLabel(DateOnly expiry)
+        => expiry.ToString("MMM", System.Globalization.CultureInfo.InvariantCulture).ToUpperInvariant()
+           + expiry.ToString("yy", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Share of the entry premium already captured by a SHORT option:
+    /// (entry − current mark) / entry × 100. Positive = winning (option decayed);
+    /// negative = the short is under water. Null when either input is missing or
+    /// the entry premium is non-positive — never a fabricated 0%.</summary>
+    public static decimal? PremiumCapturedPct(decimal? entryPremium, decimal? currentMark)
+    {
+        if (entryPremium is not > 0m || currentMark is null) return null;
+        return Math.Round((entryPremium.Value - currentMark.Value) / entryPremium.Value * 100m, 1);
+    }
+
+    /// <summary>The wheel's management rule (owner's "75% recovered — roll it
+    /// to a better one"): captured ≥ target → close and redeploy the collateral
+    /// into the screen's current best candidate; short put gone ITM → the
+    /// decision is roll-vs-accept-assignment. Null = leave it alone.</summary>
+    public static string? RollSuggestion(decimal? capturedPct, string? moneyness, decimal profitTargetPct)
+    {
+        if (moneyness is not null && moneyness.StartsWith("ITM", StringComparison.Ordinal))
+            return "ROLL_OR_ACCEPT_ASSIGNMENT";
+        if (capturedPct is decimal c && c >= profitTargetPct)
+            return "CLOSE_AND_REDEPLOY";
+        return null;
+    }
+
+    public sealed record IvDailyRow(
+        string Symbol, string? TradeDate, double Iv, double? Hv30, string? Source);
+
+    public sealed record IvDailyBatchBody(List<IvDailyRow> Rows);
+
     public sealed record PaperPositionBody(
         string Symbol, string? Structure, string? State, decimal? Strike, string? Expiry,
         int? Dte, decimal? Delta, decimal? IvRank, decimal? Premium, int? Contracts,
@@ -252,5 +410,7 @@ public static class OptionsEndpoints
         long Id, string Symbol, string Structure, string State,
         decimal? Strike, DateOnly? Expiry, int? DaysToExpiry, string ExpiryUrgency,
         decimal? Spot, string? SpotError, decimal? DistancePct, string? Moneyness,
-        bool DeadCollateral, int Contracts, decimal? CashSecuredGbp, decimal? Premium);
+        bool DeadCollateral, int Contracts, decimal? CashSecuredGbp, decimal? Premium,
+        decimal? CurrentMark = null, string? MarkError = null,
+        decimal? PremiumCapturedPct = null, string? Suggestion = null);
 }

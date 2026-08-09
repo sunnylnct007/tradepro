@@ -157,11 +157,16 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     gate, which is the correct behaviour when that gate's input is
     genuinely unavailable, not a crash.
     """
-    if ib is not None:
+    # IV metrics — OAuth Web API FIRST (owner decision 2026-08-09: no local
+    # Gateway; code must be runnable off-Mac). fetch_iv_rank_web snapshots
+    # current IV + HV30, grows the options_iv_daily dataset, and serves
+    # IV-Rank from OUR history once the window matures (IV/HV bridge until
+    # then). The Gateway path survives only as a fallback when a connected
+    # `ib` happens to exist (it serves a true 52w rank immediately).
+    from ..quant_engine.options.iv_rank import fetch_iv_rank_web
+    ivr = fetch_iv_rank_web(sym)
+    if not ivr.available and ib is not None:
         ivr = fetch_iv_rank(sym, ib=ib)
-    else:
-        from ..quant_engine.options.iv_rank import IvRankResult
-        ivr = IvRankResult(sym, available=False, reason="IBKR Gateway unreachable — IV-Rank needs its 52w OPTION_IMPLIED_VOLATILITY history, no non-Gateway source exists yet")
 
     # Daily closes for the regime (Ichimoku on the bar cache — yfinance-
     # backed, the same source get_market_state/the digest already use.
@@ -280,6 +285,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         regime=Regime(regime) if regime else None,
         falling_knife=falling_knife,
         iv_rank=ivr.iv_rank if ivr.available else None,
+        iv_hv_ratio=ivr.iv_hv_ratio if ivr.available else None,
+        iv_rank_window_days=ivr.days if ivr.available else None,
         open_interest=oi, bid_ask_spread_usd=spread,
         premium_mid_usd=premium,   # scales the spread cap (relative, not $0.10 flat)
         earnings_in_expiry_window=earnings_in_window,
@@ -328,8 +335,13 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     return {
         "symbol": sym,
         "regime": regime,
-        "iv_rank": round(ivr.iv_rank, 1) if ivr.available else None,
-        "iv": round(ivr.iv, 4) if ivr.available else None,
+        "iv_rank": round(ivr.iv_rank, 1) if (ivr.available and ivr.iv_rank is not None) else None,
+        "iv": round(ivr.iv, 4) if (ivr.available and ivr.iv is not None) else None,
+        "iv_hv_ratio": ivr.iv_hv_ratio if ivr.available else None,
+        "iv_rank_days": ivr.days if ivr.available else None,
+        "vega_gate": ("rank" if (ivr.available and ivr.iv_rank is not None)
+                      else "bridge" if (ivr.available and ivr.iv_hv_ratio is not None)
+                      else None),
         "open_interest": oi,
         "spread_usd": spread,
         "eligible": decision.allowed,
