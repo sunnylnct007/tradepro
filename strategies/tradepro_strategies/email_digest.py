@@ -218,6 +218,60 @@ def _earnings_degraded_banner(payloads: list[dict], items: list[dict]) -> str | 
     )
 
 
+def _verdict_funnel_summary(payloads: list[dict]) -> str | None:
+    """THE answer to "0 BUY — how is that even possible in a market"
+    (owner, 10 Aug 2026): aggregate every symbol's verdict_funnel (attached
+    by compare.py) into one visible pipeline — how many names were
+    technical BUYs, and which gate took each of them out. Market judgment
+    (sentiment / earnings windows) and DATA problems (LLM gaps) stop being
+    byte-identical "0 BUY" outputs. None when no row carries funnel data
+    (older payloads) — never a fabricated funnel."""
+    from collections import Counter
+    seen: set[str] = set()
+    tech_buys = 0
+    final_buys = 0
+    causes: Counter[str] = Counter()
+    for env in payloads:
+        p = env.get("payload", env)
+        for row in p.get("rows") or []:
+            sym = row.get("symbol")
+            fn = row.get("verdict_funnel")
+            if not sym or sym in seen or not isinstance(fn, dict):
+                continue
+            seen.add(sym)
+            started_buy = fn.get("technical") == "BUY" or fn.get("consensus") == "BUY"
+            if not started_buy:
+                continue
+            tech_buys += 1
+            if fn.get("final") == "BUY":
+                final_buys += 1
+            else:
+                dem = fn.get("demotions") or []
+                causes[dem[0] if dem else "consensus_vote"] += 1
+    if not seen or tech_buys == 0:
+        return None
+    label = {
+        "sentiment": "news sentiment",
+        "swing_strict_sentiment": "swing-strict sentiment",
+        "horizon_range": "near-highs/horizon",
+        "low_conviction": "low conviction",
+        "llm_data_gap": "LLM verification gap (DATA)",
+        "entry_quality": "entry-quality (RS/volume)",
+        "consensus_vote": "strategy consensus",
+    }
+    parts = [
+        f"{n}× {label.get(c, c)}" if not c.startswith("earnings_veto")
+        else f"{n}× earnings window ({c.split(':', 1)[1]})"
+        for c, n in causes.most_common()
+    ]
+    return (
+        f"VERDICT FUNNEL: {tech_buys} technical BUY → {final_buys} survived. "
+        f"Removed by: {', '.join(parts)}."
+        if parts else
+        f"VERDICT FUNNEL: {tech_buys} technical BUY → {final_buys} survived."
+    )
+
+
 def _best_row_for_symbol(rows: list[dict]) -> dict | None:
     """The comparator pushes one row per (symbol, strategy). Pick the
     rank-1 row for each symbol — that's what the Compare page shows."""
@@ -1023,7 +1077,8 @@ def build_digest(
 
     staleness_banner = _staleness_banner(payloads)
     earnings_banner = _earnings_degraded_banner(payloads, buys + avoids + waits)
-    banner = " ".join(b for b in (staleness_banner, earnings_banner) if b) or None
+    funnel_line = _verdict_funnel_summary(payloads)
+    banner = " ".join(b for b in (staleness_banner, earnings_banner, funnel_line) if b) or None
     summary = _summary_card(
         buys, waits, avoids, holdings or [], banner,
         portfolio_mode=portfolio_mode,

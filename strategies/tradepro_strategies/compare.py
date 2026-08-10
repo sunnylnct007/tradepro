@@ -549,6 +549,13 @@ def _attach_bucket_and_rationale(
             long_count=long_count,
             total=total,
         )
+        # Verdict FUNNEL (owner 10 Aug 2026: "0 BUY — how is that even
+        # possible in a market"): record where each symbol's bucket came
+        # from and every demotion that moved it, so the digest can show
+        # "N technical BUYs -> M final" split by cause — market judgment
+        # vs data problems must never be indistinguishable.
+        _funnel_demotions: list[str] = []
+        _bucket_consensus = bucket
 
         # Two-tier sentiment demotion via the standalone helper —
         # same logic, now testable in isolation. See
@@ -574,6 +581,10 @@ def _attach_bucket_and_rationale(
             mean=ss.get("mean_sentiment"),
             material_negative_count=ss.get("material_negative_count", 0),
         )
+        if sentiment_demoted:
+            _funnel_demotions.append("sentiment")
+        if swing_strict_demoted:
+            _funnel_demotions.append("swing_strict_sentiment")
         sentiment_demoted = sentiment_demoted or swing_strict_demoted
 
         # Horizon-veto + extreme-range demotion. Fixes the QUAL/USMV-
@@ -606,6 +617,10 @@ def _attach_bucket_and_rationale(
         bucket, reason, conviction_demoted = cap_bucket_at_low_conviction(
             bucket=bucket, reason=reason, conviction=conviction,
         )
+        if horizon_demoted:
+            _funnel_demotions.append("horizon_range")
+        if conviction_demoted:
+            _funnel_demotions.append("low_conviction")
 
         # Earnings-proximity GATE — session-based 5-state classification
         # (pre-blackout / post-digest = veto, post-drift / unknown = penalty),
@@ -658,6 +673,7 @@ def _attach_bucket_and_rationale(
         if _eg_dec.action == "veto":
             if bucket == "BUY":
                 bucket = "WAIT"
+                _funnel_demotions.append(f"earnings_veto:{_eg_dec.flag or _eg_state.value}")
             if conviction == "HIGH":
                 conviction = "MEDIUM"
             reason = f"{reason} | earnings gate: {_eg_dec.reason}" if reason else _eg_dec.reason
@@ -682,9 +698,12 @@ def _attach_bucket_and_rationale(
         # let a confident verdict ride on unverified inputs. (earnings/valuation
         # gaps need an asset-class signal not present here — wired later.)
         data_gaps = collect_data_gaps(available={"llm": llm_healthy})
+        _bucket_before_gap = bucket
         bucket, conviction, reason, _gap_capped = apply_data_gap_integrity(
             bucket=bucket, conviction=conviction, reason=reason, gaps=data_gaps,
         )
+        if _gap_capped and _bucket_before_gap != bucket:
+            _funnel_demotions.append("llm_data_gap")
 
         # Exit framework — ② of the Alpha Engine. Compute stop_loss /
         # take_profit at signal time so the UI / IBKR card has the
@@ -840,6 +859,7 @@ def _attach_bucket_and_rationale(
         if bucket == "BUY":
             if _eq.action == "veto":
                 bucket = "WAIT"
+                _funnel_demotions.append("entry_quality")
                 reason = f"{reason} · entry-quality veto: {entry_quality_info['summary']}"
                 if conviction == "HIGH":
                     conviction = "MEDIUM"
@@ -852,6 +872,12 @@ def _attach_bucket_and_rationale(
         for r in sym_rows:
             r["bucket"] = bucket
             r["bucket_reason"] = reason
+            r["verdict_funnel"] = {
+                "technical": price_verdict,
+                "consensus": _bucket_consensus,
+                "final": bucket,
+                "demotions": list(_funnel_demotions),
+            }
             r["sentiment_demoted"] = sentiment_demoted
             # Factor-fit metadata so the UI / MCP can render
             # "N of M currently long (X strategies excluded for fit)"
