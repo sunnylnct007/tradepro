@@ -146,7 +146,11 @@ def fetch_chain_g3(
             bid=float(bid or 0.0),
             ask=float(ask or 0.0),
             iv=(float(iv_pct) / 100.0) if iv_pct is not None else 0.0,
-            open_interest=int(leg.get("openInterest") or 0),
+            # None stays None (source didn't serve OI — gate says "unavailable");
+            # int() only on a REAL number. `or 0` here fabricated "OI 0 —
+            # illiquid" on names with 20k+ true OI (AAPL, verified 9 Aug 2026).
+            open_interest=(int(leg["openInterest"])
+                           if leg.get("openInterest") is not None else None),
             delta=(float(delta) if delta is not None else None),
         )
 

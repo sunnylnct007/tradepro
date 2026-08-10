@@ -153,7 +153,8 @@ def fetch_chain_ibkr(
             iv = float(mg.impliedVol) if (mg and mg.impliedVol and mg.impliedVol > 0) else 0.0
             bid = float(tk.bid) if (tk.bid and tk.bid > 0) else 0.0
             ask = float(tk.ask) if (tk.ask and tk.ask > 0) else 0.0
-            oi = int(tk.putOpenInterest) if getattr(tk, "putOpenInterest", None) else 0
+            # None = OI not served (gate says unavailable) — never a fake 0.
+            oi = int(tk.putOpenInterest) if getattr(tk, "putOpenInterest", None) else None
             quotes.append(OptionQuote(kind="put", strike=float(p.strike),
                                       bid=bid, ask=ask, iv=iv, open_interest=oi))
             with contextlib.suppress(Exception):

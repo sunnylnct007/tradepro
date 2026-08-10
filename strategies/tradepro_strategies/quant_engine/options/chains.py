@@ -24,7 +24,11 @@ class OptionQuote:
     bid: float
     ask: float
     iv: float                   # implied vol (decimal); may be model-filled
-    open_interest: int = 0      # contracts outstanding (liquidity gate)
+    # None = the source didn't SERVE OI (unwarmed IBKR snapshot field) — the
+    # risk gate then honestly says "OI unavailable". 0 must mean a REAL zero.
+    # Coercing None→0 here fabricated "OI 0 — illiquid" verdicts on mega-caps
+    # whose true OI was 20k+ (verified live vs AAPL SEP26 300P, 9 Aug 2026).
+    open_interest: int | None = 0   # contracts outstanding (liquidity gate)
     # Real broker-reported delta (signed; put deltas negative), when the
     # source provides one (G3/IBKR tick greeks). None for adapters that only
     # give strike/bid/ask/IV (yfinance) — delta_of() then falls back to a
@@ -116,7 +120,10 @@ def fetch_chain(symbol: str, target_dte: int = 45, *, pricer: BlackScholesPricer
             for _, r in df.iterrows():
                 strike = float(r["strike"]); bid = float(r.get("bid") or 0); ask = float(r.get("ask") or 0)
                 iv = float(r.get("impliedVolatility") or 0)
-                oi = int(r.get("openInterest") or 0)
+                # NaN/None OI = "not served" → None (gate says unavailable),
+                # never a fabricated 0 (= "illiquid").
+                _oi_raw = r.get("openInterest")
+                oi = int(_oi_raw) if (_oi_raw is not None and math.isfinite(float(_oi_raw))) else None
                 mid = (bid + ask) / 2.0 if bid > 0 and ask > 0 else (ask or bid)
                 if (not iv or iv <= 0) and mid > 0 and t > 0:
                     solved = pricer.implied_vol(mid, spot, strike, t, kind)

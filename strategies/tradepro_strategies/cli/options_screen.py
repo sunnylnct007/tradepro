@@ -98,6 +98,18 @@ def _earnings_in_window(symbol: str, dte: int) -> bool | None:
         return None
 
 
+def sane_csp_pick(abs_delta: float | None, strike: float | None, spot: float | None) -> bool:
+    """Sanity assertion on a suggested CSP strike (external review 9 Aug 2026,
+    owner-approved: WMB rendered a Δ0.92 put 13% ITM as a 'suggestion' — a
+    synthetic long, not a CSP). Sparse/stale chains can make nearest-to-0.27
+    selection land on garbage; a pick is only render-worthy when it is OTM
+    (strike < spot) with |delta| in 0.15–0.40. Anything else = NO suggestion
+    (the row then blocks honestly on 'delta unavailable / no usable strike')."""
+    if abs_delta is None or strike is None or spot is None or spot <= 0:
+        return False
+    return (0.15 <= abs_delta <= 0.40) and strike < spot
+
+
 def _mid(vals: list[float], i: int, n: int) -> float | None:
     if i + 1 < n:
         return None
@@ -329,6 +341,16 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     chain_source = "yfinance"
         except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (fail-visible)
             log.warning("%s yfinance chain fetch failed: %s", sym, e)
+
+    # Sanity assertion on the pick (applies to ALL three chain sources): an
+    # ITM or out-of-band "suggestion" is worse than none — null the pick so
+    # the row blocks honestly instead of rendering a synthetic long as a CSP.
+    if strike is not None and not sane_csp_pick(delta, strike, ref_close):
+        log.warning(
+            "%s: rejecting insane CSP pick (strike %s, |delta| %s, spot %s) — "
+            "sparse/stale chain; no suggestion rendered", sym, strike, delta, ref_close)
+        strike = delta = premium = oi = spread = bid = ask = chain_iv = None
+        notional_gbp = None
 
     # ETFs have no earnings event — structural False (a fact of the security
     # type), NOT a skipped check. Single names still go through the calendar

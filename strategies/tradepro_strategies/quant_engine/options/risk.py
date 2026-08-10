@@ -155,6 +155,11 @@ class OptionsRiskConfig:
             max_positions=_i("TRADEPRO_WHEEL_MAX_POSITIONS", d.max_positions),
             min_premium_usd=_f("TRADEPRO_WHEEL_MIN_PREMIUM_USD", d.min_premium_usd),
             min_ann_yield_pct=_f("TRADEPRO_WHEEL_MIN_ANN_YIELD_PCT", d.min_ann_yield_pct),
+            # Bridge vega threshold — external review (9 Aug) fairly noted a
+            # hard 1.0 veto rejects nearly everything in an IV-crush tape;
+            # keep the default but let the operator run it looser/tighter.
+            iv_hv_min=_f("TRADEPRO_WHEEL_IV_HV_MIN", d.iv_hv_min),
+            iv_rank_min=_f("TRADEPRO_WHEEL_IV_RANK_MIN", d.iv_rank_min),
         )
 
 
