@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.tradepro.ibkr-health-probe</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>export PATH="/opt/homebrew/bin:/opt/anaconda3/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-ibkr-health-probe</string>
+    </array>
+    <key>StartInterval</key><integer>900</integer>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>/Users/skumar/.tradepro/logs/ibkr-health-probe.log</string>
+    <key>StandardErrorPath</key><string>/Users/skumar/.tradepro/logs/ibkr-health-probe.err</string>
+</dict>
+</plist>
