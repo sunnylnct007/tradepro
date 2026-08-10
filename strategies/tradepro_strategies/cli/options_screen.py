@@ -60,6 +60,12 @@ DEFAULT_UNIVERSE = [
     # ETFs — natural wheel underlyings: deep chains and STRUCTURALLY no
     # earnings event inside any expiry window (see _ETF_UNDERLYINGS).
     "XLE", "XLF", "XLI", "XLU", "GDX", "SLV", "TLT", "IWM", "KRE",
+    # owner's IBKR "TradePro-Screen" watchlist merge (10 Aug 2026 — "is the
+    # list based on my IBKR watchlist?" — it is now): the equities from that
+    # watchlist not already above. Watchlist edits still need a manual sync
+    # here (auto-sync = future work; the MCP watchlist API is session-side).
+    "ACN", "TSLA", "GS", "MS", "META", "UBER", "DIS", "HOOD", "MRVL",
+    "APLD", "AMZN", "PLTR", "IBKR",
 ]
 
 # ETFs have no earnings — the blackout gate gets a structural False, not a

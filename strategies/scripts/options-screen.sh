@@ -27,6 +27,11 @@ export TRADEPRO_WHEEL_POT_GBP=30000
 export TRADEPRO_WHEEL_MAX_DEPLOY_GBP=25000
 export TRADEPRO_WHEEL_PER_POSITION_GBP=25000
 export TRADEPRO_WHEEL_MAX_POSITIONS=2
+# Vega-edge bridge threshold — OWNER DECISION 10 Aug 2026 ("0.96 might be
+# fine"): 0.95 instead of the 1.00 default. Slightly under-paying premium is
+# acceptable to the owner in exchange for participation; revisit with the
+# paper-ledger scoreboard after a few completed cycles.
+export TRADEPRO_WHEEL_IV_HV_MIN=0.95
 UV="$(command -v uv || true)"
 [[ -x "$UV" ]] || { log "FATAL: uv not found"; exit 1; }
 
