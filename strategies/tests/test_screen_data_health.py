@@ -26,7 +26,7 @@ class TestScreenDataHealth:
         h = screen_data_health(rows, market_open=False)
         assert h["degraded"] is True
         assert h["iv_dark_count"] == 5
-        assert "DATA-DEGRADED RUN" in h["summary"]
+        assert "GAPS" in h["summary"]
         assert "5/10" in h["summary"]
 
     def test_closed_market_wording_blames_data_not_market(self):

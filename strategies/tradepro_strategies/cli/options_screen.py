@@ -499,17 +499,22 @@ def screen_data_health(rows: list[dict], market_open: bool) -> dict:
         reasons.append(f"{no_chain}/{len(rows)} symbols returned no usable chain from any provider")
     if no_premium:
         reasons.append(f"{no_premium}/{len(rows)} symbols have no premium quote")
-    ctx_note = ("market CLOSED — IBKR should still serve the last session's "
-                "(e.g. Friday-close) snapshot, so these gaps are DATA issues to fix, "
-                "not market absence" if not market_open else "market OPEN")
+    ctx_note = ("market CLOSED — screened on the LAST-AVAILABLE session's data; "
+                "IBKR still serves that snapshot, so the gaps listed are DATA "
+                "issues to fix, not market absence" if not market_open else "market OPEN")
     return {
         "degraded": degraded,
         "iv_dark_count": iv_dark,
         "no_chain_count": no_chain,
         "no_premium_count": no_premium,
         "symbols": len(rows),
-        "summary": (f"DATA-DEGRADED RUN ({ctx_note}): " + "; ".join(reasons)
-                    + ". Verdicts are provisional until the data gaps clear.")
+        # Framing matters (owner): the screen DID run on last-available data
+        # and the verdicts below stand on what was verifiable — the banner
+        # names what's missing, it does not mean "nothing ran".
+        "summary": (f"Screened on last-available data with GAPS ({ctx_note}): "
+                    + "; ".join(reasons)
+                    + ". Rows using verified data stand; the listed gaps block only their own gates "
+                    + "and re-check on the next run.")
                    if degraded and reasons else
                    f"Data healthy: {len(rows)} symbols screened ({ctx_note}).",
     }

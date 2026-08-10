@@ -394,17 +394,23 @@ export function OptionsDesk() {
                     {c.size_fit_pct != null ? `${c.size_fit_pct.toFixed(1)}%` : "—"}
                   </td>
                   <td
-                    style={{ padding: "8px 10px", color: c.eligible ? TONE.warn : TONE.bad, maxWidth: 300,
-                             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                    style={{ padding: "8px 10px", color: c.eligible ? TONE.warn : TONE.bad,
+                             maxWidth: 360, minWidth: 240, fontSize: 11, lineHeight: 1.45,
+                             // Wrap up to 3 lines — single-line ellipsis HID the
+                             // reason entirely at narrow widths (owner: "text
+                             // gets hidden, I can't see them"). Full list stays
+                             // in the hover tooltip.
+                             display: "-webkit-box", WebkitLineClamp: 3,
+                             WebkitBoxOrient: "vertical", overflow: "hidden",
+                             whiteSpace: "normal", overflowWrap: "anywhere" }}
                     title={[...(c.blocks ?? []), ...(c.warnings ?? [])].join("\n") || undefined}
                   >
                     {(() => {
-                      // One PRIMARY reason per row; the rest live in the hover
-                      // tooltip. 66 rows × every block joined was unreadable.
+                      // PRIMARY reason wrapped-visible; the rest in the tooltip.
                       const list = c.blocks?.length ? c.blocks : (c.warnings ?? []);
                       if (!list.length) return c.eligible ? "all gates pass" : "—";
                       const extra = list.length - 1;
-                      return <>{list[0]}{extra > 0 && <span style={{ color: "var(--text-muted)" }}> +{extra} more</span>}</>;
+                      return <>{list[0]}{extra > 0 && <span style={{ color: "var(--text-muted)" }}> +{extra} more (hover)</span>}</>;
                     })()}
                   </td>
                   <td style={{ padding: "8px 10px" }}>
