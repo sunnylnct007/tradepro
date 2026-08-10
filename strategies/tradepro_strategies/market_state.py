@@ -130,6 +130,14 @@ class MarketState:
     # only firing on light volume. None when the price feed has no
     # volume column (some indices) or < 21 bars.
     volume_ratio_20d: float | None = None
+    # Post-event gap quarantine (SHOP 2026-08-09 external review, owner-
+    # approved): a single-session move beyond ~3σ on heavy volume within the
+    # last 5 sessions means AN EVENT HAPPENED (earnings-like) — regardless of
+    # what the earnings calendar could or couldn't verify. Any BUY is then
+    # demoted to WAIT: every technical input on the row (RSI, momentum,
+    # %-off-high) was manufactured by the event reaction, and buying it is
+    # chasing. Dict {sessions_ago, ret_pct, vol_ratio} or None.
+    post_event_gap: dict | None = None
     # Wilder's 14-day Average True Range — absolute-price volatility,
     # not a percentage. Used for volatility-aware position sizing
     # ("don't risk more than X per trade") and ATR-multiplier stops
@@ -186,6 +194,7 @@ class MarketState:
             "decision_trace": list(self.decision_trace),
             "closes_30d": list(self.closes_30d),
             "volume_ratio_20d": self.volume_ratio_20d,
+            "post_event_gap": (dict(self.post_event_gap) if self.post_event_gap else None),
             "atr_14": self.atr_14,
             "atr_14_pct": self.atr_14_pct,
             "ichimoku_cloud_position": self.ichimoku_cloud_position,
@@ -212,6 +221,57 @@ def _annual_vol_pct(closes: pd.Series, lookback: int = 30) -> float | None:
     if rets.std() == 0 or rets.empty:
         return None
     return float(rets.std() * (252 ** 0.5) * 100.0)
+
+
+def _post_event_gap(
+    closes: pd.Series,
+    volume: pd.Series | None,
+    *,
+    lookback_sessions: int = 5,
+    sigma_mult: float = 3.0,
+    vol_mult: float = 3.0,
+) -> dict | None:
+    """Detect an earnings-like EVENT in the last `lookback_sessions`: one
+    session whose return exceeds `sigma_mult`× the trailing 20d return
+    stdev AND (when volume exists) whose volume ran ≥ `vol_mult`× the
+    trailing 20d average. Calendar-independent by design (external review,
+    SHOP 2026-08-05: +17% on ~3.6× volume while the earnings feed said
+    "date unavailable" — the gate must not depend on the feed that's dead).
+    Without a volume column the return test alone must clear a 6% absolute
+    floor as well — a 3σ move on a sleepy index isn't automatically an event."""
+    if closes is None or len(closes) < 30:
+        return None
+    rets = closes.pct_change()
+    for ago in range(1, lookback_sessions + 1):
+        i = len(closes) - ago
+        if i < 22:
+            break
+        r = rets.iloc[i]
+        if r is None or pd.isna(r):
+            continue
+        trailing = rets.iloc[i - 20:i].dropna()
+        if len(trailing) < 15:
+            continue
+        sigma = float(trailing.std())
+        if sigma <= 0 or abs(r) < sigma_mult * sigma:
+            continue
+        vol_ratio = None
+        if volume is not None and len(volume) == len(closes):
+            v = volume.iloc[i]
+            base = volume.iloc[i - 20:i].dropna()
+            if v is not None and not pd.isna(v) and len(base) >= 15 and float(base.mean()) > 0:
+                vol_ratio = float(v) / float(base.mean())
+        if vol_ratio is not None:
+            if vol_ratio < vol_mult:
+                continue
+        elif abs(r) < 0.06:
+            continue
+        return {
+            "sessions_ago": ago,
+            "ret_pct": round(float(r) * 100.0, 1),
+            "vol_ratio": round(vol_ratio, 1) if vol_ratio is not None else None,
+        }
+    return None
 
 
 def _volume_ratio_20d(volume: pd.Series | None) -> float | None:
@@ -518,6 +578,15 @@ def _classify(state: MarketState) -> tuple[str, str]:
                     f"200-day SMA — bounce zone is real but trend "
                     f"not yet confirmed. Wait for the SMA to flatten "
                     f"or reclaim before adding.")
+        # RSI upper bound (SHOP external review, 9 Aug 2026): "recovering"
+        # must mean recovering — RSI ≥ 70 after a dip is a rebound that has
+        # ALREADY happened (SHOP: +29.5% in 5 sessions, RSI 71, narrated as
+        # "bounce zone"). Overbought is never a bounce entry.
+        if rsi_v >= RSI_OVERBOUGHT:
+            return ("WAIT",
+                    f"{pct_off_high:.1f}% off 52w high but RSI {rsi_v:.0f} is "
+                    f"OVERBOUGHT — the dip has already been bought; entering "
+                    f"here is chasing the rebound, not buying the dip.")
         high_when = (state.pct_off_52w_high_date or "")[:10]
         high_suffix = f" (52w high {high_when})" if high_when else ""
         return ("BUY",
@@ -710,6 +779,13 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
     # ratio at None and the trace skips the gate cleanly.
     volume_series = prices["volume"] if "volume" in prices.columns else None
     volume_ratio_20d = _volume_ratio_20d(volume_series)
+    # Align volume to the (spike-cleaned) close series before gap detection
+    # so indices line up; a missing/mismatched volume column degrades to the
+    # return-only test inside the detector.
+    _vol_aligned = None
+    if volume_series is not None:
+        _vol_aligned = volume_series.reindex(series.index)
+    post_event_gap = _post_event_gap(series, _vol_aligned)
     # Wilder's 14-day ATR — absolute-price volatility. Needs high/low/
     # close; if any column is missing (some indices ship close-only)
     # we leave it None. atr_14_pct surfaces it as a % of last_price
@@ -781,6 +857,7 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         range_position_pct=range_position_pct,
         closes_30d=closes_30d,
         volume_ratio_20d=volume_ratio_20d,
+        post_event_gap=post_event_gap,
         atr_14=atr_14,
         atr_14_pct=atr_14_pct,
         ichimoku_cloud_position=ichimoku_cloud_position,
@@ -789,5 +866,20 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         bollinger_bandwidth=bollinger_bandwidth,
     )
     state.entry_signal, state.entry_reason = _classify(state)
+    # Post-event quarantine — OVERRIDES any BUY (external review on SHOP,
+    # 9 Aug 2026, owner-approved): when a single session inside the last 5
+    # moved >3σ on ≥3× volume, an event manufactured every technical input
+    # on this row; a BUY here is chasing the reaction. Calendar-independent
+    # on purpose — this must hold even when the earnings feed is dead
+    # (EARNINGS_UNKNOWN previously failed OPEN and let exactly this through).
+    if state.entry_signal == "BUY" and state.post_event_gap:
+        g = state.post_event_gap
+        vol_txt = f" on {g['vol_ratio']}x average volume" if g.get("vol_ratio") else ""
+        state.entry_signal = "WAIT"
+        state.entry_reason = (
+            f"EVENT QUARANTINE: {g['ret_pct']:+.1f}% single session{vol_txt} "
+            f"{g['sessions_ago']} session(s) ago — an event (earnings-like) drove this move; "
+            f"every indicator here is the reaction, not a setup. No BUY until it settles. "
+            f"(Was: {state.entry_reason})")
     state.decision_trace = _build_trace(state)
     return state
