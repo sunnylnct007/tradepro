@@ -29,6 +29,11 @@ class OptionQuote:
     # Coercing None→0 here fabricated "OI 0 — illiquid" verdicts on mega-caps
     # whose true OI was 20k+ (verified live vs AAPL SEP26 300P, 9 Aug 2026).
     open_interest: int | None = 0   # contracts outstanding (liquidity gate)
+    # Prior-session close premium (G3 field 7741). Options have NO pre-market
+    # session and IBKR resets the day's bid/ask at session roll — so between
+    # sessions this is the honest "last available premium". Consumers must
+    # LABEL it indicative; it is never a live quote.
+    prior_close: float | None = None
     # Real broker-reported delta (signed; put deltas negative), when the
     # source provides one (G3/IBKR tick greeks). None for adapters that only
     # give strike/bid/ask/IV (yfinance) — delta_of() then falls back to a

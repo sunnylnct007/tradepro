@@ -428,7 +428,8 @@ public static class IBKRResponseParser
                 Theta: DecLoose(it, "7310"),
                 Vega: DecLoose(it, "7311"),
                 ImpliedVolPct: DecLoose(it, "7633"),
-                OpenInterest: DecLoose(it, "7638")));
+                OpenInterest: DecLoose(it, "7638"),
+                PriorClose: DecLoose(it, "7741")));
         }
         return list;
     }
@@ -663,7 +664,12 @@ public sealed record IBKROptionQuote(
     decimal? Theta,
     decimal? Vega,
     decimal? ImpliedVolPct,
-    decimal? OpenInterest);
+    decimal? OpenInterest,
+    // Prior-session close (field 7741) — options don't trade pre-market and
+    // IBKR resets the day's bid/ask at session roll, so this is the honest
+    // "last available premium" between sessions. Serve it LABELED as
+    // indicative; never as a live quote.
+    decimal? PriorClose = null);
 
 /// <summary>Result of step 4 (marketdata/snapshot, batched/chunked).</summary>
 public sealed record IBKROptionQuotesResult(

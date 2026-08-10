@@ -38,6 +38,7 @@ interface Candidate {
   suggested_strike: number | null;
   suggested_delta: number | null;
   suggested_premium: number | null;
+  premium_source?: "live_mid" | "prev_close_indicative" | null;
   dte?: number | null;
   annualized_yield_pct?: number | null;  // ranking metric
   is_best?: boolean;                      // the single best eligible CSP
@@ -351,6 +352,13 @@ export function OptionsDesk() {
                     {c.suggested_strike != null ? (
                       <span>
                         {`$${c.suggested_strike} · Δ${(c.suggested_delta ?? 0).toFixed(2)}${c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)}` : ""}`}
+                        {c.premium_source === "prev_close_indicative" && (
+                          <span
+                            title="Options have no pre-market session — this premium is the PRIOR session's close (IBKR field 7741), shown as the last available value. Indicative only; live quotes take over at the US open."
+                            style={{ marginLeft: 4, fontSize: 9, padding: "1px 4px", borderRadius: 4,
+                                     border: `1px solid ${TONE.warn}`, color: TONE.warn }}
+                          >prev close</span>
+                        )}
                         {c.forward_price != null && (
                           <span
                             style={{ display: "block", fontSize: 10, color: "var(--text-muted)" }}

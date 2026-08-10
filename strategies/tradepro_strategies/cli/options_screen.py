@@ -244,6 +244,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # delta ≈ 0 → nothing clears the band). Select the put nearest 0.27 delta
     # (BRD strike rule).
     oi = strike = delta = premium = notional_gbp = None
+    premium_source = None   # 'live_mid' | 'prev_close_indicative'
     spread = bid = ask = None
     dte = 35
     chain_ok = False
@@ -275,6 +276,13 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                 oi = q.open_interest
                 spread = q.spread if (q.bid > 0 and q.ask > 0) else None
                 premium = q.mid if q.mid > 0 else None
+                premium_source = 'live_mid' if premium else None
+                # Between sessions options have NO live quote (no pre-market)
+                # — fall back to the PRIOR-SESSION close (G3 field 7741),
+                # LABELED indicative. Owner rule: run with last available data.
+                if premium is None and q.prior_close and q.prior_close > 0:
+                    premium = q.prior_close
+                    premium_source = 'prev_close_indicative'
                 bid = q.bid if q.bid > 0 else None
                 ask = q.ask if q.ask > 0 else None
                 chain_iv = q.iv if q.iv and q.iv > 0 else None
@@ -301,6 +309,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     oi = q.open_interest
                     spread = q.spread if (q.bid > 0 and q.ask > 0) else None
                     premium = q.mid if q.mid > 0 else None
+                    premium_source = 'live_mid' if premium else None
                     bid = q.bid if q.bid > 0 else None
                     ask = q.ask if q.ask > 0 else None
                     chain_iv = q.iv if q.iv and q.iv > 0 else None
@@ -333,6 +342,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     oi = q.open_interest
                     spread = q.spread if (q.bid > 0 and q.ask > 0) else None
                     premium = q.mid if q.mid > 0 else None
+                    premium_source = 'live_mid' if premium else None
                     bid = q.bid if q.bid > 0 else None
                     ask = q.ask if q.ask > 0 else None
                     chain_iv = q.iv if q.iv and q.iv > 0 else None
@@ -373,7 +383,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         # an advisory warning (candidates surface for paper, marked indicative)
         # instead of blocking on a stale wide spread. Flip to False once OPRA is
         # on (then real-time spreads hard-block again).
-        quotes_delayed=(chain_source == "ibkr"),
+        quotes_delayed=(chain_source == "ibkr" or premium_source == "prev_close_indicative"),
     )
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
@@ -466,6 +476,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "suggested_strike": strike,
         "suggested_delta": delta,
         "suggested_premium": premium,
+        "premium_source": premium_source,
         "dte": dte,
         "annualized_yield_pct": ann_yield_pct,
         "chain_source": chain_source,

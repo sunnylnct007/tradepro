@@ -137,7 +137,8 @@ def fetch_chain_g3(
         # often has ask but no bid) keeps 0.0 on the silent side — that IS
         # the market saying "no bid", not missing data.
         bid, ask, delta = leg.get("bid"), leg.get("ask"), leg.get("delta")
-        if bid is None and ask is None and delta is None:
+        prior_close = leg.get("priorClose")
+        if bid is None and ask is None and delta is None and prior_close is None:
             return None
         iv_pct = leg.get("impliedVolPct")
         return OptionQuote(
@@ -151,6 +152,7 @@ def fetch_chain_g3(
             # illiquid" on names with 20k+ true OI (AAPL, verified 9 Aug 2026).
             open_interest=(int(leg["openInterest"])
                            if leg.get("openInterest") is not None else None),
+            prior_close=(float(prior_close) if prior_close is not None else None),
             delta=(float(delta) if delta is not None else None),
         )
 

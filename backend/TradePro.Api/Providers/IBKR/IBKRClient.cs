@@ -737,7 +737,7 @@ public sealed class IBKRClient
         if (conids.Count == 0)
             return new IBKROptionQuotesResult(Array.Empty<IBKROptionQuote>(), null, 0);
         const int ChunkSize = 50;
-        const string Fields = "31,84,86,88,85,87,7308,7309,7310,7311,7633,7638";
+        const string Fields = "31,84,86,88,85,87,7308,7309,7310,7311,7633,7638,7741";
         var all = new List<IBKROptionQuote>();
         var lastStatus = 0;
         for (int i = 0; i < conids.Count; i += ChunkSize)

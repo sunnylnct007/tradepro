@@ -175,7 +175,7 @@ public static class ChainEndpoints
                     return new ChainLeg(
                         c.ConId, c.Strike, contractRight.GetValueOrDefault(c.ConId, "?"),
                         q?.Bid, q?.Ask, q?.Last, q?.Delta, q?.Gamma, q?.Theta, q?.Vega,
-                        q?.ImpliedVolPct, q?.OpenInterest);
+                        q?.ImpliedVolPct, q?.OpenInterest, q?.PriorClose);
                 })
                 .OrderBy(l => l.Right).ThenBy(l => l.Strike)
                 .ToList();
@@ -211,7 +211,10 @@ public sealed record ChainLeg(
     long ConId, decimal Strike, string Right,
     decimal? Bid, decimal? Ask, decimal? Last,
     decimal? Delta, decimal? Gamma, decimal? Theta, decimal? Vega,
-    decimal? ImpliedVolPct, decimal? OpenInterest);
+    decimal? ImpliedVolPct, decimal? OpenInterest,
+    // Prior-session close premium — the honest between-sessions indicative
+    // value (options have no pre-market). Labeled, never a live quote.
+    decimal? PriorClose = null);
 
 public sealed record ChainResponse(
     string Symbol, long? UnderlyingConId, string? Month, decimal? Spot,
