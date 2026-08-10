@@ -37,7 +37,14 @@ UV="$(command -v uv || true)"
 
 cd "$PROJECT_DIR" || exit 1
 log "options screen starting (project $PROJECT_DIR)"
-"$UV" run tradepro-options-screen >>"$LOG" 2>&1
-rc=$?
-log "options screen finished rc=$rc"
+# One retry after 3 min — a transient local-network blip killed the
+# 19:30 run on 10 Aug (errno 51 mid-run) and the desk served stale
+# pricing all evening. A single retry converts a blip into a delay.
+for attempt in 1 2; do
+    "$UV" run tradepro-options-screen >>"$LOG" 2>&1
+    rc=$?
+    log "options screen attempt $attempt finished rc=$rc"
+    [[ $rc -eq 0 ]] && break
+    [[ $attempt -eq 1 ]] && { log "retrying in 180s"; sleep 180; }
+done
 exit $rc
