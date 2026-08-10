@@ -187,6 +187,50 @@ public sealed class FinnhubClient
             return Array.Empty<FinnhubEarningsEvent>();
         }
     }
+
+    /// <summary>
+    /// WHOLE-MARKET earnings calendar over a date window — the same
+    /// /calendar/earnings endpoint with NO symbol filter, so one call
+    /// covers every reporter in the window. This is the nightly-harvest
+    /// path that replaces the per-symbol fan-out (182/728 names came
+    /// back EARNINGS_UNKNOWN when per-symbol calls rate-limited).
+    /// Returns null when the integration is disabled or the fetch fails
+    /// (caller must stay loud — an empty market calendar is a feed
+    /// defect, never a fact about the market).
+    /// </summary>
+    public async Task<IReadOnlyList<FinnhubEarningsEvent>?> GetEarningsCalendarBulkAsync(
+        DateOnly from,
+        DateOnly to,
+        CancellationToken ct)
+    {
+        if (!_options.IsEnabled)
+        {
+            return null;
+        }
+        var path =
+            $"calendar/earnings?from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}" +
+            $"&token={_options.ApiKey}";
+        try
+        {
+            using var resp = await _http.GetAsync(path, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning(
+                    "Finnhub BULK earnings calendar fetch failed: HTTP {Status} ({From}..{To})",
+                    (int)resp.StatusCode, from, to);
+                return null;
+            }
+            var envelope = await resp.Content.ReadFromJsonAsync<FinnhubEarningsCalendarResponse>(
+                cancellationToken: ct);
+            return (IReadOnlyList<FinnhubEarningsEvent>?)envelope?.EarningsCalendar
+                ?? Array.Empty<FinnhubEarningsEvent>();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Finnhub BULK earnings calendar fetch error ({From}..{To})", from, to);
+            return null;
+        }
+    }
 }
 
 /// <summary>One row from the Finnhub /calendar/earnings response.

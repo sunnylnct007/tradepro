@@ -275,6 +275,69 @@ def beat_and_retreat_signal(
     return base
 
 
+def _calendar_store_events(symbol: str, api_base: str, *, timeout: float = 10.0) -> dict | None:
+    """One symbol's rows from OUR central earnings_calendar store
+    (migration 062, filled by the nightly Finnhub bulk harvest) plus the
+    store's coverage stats. None on any failure — callers fall back to
+    the live per-symbol path. Cached per process so the upcoming- and
+    last-report consumers share one HTTP call per symbol per run."""
+    import requests
+    key = (symbol.upper(), api_base)
+    if key in _STORE_CACHE:
+        return _STORE_CACHE[key]
+    url = f"{api_base.rstrip('/')}/api/earnings-calendar/{symbol.upper()}"
+    try:
+        resp = requests.get(url, params={"back": 30, "ahead": 45}, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except requests.RequestException:
+        data = None
+    _STORE_CACHE[key] = data
+    return data
+
+
+_STORE_CACHE: dict[tuple, dict | None] = {}
+
+
+def _store_is_authoritative(store_meta: dict | None) -> bool:
+    """A store answer only counts as truth when the store is populated
+    and freshly harvested. An empty or stale store must read as
+    CAN'T-VERIFY (fall back to live calls), never as earnings-clear —
+    the fail-open trap the quarantine rule exists for."""
+    if not store_meta:
+        return False
+    if (store_meta.get("totalRows") or 0) < 100:
+        return False
+    last = store_meta.get("lastUploadUtc")
+    if not last:
+        return False
+    try:
+        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    age = datetime.now(timezone.utc) - last_dt.astimezone(timezone.utc)
+    return age.days <= 3  # weekend-tolerant; nightly harvest keeps it ~0-1d
+
+
+def last_report_from_store(symbol: str, api_base: str) -> str | None:
+    """Most recent PAST report date from the central store, or None when
+    the store has no past row for the symbol (or isn't authoritative).
+    Feeds the earnings-proximity gate's post-report side when yfinance/
+    Finnhub history came back empty."""
+    from datetime import date
+    data = _calendar_store_events(symbol, api_base)
+    if not data or not _store_is_authoritative(data.get("store")):
+        return None
+    today = date.today()
+    past = [
+        str(ev.get("report_date"))[:10]
+        for ev in data.get("events") or []
+        if ev.get("report_date")
+        and date.fromisoformat(str(ev["report_date"])[:10]) <= today
+    ]
+    return max(past) if past else None
+
+
 def fetch_upcoming_earnings(
     symbol: str,
     api_base: str,
@@ -282,12 +345,19 @@ def fetch_upcoming_earnings(
     days: int = 30,
     timeout: float = 10.0,
 ) -> dict | None:
-    """Hit the local API's Finnhub-backed earnings calendar for the
-    next N days. Returns the *next* upcoming announcement event (or
-    None when nothing is scheduled / Finnhub is disabled / call
-    fails). The API endpoint itself returns {enabled: false} when
-    Finnhub isn't configured — we treat that as None rather than an
-    error so a missing config never breaks the compare run.
+    """Next upcoming announcement for `symbol`, or None.
+
+    Source order (owner ruling 10 Aug 2026 — automated sources first):
+      1. OUR earnings_calendar store (one nightly bulk harvest covers the
+         whole market — no per-symbol rate-limit storms). An authoritative
+         store with no row for the symbol means earnings-CLEAR in the
+         window — return None without a live call.
+      2. Fallback: the API's live per-symbol Finnhub proxy (below) when
+         the store is empty, stale, or unreachable.
+
+    The proxy endpoint returns {enabled: false} when Finnhub isn't
+    configured — treated as None rather than an error so a missing
+    config never breaks the compare run.
 
     Output shape:
         {
@@ -301,6 +371,38 @@ def fetch_upcoming_earnings(
     import requests
     from datetime import date
 
+    # 1. Central store first (no per-symbol rate limits — our own table).
+    store_data = _calendar_store_events(symbol, api_base, timeout=timeout)
+    if store_data and _store_is_authoritative(store_data.get("store")):
+        today = date.today()
+        future = []
+        for ev in store_data.get("events") or []:
+            d = ev.get("report_date")
+            if not d:
+                continue
+            try:
+                ev_date = date.fromisoformat(str(d)[:10])
+            except ValueError:
+                continue
+            if ev_date >= today:
+                future.append((ev_date, ev))
+        if future:
+            future.sort(key=lambda kv: kv[0])
+            next_date, next_ev = future[0]
+            return {
+                "date": next_date.isoformat(),
+                "days_until": (next_date - today).days,
+                "hour": next_ev.get("session"),
+                "eps_estimate": None,   # store holds dates, not estimates
+                "revenue_estimate": None,
+                "_source": f"store://earnings_calendar/{symbol.upper()}",
+            }
+        # Authoritative store, no future row → earnings-CLEAR in the
+        # window. Do NOT fall through to the live call — that fan-out is
+        # exactly the rate-limit storm the store exists to end.
+        return None
+
+    # 2. Fallback: live per-symbol Finnhub proxy (store empty/stale/down).
     url = f"{api_base.rstrip('/')}/api/integrations/finnhub/earnings-calendar"
     try:
         resp = requests.get(
@@ -354,8 +456,15 @@ def earnings_calendar_enabled(api_base: str, *, timeout: float = 10.0) -> bool:
     those apart from None alone. Probe once per run with a name that always has a
     calendar entry (AAPL); a True here means a later None is "clear", a False
     means "couldn't verify". Any error → False (fail-safe: treat as can't-verify).
+
+    An authoritative central store short-circuits to True — with a fresh
+    bulk-harvested calendar, a symbol with no row IS earnings-clear even
+    if the live Finnhub proxy were down right now.
     """
     import requests
+    store_data = _calendar_store_events("AAPL", api_base, timeout=timeout)
+    if store_data and _store_is_authoritative(store_data.get("store")):
+        return True
     try:
         resp = requests.get(
             f"{api_base.rstrip('/')}/api/integrations/finnhub/earnings-calendar",

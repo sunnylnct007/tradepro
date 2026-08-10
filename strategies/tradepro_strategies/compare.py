@@ -1209,6 +1209,20 @@ def compare(
                             sig["last_report_date"] = max(_past)
                     except Exception:  # noqa: BLE001 — best-effort, gate falls back to UNKNOWN
                         pass
+                    # Central-store fallback for the post-report side: when
+                    # yfinance history had no past date, the bulk-harvested
+                    # calendar may still know the last report (it spans
+                    # back ~30d) — keeps POST_DIGEST/DRIFT working through
+                    # yfinance outages.
+                    if not sig.get("last_report_date"):
+                        try:
+                            from .earnings import last_report_from_store
+                            _store_last = last_report_from_store(
+                                symbol, _resolve_api_base())
+                            if _store_last:
+                                sig["last_report_date"] = _store_last
+                        except Exception:  # noqa: BLE001 — best-effort
+                            pass
                     # Attach the next upcoming earnings (Finnhub) so
                     # the digest can warn about position-into-earnings
                     # volatility. Off-by-default: returns None when

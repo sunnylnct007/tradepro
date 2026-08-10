@@ -413,6 +413,9 @@ api.MapAlertsEndpoints();
 api.MapDataTrustEndpoints();
 api.MapCatalystsEndpoints();
 api.MapOptionsEndpoints();
+// Central earnings-date store (migration 062) — the earnings-proximity
+// gate reads THIS first; per-symbol Finnhub is fallback only.
+api.MapEarningsCalendarEndpoints();
 
 // SSE event stream — AllowAnonymous (EventSource can't send auth headers).
 app.MapEventsEndpoints();
