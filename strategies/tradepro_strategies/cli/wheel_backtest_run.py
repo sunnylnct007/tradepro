@@ -206,6 +206,36 @@ def main() -> int:
 
     n_fail = sum(1 for _, ok in gates if not ok)
     print(f"\n  {'ALL GATES PASS — Phase 1 gate cleared' if n_fail == 0 else f'{n_fail} gate(s) FAILED — Phase 1 stays open'}")
+
+    # Durable trace (owner 11 Aug: "need proper logs — what we have done and
+    # how we are determining"): every GATE run leaves a central run_log row
+    # with the code+gates GIT SHA, registered params, per-window headlines and
+    # each gate's verdict — a backtest figure must never exist only in
+    # terminal scrollback. (Full PG persistence of per-trade logs = migration
+    # 063, next session.)
+    try:
+        import subprocess
+        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:  # noqa: BLE001
+        sha = "unknown"
+    try:
+        from ..run_log import log_run
+        headline = "; ".join(
+            f"{w}: net {results[w]['total_return_pct']:+.2f}% dd {results[w]['max_dd_pct']:.1f}% "
+            f"util {results[w]['utilisation_pct']}% ({results[w]['n_symbols']} syms)"
+            for w in results)
+        verdicts = ", ".join(f"{label}:{'PASS' if ok else 'FAIL'}" for label, ok in gates)
+        log_run(
+            "wheel-backtest", "gates",
+            "ok" if n_fail == 0 else "fail",
+            summary=(f"code {sha} vs gates WHEEL_BACKTEST_GATES.md(5817fe2) | "
+                     f"slice ${SLICE_USD:,.0f} otm {OTM_PCT:.0%} dte {DTE} haircut {HAIRCUT:.0%} "
+                     f"comm ${COMMISSION} | {headline} | {verdicts}"),
+            error=None if n_fail == 0 else f"{n_fail} gate(s) failed — Phase 1 stays open",
+        )
+    except Exception:  # noqa: BLE001 — logging must never fail the run
+        pass
     return 0 if n_fail == 0 else 1
 
 
