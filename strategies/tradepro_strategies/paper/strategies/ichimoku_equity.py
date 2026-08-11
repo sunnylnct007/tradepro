@@ -331,6 +331,18 @@ class IchimokuEquityStrategy(Strategy):
             #   Distinct from entry_max_ext_pct (which is vs the 200-SMA, not the
             #   signal). Blocks the ENTRY only; a healthy pullback entry is unaffected.
             "entry_max_gap_pct": None,
+            # entry_max_kijun_atr (float|None): OPT-IN "buy the pullback, not the
+            #   extension" cap — the chase dimension the OTHER guards miss (10 Aug
+            #   2026 book review: all 8 entries filled +3.7%..+15.1% above the
+            #   KIJUN, FLR into a +16.9% single-day gap, while passing the
+            #   RSI/200-SMA caps). SKIP a NEW long entering more than this many
+            #   ATR(14) above the kijun line — the scanner's ⭐ already defines a
+            #   genuine entry as a kijun pullback ≤1 ATR; this aligns the STRATEGY
+            #   with that rule. ATR-normalised so one number fits quiet and wild
+            #   names alike. None/OFF ⇒ verbatim parity. Blocks the ENTRY only;
+            #   held positions/exits untouched. FAIL-OPEN when kijun/ATR can't be
+            #   computed (thin history) — never fabricate a gate.
+            "entry_max_kijun_atr": None,
         }
 
     # ------------------------------------------------------------------ #
@@ -580,6 +592,29 @@ class IchimokuEquityStrategy(Strategy):
                         signal=signal, cloud_position=cloud_pos,
                     )
                     return []
+            # ── Kijun-distance "buy the pullback" cap (OPT-IN) ──────────────
+            # OFF by default (None) ⇒ no-op/parity. The chase dimension the
+            # ext/RSI caps miss (10 Aug review: all 8 book entries passed them
+            # at +3.7%..+15.1% above kijun). SKIP a NEW long entering more than
+            # N ATRs above the kijun line. Fail-open when kijun/ATR unavailable
+            # (thin history). Blocks the ENTRY only.
+            kijun_max_atr = p.get("entry_max_kijun_atr")
+            if kijun_max_atr is not None and meta:
+                _kv = meta.get("kijun_val")
+                _atr = meta.get("atr14")
+                if _kv and _atr and _atr > 0 and bar.close > 0:
+                    _dist_atr = (float(bar.close) - float(_kv)) / float(_atr)
+                    if _dist_atr > float(kijun_max_atr):
+                        self.log_decision(
+                            symbol=sym, bar_ts=bar.timestamp,
+                            action="skip-kijun-extended",
+                            reason=(f"kijun-distance cap: entry {bar.close:,.2f} is "
+                                    f"{_dist_atr:.1f} ATR above kijun {_kv:,.2f} "
+                                    f"(> {kijun_max_atr} cap) — buy the pullback, "
+                                    f"not the extension"),
+                            signal=signal, cloud_position=cloud_pos,
+                        )
+                        return []
             # ── Entry-quality gate: RS + volume floors (OPT-IN) ─────────────
             # OFF by default ⇒ no-op (verbatim parity). When on, SKIP a NEW long
             # that is a relative-strength LAGGARD OR entering on THIN volume — the
@@ -1247,6 +1282,20 @@ class IchimokuEquityStrategy(Strategy):
                     sma200 = float(close.tail(200).mean())
                     if sma200 > 0:
                         meta = {**meta, "ext_pct": (last_close / sma200 - 1.0) * 100.0}
+                # Kijun line + ATR(14) at signal time for the kijun-distance cap
+                # (entry_max_kijun_atr — the chase dimension the ext/RSI caps miss).
+                _kp = int(p.get("kijun", 32))
+                if len(high) >= _kp and len(low) >= _kp:
+                    _kv = (float(high.tail(_kp).max()) + float(low.tail(_kp).min())) / 2.0
+                    if _kv > 0:
+                        meta = {**meta, "kijun_val": _kv}
+                if len(close) >= 15:
+                    _pc = close.shift(1)
+                    _tr = pd.concat([(high - low), (high - _pc).abs(), (low - _pc).abs()],
+                                    axis=1).max(axis=1)
+                    _atr = float(_tr.tail(14).mean())
+                    if _atr > 0:
+                        meta = {**meta, "atr14": _atr}
                 # Deal-pinned (pending-M&A) signature for the veto gate: a big 12m
                 # run now trading with COLLAPSED realized vol + pinned near its high
                 # (WBD). Real trends keep moving (20d≈1y vol); deal ratchets go quiet

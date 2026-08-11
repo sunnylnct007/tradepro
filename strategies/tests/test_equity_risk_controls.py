@@ -496,3 +496,33 @@ def test_from_config_whole_percent_stop_wires_to_fraction():
     args.take_profit_pct = 12
     strat2 = _build_strategy(args, ["AAPL"])
     assert strat2.params["take_profit_pct"] == 0.12
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# (h) Kijun-distance "buy the pullback" cap (OPT-IN) — the chase dimension
+# the ext/RSI caps miss (10 Aug 2026 book review: all 8 live entries filled
+# +3.7%..+15.1% above the kijun while passing both other guards).
+# ─────────────────────────────────────────────────────────────────────────
+def test_kijun_distance_cap_blocks_extended_entry():
+    """In a monotone uptrend the latest close sits well above the kijun
+    midline (~1.6 ATR here); a tight 1.0-ATR cap must SKIP the entry."""
+    df = {"AAPL": _uptrend_df()}
+    strat = _make_strategy(["AAPL"], df, entry_max_kijun_atr=1.0)
+    assert strat.on_bar(_bar("AAPL", 250.0)) == []
+
+
+def test_kijun_distance_cap_passes_within_cap():
+    """The same setup with a generous cap buys — the gate measures, it
+    doesn't blanket-block trends."""
+    df = {"AAPL": _uptrend_df()}
+    strat = _make_strategy(["AAPL"], df, entry_max_kijun_atr=5.0)
+    orders = strat.on_bar(_bar("AAPL", 250.0))
+    assert len(orders) == 1 and orders[0].side == OrderSide.BUY
+
+
+def test_kijun_distance_cap_off_by_default_parity():
+    """Param unset ⇒ no-op — verbatim parity with the trader's spec."""
+    df = {"AAPL": _uptrend_df()}
+    strat = _make_strategy(["AAPL"], df)
+    orders = strat.on_bar(_bar("AAPL", 250.0))
+    assert len(orders) == 1 and orders[0].side == OrderSide.BUY
