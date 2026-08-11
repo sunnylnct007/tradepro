@@ -161,7 +161,15 @@ public static class ChainEndpoints
             // strike selection) and retry the whole batch once.
             var conIds = contracts.Select(c => c.ConId).ToArray();
             var quotesResult = await ibkr.GetOptionSnapshotBatchAsync(conIds, ct);
-            if (quotesResult.Quotes.Count > 0 && quotesResult.Quotes.All(q => q.Delta is null))
+            // Two cold signatures, up to two retries (still pacing-safe — the
+            // flow is sequential and bounded per symbol):
+            //   • ALL legs missing delta — the never-subscribed month (2 Aug).
+            //   • MAJORITY of legs missing both bid and ask — the mid-session
+            //     partial-cold batch (11 Aug): the sweep looked "warm" so no
+            //     retry fired, but the one leg the wheel SELECTS was often
+            //     among the cold ones → premium null → whole symbols rotated
+            //     into carry-forward pricing DURING regular hours.
+            for (var attempt = 0; attempt < 2 && QuotesStillCold(quotesResult.Quotes); attempt++)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1.2), ct);
                 quotesResult = await ibkr.GetOptionSnapshotBatchAsync(conIds, ct);
@@ -205,6 +213,15 @@ public static class ChainEndpoints
     public static bool AllLegsQuoteless(IReadOnlyList<ChainLeg> legs)
         => legs.Count > 0
            && legs.All(l => l.Bid is null && l.Ask is null && l.Delta is null);
+
+    /// <summary>True when the quote batch deserves a warm-up retry: every
+    /// quote missing delta (never-subscribed month) OR more than half missing
+    /// BOTH bid and ask (mid-session partial-cold). Far-OTM legs legitimately
+    /// have no bid — hence majority, not any.</summary>
+    public static bool QuotesStillCold(IReadOnlyList<IBKROptionQuote> quotes)
+        => quotes.Count > 0
+           && (quotes.All(q => q.Delta is null)
+               || quotes.Count(q => q.Bid is null && q.Ask is null) * 2 > quotes.Count);
 }
 
 public sealed record ChainLeg(
