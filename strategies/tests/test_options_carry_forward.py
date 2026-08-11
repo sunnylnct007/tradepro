@@ -90,3 +90,49 @@ def test_premiumless_and_strikeless_rows_never_carry():
 def test_empty_or_missing_payload_is_empty_map():
     assert build_carry_map(None, now=NOW) == {}
     assert build_carry_map({}, now=NOW) == {}
+
+
+# ── Wheel alert email: fires ONLY when the eligible set changes ──────────
+def _board(elig_syms, best=None):
+    return {
+        "generated_at_utc": "2026-08-11T19:00:00+00:00",
+        "market_open": True,
+        "best_symbol": best,
+        "data_health": {"summary": "healthy"},
+        "candidates": [
+            {"symbol": s, "eligible": True, "suggested_strike": 54.0,
+             "suggested_premium": 1.32, "premium_source": "live_mid",
+             "annualized_yield_pct": 19.0, "suggested_delta": 0.26,
+             "open_interest": 300, "dte": 39, "regime": "GREEN"}
+            for s in elig_syms
+        ],
+    }
+
+
+def test_wheel_email_fires_on_eligible_set_change(monkeypatch):
+    from tradepro_strategies.cli import options_screen as osc
+    sent = {}
+    monkeypatch.setattr("tradepro_strategies.cli.email_digest.send_email",
+                        lambda digest, cfg: sent.update(subject=digest.subject))
+    monkeypatch.setattr("tradepro_strategies.cli.email_digest.CRED_PATH",
+                        __import__("pathlib").Path("/nonexistent"))
+    monkeypatch.setenv("TRADEPRO_SMTP_HOST", "smtp.test")
+    monkeypatch.setenv("TRADEPRO_SMTP_USER", "u")
+    monkeypatch.setenv("TRADEPRO_SMTP_PASSWORD", "p")
+    monkeypatch.setenv("TRADEPRO_EMAIL_FROM", "from@test")
+    monkeypatch.setenv("TRADEPRO_EMAIL_TO", "to@test")
+    assert osc._maybe_send_wheel_email(_board({"SLV"}, best="SLV"), _board(set())) is True
+    assert "SLV" in sent["subject"] and "NEW eligible" in sent["subject"]
+
+
+def test_wheel_email_silent_when_set_unchanged(monkeypatch):
+    from tradepro_strategies.cli import options_screen as osc
+    monkeypatch.setattr("tradepro_strategies.cli.email_digest.send_email",
+                        lambda digest, cfg: (_ for _ in ()).throw(AssertionError("must not send")))
+    assert osc._maybe_send_wheel_email(_board({"SLV"}), _board({"SLV"})) is False
+
+
+def test_wheel_email_disabled_by_env(monkeypatch):
+    from tradepro_strategies.cli import options_screen as osc
+    monkeypatch.setenv("TRADEPRO_WHEEL_EMAIL", "0")
+    assert osc._maybe_send_wheel_email(_board({"SLV"}), _board(set())) is False

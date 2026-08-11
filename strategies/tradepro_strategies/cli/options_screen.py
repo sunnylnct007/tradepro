@@ -636,6 +636,86 @@ def screen_data_health(rows: list[dict], market_open: bool) -> dict:
     }
 
 
+def _maybe_send_wheel_email(payload: dict, prev_payload: dict | None) -> bool:
+    """Email the wheel board when the ELIGIBLE set CHANGED vs the previous
+    push — a new ⭐ appearing (or one dying) is the actionable moment the
+    owner asked to hear about (11 Aug 2026: "why no email for the option
+    wheeler"). At most one mail per screen run (3-4 runs/day), reusing the
+    nightly digest's SMTP creds (~/.tradepro/email-creds.json). Disable with
+    TRADEPRO_WHEEL_EMAIL=0. Fail-soft: an email problem must never fail the
+    screen — it logs to run_log and moves on. Returns True when a mail went."""
+    if os.environ.get("TRADEPRO_WHEEL_EMAIL", "1").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    now_elig = {c["symbol"] for c in payload.get("candidates") or [] if c.get("eligible")}
+    prev_elig = {c["symbol"] for c in (prev_payload or {}).get("candidates") or [] if c.get("eligible")}
+    if now_elig == prev_elig:
+        return False
+    try:
+        from types import SimpleNamespace
+        from .email_digest import CRED_PATH, send_email
+        import json as _json
+        data = _json.loads(CRED_PATH.read_text()) if CRED_PATH.is_file() else {}
+        cfg = {
+            "smtp_host": data.get("smtp_host") or os.environ.get("TRADEPRO_SMTP_HOST"),
+            "smtp_port": int(data.get("smtp_port") or os.environ.get("TRADEPRO_SMTP_PORT") or 465),
+            "smtp_user": data.get("smtp_user") or os.environ.get("TRADEPRO_SMTP_USER"),
+            "smtp_password": data.get("smtp_password") or os.environ.get("TRADEPRO_SMTP_PASSWORD"),
+            "from": data.get("from") or os.environ.get("TRADEPRO_EMAIL_FROM"),
+            "to": [t for t in (data.get("to") or [os.environ.get("TRADEPRO_EMAIL_TO")]) if t],
+        }
+        gained = sorted(now_elig - prev_elig)
+        lost = sorted(prev_elig - now_elig)
+        best = payload.get("best_symbol")
+        lines = []
+        for c in payload.get("candidates") or []:
+            if c["symbol"] not in now_elig:
+                continue
+            star = "⭐ " if c["symbol"] == best else "   "
+            lines.append(
+                f"{star}{c['symbol']}: ${c.get('suggested_strike')} put · "
+                f"${c.get('suggested_premium')} premium ({c.get('premium_source')}) · "
+                f"{c.get('annualized_yield_pct')}%/yr · Δ{c.get('suggested_delta')} · "
+                f"OI {c.get('open_interest')} · {c.get('dte')}d · regime {c.get('regime')}")
+        dh = payload.get("data_health") or {}
+        change = []
+        if gained:
+            change.append(f"NEW eligible: {', '.join(gained)}")
+        if lost:
+            change.append(f"no longer eligible: {', '.join(lost)}")
+        subject = (f"TradePro Wheel — {len(now_elig)} eligible"
+                   + (f" · best {best}" if best else "")
+                   + (f" · {change[0]}" if change else ""))
+        text = "\n".join([
+            "Wheel screen update — the eligible set changed.",
+            "; ".join(change),
+            "",
+            *(lines or ["(no eligible candidates on this run)"]),
+            "",
+            f"Data health: {dh.get('summary', 'n/a')}",
+            f"Run: {payload.get('generated_at_utc')} · market_open={payload.get('market_open')}",
+            "",
+            "Board: http://16.60.201.137/ → Options tab",
+        ])
+        html = "<pre style=\"font-family:monospace\">" + text.replace("<", "&lt;") + "</pre>"
+        send_email(SimpleNamespace(subject=subject, text_body=text, html_body=html,
+                                   pdf_bytes=None), cfg)
+        log.info("wheel email sent: %s", subject)
+        try:
+            from ..run_log import log_run
+            log_run("options-screen", "email", "ok", summary=subject)
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+    except Exception as e:  # noqa: BLE001 — email must never fail the screen
+        log.warning("wheel email failed (non-fatal): %s", e)
+        try:
+            from ..run_log import log_run
+            log_run("options-screen", "email", "fail", error=str(e))
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+
 def run_screen(symbols: list[str] | None = None) -> dict:
     import ib_insync
     from . import push_to_api as _pta
@@ -682,6 +762,7 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     # priced board (labeled) instead of collapsing to "premium unavailable".
     import requests as _rq
     carry: dict = {}
+    _prev: dict | None = None
     try:
         _base, _tok = _pta.load_credentials()
         _prev = _rq.get(f"{_base.rstrip('/')}/api/options/candidates", timeout=15).json()
@@ -747,6 +828,9 @@ def run_screen(symbols: list[str] | None = None) -> dict:
                           json=payload, headers={"Authorization": f"Bearer {tok}"}, timeout=30)
         log.info("pushed screen: HTTP %s (%d candidates, %d eligible)",
                  r.status_code, len(rows), sum(1 for x in rows if x["eligible"]))
+    # Owner alert on the actionable moment: the eligible set changed vs the
+    # previous push (_prev was fetched above for the carry map — same snapshot).
+    _maybe_send_wheel_email(payload, _prev if isinstance(_prev, dict) else None)
     return payload
 
 
