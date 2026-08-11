@@ -343,7 +343,10 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
 
     # 1) IBKR via ib_insync/TWS (authoritative, needs local Gateway). Reuse the
     # screen's connection + IBKR close as spot. Skipped when G3 already worked.
-    if not chain_ok:
+    # ONLY when the screen holds a live Gateway connection — fetch_chain_ibkr
+    # self-connects when ib is None, and with the Gateway retired (owner 9 Aug:
+    # OAuth-only) that's a guaranteed ConnectionRefused + timeout per symbol.
+    if not chain_ok and ib is not None:
         try:
             ic = fetch_chain_ibkr(sym, target_dte=35, ib=ib, pricer=pricer, spot=ref_close)
             if ic and ic.puts and ic.spot > 0:
@@ -654,12 +657,20 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     # just permanently BLOCKed on the IV-rank gate — honest, not a crash.
     ib = ib_insync.IB()
     connected = False
-    try:
-        ib.connect(host, port, clientId=cid, timeout=20)
-        connected = True
-    except Exception as e:  # noqa: BLE001
-        log.warning("IBKR Gateway unreachable (%s) — running degraded: "
-                    "chain via G3, regime via bar cache, IV-rank BLOCKED", e)
+    # OAuth-only architecture (owner 9 Aug 2026): the local Gateway is retired —
+    # chain via G3, IV via the OAuth iv-daily store. The Gateway tier survives
+    # behind an OPT-IN flag for a machine that genuinely runs one; default off
+    # so every screen run stops paying a 20s connect timeout + error noise.
+    if os.environ.get("TRADEPRO_WHEEL_USE_GATEWAY", "0").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            ib.connect(host, port, clientId=cid, timeout=20)
+            connected = True
+        except Exception as e:  # noqa: BLE001
+            log.warning("IBKR Gateway unreachable (%s) — running degraded: "
+                        "chain via G3, regime via bar cache, IV-rank via OAuth store", e)
+    else:
+        log.info("Gateway tier disabled (OAuth-only) — chain via G3, "
+                 "IV via OAuth iv-daily store; set TRADEPRO_WHEEL_USE_GATEWAY=1 to re-enable")
 
     # Previous push → carry-forward map, so a dark-MD run keeps the last
     # priced board (labeled) instead of collapsing to "premium unavailable".
