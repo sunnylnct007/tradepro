@@ -66,13 +66,19 @@ DEFAULT_UNIVERSE = [
     # here (auto-sync = future work; the MCP watchlist API is session-side).
     "ACN", "TSLA", "GS", "MS", "META", "UBER", "DIS", "HOOD", "MRVL",
     "APLD", "AMZN", "PLTR", "IBKR",
+    # index ETFs (owner 11 Aug 2026: "add index on the option wheel screen").
+    # ETF form, NOT SPX-style index options — those are cash-settled/European
+    # so they can't assign shares, which breaks the wheel's assignment leg.
+    # SPY/QQQ strikes only fit a raised per-position pot; the notional gate
+    # reports that honestly rather than pre-filtering them out.
+    "SPY", "QQQ", "DIA",
 ]
 
 # ETFs have no earnings — the blackout gate gets a structural False, not a
 # "calendar unavailable" block. Keep in sync with the ETF rows above.
 _ETF_UNDERLYINGS = frozenset({
     "XLE", "XLF", "XLI", "XLU", "GDX", "SLV", "TLT", "IWM", "KRE",
-    "SPY", "QQQ", "GLD", "EEM", "HYG",
+    "SPY", "QQQ", "GLD", "EEM", "HYG", "DIA",
 })
 
 _FX_GBPUSD = 1.27  # BRD display rate; USD strike×100 → GBP notional
