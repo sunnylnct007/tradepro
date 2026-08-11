@@ -186,6 +186,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[ichimoku_equity] Don't-chase gate: skip a NEW long >this %% above its 200-SMA (e.g. 50). Off by default.")
     p.add_argument("--entry-rsi-max", type=float, default=None,
                    help="[ichimoku_equity] Don't-chase gate: skip a NEW long with RSI(14) > this (e.g. 75). Off by default.")
+    p.add_argument("--entry-max-kijun-atr", type=float, default=None,
+                   help="[ichimoku_equity] Buy-the-pullback cap: skip a NEW long entering more than this many ATR(14) above the kijun line (e.g. 1.5) — the chase dimension the ext/RSI caps miss. Off by default.")
     p.add_argument("--entry-require-above-200sma", action="store_true", default=False,
                    help="[ichimoku_equity clone] Primary-trend floor: skip a NEW long BELOW its own 200-SMA (the TSLA-below-200d case). Deviation from spec → clone only. Off by default.")
     p.add_argument("--entry-veto-ma-suspect", action="store_true", default=False,
@@ -555,6 +557,8 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "entry_earnings_gate": bool(getattr(args, "entry_earnings_gate", False)),
                 # Don't-chase-the-gap cap: skip an entry too far above the signal price.
                 "entry_max_gap_pct": getattr(args, "entry_max_gap_pct", None),
+                # Kijun-distance cap: skip an entry too many ATRs above the kijun.
+                "entry_max_kijun_atr": getattr(args, "entry_max_kijun_atr", None),
             },
         )
 
@@ -1430,12 +1434,19 @@ def _apply_config_overrides(args, log) -> None:
                 "target_vol", "max_leverage", "sleeve_size",
                 "entry_max_ext_pct", "entry_rsi_max", "entry_require_above_200sma", "entry_veto_ma_suspect",
                 "entry_quality_gate", "entry_min_rs", "entry_min_volume_ratio",
-                "entry_earnings_gate", "entry_max_gap_pct",
+                "entry_earnings_gate", "entry_max_gap_pct", "entry_max_kijun_atr",
                 "top_n", "min_atr_pct", "min_strength",
                 "max_daily_loss_usd", "max_drawdown_pct",
                 "max_open_positions", "max_position_pct_of_capital",
                 "exclude_symbols", "reconcile_entries"):
-        if key in cfg and cfg[key] is not None and hasattr(args, key):
+        # Unconditional setattr — runtime_config is the source of truth and
+        # _build_strategy reads every gate via getattr(args, key, default).
+        # The old `hasattr(args, key)` guard SILENTLY DROPPED any whitelisted
+        # key without a matching argparse flag (entry_quality_gate,
+        # entry_earnings_gate, entry_max_gap_pct, entry_min_rs,
+        # entry_min_volume_ratio had none) — a gate "enabled" in config
+        # simply never reached the strategy. Found 11 Aug 2026.
+        if key in cfg and cfg[key] is not None:
             setattr(args, key, cfg[key])
     # IBKR connection → env (the adapter reads TRADEPRO_IBKR_*).
     if cfg.get("ibkr_port"):

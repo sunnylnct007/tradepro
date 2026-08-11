@@ -526,3 +526,41 @@ def test_kijun_distance_cap_off_by_default_parity():
     strat = _make_strategy(["AAPL"], df)
     orders = strat.on_bar(_bar("AAPL", 250.0))
     assert len(orders) == 1 and orders[0].side == OrderSide.BUY
+
+
+def test_from_config_applies_keys_without_argparse_flags(monkeypatch):
+    """REGRESSION (11 Aug 2026): _apply_from_config's old hasattr guard
+    silently DROPPED whitelisted runtime_config keys that had no matching
+    argparse flag (entry_quality_gate, entry_earnings_gate, entry_max_gap_pct,
+    …) — a gate 'enabled' in config never reached the strategy. Config must be
+    authoritative for every whitelisted key."""
+    import argparse
+    from tradepro_strategies.cli import paper_session as ps
+
+    from tradepro_strategies.cli import push_to_api as pta
+    monkeypatch.setattr(pta, "load_credentials", lambda: ("http://api", "tok"))
+
+    class _Resp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return {"mappings": [{
+                "strategy_id": "ichimoku_equity",
+                "broker": "T212_DEMO",
+                "runtime_config": {
+                    "entry_quality_gate": True,     # no argparse flag
+                    "entry_max_gap_pct": 4.0,        # no argparse flag
+                    "entry_max_kijun_atr": 1.5,
+                },
+            }]}
+
+    import requests as _requests
+    monkeypatch.setattr(_requests, "get", lambda *a, **kw: _Resp())
+
+    args = argparse.Namespace(strategy_id="ichimoku_equity", broker=None,
+                              account=None, strategy="ichimoku_equity")
+    import logging
+    ps._apply_config_overrides(args, logging.getLogger("test"))
+    assert args.entry_quality_gate is True
+    assert args.entry_max_gap_pct == 4.0
+    assert args.entry_max_kijun_atr == 1.5
