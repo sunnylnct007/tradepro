@@ -53,6 +53,15 @@ class WheelResult:
     buy_hold_return_pct: float
     bank_return_pct: float
     trades: list[WheelTrade] = field(default_factory=list)
+    # Per-day series (post-warmup) for PORTFOLIO aggregation — correlated
+    # drawdown/assignment across a book can't be seen from per-symbol
+    # summaries alone (the 2020 stress question). state ∈ flat|short_put|
+    # shares_pending|covered_call; "assigned" = holding shares.
+    curve_dates: list[str] = field(default_factory=list)
+    equity_curve: list[float] = field(default_factory=list)
+    state_by_day: list[str] = field(default_factory=list)
+    utilisation_pct: float = 0.0     # share of post-warmup days with a position on
+    costs_paid: float = 0.0          # spread haircut + commissions actually deducted
 
 
 def _realised_vol(closes: list[float], i: int, window: int = 30) -> float:
@@ -78,6 +87,8 @@ def simulate_wheel(
     start_capital: float = 100_000.0,
     rf: float = 0.04,            # risk-free / bank rate for comparison
     warmup: int = 30,
+    premium_haircut_pct: float = 0.0,   # spread cost: fraction of each premium lost (0.05 = 5%)
+    commission_per_leg: float = 0.0,    # $ per contract per SOLD leg (puts + calls)
 ) -> WheelResult:
     """Daily-stepped wheel. FLAT → sell cash-secured put; if assigned → hold
     shares + sell covered calls; called away → back to FLAT. Premiums are
@@ -94,10 +105,20 @@ def simulate_wheel(
     opt_expiry_idx = -1
     premium_income = 0.0
     realised_pnl = 0.0
+    costs_paid = 0.0
     trades: list[WheelTrade] = []
     n_puts = n_assign = n_calls = n_aways = 0
 
     equity_curve: list[float] = []
+    state_by_day: list[str] = []
+
+    def _net_premium(gross: float) -> float:
+        """Premium after the pre-registered costs: spread haircut + per-leg
+        commission (WHEEL_BACKTEST_GATES.md — all gates grade NET numbers)."""
+        nonlocal costs_paid
+        haircut = gross * mult * premium_haircut_pct
+        costs_paid += haircut + commission_per_leg
+        return gross * mult - haircut - commission_per_leg
 
     def expiry_index(entry_i: int) -> int:
         target = dates[entry_i] + _dt.timedelta(days=dte)
@@ -110,6 +131,7 @@ def simulate_wheel(
         spot = closes[i]
         if i < warmup or spot <= 0:
             equity_curve.append(cash + shares * spot)
+            state_by_day.append("warmup" if i < warmup else mode)
             continue
         sigma = _realised_vol(closes, i)
         t_open = max(dte, 1) / 365.0
@@ -149,8 +171,9 @@ def simulate_wheel(
             strike = round(spot * (1 - otm_pct))
             if strike > 0 and cash >= strike * mult:       # cash-secured
                 prem = pricer.price(spot, strike, t_open, sigma, "put")
-                cash += prem * mult
-                premium_income += prem * mult
+                net = _net_premium(prem)
+                cash += net
+                premium_income += net
                 opt_strike, opt_expiry_idx = strike, expiry_index(i)
                 mode = "short_put"
                 n_puts += 1
@@ -159,8 +182,9 @@ def simulate_wheel(
         elif mode == "shares_pending":
             strike = round(max(cost_basis, spot * (1 + otm_pct)))
             prem = pricer.price(spot, strike, t_open, sigma, "call")
-            cash += prem * mult
-            premium_income += prem * mult
+            net = _net_premium(prem)
+            cash += net
+            premium_income += net
             opt_strike, opt_expiry_idx = strike, expiry_index(i)
             mode = "covered_call"
             n_calls += 1
@@ -174,6 +198,7 @@ def simulate_wheel(
             kind = "put" if mode == "short_put" else "call"
             liab = pricer.price(spot, opt_strike, t_rem, sigma, kind) * mult
         equity_curve.append(cash + shares * spot - liab)
+        state_by_day.append(mode)
 
     final_equity = equity_curve[-1] if equity_curve else start_capital
     days = (dates[-1] - dates[warmup]).days if n > warmup else 1
@@ -195,6 +220,9 @@ def simulate_wheel(
     bh_ret = (bh_final / start_capital - 1) * 100
     bank_ret = ((1 + rf) ** years - 1) * 100
 
+    post = slice(warmup, None)
+    post_states = state_by_day[post]
+    active = sum(1 for s in post_states if s not in ("flat", "warmup"))
     return WheelResult(
         symbol="", start=dates[warmup].isoformat() if n > warmup else dates[0].isoformat(),
         end=dates[-1].isoformat(), contracts=contracts, start_capital=start_capital,
@@ -202,6 +230,11 @@ def simulate_wheel(
         premium_income=premium_income, realised_pnl=realised_pnl, max_drawdown_pct=max_dd,
         n_puts_sold=n_puts, n_assignments=n_assign, n_calls_sold=n_calls, n_call_aways=n_aways,
         days=days, buy_hold_return_pct=bh_ret, bank_return_pct=bank_ret, trades=trades,
+        curve_dates=[d.isoformat() for d in dates[post]],
+        equity_curve=equity_curve[post],
+        state_by_day=post_states,
+        utilisation_pct=round(active / max(1, len(post_states)) * 100, 1),
+        costs_paid=round(costs_paid, 2),
     )
 
 
