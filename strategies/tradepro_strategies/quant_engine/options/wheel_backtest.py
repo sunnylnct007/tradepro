@@ -89,6 +89,12 @@ def simulate_wheel(
     warmup: int = 30,
     premium_haircut_pct: float = 0.0,   # spread cost: fraction of each premium lost (0.05 = 5%)
     commission_per_leg: float = 0.0,    # $ per contract per SOLD leg (puts + calls)
+    idle_cash_rate: float = 0.0,        # annual rate accrued daily on the CASH balance.
+    # 0.0 = v1 behaviour (idle cash scores zero — understates low-utilisation
+    # configs: money a premium floor keeps undeployed isn't dead, it earns ~rf;
+    # and real CSP collateral itself sits in cash/money-market earning interest).
+    # The v2 gates file registers this ON (= rf) BEFORE v2's numbers are known —
+    # a measurement-definition fix, not a tuning knob (owner, 11 Aug 2026).
 ) -> WheelResult:
     """Daily-stepped wheel. FLAT → sell cash-secured put; if assigned → hold
     shares + sell covered calls; called away → back to FLAT. Premiums are
@@ -127,8 +133,11 @@ def simulate_wheel(
                 return j
         return n - 1
 
+    daily_rate = (1.0 + idle_cash_rate) ** (1.0 / 252) - 1.0 if idle_cash_rate else 0.0
     for i in range(n):
         spot = closes[i]
+        if daily_rate and i >= warmup and cash > 0:
+            cash += cash * daily_rate
         if i < warmup or spot <= 0:
             equity_curve.append(cash + shares * spot)
             state_by_day.append("warmup" if i < warmup else mode)
