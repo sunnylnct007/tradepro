@@ -179,7 +179,48 @@ def _fetch_nav_gbp() -> float | None:
         return None
 
 
-def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open: bool, nav_gbp: float | None = None) -> dict:
+def build_carry_map(stored_payload: dict | None, *, now=None, max_age_h: float | None = None) -> dict:
+    """Symbol → last-priced row from the PREVIOUS screen push, for the
+    carry-forward pricing tier (owner, 10 Aug 2026: a dark-MD run must not
+    collapse the board to 'premium unavailable' when we priced it hours ago).
+
+    A row qualifies when it carries a premium from a real source (live_mid /
+    prev_close_indicative) or is itself a still-fresh carry — carries CHAIN
+    across runs because each push overwrites the stored payload, so the
+    original pricing timestamp travels in `premium_as_of_utc` and the age
+    cap is enforced against THAT, never against the latest push time.
+    Pure function; unit-tested."""
+    from datetime import datetime as _dt, timezone as _tz
+    if not stored_payload:
+        return {}
+    cap_h = max_age_h if max_age_h is not None else float(
+        os.environ.get("TRADEPRO_WHEEL_CARRY_MAX_AGE_H", "96"))
+    now = now or _dt.now(_tz.utc)
+    fallback_asof = stored_payload.get("generated_at_utc")
+    carry: dict = {}
+    for row in stored_payload.get("candidates") or []:
+        sym = row.get("symbol")
+        src = row.get("premium_source")
+        if not sym or row.get("suggested_premium") is None or row.get("suggested_strike") is None:
+            continue
+        if src not in ("live_mid", "prev_close_indicative", "carried_last_live"):
+            continue
+        asof = row.get("premium_as_of_utc") or fallback_asof
+        if not asof:
+            continue
+        try:
+            asof_dt = _dt.fromisoformat(str(asof).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        age_h = (now - asof_dt.astimezone(_tz.utc)).total_seconds() / 3600.0
+        if age_h < 0 or age_h > cap_h:
+            continue
+        carry[sym] = {**row, "premium_as_of_utc": asof_dt.isoformat(), "_carry_age_h": age_h}
+    return carry
+
+
+def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open: bool, nav_gbp: float | None = None,
+                   carry_row: dict | None = None) -> dict:
     """Build one candidate row: IV-Rank + regime + (live) chain → risk engine.
 
     `ib` may be None (Gateway unreachable) — IV-Rank then fails closed
@@ -368,6 +409,39 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         strike = delta = premium = oi = spread = bid = ask = chain_iv = None
         notional_gbp = None
 
+    # ── Carry-forward pricing tier (owner priority, 10 Aug 2026) ─────────
+    # When live mid AND the option's prior close are BOTH dark (post-close /
+    # the one-MD-session contention), adopt the last PRICED pick for this
+    # symbol wholesale — strike+premium+OI+spread belong to one snapshot, so
+    # we never graft an old premium onto a new strike (the 54→55.5 drift).
+    # Labeled with its age and hard-BLOCKed from eligibility below: the
+    # board stays informative, the numbers stay non-actionable.
+    premium_as_of_utc = (datetime.now(timezone.utc).isoformat()
+                         if premium is not None else None)
+    carry_age_h = None
+    if premium is None and carry_row:
+        c_strike = carry_row.get("suggested_strike")
+        c_delta = carry_row.get("suggested_delta")
+        if sane_csp_pick(c_delta, c_strike, ref_close or carry_row.get("ref_close")):
+            strike = c_strike
+            delta = c_delta
+            premium = carry_row.get("suggested_premium")
+            oi = carry_row.get("open_interest")
+            spread = carry_row.get("spread_usd")
+            bid = carry_row.get("bid")
+            ask = carry_row.get("ask")
+            chain_iv = None   # not re-verifiable — model cross-check stays off
+            dte = carry_row.get("dte") or dte
+            notional_gbp = round(strike * 100 / _FX_GBPUSD, 0) if strike else None
+            premium_source = "carried_last_live"
+            premium_as_of_utc = carry_row.get("premium_as_of_utc")
+            carry_age_h = round(float(carry_row.get("_carry_age_h") or 0.0), 1)
+            if not chain_source:
+                chain_source = carry_row.get("chain_source")
+            log.info("%s: live+prior-close premium dark — carried last priced pick "
+                     "(%.1fh old, source %s)", sym, carry_age_h,
+                     carry_row.get("premium_source"))
+
     # ETFs have no earnings event — structural False (a fact of the security
     # type), NOT a skipped check. Single names still go through the calendar
     # lookup and BLOCK when it can't be verified.
@@ -389,11 +463,23 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         # an advisory warning (candidates surface for paper, marked indicative)
         # instead of blocking on a stale wide spread. Flip to False once OPRA is
         # on (then real-time spreads hard-block again).
-        quotes_delayed=(chain_source == "ibkr" or premium_source == "prev_close_indicative"),
+        quotes_delayed=(chain_source == "ibkr"
+                        or premium_source in ("prev_close_indicative", "carried_last_live")),
     )
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
     decision = evaluate(cand, ctx, PortfolioState(), cfg)
+    # Carried pricing is informative, never actionable: hard-block eligibility
+    # so a stale number can't be crowned best / starred / auto-recorded
+    # (NO FALSE POSITIVES). The economics stay visible on the row.
+    if premium_source == "carried_last_live":
+        from dataclasses import replace as _dc_rep
+        decision = _dc_rep(
+            decision, allowed=False,
+            blocks=list(decision.blocks) + [
+                f"Pricing carried from the last priced screen ({carry_age_h}h old) — "
+                f"indicative only; not actionable until live quotes return."],
+        )
 
     # Annualised premium yield — the income metric that ranks "best to trade".
     # premium ÷ strike (capital per share) scaled to a year by DTE. Only
@@ -483,6 +569,10 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "suggested_delta": delta,
         "suggested_premium": premium,
         "premium_source": premium_source,
+        # When the pricing was carried, WHEN it was actually priced (the
+        # T-1/T-2 label the desk renders) + how old it is in hours.
+        "premium_as_of_utc": premium_as_of_utc,
+        "premium_age_h": carry_age_h,
         "dte": dte,
         "annualized_yield_pct": ann_yield_pct,
         "chain_source": chain_source,
@@ -571,10 +661,24 @@ def run_screen(symbols: list[str] | None = None) -> dict:
         log.warning("IBKR Gateway unreachable (%s) — running degraded: "
                     "chain via G3, regime via bar cache, IV-rank BLOCKED", e)
 
+    # Previous push → carry-forward map, so a dark-MD run keeps the last
+    # priced board (labeled) instead of collapsing to "premium unavailable".
+    import requests as _rq
+    carry: dict = {}
+    try:
+        _base, _tok = _pta.load_credentials()
+        _prev = _rq.get(f"{_base.rstrip('/')}/api/options/candidates", timeout=15).json()
+        carry = build_carry_map(_prev)
+        if carry:
+            log.info("carry-forward map: %d symbols priced within the age cap", len(carry))
+    except Exception as e:  # noqa: BLE001 — no carry is a degraded, not failed, run
+        log.warning("carry-forward map unavailable (%s) — dark rows won't carry", e)
+
     rows = []
     try:
         for sym in universe:
-            rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open, nav_gbp))
+            rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open, nav_gbp,
+                                       carry_row=carry.get(sym)))
             log.info("screened %s", sym)
     finally:
         if connected:
