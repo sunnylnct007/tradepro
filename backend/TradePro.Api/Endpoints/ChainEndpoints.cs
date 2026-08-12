@@ -169,7 +169,12 @@ public static class ChainEndpoints
             //     retry fired, but the one leg the wheel SELECTS was often
             //     among the cold ones → premium null → whole symbols rotated
             //     into carry-forward pricing DURING regular hours.
-            for (var attempt = 0; attempt < 2 && QuotesStillCold(quotesResult.Quotes); attempt++)
+            // One retry, not two (12 Aug): the second retry's extra snapshot
+            // volume across an 82-symbol sweep helped exhaust IBKR's pacing
+            // budget ~18 names in — the IV snapshots for every later symbol
+            // starved (the 62/82 iv-dark run). One retry keeps most of the
+            // partial-cold recovery at half the budget cost.
+            for (var attempt = 0; attempt < 1 && QuotesStillCold(quotesResult.Quotes); attempt++)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1.2), ct);
                 quotesResult = await ibkr.GetOptionSnapshotBatchAsync(conIds, ct);

@@ -133,6 +133,48 @@ def fetch_iv_rank_web(
         base = (api_base or "").rstrip("/")
         headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
 
+        # 0) TODAY'S STORED IV FIRST (12 Aug 2026 — the 62/82-dark run): the
+        # snapshot endpoint is pacing-limited, and an 82-symbol sweep burns
+        # the budget ~18 names in — everything after reads dark for the rest
+        # of the run. Once a run has snapshotted a symbol today, LATER runs
+        # read the stored row instead of paying the budget again, so each
+        # run's budget goes to names the previous runs couldn't reach and
+        # coverage self-heals across the day. IV drifts intraday, but the
+        # rank/bridge is a DAILY gate — a same-day stored IV is honest for
+        # it (premium/eligibility freshness still comes from live chain
+        # quotes). Env kill-switch: TRADEPRO_WHEEL_IV_STORE_REUSE=0.
+        import datetime as _dt
+        import os as _os
+        if _os.environ.get("TRADEPRO_WHEEL_IV_STORE_REUSE", "1").strip().lower() not in ("0", "false", "no", "off"):
+            try:
+                sr = http.get(f"{base}/api/options/iv-daily/{sym}", headers=headers, timeout=15)
+                rows = (sr.json() or {}).get("series") or []
+                if rows:
+                    last = rows[-1]
+                    _d = str(last.get("trade_date") or "")[:10]
+                    if (_d == _dt.date.today().isoformat()
+                            and last.get("iv") and float(last["iv"]) > 0):
+                        _iv = float(last["iv"])
+                        _hv = float(last["hv30"]) if last.get("hv30") else None
+                        series = [row.get("iv") for row in rows]
+                        series = [v for v in series if v is not None and v > 0]
+                        days = len(series)
+                        ratio = round(_iv / _hv, 3) if (_hv and _hv > 0) else None
+                        if days >= min_window_days:
+                            ranked = iv_rank_from_history(sym, series)
+                            if ranked.available:
+                                return IvRankResult(
+                                    sym, available=True, iv=_iv, iv_rank=ranked.iv_rank,
+                                    low_52w=ranked.low_52w, high_52w=ranked.high_52w,
+                                    days=days, hv30=_hv, iv_hv_ratio=ratio,
+                                    reason=f"rank on {days}d window (today's stored IV)")
+                        return IvRankResult(
+                            sym, available=True, iv=_iv, iv_rank=None, days=days,
+                            hv30=_hv, iv_hv_ratio=ratio,
+                            reason=f"today's stored IV (window {days}d — rank once ≥{min_window_days}d)")
+            except Exception:  # noqa: BLE001 — store miss → live snapshot below
+                pass
+
         # 1) Current IV + HV — warm-up retry (first snapshot is often empty,
         # and fields warm INDEPENDENTLY: IV can land an attempt before HV).
         # HV comes from field 7284 (verified live 2026-08-09: 7284='27.205%'
