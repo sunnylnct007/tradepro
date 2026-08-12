@@ -136,3 +136,36 @@ def test_wheel_email_disabled_by_env(monkeypatch):
     from tradepro_strategies.cli import options_screen as osc
     monkeypatch.setenv("TRADEPRO_WHEEL_EMAIL", "0")
     assert osc._maybe_send_wheel_email(_board({"SLV"}), _board(set())) is False
+
+
+# ── Vol-regime floor: the KRE contradiction (bridge 1.35 at 2.4th pctile) ─
+def test_vol_regime_percentile_low_when_iv_at_yearly_trough():
+    from tradepro_strategies.cli.options_screen import vol_regime_percentile
+    import math, random
+    random.seed(7)
+    # A year of lively vol (~35%) then a calm tail — current IV 16% sits
+    # near the bottom of the yearly distribution.
+    closes, px = [], 100.0
+    for i in range(420):
+        sigma = 0.35 if i < 340 else 0.12
+        px *= math.exp(random.gauss(0, sigma / math.sqrt(252)))
+        closes.append(px)
+    p = vol_regime_percentile(closes, 0.11)
+    assert p is not None and p < 15, p
+
+
+def test_vol_regime_percentile_high_when_iv_rich():
+    from tradepro_strategies.cli.options_screen import vol_regime_percentile
+    import math, random
+    random.seed(7)
+    closes, px = [], 100.0
+    for i in range(420):
+        px *= math.exp(random.gauss(0, 0.20 / math.sqrt(252)))
+        closes.append(px)
+    p = vol_regime_percentile(closes, 0.60)   # IV far above the whole year
+    assert p is not None and p > 85, p
+
+
+def test_vol_regime_percentile_none_on_thin_history():
+    from tradepro_strategies.cli.options_screen import vol_regime_percentile
+    assert vol_regime_percentile([100.0] * 100, 0.25) is None

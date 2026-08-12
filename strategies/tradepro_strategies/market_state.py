@@ -119,6 +119,13 @@ class MarketState:
     low_52w_price: float | None = None
     low_52w_date: str | None = None
     range_position_pct: float | None = None
+    # RECENT-range context (~13 weeks / 65 sessions) — the late-bounce
+    # discriminator (UBER external review, 12 Aug 2026): "23% off a
+    # 10-month-old high" can describe a stock at the TOP of its recent
+    # range that already ran +20% off the recent low. The 52w range
+    # can't see that (UBER sat mid-52w-range); these two can.
+    range_position_13w_pct: float | None = None
+    bounce_from_13w_low_pct: float | None = None
     # Last 30 daily closes (split-adjusted), oldest → newest. Used by
     # the email digest's BUY-sparkline strip + the PDF per-symbol
     # page so the user sees recent shape, not just numbers. ~30 floats
@@ -184,6 +191,8 @@ class MarketState:
             "high_52w": self.pct_off_52w_high_price,
             "low_52w": self.low_52w_price,
             "range_pct": self.range_position_pct,
+            "range_position_13w_pct": self.range_position_13w_pct,
+            "bounce_from_13w_low_pct": self.bounce_from_13w_low_pct,
             "rsi_14": self.rsi_14,
             "momentum_10d_pct": self.momentum_10d_pct,
             "momentum_3m_pct": self.momentum_3m_pct,
@@ -587,6 +596,26 @@ def _classify(state: MarketState) -> tuple[str, str]:
                     f"{pct_off_high:.1f}% off 52w high but RSI {rsi_v:.0f} is "
                     f"OVERBOUGHT — the dip has already been bought; entering "
                     f"here is chasing the rebound, not buying the dip.")
+        # Late-bounce guard (UBER external review, 12 Aug 2026): "X% off a
+        # high set months ago" can describe a stock that fell and has
+        # LARGELY RECOVERED — top of its recent range, already ran hard off
+        # the recent low. RSI 63 there is elevated, not recovering. The
+        # entry edge was at the low; presenting this as a dip is backwards.
+        rp13 = state.range_position_13w_pct
+        bounce13 = state.bounce_from_13w_low_pct
+        if ((rp13 is not None and rp13 >= RANGE13_LATE_BOUNCE_PCTILE)
+                or (bounce13 is not None and bounce13 >= BOUNCE_ALREADY_RUN_PCT)):
+            bits = []
+            if rp13 is not None:
+                bits.append(f"{rp13:.0f}% of its 13-week range")
+            if bounce13 is not None:
+                bits.append(f"already +{bounce13:.1f}% off the recent low")
+            return ("WAIT",
+                    f"{pct_off_high:.1f}% off 52w high but sitting at "
+                    + " and ".join(bits)
+                    + f" (RSI {rsi_v:.0f} elevated) — this is a LATE BOUNCE, "
+                    f"not a dip. The entry edge was at the low; wait for a "
+                    f"pullback or a fresh base.")
         high_when = (state.pct_off_52w_high_date or "")[:10]
         high_suffix = f" (52w high {high_when})" if high_when else ""
         return ("BUY",
@@ -730,6 +759,21 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         # window (corporate action, stale bar, etc.).
         range_position_pct = max(0.0, min(100.0, range_position_pct))
 
+    # Recent (~13-week / 65-session) range position + bounce off the recent
+    # low — the late-bounce discriminator (UBER, 12 Aug 2026). Same clamp
+    # rationale as the 52w version.
+    range_position_13w_pct: float | None = None
+    bounce_from_13w_low_pct: float | None = None
+    if last_price is not None and len(series) >= 30:
+        window_65 = series.tail(65)
+        hi13 = _safe_float(window_65.max())
+        lo13 = _safe_float(window_65.min())
+        if hi13 is not None and lo13 is not None and hi13 > lo13:
+            range_position_13w_pct = max(0.0, min(100.0,
+                (last_price - lo13) / (hi13 - lo13) * 100.0))
+        if lo13 is not None and lo13 > 0:
+            bounce_from_13w_low_pct = (last_price / lo13 - 1.0) * 100.0
+
     # Drawdown from running peak, full-series. This is the more honest
     # measure of "are we mid-correction?" than just the 52-week notion.
     # Capture peak date too — same rationale as the 52w-high date.
@@ -855,6 +899,8 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
         low_52w_price=low_52w,
         low_52w_date=low_52w_date,
         range_position_pct=range_position_pct,
+        range_position_13w_pct=range_position_13w_pct,
+        bounce_from_13w_low_pct=bounce_from_13w_low_pct,
         closes_30d=closes_30d,
         volume_ratio_20d=volume_ratio_20d,
         post_event_gap=post_event_gap,

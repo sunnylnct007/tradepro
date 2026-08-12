@@ -87,3 +87,27 @@ def test_canary_already_in_universe_is_reused_not_refetched():
     assert "MA" not in fetched_symbols, "MA is in-universe with real data — must not be refetched"
     assert fetched_symbols == {"V", "AXP", "JPM", "MSFT", "AAPL"}
     assert nvda_row["earnings_gate"]["feed_degraded"] is False
+
+
+# ── Late-bounce guard (UBER, 12 Aug 2026) — lives here to reuse the
+# market_state import; the bounce-zone BUY must not fire on a name at the
+# top of its recent range that already ran off the low.
+def test_late_bounce_is_wait_not_buy():
+    import numpy as np
+    import pandas as pd
+    from tradepro_strategies.market_state import market_state
+    # 1y: run-up to 102, crash to 65, then a 20% recovery to ~78 (the UBER
+    # shape: 23% off the 52w high, ~95% of the 13w range, +20% off the low).
+    seg1 = np.linspace(80, 102, 120)          # old high
+    seg2 = np.linspace(102, 65.4, 80)         # the fall
+    seg3 = np.linspace(65.4, 78.3, 60)        # the bounce (already happened)
+    close = np.concatenate([seg1, seg2, seg3])
+    idx = pd.bdate_range(end="2026-08-12", periods=len(close))
+    df = pd.DataFrame({"adj_close": close, "high": close * 1.01,
+                       "low": close * 0.99, "close": close}, index=idx)
+    st = market_state("UBERX", df)
+    assert st.range_position_13w_pct is not None and st.range_position_13w_pct > 85
+    assert st.bounce_from_13w_low_pct is not None and st.bounce_from_13w_low_pct > 15
+    assert st.entry_signal != "BUY", (st.entry_signal, st.entry_reason)
+    if st.entry_signal == "WAIT" and "LATE BOUNCE" in (st.entry_reason or ""):
+        assert "off the recent low" in st.entry_reason

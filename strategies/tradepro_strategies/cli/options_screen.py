@@ -129,6 +129,33 @@ def _mid(vals: list[float], i: int, n: int) -> float | None:
     return (max(w) + min(w)) / 2.0
 
 
+def vol_regime_percentile(closes: list[float], iv: float, *, hv_window: int = 30) -> float | None:
+    """Percentile of the CURRENT IV within the symbol's own trailing-year
+    distribution of rolling 30d realised vol — the ABSOLUTE-premium sanity
+    companion the IV/HV bridge lacks (the KRE contradiction, 12 Aug 2026:
+    bridge 1.35 — strongest vega read yet — while IV sat at the 2.4th
+    percentile of its year, because realised vol collapsed FASTER than
+    implied; the ratio certifies edge on the year's thinnest premium).
+    Computed from cached daily closes — no new feed. None when history is
+    too thin (<120 rolling points) — unknown, never fabricated. Pure."""
+    import math as _m
+    c = [x for x in closes if x and x > 0]
+    if iv is None or iv <= 0 or len(c) < hv_window + 120:
+        return None
+    rets = [_m.log(c[i] / c[i - 1]) for i in range(1, len(c))]
+    vols: list[float] = []
+    for i in range(hv_window, len(rets) + 1):
+        w = rets[i - hv_window:i]
+        mean = sum(w) / hv_window
+        var = sum((r - mean) ** 2 for r in w) / (hv_window - 1)
+        vols.append(_m.sqrt(var) * _m.sqrt(252.0))
+    vols = vols[-252:]
+    if len(vols) < 120:
+        return None
+    below = sum(1 for v in vols if v <= iv)
+    return round(below / len(vols) * 100.0, 1)
+
+
 def regime_from_closes(closes: list[float]) -> tuple[str | None, bool | None]:
     """Ichimoku-cloud regime from daily closes (newest last). Constructive =
     price above the cloud (GREEN), in the cloud (YELLOW); breaking = below cloud
@@ -478,6 +505,28 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
     decision = evaluate(cand, ctx, PortfolioState(), cfg)
+    # Vol-regime floor for BRIDGE passes (the KRE contradiction): a ratio
+    # pass with the absolute vol level in the bottom of the name's own
+    # yearly range is positive edge on very little money — and typically
+    # exactly when the name sits near its highs. Rank-based passes are
+    # exempt (a real 52w IV-rank already IS the absolute measure).
+    iv_vol_pctile = (vol_regime_percentile(closes, ivr.iv)
+                     if (ivr.available and ivr.iv) else None)
+    _vega_gate_val = ("rank" if (ivr.available and ivr.iv_rank is not None)
+                      else "bridge" if (ivr.available and ivr.iv_hv_ratio is not None)
+                      else None)
+    _vol_floor = float(os.environ.get("TRADEPRO_WHEEL_MIN_VOL_REGIME_PCTILE", "15"))
+    if (_vega_gate_val == "bridge" and iv_vol_pctile is not None
+            and iv_vol_pctile < _vol_floor):
+        from dataclasses import replace as _dc_rep2
+        decision = _dc_rep2(
+            decision, allowed=False,
+            blocks=list(decision.blocks) + [
+                f"IV at the {iv_vol_pctile:.0f}th percentile of this name's own "
+                f"1y vol range (< {_vol_floor:.0f} floor) — the IV/HV bridge "
+                f"passes only because realised vol collapsed faster; selling "
+                f"the year's thinnest premium is edge on very little money."],
+        )
     # Carried pricing is informative, never actionable: hard-block eligibility
     # so a stale number can't be crowned best / starred / auto-recorded
     # (NO FALSE POSITIVES). The economics stay visible on the row.
@@ -555,9 +604,10 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "iv": round(ivr.iv, 4) if (ivr.available and ivr.iv is not None) else None,
         "iv_hv_ratio": ivr.iv_hv_ratio if ivr.available else None,
         "iv_rank_days": ivr.days if ivr.available else None,
-        "vega_gate": ("rank" if (ivr.available and ivr.iv_rank is not None)
-                      else "bridge" if (ivr.available and ivr.iv_hv_ratio is not None)
-                      else None),
+        "vega_gate": _vega_gate_val,
+        # Current IV's percentile within the name's own 1y realised-vol
+        # distribution — the absolute-level context next to the ratio.
+        "iv_vol_regime_pctile": iv_vol_pctile,
         "open_interest": oi,
         # Concrete quote parameters (owner 2026-08-09: "quote a few technical
         # parameters and price needs to be checked to make it concrete") —
