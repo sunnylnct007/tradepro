@@ -564,3 +564,47 @@ def test_from_config_applies_keys_without_argparse_flags(monkeypatch):
     assert args.entry_quality_gate is True
     assert args.entry_max_gap_pct == 4.0
     assert args.entry_max_kijun_atr == 1.5
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# (i) Settled-bar-only signal (OPT-IN) — the 11-Aug partial-bar mechanism:
+# an intraday rally "crosses" on today's in-progress bar and fires a
+# phantom fresh entry. With the flag on, today's row is dropped and the
+# signal derives from settled closes only.
+# ─────────────────────────────────────────────────────────────────────────
+def _df_cross_only_on_todays_partial_bar():
+    """Declining series (signal flat on settled data) with today's partial
+    bar spiking hard enough to cross long intraday."""
+    import datetime as _dt
+    n = 300
+    close = np.linspace(150, 100, n)          # settled: downtrend → flat signal
+    close[-10:] = np.linspace(100, 110, 10)   # mild settled base (tenkan lifts off kijun)
+    close[-1] = 170.0                          # today's partial bar: huge rally
+    high = close * 1.01
+    low = close * 0.99
+    idx = pd.bdate_range(end=_dt.datetime.now(), periods=n)  # last row = today
+    return pd.DataFrame({"High": high, "Low": low, "Close": close}, index=idx)
+
+
+def test_settled_bar_only_blocks_partial_bar_cross():
+    df = {"AAPL": _df_cross_only_on_todays_partial_bar()}
+    strat = _make_strategy(["AAPL"], df, entry_settled_bar_only=True)
+    assert strat.on_bar(_bar("AAPL", 170.0)) == []   # settled signal is flat
+
+
+def test_partial_bar_cross_enters_when_flag_off_parity():
+    df = {"AAPL": _df_cross_only_on_todays_partial_bar()}
+    strat = _make_strategy(["AAPL"], df)             # flag off ⇒ legacy behaviour
+    orders = strat.on_bar(_bar("AAPL", 170.0))
+    assert len(orders) == 1 and orders[0].side == OrderSide.BUY
+
+
+def test_settled_bar_only_keeps_genuine_settled_cross():
+    """A cross that exists on SETTLED data (yesterday) still enters today —
+    the flag removes phantom crosses, not the trade-the-delta entry."""
+    import datetime as _dt
+    df0 = _uptrend_df()   # monotone uptrend: settled signal long + fresh throughout
+    df0.index = pd.bdate_range(end=_dt.datetime.now(), periods=len(df0))
+    strat = _make_strategy(["AAPL"], {"AAPL": df0}, entry_settled_bar_only=True)
+    orders = strat.on_bar(_bar("AAPL", 250.0))
+    assert len(orders) == 1 and orders[0].side == OrderSide.BUY

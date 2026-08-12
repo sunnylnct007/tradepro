@@ -559,6 +559,8 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "entry_max_gap_pct": getattr(args, "entry_max_gap_pct", None),
                 # Kijun-distance cap: skip an entry too many ATRs above the kijun.
                 "entry_max_kijun_atr": getattr(args, "entry_max_kijun_atr", None),
+                # Settled-bar-only signal: no intraday partial-bar crosses.
+                "entry_settled_bar_only": bool(getattr(args, "entry_settled_bar_only", False)),
             },
         )
 
@@ -1435,6 +1437,7 @@ def _apply_config_overrides(args, log) -> None:
                 "entry_max_ext_pct", "entry_rsi_max", "entry_require_above_200sma", "entry_veto_ma_suspect",
                 "entry_quality_gate", "entry_min_rs", "entry_min_volume_ratio",
                 "entry_earnings_gate", "entry_max_gap_pct", "entry_max_kijun_atr",
+                "entry_settled_bar_only",
                 "top_n", "min_atr_pct", "min_strength",
                 "max_daily_loss_usd", "max_drawdown_pct",
                 "max_open_positions", "max_position_pct_of_capital",

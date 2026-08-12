@@ -343,6 +343,16 @@ class IchimokuEquityStrategy(Strategy):
             #   held positions/exits untouched. FAIL-OPEN when kijun/ATR can't be
             #   computed (thin history) — never fabricate a gate.
             "entry_max_kijun_atr": None,
+            # entry_settled_bar_only (bool): OPT-IN. Compute the daily signal
+            #   from SETTLED closes only — during the session the fetched
+            #   history includes today's in-progress bar, so intraday spikes
+            #   fake fresh crosses (the 11-Aug AAPL / 7-Aug FLR mechanism).
+            #   When True the last row is dropped iff it carries today's
+            #   US-Eastern trading date: signal fires on yesterday's close,
+            #   entry lands this session — the trader's trade-the-delta
+            #   timing. Also steadies exits (signal flips on settled data,
+            #   acted on next open). False ⇒ verbatim parity.
+            "entry_settled_bar_only": False,
         }
 
     # ------------------------------------------------------------------ #
@@ -1234,6 +1244,27 @@ class IchimokuEquityStrategy(Strategy):
             self._daily_signals[symbol] = (0.0, 0.0, {})
             self._realised_vols[symbol] = None
             return 0.0, None, {}
+
+        # ── Settled-bar-only signal (OPT-IN) ────────────────────────────
+        # The 11-Aug AAPL finding: the fetched history INCLUDES today's
+        # in-progress daily bar during the session, so an intraday rally
+        # "crosses" on a bar whose close hasn't printed — the mechanism
+        # behind the phantom fresh signals, the chase entries (FLR's gap
+        # day) and the random intraday fill times. The trader's spec is
+        # signal on the SETTLED daily close, act next session. When on,
+        # drop the last row iff it carries today's US-Eastern trading date
+        # — signal, freshness, signal_close and the gate meta all derive
+        # from settled closes. Fail-open on any tz/parse hiccup.
+        if p.get("entry_settled_bar_only") and len(df) >= 2:
+            try:
+                from zoneinfo import ZoneInfo
+                _today_et = datetime.now(ZoneInfo("America/New_York")).date()
+                _last = df.index[-1]
+                _last_date = _last.date() if hasattr(_last, "date") else None
+                if _last_date is not None and _last_date >= _today_et:
+                    df = df.iloc[:-1]
+            except Exception:  # noqa: BLE001 — never lose the signal to tz parsing
+                pass
 
         # Normalise column names: indicators expect lower-case high/low/close.
         cols = {c.lower(): c for c in df.columns}
