@@ -108,17 +108,9 @@ public static class EarningsCalendarEndpoints
             var chunks = 0;
             var suspectTruncation = new List<string>();
             var anyEnabled = false;
-            for (var start = from; start <= to; start = start.AddDays(7))
+            async Task<int> UpsertAsync(IReadOnlyList<Providers.Finnhub.FinnhubEarningsEvent> events)
             {
-                var end = start.AddDays(6) < to ? start.AddDays(6) : to;
-                var events = await finnhub.GetEarningsCalendarBulkAsync(start, end, ct);
-                if (events is null)
-                    continue;   // disabled or transient failure — graded below
-                anyEnabled = true;
-                chunks++;
-                fetched += events.Count;
-                if (events.Count >= 1000)
-                    suspectTruncation.Add($"{start:yyyy-MM-dd}..{end:yyyy-MM-dd}={events.Count}");
+                var count = 0;
                 foreach (var e in events)
                 {
                     if (string.IsNullOrWhiteSpace(e.Symbol) || !DateOnly.TryParse(e.Date, out _))
@@ -130,8 +122,41 @@ public static class EarningsCalendarEndpoints
                             session = EXCLUDED.session, source = EXCLUDED.source,
                             uploaded_at = NOW();",
                         new { sym = e.Symbol.Trim().ToUpperInvariant(), date = e.Date, session = e.Hour });
-                    n++;
+                    count++;
                 }
+                return count;
+            }
+
+            for (var start = from; start <= to; start = start.AddDays(7))
+            {
+                var end = start.AddDays(6) < to ? start.AddDays(6) : to;
+                var events = await finnhub.GetEarningsCalendarBulkAsync(start, end, ct);
+                if (events is null)
+                    continue;   // disabled or transient failure — graded below
+                anyEnabled = true;
+                chunks++;
+                if (events.Count >= 1000)
+                {
+                    // ADAPTIVE SPLIT (12 Aug 2026, round two): peak earnings-season
+                    // weeks genuinely exceed the cap on their own (05-11 Aug came
+                    // back at exactly 1500 — UBER's 6-Aug report was STILL missing
+                    // after weekly chunking). Re-fetch the suspect week day by day;
+                    // a single DAY at ≥1000 is Finnhub's floor and stays flagged.
+                    for (var d = start; d <= end; d = d.AddDays(1))
+                    {
+                        var dayEvents = await finnhub.GetEarningsCalendarBulkAsync(d, d, ct);
+                        if (dayEvents is null)
+                            continue;
+                        chunks++;
+                        fetched += dayEvents.Count;
+                        if (dayEvents.Count >= 1000)
+                            suspectTruncation.Add($"{d:yyyy-MM-dd}={dayEvents.Count} (single day at cap)");
+                        n += await UpsertAsync(dayEvents);
+                    }
+                    continue;
+                }
+                fetched += events.Count;
+                n += await UpsertAsync(events);
             }
             if (!anyEnabled)
                 return Results.Ok(new
