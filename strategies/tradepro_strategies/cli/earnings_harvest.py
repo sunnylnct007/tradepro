@@ -58,14 +58,21 @@ def main() -> int:
 
     fetched = int(data.get("fetched") or 0)
     upserted = int(data.get("upserted") or 0)
+    truncated = data.get("suspectedTruncation")
     # A whole-market window with almost no reporters is a feed defect,
     # not a fact about the market — flag loud, don't quietly succeed.
-    status = "ok" if upserted >= 50 else "warn"
-    summary = (f"{data.get('from')}..{data.get('to')}: fetched {fetched}, "
-               f"upserted {upserted}")
+    # Likewise a suspiciously full chunk: Finnhub silently caps bulk
+    # responses (the exactly-1500 incident, 11-12 Aug 2026 — cost UBER's
+    # and AAPL's real reports) — truncation must never be silent again.
+    status = "ok" if (upserted >= 50 and not truncated) else "warn"
+    summary = (f"{data.get('from')}..{data.get('to')}: {data.get('chunks')} chunks, "
+               f"fetched {fetched}, upserted {upserted}"
+               + (f" | SUSPECTED TRUNCATION: {truncated}" if truncated else ""))
     log_run("earnings-harvest", "calendar", status,
             summary=summary,
-            error=None if status == "ok" else "suspiciously few rows for a whole-market window",
+            error=None if status == "ok" else (
+                "suspected chunk truncation — narrow the window" if truncated
+                else "suspiciously few rows for a whole-market window"),
             started=started, base=base, token=token)
     print(f"earnings-harvest {status}: {summary}")
     return 0

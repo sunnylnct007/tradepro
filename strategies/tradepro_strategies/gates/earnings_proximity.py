@@ -85,6 +85,7 @@ def classify(
     cfg: EarningsGateConfig,
     *,
     has_earnings: bool = True,
+    verified_no_dates: bool = False,
 ) -> EarningsGate:
     """Five mutually-exclusive states, evaluated in THIS exact order (first
     match wins). A missing date NEVER falls through to CLEAR — it is UNKNOWN
@@ -93,11 +94,22 @@ def classify(
 
     `has_earnings=False` (an ETF / non-equity with no earnings concept) maps to
     CLEAR — distinct from "feed failed", which is UNKNOWN.
+
+    `verified_no_dates=True` — the AUTHORITATIVE calendar store answered and
+    genuinely has no report inside the gate horizons (owner, 12 Aug 2026, the
+    UBER case: ok:true/eventCount:0 is a successful query finding nothing
+    scheduled, NOT a failure). "Verified absence" and "couldn't verify" are
+    OPPOSITE states — one clears the proximity check, the other penalises.
+    Only trust this flag from a fresh, populated store; a dead feed must
+    still land UNKNOWN.
     """
     # A symbol that genuinely has no earnings (ETF/future) is CLEAR, not UNKNOWN.
     if not has_earnings:
         return EarningsGate.CLEAR
-    # 1. UNKNOWN — both dates missing → penalise + flag + raise the canary.
+    # 1a. VERIFIED ABSENCE — the store answered "nothing in the horizons".
+    if verified_no_dates and sessions_to_next is None and sessions_since_last is None:
+        return EarningsGate.CLEAR
+    # 1b. UNKNOWN — both dates missing, absence NOT verified → penalise + flag.
     if sessions_to_next is None and sessions_since_last is None:
         return EarningsGate.UNKNOWN
     # 2. PRE_BLACKOUT — next report imminent (wider window if the date is an estimate).

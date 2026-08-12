@@ -319,6 +319,19 @@ def _store_is_authoritative(store_meta: dict | None) -> bool:
     return age.days <= 3  # weekend-tolerant; nightly harvest keeps it ~0-1d
 
 
+def earnings_absence_verified(symbol: str, api_base: str) -> bool:
+    """True when the AUTHORITATIVE store answered for `symbol` and holds no
+    report inside the gate horizons (back 30d / ahead 45d) — a VERIFIED
+    absence. Opposite of "couldn't verify" (owner, 12 Aug 2026, the UBER
+    case): ok:true with zero events is a successful query finding nothing
+    scheduled, and must CLEAR the proximity gate, not penalise it. An
+    empty/stale/unreachable store returns False → gate stays UNKNOWN."""
+    data = _calendar_store_events(symbol, api_base)
+    if not data or not _store_is_authoritative(data.get("store")):
+        return False
+    return not (data.get("events") or [])
+
+
 def last_report_from_store(symbol: str, api_base: str) -> str | None:
     """Most recent PAST report date from the central store, or None when
     the store has no past row for the symbol (or isn't authoritative).

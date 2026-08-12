@@ -94,37 +94,65 @@ public static class EarningsCalendarEndpoints
             var a = ahead is > 0 and <= 120 ? ahead.Value : 45;
             var from = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-b);
             var to = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(a);
-            var events = await finnhub.GetEarningsCalendarBulkAsync(from, to, ct);
-            if (events is null)
+
+            // CHUNKED (12 Aug 2026): one call for the whole window came back
+            // at EXACTLY 1500 rows — Finnhub silently truncates large bulk
+            // responses, and the truncation cost us real reports (UBER's
+            // early-Aug and AAPL's 31-Jul prints were absent → the exact
+            // EARNINGS_UNKNOWN penalties the store exists to end). Weekly
+            // sub-windows keep every response far below the cap (~9 calls
+            // for the default 59-day window — still no per-symbol fan-out).
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var n = 0;
+            var fetched = 0;
+            var chunks = 0;
+            var suspectTruncation = new List<string>();
+            var anyEnabled = false;
+            for (var start = from; start <= to; start = start.AddDays(7))
+            {
+                var end = start.AddDays(6) < to ? start.AddDays(6) : to;
+                var events = await finnhub.GetEarningsCalendarBulkAsync(start, end, ct);
+                if (events is null)
+                    continue;   // disabled or transient failure — graded below
+                anyEnabled = true;
+                chunks++;
+                fetched += events.Count;
+                if (events.Count >= 1000)
+                    suspectTruncation.Add($"{start:yyyy-MM-dd}..{end:yyyy-MM-dd}={events.Count}");
+                foreach (var e in events)
+                {
+                    if (string.IsNullOrWhiteSpace(e.Symbol) || !DateOnly.TryParse(e.Date, out _))
+                        continue;
+                    await conn.ExecuteAsync(@"
+                        INSERT INTO earnings_calendar (symbol, report_date, session, source)
+                        VALUES (@sym, @date::date, @session, 'finnhub_bulk')
+                        ON CONFLICT (symbol, report_date) DO UPDATE SET
+                            session = EXCLUDED.session, source = EXCLUDED.source,
+                            uploaded_at = NOW();",
+                        new { sym = e.Symbol.Trim().ToUpperInvariant(), date = e.Date, session = e.Hour });
+                    n++;
+                }
+            }
+            if (!anyEnabled)
                 return Results.Ok(new
                 {
                     enabled = false,
-                    message = "Finnhub integration is disabled — set Finnhub:ApiKey in config. "
-                            + "Store NOT updated (an empty harvest must be loud, not silent).",
+                    message = "Finnhub integration is disabled or every chunk failed — "
+                            + "store NOT updated (an empty harvest must be loud, not silent).",
                     upserted = 0,
                 });
-            await using var conn = await db.OpenConnectionAsync(ct);
-            var n = 0;
-            foreach (var e in events)
-            {
-                if (string.IsNullOrWhiteSpace(e.Symbol) || !DateOnly.TryParse(e.Date, out _))
-                    continue;
-                await conn.ExecuteAsync(@"
-                    INSERT INTO earnings_calendar (symbol, report_date, session, source)
-                    VALUES (@sym, @date::date, @session, 'finnhub_bulk')
-                    ON CONFLICT (symbol, report_date) DO UPDATE SET
-                        session = EXCLUDED.session, source = EXCLUDED.source,
-                        uploaded_at = NOW();",
-                    new { sym = e.Symbol.Trim().ToUpperInvariant(), date = e.Date, session = e.Hour });
-                n++;
-            }
             return Results.Ok(new
             {
                 enabled = true,
                 from = from.ToString("yyyy-MM-dd"),
                 to = to.ToString("yyyy-MM-dd"),
-                fetched = events.Count,
+                chunks,
+                fetched,
                 upserted = n,
+                // Fail-loud: a ≥1000-row weekly chunk is probably capped again —
+                // the caller surfaces this in run_log so truncation can never
+                // be silent twice.
+                suspectedTruncation = suspectTruncation.Count > 0 ? suspectTruncation : null,
             });
         });
 

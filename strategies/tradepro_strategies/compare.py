@@ -644,7 +644,21 @@ def _attach_bucket_and_rationale(
         _est = bool((earnings_sig.get("upcoming") or {}).get("isEstimate"))
         _s_to = _eg_sessions_to(_next_date) if _next_date else None
         _s_since = _eg_sessions_since(_last_date) if _last_date else None
-        _eg_state = _eg_classify(_s_to, _s_since, _est, _eg_cfg, has_earnings=_has_earnings)
+        # Verified absence ≠ can't-verify (the UBER case, 12 Aug 2026): when
+        # BOTH dates are missing, ask the central store whether that absence
+        # is AUTHORITATIVE (fresh bulk-harvested calendar, no rows in the
+        # horizons) — that CLEARS the gate. A stale/empty store leaves the
+        # honest UNKNOWN penalty in place.
+        _absence_verified = False
+        if _has_earnings and _s_to is None and _s_since is None:
+            try:
+                from .earnings import earnings_absence_verified
+                _absence_verified = earnings_absence_verified(symbol, _resolve_api_base())
+            except Exception:  # noqa: BLE001 — store outage = not verified
+                _absence_verified = False
+        _eg_state = _eg_classify(_s_to, _s_since, _est, _eg_cfg,
+                                 has_earnings=_has_earnings,
+                                 verified_no_dates=_absence_verified)
         _eg_dec = _eg_route(_eg_state, _eg_cfg, sessions_to_next=_s_to, sessions_since_last=_s_since)
         # Canary resolution (alert-not-suppress): feed degraded + UNKNOWN →
         # crawl the CONFIGURED news feeds for a recent-earnings mention. Positive

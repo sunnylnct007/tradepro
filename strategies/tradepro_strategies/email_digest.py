@@ -740,6 +740,13 @@ def _publishable(it: dict) -> tuple[bool, str | None]:
         return False, it.get("stats_suspect_reason") or "stats flagged suspect (corrupt bar)"
     if "unverified" in reason or "couldn't compute" in reason or "rationale failed" in reason:
         return False, "rationale/computation failed"
+    # "Verified" must mean REQUIRED INPUTS RESOLVED, or the word means nothing
+    # (owner, 12 Aug 2026 — the UBER row: EARNINGS_UNKNOWN penalty, still
+    # counted in "1 verified"). A BUY whose earnings-proximity input is
+    # unresolved is a candidate with an open question, not a verified call.
+    _eg_flag = (it.get("earnings_gate") or {}).get("flag")
+    if _eg_flag in ("EARNINGS_UNKNOWN", "EARNINGS_UNVERIFIED"):
+        return False, f"earnings proximity unresolved ({_eg_flag})"
     # Recovery-math sanity straight off the rendered numbers (catches USMV/META
     # even before the source re-runs): recovering a drawdown d needs 1/(1+d)-1.
     dd = it.get("max_drawdown_pct")

@@ -104,3 +104,29 @@ def test_last_report_from_store_none_when_store_stale(monkeypatch):
             [{"report_date": d}], last_upload_hours_ago=24 * 10),
     )
     assert earnings.last_report_from_store("NVDA", "http://api") is None
+
+
+# ── Verified absence ≠ can't-verify (the UBER case, 12 Aug 2026) ─────────
+def test_classify_verified_absence_is_clear():
+    from tradepro_strategies.gates.earnings_proximity import (
+        EarningsGate, EarningsGateConfig, classify)
+    cfg = EarningsGateConfig()
+    assert classify(None, None, False, cfg, verified_no_dates=True) is EarningsGate.CLEAR
+    # absence NOT verified → the honest UNKNOWN penalty stays
+    assert classify(None, None, False, cfg, verified_no_dates=False) is EarningsGate.UNKNOWN
+    # a real nearby date still wins over the absence flag (first match order)
+    assert classify(2, None, False, cfg, verified_no_dates=True) is EarningsGate.PRE_BLACKOUT
+
+
+def test_absence_verified_only_from_authoritative_store(monkeypatch):
+    fresh = _store_payload([])          # authoritative, zero events
+    monkeypatch.setattr(earnings, "_calendar_store_events", lambda s, b, **kw: fresh)
+    assert earnings.earnings_absence_verified("UBER", "http://api") is True
+
+    stale = _store_payload([], last_upload_hours_ago=24 * 10)
+    monkeypatch.setattr(earnings, "_calendar_store_events", lambda s, b, **kw: stale)
+    assert earnings.earnings_absence_verified("UBER", "http://api") is False
+
+    has_rows = _store_payload([{"report_date": "2026-08-26"}])
+    monkeypatch.setattr(earnings, "_calendar_store_events", lambda s, b, **kw: has_rows)
+    assert earnings.earnings_absence_verified("UBER", "http://api") is False
