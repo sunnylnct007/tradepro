@@ -68,11 +68,16 @@ def _regime_series(closes: list[float]) -> tuple[list[str | None], list[bool]]:
     return regimes, knives
 
 
+_EARN_CACHE: dict[str, tuple[list, str]] = {}
+
+
 def _earnings_dates(symbol: str, api_base: str | None) -> tuple[list[dt.date], str]:
     """Historical print dates for the earnings veto: the central STORE first
     (backfilled from Finnhub's bulk calendar — arbitrary ranges, permanent),
     yfinance as supplement. Returns (dates, source_label) so coverage can be
     disclosed per window rather than assumed."""
+    if symbol in _EARN_CACHE:          # same dates for every window
+        return _EARN_CACHE[symbol]
     out: set[dt.date] = set()
     src = []
     if api_base:
@@ -99,7 +104,8 @@ def _earnings_dates(symbol: str, api_base: str | None) -> tuple[list[dt.date], s
         src.append("yfinance")
     except Exception:  # noqa: BLE001
         pass
-    return sorted(out), "+".join(src) or "none"
+    _EARN_CACHE[symbol] = (sorted(out), "+".join(src) or "none")
+    return _EARN_CACHE[symbol]
 
 
 def run_window(window: str, start: str, end: str | None, eff_start: str,
@@ -233,6 +239,9 @@ def _gate(label: str, ok: bool, detail: str) -> tuple[str, bool]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Wheel backtest vs pre-registered gates")
     ap.add_argument("--window", choices=("2020", "2022", "full", "all"), default="all")
+    ap.add_argument("--v2", action="store_true",
+                    help="model the LIVE gates (premium floor, regime/knife, earnings veto, "
+                         "idle cash) and grade vs WHEEL_BACKTEST_GATES_V2.md")
     ap.add_argument("--symbols", help="comma list override — EXPLORATORY, not a gate run")
     ap.add_argument("--details", action="store_true", help="per-symbol table")
     args = ap.parse_args()
@@ -246,7 +255,7 @@ def main() -> int:
     results = {}
     for w in wanted:
         s, e, eff = WINDOWS[w]
-        r = run_window(w, s, e, eff, symbols_override=override)
+        r = run_window(w, s, e, eff, symbols_override=override, v2=args.v2)
         results[w] = r
         print(f"\n── {w}: {r['start']} → {r['end']} · {r['n_symbols']} symbols "
               f"(skipped {len(r['skipped'])}: coverage rule) ──")
@@ -257,6 +266,11 @@ def main() -> int:
         print(f"  utilisation {r['utilisation_pct']}% · peak simultaneous assigned "
               f"{r['peak_simultaneous_assigned']}/{r['n_symbols']}"
               f" · worst name {r['worst_symbol']} DD {r['worst_symbol_dd_pct']:.1f}%")
+        if r.get("v2"):
+            print(f"  puts sold {r['n_puts_sold']} · blocked: floor {r['n_blocked_floor']}, "
+                  f"regime {r['n_blocked_regime']}, earnings {r['n_blocked_earnings']}"
+                  f" · earnings coverage {r['earnings_coverage']}"
+                  f" · G5 violations {r['n_g5_violations']}")
         if args.details:
             for sym, res in sorted(r["per_symbol"].items(),
                                    key=lambda kv: kv[1].total_return_pct):
@@ -267,7 +281,9 @@ def main() -> int:
     if override:
         return 0
 
-    print("\n══ GATES (WHEEL_BACKTEST_GATES.md, committed 5817fe2 BEFORE this run) ══")
+    gates_doc = ("WHEEL_BACKTEST_GATES_V2.md (cb51600)" if args.v2
+                 else "WHEEL_BACKTEST_GATES.md (5817fe2)")
+    print(f"\n══ GATES ({gates_doc}, committed BEFORE this run) ══")
     gates = []
     if "2022" in results:
         r = results["2022"]
@@ -292,6 +308,12 @@ def main() -> int:
         r = results["full"]
         gates.append(_gate("G3", r["cagr_pct"] >= 8,
                            f"full-period NAV CAGR {r['cagr_pct']:+.2f}%/yr ≥ 8%"))
+    if args.v2:
+        # G5 CORRECTNESS: in the coverage era the earnings veto either works
+        # or the run is lying about what it modelled.
+        viol = sum(results[w]["n_g5_violations"] for w in results if w in ("2022", "full"))
+        gates.append(_gate("G5", viol == 0,
+                           f"CSPs opened across a known print: {viol} (must be 0)"))
 
     n_fail = sum(1 for _, ok in gates if not ok)
     print(f"\n  {'ALL GATES PASS — Phase 1 gate cleared' if n_fail == 0 else f'{n_fail} gate(s) FAILED — Phase 1 stays open'}")
@@ -318,7 +340,7 @@ def main() -> int:
         log_run(
             "wheel-backtest", "gates",
             "ok" if n_fail == 0 else "fail",
-            summary=(f"code {sha} vs gates WHEEL_BACKTEST_GATES.md(5817fe2) | "
+            summary=(f"code {sha} vs gates {'V2(cb51600)' if args.v2 else 'v1(5817fe2)'} | "
                      f"slice ${SLICE_USD:,.0f} otm {OTM_PCT:.0%} dte {DTE} haircut {HAIRCUT:.0%} "
                      f"comm ${COMMISSION} | {headline} | {verdicts}"),
             error=None if n_fail == 0 else f"{n_fail} gate(s) failed — Phase 1 stays open",
