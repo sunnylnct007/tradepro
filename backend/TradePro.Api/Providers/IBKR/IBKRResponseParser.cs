@@ -389,8 +389,20 @@ public static class IBKRResponseParser
                 else if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var s)) conId = s;
             }
             var strike = DecLoose(it, "strike");
+            // maturityDate (yyyyMMdd) — the WEEKLY discriminator inside a
+            // month: secdef/info for one (month, strike, right) returns a
+            // contract per listed expiry. Without it the chain is month-
+            // granular and the short-dated tier (SPEC §1) can't pick Aug21
+            // over Sep04. Absent/garbled → null, never guessed.
+            string? maturity = null;
+            if (it.TryGetProperty("maturityDate", out var m) && m.ValueKind == JsonValueKind.String)
+            {
+                var raw = m.GetString();
+                if (!string.IsNullOrWhiteSpace(raw) && raw.Length == 8 && raw.All(char.IsDigit))
+                    maturity = raw;
+            }
             if (conId is not null && strike is not null)
-                list.Add(new IBKROptionContract(conId.Value, strike.Value));
+                list.Add(new IBKROptionContract(conId.Value, strike.Value, maturity));
         }
         return list;
     }
@@ -640,7 +652,7 @@ public sealed record IBKROptionStrikesResult(
 
 /// <summary>One resolved option contract — its own tradeable conid + strike
 /// (right and month are the caller's request context, not repeated here).</summary>
-public sealed record IBKROptionContract(long ConId, decimal Strike);
+public sealed record IBKROptionContract(long ConId, decimal Strike, string? MaturityDate = null);
 
 /// <summary>Result of step 3 (secdef/info, strike omitted): every contract
 /// for one underlying + month + right.</summary>

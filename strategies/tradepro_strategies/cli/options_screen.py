@@ -84,10 +84,47 @@ _ETF_UNDERLYINGS = frozenset({
 _FX_GBPUSD = 1.27  # BRD display rate; USD strike×100 → GBP notional
 
 
+def _next_confirmed_earnings(symbol: str) -> "tuple[datetime.date | None, bool]":
+    """(next_upcoming_date, store_answered) from the central store.
+
+    CONFIRMED means eventCount ≥ 1 from the bulk-harvested calendar (SPEC
+    §1.1: 'not merely no event found'). (None, True) = an AUTHORITATIVE
+    store verified there is no upcoming report in the horizon — a real
+    answer. (None, False) = the store couldn't answer (empty/stale/down);
+    the caller falls back or blocks. Either None means the short tier is
+    NOT admissible — its premise is a confirmed date."""
+    import datetime as _d
+    try:
+        from ..earnings import _calendar_store_events, _store_is_authoritative
+        from .push_to_api import load_credentials
+        base, _tok = load_credentials()
+        data = _calendar_store_events(symbol, base)
+        if not data or not _store_is_authoritative(data.get("store")):
+            return None, False
+        today = _d.date.today()
+        future = sorted(
+            _d.date.fromisoformat(str(ev["report_date"])[:10])
+            for ev in data.get("events") or []
+            if ev.get("report_date")
+            and _d.date.fromisoformat(str(ev["report_date"])[:10]) > today)
+        return (future[0] if future else None), True
+    except Exception:  # noqa: BLE001 — no store answer = no confirmed date
+        return None, False
+
+
 def _earnings_in_window(symbol: str, dte: int) -> bool | None:
     """Is an earnings date within the option's expiry window (today..+dte)?
-    yfinance best-effort. Returns None when unavailable → the risk engine BLOCKs
-    (no false positive — never sell premium we can't clear for earnings)."""
+    STORE-FIRST (13 Aug 2026): the bulk-harvested calendar is the confirmed
+    source — a verified absence answers False, a confirmed date answers the
+    comparison; yfinance stays as fallback only when the store can't answer.
+    Returns None when neither can → the risk engine BLOCKs (no false
+    positive — never sell premium we can't clear for earnings)."""
+    import datetime as _d
+    nxt, store_answered = _next_confirmed_earnings(symbol)
+    if store_answered:
+        if nxt is None:
+            return False   # verified absence in the store's horizon
+        return nxt <= _d.date.today() + _d.timedelta(days=dte)
     try:
         import datetime as _d
         import yfinance as yf
@@ -127,6 +164,128 @@ def _mid(vals: list[float], i: int, n: int) -> float | None:
         return None
     w = vals[i - n + 1: i + 1]
     return (max(w) + min(w)) / 2.0
+
+
+def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
+    """TIER_SHORT gate overrides (SPEC §1.2) — stricter to pay for gamma.
+    Env-tunable like every other knob; defaults are the spec's, calibrated so
+    the MRVL Aug21'26 200P @ $2.90 (0.28Δ, 58.6%/yr, 9 DTE) is admissible."""
+    from dataclasses import replace as _rep
+    def _f(k: str, d: float) -> float:
+        try: return float(os.environ.get(k, d))
+        except (TypeError, ValueError): return d
+    return _rep(
+        cfg,
+        dte_min=int(_f("TRADEPRO_WHEEL_SHORT_DTE_MIN", 7)),
+        dte_max=int(_f("TRADEPRO_WHEEL_SHORT_DTE_MAX", 21)),
+        delta_max=_f("TRADEPRO_WHEEL_SHORT_DELTA_MAX", 0.30),
+        min_ann_yield_pct=_f("TRADEPRO_WHEEL_SHORT_MIN_ANN_YIELD_PCT", 25.0),
+        min_premium_usd=_f("TRADEPRO_WHEEL_SHORT_MIN_PREMIUM_USD", 0.50),
+        oi_min=int(_f("TRADEPRO_WHEEL_SHORT_OI_MIN", 500)),
+        spread_max_pct_of_mid=_f("TRADEPRO_WHEEL_SHORT_SPREAD_MAX_PCT", 0.12),
+    )
+
+
+def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
+                         earnings_date, nav_gbp, iv_vol_pctile) -> dict:
+    """TIER_SHORT candidate (SPEC §1) — earnings-avoidance only, never
+    yield-chasing. Called ONLY when the standard band conflicts with a
+    CONFIRMED earnings date. Picks the latest weekly expiry inside
+    [7, 21] DTE that clears the print by ≥ 3 XNYS sessions, then evaluates
+    with the stricter short-tier gates. Every outcome returns a dict with an
+    explicit `status` — the why-not column must distinguish data conditions
+    from market ones (SPEC §1.3)."""
+    import datetime as _d
+    from ..gates.earnings_proximity import sessions_between
+    from ..quant_engine.options.black_scholes import BlackScholesPricer
+    from ..quant_engine.options.chains import select_by_abs_delta, delta_of
+    from ..quant_engine.options.chains_g3 import fetch_chain_g3
+
+    clear_sessions = int(float(os.environ.get("TRADEPRO_WHEEL_SHORT_EARNINGS_CLEAR_SESSIONS", 3)))
+    scfg = _short_tier_cfg(cfg)
+    today = _d.date.today()
+
+    # Probe the month around the short window for its listed weeklies.
+    probe = fetch_chain_g3(sym, target_dte=(scfg.dte_min + scfg.dte_max) // 2, right="P")
+    if probe is None or not probe.available_expiries:
+        return {"status": "no_chain_for_short_window",
+                "detail": "G3 served no chain/expiries for the 7-21 DTE month"}
+    ok_expiries = []
+    for e in probe.available_expiries:
+        ed = _d.date.fromisoformat(e)
+        dte = (ed - today).days
+        if not (scfg.dte_min <= dte <= scfg.dte_max):
+            continue
+        gap = sessions_between(ed, earnings_date)
+        if gap is not None and gap >= clear_sessions:
+            ok_expiries.append((dte, e, gap))
+    if not ok_expiries:
+        return {"status": "no_clearing_expiry",
+                "detail": (f"no listed expiry in {scfg.dte_min}-{scfg.dte_max} DTE clears "
+                           f"earnings {earnings_date} by ≥{clear_sessions} trading days")}
+    dte_pick, expiry_pick, gap = max(ok_expiries)
+
+    chain = (probe if probe.expiry == expiry_pick
+             else fetch_chain_g3(sym, expiry=expiry_pick, right="P"))
+    if chain is None or not chain.puts or chain.spot <= 0:
+        return {"status": "no_chain_for_short_window",
+                "detail": f"chain fetch failed for expiry {expiry_pick}"}
+    _r = float(os.environ.get("TRADEPRO_RISK_FREE_RATE", "0.04"))
+    pricer = BlackScholesPricer(risk_free_rate=_r,
+                                dividend_yield=(ivr.div_yield or 0.0) if ivr.available else 0.0)
+    t = max(dte_pick, 1) / 365.0
+    q = select_by_abs_delta(chain.puts, 0.27, chain.spot, t, pricer)
+    if q is None:
+        return {"status": "no_suitable_strike", "detail": "no put near the delta band"}
+    strike = q.strike
+    delta = abs(delta_of(q, chain.spot, t, pricer))
+    premium = q.mid if q.mid > 0 else None
+    if premium is None:
+        return {"status": "no_live_premium", "detail": "short-tier legs quoteless right now"}
+    spread = q.spread if (q.bid > 0 and q.ask > 0) else None
+    notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
+    ann_yield = round((premium / strike) * (365.0 / dte_pick) * 100, 1) if strike > 0 else None
+    if not sane_csp_pick(delta, strike, ref_close or chain.spot):
+        return {"status": "no_suitable_strike", "detail": "insane pick rejected (sparse chain)"}
+
+    ctx = MarketContext(
+        regime=Regime(regime) if regime else None,
+        falling_knife=falling_knife,
+        iv_rank=ivr.iv_rank if ivr.available else None,
+        iv_hv_ratio=ivr.iv_hv_ratio if ivr.available else None,
+        iv_rank_window_days=ivr.days if ivr.available else None,
+        open_interest=q.open_interest, bid_ask_spread_usd=spread,
+        premium_mid_usd=premium,
+        # The tier's whole point: expiry CLEARS the print (by ≥3 sessions).
+        earnings_in_expiry_window=False,
+        data_fresh=True, quotes_delayed=False,
+    )
+    cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
+                          abs_delta=delta, dte=dte_pick, strike=strike,
+                          notional_gbp=notional_gbp)
+    decision = evaluate(cand, ctx, PortfolioState(), scfg)
+    # The vol-regime floor applies to short-tier bridge passes too.
+    if (ivr.available and ivr.iv_rank is None and ivr.iv_hv_ratio is not None
+            and iv_vol_pctile is not None
+            and iv_vol_pctile < float(os.environ.get("TRADEPRO_WHEEL_MIN_VOL_REGIME_PCTILE", "15"))):
+        from dataclasses import replace as _rep
+        decision = _rep(decision, allowed=False,
+                        blocks=list(decision.blocks) + [
+                            f"IV at the {iv_vol_pctile:.0f}th pctile of this name's 1y vol range "
+                            f"— thin absolute premium (short tier inherits the floor)."])
+    return {
+        "status": "eligible" if decision.allowed else "blocked",
+        "badge": "SHORT-DATED",
+        "reason": (f"{dte_pick} DTE — clears {sym} earnings {earnings_date.isoformat()} "
+                   f"by {gap} trading days"),
+        "expiry": expiry_pick, "dte": dte_pick,
+        "suggested_strike": strike, "suggested_delta": round(delta, 3),
+        "suggested_premium": premium, "open_interest": q.open_interest,
+        "spread_usd": spread, "annualized_yield_pct": ann_yield,
+        "notional_gbp": notional_gbp,
+        "eligible": decision.allowed,
+        "blocks": decision.blocks, "warnings": decision.warnings,
+    }
 
 
 def vol_regime_percentile(closes: list[float], iv: float, *, hv_window: int = 30) -> float | None:
@@ -597,8 +756,32 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         forward_price = round(ref_close * _m.exp((_r - (_q or 0.0)) * dte / 365.0), 2)
         forward_basis = "r_and_div_yield" if _q is not None else "r_only_div_yield_unavailable"
 
+    # ── TIER_SHORT (SPEC §1) — earnings-avoidance only ───────────────────
+    # Attempted ONLY when the standard band conflicts with earnings (the
+    # MRVL case: Sep04 holds through the 27-Aug print, Aug21 clears it).
+    # The two unavailability states are deliberately distinct (§1.3): a
+    # missing confirmed date is a DATA condition, not a market one.
+    short_tier = None
+    if earnings_in_window is True and sym not in _ETF_UNDERLYINGS:
+        _e_date, _store_ok = _next_confirmed_earnings(sym)
+        if _e_date is None:
+            short_tier = {"status": "unavailable_no_confirmed_earnings",
+                          "detail": ("standard band conflicts with earnings but the store has "
+                                     "no CONFIRMED date"
+                                     + ("" if _store_ok else " (store couldn't answer)"))}
+        else:
+            try:
+                short_tier = _evaluate_short_tier(
+                    sym, cfg, ivr, regime, falling_knife, ref_close,
+                    _e_date, nav_gbp, iv_vol_pctile)
+            except Exception as e:  # noqa: BLE001 — short tier must never kill the row
+                log.warning("%s: short-tier evaluation failed: %s", sym, e)
+                short_tier = {"status": "error", "detail": str(e)[:200]}
+
     return {
         "symbol": sym,
+        "tier": "standard",
+        "short_tier": short_tier,
         "regime": regime,
         "iv_rank": round(ivr.iv_rank, 1) if (ivr.available and ivr.iv_rank is not None) else None,
         "iv": round(ivr.iv, 4) if (ivr.available and ivr.iv is not None) else None,
@@ -698,6 +881,15 @@ def _maybe_send_wheel_email(payload: dict, prev_payload: dict | None) -> bool:
         return False
     now_elig = {c["symbol"] for c in payload.get("candidates") or [] if c.get("eligible")}
     prev_elig = {c["symbol"] for c in (prev_payload or {}).get("candidates") or [] if c.get("eligible")}
+    # SHORT-DATED eligibles participate in change detection with a distinct
+    # key so a new short-tier trade (the MRVL class) alerts even when the
+    # standard set is unchanged.
+    now_short = {f"{c['symbol']}·SHORT" for c in payload.get("candidates") or []
+                 if (c.get("short_tier") or {}).get("eligible")}
+    prev_short = {f"{c['symbol']}·SHORT" for c in (prev_payload or {}).get("candidates") or []
+                  if (c.get("short_tier") or {}).get("eligible")}
+    now_elig |= now_short
+    prev_elig |= prev_short
     if now_elig == prev_elig:
         return False
     try:
@@ -718,14 +910,20 @@ def _maybe_send_wheel_email(payload: dict, prev_payload: dict | None) -> bool:
         best = payload.get("best_symbol")
         lines = []
         for c in payload.get("candidates") or []:
-            if c["symbol"] not in now_elig:
-                continue
-            star = "⭐ " if c["symbol"] == best else "   "
-            lines.append(
-                f"{star}{c['symbol']}: ${c.get('suggested_strike')} put · "
-                f"${c.get('suggested_premium')} premium ({c.get('premium_source')}) · "
-                f"{c.get('annualized_yield_pct')}%/yr · Δ{c.get('suggested_delta')} · "
-                f"OI {c.get('open_interest')} · {c.get('dte')}d · regime {c.get('regime')}")
+            if c["symbol"] in now_elig:
+                star = "⭐ " if c["symbol"] == best else "   "
+                lines.append(
+                    f"{star}{c['symbol']}: ${c.get('suggested_strike')} put · "
+                    f"${c.get('suggested_premium')} premium ({c.get('premium_source')}) · "
+                    f"{c.get('annualized_yield_pct')}%/yr · Δ{c.get('suggested_delta')} · "
+                    f"OI {c.get('open_interest')} · {c.get('dte')}d · regime {c.get('regime')}")
+            st = c.get("short_tier") or {}
+            if st.get("eligible"):
+                lines.append(
+                    f"   {c['symbol']} [SHORT-DATED]: ${st.get('suggested_strike')} put "
+                    f"{st.get('expiry')} · ${st.get('suggested_premium')} premium · "
+                    f"{st.get('annualized_yield_pct')}%/yr · Δ{st.get('suggested_delta')} · "
+                    f"OI {st.get('open_interest')} · {st.get('reason')}")
         dh = payload.get("data_health") or {}
         change = []
         if gained:
@@ -843,6 +1041,12 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     best = max(eligible_rows, key=_rank_key) if eligible_rows else None
     for r in rows:
         r["is_best"] = bool(best and r["symbol"] == best["symbol"])
+    # SHORT-DATED eligibles surface separately and rank BELOW the standard
+    # tier (SPEC §1.3): the short tier is an exception path. It may carry
+    # the board's only actionable trade (the MRVL case) but never steals ⭐
+    # from a standard candidate.
+    short_eligible = [r["symbol"] for r in rows
+                      if (r.get("short_tier") or {}).get("eligible")]
 
     data_health = screen_data_health(rows, market_open)
     payload = {
@@ -852,6 +1056,7 @@ def run_screen(symbols: list[str] | None = None) -> dict:
         "candidates": rows,
         "best_symbol": best["symbol"] if best else None,
         "eligible_count": len(eligible_rows),
+        "short_eligible": short_eligible,
         "data_health": data_health,
     }
     # Central observability (feedback_central_observability_fail_loud): the

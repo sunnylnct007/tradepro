@@ -47,10 +47,17 @@ public static class ChainEndpoints
         // IBKR call volume by keeping only the N strikes nearest spot per side —
         // a wheel candidate never needs the full chain, just near-the-money.
         group.MapGet("/{symbol}", async (
-            string symbol, string? month, string? right, int? maxStrikes,
+            string symbol, string? month, string? right, int? maxStrikes, string? expiry,
             IBKRClient ibkr, CancellationToken ct) =>
         {
             var sym = symbol.Trim().ToUpperInvariant();
+            // Optional exact-expiry filter (yyyyMMdd or yyyy-MM-dd) — the weekly
+            // discriminator the short-dated tier needs (SPEC §1: Aug21 clears the
+            // MRVL print, Sep04 holds through it — same month, different trade).
+            var expiryFilter = string.IsNullOrWhiteSpace(expiry)
+                ? null : expiry.Replace("-", "").Trim();
+            if (expiryFilter is not null && (expiryFilter.Length != 8 || !expiryFilter.All(char.IsDigit)))
+                return Results.BadRequest(new { error = $"expiry must be yyyyMMdd, got '{expiry}'" });
 
             var monthsResult = await ibkr.GetOptionMonthsAsync(sym, ct);
             if (monthsResult.Error is not null || monthsResult.ConId is null)
@@ -135,17 +142,26 @@ public static class ChainEndpoints
             // needs one tradeable contract per strike, not every routing variant.
             var contracts = new List<IBKROptionContract>();
             var contractRight = new Dictionary<long, string>();
+            var availableExpiries = new SortedSet<string>();
             string? contractsError = null;
             foreach (var (strike, r) in wanted)
             {
                 var cr = await ibkr.GetOptionContractsAsync(underlyingConId, chosenMonth, strike, r, ct);
                 if (cr.Error is not null)
                     contractsError = contractsError is null ? cr.Error : $"{contractsError}; {cr.Error}";
-                var first = cr.Contracts.FirstOrDefault();
-                if (first is not null)
+                foreach (var c0 in cr.Contracts)
+                    if (c0.MaturityDate is not null)
+                        availableExpiries.Add(c0.MaturityDate);
+                // No filter -> first conid (legacy standard-tier behaviour).
+                // Filter set -> the contract for THAT expiry or nothing — a
+                // strike with no matching weekly is skipped, never substituted.
+                var pick = expiryFilter is null
+                    ? cr.Contracts.FirstOrDefault()
+                    : cr.Contracts.FirstOrDefault(c0 => c0.MaturityDate == expiryFilter);
+                if (pick is not null)
                 {
-                    contracts.Add(first);
-                    contractRight[first.ConId] = r;
+                    contracts.Add(pick);
+                    contractRight[pick.ConId] = r;
                 }
             }
             if (contracts.Count == 0)
@@ -188,7 +204,7 @@ public static class ChainEndpoints
                     return new ChainLeg(
                         c.ConId, c.Strike, contractRight.GetValueOrDefault(c.ConId, "?"),
                         q?.Bid, q?.Ask, q?.Last, q?.Delta, q?.Gamma, q?.Theta, q?.Vega,
-                        q?.ImpliedVolPct, q?.OpenInterest, q?.PriorClose);
+                        q?.ImpliedVolPct, q?.OpenInterest, q?.PriorClose, c.MaturityDate);
                 })
                 .OrderBy(l => l.Right).ThenBy(l => l.Strike)
                 .ToList();
@@ -205,7 +221,8 @@ public static class ChainEndpoints
                 error = $"option quotes still cold after warm-up retry for {sym} {chosenMonth} — "
                     + "every leg returned null bid/ask/delta (market closed or IBKR quote cache cold); "
                     + "strikes are real but this is NOT a tradeable chain";
-            return Results.Ok(new ChainResponse(sym, underlyingConId, chosenMonth, spot, legs, error));
+            return Results.Ok(new ChainResponse(sym, underlyingConId, chosenMonth, spot, legs, error,
+                availableExpiries.Count > 0 ? availableExpiries.ToList() : null));
         });
 
         return app;
@@ -236,8 +253,13 @@ public sealed record ChainLeg(
     decimal? ImpliedVolPct, decimal? OpenInterest,
     // Prior-session close premium — the honest between-sessions indicative
     // value (options have no pre-market). Labeled, never a live quote.
-    decimal? PriorClose = null);
+    decimal? PriorClose = null,
+    // Exact expiry (yyyyMMdd) — weekly discriminator; null when IBKR omitted it.
+    string? MaturityDate = null);
 
 public sealed record ChainResponse(
     string Symbol, long? UnderlyingConId, string? Month, decimal? Spot,
-    IReadOnlyList<ChainLeg> Legs, string? Error);
+    IReadOnlyList<ChainLeg> Legs, string? Error,
+    // Every distinct expiry (yyyyMMdd) seen in this month's contracts — lets
+    // a caller pick a specific weekly and re-request with ?expiry=.
+    IReadOnlyList<string>? AvailableExpiries = null);

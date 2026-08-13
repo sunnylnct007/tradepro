@@ -59,6 +59,7 @@ def fetch_chain_g3(
     target_dte: int = 35,
     right: str = "P",
     max_strikes: int = 20,
+    expiry: str | None = None,     # exact expiry (YYYY-MM-DD) — weekly selection (SPEC §1)
     api_base: str | None = None,
     api_token: str | None = None,
     timeout: float = 30.0,
@@ -98,12 +99,27 @@ def fetch_chain_g3(
     def _dte(m: str) -> int:
         d = _month_to_date(m)
         return abs((_dt.date.fromisoformat(d) - today).days) if d else 10_000
-    chosen_month = min(months_data["months"], key=lambda m: abs(_dte(m) - target_dte))
+    # Exact-expiry mode: the month containing the requested weekly, not the
+    # month nearest target_dte (they differ exactly when the short tier is
+    # in play — Aug21 weekly vs the Sep monthly).
+    if expiry:
+        _exp_d = _dt.date.fromisoformat(expiry)
+        _want_month = _exp_d.strftime("%b").upper() + _exp_d.strftime("%y")
+        if _want_month not in months_data["months"]:
+            log.warning("%s: requested expiry %s (month %s) not in listed months %s",
+                        symbol, expiry, _want_month, months_data["months"])
+            return None
+        chosen_month = _want_month
+    else:
+        chosen_month = min(months_data["months"], key=lambda m: abs(_dte(m) - target_dte))
 
     try:
+        _params = {"month": chosen_month, "right": right, "maxStrikes": max_strikes}
+        if expiry:
+            _params["expiry"] = expiry.replace("-", "")
         chain_resp = requests.get(
             f"{base}/api/ibkr/chain/{symbol}",
-            params={"month": chosen_month, "right": right, "maxStrikes": max_strikes},
+            params=_params,
             headers={"Authorization": f"Bearer {token}"} if token else {},
             timeout=timeout,
         )
@@ -121,8 +137,22 @@ def fetch_chain_g3(
         log.warning("%s: G3 chain returned no spot/legs", symbol)
         return None
 
-    expiry_iso = _month_to_date(chosen_month) or ""
+    # TRUE expiry: prefer the legs' own maturityDate (served since the
+    # expiry-aware chain endpoint, 13 Aug 2026) over the 3rd-Friday estimate —
+    # the estimate mislabels weeklies by up to two weeks, which distorts DTE
+    # and therefore annualised yield.
+    _mats = [str(l.get("maturityDate")) for l in legs if l.get("maturityDate")]
+    if expiry:
+        expiry_iso = expiry
+    elif _mats:
+        _mode = max(set(_mats), key=_mats.count)
+        expiry_iso = f"{_mode[:4]}-{_mode[4:6]}-{_mode[6:]}"
+    else:
+        expiry_iso = _month_to_date(chosen_month) or ""
     dte = max((_dt.date.fromisoformat(expiry_iso) - today).days, 1) if expiry_iso else target_dte
+    _avail = data.get("availableExpiries") or []
+    available = sorted({f"{m[:4]}-{m[4:6]}-{m[6:]}" for m in _avail
+                        if isinstance(m, str) and len(m) == 8}) or None
 
     def to_quote(leg: dict) -> OptionQuote | None:
         strike = leg.get("strike")
@@ -167,7 +197,7 @@ def fetch_chain_g3(
 
     return OptionChain(
         symbol=symbol, spot=float(spot), expiry=expiry_iso or chosen_month, dte=dte,
-        calls=calls, puts=puts,
+        calls=calls, puts=puts, available_expiries=available,
     )
 
 

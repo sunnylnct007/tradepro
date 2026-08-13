@@ -57,6 +57,10 @@ class OptionChain:
     dte: int                    # calendar days to expiry
     calls: list[OptionQuote]
     puts: list[OptionQuote]
+    # Every distinct expiry (YYYY-MM-DD) listed in the fetched month — lets a
+    # caller (the short-dated tier, SPEC §1) pick a specific weekly and
+    # re-fetch with expiry=. None when the provider doesn't serve it.
+    available_expiries: list[str] | None = None
 
     @property
     def t_years(self) -> float:
