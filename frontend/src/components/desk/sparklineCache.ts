@@ -62,6 +62,22 @@ function isoToday(): string {
  * Resolves to the close array (>=2 points) or `null` when no honest series is
  * available. Never rejects — failures degrade to `null`.
  */
+// ── Self-diagnosis (13 Aug 2026 — the Trend column read "—" for SIX DAYS
+// while every backend layer checked out; the silent catch below hid the
+// browser-side reason the whole time). Every failure is now recorded WITH
+// its reason and surfaced: sparklineStats() feeds the table footers, and
+// each failure console.warns so devtools shows the culprit immediately.
+export type SparkStats = {
+  requested: number;
+  loaded: number;
+  failed: number;
+  lastError: string | null;
+};
+const stats: SparkStats = { requested: 0, loaded: 0, failed: 0, lastError: null };
+export function sparklineStats(): SparkStats {
+  return { ...stats };
+}
+
 export function loadSparkline(symbol: string): Promise<Series> {
   const key = symbol.trim();
   if (!key) return Promise.resolve(null);
@@ -69,6 +85,7 @@ export function loadSparkline(symbol: string): Promise<Series> {
   const existing = cache.get(key);
   if (existing) return existing;
 
+  stats.requested += 1;
   const p = schedule(async (): Promise<Series> => {
     try {
       const res = await api.candles({
@@ -80,11 +97,26 @@ export function loadSparkline(symbol: string): Promise<Series> {
       const closes = (res.candles ?? [])
         .map((c) => c.close)
         .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-      return closes.length >= 2 ? closes : null;
-    } catch {
+      if (closes.length >= 2) {
+        stats.loaded += 1;
+        return closes;
+      }
+      stats.failed += 1;
+      stats.lastError = `${key}: candles returned ${res.candles?.length ?? 0} rows, ${closes.length} numeric closes`;
+      console.warn("[sparkline]", stats.lastError, res);
+      return null;
+    } catch (e) {
+      stats.failed += 1;
+      stats.lastError = `${key}: ${e instanceof Error ? e.message : String(e)}`;
+      console.warn("[sparkline]", stats.lastError);
       return null; // degrade gracefully — no fabricated series
     }
-  }).catch(() => null);
+  }).catch((e) => {
+    stats.failed += 1;
+    stats.lastError = `${key}: ${e instanceof Error ? e.message : String(e)}`;
+    console.warn("[sparkline]", stats.lastError);
+    return null;
+  });
 
   cache.set(key, p);
   return p;

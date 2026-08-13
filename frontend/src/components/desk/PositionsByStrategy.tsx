@@ -28,7 +28,7 @@ import { useSort } from "../../util/useSort";
 import { fmtQty } from "../../util/numbers";
 import { canonicalSymbol, chartSymbolFor } from "../../util/brokerSymbols";
 import { Sparkline } from "./Sparkline";
-import { loadSparkline } from "./sparklineCache";
+import { loadSparkline, sparklineStats } from "./sparklineCache";
 import { fmtMoney, fmtNum, fmtPct, signColour, accountMode, type AccountMode } from "./deskFormat";
 import { ModeBadge } from "./ModeBadge";
 import type { PositionRow } from "./SymbolPositionCard";
@@ -344,7 +344,12 @@ export function PositionsByStrategy({
           : "Grouped by broker (no OMS attribution) · "}
         native currency · click a row to open symbol detail (equity only) ·
         P&amp;L = since entry (last − avg × qty), not today's move ·
-        Trend = ~30 daily closes (not fabricated)
+        Trend = ~30 daily closes (not fabricated) · {(() => {
+          const st = sparklineStats();
+          return st.failed > 0
+            ? `series ${st.loaded}/${st.requested} loaded — last failure: ${st.lastError}`
+            : `series ${st.loaded}/${st.requested} loaded`;
+        })()}
       </div>
     </div>
   );

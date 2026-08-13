@@ -38,7 +38,7 @@ import { useSort } from "../../util/useSort";
 import { fmtQty } from "../../util/numbers";
 import { canonicalSymbol, chartSymbolFor } from "../../util/brokerSymbols";
 import { Sparkline } from "./Sparkline";
-import { loadSparkline } from "./sparklineCache";
+import { loadSparkline, sparklineStats } from "./sparklineCache";
 import { fmtMoney, fmtNum, fmtPct, signColour, accountMode, type AccountMode } from "./deskFormat";
 import { ModeBadge } from "./ModeBadge";
 
@@ -251,7 +251,12 @@ export function PositionsTable({ onOpenSymbol }: { onOpenSymbol?: (symbol: strin
         {grouping === "strategy"
           ? "Grouped by strategy (from OMS attribution) · unattributed = account holdings (e.g. IBKR LIVE) · "
           : "Grouped by broker (no strategy attribution available) · "}
-        native currency, never blended · click an instrument to open its chart (equity only) · Trend = ~30 daily closes; "—" when no series is available (not fabricated).
+        native currency, never blended · click an instrument to open its chart (equity only) · Trend = ~30 daily closes; "—" when no series is available (not fabricated). {(() => {
+          const st = sparklineStats();
+          return st.failed > 0
+            ? `Series ${st.loaded}/${st.requested} loaded — last failure: ${st.lastError}`
+            : `Series ${st.loaded}/${st.requested} loaded.`;
+        })()}
       </div>
     </div>
   );
