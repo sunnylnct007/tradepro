@@ -23,13 +23,18 @@ import datetime as dt
 import sys
 from collections import defaultdict
 
-# Registered parameters (WHEEL_BACKTEST_GATES.md) — change the file, not these.
+# Registered parameters (WHEEL_BACKTEST_GATES.md v1 / _V2.md) — change the
+# file, not these.
 SLICE_USD = 25_000.0
 HAIRCUT = 0.05
 COMMISSION = 1.50
 OTM_PCT = 0.05
 DTE = 30
 WARMUP = 60
+# v2 additions (WHEEL_BACKTEST_GATES_V2.md, committed cb51600 before any run)
+V2_MIN_PREMIUM_USD = 0.20       # live OptionsRiskConfig default
+V2_MIN_ANN_YIELD_PCT = 8.0      # live OptionsRiskConfig default
+V2_IDLE_CASH_RATE = 0.04        # registered ON
 WINDOWS = {
     "2020": ("2019-10-01", "2020-12-31", "2020-01-01"),
     "2022": ("2021-10-01", "2022-12-31", "2022-01-01"),
@@ -48,8 +53,57 @@ def _load_closes(symbol: str):
     return [d.date() for d in ser.index], [float(v) for v in ser.to_list()]
 
 
+def _regime_series(closes: list[float]) -> tuple[list[str | None], list[bool]]:
+    """Per-bar (regime, falling_knife) from the SAME pure function the live
+    screen calls — so the backtest's regime gate is the deployed rule, not a
+    re-implementation. Bars before the function's 60-close minimum return
+    None ⇒ the gate is inactive there (fail-open, never fabricated)."""
+    from .options_screen import regime_from_closes
+    regimes: list[str | None] = []
+    knives: list[bool] = []
+    for i in range(len(closes)):
+        r, k = regime_from_closes(closes[: i + 1]) if i >= 60 else (None, None)
+        regimes.append(r)
+        knives.append(bool(k))
+    return regimes, knives
+
+
+def _earnings_dates(symbol: str, api_base: str | None) -> tuple[list[dt.date], str]:
+    """Historical print dates for the earnings veto: the central STORE first
+    (backfilled from Finnhub's bulk calendar — arbitrary ranges, permanent),
+    yfinance as supplement. Returns (dates, source_label) so coverage can be
+    disclosed per window rather than assumed."""
+    out: set[dt.date] = set()
+    src = []
+    if api_base:
+        try:
+            import requests
+            r = requests.get(f"{api_base.rstrip('/')}/api/earnings-calendar/{symbol}",
+                             params={"back": 3600, "ahead": 400}, timeout=20)
+            r.raise_for_status()
+            rows = (r.json() or {}).get("events") or []
+            for ev in rows:
+                d = str(ev.get("report_date") or "")[:10]
+                if d:
+                    out.add(dt.date.fromisoformat(d))
+            if rows:
+                src.append(f"store:{len(rows)}")
+        except Exception:  # noqa: BLE001 — store miss falls through to yfinance
+            pass
+    try:
+        from ..earnings import fetch_earnings_in_range
+        for h in fetch_earnings_in_range(symbol, lookback_days=2600):
+            d = str(h.get("date") or "")[:10]
+            if d:
+                out.add(dt.date.fromisoformat(d))
+        src.append("yfinance")
+    except Exception:  # noqa: BLE001
+        pass
+    return sorted(out), "+".join(src) or "none"
+
+
 def run_window(window: str, start: str, end: str | None, eff_start: str,
-               *, symbols_override: list[str] | None = None) -> dict:
+               *, symbols_override: list[str] | None = None, v2: bool = False) -> dict:
     from ..cli.options_screen import DEFAULT_UNIVERSE
     from ..quant_engine.options.wheel_backtest import simulate_wheel
 
@@ -57,8 +111,17 @@ def run_window(window: str, start: str, end: str | None, eff_start: str,
     end_d = dt.date.fromisoformat(end) if end else dt.date.today()
     eff_d = dt.date.fromisoformat(eff_start)
 
+    api_base = None
+    if v2:
+        try:
+            from .push_to_api import load_credentials
+            api_base, _tok = load_credentials()
+        except Exception:  # noqa: BLE001 — yfinance-only coverage then
+            api_base = None
+
     per_symbol: dict[str, object] = {}
     skipped: list[str] = []
+    earn_cov: dict[str, int] = {}
     for sym in (symbols_override or DEFAULT_UNIVERSE):
         dates, closes = _load_closes(sym)
         pre = sum(1 for d in dates if d < eff_d)
@@ -71,10 +134,27 @@ def run_window(window: str, start: str, end: str | None, eff_start: str,
             continue
         w_dates = [dates[i] for i in idx]
         w_closes = [closes[i] for i in idx]
+        kwargs = {}
+        if v2:
+            regimes, knives = _regime_series(w_closes)
+            e_dates, e_src = _earnings_dates(sym, api_base)
+            in_window = [d for d in e_dates if w_dates[0] <= d <= w_dates[-1]]
+            earn_cov[sym] = len(in_window)
+            kwargs = dict(
+                min_premium_usd=V2_MIN_PREMIUM_USD,
+                min_ann_yield_pct=V2_MIN_ANN_YIELD_PCT,
+                regime_by_day=regimes, knife_by_day=knives,
+                earnings_dates=e_dates,
+                # Veto active only where this symbol/window actually HAS
+                # print dates — otherwise it would be an unmodelled gate
+                # masquerading as a modelled one.
+                earnings_modelled=bool(in_window),
+                idle_cash_rate=V2_IDLE_CASH_RATE,
+            )
         res = simulate_wheel(
             w_dates, w_closes, otm_pct=OTM_PCT, dte=DTE, contracts=1,
             start_capital=SLICE_USD, warmup=WARMUP,
-            premium_haircut_pct=HAIRCUT, commission_per_leg=COMMISSION)
+            premium_haircut_pct=HAIRCUT, commission_per_leg=COMMISSION, **kwargs)
         res.symbol = sym
         per_symbol[sym] = res
 
@@ -121,8 +201,17 @@ def run_window(window: str, start: str, end: str | None, eff_start: str,
     costs = sum(r.costs_paid for r in per_symbol.values())
     assignments = sum(r.n_assignments for r in per_symbol.values())
 
+    covered = sum(1 for v in earn_cov.values() if v > 0)
     return {
         "window": window, "n_symbols": len(per_symbol), "skipped": skipped,
+        "v2": v2,
+        "earnings_coverage": (f"{covered}/{len(per_symbol)} symbols have print dates in-window"
+                              if v2 else "n/a (v1)"),
+        "n_blocked_floor": sum(r.n_blocked_floor for r in per_symbol.values()),
+        "n_blocked_regime": sum(r.n_blocked_regime for r in per_symbol.values()),
+        "n_blocked_earnings": sum(r.n_blocked_earnings for r in per_symbol.values()),
+        "n_g5_violations": sum(r.n_g5_violations for r in per_symbol.values()),
+        "n_puts_sold": sum(r.n_puts_sold for r in per_symbol.values()),
         "start": port[0][0], "end": port[-1][0],
         "start_capital": start_cap, "final": round(final, 0),
         "total_return_pct": round(total_ret, 2), "cagr_pct": round(cagr, 2),

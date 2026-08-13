@@ -233,10 +233,17 @@ def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
     def _f(k: str, d: float) -> float:
         try: return float(os.environ.get(k, d))
         except (TypeError, ValueError): return d
+    # dte_max defaults to (standard dte_min - 1) so the two tiers ABUT with no
+    # gap. The spec wrote 7-21 against a 25-50 band, leaving 22-24 DTE
+    # unreachable: the ORCL Sep04 case (22 DTE, clears the 7-Sep print by 3
+    # days) fell in that hole — while a 9-DTE MRVL trade, which carries MORE
+    # gamma, was admissible. The dead zone was an artefact of two independently
+    # chosen numbers, not a risk judgement. Revert with
+    # TRADEPRO_WHEEL_SHORT_DTE_MAX=21.
     return _rep(
         cfg,
         dte_min=int(_f("TRADEPRO_WHEEL_SHORT_DTE_MIN", 7)),
-        dte_max=int(_f("TRADEPRO_WHEEL_SHORT_DTE_MAX", 21)),
+        dte_max=int(_f("TRADEPRO_WHEEL_SHORT_DTE_MAX", max(cfg.dte_min - 1, 7))),
         delta_max=_f("TRADEPRO_WHEEL_SHORT_DELTA_MAX", 0.30),
         min_ann_yield_pct=_f("TRADEPRO_WHEEL_SHORT_MIN_ANN_YIELD_PCT", 25.0),
         min_premium_usd=_f("TRADEPRO_WHEEL_SHORT_MIN_PREMIUM_USD", 0.50),

@@ -28,9 +28,24 @@ def _cfg():
         pot_gbp=30000, max_deploy_gbp=25000, per_position_gbp=25000))
 
 
+def test_short_tier_abuts_the_standard_band_no_dead_zone():
+    """The ORCL Sep04 case (13 Aug 2026): 22 DTE cleared its print by 3 days
+    but sat in a 22-24 DTE hole between the spec's 7-21 short tier and the
+    25-50 standard band — while a 9-DTE trade (MORE gamma) was admissible.
+    The tiers must ABUT: short.dte_max == standard.dte_min - 1."""
+    from tradepro_strategies.quant_engine.options.risk import OptionsRiskConfig
+    base = OptionsRiskConfig()
+    s = _cfg()
+    assert s.dte_max == base.dte_min - 1 == 24
+    assert s.dte_min == 7
+    # no DTE between 7 and 50 is unreachable by both tiers
+    for d in range(7, 51):
+        assert (s.dte_min <= d <= s.dte_max) or (base.dte_min <= d <= base.dte_max), d
+
+
 def test_short_tier_gate_values_match_spec():
     s = _cfg()
-    assert (s.dte_min, s.dte_max) == (7, 21)
+    assert s.dte_min == 7
     assert s.delta_max == 0.30
     assert s.min_ann_yield_pct == 25.0
     assert s.min_premium_usd == 0.50
