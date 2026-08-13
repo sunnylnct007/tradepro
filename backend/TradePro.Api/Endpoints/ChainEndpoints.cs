@@ -48,7 +48,7 @@ public static class ChainEndpoints
         // a wheel candidate never needs the full chain, just near-the-money.
         group.MapGet("/{symbol}", async (
             string symbol, string? month, string? right, int? maxStrikes, string? expiry,
-            IBKRClient ibkr, CancellationToken ct) =>
+            int? targetDte, IBKRClient ibkr, CancellationToken ct) =>
         {
             var sym = symbol.Trim().ToUpperInvariant();
             // Optional exact-expiry filter (yyyyMMdd or yyyy-MM-dd) — the weekly
@@ -143,6 +143,7 @@ public static class ChainEndpoints
             var contracts = new List<IBKROptionContract>();
             var contractRight = new Dictionary<long, string>();
             var availableExpiries = new SortedSet<string>();
+            var candidates = new List<(IBKROptionContract Contract, string Right)>();
             string? contractsError = null;
             foreach (var (strike, r) in wanted)
             {
@@ -152,17 +153,41 @@ public static class ChainEndpoints
                 foreach (var c0 in cr.Contracts)
                     if (c0.MaturityDate is not null)
                         availableExpiries.Add(c0.MaturityDate);
-                // No filter -> first conid (legacy standard-tier behaviour).
-                // Filter set -> the contract for THAT expiry or nothing — a
-                // strike with no matching weekly is skipped, never substituted.
-                var pick = expiryFilter is null
-                    ? cr.Contracts.FirstOrDefault()
-                    : cr.Contracts.FirstOrDefault(c0 => c0.MaturityDate == expiryFilter);
-                if (pick is not null)
+                // Defer the pick: a month lists SEVERAL weeklies and
+                // secdef/info returns a contract per expiry, so taking
+                // FirstOrDefault silently selected the nearest weekly — the
+                // screen then priced a ~22 DTE contract for a 35 DTE target
+                // and failed its own 25-50 DTE gate (live-caught 13 Aug).
+                // Collect everything now, choose the expiry once below, and
+                // filter to it so every leg describes ONE contract.
+                foreach (var c0 in cr.Contracts)
                 {
-                    contracts.Add(pick);
-                    contractRight[pick.ConId] = r;
+                    candidates.Add((c0, r));
                 }
+            }
+
+            // Choose the expiry: explicit filter wins; else the listed
+            // maturity closest to targetDte; else the earliest (legacy).
+            string? chosenExpiry = expiryFilter;
+            if (chosenExpiry is null && targetDte is > 0 && availableExpiries.Count > 0)
+            {
+                var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
+                chosenExpiry = availableExpiries
+                    .Select(m => (m, ok: DateOnly.TryParseExact(m, "yyyyMMdd", out var d), d))
+                    .Where(x => x.ok)
+                    .OrderBy(x => Math.Abs(x.d.DayNumber - todayUtc.DayNumber - targetDte.Value))
+                    .Select(x => x.m)
+                    .FirstOrDefault();
+            }
+            foreach (var (c0, r) in candidates)
+            {
+                if (chosenExpiry is not null && c0.MaturityDate is not null
+                    && c0.MaturityDate != chosenExpiry)
+                    continue;
+                if (contractRight.ContainsKey(c0.ConId))
+                    continue;
+                contracts.Add(c0);
+                contractRight[c0.ConId] = r;
             }
             if (contracts.Count == 0)
                 return Results.Ok(new ChainResponse(

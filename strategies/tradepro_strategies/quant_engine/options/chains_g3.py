@@ -141,12 +141,22 @@ def fetch_chain_g3(
     # expiry-aware chain endpoint, 13 Aug 2026) over the 3rd-Friday estimate —
     # the estimate mislabels weeklies by up to two weeks, which distorts DTE
     # and therefore annualised yield.
-    _mats = [str(l.get("maturityDate")) for l in legs if l.get("maturityDate")]
+    #
+    # And pick the expiry CLOSEST TO target_dte among those listed, not
+    # whichever weekly happens to dominate the legs: a month contains several
+    # weeklies, so "nearest month" alone was selecting ~22 DTE contracts for a
+    # 35-DTE target and then failing the screen's own 25-50 DTE gate
+    # (live-caught on SLV, 13 Aug). Legs are filtered to the chosen expiry so
+    # strike selection, greeks and premium all describe ONE contract.
+    _mats = sorted({str(l.get("maturityDate")) for l in legs if l.get("maturityDate")})
     if expiry:
         expiry_iso = expiry
     elif _mats:
-        _mode = max(set(_mats), key=_mats.count)
-        expiry_iso = f"{_mode[:4]}-{_mode[4:6]}-{_mode[6:]}"
+        def _iso(m: str) -> str:
+            return f"{m[:4]}-{m[4:6]}-{m[6:]}"
+        best = min(_mats, key=lambda m: abs((_dt.date.fromisoformat(_iso(m)) - today).days - target_dte))
+        expiry_iso = _iso(best)
+        legs = [l for l in legs if str(l.get("maturityDate")) == best] or legs
     else:
         expiry_iso = _month_to_date(chosen_month) or ""
     dte = max((_dt.date.fromisoformat(expiry_iso) - today).days, 1) if expiry_iso else target_dte
