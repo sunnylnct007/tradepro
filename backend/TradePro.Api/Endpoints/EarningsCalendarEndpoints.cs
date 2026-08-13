@@ -25,8 +25,8 @@ public static class EarningsCalendarEndpoints
         g.MapGet("/{symbol}", async (string symbol, NpgsqlDataSource db, int? back, int? ahead) =>
         {
             var sym = symbol.Trim().ToUpperInvariant();
-            var b = back is > 0 and <= 400 ? back.Value : 30;
-            var a = ahead is > 0 and <= 400 ? ahead.Value : 45;
+            var b = back is > 0 and <= 4000 ? back.Value : 30;
+            var a = ahead is > 0 and <= 4000 ? ahead.Value : 45;
             await using var conn = await db.OpenConnectionAsync();
             var rows = (await conn.QueryAsync(@"
                 SELECT report_date, session, source, uploaded_at
@@ -88,12 +88,23 @@ public static class EarningsCalendarEndpoints
         // server owns the Finnhub key. Explicit {enabled:false} when Finnhub
         // isn't configured — never a silent empty harvest.
         g.MapPost("/harvest", async (NpgsqlDataSource db, FinnhubClient finnhub,
-            CancellationToken ct, int? back, int? ahead) =>
+            CancellationToken ct, int? back, int? ahead, string? fromDate, string? toDate) =>
         {
+            // Explicit from/to enables HISTORICAL backfill (owner 13 Aug 2026:
+            // "earnings can be fed from other sources if missing" — Finnhub's
+            // bulk calendar serves arbitrary ranges, so the same feed that
+            // fills tomorrow can fill 2019). Relative back/ahead stays the
+            // nightly default.
             var b = back is > 0 and <= 60 ? back.Value : 14;
             var a = ahead is > 0 and <= 120 ? ahead.Value : 45;
             var from = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-b);
             var to = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(a);
+            if (!string.IsNullOrWhiteSpace(fromDate) && !DateOnly.TryParse(fromDate, out from))
+                return Results.BadRequest(new { error = $"fromDate must be ISO yyyy-MM-dd, got '{fromDate}'" });
+            if (!string.IsNullOrWhiteSpace(toDate) && !DateOnly.TryParse(toDate, out to))
+                return Results.BadRequest(new { error = $"toDate must be ISO yyyy-MM-dd, got '{toDate}'" });
+            if (to < from)
+                return Results.BadRequest(new { error = "toDate must be >= fromDate" });
 
             // CHUNKED (12 Aug 2026): one call for the whole window came back
             // at EXACTLY 1500 rows — Finnhub silently truncates large bulk
