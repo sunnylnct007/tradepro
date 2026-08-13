@@ -166,6 +166,162 @@ def _mid(vals: list[float], i: int, n: int) -> float | None:
     return (max(w) + min(w)) / 2.0
 
 
+def explain_calcs(*, symbol: str, spot: float | None, strike: float | None,
+                  premium: float | None, dte: int, contracts: int = 1,
+                  bid: float | None = None, ask: float | None = None,
+                  spread: float | None = None, iv: float | None = None,
+                  hv30: float | None = None, delta: float | None = None,
+                  nav_gbp: float | None = None, fx: float = _FX_GBPUSD,
+                  rate: float | None = None, div_yield: float | None = None) -> dict:
+    """Every derived figure on a row, with the ARITHMETIC that produced it
+    (owner, 13 Aug 2026: "options is all about parameters and calculations —
+    mostly factual, unlike equity. The usability of that screen is key, with
+    all figures explained and backed by calculations").
+
+    Each entry is {value, formula, why}: `formula` substitutes the ACTUAL
+    inputs so a reader can redo the sum by hand and catch us if it's wrong.
+    Figures whose inputs are missing are omitted entirely — never rendered
+    with a guessed input. Pure function; unit-tested."""
+    import math as _m
+    out: dict[str, dict] = {}
+    mult = 100 * max(1, contracts)
+    r = rate if rate is not None else float(os.environ.get("TRADEPRO_RISK_FREE_RATE", "0.04"))
+
+    if premium is not None and strike and strike > 0 and dte > 0:
+        ann = (premium / strike) * (365.0 / dte) * 100
+        out["annualised_yield_pct"] = {
+            "value": round(ann, 1),
+            "formula": (f"premium ÷ strike × 365 ÷ DTE × 100 = "
+                        f"{premium:.2f} ÷ {strike:g} × 365 ÷ {dte} × 100 = {ann:.1f}%"),
+            "why": "income per unit of collateral, annualised — compare against the ~4% "
+                   "the same cash earns idle.",
+        }
+    if premium is not None:
+        out["max_profit_usd"] = {
+            "value": round(premium * mult, 2),
+            "formula": f"premium × 100 × contracts = {premium:.2f} × 100 × {contracts} = ${premium * mult:,.2f}",
+            "why": "kept in full if the put expires out-of-the-money.",
+        }
+    if premium is not None and strike:
+        be = strike - premium
+        out["breakeven_and_basis"] = {
+            "value": round(be, 2),
+            "formula": f"strike − premium = {strike:g} − {premium:.2f} = {be:.2f}",
+            "why": "if assigned, this is your effective cost per share — the price you "
+                   "are agreeing to own it at.",
+        }
+        out["max_loss_usd"] = {
+            "value": round(be * mult, 2),
+            "formula": f"(strike − premium) × 100 × contracts = {be:.2f} × 100 × {contracts} = ${be * mult:,.2f}",
+            "why": "worst case, if the underlying went to zero before expiry.",
+        }
+    if strike and spot and spot > 0:
+        otm = (spot - strike) / spot * 100
+        out["otm_distance_pct"] = {
+            "value": round(otm, 1),
+            "formula": f"(spot − strike) ÷ spot × 100 = ({spot:.2f} − {strike:g}) ÷ {spot:.2f} × 100 = {otm:.1f}%",
+            "why": "how far the underlying must fall before assignment matters.",
+        }
+    if strike:
+        coll = strike * mult
+        out["collateral"] = {
+            "value": round(coll / fx, 0),
+            "formula": (f"strike × 100 × contracts ÷ FX = {strike:g} × 100 × {contracts} "
+                        f"÷ {fx} = £{coll / fx:,.0f}  (${coll:,.0f})"),
+            "why": "cash locked up for the whole holding period — the real cost of the trade.",
+        }
+        if nav_gbp and nav_gbp > 0:
+            pct = coll / fx / nav_gbp * 100
+            out["size_vs_nav_pct"] = {
+                "value": round(pct, 1),
+                "formula": f"collateral ÷ NAV × 100 = £{coll / fx:,.0f} ÷ £{nav_gbp:,.0f} × 100 = {pct:.1f}%",
+                "why": "concentration: how much of the account one position ties up.",
+            }
+    if spread is not None and premium:
+        sp = spread / premium * 100
+        out["spread_pct_of_premium"] = {
+            "value": round(sp, 1),
+            "formula": (f"(ask − bid) ÷ mid × 100 = ({ask:.2f} − {bid:.2f}) ÷ {premium:.2f} × 100 = {sp:.1f}%"
+                        if (bid is not None and ask is not None)
+                        else f"spread ÷ mid × 100 = {spread:.2f} ÷ {premium:.2f} × 100 = {sp:.1f}%"),
+            "why": "round-trip friction as a share of the credit — work the limit, don't "
+                   "cross the whole spread.",
+        }
+    if iv and hv30 and hv30 > 0:
+        ratio = iv / hv30
+        out["iv_hv_ratio"] = {
+            "value": round(ratio, 3),
+            "formula": f"IV ÷ HV30 = {iv:.1%} ÷ {hv30:.1%} = {ratio:.3f}",
+            "why": "the vega edge: >1 means options are pricing MORE movement than the "
+                   "stock has actually delivered — that gap is what selling premium harvests.",
+        }
+    if spot and dte > 0:
+        q = div_yield or 0.0
+        fwd = spot * _m.exp((r - q) * dte / 365.0)
+        out["forward_price"] = {
+            "value": round(fwd, 2),
+            "formula": (f"S × e^((r − q) × DTE ÷ 365) = {spot:.2f} × e^(({r:.3f} − {q:.3f}) "
+                        f"× {dte} ÷ 365) = {fwd:.2f}"),
+            "why": "where the market prices the underlying AT expiry — the honest anchor "
+                   "for how far OTM a strike really is."
+                   + ("" if div_yield is not None else " (no dividend yield served → q=0, "
+                      "so this is slightly overstated for payers)"),
+        }
+    if delta is not None:
+        out["delta"] = {
+            "value": round(delta, 3),
+            "formula": f"|Δ| = {abs(delta):.3f} (broker-served greek)",
+            "why": "rough odds of finishing in-the-money — 0.27Δ ≈ a ~27% chance of assignment.",
+        }
+    return out
+
+
+def fetch_portfolio_state(nav_gbp: float | None = None) -> tuple["PortfolioState", dict]:
+    """The REAL book → PortfolioState (13 Aug 2026).
+
+    Until now both evaluate() call sites passed `PortfolioState()` — all
+    zeros — so three live gates were INERT: the deploy ceiling, the
+    max-positions cap, and the drawdown brakes. Every candidate was judged as
+    if the desk were empty, which is also why the screen could not answer the
+    owner's "do I want 7% of NAV in one metal" / "28% in one theme"
+    questions.
+
+    Returns (state, summary). On any failure the state is EMPTY and the
+    summary says so — the caller surfaces that loudly rather than silently
+    reverting to the old always-empty behaviour."""
+    from ..quant_engine.options.risk import PortfolioState
+    summary = {"available": False, "reason": None, "open_symbols": [],
+               "deployed_gbp": 0.0, "open_positions": 0,
+               "realised_loss_gbp": 0.0, "deployed_pct_of_nav": None}
+    try:
+        import requests
+        from .push_to_api import load_credentials
+        base, tok = load_credentials()
+        r = requests.get(f"{base.rstrip('/')}/api/options/positions", timeout=20,
+                         headers={"Authorization": f"Bearer {tok}"} if tok else {})
+        r.raise_for_status()
+        rows = (r.json() or {}).get("positions") or []
+    except Exception as e:  # noqa: BLE001
+        summary["reason"] = f"book unreachable ({e}) — capital gates cannot be enforced this run"
+        return PortfolioState(), summary
+
+    open_rows = [p for p in rows if (p.get("state") or "").upper() not in ("CLOSED", "EXPIRED")]
+    deployed = sum(float(p.get("cash_secured_gbp") or 0.0) for p in open_rows)
+    # Banked LOSSES only (positive number = total loss), per the brake contract.
+    losses = -sum(min(float(p.get("realised_pnl_gbp") or 0.0), 0.0) for p in rows)
+    summary.update({
+        "available": True,
+        "open_symbols": sorted({(p.get("symbol") or "").upper() for p in open_rows}),
+        "deployed_gbp": round(deployed, 0),
+        "open_positions": len(open_rows),
+        "realised_loss_gbp": round(losses, 0),
+        "deployed_pct_of_nav": (round(deployed / nav_gbp * 100, 1)
+                                if (nav_gbp and nav_gbp > 0) else None),
+    })
+    return PortfolioState(deployed_gbp=deployed, open_positions=len(open_rows),
+                          cumulative_realised_loss_gbp=losses), summary
+
+
 def hv_gap_diagnostics(closes: list[float], *, window: int = 30) -> dict | None:
     """Is the trailing-HV window contaminated by ONE gap day — and when does
     it roll off? (owner, 13 Aug 2026, the IBM case: HV read 85.7% purely
@@ -253,7 +409,7 @@ def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
 
 
 def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
-                         earnings_date, nav_gbp, iv_vol_pctile) -> dict:
+                         earnings_date, nav_gbp, iv_vol_pctile, portfolio=None) -> dict:
     """TIER_SHORT candidate (SPEC §1) — earnings-avoidance only, never
     yield-chasing. Called ONLY when the standard band conflicts with a
     CONFIRMED earnings date. Picks the latest weekly expiry inside
@@ -329,7 +485,7 @@ def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte_pick, strike=strike,
                           notional_gbp=notional_gbp)
-    decision = evaluate(cand, ctx, PortfolioState(), scfg)
+    decision = evaluate(cand, ctx, portfolio or PortfolioState(), scfg)
     # The vol-regime floor applies to short-tier bridge passes too.
     if (ivr.available and ivr.iv_rank is None and ivr.iv_hv_ratio is not None
             and iv_vol_pctile is not None
@@ -478,7 +634,8 @@ def build_carry_map(stored_payload: dict | None, *, now=None, max_age_h: float |
 
 
 def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open: bool, nav_gbp: float | None = None,
-                   carry_row: dict | None = None) -> dict:
+                   carry_row: dict | None = None, portfolio: "PortfolioState | None" = None,
+                   book: dict | None = None) -> dict:
     """Build one candidate row: IV-Rank + regime + (live) chain → risk engine.
 
     `ib` may be None (Gateway unreachable) — IV-Rank then fails closed
@@ -729,7 +886,16 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     )
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
-    decision = evaluate(cand, ctx, PortfolioState(), cfg)
+    decision = evaluate(cand, ctx, portfolio or PortfolioState(), cfg)
+    # Same-underlying duplicate: the book already carries this name. Not a
+    # hard block (rolling/adding is a legitimate choice) but the screen must
+    # SAY it — the owner's concentration question starts here.
+    _already = bool(book and sym in (book.get("open_symbols") or []))
+    if _already:
+        from dataclasses import replace as _dc_dup
+        decision = _dc_dup(decision, warnings=list(decision.warnings) + [
+            f"Book already holds an open {sym} position — this would ADD to that "
+            f"exposure, not diversify it."])
     # Vol-regime floor for BRIDGE passes (the KRE contradiction): a ratio
     # pass with the absolute vol level in the bottom of the name's own
     # yearly range is positive edge on very little money — and typically
@@ -859,7 +1025,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             try:
                 short_tier = _evaluate_short_tier(
                     sym, cfg, ivr, regime, falling_knife, ref_close,
-                    _e_date, nav_gbp, iv_vol_pctile)
+                    _e_date, nav_gbp, iv_vol_pctile, portfolio)
             except Exception as e:  # noqa: BLE001 — short tier must never kill the row
                 log.warning("%s: short-tier evaluation failed: %s", sym, e)
                 short_tier = {"status": "error", "detail": str(e)[:200]}
@@ -867,6 +1033,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     return {
         "symbol": sym,
         "tier": "standard",
+        "already_in_book": bool(book and sym in (book.get("open_symbols") or [])),
         "short_tier": short_tier,
         "regime": regime,
         "iv_rank": round(ivr.iv_rank, 1) if (ivr.available and ivr.iv_rank is not None) else None,
@@ -909,6 +1076,14 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "ref_close": round(ref_close, 2) if ref_close else None,
         "spot_divergence_pct": round(spot_divergence * 100, 1) if spot_divergence is not None else None,
         "put_vs_buy": put_vs_buy,
+        # Show-your-working: every derived figure with its arithmetic.
+        "calcs": explain_calcs(
+            symbol=sym, spot=ref_close, strike=strike, premium=premium, dte=dte,
+            bid=bid, ask=ask, spread=spread,
+            iv=(ivr.iv if ivr.available else None),
+            hv30=(ivr.hv30 if ivr.available else None),
+            delta=delta, nav_gbp=nav_gbp,
+            div_yield=(ivr.div_yield if ivr.available else None)),
         "size_fit_pct": size_fit_pct,
     }
 
@@ -1052,6 +1227,53 @@ def _maybe_send_wheel_email(payload: dict, prev_payload: dict | None) -> bool:
         return False
 
 
+def _strategy_board(rows: list[dict]) -> dict:
+    """One board, several option strategies, each with its evidence status.
+
+    SELL-PREMIUM (wheel standard + short-dated) is gated and backtested;
+    BUY-VOL (earnings straddle) is scanned live but NOT backtested, so it is
+    labelled and can never be presented as an equal-confidence candidate.
+    Directional structures are declared as absent rather than silently
+    missing."""
+    import requests as _rq
+    sell_std = [r["symbol"] for r in rows if r.get("eligible")]
+    sell_short = [r["symbol"] for r in rows if (r.get("short_tier") or {}).get("eligible")]
+    buy_vol: list[dict] = []
+    straddle_note = None
+    try:
+        from .push_to_api import load_credentials
+        _b, _t = load_credentials()
+        d = _rq.get(f"{_b.rstrip('/')}/api/options/straddle-scan/latest", timeout=15).json()
+        for row in (d.get("rows") or [])[:10]:
+            buy_vol.append({
+                "symbol": row.get("symbol"), "reportDate": str(row.get("report_date"))[:10],
+                "impliedMovePct": row.get("implied_move_pct"),
+                "realizedMedianPct": row.get("realized_median_pct"),
+                "edgeRatio": row.get("edge_ratio"), "nPrints": row.get("n_prints"),
+                "candidate": row.get("candidate"),
+            })
+        if not buy_vol:
+            straddle_note = "no scan rows yet today (scanner runs 15:15 London)"
+    except Exception as e:  # noqa: BLE001 — the wheel board must not depend on it
+        straddle_note = f"straddle scan unavailable ({e})"
+    return {
+        "sell_premium": {
+            "evidence": "backtested (WHEEL_BACKTEST_GATES_V2.md — 8/9 gates pass, G4 open)",
+            "standard_eligible": sell_std,
+            "short_dated_eligible": sell_short,
+        },
+        "buy_volatility": {
+            "evidence": "OBSERVATIONAL — pre-registered gates NOT yet run; never a trade recommendation",
+            "note": straddle_note,
+            "rows": buy_vol,
+        },
+        "directional": {
+            "evidence": "NOT BUILT — needs a directional view input + its own gates file",
+            "rows": [],
+        },
+    }
+
+
 def run_screen(symbols: list[str] | None = None) -> dict:
     import ib_insync
     from . import push_to_api as _pta
@@ -1071,6 +1293,17 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     except Exception:  # noqa: BLE001
         market_open = False
     nav_gbp = _fetch_nav_gbp()
+    # The REAL book — until today both evaluate() call sites got an empty
+    # PortfolioState, leaving the deploy ceiling, position cap and drawdown
+    # brakes inert. Fetched once per run and threaded into every candidate.
+    portfolio, book = fetch_portfolio_state(nav_gbp)
+    if not book["available"]:
+        log.warning("portfolio state unavailable: %s", book["reason"])
+    else:
+        log.info("book: %d open, £%.0f deployed (%s%% of NAV), £%.0f banked losses, symbols %s",
+                 book["open_positions"], book["deployed_gbp"],
+                 book["deployed_pct_of_nav"], book["realised_loss_gbp"],
+                 ", ".join(book["open_symbols"]) or "none")
 
     # Gateway is now OPTIONAL: chain (G3) and regime (bar cache) no longer
     # need it — only IV-Rank still does (no non-Gateway source for 52w
@@ -1112,7 +1345,7 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     try:
         for sym in universe:
             rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open, nav_gbp,
-                                       carry_row=carry.get(sym)))
+                                       carry_row=carry.get(sym), portfolio=portfolio, book=book))
             log.info("screened %s", sym)
     finally:
         if connected:
@@ -1146,6 +1379,16 @@ def run_screen(symbols: list[str] | None = None) -> dict:
         "eligible_count": len(eligible_rows),
         "short_eligible": short_eligible,
         "data_health": data_health,
+        # The book the gates were evaluated against — so a reader can see WHY
+        # capital gates fired (or that they could not be enforced at all).
+        "book": book,
+        # ── Multi-strategy board (owner 13 Aug: "see diff strategy ... we can
+        # get into option buying as well, especially around earnings"). The
+        # wheel SELLS premium; the straddle scanner BUYS it. Both surface here
+        # so one screen answers "what could I do today", each labelled with
+        # its own evidence status. Straddle rows are OBSERVATIONAL — their
+        # pre-registered gates have not been run.
+        "strategies": _strategy_board(rows),
     }
     # Central observability (feedback_central_observability_fail_loud): the
     # run's data-health verdict goes to the run log, so a degraded screen is
