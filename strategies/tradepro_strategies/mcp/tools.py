@@ -3615,3 +3615,64 @@ def get_validation_summary(strategy: str = "ichimoku_equity") -> dict:
         return _unreachable_envelope("get_validation_summary", e, strategy=strategy)
     except Exception as e:  # noqa: BLE001
         return _err("get_validation_summary", str(e), strategy=strategy)
+
+
+# ── Options-desk data (13 Aug 2026 — owner: the new stores must be
+# reachable from any Claude session via MCP) ────────────────────────────
+
+def get_wheel_board() -> dict:
+    """Latest wheel screen board — every candidate with premium source
+    (live/carried, labeled), vega gate, eligibility + blocks, and the
+    short-dated tier evaluation where the standard band conflicted with a
+    confirmed earnings date."""
+    try:
+        d = _get("/api/options/candidates")
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_wheel_board", exc)
+    return {
+        "ok": True,
+        "generated_at_utc": d.get("generated_at_utc"),
+        "market_open": d.get("market_open"),
+        "eligible_count": d.get("eligible_count"),
+        "best_symbol": d.get("best_symbol"),
+        "short_eligible": d.get("short_eligible"),
+        "data_health": d.get("data_health"),
+        "candidates": d.get("candidates") or [],
+    }
+
+
+def get_earnings_calendar(symbol: str, back_days: int = 30, ahead_days: int = 90) -> dict:
+    """Confirmed earnings dates for one symbol from the central store
+    (nightly Finnhub bulk harvest, chunked against response truncation).
+    An empty events list from a FRESH store is a verified absence."""
+    try:
+        d = _get(f"/api/earnings-calendar/{symbol.upper()}",
+                 {"back": back_days, "ahead": ahead_days})
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_earnings_calendar", exc, symbol=symbol)
+    return {"ok": True, **d}
+
+
+def get_straddle_scan() -> dict:
+    """Latest earnings-straddle scan (OBSERVATIONAL — nothing here is
+    tradeable until the spec's pre-registered gates clear on forward data).
+    Per name with a confirmed near print: implied move vs the name's own
+    historical print moves, edge_ratio, and each gate's verdict."""
+    try:
+        d = _get("/api/options/straddle-scan/latest")
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_straddle_scan", exc)
+    return {"ok": True, "rows": d.get("rows") or [],
+            "note": "observational only — SPEC Part B gates have not cleared"}
+
+
+def get_option_quotes(symbol: str, days: int = 5) -> dict:
+    """Own-captured option quotes for one underlying (bid/ask/delta/IV/OI
+    per contract per capture day) — the forward dataset that makes future
+    options backtests honest, since IBKR serves no history for expired
+    contracts. Capture started 13 Aug 2026."""
+    try:
+        d = _get(f"/api/options/quotes-daily/{symbol.upper()}", {"days": days})
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_option_quotes", exc, symbol=symbol)
+    return {"ok": True, **d}

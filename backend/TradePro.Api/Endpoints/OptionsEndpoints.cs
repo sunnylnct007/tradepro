@@ -209,6 +209,31 @@ public static class OptionsEndpoints
             return Results.Ok(new { ok = true, upserted = n });
         });
 
+        // Read-back for the own-collected quotes (MCP + future backtests).
+        g.MapGet("/quotes-daily/{symbol}", async (string symbol, NpgsqlDataSource db, int? days) =>
+        {
+            var sym = symbol.Trim().ToUpperInvariant();
+            var window = days is > 0 and <= 90 ? days.Value : 5;
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = (await conn.QueryAsync(@"
+                SELECT expiry, strike, ""right"" AS right, capture_date,
+                       bid, ask, delta, iv, open_interest, spot, source
+                FROM option_quote_daily
+                WHERE symbol = @sym AND capture_date >= CURRENT_DATE - @window
+                ORDER BY capture_date DESC, expiry, strike;",
+                new { sym, window })).AsList();
+            var cov = await conn.QuerySingleAsync(@"
+                SELECT COUNT(*)::int AS rows, MIN(capture_date) AS first_day,
+                       MAX(capture_date) AS last_day
+                FROM option_quote_daily WHERE symbol = @sym;", new { sym });
+            return Results.Ok(new
+            {
+                symbol = sym, windowDays = window, quotes = rows,
+                coverage = new { totalRows = (int)cov.rows, firstDay = (DateTime?)cov.first_day,
+                                 lastDay = (DateTime?)cov.last_day },
+            });
+        });
+
         // ── Straddle scanner store (SPEC Part B — OBSERVATIONAL ONLY) ──
         g.MapPost("/straddle-scan", async (StraddleScanBatchBody body, NpgsqlDataSource db) =>
         {

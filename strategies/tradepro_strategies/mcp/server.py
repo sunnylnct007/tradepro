@@ -229,6 +229,40 @@ def build_server():
         return _json(t.search_t212_instruments(query, limit))
 
     @mcp.tool()
+    @instrumented("get_wheel_board")
+    def get_wheel_board() -> str:
+        """Latest options-wheel screen board: every candidate's premium
+        (source-labeled live/carried), vega gate, eligibility + blocks,
+        and the SHORT-DATED tier where the standard band conflicted with
+        a confirmed earnings date. The desk's current actionable view."""
+        return _json(t.get_wheel_board())
+
+    @mcp.tool()
+    @instrumented("get_earnings_calendar")
+    def get_earnings_calendar(symbol: str, back_days: int = 30, ahead_days: int = 90) -> str:
+        """Confirmed earnings dates for a symbol from the central store
+        (nightly bulk harvest). Empty events from a fresh store = verified
+        absence, not missing data."""
+        return _json(t.get_earnings_calendar(symbol, back_days, ahead_days))
+
+    @mcp.tool()
+    @instrumented("get_straddle_scan")
+    def get_straddle_scan() -> str:
+        """Latest earnings-straddle scan — implied move vs the name's own
+        historical print moves (edge_ratio) with per-gate verdicts.
+        OBSERVATIONAL ONLY: its pre-registered gates have not cleared;
+        never present rows as trade recommendations."""
+        return _json(t.get_straddle_scan())
+
+    @mcp.tool()
+    @instrumented("get_option_quotes")
+    def get_option_quotes(symbol: str, days: int = 5) -> str:
+        """Own-captured option quotes (bid/ask/delta/IV/OI per contract per
+        day) for one underlying — the forward dataset for future options
+        backtests. Capture began 13 Aug 2026; coverage grows daily."""
+        return _json(t.get_option_quotes(symbol, days))
+
+    @mcp.tool()
     @instrumented("get_health")
     def get_health() -> str:
         """API + Mac worker liveness + per-universe cache freshness.
