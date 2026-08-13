@@ -166,6 +166,65 @@ def _mid(vals: list[float], i: int, n: int) -> float | None:
     return (max(w) + min(w)) / 2.0
 
 
+def hv_gap_diagnostics(closes: list[float], *, window: int = 30) -> dict | None:
+    """Is the trailing-HV window contaminated by ONE gap day — and when does
+    it roll off? (owner, 13 Aug 2026, the IBM case: HV read 85.7% purely
+    because a −25% print on 14 July sat at the very edge of the 30-day
+    window; a day later HV collapses toward ~30-35% and IV/HV leaps 0.40 →
+    ~1.0 with nothing having changed.)
+
+    This is the MIRROR of the wheel-backtest flaw where the same proxy
+    SPIKED after META's gap and overstated premium — post-gap, trailing
+    realised vol misleads in both directions for about a month.
+
+    Returns None when the window is clean or too short. Otherwise: the raw
+    HV, the HV with that single observation removed, the gap's size/date,
+    and how many sessions until it leaves the window. Pure — no gating
+    decision here; the caller surfaces it and the human decides."""
+    import math as _m
+    c = [x for x in closes if x and x > 0]
+    if len(c) < window + 2:
+        return None
+    rets = [_m.log(c[k] / c[k - 1]) for k in range(len(c) - window, len(c))]
+    if len(rets) < window:
+        return None
+
+    def _ann(vals: list[float]) -> float | None:
+        if len(vals) < 5:
+            return None
+        mean = sum(vals) / len(vals)
+        var = sum((r - mean) ** 2 for r in vals) / (len(vals) - 1)
+        return _m.sqrt(var) * _m.sqrt(252.0)
+
+    j = max(range(len(rets)), key=lambda k: abs(rets[k]))
+    biggest = rets[j]
+    others = sorted(abs(r) for k, r in enumerate(rets) if k != j)
+    median_abs = others[len(others) // 2] if others else 0.0
+    # A GAP, not just the window's largest wiggle: ≥8% in a day, and ≥4×
+    # the window's typical move. Both, so a quietly trending name never
+    # trips it.
+    if not (abs(biggest) >= 0.08 and median_abs > 0 and abs(biggest) >= 4 * median_abs):
+        return None
+    hv_raw = _ann(rets)
+    hv_ex = _ann([r for k, r in enumerate(rets) if k != j])
+    if hv_raw is None or hv_ex is None:
+        return None
+    # Sessions until the gap leaves the trailing window (1 = tomorrow).
+    sessions_until_rolloff = j + 1
+    return {
+        "contaminated": True,
+        "gap_return_pct": round(biggest * 100, 1),
+        "gap_sessions_ago": len(rets) - j,
+        "sessions_until_rolloff": sessions_until_rolloff,
+        "hv_raw": round(hv_raw, 4),
+        "hv_ex_gap": round(hv_ex, 4),
+        "note": (f"HV {hv_raw:.0%} is inflated by a single {biggest * 100:+.0f}% session "
+                 f"{len(rets) - j} sessions ago; excluding it HV is {hv_ex:.0%}. "
+                 f"It rolls out of the 30d window in {sessions_until_rolloff} session(s), "
+                 f"so this vega read will move mechanically — re-check then."),
+    }
+
+
 def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
     """TIER_SHORT gate overrides (SPEC §1.2) — stricter to pay for gamma.
     Env-tunable like every other knob; defaults are the spec's, calibrated so
@@ -671,6 +730,13 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # exempt (a real 52w IV-rank already IS the absolute measure).
     iv_vol_pctile = (vol_regime_percentile(closes, ivr.iv)
                      if (ivr.available and ivr.iv) else None)
+    # Gap-contaminated HV check (the IBM case) — the bridge ratio can be
+    # mechanically wrong in EITHER direction for ~30 days after a gap.
+    hv_gap = hv_gap_diagnostics(closes) if closes else None
+    if hv_gap and ivr.available and ivr.iv:
+        _hv_ex = hv_gap.get("hv_ex_gap")
+        hv_gap["iv_hv_ratio_ex_gap"] = (round(ivr.iv / _hv_ex, 3)
+                                        if (_hv_ex and _hv_ex > 0) else None)
     _vega_gate_val = ("rank" if (ivr.available and ivr.iv_rank is not None)
                       else "bridge" if (ivr.available and ivr.iv_hv_ratio is not None)
                       else None)
@@ -686,6 +752,19 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                 f"passes only because realised vol collapsed faster; selling "
                 f"the year's thinnest premium is edge on very little money."],
         )
+    # Gap-contaminated HV: WARN, never silently re-gate. The gate keeps using
+    # the raw HV (no false positives from a judgement call about trimming an
+    # observation), but the row now says the read is about to move on its own
+    # — and by how much — so "look again in N sessions" is printed, not
+    # guessed. Mirrors the backtest's declared IV-proxy caveat.
+    if hv_gap:
+        from dataclasses import replace as _dc_rep_hv
+        _extra = hv_gap["note"]
+        _ex_ratio = hv_gap.get("iv_hv_ratio_ex_gap")
+        if _ex_ratio is not None:
+            _extra += f" IV/HV excluding the gap ≈ {_ex_ratio}."
+        decision = _dc_rep_hv(decision, warnings=list(decision.warnings) + [_extra])
+
     # Carried pricing is informative, never actionable: hard-block eligibility
     # so a stale number can't be crowned best / starred / auto-recorded
     # (NO FALSE POSITIVES). The economics stay visible on the row.
@@ -791,6 +870,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         # Current IV's percentile within the name's own 1y realised-vol
         # distribution — the absolute-level context next to the ratio.
         "iv_vol_regime_pctile": iv_vol_pctile,
+        # Gap-contamination diagnostics for the bridge ratio (None = clean).
+        "hv_gap": hv_gap,
         "open_interest": oi,
         # Concrete quote parameters (owner 2026-08-09: "quote a few technical
         # parameters and price needs to be checked to make it concrete") —

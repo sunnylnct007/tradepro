@@ -169,3 +169,46 @@ def test_vol_regime_percentile_high_when_iv_rich():
 def test_vol_regime_percentile_none_on_thin_history():
     from tradepro_strategies.cli.options_screen import vol_regime_percentile
     assert vol_regime_percentile([100.0] * 100, 0.25) is None
+
+
+# ── Gap-contaminated HV (the IBM case, 13 Aug 2026) ─────────────────────
+def _series_with_gap(gap_sessions_ago: int, n: int = 90, gap: float = -0.25):
+    """Quiet ~1%/day series with ONE large gap `gap_sessions_ago` sessions
+    from the end."""
+    import math, random
+    random.seed(3)
+    rets = [random.gauss(0, 0.01) for _ in range(n)]
+    rets[n - gap_sessions_ago] = gap
+    px, closes = 100.0, [100.0]
+    for r in rets:
+        px *= math.exp(r)
+        closes.append(px)
+    return closes
+
+
+def test_hv_gap_detected_and_rolloff_counted():
+    from tradepro_strategies.cli.options_screen import hv_gap_diagnostics
+    d = hv_gap_diagnostics(_series_with_gap(30))     # gap at the window edge
+    assert d and d["contaminated"] is True
+    assert d["gap_return_pct"] < -20
+    # inflated raw HV, materially lower without the single session
+    assert d["hv_raw"] > d["hv_ex_gap"] * 1.5
+    # at the edge of a 30d window it rolls off almost immediately
+    assert 1 <= d["sessions_until_rolloff"] <= 2
+
+
+def test_hv_gap_none_on_quiet_series():
+    from tradepro_strategies.cli.options_screen import hv_gap_diagnostics
+    import math, random
+    random.seed(5)
+    px, closes = 100.0, [100.0]
+    for _ in range(90):
+        px *= math.exp(random.gauss(0, 0.012))
+        closes.append(px)
+    assert hv_gap_diagnostics(closes) is None
+
+
+def test_hv_gap_rolloff_further_out_when_gap_is_recent():
+    from tradepro_strategies.cli.options_screen import hv_gap_diagnostics
+    d = hv_gap_diagnostics(_series_with_gap(3))      # gap 3 sessions ago
+    assert d and d["sessions_until_rolloff"] > 20    # stays in the window a while
