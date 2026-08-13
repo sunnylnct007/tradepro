@@ -77,7 +77,16 @@ jobs:
           # AccessDenied) and doesn't need it: the box just curls the dump
           # to the URL. URL lifetime 1h, single object.
           pip -q install boto3 2>/dev/null || true
-          PRESIGNED=$(python3 -c "import boto3; print(boto3.client('s3', region_name='$AWS_REGION').generate_presigned_url('put_object', Params={'Bucket': '$BACKUP_BUCKET', 'Key': 'daily/tradepro-$STAMP.sql.gz'}, ExpiresIn=3600))")
+          # Regional endpoint + sigv4 explicitly: a freshly-created regional
+          # bucket 307-redirects the global endpoint (verified live, run 2) —
+          # and a 307 is not a curl -f failure, so the status must be checked.
+          PRESIGNED=$(python3 -c "
+          import boto3
+          from botocore.config import Config
+          c = boto3.client('s3', region_name='$AWS_REGION',
+                           endpoint_url='https://s3.$AWS_REGION.amazonaws.com',
+                           config=Config(signature_version='s3v4', s3={'addressing_style': 'virtual'}))
+          print(c.generate_presigned_url('put_object', Params={'Bucket': '$BACKUP_BUCKET', 'Key': 'daily/tradepro-$STAMP.sql.gz'}, ExpiresIn=3600))")
           jq -n --arg url "$PRESIGNED" --arg stamp "$STAMP" '{commands: [
             "set -euo pipefail",
             "C=$(docker ps --filter name=postgres --format {{.Names}} | head -1)",
@@ -86,7 +95,9 @@ jobs:
             ("SZ=$(stat -c%s /tmp/tradepro-" + $stamp + ".sql.gz)"),
             "echo DUMP_BYTES=$SZ",
             "test \"$SZ\" -gt 100000 || { echo DUMP_SUSPICIOUSLY_SMALL; exit 1; }",
-            ("curl -fsS -X PUT -T /tmp/tradepro-" + $stamp + ".sql.gz \"" + $url + "\""),
+            ("HTTP=$(curl -sS -o /tmp/s3resp.txt -w %{http_code} -X PUT -T /tmp/tradepro-" + $stamp + ".sql.gz \"" + $url + "\")"),
+            "echo UPLOAD_HTTP=$HTTP",
+            "test \"$HTTP\" = \"200\" || { cat /tmp/s3resp.txt; echo UPLOAD_FAILED; exit 1; }",
             ("rm -f /tmp/tradepro-" + $stamp + ".sql.gz"),
             "echo BACKUP_OK"
           ]}' > /tmp/ssm-params.json
