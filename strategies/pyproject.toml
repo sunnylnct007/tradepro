@@ -82,6 +82,7 @@ tradepro-bar-cache-scorecard = "tradepro_strategies.cli.bar_cache_scorecard:main
 tradepro-options-screen = "tradepro_strategies.cli.options_screen:main"
 tradepro-earnings-harvest = "tradepro_strategies.cli.earnings_harvest:main"
 tradepro-wheel-backtest = "tradepro_strategies.cli.wheel_backtest_run:main"
+tradepro-straddle-scan = "tradepro_strategies.cli.straddle_scan:main"
 tradepro-ibkr-health-probe = "tradepro_strategies.cli.ibkr_health_probe:main"
 tradepro-equity-track = "tradepro_strategies.cli.equity_track:main"
 tradepro-fill-replay = "tradepro_strategies.cli.fill_replay:main"

@@ -195,10 +195,63 @@ def fetch_chain_g3(
             "returning None, not a fabricated chain", symbol, len(legs))
         return None
 
+    # ── Quote capture (owner, 13 Aug 2026: "start storing data from now
+    # on — this data will be quite key for our company"). IBKR serves no
+    # history for expired contracts; the only honest future options
+    # backtest runs on quotes captured while they were alive. ONE capture
+    # point — every G3 consumer (screen, symbol lab, straddle scanner)
+    # persists automatically. Fail-soft (a capture outage must never break
+    # a screen) but NEVER silent: first failure per process logs a loud
+    # warning + central run_log entry. Kill-switch: TRADEPRO_OPTION_QUOTE_CAPTURE=0.
+    import os as _os
+    if _os.environ.get("TRADEPRO_OPTION_QUOTE_CAPTURE", "1").strip().lower() not in ("0", "false", "no", "off"):
+        try:
+            rows = []
+            for leg in legs:
+                if leg.get("strike") is None or leg.get("right") not in ("P", "C"):
+                    continue
+                if leg.get("bid") is None and leg.get("ask") is None and leg.get("delta") is None:
+                    continue    # quoteless leg — nothing worth storing
+                _m = leg.get("maturityDate")
+                leg_expiry = (f"{_m[:4]}-{_m[4:6]}-{_m[6:]}"
+                              if isinstance(_m, str) and len(_m) == 8 else expiry_iso)
+                if not leg_expiry:
+                    continue
+                iv_pct = leg.get("impliedVolPct")
+                rows.append({
+                    "symbol": symbol, "expiry": leg_expiry,
+                    "strike": float(leg["strike"]), "right": leg["right"],
+                    "bid": leg.get("bid"), "ask": leg.get("ask"),
+                    "delta": leg.get("delta"),
+                    "iv": (float(iv_pct) / 100.0) if iv_pct is not None else None,
+                    "openInterest": (int(leg["openInterest"])
+                                     if leg.get("openInterest") is not None else None),
+                    "spot": float(spot), "source": "g3_chain",
+                })
+            if rows:
+                requests.post(f"{base}/api/options/quotes-daily", json={"rows": rows},
+                              headers={"Authorization": f"Bearer {token}"} if token else {},
+                              timeout=15).raise_for_status()
+        except Exception as e:  # noqa: BLE001 — fail-soft, never silent
+            global _CAPTURE_WARNED
+            if not _CAPTURE_WARNED:
+                _CAPTURE_WARNED = True
+                log.warning("option-quote capture FAILING (%s) — the future-backtest "
+                            "dataset is not growing this run", e)
+                try:
+                    from ...run_log import log_run
+                    log_run("option-quote-capture", "store", "warn",
+                            error=f"capture failing: {e}")
+                except Exception:  # noqa: BLE001
+                    pass
+
     return OptionChain(
         symbol=symbol, spot=float(spot), expiry=expiry_iso or chosen_month, dte=dte,
         calls=calls, puts=puts, available_expiries=available,
     )
+
+
+_CAPTURE_WARNED = False
 
 
 __all__ = ["fetch_chain_g3"]

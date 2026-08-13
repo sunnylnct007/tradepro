@@ -172,6 +172,97 @@ public static class OptionsEndpoints
             return n == 0 ? Results.NotFound(new { error = "no such position" }) : Results.Ok(new { ok = true });
         });
 
+        // ── Own-collected option quotes (migration 063) ──────────────
+        // Owner 13 Aug 2026: "start storing data from now on for future
+        // needs — this data will be quite key for our company". IBKR serves
+        // no history for expired contracts; the only honest future options
+        // backtest runs on quotes WE captured while they were alive. Every
+        // G3 chain fetch batch-upserts its legs here.
+        g.MapPost("/quotes-daily", async (OptionQuoteBatchBody body, NpgsqlDataSource db) =>
+        {
+            if (body?.Rows is null || body.Rows.Count == 0)
+                return Results.BadRequest(new { error = "rows required" });
+            await using var conn = await db.OpenConnectionAsync();
+            var n = 0;
+            foreach (var r in body.Rows)
+            {
+                if (string.IsNullOrWhiteSpace(r.Symbol) || r.Strike <= 0
+                    || string.IsNullOrWhiteSpace(r.Expiry) || string.IsNullOrWhiteSpace(r.Right))
+                    continue;
+                await conn.ExecuteAsync(@"
+                    INSERT INTO option_quote_daily
+                        (symbol, expiry, strike, ""right"", capture_date,
+                         bid, ask, delta, iv, open_interest, spot, source)
+                    VALUES (@Symbol, @Expiry::date, @Strike, @Right, CURRENT_DATE,
+                            @Bid, @Ask, @Delta, @Iv, @OpenInterest, @Spot,
+                            COALESCE(@Source, 'g3_chain'))
+                    ON CONFLICT (symbol, expiry, strike, ""right"", capture_date) DO UPDATE SET
+                        bid = EXCLUDED.bid, ask = EXCLUDED.ask, delta = EXCLUDED.delta,
+                        iv = EXCLUDED.iv, open_interest = EXCLUDED.open_interest,
+                        spot = EXCLUDED.spot, source = EXCLUDED.source,
+                        captured_at_utc = NOW();",
+                    new { Symbol = r.Symbol.Trim().ToUpperInvariant(), r.Expiry, r.Strike,
+                          Right = r.Right.Trim().ToUpperInvariant(), r.Bid, r.Ask, r.Delta,
+                          r.Iv, r.OpenInterest, r.Spot, r.Source });
+                n++;
+            }
+            return Results.Ok(new { ok = true, upserted = n });
+        });
+
+        // ── Straddle scanner store (SPEC Part B — OBSERVATIONAL ONLY) ──
+        g.MapPost("/straddle-scan", async (StraddleScanBatchBody body, NpgsqlDataSource db) =>
+        {
+            if (body?.Rows is null || body.Rows.Count == 0)
+                return Results.BadRequest(new { error = "rows required" });
+            await using var conn = await db.OpenConnectionAsync();
+            foreach (var r in body.Rows)
+            {
+                await conn.ExecuteAsync(@"
+                    INSERT INTO straddle_scan
+                        (symbol, report_date, capture_date, expiry, spot, straddle_mid,
+                         implied_move_pct, realized_median_pct, realized_p25_pct,
+                         realized_p75_pct, n_prints, edge_ratio, iv_hv_ratio, iv_pctile,
+                         per_leg_oi_min, per_leg_spread_pct_max, candidate, gates)
+                    VALUES (@Symbol, @ReportDate::date, CURRENT_DATE, @Expiry::date, @Spot,
+                            @StraddleMid, @ImpliedMovePct, @RealizedMedianPct, @RealizedP25Pct,
+                            @RealizedP75Pct, @NPrints, @EdgeRatio, @IvHvRatio, @IvPctile,
+                            @PerLegOiMin, @PerLegSpreadPctMax, @Candidate, @Gates::jsonb)
+                    ON CONFLICT (symbol, report_date, capture_date) DO UPDATE SET
+                        expiry = EXCLUDED.expiry, spot = EXCLUDED.spot,
+                        straddle_mid = EXCLUDED.straddle_mid,
+                        implied_move_pct = EXCLUDED.implied_move_pct,
+                        realized_median_pct = EXCLUDED.realized_median_pct,
+                        realized_p25_pct = EXCLUDED.realized_p25_pct,
+                        realized_p75_pct = EXCLUDED.realized_p75_pct,
+                        n_prints = EXCLUDED.n_prints, edge_ratio = EXCLUDED.edge_ratio,
+                        iv_hv_ratio = EXCLUDED.iv_hv_ratio, iv_pctile = EXCLUDED.iv_pctile,
+                        per_leg_oi_min = EXCLUDED.per_leg_oi_min,
+                        per_leg_spread_pct_max = EXCLUDED.per_leg_spread_pct_max,
+                        candidate = EXCLUDED.candidate, gates = EXCLUDED.gates,
+                        captured_at_utc = NOW();",
+                    new { Symbol = (r.Symbol ?? "").Trim().ToUpperInvariant(), r.ReportDate,
+                          r.Expiry, r.Spot, r.StraddleMid, r.ImpliedMovePct, r.RealizedMedianPct,
+                          r.RealizedP25Pct, r.RealizedP75Pct, r.NPrints, r.EdgeRatio, r.IvHvRatio,
+                          r.IvPctile, r.PerLegOiMin, r.PerLegSpreadPctMax, r.Candidate,
+                          Gates = string.IsNullOrWhiteSpace(r.GatesJson) ? null : r.GatesJson });
+            }
+            return Results.Ok(new { ok = true, upserted = body.Rows.Count });
+        });
+
+        g.MapGet("/straddle-scan/latest", async (NpgsqlDataSource db) =>
+        {
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = (await conn.QueryAsync(@"
+                SELECT symbol, report_date, capture_date, expiry, spot, straddle_mid,
+                       implied_move_pct, realized_median_pct, realized_p25_pct,
+                       realized_p75_pct, n_prints, edge_ratio, iv_hv_ratio, iv_pctile,
+                       candidate, gates::text AS gates_json, captured_at_utc
+                FROM straddle_scan
+                WHERE capture_date = (SELECT MAX(capture_date) FROM straddle_scan)
+                ORDER BY edge_ratio DESC NULLS LAST;")).AsList();
+            return Results.Ok(new { rows });
+        });
+
         // ── Position watchdog (v1 §F0.1 + BABA addendum) ─────────────
         // Expiry clock + assignment-risk (moneyness) + a dead-collateral flag
         // for every OPEN paper position — the thing D6c calls "does the trader
@@ -398,6 +489,23 @@ public static class OptionsEndpoints
         string Symbol, string? TradeDate, double Iv, double? Hv30, string? Source);
 
     public sealed record IvDailyBatchBody(List<IvDailyRow> Rows);
+
+    public sealed record OptionQuoteRowBody(
+        string Symbol, string Expiry, double Strike, string Right,
+        double? Bid, double? Ask, double? Delta, double? Iv,
+        int? OpenInterest, double? Spot, string? Source);
+
+    public sealed record OptionQuoteBatchBody(List<OptionQuoteRowBody> Rows);
+
+    public sealed record StraddleScanRowBody(
+        string Symbol, string ReportDate, string? Expiry, double? Spot,
+        double? StraddleMid, double? ImpliedMovePct, double? RealizedMedianPct,
+        double? RealizedP25Pct, double? RealizedP75Pct, int? NPrints,
+        double? EdgeRatio, double? IvHvRatio, double? IvPctile,
+        int? PerLegOiMin, double? PerLegSpreadPctMax, bool Candidate,
+        string? GatesJson);
+
+    public sealed record StraddleScanBatchBody(List<StraddleScanRowBody> Rows);
 
     public sealed record PaperPositionBody(
         string Symbol, string? Structure, string? State, decimal? Strike, string? Expiry,
