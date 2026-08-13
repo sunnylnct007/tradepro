@@ -117,6 +117,12 @@ def fetch_chain_g3(
         _params = {"month": chosen_month, "right": right, "maxStrikes": max_strikes}
         if expiry:
             _params["expiry"] = expiry.replace("-", "")
+        else:
+            # Let the server pick the listed expiry closest to target_dte — it
+            # holds every contract per strike, so this costs no extra IBKR
+            # calls and guarantees every leg describes ONE contract inside the
+            # intended DTE band.
+            _params["targetDte"] = target_dte
         chain_resp = requests.get(
             f"{base}/api/ibkr/chain/{symbol}",
             params=_params,

@@ -179,11 +179,21 @@ public static class ChainEndpoints
                     .Select(x => x.m)
                     .FirstOrDefault();
             }
+            // Legacy safety: with neither an expiry filter nor a targetDte,
+            // keep the historical one-contract-per-(strike,right) behaviour so
+            // existing consumers never start receiving multi-expiry legs.
+            var seenStrikeRight = new HashSet<(decimal, string)>();
             foreach (var (c0, r) in candidates)
             {
-                if (chosenExpiry is not null && c0.MaturityDate is not null
-                    && c0.MaturityDate != chosenExpiry)
+                if (chosenExpiry is not null)
+                {
+                    if (c0.MaturityDate is not null && c0.MaturityDate != chosenExpiry)
+                        continue;
+                }
+                else if (!seenStrikeRight.Add((c0.Strike, r)))
+                {
                     continue;
+                }
                 if (contractRight.ContainsKey(c0.ConId))
                     continue;
                 contracts.Add(c0);
