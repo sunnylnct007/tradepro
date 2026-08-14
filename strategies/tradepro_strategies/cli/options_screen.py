@@ -566,7 +566,8 @@ def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
                           notional_gbp=notional_gbp)
     decision = evaluate(cand, ctx, portfolio or PortfolioState(), scfg)
     # The vol-regime floor applies to short-tier bridge passes too.
-    if (ivr.available and ivr.iv_rank is None and ivr.iv_hv_ratio is not None
+    if (os.environ.get("TRADEPRO_WHEEL_VOL_REGIME_GATE", "0").strip().lower() in ("1", "true", "yes", "on")
+            and ivr.available and ivr.iv_rank is None and ivr.iv_hv_ratio is not None
             and iv_vol_pctile is not None
             and iv_vol_pctile < float(os.environ.get("TRADEPRO_WHEEL_MIN_VOL_REGIME_PCTILE", "15"))):
         from dataclasses import replace as _rep
@@ -591,8 +592,13 @@ def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
 
 def vol_regime_percentile(closes: list[float], iv: float, *, hv_window: int = 30) -> float | None:
     """Percentile of the CURRENT IV within the symbol's own trailing-year
-    distribution of rolling 30d realised vol — the ABSOLUTE-premium sanity
-    companion the IV/HV bridge lacks (the KRE contradiction, 12 Aug 2026:
+    distribution of rolling 30d REALISED vol.
+
+    ⚠ WRONG REFERENCE CLASS for a vol-percentile gate: implied vol ranked
+    against realised-vol history is not an IV percentile, and this did not
+    reproduce IBKR's KRE reading (2.4 vs this 53.9). Retained as labelled
+    CONTEXT only — see R4 for the correct source. Originally built as the
+    ABSOLUTE-premium sanity companion the IV/HV bridge lacks (the KRE contradiction, 12 Aug 2026:
     bridge 1.35 — strongest vega read yet — while IV sat at the 2.4th
     percentile of its year, because realised vol collapsed FASTER than
     implied; the ratio certifies edge on the year's thinnest premium).
@@ -992,8 +998,20 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     _vega_gate_val = ("rank" if (ivr.available and ivr.iv_rank is not None)
                       else "bridge" if (ivr.available and ivr.iv_hv_ratio is not None)
                       else None)
+    # DISABLED 14 Aug 2026 — WRONG REFERENCE CLASS, and it failed its own
+    # test case. vol_regime_percentile ranks IMPLIED vol (option-derived)
+    # inside the stock's REALISED-vol distribution. An IV percentile must be
+    # IV against its OWN history; mixing the two answers a question nobody
+    # asked. Ground truth on KRE: IBKR 2.4th percentile, this gate 53.9 — so
+    # it did not block the exact case it was built for, and it could block
+    # sound trades for a meaningless reason. Kept as LABELLED CONTEXT on the
+    # row (iv_vol_regime_pctile), never as a gate. The real gate is R4:
+    # IBKR's implied_volatility_percentile, or our own options_iv_daily
+    # window once it matures. Re-enable only with a correct construction:
+    # TRADEPRO_WHEEL_VOL_REGIME_GATE=1.
+    _vol_gate_on = os.environ.get("TRADEPRO_WHEEL_VOL_REGIME_GATE", "0").strip().lower() in ("1", "true", "yes", "on")
     _vol_floor = float(os.environ.get("TRADEPRO_WHEEL_MIN_VOL_REGIME_PCTILE", "15"))
-    if (_vega_gate_val == "bridge" and iv_vol_pctile is not None
+    if (_vol_gate_on and _vega_gate_val == "bridge" and iv_vol_pctile is not None
             and iv_vol_pctile < _vol_floor):
         from dataclasses import replace as _dc_rep2
         decision = _dc_rep2(
