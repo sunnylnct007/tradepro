@@ -166,6 +166,85 @@ def _mid(vals: list[float], i: int, n: int) -> float | None:
     return (max(w) + min(w)) / 2.0
 
 
+def empirical_assignment_risk(closes: list[float], *, otm_pct: float,
+                              dte: int) -> dict | None:
+    """How often has THIS underlying actually fallen further than the strike
+    is out-of-the-money, over a window this long? (owner, 13 Aug 2026: "drill
+    on convincing numbers — how we decided that one".)
+
+    Model deltas give a risk-neutral probability; this gives the FACT: every
+    overlapping `dte`-calendar-day window in the cached history, counted.
+    Also reports how deep the breaches went, because assignment frequency
+    without assignment depth is only half the risk. None when history is too
+    thin to say anything honest. Pure; unit-tested."""
+    c = [x for x in closes if x and x > 0]
+    span = max(int(round(dte * 252 / 365)), 1)      # calendar days → sessions
+    if len(c) < span + 120:
+        return None
+    rets = [(c[i + span] / c[i] - 1.0) for i in range(len(c) - span)]
+    if not rets:
+        return None
+    threshold = -abs(otm_pct)
+    breaches = [r for r in rets if r <= threshold]
+    depths = sorted(abs(r - threshold) * 100 for r in breaches)
+    worst = min(rets)
+    return {
+        "windows_tested": len(rets),
+        "window_sessions": span,
+        "breach_pct": round(len(breaches) / len(rets) * 100, 1),
+        "median_breach_depth_pct": (round(depths[len(depths) // 2], 1) if depths else None),
+        "worst_window_pct": round(worst * 100, 1),
+        "formula": (f"count of {span}-session windows with return ≤ {threshold * 100:.1f}% "
+                    f"÷ {len(rets)} windows = {len(breaches)}/{len(rets)} = "
+                    f"{len(breaches) / len(rets) * 100:.1f}%"),
+        "why": ("historical frequency of assignment at this distance — the empirical "
+                "counterpart to delta. Depth matters too: when it breached, it went a "
+                "median " + (f"{depths[len(depths) // 2]:.1f}% further" if depths else "n/a")
+                + " past the strike."),
+    }
+
+
+def decision_trace(*, eligible: bool, blocks: list[str], warnings: list[str],
+                   cfg, delta: float | None, dte: int, oi: int | None,
+                   premium: float | None, strike: float | None,
+                   spread: float | None, iv_rank: float | None,
+                   iv_hv: float | None, regime: str | None,
+                   notional_gbp: float | None) -> list[dict]:
+    """Gate-by-gate ledger: threshold, actual, verdict — so "why is this not
+    a candidate" is answerable without reading prose. Mirrors the equity
+    decision-trace pattern. A gate whose input is missing reads UNKNOWN, which
+    is a BLOCK for the wheel (never sell premium on an input we can't see)."""
+    def _row(name, actual, threshold, ok, unit=""):
+        return {"gate": name, "actual": actual, "threshold": threshold, "unit": unit,
+                "verdict": ("pass" if ok else "fail") if actual is not None else "unknown"}
+    ann = ((premium / strike) * (365.0 / dte) * 100
+           if (premium and strike and dte > 0) else None)
+    spread_pct = (spread / premium * 100) if (spread is not None and premium) else None
+    return [
+        _row("delta band", None if delta is None else round(delta, 3),
+             f"{cfg.delta_min}–{cfg.delta_max}",
+             delta is not None and cfg.delta_min <= delta <= cfg.delta_max),
+        _row("DTE band", dte, f"{cfg.dte_min}–{cfg.dte_max}",
+             cfg.dte_min <= dte <= cfg.dte_max, "days"),
+        _row("vega edge (IV-Rank)", iv_rank, f"≥ {cfg.iv_rank_min}",
+             iv_rank is not None and iv_rank >= cfg.iv_rank_min),
+        _row("vega edge (IV/HV bridge)", iv_hv, f"≥ {cfg.iv_hv_min}",
+             iv_hv is not None and iv_hv >= cfg.iv_hv_min),
+        _row("premium floor", premium, f"≥ ${cfg.min_premium_usd}",
+             premium is not None and premium >= cfg.min_premium_usd, "$/share"),
+        _row("annualised yield", None if ann is None else round(ann, 1),
+             f"≥ {cfg.min_ann_yield_pct}", ann is not None and ann >= cfg.min_ann_yield_pct, "%/yr"),
+        _row("open interest", oi, f"≥ {cfg.oi_min}", oi is not None and oi >= cfg.oi_min),
+        _row("spread vs mid", None if spread_pct is None else round(spread_pct, 1),
+             f"≤ {cfg.spread_max_pct_of_mid * 100:.0f}",
+             spread_pct is not None and spread_pct <= cfg.spread_max_pct_of_mid * 100, "%"),
+        _row("regime", regime, "GREEN or YELLOW",
+             regime in ("GREEN", "YELLOW")),
+        _row("position size", notional_gbp, f"≤ £{cfg.per_position_gbp:,.0f}",
+             notional_gbp is not None and notional_gbp <= cfg.per_position_gbp, "£"),
+    ]
+
+
 def explain_calcs(*, symbol: str, spot: float | None, strike: float | None,
                   premium: float | None, dte: int, contracts: int = 1,
                   bid: float | None = None, ask: float | None = None,
@@ -1076,6 +1155,17 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "ref_close": round(ref_close, 2) if ref_close else None,
         "spot_divergence_pct": round(spot_divergence * 100, 1) if spot_divergence is not None else None,
         "put_vs_buy": put_vs_buy,
+        # Drill-down: gate ledger + this name's OWN history of breaching a
+        # strike this far away — the empirical counterpart to delta.
+        "decision_trace": decision_trace(
+            eligible=decision.allowed, blocks=decision.blocks, warnings=decision.warnings,
+            cfg=cfg, delta=delta, dte=dte, oi=oi, premium=premium, strike=strike,
+            spread=spread, iv_rank=(ivr.iv_rank if ivr.available else None),
+            iv_hv=(ivr.iv_hv_ratio if ivr.available else None), regime=regime,
+            notional_gbp=notional_gbp),
+        "history_check": (empirical_assignment_risk(
+            closes, otm_pct=((ref_close - strike) / ref_close if (ref_close and strike) else 0.05),
+            dte=dte) if closes else None),
         # Show-your-working: every derived figure with its arithmetic.
         "calcs": explain_calcs(
             symbol=sym, spot=ref_close, strike=strike, premium=premium, dte=dte,

@@ -51,3 +51,42 @@ def test_dividend_caveat_is_stated_when_yield_unavailable():
     assert "q=0" in c["forward_price"]["why"]
     c2 = explain_calcs(**{**BASE, "div_yield": 0.012})
     assert "q=0" not in c2["forward_price"]["why"]
+
+
+# ── Empirical assignment risk: the "convincing numbers" drill-down ───────
+def test_empirical_assignment_counts_real_windows():
+    from tradepro_strategies.cli.options_screen import empirical_assignment_risk
+    # A series that only ever rises can never breach a downside strike.
+    rising = [100.0 * (1.0005 ** i) for i in range(400)]
+    d = empirical_assignment_risk(rising, otm_pct=0.05, dte=30)
+    assert d and d["breach_pct"] == 0.0
+    assert d["windows_tested"] > 300
+    assert "windows" in d["formula"]
+
+
+def test_empirical_assignment_detects_frequent_breaches():
+    from tradepro_strategies.cli.options_screen import empirical_assignment_risk
+    # A steady decliner breaches a 5% OTM put in essentially every window.
+    falling = [100.0 * (0.997 ** i) for i in range(400)]
+    d = empirical_assignment_risk(falling, otm_pct=0.05, dte=30)
+    assert d and d["breach_pct"] > 90
+    assert d["median_breach_depth_pct"] is not None
+
+
+def test_empirical_assignment_none_on_thin_history():
+    from tradepro_strategies.cli.options_screen import empirical_assignment_risk
+    assert empirical_assignment_risk([100.0] * 50, otm_pct=0.05, dte=30) is None
+
+
+def test_decision_trace_marks_missing_inputs_unknown_not_pass():
+    from tradepro_strategies.cli.options_screen import decision_trace
+    from tradepro_strategies.quant_engine.options.risk import OptionsRiskConfig
+    cfg = OptionsRiskConfig()
+    rows = decision_trace(eligible=False, blocks=[], warnings=[], cfg=cfg,
+                          delta=None, dte=35, oi=None, premium=None, strike=None,
+                          spread=None, iv_rank=None, iv_hv=None, regime=None,
+                          notional_gbp=None)
+    by = {r["gate"]: r for r in rows}
+    assert by["delta band"]["verdict"] == "unknown"
+    assert by["open interest"]["verdict"] == "unknown"
+    assert by["DTE band"]["verdict"] == "pass"      # 35 is inside 25-50
