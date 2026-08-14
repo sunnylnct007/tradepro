@@ -263,6 +263,25 @@ def build_server():
         return _json(t.get_option_quotes(symbol, days))
 
     @mcp.tool()
+    @instrumented("get_wheel_candidate")
+    def get_wheel_candidate(symbol: str) -> str:
+        """Drill-down on ONE wheel candidate: every figure WITH the arithmetic
+        that produced it, the gate-by-gate ledger (threshold vs actual, where
+        'unknown' is distinct from 'fail'), the name's own history of moving
+        far enough to be assigned, and the short-dated tier evaluation. Use
+        this to answer "why is/isn't X a candidate" with checkable numbers."""
+        return _json(t.get_wheel_candidate(symbol))
+
+    @mcp.tool()
+    @instrumented("get_backtest_results")
+    def get_backtest_results(limit: int = 5) -> str:
+        """Wheel-backtest gate runs: code SHA, which PRE-REGISTERED gates file
+        graded them, per-window results and every gate verdict, plus the modelling
+        caveats. Thresholds were committed before the numbers existed. Always
+        quote the caveats when citing a result."""
+        return _json(t.get_backtest_results(limit))
+
+    @mcp.tool()
     @instrumented("get_health")
     def get_health() -> str:
         """API + Mac worker liveness + per-universe cache freshness.
@@ -702,14 +721,11 @@ def build_server():
 
     # ---- Event awareness: earnings, analyst recs, upgrades ----
 
-    @mcp.tool()
-    @instrumented("get_earnings_calendar")
-    def get_earnings_calendar(symbol: str, days: int = 30) -> str:
-        """Upcoming earnings for `symbol` over the next `days`
-        (max 90). Returns enabled=false when Finnhub key isn't set.
-        Use to flag 'MSFT reports in 5 days — position-into-earnings
-        volatility risk'."""
-        return _json(t.get_earnings_calendar(symbol, days))
+    # get_earnings_calendar: the Finnhub-proxy version that lived here is
+    # SUPERSEDED by the store-backed tool registered earlier in this file
+    # (central earnings_calendar, bulk-harvested, verified-absence
+    # semantics). Registering both silently overwrote one and left the other
+    # calling with an incompatible `days=` signature.
 
     @mcp.tool()
     @instrumented("get_analyst_recommendations")

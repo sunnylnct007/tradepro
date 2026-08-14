@@ -1980,8 +1980,12 @@ def run_signal_scan(
 # Event awareness: earnings, analyst recommendations, analyst upgrades
 # ---------------------------------------------------------------------------
 
-def get_earnings_calendar(symbol: str, days: int = 30) -> dict:
-    """Upcoming earnings dates for `symbol` over the next `days`
+def _get_earnings_calendar_finnhub_legacy(symbol: str, days: int = 30) -> dict:
+    """SUPERSEDED (13 Aug 2026) by the store-backed get_earnings_calendar
+    below — kept only as the raw Finnhub-proxy path. Not registered as an
+    MCP tool; it was shadowing (and being shadowed by) the newer function.
+
+    Upcoming earnings dates for `symbol` over the next `days`
     (default 30, max 90). Returns the empty-but-ok envelope when
     Finnhub isn't configured server-side. Use to flag "MSFT reports
     in 5 days — position-into-earnings volatility risk".
@@ -3676,3 +3680,77 @@ def get_option_quotes(symbol: str, days: int = 5) -> dict:
     except ApiUnreachable as exc:
         return _unreachable_envelope("get_option_quotes", exc, symbol=symbol)
     return {"ok": True, **d}
+
+
+def get_wheel_candidate(symbol: str) -> dict:
+    """Full drill-down for ONE wheel candidate: every derived figure with the
+    arithmetic that produced it, the gate-by-gate ledger (threshold vs actual
+    vs verdict, where `unknown` is distinct from `fail`), this name's own
+    history of breaching a strike that far out, and the short-dated tier
+    evaluation if the standard band conflicted with an earnings date."""
+    sym = symbol.strip().upper()
+    try:
+        d = _get("/api/options/candidates")
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_wheel_candidate", exc, symbol=sym)
+    row = next((c for c in (d.get("candidates") or []) if c.get("symbol") == sym), None)
+    if row is None:
+        return {"ok": False, "symbol": sym,
+                "error": f"{sym} is not on the latest board",
+                "universe_size": len(d.get("candidates") or []),
+                "generated_at_utc": d.get("generated_at_utc")}
+    return {
+        "ok": True,
+        "symbol": sym,
+        "generated_at_utc": d.get("generated_at_utc"),
+        "market_open": d.get("market_open"),
+        "eligible": row.get("eligible"),
+        "blocks": row.get("blocks"),
+        "warnings": row.get("warnings"),
+        "already_in_book": row.get("already_in_book"),
+        "suggested": {k: row.get(k) for k in
+                      ("suggested_strike", "suggested_delta", "suggested_premium",
+                       "premium_source", "premium_as_of_utc", "premium_age_h",
+                       "dte", "open_interest", "spread_usd", "annualized_yield_pct",
+                       "regime", "ref_close", "chain_source")},
+        "calculations": row.get("calcs"),
+        "gate_ledger": row.get("decision_trace"),
+        "history_check": row.get("history_check"),
+        "hv_gap": row.get("hv_gap"),
+        "short_tier": row.get("short_tier"),
+        "book": d.get("book"),
+    }
+
+
+def get_backtest_results(limit: int = 5) -> dict:
+    """Wheel-backtest gate runs from the central run_log — each carries the
+    code SHA, WHICH pre-registered gates file graded it, the per-window
+    headlines and every gate's verdict. Pre-registration is the point: the
+    thresholds were committed before the numbers existed, so a pass cannot
+    have been fitted after the fact."""
+    try:
+        d = _get("/api/run-log/recent", {"limit": limit, "process": "wheel-backtest"})
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_backtest_results", exc)
+    rows = d.get("rows") or d.get("entries") or []
+    return {
+        "ok": True,
+        "runs": [{"at_utc": r.get("created_at_utc"), "status": r.get("status"),
+                  "summary": r.get("summary"), "error": r.get("error")} for r in rows],
+        "gates_files": {
+            "v1": "strategies/WHEEL_BACKTEST_GATES.md (5817fe2) — 3 of 4 gates failed",
+            "v2": ("strategies/WHEEL_BACKTEST_GATES_V2.md (cb51600) — models the live "
+                   "gates; 8 of 9 pass, G4 fails on META single-name drawdown -50.9%, "
+                   "so Phase 1 remains OPEN pending an owner decision"),
+            "short_tier": ("strategies/WHEEL_BACKTEST_GATES_SHORT_TIER.md (b3dd173) — "
+                           "pre-registered, NOT yet run"),
+        },
+        "caveats": [
+            "Premiums are Black-Scholes on trailing realised vol, not real option "
+            "quotes: this OVERSTATES income after a gap (verified on META) and "
+            "UNDERSTATES it into an earnings ramp.",
+            "Assignment is expiry-only; early assignment is not modelled.",
+            "Adjusted-close space credits dividends implicitly.",
+            "All three biases flatter the wheel, so a FAILING gate is a strong result.",
+        ],
+    }
