@@ -11,7 +11,11 @@ so a different provider is just a new `fetch_chain`-shaped adapter.
 from __future__ import annotations
 
 import datetime as _dt
+import functools as _functools
+import logging as _logging
 import math
+import os as _os
+import time as _time
 from dataclasses import dataclass
 
 from .black_scholes import BlackScholesPricer, OptionType
@@ -97,18 +101,61 @@ def select_by_abs_delta(
     return min(scored, key=lambda x: x[0])[1] if scored else None
 
 
+_log = _logging.getLogger("tradepro.options.chains")
+
+# Wall-clock budget for a single yfinance HTTP call. Config-driven, because
+# the right value differs between a desk run and a backfill.
+_YF_TIMEOUT_S = float(_os.environ.get("TRADEPRO_YF_TIMEOUT_S", "8"))
+
+_YF_SESSION = None
+
+
+def _yf_session():
+    """A yfinance session with a REAL timeout.
+
+    This adapter had none — no timeout, no retry, no backoff — and every
+    failure was swallowed by a bare `except Exception: return None`. On
+    15 Aug 2026 that combination cost the options screen 2h50m for a single
+    day's run: 53 of 82 symbols fall through to yfinance for their chain, and
+    Yahoo was rate-limiting this machine (confirmed: `YFRateLimitError: Too
+    Many Requests`). Each throttled symbol blocked on a socket read that had
+    no deadline, and because the exception never escaped, nothing said so —
+    the run just took three hours and published a board sourced 65% from
+    Yahoo. A fallback with no time bound is not a fallback, it is a hang.
+    """
+    global _YF_SESSION
+    if _YF_SESSION is not None:
+        return _YF_SESSION
+    try:
+        from curl_cffi import requests as _cr
+        _YF_SESSION = _cr.Session(timeout=_YF_TIMEOUT_S)
+    except Exception:  # noqa: BLE001 — no session is better than no chain
+        try:
+            import requests as _rq
+            s = _rq.Session()
+            s.request = _functools.partial(s.request, timeout=_YF_TIMEOUT_S)  # type: ignore[method-assign]
+            _YF_SESSION = s
+        except Exception:  # noqa: BLE001
+            _YF_SESSION = None
+    return _YF_SESSION
+
+
 def fetch_chain(symbol: str, target_dte: int = 45, *, pricer: BlackScholesPricer | None = None) -> OptionChain | None:
     """yfinance adapter: pick the expiry nearest `target_dte` and return a
     normalised OptionChain. Fills a missing/zero IV by solving Black-Scholes
     from the mid so delta selection still works. Best-effort: returns None
-    if the chain can't be read (no network / delisted / rate-limited)."""
+    if the chain can't be read (no network / delisted / rate-limited) — but
+    it now says WHY at WARNING level instead of returning None in silence."""
     try:
         import yfinance as yf
     except ImportError:
+        _log.warning("%s: yfinance not installed — no fallback chain", symbol)
         return None
     pricer = pricer or BlackScholesPricer()
+    _t0 = _time.monotonic()
     try:
-        tk = yf.Ticker(symbol)
+        _sess = _yf_session()
+        tk = yf.Ticker(symbol, session=_sess) if _sess is not None else yf.Ticker(symbol)
         exps = tk.options
         if not exps:
             return None
@@ -142,11 +189,27 @@ def fetch_chain(symbol: str, target_dte: int = 45, *, pricer: BlackScholesPricer
                 out.append(OptionQuote(kind=kind, strike=strike, bid=bid, ask=ask, iv=iv, open_interest=oi))
             return out
 
-        return OptionChain(
+        chain = OptionChain(
             symbol=symbol, spot=spot, expiry=expiry, dte=d,
             calls=rows(ch.calls, "call"), puts=rows(ch.puts, "put"),
         )
-    except Exception:  # noqa: BLE001 — adapter is best-effort
+        _elapsed = _time.monotonic() - _t0
+        if _elapsed > _YF_TIMEOUT_S:
+            _log.warning("%s: yfinance chain took %.1fs (budget %.0fs) — Yahoo is "
+                         "throttling; this is what turns a screen run into hours",
+                         symbol, _elapsed, _YF_TIMEOUT_S)
+        return chain
+    except Exception as exc:  # noqa: BLE001 — adapter is best-effort, but NOT silent
+        # Rate limiting is the failure that matters and the one that used to be
+        # invisible: it is not "this symbol has no chain", it is "Yahoo refused
+        # to answer us". Those must never read the same on a trading board.
+        _name = type(exc).__name__
+        _rate_limited = "RateLimit" in _name or "Too Many Requests" in str(exc)
+        _log.warning(
+            "%s: yfinance chain fetch FAILED after %.1fs — %s: %s%s",
+            symbol, _time.monotonic() - _t0, _name, str(exc)[:160],
+            "  [YAHOO RATE-LIMITED — the fallback is refusing service, not the "
+            "market being closed]" if _rate_limited else "")
         return None
 
 

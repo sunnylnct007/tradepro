@@ -521,22 +521,33 @@ class BarStore:
                 chain_log.append(f"{provider_name}_empty")
                 continue
 
-            # Atomic write.
-            self._write_partition(
-                df=df,
-                plugin=plugin,
-                canonical=canonical,
-                asset_class=asset_class,
-                resolution=resolution,
-                partition=partition,
-                partition_start=partition_start,
-                partition_end=partition_end,
-                partition_path=partition_path,
-                manifest_path=manifest_path,
-                provider_used=provider_name,
-                provider_meta=meta,
-                fetched_by=fetched_by,
-            )
+            # Atomic write. A shrink refusal (see _write_partition) is a
+            # PROVIDER problem, not a fatal one: this provider's answer was
+            # smaller than what we already hold, so treat it like any other
+            # soft failure and let the next provider try. The cached data is
+            # untouched either way.
+            try:
+                self._write_partition(
+                    df=df,
+                    plugin=plugin,
+                    canonical=canonical,
+                    asset_class=asset_class,
+                    resolution=resolution,
+                    partition=partition,
+                    partition_start=partition_start,
+                    partition_end=partition_end,
+                    partition_path=partition_path,
+                    manifest_path=manifest_path,
+                    provider_used=provider_name,
+                    provider_meta=meta,
+                    fetched_by=fetched_by,
+                )
+            except BarFetchError as exc:
+                if exc.error_class != "partial_write_refused":
+                    raise
+                last_exc = exc
+                chain_log.append(f"{provider_name}_partial_refused")
+                continue
             chain_log.append(f"{provider_name}_ok")
             provider_versions[provider_name] = meta.get("provider_version", "")
             return
@@ -577,18 +588,52 @@ class BarStore:
         # Safety net: never overwrite non-empty cached data with an empty
         # frame. _fetch_and_write should have caught this already (empty
         # result = soft failure → try next provider), but defence in depth.
-        if df.empty and partition_path.exists():
+        existing_rows = 0
+        if partition_path.exists():
             try:
                 existing_rows = len(pq.read_table(partition_path))
             except Exception:  # noqa: BLE001
                 existing_rows = 0
-            if existing_rows > 0:
-                _log.warning(
-                    "bar_cache: skipping empty write for %s — existing "
-                    "parquet has %d rows; keeping cached data",
-                    partition_path.name, existing_rows,
-                )
-                return
+
+        if df.empty and existing_rows > 0:
+            _log.warning(
+                "bar_cache: skipping empty write for %s — existing "
+                "parquet has %d rows; keeping cached data",
+                partition_path.name, existing_rows,
+            )
+            return
+
+        # Never let a partition SHRINK silently. The empty-frame guard above
+        # only catches the total-failure case; a provider that returns a
+        # PARTIAL month (rate-limited, throttled, half-served) would sail past
+        # it and replace a complete 22-session partition with a 5-bar stub,
+        # because the write path is replace-not-merge. That is silent data
+        # loss, and it is exactly what a bulk `force_refresh` re-harvest
+        # invites. A shrink is a provider problem, so keep what we have and
+        # say so LOUDLY — a smaller truth is still a loss.
+        #
+        # Equal-or-larger writes pass untouched: re-sourcing a month from a
+        # better provider (yfinance → ibkr_web) is the whole point and keeps
+        # the same session count.
+        if existing_rows > 0 and 0 < len(df) < existing_rows:
+            _log.error(
+                "bar_cache: REFUSING to shrink %s — provider %s returned %d "
+                "rows over the partition window but %d are already cached. "
+                "Keeping the cached data; this partition was NOT refreshed.",
+                partition_path.name, provider_used, len(df), existing_rows,
+            )
+            raise BarFetchError(
+                error_class="partial_write_refused",
+                provider=provider_used,
+                canonical=canonical,
+                message=(
+                    f"{provider_used} returned {len(df)} rows for "
+                    f"{canonical} {partition}, fewer than the {existing_rows} "
+                    f"already cached — refusing to overwrite good data with a "
+                    f"partial fetch"
+                ),
+                retry_strategy="retry_later",
+            )
 
         # Write parquet to tmp + atomic rename.
         tmp_parquet = partition_path.with_suffix(partition_path.suffix + ".tmp")
