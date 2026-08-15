@@ -460,6 +460,78 @@ def hv_gap_diagnostics(closes: list[float], *, window: int = 30) -> dict | None:
     }
 
 
+def _hv30_from_closes(closes: list[float], window: int = 30) -> float | None:
+    """Annualised 30d realised vol from OUR OWN cached closes — the honest
+    denominator for the IV/HV bridge when the broker serves no HV."""
+    import math as _m
+    c = [x for x in closes if x and x > 0]
+    if len(c) < window + 1:
+        return None
+    rets = [_m.log(c[i] / c[i - 1]) for i in range(len(c) - window, len(c))]
+    if len(rets) < 5:
+        return None
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+    return round(_m.sqrt(var) * _m.sqrt(252.0), 5)
+
+
+def solve_iv_and_crosscheck(*, premium: float | None, spot: float | None,
+                            strike: float | None, dte: int,
+                            broker_iv: float | None, pricer,
+                            kind: str = "put",
+                            tolerance: float = 0.15) -> dict:
+    """Derive implied vol from the option's OWN mid price, and cross-check it
+    against the broker's IV when both exist.
+
+    Owner, 15 Aug 2026: *"options are mostly mathematical calcs so better to
+    calculate."* Correct — and it is also the fix for the biggest single
+    blocker on this board. IBKR's IV field (7283) went dark for 47-82 of 82
+    symbols on 14 Aug while bid/ask were fine (`no_premium=0`), and every one
+    of those rows blocked on "IV-Rank unavailable". IV is not a fact that must
+    be fetched: given mid, spot, strike, time and rate it is a solve. Only
+    the PRICE is irreducibly a market fact.
+
+    Returns {iv, source, agreement} where source is:
+      broker_only   — no premium to solve from; broker's figure, unverified
+      solved_only   — broker dark; ours, from the mid (this is the unlock)
+      cross_checked — both present and within tolerance; highest confidence
+      DISAGREEMENT  — both present and materially apart: a detectable data
+                      fault. We keep the SOLVED value (it is derived from the
+                      tradeable price) and say so rather than silently
+                      preferring one.
+    Pure; unit-tested."""
+    solved = None
+    if premium and premium > 0 and spot and strike and dte > 0:
+        try:
+            solved = pricer.implied_vol(premium, spot, strike, max(dte, 1) / 365.0, kind)
+        except Exception:  # noqa: BLE001 — a failed solve is "unknown", never a guess
+            solved = None
+
+    if solved is None and broker_iv is None:
+        return {"iv": None, "source": "unavailable", "agreement": None,
+                "detail": "no premium to solve from and no broker IV — vega edge unknowable"}
+    if solved is None:
+        return {"iv": broker_iv, "source": "broker_only", "agreement": None,
+                "detail": f"broker IV {broker_iv:.1%} (no mid to verify it against)"}
+    if broker_iv is None:
+        return {"iv": solved, "source": "solved_only", "agreement": None,
+                "detail": (f"IV {solved:.1%} SOLVED from the mid {premium:.2f} "
+                           f"(broker IV field dark — solving keeps the row usable)")}
+
+    rel = abs(solved - broker_iv) / broker_iv if broker_iv else 0.0
+    agree = rel <= tolerance
+    return {
+        "iv": solved if not agree else broker_iv,
+        "source": "cross_checked" if agree else "DISAGREEMENT",
+        "agreement": round(1 - rel, 3),
+        "detail": (f"solved {solved:.1%} vs broker {broker_iv:.1%} — "
+                   + ("agree within "
+                      f"{tolerance:.0%} ({rel:.1%} apart)" if agree
+                      else f"DISAGREE by {rel:.0%}; using the SOLVED value because it "
+                           f"derives from the tradeable price, and flagging the gap")),
+    }
+
+
 def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
     """TIER_SHORT gate overrides (SPEC §1.2) — stricter to pay for gamma.
     Env-tunable like every other knob; defaults are the spec's, calibrated so
@@ -999,6 +1071,25 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # yearly range is positive edge on very little money — and typically
     # exactly when the name sits near its highs. Rank-based passes are
     # exempt (a real 52w IV-rank already IS the absolute measure).
+    # ── IV: SOLVE it, don't just fetch it (15 Aug 2026) ────────────────
+    # The vega gate used to depend entirely on IBKR's IV field, so a dark
+    # field blocked the row outright — 47-82 of 82 symbols on 14 Aug, while
+    # bid/ask were fine. IV is a solve from the mid; only the price is
+    # irreducibly a market fact. Cross-checked against the broker when both
+    # exist, so agreement raises confidence and disagreement is DETECTED.
+    iv_solved = solve_iv_and_crosscheck(
+        premium=premium, spot=ref_close, strike=strike, dte=dte,
+        broker_iv=(ivr.iv if ivr.available else None), pricer=pricer, kind="put")
+    if iv_solved["iv"] and (not ivr.available or ivr.iv is None):
+        # Rebuild the vega read on the solved IV + our own realised vol, so a
+        # dark broker field no longer means "unknowable".
+        from dataclasses import replace as _dc_iv
+        _hv = ivr.hv30 if (ivr.available and ivr.hv30) else _hv30_from_closes(closes)
+        ivr = _dc_iv(
+            ivr, available=True, iv=iv_solved["iv"], hv30=_hv,
+            iv_hv_ratio=(round(iv_solved["iv"] / _hv, 3) if (_hv and _hv > 0) else None),
+            reason=f"IV solved from the mid ({iv_solved['source']})")
+
     iv_vol_pctile = (vol_regime_percentile(closes, ivr.iv)
                      if (ivr.available and ivr.iv) else None)
     # Gap-contaminated HV check (the IBM case) — the bridge ratio can be
@@ -1178,6 +1269,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         # Current IV's percentile within the name's own 1y realised-vol
         # distribution — the absolute-level context next to the ratio.
         "iv_vol_regime_pctile": iv_vol_pctile,
+        # Where this row's IV came from: solved / broker / cross-checked.
+        "iv_provenance": iv_solved,
         # Gap-contamination diagnostics for the bridge ratio (None = clean).
         "hv_gap": hv_gap,
         # Self-check: which no-arbitrage identities this quote satisfies.
