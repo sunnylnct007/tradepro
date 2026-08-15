@@ -263,6 +263,16 @@ def build_server():
         return _json(t.get_option_quotes(symbol, days))
 
     @mcp.tool()
+    @instrumented("get_data_readiness")
+    def get_data_readiness() -> str:
+        """Is the data there, and since when — one row per dataset with a
+        usable yes/no, the newest data in it, and when it stopped being
+        usable. Check this BEFORE treating any screen output as tradeable;
+        never present figures from a dataset marked unusable without saying
+        so and quoting brokenSince."""
+        return _json(t.get_data_readiness())
+
+    @mcp.tool()
     @instrumented("get_wheel_candidate")
     def get_wheel_candidate(symbol: str) -> str:
         """Drill-down on ONE wheel candidate: every figure WITH the arithmetic

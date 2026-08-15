@@ -3754,3 +3754,15 @@ def get_backtest_results(limit: int = 5) -> dict:
             "All three biases flatter the wheel, so a FAILING gate is a strong result.",
         ],
     }
+
+
+def get_data_readiness() -> dict:
+    """Is the data there or not, and since when — one row per DATASET rather
+    than per job. Call this BEFORE presenting any screen output as tradeable:
+    a dataset marked unusable means figures derived from it are stale or
+    absent, and `brokenSince` says when that started."""
+    try:
+        d = _get("/api/data-readiness")
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_data_readiness", exc)
+    return {"ok": True, **d}

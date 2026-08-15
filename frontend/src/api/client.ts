@@ -1499,6 +1499,27 @@ export const api = {
     }>("/api/fills/attribution", qp);
   },
 
+  /** One row per DATASET: is the data there, and since when. */
+  dataReadiness: () =>
+    get<{
+      generatedAtUtc: string;
+      verdict: string;
+      usable: number;
+      total: number;
+      datasets: Array<{
+        key: string;
+        label: string;
+        purpose: string;
+        usable: boolean;
+        asOfUtc: string | null;
+        ageHours: number | null;
+        brokenSince: string | null;
+        detail: string;
+        extra?: { consecutiveDegraded?: number; depthDays?: number; neededDays?: number } | null;
+      }>;
+      note: string;
+    }>("/api/data-readiness"),
+
   barCacheHealth: (params?: { canonical?: string; assetClass?: string }) => {
     const qp: Record<string, string | undefined> = {};
     if (params?.canonical) qp.canonical = params.canonical;

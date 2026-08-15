@@ -19,6 +19,86 @@ type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
 type Coverage = Awaited<ReturnType<typeof api.ibkrBarCoverage>>;
 type QRow = Quality["symbols"][number];
 type Harvester = Awaited<ReturnType<typeof api.ibkrHarvesterStatus>>;
+type Readiness = Awaited<ReturnType<typeof api.dataReadiness>>;
+
+/**
+ * DataReadinessBanner — the FIRST thing on this screen, because the question a
+ * trader arrives with is "can I act on today's numbers?", not "how did each
+ * job do?". Everything below is forensics; this is the answer.
+ *
+ * Owner, 15 Aug 2026: "I don't need noise of failure. I need to know if data
+ * is there or not and since when ... if I go to the data screen I have no
+ * proper clue." Per-job panels made a 60-run 5-minute outage and an 11-day
+ * daily-bar gap invisible — each looked busy, none summed up.
+ */
+function DataReadinessBanner() {
+  const [r, setR] = useState<Readiness | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      api.dataReadiness()
+        .then((d) => { if (live) { setR(d); setErr(null); } })
+        .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); });
+    load();
+    const t = setInterval(load, 60000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+
+  if (err) return (
+    <div style={{ padding: 12, marginBottom: 14, border: "1px solid var(--down)", borderRadius: 8, color: "var(--down)" }}>
+      Data readiness unavailable: {err} — treat every figure below as unverified.
+    </div>
+  );
+  if (!r) return null;
+
+  const allGood = r.usable === r.total;
+  const tone = allGood ? "var(--up)" : r.usable >= r.total - 1 ? "var(--warn)" : "var(--down)";
+  const ago = (iso: string | null) => {
+    if (!iso) return "never";
+    const h = (Date.now() - new Date(iso.replace(" ", "T")).getTime()) / 3.6e6;
+    if (h < 1) return `${Math.round(h * 60)}m ago`;
+    if (h < 48) return `${Math.round(h)}h ago`;
+    return `${Math.round(h / 24)}d ago`;
+  };
+
+  return (
+    <div style={{ marginBottom: 16, border: `1px solid ${tone}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "10px 14px",
+                    background: "color-mix(in srgb, var(--panel) 92%, transparent)", flexWrap: "wrap" }}>
+        <strong style={{ fontSize: 15, color: tone }}>{r.verdict}</strong>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {r.usable} of {r.total} datasets usable · checked {ago(r.generatedAtUtc)}
+        </span>
+      </div>
+      <div>
+        {r.datasets.map((d) => (
+          <div key={d.key} style={{ display: "grid", gridTemplateColumns: "22px 210px 120px 1fr",
+                                    gap: 10, padding: "8px 14px", alignItems: "start",
+                                    borderTop: "1px solid var(--border)", fontSize: 12 }}>
+            <span style={{ color: d.usable ? "var(--up)" : "var(--down)" }}>{d.usable ? "✅" : "⛔"}</span>
+            <div>
+              <div style={{ fontWeight: 600 }}>{d.label}</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{d.purpose}</div>
+            </div>
+            <div style={{ color: "var(--text-dim)" }}>
+              {d.usable ? `current ${ago(d.asOfUtc)}` : (
+                <span style={{ color: "var(--down)" }}>
+                  broken<br />{d.brokenSince ? ago(d.brokenSince) : "—"}
+                </span>
+              )}
+            </div>
+            <div style={{ color: d.usable ? "var(--text-dim)" : "var(--text)" }}>{d.detail}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: "6px 14px", fontSize: 11, color: "var(--text-muted)",
+                    borderTop: "1px solid var(--border)" }}>
+        {r.note}
+      </div>
+    </div>
+  );
+}
 
 // Decision-grade tier → colour + glyph. The headline question: "good enough to
 // decide on TODAY?" GOOD/BRONZE = yes; PARTIAL/STALE/MISSING = no.
@@ -171,6 +251,8 @@ export function HarvestView() {
           bar-cache coverage, freshness + missing-data issues · auto-refresh 60s
         </span>
       </div>
+
+      <DataReadinessBanner />
 
       {/* NEW: C# IBKR bar harvester — the IBKR-primary intraday feed. This is the
           answer to "is IBKR actually harvesting?" — separate from the legacy
