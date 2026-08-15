@@ -69,6 +69,12 @@ class WheelResult:
     n_blocked_earnings: int = 0      # a print inside [today, expiry]
     n_g5_violations: int = 0         # CSPs opened into a known print — must be 0
     earnings_modelled: bool = False  # was the veto active for this window
+    # v3 (WHEEL_BACKTEST_GATES_V3.md): the primary-trend floor — no new CSP on
+    # a name below its own 200-SMA. Answers G4's failure mechanism directly:
+    # the wheel's structural risk is being ASSIGNED INTO A DECLINER, and a
+    # name under its primary trend is the definition of one.
+    n_blocked_trend: int = 0         # spot below the primary-trend SMA at entry
+    trend_modelled: bool = False     # was the floor active for this window
 
 
 def _realised_vol(closes: list[float], i: int, window: int = 30) -> float:
@@ -103,6 +109,15 @@ def simulate_wheel(
     knife_by_day: list[bool] | None = None,   # falling-knife flag per bar
     earnings_dates: list[_dt.date] | None = None,  # historical print dates
     earnings_modelled: bool = False,    # False ⇒ veto inactive (declare coverage!)
+    # ── v3 primary-trend floor (OFF by default ⇒ v1/v2 reproducible) ──
+    # Per-bar "is this name above its primary trend?". Precomputed by the
+    # CALLER, deliberately: a 200-SMA needs 200 bars of history, and the
+    # backtest only ever receives the in-window slice — computing it here
+    # would blind the first ~200 of a ~315-bar window. The runner has the
+    # pre-window bars (it already requires ≥260) and is the honest place to
+    # build this, exactly as it already does for regime_by_day/knife_by_day.
+    trend_ok_by_day: list[bool] | None = None,
+    trend_modelled: bool = False,
     idle_cash_rate: float = 0.0,        # annual rate accrued daily on the CASH balance.
     # 0.0 = v1 behaviour (idle cash scores zero — understates low-utilisation
     # configs: money a premium floor keeps undeployed isn't dead, it earns ~rf;
@@ -129,6 +144,7 @@ def simulate_wheel(
     trades: list[WheelTrade] = []
     n_puts = n_assign = n_calls = n_aways = 0
     n_blocked_floor = n_blocked_regime = n_blocked_earnings = n_g5_violations = 0
+    n_blocked_trend = 0
     _prints = sorted(earnings_dates or [])
 
     equity_curve: list[float] = []
@@ -217,10 +233,23 @@ def simulate_wheel(
                 # (b) EARNINGS — no new premium sold across a print.
                 elif earnings_modelled and any(dates[i] <= p_ <= dates[exp_i] for p_ in _prints):
                     blocked = "earnings"
+                # (c) PRIMARY TREND (v3) — never SELL A PUT on a name trading
+                # below its own primary trend. This is the one rule aimed at
+                # G4's failure: you can survive being assigned, but being
+                # assigned into a name already in a primary downtrend is how a
+                # slice grinds to −50%. Deliberately NOT applied to the covered
+                # -call repair leg below: once you already hold the shares,
+                # refusing to sell calls would remove the only income repairing
+                # the position — it would make the failure worse, not better.
+                elif (trend_modelled and trend_ok_by_day is not None
+                        and i < len(trend_ok_by_day) and not trend_ok_by_day[i]):
+                    blocked = "trend"
                 if blocked == "regime":
                     n_blocked_regime += 1
                 elif blocked == "earnings":
                     n_blocked_earnings += 1
+                elif blocked == "trend":
+                    n_blocked_trend += 1
                 else:
                     prem = pricer.price(spot, strike, t_open, sigma, "put")
                     # (c) PREMIUM FLOOR — last, on the priced credit.
@@ -307,6 +336,7 @@ def simulate_wheel(
         n_blocked_floor=n_blocked_floor, n_blocked_regime=n_blocked_regime,
         n_blocked_earnings=n_blocked_earnings, n_g5_violations=n_g5_violations,
         earnings_modelled=earnings_modelled,
+        n_blocked_trend=n_blocked_trend, trend_modelled=trend_modelled,
     )
 
 

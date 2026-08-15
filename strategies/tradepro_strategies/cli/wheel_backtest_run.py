@@ -35,6 +35,12 @@ WARMUP = 60
 V2_MIN_PREMIUM_USD = 0.20       # live OptionsRiskConfig default
 V2_MIN_ANN_YIELD_PCT = 8.0      # live OptionsRiskConfig default
 V2_IDLE_CASH_RATE = 0.04        # registered ON
+# v3 addition (WHEEL_BACKTEST_GATES_V3.md, committed before any v3 run).
+# 200 = the primary trend, the same length the equity book already uses. NOT
+# swept, NOT chosen from results: picked because it is the standard definition
+# and because the failure being addressed (assigned into a decliner) is a
+# primary-trend failure. Any tuning of this number invalidates the test.
+V3_TREND_SMA_DAYS = 200
 WINDOWS = {
     "2020": ("2019-10-01", "2020-12-31", "2020-01-01"),
     "2022": ("2021-10-01", "2022-12-31", "2022-01-01"),
@@ -69,6 +75,32 @@ def _regime_series(closes: list[float]) -> tuple[list[str | None], list[bool]]:
 
 
 _EARN_CACHE: dict[str, tuple[list, str]] = {}
+
+
+def _trend_series(closes: list[float], idx: list[int], sma_days: int) -> tuple[list[bool], int]:
+    """v3 primary-trend floor: per IN-WINDOW bar, is close ≥ its own N-day SMA?
+
+    Computed over the FULL history and only then sliced to the window — the
+    whole point. A 200-SMA needs 200 prior bars; deriving it from the window
+    slice alone would blind roughly the first two thirds of a ~315-bar window
+    and quietly turn "no new CSPs allowed" into "no data, so allow everything".
+    The runner already requires ≥260 pre-window bars, so the history is there.
+
+    Returns (flags, n_undefined). A bar with insufficient history is
+    conservatively NOT ok — an unknown primary trend must never read as a
+    constructive one (owner rule: no false positives).
+    """
+    n_undefined = 0
+    flags: list[bool] = []
+    for i in idx:
+        if i + 1 < sma_days:
+            n_undefined += 1
+            flags.append(False)
+            continue
+        window = closes[i + 1 - sma_days: i + 1]
+        sma = sum(window) / len(window)
+        flags.append(closes[i] >= sma)
+    return flags, n_undefined
 
 
 def _earnings_dates(symbol: str, api_base: str | None) -> tuple[list[dt.date], str]:
@@ -109,7 +141,8 @@ def _earnings_dates(symbol: str, api_base: str | None) -> tuple[list[dt.date], s
 
 
 def run_window(window: str, start: str, end: str | None, eff_start: str,
-               *, symbols_override: list[str] | None = None, v2: bool = False) -> dict:
+               *, symbols_override: list[str] | None = None, v2: bool = False,
+               v3: bool = False) -> dict:
     from ..cli.options_screen import DEFAULT_UNIVERSE
     from ..quant_engine.options.wheel_backtest import simulate_wheel
 
@@ -128,6 +161,7 @@ def run_window(window: str, start: str, end: str | None, eff_start: str,
     per_symbol: dict[str, object] = {}
     skipped: list[str] = []
     earn_cov: dict[str, int] = {}
+    trend_undef: dict[str, int] = {}
     for sym in (symbols_override or DEFAULT_UNIVERSE):
         dates, closes = _load_closes(sym)
         pre = sum(1 for d in dates if d < eff_d)
@@ -157,6 +191,10 @@ def run_window(window: str, start: str, end: str | None, eff_start: str,
                 earnings_modelled=bool(in_window),
                 idle_cash_rate=V2_IDLE_CASH_RATE,
             )
+            if v3:
+                t_flags, t_undef = _trend_series(closes, idx, V3_TREND_SMA_DAYS)
+                trend_undef[sym] = t_undef
+                kwargs.update(trend_ok_by_day=t_flags, trend_modelled=True)
         res = simulate_wheel(
             w_dates, w_closes, otm_pct=OTM_PCT, dte=DTE, contracts=1,
             start_capital=SLICE_USD, warmup=WARMUP,
@@ -210,12 +248,18 @@ def run_window(window: str, start: str, end: str | None, eff_start: str,
     covered = sum(1 for v in earn_cov.values() if v > 0)
     return {
         "window": window, "n_symbols": len(per_symbol), "skipped": skipped,
-        "v2": v2,
+        "v2": v2, "v3": v3,
         "earnings_coverage": (f"{covered}/{len(per_symbol)} symbols have print dates in-window"
                               if v2 else "n/a (v1)"),
+        # v3 disclosure: bars where the 200-SMA had insufficient history and the
+        # floor therefore blocked conservatively. If this is large the floor is
+        # being enforced by IGNORANCE rather than by trend, and the run must say
+        # so rather than bank the resulting "safety".
+        "trend_undefined_bars": sum(trend_undef.values()) if v3 else 0,
         "n_blocked_floor": sum(r.n_blocked_floor for r in per_symbol.values()),
         "n_blocked_regime": sum(r.n_blocked_regime for r in per_symbol.values()),
         "n_blocked_earnings": sum(r.n_blocked_earnings for r in per_symbol.values()),
+        "n_blocked_trend": sum(r.n_blocked_trend for r in per_symbol.values()),
         "n_g5_violations": sum(r.n_g5_violations for r in per_symbol.values()),
         "n_puts_sold": sum(r.n_puts_sold for r in per_symbol.values()),
         "start": port[0][0], "end": port[-1][0],
@@ -244,7 +288,12 @@ def main() -> int:
                          "idle cash) and grade vs WHEEL_BACKTEST_GATES_V2.md")
     ap.add_argument("--symbols", help="comma list override — EXPLORATORY, not a gate run")
     ap.add_argument("--details", action="store_true", help="per-symbol table")
+    ap.add_argument("--v3", action="store_true",
+                    help="v2 gates PLUS the primary-trend floor (no new CSP below "
+                         "the 200-SMA) and grade vs WHEEL_BACKTEST_GATES_V3.md")
     args = ap.parse_args()
+    if args.v3:
+        args.v2 = True     # v3 is v2 + one rule; the v2 gates all still apply
 
     override = ([s.strip().upper() for s in args.symbols.split(",") if s.strip()]
                 if args.symbols else None)
@@ -255,7 +304,7 @@ def main() -> int:
     results = {}
     for w in wanted:
         s, e, eff = WINDOWS[w]
-        r = run_window(w, s, e, eff, symbols_override=override, v2=args.v2)
+        r = run_window(w, s, e, eff, symbols_override=override, v2=args.v2, v3=args.v3)
         results[w] = r
         print(f"\n── {w}: {r['start']} → {r['end']} · {r['n_symbols']} symbols "
               f"(skipped {len(r['skipped'])}: coverage rule) ──")
@@ -271,6 +320,10 @@ def main() -> int:
                   f"regime {r['n_blocked_regime']}, earnings {r['n_blocked_earnings']}"
                   f" · earnings coverage {r['earnings_coverage']}"
                   f" · G5 violations {r['n_g5_violations']}")
+        if r.get("v3"):
+            print(f"  v3 trend floor: blocked {r['n_blocked_trend']} · "
+                  f"bars with an UNDEFINED 200-SMA (blocked conservatively) "
+                  f"{r['trend_undefined_bars']}")
         if args.details:
             for sym, res in sorted(r["per_symbol"].items(),
                                    key=lambda kv: kv[1].total_return_pct):
@@ -281,7 +334,8 @@ def main() -> int:
     if override:
         return 0
 
-    gates_doc = ("WHEEL_BACKTEST_GATES_V2.md (cb51600)" if args.v2
+    gates_doc = ("WHEEL_BACKTEST_GATES_V3.md" if args.v3
+                 else "WHEEL_BACKTEST_GATES_V2.md (cb51600)" if args.v2
                  else "WHEEL_BACKTEST_GATES.md (5817fe2)")
     print(f"\n══ GATES ({gates_doc}, committed BEFORE this run) ══")
     gates = []
