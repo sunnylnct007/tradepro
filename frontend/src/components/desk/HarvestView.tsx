@@ -34,6 +34,16 @@ type Readiness = Awaited<ReturnType<typeof api.dataReadiness>>;
 function DataReadinessBanner() {
   const [r, setR] = useState<Readiness | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Persisted so a deliberate collapse survives the 60s auto-refresh AND a
+  // reload — a panel that springs back open every minute is worse than one
+  // that never collapsed.
+  const [open, setOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem("tp.dataHealth.open") !== "0"; }
+    catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("tp.dataHealth.open", open ? "1" : "0"); } catch { /* private mode */ }
+  }, [open]);
   useEffect(() => {
     let live = true;
     const load = () =>
@@ -62,16 +72,38 @@ function DataReadinessBanner() {
     return `${Math.round(h / 24)}d ago`;
   };
 
+  // Collapsed by default ONLY when everything is usable: a healthy banner is
+  // just noise above the panels you came here to read, but a broken lane must
+  // never be something you have to expand to discover. The choice is
+  // remembered so a deliberate collapse survives the 60s auto-refresh and a
+  // page reload.
+  const broken = r.datasets.filter((d) => !d.usable);
   return (
     <div style={{ marginBottom: 16, border: `1px solid ${tone}`, borderRadius: 8, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "10px 14px",
-                    background: "color-mix(in srgb, var(--panel) 92%, transparent)", flexWrap: "wrap" }}>
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        title={open ? "Collapse data-health detail" : "Expand data-health detail"}
+        style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "10px 14px", width: "100%",
+                 background: "color-mix(in srgb, var(--panel) 92%, transparent)", flexWrap: "wrap",
+                 border: "none", borderRadius: 0, textAlign: "left", cursor: "pointer",
+                 font: "inherit", color: "inherit" }}
+      >
+        <span style={{ color: tone, fontSize: 11, width: 10, flex: "0 0 auto" }}>{open ? "▾" : "▸"}</span>
         <strong style={{ fontSize: 15, color: tone }}>{r.verdict}</strong>
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
           {r.usable} of {r.total} datasets usable · checked {ago(r.generatedAtUtc)}
         </span>
-      </div>
-      <div>
+        {/* Collapsed must still NAME what is broken — a count you have to open
+            the panel to interpret is exactly the silent failure this screen
+            exists to prevent. */}
+        {!open && broken.length > 0 && (
+          <span style={{ fontSize: 12, color: "var(--down)", fontWeight: 600 }}>
+            ⛔ {broken.map((d) => d.label).join(", ")}
+          </span>
+        )}
+      </button>
+      <div hidden={!open}>
         {r.datasets.map((d) => (
           <div key={d.key} style={{ display: "grid", gridTemplateColumns: "22px 210px 120px 1fr",
                                     gap: 10, padding: "8px 14px", alignItems: "start",
@@ -92,7 +124,7 @@ function DataReadinessBanner() {
           </div>
         ))}
       </div>
-      <div style={{ padding: "6px 14px", fontSize: 11, color: "var(--text-muted)",
+      <div hidden={!open} style={{ padding: "6px 14px", fontSize: 11, color: "var(--text-muted)",
                     borderTop: "1px solid var(--border)" }}>
         {r.note}
       </div>

@@ -130,8 +130,33 @@ public static class DataReadinessEndpoints
             // A single "partial" is noise; N in a row with no improvement is
             // an outage. This is what turns 19 unnoticed 5m runs into one
             // sentence with a start time.
+            // Hours of EXPECTED-RUN time between two instants. Weekend hours do
+            // not count for lanes whose harvest is scheduled Mon-Fri only:
+            // measuring those in raw wall-clock makes Friday's perfectly good
+            // run read as an outage all weekend, every weekend. Same cry-wolf
+            // class as grading on the status word (fixed 9255cc5) — a banner
+            // that is red for reasons the operator cannot act on trains them to
+            // ignore the one that matters.
+            static double ExpectedRunHours(DateTime from, DateTime to)
+            {
+                if (to <= from) return 0;
+                double hours = 0;
+                var cursor = from;
+                while (cursor < to)
+                {
+                    var next = cursor.Date.AddDays(1);
+                    if (next > to) next = to;
+                    if (cursor.DayOfWeek != DayOfWeek.Saturday &&
+                        cursor.DayOfWeek != DayOfWeek.Sunday)
+                        hours += (next - cursor).TotalHours;
+                    cursor = next;
+                }
+                return hours;
+            }
+
             async Task AddLaneAsync(string key, string label, string purpose,
-                                    string process, string match, double maxAgeH)
+                                    string process, string match, double maxAgeH,
+                                    bool weekdayOnly = false)
             {
                 var lane = (await conn.QueryAsync(@"
                     SELECT status, summary, created_at_utc
@@ -161,7 +186,9 @@ public static class DataReadinessEndpoints
                     consecutiveBad++;
                 }
 
-                var ranRecently = ageH <= maxAgeH;
+                // Judge staleness against the schedule the lane ACTUALLY has.
+                var effectiveAgeH = weekdayOnly ? ExpectedRunHours(newest, now) : ageH;
+                var ranRecently = effectiveAgeH <= maxAgeH;
 
                 // GRADE THE DATA, NOT THE JOB'S STATUS WORD. The harvest
                 // summary carries the only thing that answers "is the data
@@ -194,7 +221,10 @@ public static class DataReadinessEndpoints
                 string? since = null;
                 if (!ranRecently)
                 {
-                    detail = $"has not run for {ageH:F0}h (expected within {maxAgeH:F0}h) — "
+                    detail = $"has not run for {ageH:F0}h"
+                           + (weekdayOnly && effectiveAgeH < ageH - 1
+                                ? $" ({effectiveAgeH:F0}h of them weekday time)" : "")
+                           + $" (expected within {maxAgeH:F0}h) — "
                            + $"last status '{lane[0].status}'";
                     since = newest.ToString("u");
                 }
@@ -222,12 +252,23 @@ public static class DataReadinessEndpoints
                           consecutiveDegradedRuns = consecutiveBad });
             }
 
+            // maxAgeH must match each lane's REAL launchd cadence, or the banner
+            // reports an outage the operator cannot fix because none exists:
+            //   1d  com.tradepro.bar-cache-harvest-daily  21:30 Mon-Fri  (once daily)
+            //   5m  com.tradepro.bar-cache-harvest-5m     StartInterval 1800 (continuous)
+            //   1m  com.tradepro.bar-cache-harvest        21:15 Mon-Fri  (once daily)
+            // 1m was registered at 6h against a job that runs every 24h — it was
+            // therefore RED for 18 hours out of every 24, and all weekend, while
+            // the harvest was in fact completing normally (15 Aug: 251/251
+            // symbols, 0 failed). Corrected to 30h + weekday-only, matching 1d.
             await AddLaneAsync("bars_1d", "Daily bars (1d)",
-                "every regime, Ichimoku, HV and backtest figure", "bar-cache-harvest", "1d", 30);
+                "every regime, Ichimoku, HV and backtest figure", "bar-cache-harvest", "1d", 30,
+                weekdayOnly: true);
             await AddLaneAsync("bars_5m", "Intraday bars (5m)",
                 "intraday strategies + microstructure", "bar-cache-harvest", "5m", 3);
             await AddLaneAsync("bars_1m", "Intraday bars (1m)",
-                "intraday strategies", "bar-cache-harvest", "1m", 6);
+                "intraday strategies", "bar-cache-harvest", "1m", 30,
+                weekdayOnly: true);
             await AddLaneAsync("options_screen", "Options screen",
                 "the wheel candidate board you trade from", "options-screen", "screened", 30);
 
