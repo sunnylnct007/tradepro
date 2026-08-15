@@ -1022,6 +1022,30 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                 f"passes only because realised vol collapsed faster; selling "
                 f"the year's thinnest premium is edge on very little money."],
         )
+    # ── Quote invariants (14 Aug 2026) — the platform checking its own
+    # numbers. These are IDENTITIES, not opinions: a violation means the
+    # quote CANNOT be true (crossed book, sub-intrinsic mid, impossible IV,
+    # parity breach from mixed-moment sampling). Such a row is a DATA
+    # DEFECT, so it blocks — a bad number must never be rankable, and the
+    # violated identity is named with its arithmetic.
+    from ..quant_engine.options.quote_sanity import sanity_report as _sanity
+    _sane = _sanity(
+        kind="put", strike=strike, spot=ref_close, bid=bid, ask=ask,
+        mid=premium, iv=chain_iv, dte=dte,
+        div_yield=(ivr.div_yield if ivr.available else 0.0) or 0.0)
+    if _sane.violations:
+        from dataclasses import replace as _dc_sane
+        _hard = [v for v in _sane.violations if v.severity == "block"]
+        _soft = [v for v in _sane.violations if v.severity != "block"]
+        if _hard:
+            decision = _dc_sane(
+                decision, allowed=False,
+                blocks=list(decision.blocks) + [
+                    f"QUOTE FAILS AN INVARIANT ({v.check}): {v.detail}" for v in _hard])
+        if _soft:
+            decision = _dc_sane(
+                decision, warnings=list(decision.warnings) + [v.detail for v in _soft])
+
     # Gap-contaminated HV: WARN, never silently re-gate. The gate keeps using
     # the raw HV (no false positives from a judgement call about trimming an
     # observation), but the row now says the read is about to move on its own
@@ -1143,6 +1167,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "iv_vol_regime_pctile": iv_vol_pctile,
         # Gap-contamination diagnostics for the bridge ratio (None = clean).
         "hv_gap": hv_gap,
+        # Self-check: which no-arbitrage identities this quote satisfies.
+        "quote_sanity": _sane.to_dict(),
         "open_interest": oi,
         # Concrete quote parameters (owner 2026-08-09: "quote a few technical
         # parameters and price needs to be checked to make it concrete") —
