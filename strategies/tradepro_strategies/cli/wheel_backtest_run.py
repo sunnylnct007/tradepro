@@ -362,6 +362,15 @@ def main() -> int:
         r = results["full"]
         gates.append(_gate("G3", r["cagr_pct"] >= 8,
                            f"full-period NAV CAGR {r['cagr_pct']:+.2f}%/yr ≥ 8%"))
+        # G4 on the FULL window. Every gates file since v1 has said G4 applies
+        # to "Each" window, and the harness graded only 2022 + 2020 — so the
+        # longest window, the one that actually contains "assigned in an uptrend,
+        # then the trend broke", was never scored. v2's headline "8 of 9 PASS"
+        # was flattered by this same omission. Adding it makes the test STRICTER
+        # and conforms the harness to the spec; it is not a threshold change.
+        gates.append(_gate("G4", r["worst_symbol_dd_pct"] >= -40,
+                           f"full worst name {r['worst_symbol']} "
+                           f"{r['worst_symbol_dd_pct']:.1f}% ≤ 40%"))
     if args.v2:
         # G5 CORRECTNESS: in the coverage era the earnings veto either works
         # or the run is lying about what it modelled.
