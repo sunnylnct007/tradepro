@@ -25,6 +25,10 @@ import pandas as pd
 
 from .data import DataRequest, load_candles
 
+# A dropped bar this recent means the FEED is failing now (actionable);
+# anything older is a known historical corruption we silently re-drop.
+_GARBAGE_RECENT_DAYS = 5
+
 _log = logging.getLogger("tradepro.cache")
 
 CACHE_ROOT = Path.home() / ".tradepro" / "cache"
@@ -100,17 +104,50 @@ def _drop_garbage_bars(df: pd.DataFrame, *, symbol: str | None = None, provider:
         spike = (((c > prev * 4) & (c > nxt * 4)) | ((c < prev * 0.25) & (c < nxt * 0.25))).fillna(False)
         bad = bad | spike
     if bool(bad.any()):
+        import datetime as _d
         n_nan, n_spike = int(nan_bad.sum()), int((bad & ~nan_bad).sum())
-        dates = [str(d) for d in df.index[bad]]
+        bad_idx = list(df.index[bad])
+        dates = [str(d)[:10] for d in bad_idx]
+        # ── Noise control + unambiguous dating (owner, 15 Aug 2026: "too many
+        # bar errors ... not even clear if it's today or yesterday").
+        #
+        # Two different things were being logged at the same volume and
+        # urgency: a bar from YESTERDAY that should exist (actionable — the
+        # feed is failing NOW) and a corrupt bar from 2020 that we re-drop
+        # and re-announce on every single run forever (pure noise; CL=F
+        # 2020-04-20 and ADM 2024 were reported daily for months).
+        #
+        # Only RECENT drops raise a run_log warn, and the message states the
+        # run date and the bar's age in days so "today or yesterday" is never
+        # a question. Historical drops stay in the local log and are counted
+        # in the same line, never alarmed individually.
+        today = _d.date.today()
+        def _age_days(x) -> int | None:
+            try:
+                return (today - _d.date.fromisoformat(str(x)[:10])).days
+            except ValueError:
+                return None
+        ages = {d: _age_days(d) for d in dates}
+        recent = [d for d, a in ages.items() if a is not None and a <= _GARBAGE_RECENT_DAYS]
+        historical = [d for d in dates if d not in recent]
         detail = (f"dropped {int(bad.sum())} garbage bar(s) for {symbol or '?'} "
                   f"({n_nan} NaN-close, {n_spike} price-spike): {dates}")
         _log.warning(detail)
-        try:
-            from .run_log import log_run
-            log_run("bar-cache", "garbage-bar-drop", "warn",
-                     broker=provider, symbol=symbol, error=detail)
-        except Exception:  # noqa: BLE001 — observability must never break the fetch
-            _log.debug("garbage-bar-drop run_log post failed (non-fatal)", exc_info=True)
+        if recent:
+            when = ", ".join(
+                f"{d} ({'today' if ages[d] == 0 else 'yesterday' if ages[d] == 1 else f'{ages[d]}d ago'})"
+                for d in sorted(recent))
+            summary = (f"{symbol or '?'}: dropped {len(recent)} RECENT garbage bar(s) "
+                       f"[{when}] on a run dated {today.isoformat()} "
+                       f"({n_nan} NaN-close, {n_spike} price-spike)"
+                       + (f"; plus {len(historical)} historical bar(s) re-dropped, not alarmed"
+                          if historical else ""))
+            try:
+                from .run_log import log_run
+                log_run("bar-cache", "garbage-bar-drop", "warn",
+                         broker=provider, symbol=symbol, error=summary)
+            except Exception:  # noqa: BLE001 — observability must never break the fetch
+                _log.debug("garbage-bar-drop run_log post failed (non-fatal)", exc_info=True)
         df = df.loc[~bad]
     return df
 
