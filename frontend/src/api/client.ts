@@ -1520,14 +1520,20 @@ export const api = {
       note: string;
     }>("/api/data-readiness"),
 
-  barCacheHealth: (params?: { canonical?: string; assetClass?: string }) => {
+  // `resolution` defaults to 1d server-side (migration 064 gave each harvest
+  // lane its own row). Pass "all" only when you intend to render a mixed table.
+  barCacheHealth: (params?: { canonical?: string; assetClass?: string; resolution?: string }) => {
     const qp: Record<string, string | undefined> = {};
     if (params?.canonical) qp.canonical = params.canonical;
     if (params?.assetClass) qp.asset_class = params.assetClass;
+    if (params?.resolution) qp.resolution = params.resolution;
     return get<{
+      resolution: string;
+      available: string[];
       health: Array<{
         canonical: string;
         asset_class: string;
+        resolution: string;
         last_fetched_at_utc: string | null;
         last_fetched_result: string | null;
         last_fetched_provider: string | null;

@@ -222,6 +222,10 @@ const TONE: Record<string, string> = {
 
 export function HarvestView() {
   const [rows, setRows] = useState<Row[]>([]);
+  // Which resolutions the health table holds at all. Lets the panel say "the
+  // daily lane hasn't reported since the re-key" instead of rendering an empty
+  // table, which would read as "all your daily data vanished".
+  const [availableRes, setAvailableRes] = useState<string[]>([]);
   const [quality, setQuality] = useState<Quality | null>(null);
   const [harvester, setHarvester] = useState<Harvester | null>(null);
   const [harvesterErr, setHarvesterErr] = useState<string | null>(null);
@@ -248,7 +252,12 @@ export function HarvestView() {
     let live = true;
     const load = () => {
       api.barCacheHealth()
-        .then((r) => { if (live) { setRows(r.health || []); setErr(null); } })
+        .then((r) => {
+          if (!live) return;
+          setRows(r.health || []);
+          setAvailableRes(r.available || []);
+          setErr(null);
+        })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })
         .finally(() => { if (live) setLoading(false); });
       // Decision-grade quality (good-for-today). Best-effort — its own catch so
@@ -352,6 +361,17 @@ export function HarvestView() {
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           decision-grade "good for today" per symbol
         </span>
+        {/* Empty 1d table right after migration 064 is EXPECTED, not an
+            outage: pre-migration rows carry whichever lane last overwrote them
+            (mostly 1m), so the daily lane repopulates on its next 21:30 run.
+            Saying that is the difference between a known wait and a panic. */}
+        {rows.length === 0 && availableRes.length > 0 && (
+          <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999,
+                         border: "1px solid var(--warn)", color: "var(--warn)" }}
+                title={`The health table currently holds: ${availableRes.join(", ")}. Before migration 064 the 1d/5m/1m harvests shared one row per symbol and overwrote each other, so existing rows carry whichever lane wrote last. Each lane repopulates its own rows on its next run — 1d and 1m nightly at 21:30/21:15, 5m within 30 minutes.`}>
+            daily lane not reported since the re-key — holds {availableRes.join(", ")}; repopulates on the next 21:30 harvest
+          </span>
+        )}
         {shownRes.length > 0 && (
           <span
             title={shownRes.length > 1

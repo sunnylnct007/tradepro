@@ -604,18 +604,25 @@ public static class DataTrustEndpoints
             if (string.IsNullOrWhiteSpace(body.Canonical) || string.IsNullOrWhiteSpace(body.AssetClass))
                 return Results.BadRequest(new { error = "canonical + asset_class required" });
             await using var conn = await db.OpenConnectionAsync();
+            // Resolution is part of the KEY (migration 064). Before that, the
+            // 1d/5m/1m harvests overwrote each other's row for a symbol and the
+            // table could only hold one lane's health — which is how a panel
+            // titled "Daily bar-cache" ended up rendering 1m numbers.
             await conn.ExecuteAsync(@"
                 INSERT INTO bar_cache_health
-                    (canonical, asset_class, last_fetched_at_utc, last_fetched_result,
+                    (canonical, asset_class, resolution,
+                     last_fetched_at_utc, last_fetched_result,
                      last_fetched_provider, last_fetched_resolution,
                      coverage_start_date, coverage_end_date, coverage_partitions,
                      missing_days_count, schema_version, updated_at_utc)
                 VALUES
-                    (@Canonical, @AssetClass, COALESCE(@LastFetchedAtUtc, NOW()), @LastFetchedResult,
+                    (@Canonical, @AssetClass,
+                     COALESCE(NULLIF(TRIM(@LastFetchedResolution), ''), 'unknown'),
+                     COALESCE(@LastFetchedAtUtc, NOW()), @LastFetchedResult,
                      @LastFetchedProvider, @LastFetchedResolution,
                      @CoverageStartDate::date, @CoverageEndDate::date, @CoveragePartitions,
                      @MissingDaysCount, @SchemaVersion, NOW())
-                ON CONFLICT (canonical, asset_class) DO UPDATE SET
+                ON CONFLICT (canonical, asset_class, resolution) DO UPDATE SET
                     last_fetched_at_utc     = COALESCE(EXCLUDED.last_fetched_at_utc, bar_cache_health.last_fetched_at_utc),
                     last_fetched_result     = EXCLUDED.last_fetched_result,
                     last_fetched_provider   = EXCLUDED.last_fetched_provider,
@@ -633,11 +640,18 @@ public static class DataTrustEndpoints
         g.MapGet("/bar-cache/health", async (
             NpgsqlDataSource db,
             string? canonical,
-            string? asset_class) =>
+            string? asset_class,
+            string? resolution) =>
         {
+            // Since 064 there is one row per (symbol, asset class, RESOLUTION).
+            // Callers must say which lane they mean or they get a table that
+            // silently interleaves daily and 1-minute health — the exact
+            // confusion this key change exists to end. Default 1d: every
+            // backtest, regime and "good for today" question is a daily one.
+            var res = string.IsNullOrWhiteSpace(resolution) ? "1d" : resolution.Trim();
             await using var conn = await db.OpenConnectionAsync();
             var rows = await conn.QueryAsync(@"
-                SELECT canonical, asset_class,
+                SELECT canonical, asset_class, resolution,
                        last_fetched_at_utc, last_fetched_result,
                        last_fetched_provider, last_fetched_resolution,
                        coverage_start_date, coverage_end_date,
@@ -648,9 +662,15 @@ public static class DataTrustEndpoints
                 FROM bar_cache_health
                 WHERE (@canonical   IS NULL OR canonical   = @canonical)
                   AND (@asset_class IS NULL OR asset_class = @asset_class)
-                ORDER BY canonical, asset_class;",
-                new { canonical, asset_class });
-            return Results.Ok(new { health = rows.AsList() });
+                  AND (@res = 'all' OR resolution = @res)
+                ORDER BY canonical, asset_class, resolution;",
+                new { canonical, asset_class, res });
+            // Report which resolutions EXIST so the UI can offer them and can
+            // distinguish "this lane has not run since migration 064" from
+            // "this lane is unhealthy".
+            var available = (await conn.QueryAsync<string>(
+                "SELECT DISTINCT resolution FROM bar_cache_health ORDER BY resolution;")).AsList();
+            return Results.Ok(new { health = rows.AsList(), resolution = res, available });
         });
 
         // Per-symbol DATA-QUALITY score — "is this symbol's data good enough to
@@ -663,7 +683,8 @@ public static class DataTrustEndpoints
         g.MapGet("/bar-cache/quality", async (
             NpgsqlDataSource db,
             string? asset_class,
-            int? stale_after_days) =>
+            int? stale_after_days,
+            string? resolution) =>
         {
             // Default 1 SESSION of grace (a bar can be one session behind between
             // a close and the nightly harvest). ≥2 sessions behind = STALE (a
@@ -687,14 +708,22 @@ public static class DataTrustEndpoints
             const int minorGapTolerance = 2;
 
             await using var conn = await db.OpenConnectionAsync();
+            // ONE lane only (064): without this filter every symbol would be
+            // counted once per resolution, so a 251-symbol universe would
+            // report 500+ and the GOOD/BRONZE/PARTIAL tallies would be the sum
+            // of three different questions. 1d is the right default — this
+            // endpoint answers "good enough to DECIDE on today", and every
+            // decision path (regime, Ichimoku, HV, backtests) is daily.
+            var qres = string.IsNullOrWhiteSpace(resolution) ? "1d" : resolution.Trim();
             var rows = (await conn.QueryAsync<(string Canonical, string AssetClass,
                     DateTime? CoverageEnd, int? MissingDays, string? Provider)>(@"
                 SELECT canonical, asset_class, coverage_end_date,
                        missing_days_count, last_fetched_provider
                 FROM bar_cache_health
                 WHERE (@asset_class IS NULL OR asset_class = @asset_class)
+                  AND resolution = @qres
                 ORDER BY canonical;",
-                new { asset_class })).AsList();
+                new { asset_class, qres })).AsList();
 
             int good = 0, bronze = 0, partial = 0, stale = 0, missing = 0;
             var symbols = new List<object>();
