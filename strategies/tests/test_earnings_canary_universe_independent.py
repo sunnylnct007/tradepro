@@ -93,21 +93,44 @@ def test_canary_already_in_universe_is_reused_not_refetched():
 # market_state import; the bounce-zone BUY must not fire on a name at the
 # top of its recent range that already ran off the low.
 def test_late_bounce_is_wait_not_buy():
+    """The late-bounce guard must ACTUALLY EXECUTE, not merely produce a
+    non-BUY verdict some earlier gate already supplied.
+
+    The original version of this test asserted only `!= "BUY"` on a series
+    that sat BELOW its 200-SMA, so it exited at the trend-coherence guard and
+    never reached the new code — which is how RANGE13_LATE_BOUNCE_PCTILE
+    shipped undefined and raised NameError inside market_state() for two
+    days, failing 11 of 14 comparator universes on every cycle. This version
+    pins the branch by asserting the reason it emits.
+    """
     import numpy as np
     import pandas as pd
     from tradepro_strategies.market_state import market_state
-    # 1y: run-up to 102, crash to 65, then a 20% recovery to ~78 (the UBER
-    # shape: 23% off the 52w high, ~95% of the 13w range, +20% off the low).
-    seg1 = np.linspace(80, 102, 120)          # old high
-    seg2 = np.linspace(102, 65.4, 80)         # the fall
-    seg3 = np.linspace(65.4, 78.3, 60)        # the bounce (already happened)
+
+    rng = np.random.default_rng(4)
+    seg1 = np.linspace(70, 100, 150)     # run-up to the 52w high
+    seg2 = np.linspace(100, 74, 55)      # the fall
+    seg3 = np.linspace(74, 88, 55) + rng.normal(0, 0.9, 55)   # choppy recovery
     close = np.concatenate([seg1, seg2, seg3])
-    idx = pd.bdate_range(end="2026-08-12", periods=len(close))
+    idx = pd.bdate_range(end="2026-08-14", periods=len(close))
     df = pd.DataFrame({"adj_close": close, "high": close * 1.01,
                        "low": close * 0.99, "close": close}, index=idx)
-    st = market_state("UBERX", df)
-    assert st.range_position_13w_pct is not None and st.range_position_13w_pct > 85
-    assert st.bounce_from_13w_low_pct is not None and st.bounce_from_13w_low_pct > 15
-    assert st.entry_signal != "BUY", (st.entry_signal, st.entry_reason)
-    if st.entry_signal == "WAIT" and "LATE BOUNCE" in (st.entry_reason or ""):
-        assert "off the recent low" in st.entry_reason
+    st = market_state("LATEB", df)
+
+    # preconditions that route execution INTO the late-bounce branch
+    assert st.above_sma_200 is True
+    assert st.pct_off_52w_high_pct >= 8.0
+    assert 30 < st.rsi_14 < 70
+    assert st.range_position_13w_pct >= 85 or st.bounce_from_13w_low_pct >= 15
+
+    assert st.entry_signal == "WAIT"
+    assert "LATE BOUNCE" in st.entry_reason, st.entry_reason
+    assert "off the recent low" in st.entry_reason
+
+
+def test_late_bounce_constants_are_defined():
+    """Regression for the NameError outage: the guard's thresholds must exist
+    as module constants, not just be referenced."""
+    from tradepro_strategies import market_state as ms
+    assert isinstance(ms.RANGE13_LATE_BOUNCE_PCTILE, float)
+    assert isinstance(ms.BOUNCE_ALREADY_RUN_PCT, float)

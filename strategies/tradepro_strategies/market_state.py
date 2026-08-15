@@ -48,6 +48,14 @@ MEANINGFUL_52W_DROP_PCT = 8.0      # ≥ 8% off the 52w high counts as a real re
 # VUKE-class case: 5% off 52w high after a +24% YoY run is NOT a
 # dip — risk/reward is asymmetric (3p of upside, 8p of downside).
 RANGE_HIGH_PCTILE = 88.0           # ≥ 88th pctile of 52w range → downgrade BUY → HOLD
+# Late-bounce discriminators (UBER case, 12 Aug 2026). A name that is "X% off
+# a high set months ago" but sits at the TOP of its recent range, having
+# already run hard off the recent low, is a bounce that has happened — not a
+# dip to buy. DEFINED HERE: these were used in _classify() from 13 Aug while
+# undefined, which raised NameError inside market_state() and failed 11 of 14
+# comparator universes on every cycle for two days.
+RANGE13_LATE_BOUNCE_PCTILE = 85.0  # ≥ 85th pctile of the 13-week range
+BOUNCE_ALREADY_RUN_PCT = 15.0      # ≥ +15% off the 13-week low
 # NOTE: was 70.0, which downgraded BUY→HOLD for ~everything in a bull market
 # (almost all uptrending names sit above the 70th %ile of their 52w range) — so
 # the Decide page effectively NEVER produced a BUY. Backtesting also showed
