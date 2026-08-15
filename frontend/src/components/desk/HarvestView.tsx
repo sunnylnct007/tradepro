@@ -134,12 +134,25 @@ function DataReadinessBanner() {
 
 // Decision-grade tier → colour + glyph. The headline question: "good enough to
 // decide on TODAY?" GOOD/BRONZE = yes; PARTIAL/STALE/MISSING = no.
+// BRONZE answers YES to "good enough to decide on today" — it means the bars
+// are COMPLETE but came from the yfinance fallback rather than IBKR. It is a
+// PROVENANCE note, not a defect. Painting it amber with a ⚠️ next to a green
+// "healthy · 0 missing" is what made this table read as self-contradictory:
+// the glyph said broken while every number on the row said fine. Bronze now
+// reads as a pass with a provenance mark.
 const QTONE: Record<string, string> = {
-  GOOD: "var(--up)", BRONZE: "var(--warn)", PARTIAL: "var(--warn)",
+  GOOD: "var(--up)", BRONZE: "var(--up)", PARTIAL: "var(--warn)",
   STALE: "var(--down)", MISSING: "var(--text-muted)",
 };
 const QGLYPH: Record<string, string> = {
-  GOOD: "✅", BRONZE: "⚠️", PARTIAL: "◑", STALE: "⏳", MISSING: "✗",
+  GOOD: "✅", BRONZE: "✅", PARTIAL: "◑", STALE: "⏳", MISSING: "✗",
+};
+const QNOTE: Record<string, string> = {
+  GOOD: "complete, from IBKR — the golden source",
+  BRONZE: "complete data, but sourced from the yfinance fallback rather than IBKR. Usable today; lower provenance.",
+  PARTIAL: "the session is incomplete — fewer bars than the venue's calendar expects",
+  STALE: "no recent fetch — this symbol has stopped being harvested",
+  MISSING: "no data at all",
 };
 
 const TH: React.CSSProperties = {
@@ -170,6 +183,12 @@ function daysSince(iso: string | null): number | null {
   return Math.floor((Date.now() - t) / 86_400_000);
 }
 
+/** True when this row's numbers are counted in intraday BARS, not in days. */
+function isIntraday(r: Row): boolean {
+  const res = (r.last_fetched_resolution || "").toLowerCase();
+  return res.endsWith("m") || res.endsWith("h");
+}
+
 /** Derive a health verdict per symbol from the raw signals. */
 function verdict(r: Row): { tone: "ok" | "warn" | "bad" | "none"; label: string } {
   if (!r.last_fetched_at_utc && r.coverage_partitions === 0) return { tone: "none", label: "not harvested" };
@@ -177,7 +196,18 @@ function verdict(r: Row): { tone: "ok" | "warn" | "bad" | "none"; label: string 
   if (res && res !== "ok" && res !== "partial") return { tone: "bad", label: res };
   const stale = (daysSince(r.last_fetched_at_utc) ?? 99) > 4;
   if (r.manifest_violations_last_30d > 0) return { tone: "bad", label: `${r.manifest_violations_last_30d} violations` };
-  if (r.missing_days_count > 5 || stale) return { tone: "warn", label: stale ? "stale" : `${r.missing_days_count} gaps` };
+  // `missing_days_count` is a MISNOMER: the harvester computes it as
+  // rows_expected − rows_returned (bar_cache_harvest.py), so on a 1m/5m lane it
+  // counts missing BARS WITHIN ONE SESSION, not missing days. WMT showing "70
+  // gaps" was 320 of 390 one-minute bars — i.e. 70 minutes in which a
+  // moderately-traded name simply didn't print. Comparing that against a
+  // threshold written for DAYS is what turned 187 of 251 symbols yellow.
+  // Intraday lanes are therefore judged on staleness and violations only; a
+  // sparse minute is a fact about the tape, not a harvest failure.
+  const gapsMatter = !isIntraday(r);
+  if ((gapsMatter && r.missing_days_count > 5) || stale) {
+    return { tone: "warn", label: stale ? "stale" : `${r.missing_days_count} missing days` };
+  }
   // A "partial" LAST FETCH is almost always just today's INCOMPLETE session
   // during market hours (or ≤5 harmless historical gaps, caught above) — not a
   // data problem for a symbol that is fresh with a complete deep history. Don't
@@ -260,6 +290,13 @@ export function HarvestView() {
     return s;
   }, [rows]);
 
+  // Which harvest resolutions actually wrote the rows on screen. More than one
+  // means you are looking at the overwrite described above, not at a genuine
+  // per-symbol difference.
+  const shownRes = useMemo(
+    () => [...new Set(rows.map((r) => r.last_fetched_resolution).filter(Boolean) as string[])].sort(),
+    [rows]);
+
   const shown = useMemo(() => {
     let r = rows;
     if (q.trim()) r = r.filter((x) => x.canonical.toLowerCase().includes(q.trim().toLowerCase()));
@@ -301,12 +338,32 @@ export function HarvestView() {
       {/* HOW FAR harvested — the central ibkr_price_bars depth (1m/1d, per symbol). */}
       <CoveragePanel c={coverage} />
 
-      {/* Legacy yfinance bar-cache health (daily coverage / quality-for-today). */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px" }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>Daily bar-cache (IBKR-primary · yfinance fallback)</span>
+      {/* Bar-cache health. NOTE the heading no longer claims "Daily": the
+          bar_cache_health table is keyed ON CONFLICT (canonical, asset_class)
+          with NO resolution, so the 1m, 5m and daily harvests OVERWRITE each
+          other's row. Whichever ran last wins. Calling this panel "Daily
+          bar-cache" while it displayed the 1m harvest's numbers is what made
+          it unreadable — a 2-week coverage window, 251 symbols instead of the
+          daily lane's 179, and "gaps" that were missing MINUTES. Until the
+          table gains resolution in its key, the honest thing is to name the
+          resolution actually on screen. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>Bar-cache health (IBKR-primary · yfinance fallback)</span>
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          daily coverage for backtests + decision-grade "good for today"
+          decision-grade "good for today" per symbol
         </span>
+        {shownRes.length > 0 && (
+          <span
+            title={shownRes.length > 1
+              ? "These rows come from DIFFERENT harvest resolutions. bar_cache_health is keyed on (canonical, asset_class) with no resolution, so each harvest overwrites the last one's row for a symbol — the mix below is that overwrite, not a real difference between symbols."
+              : `Every row below was written by the ${shownRes[0]} harvest — the most recent one to run. Other resolutions overwrite this same table.`}
+            style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, cursor: "help",
+                     border: `1px solid ${shownRes.length > 1 ? "var(--warn)" : "var(--border)"}`,
+                     color: shownRes.length > 1 ? "var(--warn)" : "var(--text-muted)" }}
+          >
+            showing {shownRes.join(" + ")}{shownRes.length > 1 ? " — mixed, see tooltip" : ""}
+          </span>
+        )}
       </div>
 
       {/* Summary strip */}
@@ -370,7 +427,9 @@ export function HarvestView() {
               <th style={TH}>Status</th>
               <th style={TH}>Coverage</th>
               <th style={TH_R}>Months</th>
-              <th style={TH_R}>Missing</th>
+              <th style={TH_R} title="rows_expected − rows_returned for the last harvest of this symbol. On a DAILY lane that is missing sessions. On a 1m/5m lane it is missing BARS inside one session — a minute in which the name simply did not print, which is normal for anything but the most liquid names.">
+                Missing
+              </th>
               <th style={TH}>Last fetch</th>
               <th style={TH}>Provider</th>
               <th style={TH_R}>Violations</th>
@@ -394,7 +453,8 @@ export function HarvestView() {
                       const qrow = qmap.get(r.canonical);
                       if (!qrow) return <span style={{ color: "var(--text-muted)" }}>—</span>;
                       return (
-                        <span title={qrow.reason} style={{ color: QTONE[qrow.score], fontWeight: 600, cursor: "help" }}>
+                        <span title={`${QNOTE[qrow.score] ?? ""}\n\n${qrow.reason ?? ""}`.trim()}
+                              style={{ color: QTONE[qrow.score], fontWeight: 600, cursor: "help" }}>
                           {QGLYPH[qrow.score]} {qrow.score}
                           {qrow.days_behind != null && qrow.days_behind > 0
                             ? ` ${qrow.days_behind} session${qrow.days_behind === 1 ? "" : "s"} behind`
@@ -412,8 +472,19 @@ export function HarvestView() {
                     {r.coverage_start_date ? `${r.coverage_start_date} → ${r.coverage_end_date}` : "—"}
                   </td>
                   <td style={TD_R}>{r.coverage_partitions || 0}</td>
-                  <td style={{ ...TD_R, color: r.missing_days_count > 0 ? "var(--warn)" : "var(--text-dim)" }}>
+                  {/* Amber only when the number MEANS a gap. On an intraday
+                      lane it counts unprinted minutes, which is a property of
+                      the tape, not a harvest fault — colouring that amber is
+                      what turned most of this table yellow. */}
+                  <td style={{ ...TD_R, color: (r.missing_days_count > 0 && !isIntraday(r))
+                                 ? "var(--warn)" : "var(--text-dim)" }}
+                      title={isIntraday(r)
+                        ? `${r.missing_days_count || 0} one-minute bars absent from the last ${r.last_fetched_resolution} session — minutes with no print. Normal outside the most liquid names.`
+                        : `${r.missing_days_count || 0} missing sessions`}>
                     {r.missing_days_count || 0}
+                    <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                      {isIntraday(r) ? " bars" : " days"}
+                    </span>
                   </td>
                   <td style={{ ...TD, color: "var(--text-dim)" }}>
                     {ds === null ? "never" : ds === 0 ? "today" : `${ds}d ago`}
