@@ -752,10 +752,23 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     closes: list[float] = []
     try:
         from datetime import timedelta
-        from ..cache import ensure_cached
+        from ..ibkr_bars import fetch_daily_bars
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=400)
-        prices = ensure_cached("yahoo", sym, start, end)
+        # GOLDEN SOURCE (15 Aug 2026): ibkr_web -> ibkr -> ig -> yfinance, with
+        # the legacy yahoo cache as a VISIBLE fallback inside fetch_daily_bars.
+        # This screen used to read the yahoo cache directly, which is refreshed
+        # only opportunistically — so the regime gate was computing Ichimoku on
+        # closes up to FOUR DAYS old (XOM: last bar 11 Aug while the harvested
+        # IBKR store held 14 Aug) while fresh bars sat unread. Standing rule:
+        # "IBKR = golden source, Yahoo = fallback only, never a silent default."
+        prices = fetch_daily_bars(sym, start, end, asset_class="us_etf",
+                                  fetched_by="options-screen")
+        if prices is None or prices.empty:
+            prices = fetch_daily_bars(sym, start, end, asset_class="us_equity",
+                                      fetched_by="options-screen")
+        if prices is None or prices.empty:
+            raise ValueError(f"no daily bars for {sym} from any source")
         close_col = "adj_close" if "adj_close" in prices.columns else "close"
         closes = prices[close_col].dropna().tolist()
         regime, falling_knife = regime_from_closes(closes)

@@ -1136,7 +1136,29 @@ def compare(
             if logger:
                 logger.emit("compare.symbol.start", symbol=symbol)
             try:
-                price_cache[symbol] = ensure_cached(cfg.provider, symbol, start, end)
+                # GOLDEN SOURCE FIRST (15 Aug 2026). This used to read the
+                # legacy yahoo cache directly, which is refreshed only when
+                # something happens to ask for a symbol — so the comparator
+                # (and every verdict built on market_state) could compute on
+                # closes DAYS old while current IBKR bars sat unread in the
+                # harvested store. Standing rule: "IBKR = golden source,
+                # Yahoo = fallback only, never a silent default."
+                # fetch_daily_bars walks ibkr_web -> ibkr -> ig -> yfinance
+                # and falls back to the legacy cache visibly; None means every
+                # source failed, which keeps the existing empty-frame path.
+                _gold = None
+                try:
+                    from .ibkr_bars import fetch_daily_bars as _fdb
+                    for _ac in ("us_etf", "us_equity"):
+                        _gold = _fdb(symbol, start, end, asset_class=_ac,
+                                     fetched_by="compare")
+                        if _gold is not None and not _gold.empty:
+                            break
+                except Exception:  # noqa: BLE001 — fall back to the legacy cache
+                    _gold = None
+                price_cache[symbol] = (
+                    _gold if (_gold is not None and not _gold.empty)
+                    else ensure_cached(cfg.provider, symbol, start, end))
                 # A provider occasionally serves a real trading day with a
                 # NaN close (confirmed live: SPY 2026-07-28) rather than
                 # omitting the row entirely. Left in, it silently nulls
