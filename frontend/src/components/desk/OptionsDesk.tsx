@@ -55,8 +55,27 @@ interface Candidate {
   } | null;
   size_fit_pct?: number | null;           // contract notional as % of account NAV
   ref_close?: number | null;              // last daily close — seeds the payoff spot
+  spot_basis?: "daily_close" | "chain_spot" | null;  // WHICH number ref_close is
   forward_price?: number | null;          // F = S·e^((r−q)T) — the real OTM anchor at expiry
   forward_basis?: string | null;          // "r_and_div_yield" | "r_only_div_yield_unavailable"
+  // Uniform provenance (15 Aug 2026) — one entry per INPUT behind the row, so
+  // "is this cache, yahoo or IBKR?" is answerable at a glance instead of never.
+  provenance?: {
+    worst: ProvTrust;
+    summary: string;
+    inputs: ProvInput[];
+  } | null;
+}
+type ProvTrust = "golden" | "derived" | "vendor" | "fallback" | "carried" | "unavailable";
+interface ProvInput {
+  input: string;
+  label: string;
+  source: string | null;
+  source_label: string;
+  trust: ProvTrust;
+  detail: string;
+  as_of: string | null;
+  age: string | null;
 }
 interface ScreenResp {
   generated_at_utc: string | null;
@@ -74,6 +93,10 @@ interface ScreenResp {
     no_premium_count: number;
     symbols: number;
     summary: string;
+    // Bar provenance rolled up across the run: a silent yahoo fallback is
+    // invisible row-by-row across 82 symbols, so it is COUNTED here too.
+    bar_sources?: Record<string, number> | null;
+    fallback_bar_count?: number | null;
   } | null;
 }
 
@@ -307,7 +330,7 @@ export function OptionsDesk() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Regime", "Vega edge", "OI / Spread", "Eligible (CSP)", "Annual yield", "Suggested", "Put vs buy now", "Size fit", "Why / why-not", ""].map((h) => (
+                {["Symbol", "Data", "Regime", "Vega edge", "OI / Spread", "Eligible (CSP)", "Annual yield", "Suggested", "Put vs buy now", "Size fit", "Why / why-not", ""].map((h) => (
                   <th key={h} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -317,6 +340,9 @@ export function OptionsDesk() {
                 <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b", background: c.is_best ? `${TONE.ok}12` : undefined }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
                     {c.is_best && <span title="best eligible CSP right now" style={{ marginRight: 5 }}>⭐</span>}{c.symbol}
+                  </td>
+                  <td style={{ padding: "8px 10px" }}>
+                    <ProvenanceCell prov={c.provenance} />
                   </td>
                   <td style={{ padding: "8px 10px" }}>
                     {c.regime ? <RegimePill regime={c.regime} /> : <span style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>}
@@ -813,6 +839,63 @@ function RegimePill({ regime }: { regime: string }) {
   return (
     <span style={{ display: "inline-block", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", color: c, background: `${c}1f`, border: `1px solid ${c}55`, borderRadius: 999, padding: "2px 9px" }}>
       {regime}
+    </span>
+  );
+}
+
+// Uniform provenance, per row. The owner's standing complaint (15 Aug 2026):
+// "we shouldn't hit issues where we don't know if data is coming from cache,
+// yahoo or ibkr." One dot for the row's WORST input, and the full per-input
+// ledger — source, as-of, age — on hover. `golden` is deliberately quiet:
+// what needs to catch the eye is a fallback, a carried number, or a hole.
+const PROV_TONE: Record<ProvTrust, string> = {
+  golden: TONE.ok,
+  derived: TONE.line,
+  vendor: "var(--text-dim)",
+  fallback: TONE.warn,
+  carried: TONE.warn,
+  unavailable: TONE.bad,
+};
+const PROV_WORD: Record<ProvTrust, string> = {
+  golden: "IBKR",
+  derived: "computed",
+  vendor: "vendor",
+  fallback: "FALLBACK",
+  carried: "CARRIED",
+  unavailable: "MISSING",
+};
+
+function ProvenanceCell({ prov }: { prov: Candidate["provenance"] }) {
+  if (!prov) {
+    return (
+      <span style={{ color: TONE.bad, fontSize: 11 }}
+            title="This row carries no provenance block — it predates uniform provenance, or the screen failed to build one. Treat its numbers as unverified.">
+        unknown
+      </span>
+    );
+  }
+  const tone = PROV_TONE[prov.worst] ?? TONE.bad;
+  // The hover ledger IS the explainer (house rule: every metric needs one).
+  const ledger = prov.inputs
+    .map((i) => `${i.label}: ${i.source_label}${i.age ? ` · ${i.age}` : ""}\n    ${i.detail}`)
+    .join("\n");
+  return (
+    <span
+      title={`WHERE THIS ROW'S NUMBERS CAME FROM\n\n${prov.summary}\n\n${ledger}\n\n`
+        + `Grades — IBKR: the golden source. computed: derived by TradePro from `
+        + `real inputs, reproducible by hand. vendor: the right non-broker feed `
+        + `(no IBKR equivalent exists). FALLBACK: yahoo/IG standing in for a feed `
+        + `IBKR does serve. CARRIED: a real number from an earlier moment. `
+        + `MISSING: nobody served it.`}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10,
+        fontWeight: 700, color: tone, border: `1px solid ${tone}55`,
+        background: `${tone}14`, borderRadius: 999, padding: "2px 8px",
+        whiteSpace: "nowrap", cursor: "help",
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: 999, background: tone, flex: "0 0 auto" }} />
+      {PROV_WORD[prov.worst] ?? "?"}
     </span>
   );
 }

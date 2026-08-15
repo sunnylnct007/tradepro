@@ -63,6 +63,110 @@ def fetch_daily_bars(
     """IBKR-first daily bar fetch with legacy-cache fallback. Returns None only
     if BOTH the BarStore chain and the legacy cache come back empty/erroring —
     callers keep their existing fail-open behaviour on None, unchanged."""
+    df, _ = fetch_daily_bars_with_provenance(
+        symbol, start, end, asset_class=asset_class,
+        fetched_by=fetched_by, legacy_provider=legacy_provider)
+    return df
+
+
+def bars_provenance(df: "pd.DataFrame | None", *,
+                    provider_used: str | None = None,
+                    coverage_complete: bool | None = None,
+                    rows_expected: int | None = None,
+                    legacy: bool = False,
+                    error: str | None = None) -> dict:
+    """Describe where a daily-bar frame actually CAME FROM.
+
+    The subtlety worth stating: ``BarStore.provider_used`` is ``"cache"`` when
+    every partition was a hit — true, and useless for the owner's question.
+    The bars themselves carry a per-bar ``source`` column naming who ORIGINALLY
+    produced them, so that is what we report. A frame whose recent bars are a
+    MIX of providers says so rather than picking one.
+
+    On coverage: ``BarStore.coverage_complete`` is False for a shortfall of a
+    SINGLE bar in 276 (its expected-row count is a calendar estimate, so a
+    holiday alone trips it). Reporting that as "INCOMPLETE" would put a scare
+    label on every healthy row — the cry-wolf failure the first data-readiness
+    build made and had to be corrected for (9255cc5). So the shortfall is
+    reported as a COUNT and graded by `missing_bars`; the caller decides what
+    is material.
+
+    Returns a plain dict (JSON-safe) — the caller wraps it in the uniform
+    `provenance.describe()` shape."""
+    if df is None or getattr(df, "empty", True):
+        return {"source": None, "as_of": None, "rows": 0, "mixed": False,
+                "sources": [], "provider_used": provider_used,
+                "coverage_complete": coverage_complete,
+                "rows_expected": rows_expected, "missing_bars": None,
+                "tail_counts": {}, "tail_n": 0,
+                "error": error, "legacy": legacy}
+
+    as_of = None
+    try:
+        last = df.index[-1]
+        as_of = last.isoformat() if hasattr(last, "isoformat") else str(last)
+    except Exception:  # noqa: BLE001 — an odd index must not kill the row
+        as_of = None
+
+    # Grade on the RECENT tail, not the whole 400-day history: bars from 2024
+    # having come from yahoo says nothing about whether today's close is golden.
+    sources: list[str] = []
+    tail_counts: dict[str, int] = {}
+    tail_n = 0
+    if "source" in getattr(df, "columns", []):
+        tail = df["source"].dropna().tail(20)
+        tail_n = len(tail)
+        sources = [str(s) for s in dict.fromkeys(tail.tolist())]
+        for s in tail.tolist():
+            tail_counts[str(s)] = tail_counts.get(str(s), 0) + 1
+    source = None
+    if len(sources) == 1:
+        source = sources[0]
+    elif sources:
+        # Mixed tail — name the one that produced the LAST bar, and flag it.
+        source = sources[-1]
+    elif legacy:
+        source = "legacy_yahoo_cache"
+
+    missing = None
+    if rows_expected is not None and rows_expected > 0:
+        missing = max(0, rows_expected - len(df))
+
+    return {
+        "source": source,
+        "as_of": as_of,
+        "rows": len(df),
+        "rows_expected": rows_expected,
+        "missing_bars": missing,
+        "mixed": len(sources) > 1,
+        "sources": sources,
+        # Per-source counts over the graded tail — so a mixed history can be
+        # reported as "10 of the last 20 from yfinance" instead of the useless
+        # "some of these came from somewhere else".
+        "tail_counts": tail_counts,
+        "tail_n": tail_n,
+        "provider_used": provider_used,
+        "coverage_complete": coverage_complete,
+        "error": error,
+        "legacy": legacy,
+    }
+
+
+def fetch_daily_bars_with_provenance(
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    *,
+    asset_class: str = "us_equity",
+    fetched_by: str = "unknown",
+    legacy_provider: str = "yahoo",
+) -> "tuple[pd.DataFrame | None, dict]":
+    """As `fetch_daily_bars`, but also returns who served the bars.
+
+    Callers that put a number in front of a human should use THIS one: the
+    plain variant discards the origin, which is how the screen spent a week
+    unable to say whether a close came from IBKR, from yahoo, or from a cache
+    partition written days earlier."""
     try:
         frame = bar_store().get(
             symbol, asset_class, "1d", start, end,
@@ -72,17 +176,32 @@ def fetch_daily_bars(
             if not frame.coverage_complete:
                 _log.debug("BarStore partial coverage for %s (%s -> %s)",
                            symbol, start.date(), end.date())
-            return frame.df
+            return frame.df, bars_provenance(
+                frame.df, provider_used=frame.provider_used,
+                coverage_complete=frame.coverage_complete,
+                rows_expected=frame.rows_expected)
+        store_error = "bar store returned no rows"
     except Exception as exc:  # noqa: BLE001 — fall through to legacy cache
+        store_error = str(exc)[:200]
         _log.warning("BarStore fetch failed for %s, falling back to legacy "
                      "%s cache: %s", symbol, legacy_provider, exc)
 
     try:
         from .cache import ensure_cached
-        return ensure_cached(legacy_provider, symbol, start, end, interval="1d")
+        df = ensure_cached(legacy_provider, symbol, start, end, interval="1d")
+        # Reaching here at all is notable: the golden chain gave nothing and we
+        # are serving the private yahoo cache. Say so loudly — a silent yahoo
+        # default is the exact failure the owner has flagged every session.
+        if df is not None and not getattr(df, "empty", True):
+            _log.warning("%s: serving bars from the LEGACY %s cache — the "
+                         "golden chain gave nothing (%s)",
+                         symbol, legacy_provider, store_error)
+        return df, bars_provenance(df, legacy=True, error=store_error)
     except Exception as exc:  # noqa: BLE001
         _log.debug("legacy cache fetch failed for %s: %s", symbol, exc)
-        return None
+        return None, bars_provenance(None, legacy=True,
+                                     error=f"{store_error}; legacy: {str(exc)[:120]}")
 
 
-__all__ = ["bar_store", "fetch_daily_bars"]
+__all__ = ["bar_store", "fetch_daily_bars", "fetch_daily_bars_with_provenance",
+           "bars_provenance"]

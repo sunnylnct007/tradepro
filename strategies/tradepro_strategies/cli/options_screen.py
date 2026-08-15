@@ -532,6 +532,158 @@ def solve_iv_and_crosscheck(*, premium: float | None, spot: float | None,
     }
 
 
+def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
+                   chain_source: str | None, premium_source: str | None,
+                   premium_as_of_utc: str | None, premium: float | None,
+                   iv_solved: dict | None, open_interest: int | None,
+                   div_yield: float | None, is_etf: bool,
+                   earnings_in_window: bool | None,
+                   now: "datetime | None" = None) -> dict:
+    """Every input behind ONE wheel row, in ONE shape.
+
+    Owner, 15 Aug 2026: *"we shouldn't hit issues where we don't know if data
+    is coming from cache, yahoo or ibkr."* Each of these facts was already
+    known somewhere in `_screen_symbol` — in five differently-named locals,
+    none of which reached the payload. This assembles them so the desk can
+    answer the question per row instead of per codebase-read.
+
+    Pure; unit-tested. Every branch here is reachable from a real run."""
+    from ..provenance import ProvenanceBlock, describe
+
+    b = ProvenanceBlock()
+    bp = bars_prov or {}
+
+    # 1) Daily bars — the regime, HV, and (usually) the spot all stand on these.
+    bar_src = bp.get("source")
+    bar_trust = None   # None → graded from the source token
+    if bar_src:
+        detail = f"{bp.get('rows') or 0} daily bars"
+        if bp.get("mixed"):
+            # A mixed tail must NOT inherit the last bar's grade. XOM's
+            # us_equity partition on 15 Aug 2026: 10 of the last 20 closes
+            # from yfinance, 10 from ibkr_web — and HV30, the Ichimoku
+            # regime and the 52w range are all computed across that whole
+            # window, not off the final bar. Calling that "golden" because
+            # bar 20 was golden is the silent default we keep being bitten by.
+            from ..provenance import grade as _g
+            counts = bp.get("tail_counts") or {}
+            n = bp.get("tail_n") or 0
+            weak = {s: c for s, c in counts.items() if _g(s) not in ("golden", "derived")}
+            detail += (" — MIXED providers across the last "
+                       + f"{n} bars ("
+                       + ", ".join(f"{s}×{c}" for s, c in sorted(counts.items()))
+                       + ")")
+            if weak:
+                bar_trust = "fallback"
+                detail += (f"; {sum(weak.values())} of those {n} are NOT from the "
+                           f"golden source, and the regime/HV/52w-range windows "
+                           f"all read across them")
+        # Materiality, not the raw flag: BarStore grades coverage against a
+        # CALENDAR estimate, so one market holiday makes `coverage_complete`
+        # False on a perfectly healthy 275-bar history. Saying "INCOMPLETE"
+        # there would put a scare label on every row and teach the owner to
+        # ignore the one that matters. Only a real hole gets called a hole.
+        _missing = bp.get("missing_bars")
+        _expected = bp.get("rows_expected") or 0
+        if _missing and _expected and (_missing > 3 and _missing > 0.02 * _expected):
+            detail += (f"; GAPPY — {_missing} of {_expected} expected bars missing")
+        elif _missing:
+            detail += f" ({_missing} short of a {_expected}-session estimate — immaterial)"
+        b.entries.append(describe(
+            input="bars", label="Daily bars", source=bar_src,
+            detail=detail, as_of=bp.get("as_of"), now=now, trust=bar_trust))
+    else:
+        b.entries.append(describe(
+            input="bars", label="Daily bars", source=None,
+            detail=("no daily bars from any provider"
+                    + (f" — {bp['error']}" if bp.get("error") else "")), now=now))
+
+    # 2) Spot — WHICH number the row calls "spot". A settled daily close and a
+    # chain feed's live spot are different quantities; conflating them is how a
+    # strike looks further OTM than it is.
+    if spot_basis == "daily_close":
+        b.entries.append(describe(
+            input="spot", label="Spot", source=bar_src,
+            detail="last settled daily close from the bar store",
+            as_of=bp.get("as_of"), now=now))
+    elif spot_basis == "chain_spot":
+        b.entries.append(describe(
+            input="spot", label="Spot", source=chain_source,
+            detail=("the chain feed's own spot — no daily bars were available, "
+                    "so this is a live/last-trade price, NOT a settled close"),
+            now=now))
+    else:
+        b.entries.append(describe(
+            input="spot", label="Spot", source=None,
+            detail="no spot established — every strike-relative figure is unknowable",
+            now=now))
+
+    # 3) Premium — the one irreducibly-market fact on the row.
+    if premium is None:
+        b.entries.append(describe(
+            input="premium", label="Premium (mid)", source=None,
+            detail="no premium quote from any provider", now=now))
+    elif premium_source == "carried_last_live":
+        b.entries.append(describe(
+            input="premium", label="Premium (mid)", source="carried_last_live",
+            detail=("carried wholesale from the last priced screen — indicative, "
+                    "hard-blocked from eligibility"),
+            as_of=premium_as_of_utc, now=now))
+    else:
+        _how = {"live_mid": "live bid/ask mid",
+                "prev_close_indicative": "PRIOR SESSION's close (no live quote) — indicative"}
+        b.entries.append(describe(
+            input="premium", label="Premium (mid)", source=chain_source,
+            detail=_how.get(premium_source or "", premium_source or "unlabelled"),
+            as_of=premium_as_of_utc, now=now))
+
+    # 4) IV — already provenance-aware since 15 Aug; folded into the same shape.
+    ivp = iv_solved or {}
+    _iv_src = ivp.get("source")
+    b.entries.append(describe(
+        input="iv", label="Implied vol",
+        source=None if _iv_src in (None, "unavailable") else _iv_src,
+        detail=ivp.get("detail") or "no IV established", now=now))
+
+    # 5) Open interest — liquidity gate input; only ever from the chain.
+    b.entries.append(describe(
+        input="open_interest", label="Open interest",
+        source=chain_source if open_interest is not None else None,
+        detail=(f"{open_interest:,} contracts from the chain feed"
+                if open_interest is not None else
+                "not served — the liquidity gate cannot be evaluated"),
+        now=now))
+
+    # 6) Dividend yield — feeds the forward and the pricer's q.
+    b.entries.append(describe(
+        input="div_yield", label="Dividend yield",
+        source="ibkr_web" if div_yield is not None else None,
+        detail=(f"{div_yield:.2%} from the broker snapshot" if div_yield is not None
+                else "not served — the forward is rates-only and slightly overstated "
+                     "for a payer"),
+        now=now))
+
+    # 7) Earnings — a vendor calendar for single names, structural for ETFs.
+    if is_etf:
+        b.entries.append(describe(
+            input="earnings", label="Earnings", source="structural",
+            detail="ETF — no earnings event exists for this security type", now=now))
+    elif earnings_in_window is None:
+        b.entries.append(describe(
+            input="earnings", label="Earnings", source=None,
+            detail="could not verify a confirmed earnings date — the gate blocks",
+            now=now))
+    else:
+        b.entries.append(describe(
+            input="earnings", label="Earnings", source="earnings_calendar",
+            detail=("a confirmed print falls inside the expiry window"
+                    if earnings_in_window else
+                    "no confirmed print inside the expiry window"),
+            now=now))
+
+    return b.to_dict()
+
+
 def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
     """TIER_SHORT gate overrides (SPEC §1.2) — stricter to pay for gamma.
     Env-tunable like every other knob; defaults are the spec's, calibrated so
@@ -822,9 +974,11 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # regime works even when no Gateway is reachable at all.
     regime = falling_knife = ref_close = None
     closes: list[float] = []
+    bars_prov: dict = {"source": None, "as_of": None, "error": "not attempted"}
+    spot_basis = None   # 'daily_close' | 'chain_spot' — WHICH number `ref_close` is
     try:
         from datetime import timedelta
-        from ..ibkr_bars import fetch_daily_bars
+        from ..ibkr_bars import fetch_daily_bars_with_provenance
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=400)
         # GOLDEN SOURCE (15 Aug 2026): ibkr_web -> ibkr -> ig -> yfinance, with
@@ -834,11 +988,11 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         # closes up to FOUR DAYS old (XOM: last bar 11 Aug while the harvested
         # IBKR store held 14 Aug) while fresh bars sat unread. Standing rule:
         # "IBKR = golden source, Yahoo = fallback only, never a silent default."
-        prices = fetch_daily_bars(sym, start, end, asset_class="us_etf",
-                                  fetched_by="options-screen")
+        prices, bars_prov = fetch_daily_bars_with_provenance(
+            sym, start, end, asset_class="us_etf", fetched_by="options-screen")
         if prices is None or prices.empty:
-            prices = fetch_daily_bars(sym, start, end, asset_class="us_equity",
-                                      fetched_by="options-screen")
+            prices, bars_prov = fetch_daily_bars_with_provenance(
+                sym, start, end, asset_class="us_equity", fetched_by="options-screen")
         if prices is None or prices.empty:
             raise ValueError(f"no daily bars for {sym} from any source")
         close_col = "adj_close" if "adj_close" in prices.columns else "close"
@@ -846,8 +1000,10 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         regime, falling_knife = regime_from_closes(closes)
         if closes and closes[-1] > 0:
             ref_close = closes[-1]
+            spot_basis = "daily_close"
     except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (no false positive)
         log.warning("%s regime fetch failed: %s", sym, e)
+        bars_prov = dict(bars_prov or {}, error=str(e)[:200])
 
     # HV fallback from our own cached closes: IBKR's snapshot HV (field 7284)
     # is dark for ETFs, which killed the IV/HV bridge for exactly the names
@@ -922,7 +1078,11 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                 chain_ok = True
                 chain_source = "g3"
                 if ref_close is None:
+                    # No daily bars → the chain feed's own spot stands in. A
+                    # DIFFERENT number from a settled daily close (live/last
+                    # trade vs official close) — labeled so, never conflated.
                     ref_close = gc.spot
+                    spot_basis = "chain_spot"
     except Exception as e:  # noqa: BLE001 — fall through to ib_insync/yfinance
         log.warning("%s G3 chain failed, trying ib_insync: %s", sym, e)
 
@@ -1302,7 +1462,20 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "dte": dte,
         "annualized_yield_pct": ann_yield_pct,
         "chain_source": chain_source,
+        # ── Uniform provenance (15 Aug 2026) ─────────────────────────────
+        # One entry per INPUT — bars, spot, premium, IV, OI, dividend yield,
+        # earnings — each with its source, as-of and age, plus the row's
+        # worst grade. Answers "cache vs yahoo vs IBKR" per row, once.
+        "provenance": row_provenance(
+            bars_prov=bars_prov, spot_basis=spot_basis,
+            chain_source=chain_source, premium_source=premium_source,
+            premium_as_of_utc=premium_as_of_utc, premium=premium,
+            iv_solved=iv_solved, open_interest=oi,
+            div_yield=(ivr.div_yield if ivr.available else None),
+            is_etf=(sym in _ETF_UNDERLYINGS),
+            earnings_in_window=earnings_in_window),
         "ref_close": round(ref_close, 2) if ref_close else None,
+        "spot_basis": spot_basis,
         "spot_divergence_pct": round(spot_divergence * 100, 1) if spot_divergence is not None else None,
         "put_vs_buy": put_vs_buy,
         # Drill-down: gate ledger + this name's OWN history of breaching a
@@ -1351,6 +1524,31 @@ def screen_data_health(rows: list[dict], market_open: bool) -> dict:
         reasons.append(f"{no_chain}/{len(rows)} symbols returned no usable chain from any provider")
     if no_premium:
         reasons.append(f"{no_premium}/{len(rows)} symbols have no premium quote")
+    # Provenance roll-up (15 Aug 2026): a silent yahoo fallback is invisible
+    # row-by-row across 82 symbols — it has to be COUNTED at the run level or
+    # nobody will ever notice it. Bars specifically, because that is the input
+    # the owner has flagged every session.
+    bar_sources: dict[str, int] = {}
+    fallback_bars = 0
+    for r in rows:
+        for e in ((r.get("provenance") or {}).get("inputs") or []):
+            if e.get("input") != "bars":
+                continue
+            bar_sources[e.get("source") or "none"] = (
+                bar_sources.get(e.get("source") or "none", 0) + 1)
+            # Count on the GRADE, not the source token: a row whose tail mixes
+            # yfinance into ibkr_web reports source `ibkr_web` (its last bar)
+            # but is graded `fallback`. Counting tokens would let exactly the
+            # rows worth chasing slip through as golden.
+            if e.get("trust") in ("fallback", "carried", "unavailable"):
+                fallback_bars += 1
+    if fallback_bars:
+        reasons.append(
+            f"{fallback_bars}/{len(rows)} symbols are NOT priced off clean IBKR bars "
+            f"({', '.join(f'{s}×{n}' for s, n in sorted(bar_sources.items()))} "
+            f"by last-bar source; the count includes mixed-provider histories)")
+        degraded = True
+
     ctx_note = ("market CLOSED — screened on the LAST-AVAILABLE session's data; "
                 "IBKR still serves that snapshot, so the gaps listed are DATA "
                 "issues to fix, not market absence" if not market_open else "market OPEN")
@@ -1359,6 +1557,8 @@ def screen_data_health(rows: list[dict], market_open: bool) -> dict:
         "iv_dark_count": iv_dark,
         "no_chain_count": no_chain,
         "no_premium_count": no_premium,
+        "bar_sources": bar_sources,
+        "fallback_bar_count": fallback_bars,
         "symbols": len(rows),
         # Framing matters (owner): the screen DID run on last-available data
         # and the verdicts below stand on what was verifiable — the banner
