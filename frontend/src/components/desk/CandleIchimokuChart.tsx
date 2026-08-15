@@ -53,6 +53,7 @@ import { api } from "../../api/client";
 import { canonicalSymbol } from "../../util/brokerSymbols";
 import { config } from "../../config";
 import { fmtEntryDate } from "./deskFormat";
+import { atrBrickSize, renkoBricks } from "./renko";
 import type { Candle, CandleSeries } from "../../api/types";
 
 /** Timeframe pill → visible window in calendar days. Matches QuoteView's pills. */
@@ -118,6 +119,14 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
   const [err, setErr] = useState<string | null>(null);
   // Live crosshair readout (OHLC + date) shown above the chart.
   const [hover, setHover] = useState<Candle | null>(null);
+  // Candles ⇄ Renko. Persisted per symbol-independent preference so flipping a
+  // chart doesn't reset every time the component remounts.
+  const [renko, setRenko] = useState<boolean>(() => {
+    try { return localStorage.getItem("tp.chart.renko") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("tp.chart.renko", renko ? "1" : "0"); } catch { /* private mode */ }
+  }, [renko]);
 
   // "Did we enter late?" — latest BUY fill vs the IDEAL signal onset (first
   // 5/32/50 cloud-cross at/before it). Drives a readout under the chart.
@@ -216,6 +225,11 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     );
     if (candles.length === 0) return;
 
+    // Renko bricks, sized at ATR(14) so one brick means "about a typical day's
+    // range" whether the name trades at $8 or $800.
+    const brickSize = renko ? atrBrickSize(candles) : 0;
+    const bricks = renko ? renkoBricks(candles, brickSize) : [];
+
     const chart = createChart(el, {
       autoSize: true,
       height,
@@ -248,32 +262,58 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     });
     chartRef.current = chart;
 
-    // Candlesticks.
+    // Candlesticks — or Renko bricks, which reuse the same series type (a
+    // brick is drawn as a wickless candle).
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#1fc16b",
       downColor: "#ef4444",
       borderUpColor: "#1fc16b",
       borderDownColor: "#ef4444",
-      wickUpColor: "#1fc16b",
-      wickDownColor: "#ef4444",
+      wickUpColor: renko ? "transparent" : "#1fc16b",
+      wickDownColor: renko ? "transparent" : "#ef4444",
       priceLineVisible: false,
     });
-    candleSeries.setData(
-      candles.map((c) => ({
-        time: toTime(c.timestamp),
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-      })),
-    );
+    if (renko) {
+      // Bricks have no wicks: open/close are the brick edges and high/low are
+      // set equal to them, so nothing implies an intra-brick excursion that
+      // Renko does not model.
+      candleSeries.setData(
+        bricks.map((b) => ({
+          time: b.time as UTCTimestamp,
+          open: b.open,
+          high: Math.max(b.open, b.close),
+          low: Math.min(b.open, b.close),
+          close: b.close,
+        })),
+      );
+    } else {
+      candleSeries.setData(
+        candles.map((c) => ({
+          time: toTime(c.timestamp),
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+        })),
+      );
+    }
 
     // ── Support / Resistance levels (pivot-based) ─────────────────────────
     // Swing highs above price = resistance (red dotted); swing lows below =
     // support (green dotted). Drawn as horizontal reference lines so the chart's
     // structure — where price has repeatedly turned — reads at a glance. Nearest
     // few each side; near-equal pivots are clustered into one level.
-    {
+    //
+    // MEASURED 15 Aug 2026 (SR_LEVEL_STUDY_GATES_V1.md, 76,260 touch events):
+    // these levels carry NO predictive edge — a randomly-placed line at a
+    // comparable distance did marginally BETTER over the next 5 bars. They are
+    // a drawing aid for reading structure, NOT evidence. Do not build a signal
+    // on them without re-running that study on the timeframe in question.
+    //
+    // Suppressed in Renko mode: the bricks' x-axis is a synthetic sequence, and
+    // the pivots are computed from time-ordered candles, so drawing them
+    // together would imply a correspondence that does not exist.
+    if (!renko) {
       const last = candles[candles.length - 1].close;
       const { highs, lows } = pivotLevels(candles);
       // Nearest FOUR each side (was 3) so the multi-level structure shows, not a
@@ -396,7 +436,22 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     }
 
     markers.sort((a, b) => (a.time as number) - (b.time as number));
-    if (markers.length) createSeriesMarkers(candleSeries, markers);
+    // Markers are keyed to REAL bar times; Renko's axis is a synthetic brick
+    // sequence, so a fill would land on an arbitrary brick. Omitted rather
+    // than drawn in the wrong place.
+    if (markers.length && !renko) createSeriesMarkers(candleSeries, markers);
+
+    // Ichimoku is a TIME-series construct — tenkan/kijun average over N BARS
+    // and the cloud is displaced N bars forward. Renko bricks are not bars:
+    // one session can emit five or none. Drawing the cloud over bricks would
+    // produce a picture that looks like the strategy's signal and is not it —
+    // and this chart exists specifically to VALIDATE that signal. Skipped.
+    if (renko) {
+      chart.timeScale().fitContent();
+      // No cloud overlay in this mode, so no ResizeObserver to tear down —
+      // just the chart itself. (`ro` below is declared after this point.)
+      return () => { chart.remove(); chartRef.current = null; };
+    }
 
     const tenkan = lineSeries(chart, "#4f8cff", 1.5);
     tenkan.setData(ich.tenkan);
@@ -507,7 +562,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
       chart.remove();
       chartRef.current = null;
     };
-  }, [series, height, windowDays, entryPrice, entryDate, fills]);
+  }, [series, height, windowDays, entryPrice, entryDate, fills, renko]);
 
   // ---- States ------------------------------------------------------------
   const noData = !loading && !err && (series?.candles?.length ?? 0) === 0;
@@ -525,6 +580,35 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
 
   return (
     <div>
+      {/* Candles ⇄ Renko. Pills, not a dropdown — the active mode has to be
+          visible without opening anything, because Renko and candles are
+          different enough that mistaking one for the other matters. */}
+      <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 4 }}>
+        {([["Candles", false], ["Renko", true]] as const).map(([label, val]) => (
+          <button
+            key={label}
+            onClick={() => setRenko(val)}
+            title={val
+              ? "Renko: a brick is drawn only when price travels one ATR(14), so time and small moves are DISCARDED. The x-axis is a brick sequence, not a clock. Good for seeing trend structure; it is a way of looking at price, not evidence about it — a Renko chart of pure noise still looks like orderly trends. Ichimoku, trade markers and S/R lines are hidden in this mode because they are time-series constructs and would be drawn in the wrong place."
+              : "Standard candlesticks on real bar times, with the Ichimoku cloud at the STRATEGY's 5·32·50 parameters."}
+            style={{
+              fontSize: 11, padding: "2px 10px", borderRadius: 999, cursor: "pointer",
+              border: `1px solid ${renko === val ? "var(--accent, #4f8cff)" : "var(--border)"}`,
+              background: renko === val ? "color-mix(in srgb, var(--accent, #4f8cff) 18%, transparent)" : "transparent",
+              color: renko === val ? "var(--text)" : "var(--text-muted)",
+              fontWeight: renko === val ? 700 : 400,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+        {renko && (
+          <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 4 }}>
+            brick = ATR(14) · time discarded · no Ichimoku/markers
+          </span>
+        )}
+      </div>
+
       {/* Crosshair OHLC readout (a plus over the basic chart). */}
       <div
         style={{
@@ -545,7 +629,9 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
           // date, and that date was wherever the cursor sat.
           const bar = hover ?? _lastCandle;
           if (!bar) {
-            return <span>Candles · Ichimoku cloud (5·32·50) — hover for OHLC · scroll to zoom</span>;
+            return renko
+              ? <span>Renko · ATR(14) bricks — x-axis is a brick SEQUENCE, not time</span>
+              : <span>Candles · Ichimoku cloud (5·32·50) — hover for OHLC · scroll to zoom</span>;
           }
           return (
             <>
