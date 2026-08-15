@@ -165,6 +165,48 @@ class IBKRWebProvider(Provider):
                     raise ProviderNetworkError(
                         provider=self.name, canonical=canonical,
                         message=f"ibkr_web (after cooldown wait): {reason}")
+            elif is_rate_limited(status, reason):
+                # RATE LIMIT — be patient, don't fall through (owner, 15 Aug
+                # 2026: "only reason IBKR would fail is rate limiting and we
+                # should cater for that, as this can keep running in the
+                # background and is not time-pressing").
+                #
+                # Falling through to yfinance is NOT an equivalent substitute:
+                # yfinance serves no deep intraday history (1m ~7 days, 5m
+                # ~60), so a rate-limited intraday symbol becomes a permanent
+                # hole rather than a slower fill. A background harvest has no
+                # deadline, so waiting is strictly better than degrading.
+                import time as _time
+                waits = _rate_limit_backoff_schedule()
+                for attempt, wait_s in enumerate(waits, start=1):
+                    _log.warning(
+                        "%s: ibkr_web rate-limited (%s) — waiting %ds then retrying "
+                        "(%d/%d) rather than degrading to a fallback provider",
+                        canonical, reason, wait_s, attempt, len(waits))
+                    _time.sleep(wait_s)
+                    try:
+                        if self._get is not None:
+                            status, payload = self._get(url, headers, _TIMEOUT_S)
+                        else:
+                            import requests
+                            r = requests.get(url, headers=headers, timeout=_TIMEOUT_S)
+                            status, payload = r.status_code, (r.json() if r.content else {})
+                    except Exception as exc:  # noqa: BLE001
+                        raise ProviderNetworkError(
+                            provider=self.name, canonical=canonical,
+                            message=f"ibkr_web request failed during rate-limit backoff: {exc}"
+                        ) from exc
+                    payload = payload or {}
+                    if status == 200:
+                        break
+                    reason = payload.get("error") or f"HTTP {status}"
+                    if not is_rate_limited(status, reason):
+                        break
+                if status != 200:
+                    raise ProviderNetworkError(
+                        provider=self.name, canonical=canonical,
+                        message=f"ibkr_web: RATE LIMITED after {len(waits)} backoff "
+                                f"attempts ({sum(waits)}s total): {reason}")
             else:
                 # The endpoint FAILS LOUD (502 + reason); propagate the reason.
                 raise ProviderNetworkError(
@@ -209,3 +251,38 @@ class IBKRWebProvider(Provider):
 
 
 register_provider(IBKRWebProvider())
+
+
+# ── Rate-limit handling ───────────────────────────────────────────────────
+# IBKR's pacing rejections are the single most likely reason a symbol falls
+# back to yfinance in a 179-symbol sequential harvest. They are also the most
+# recoverable: the job runs in the background with no deadline, so waiting
+# beats degrading — especially for intraday, where yfinance simply has no deep
+# history to fall back TO.
+_RATE_LIMIT_MARKERS = (
+    "rate limit", "ratelimit", "too many requests", "pacing",
+    "max rate", "exceeded", "429",
+)
+
+
+def is_rate_limited(status: int | None, reason: object) -> bool:
+    """True when a response looks like IBKR pacing/rate limiting rather than a
+    genuine data or auth failure. Pure — unit-tested."""
+    if status == 429:
+        return True
+    text = str(reason or "").lower()
+    return any(marker in text for marker in _RATE_LIMIT_MARKERS)
+
+
+def _rate_limit_backoff_schedule() -> list[int]:
+    """Waits (seconds) between retries. Generous by design: a background
+    harvest has no deadline, and a filled IBKR bar is worth minutes of waiting.
+    Override with TRADEPRO_IBKR_RATELIMIT_BACKOFF (comma-separated seconds)."""
+    import os
+    raw = os.environ.get("TRADEPRO_IBKR_RATELIMIT_BACKOFF", "").strip()
+    if raw:
+        try:
+            return [int(x) for x in raw.split(",") if x.strip()]
+        except ValueError:
+            pass
+    return [15, 45, 120, 300]

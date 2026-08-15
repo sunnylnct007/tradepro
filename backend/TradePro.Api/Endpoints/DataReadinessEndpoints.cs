@@ -162,7 +162,34 @@ public static class DataReadinessEndpoints
                 }
 
                 var ranRecently = ageH <= maxAgeH;
-                var usable = ranRecently && consecutiveBad == 0;
+
+                // GRADE THE DATA, NOT THE JOB'S STATUS WORD. The harvest
+                // summary carries the only thing that answers "is the data
+                // there": "1d 179 sym -> 162G/0S/17B/0M". M = symbols with NO
+                // data. B(ronze) means the bars ARE complete but came from the
+                // yfinance fallback rather than IBKR — a provenance note, not
+                // an absence. Grading on status='partial' reported an 11-day
+                // daily-bar outage when 177 of 179 symbols were complete and
+                // ZERO were missing: precisely the false alarm this endpoint
+                // exists to prevent.
+                var summaryText = (string?)lane[0].summary ?? "";
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    summaryText, @"(\d+)G/(\d+)S/(\d+)B/(\d+)M");
+                int? missing = null, gold = null, bronze = null, silver = null;
+                if (m.Success)
+                {
+                    gold = int.Parse(m.Groups[1].Value);
+                    silver = int.Parse(m.Groups[2].Value);
+                    bronze = int.Parse(m.Groups[3].Value);
+                    missing = int.Parse(m.Groups[4].Value);
+                }
+                var covered = (gold ?? 0) + (silver ?? 0) + (bronze ?? 0);
+                var totalSyms = covered + (missing ?? 0);
+                // Unusable only when the data is genuinely absent for a
+                // meaningful slice, or the lane has stopped running.
+                var missingShare = totalSyms > 0 ? (double)(missing ?? 0) / totalSyms : 0.0;
+                var usable = ranRecently && (missing is null || missingShare <= 0.10);
+
                 string detail;
                 string? since = null;
                 if (!ranRecently)
@@ -171,22 +198,28 @@ public static class DataReadinessEndpoints
                            + $"last status '{lane[0].status}'";
                     since = newest.ToString("u");
                 }
-                else if (consecutiveBad > 0)
+                else if (missing is > 0 && missingShare > 0.10)
                 {
-                    var firstBad = (DateTime)lane[Math.Min(consecutiveBad, lane.Count) - 1].created_at_utc;
-                    since = firstBad.ToString("u");
-                    detail = $"{consecutiveBad} consecutive degraded run(s) since "
-                           + $"{firstBad:yyyy-MM-dd HH:mm}Z ({(now - firstBad).TotalHours:F0}h) — "
-                           + $"latest: {Trim((string?)lane[0].summary)}"
-                           + (lastGood is null ? "; no healthy run in the last 60"
-                              : $"; last healthy {lastGood:yyyy-MM-dd HH:mm}Z");
+                    since = lastGood?.ToString("u");
+                    detail = $"{missing} of {totalSyms} symbols have NO data"
+                           + (lastGood is null ? "" : $"; last fully-covered run {lastGood:yyyy-MM-dd HH:mm}Z");
+                }
+                else if (missing is not null)
+                {
+                    var fallbackNote = bronze > 0
+                        ? $", {bronze} from the yfinance fallback (complete, lower provenance)"
+                        : "";
+                    detail = $"all {totalSyms} symbols covered — {gold} from IBKR{fallbackNote}"
+                           + (missing > 0 ? $"; {missing} missing (within tolerance)" : "")
+                           + $"; last run {ageH:F1}h ago";
                 }
                 else
                 {
-                    detail = $"healthy — {Trim((string?)lane[0].summary)}";
+                    detail = $"ran {ageH:F1}h ago — {Trim(summaryText)}";
                 }
                 Add(key, label, purpose, usable, newest, detail, since,
-                    new { consecutiveDegraded = consecutiveBad });
+                    new { gold, silver, bronzeFallback = bronze, missing,
+                          consecutiveDegradedRuns = consecutiveBad });
             }
 
             await AddLaneAsync("bars_1d", "Daily bars (1d)",
