@@ -310,16 +310,42 @@ def main() -> int:
         if _pace_s and idx:
             time.sleep(_pace_s)
         try:
-            result = store.get(
-                canonical=symbol,
-                asset_class=args.asset,
-                resolution=args.resolution,
-                start=from_date,
-                end=to_date,
-                allow_partial=True,   # always read what's there; we report below
-                force_refresh=args.force_refresh,
-                fetched_by=os.environ.get("USER", "harvest"),
-            )
+            # RETRY TRANSIENTS (16 Aug 2026). Without this a batch always
+            # leaves stragglers: in one 7-symbol run six converted to IBKR and
+            # META failed alone, then fetched fine moments later. A single
+            # transient must not be the difference between a golden bar and a
+            # yfinance one written permanently — a cache hit is never
+            # re-sourced, so today's blip becomes next year's provenance.
+            # Bounded and paced; a genuinely dead symbol still fails loud.
+            _attempts = int(os.environ.get("TRADEPRO_HARVEST_RETRIES", "3")) if _ibkr_in_chain else 1
+            result = None
+            _last: Exception | None = None
+            for _try in range(max(1, _attempts)):
+                try:
+                    result = store.get(
+                        canonical=symbol,
+                        asset_class=args.asset,
+                        resolution=args.resolution,
+                        start=from_date,
+                        end=to_date,
+                        allow_partial=True,   # always read what's there; we report below
+                        force_refresh=args.force_refresh,
+                        fetched_by=os.environ.get("USER", "harvest"),
+                    )
+                    break
+                except BarFetchError as _exc:
+                    _last = _exc
+                    # A schema/unsupported-resolution failure will never heal;
+                    # only wait on the ones that plausibly will.
+                    if _exc.error_class in ("schema", "manifest"):
+                        raise
+                    if _try + 1 >= max(1, _attempts):
+                        raise
+                    _backoff = 5 * (2 ** _try)   # 5s, 10s
+                    print(f"    ↻ {symbol:<8s} {_exc.error_class} — retry "
+                          f"{_try + 1}/{_attempts - 1} in {_backoff}s", flush=True)
+                    time.sleep(_backoff)
+            assert result is not None  # loop either breaks with a result or raises
             tier = _quality_tier(result.provider_used, result.coverage_complete,
                                  getattr(result, "df", None))
             tier_icon = _tier_icon(tier)
