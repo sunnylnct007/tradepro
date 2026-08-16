@@ -174,8 +174,8 @@ class TestWheelRowProvenance:
             chain_source="g3", premium_source="live_mid",
             premium_as_of_utc="2026-08-15T16:00:00+00:00", premium=1.25,
             iv_solved={"iv": 0.29, "source": "cross_checked", "detail": "agree"},
-            open_interest=4200, div_yield=0.031, is_etf=False,
-            earnings_in_window=False, now=NOW)
+            open_interest=4200, div_yield=0.031, div_yield_source="ibkr_web",
+            is_etf=False, earnings_in_window=False, now=NOW)
         kw.update(over)
         return rp(**kw)
 
@@ -342,8 +342,27 @@ class TestWheelRowProvenance:
         assert "liquidity gate" in oi["detail"]
 
     def test_missing_div_yield_explains_the_forward_consequence(self, row_provenance):
-        dy = self._entry(self._call(row_provenance, div_yield=None), "div_yield")
+        dy = self._entry(self._call(row_provenance, div_yield=None,
+                                    div_yield_source="unavailable"), "div_yield")
         assert "rates-only" in dy["detail"]
+
+    def test_div_yield_from_fundamentals_is_not_claimed_as_the_broker(self):
+        """IBKR's field 7286 is dark across this universe (verified live 16 Aug:
+        HTTP 200, 7283 "N/A", 7286 absent), so a present figure has usually come
+        from OUR fundamentals. Reporting it as the broker snapshot would be the
+        exact lie this block exists to prevent."""
+        from tradepro_strategies.cli.options_screen import row_provenance as rp
+        b = rp(bars_prov=TestWheelRowProvenance.GOLDEN_BARS, spot_basis="daily_close",
+               chain_source="g3", premium_source="live_mid",
+               premium_as_of_utc=None, premium=1.25,
+               iv_solved={"iv": 0.29, "source": "cross_checked", "detail": "x"},
+               open_interest=100, div_yield=0.0044, div_yield_source="fundamentals",
+               is_etf=False, earnings_in_window=False, now=NOW)
+        dy = next(e for e in b["inputs"] if e["input"] == "div_yield")
+        assert dy["source"] == "fundamentals"
+        assert "TradePro fundamentals" in dy["detail"]
+        assert "field 7286 is dark" in dy["detail"]
+        assert "broker snapshot" not in dy["detail"]
 
     def test_etf_earnings_is_structural_not_a_missing_lookup(self, row_provenance):
         """An ETF having no earnings is a fact of the security type — grading it

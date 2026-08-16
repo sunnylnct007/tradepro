@@ -536,7 +536,7 @@ def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
                    chain_source: str | None, premium_source: str | None,
                    premium_as_of_utc: str | None, premium: float | None,
                    iv_solved: dict | None, open_interest: int | None,
-                   div_yield: float | None, is_etf: bool,
+                   div_yield: float | None, div_yield_source: str | None, is_etf: bool,
                    earnings_in_window: bool | None,
                    now: "datetime | None" = None) -> dict:
     """Every input behind ONE wheel row, in ONE shape.
@@ -655,12 +655,22 @@ def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
         now=now))
 
     # 6) Dividend yield — feeds the forward and the pricer's q.
+    # The SOURCE matters here: IBKR's field is dark across this universe, so a
+    # figure that IS present has usually come from our own fundamentals. Saying
+    # "from the broker snapshot" regardless would be a lie of exactly the kind
+    # this block exists to prevent.
+    _dy_detail = {
+        "ibkr_web": (f"{div_yield:.2%} from the broker snapshot"
+                     if div_yield is not None else ""),
+        "fundamentals": (f"{div_yield:.2%} from TradePro fundamentals — IBKR's "
+                         f"snapshot field 7286 is dark for this universe"
+                         if div_yield is not None else ""),
+    }.get(div_yield_source or "", "")
     b.entries.append(describe(
         input="div_yield", label="Dividend yield",
-        source="ibkr_web" if div_yield is not None else None,
-        detail=(f"{div_yield:.2%} from the broker snapshot" if div_yield is not None
-                else "not served — the forward is rates-only and slightly overstated "
-                     "for a payer"),
+        source=(div_yield_source if div_yield is not None else None),
+        detail=(_dy_detail or "not served — the forward is rates-only and slightly "
+                              "overstated for a payer"),
         now=now))
 
     # 7) Earnings — a vendor calendar for single names, structural for ETFs.
@@ -682,6 +692,49 @@ def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
             now=now))
 
     return b.to_dict()
+
+
+_DIV_YIELD_CACHE: dict[str, tuple[float | None, str]] = {}
+
+
+def resolve_div_yield(symbol: str, broker_div_yield: float | None) -> tuple[float | None, str]:
+    """Dividend yield with a real fallback — returns (yield_fraction, source).
+
+    IBKR's snapshot field 7286 is DARK for this whole universe. Verified live
+    16 Aug 2026: the quote endpoint returns HTTP 200 with `7283: "N/A"` and
+    omits 7286 entirely. That is an IBKR market-data availability problem, not
+    a bug we can fix on our side — and it left dividend yield unavailable on
+    82 of 82 rows, so every forward price fell back to `r_only` (overstated for
+    a payer, which is most of this universe) and the pricer priced with q=0.
+
+    But a dividend yield is a FUNDAMENTAL, not a broker quote. We already
+    compute one in `fundamentals.py`, guarded by `_MAX_PLAUSIBLE_YIELD_PCT`
+    precisely because Yahoo sometimes serves dividend-per-share as a yield.
+    Using it is strictly better than silently pricing a dividend payer at q=0
+    — and the source is REPORTED, so a broker figure and a vendor figure are
+    never mistaken for one another.
+
+    Cached per process: this is a slow-moving fundamental and the screen walks
+    the same universe every run.
+    """
+    if broker_div_yield is not None:
+        return broker_div_yield, "ibkr_web"
+    key = symbol.upper()
+    if key in _DIV_YIELD_CACHE:
+        return _DIV_YIELD_CACHE[key]
+    out: tuple[float | None, str] = (None, "unavailable")
+    try:
+        from ..fundamentals import fetch_fundamentals
+        f = fetch_fundamentals(symbol)
+        pct = getattr(f, "dividend_yield_pct", None)
+        if pct is None:
+            pct = getattr(f, "distribution_yield_pct", None)
+        if pct is not None and 0.0 <= float(pct) <= 25.0:
+            out = (float(pct) / 100.0, "fundamentals")
+    except Exception as exc:  # noqa: BLE001 — a missing fundamental is not fatal
+        log.debug("%s: dividend-yield fallback failed: %s", symbol, exc)
+    _DIV_YIELD_CACHE[key] = out
+    return out
 
 
 def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
@@ -1048,8 +1101,12 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # guessed). On this dividend-heavy universe pricing off spot instead of
     # the forward skews the fallback put deltas — the Google OTM→ITM lesson.
     _r = float(os.environ.get("TRADEPRO_RISK_FREE_RATE", "0.04"))
-    pricer = BlackScholesPricer(risk_free_rate=_r,
-                                dividend_yield=(ivr.div_yield or 0.0) if ivr.available else 0.0)
+    # IBKR's 7286 is dark across this whole universe (verified 16 Aug: HTTP 200,
+    # `7283: "N/A"`, 7286 absent), so fall back to our own fundamentals rather
+    # than price every dividend payer at q=0. Source is carried onto the row.
+    _div_y, _div_src = resolve_div_yield(
+        sym, ivr.div_yield if ivr.available else None)
+    pricer = BlackScholesPricer(risk_free_rate=_r, dividend_yield=_div_y or 0.0)
 
     # 0) G3 — TradePro's own chain feed (backend/TradePro.Api ChainEndpoints).
     try:
@@ -1296,7 +1353,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     _sane = _sanity(
         kind="put", strike=strike, spot=ref_close, bid=bid, ask=ask,
         mid=premium, iv=chain_iv, dte=dte,
-        div_yield=(ivr.div_yield if ivr.available else 0.0) or 0.0)
+        div_yield=_div_y or 0.0)
     if _sane.violations:
         from dataclasses import replace as _dc_sane
         _hard = [v for v in _sane.violations if v.severity == "block"]
@@ -1389,7 +1446,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     forward_price = forward_basis = None
     if ref_close and dte > 0:
         import math as _m
-        _q = ivr.div_yield if (ivr.available and ivr.div_yield is not None) else None
+        _q = _div_y
         forward_price = round(ref_close * _m.exp((_r - (_q or 0.0)) * dte / 365.0), 2)
         forward_basis = "r_and_div_yield" if _q is not None else "r_only_div_yield_unavailable"
 
@@ -1445,7 +1502,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "spread_pct_of_mid": spread_pct_of_mid,
         "model_price": model_price,
         "model_vs_mid_pct": model_vs_mid_pct,
-        "div_yield": ivr.div_yield if ivr.available else None,
+        "div_yield": _div_y,
+        "div_yield_source": _div_src,
         "forward_price": forward_price,
         "forward_basis": forward_basis,
         "eligible": decision.allowed,
@@ -1471,7 +1529,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             chain_source=chain_source, premium_source=premium_source,
             premium_as_of_utc=premium_as_of_utc, premium=premium,
             iv_solved=iv_solved, open_interest=oi,
-            div_yield=(ivr.div_yield if ivr.available else None),
+            div_yield=_div_y, div_yield_source=_div_src,
             is_etf=(sym in _ETF_UNDERLYINGS),
             earnings_in_window=earnings_in_window),
         "ref_close": round(ref_close, 2) if ref_close else None,
@@ -1496,7 +1554,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             iv=(ivr.iv if ivr.available else None),
             hv30=(ivr.hv30 if ivr.available else None),
             delta=delta, nav_gbp=nav_gbp,
-            div_yield=(ivr.div_yield if ivr.available else None)),
+            div_yield=_div_y),
         "size_fit_pct": size_fit_pct,
     }
 
