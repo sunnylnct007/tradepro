@@ -48,7 +48,16 @@ GOLDEN_SOURCES = frozenset({"ibkr", "ibkr_web", "g3", "ibkr_oauth",
                             # the broker's own IV field, taken unverified —
                             # golden by ORIGIN; the detail line says it could
                             # not be cross-checked.
-                            "broker_only"})
+                            "broker_only",
+                            # TradePro's own capture of a g3/IBKR chain quote
+                            # (option_quote_daily). Golden by ORIGIN — verified
+                            # 16 Aug 2026: every captured row carries
+                            # source='g3_chain'. Used for OPEN INTEREST, which
+                            # OCC publishes ONCE A DAY and which therefore does
+                            # not tick: a value captured at the last close IS
+                            # the current value, so there is no staleness to
+                            # mark down. Do NOT extend this token to prices.
+                            "own_capture"})
 FALLBACK_SOURCES = frozenset({"yfinance", "yahoo", "legacy_yahoo_cache", "ig"})
 DERIVED_SOURCES = frozenset({"solved", "solved_only", "cross_checked",
                              "computed", "computed_from_closes", "DISAGREEMENT",
@@ -73,6 +82,7 @@ _SOURCE_LABELS = {
     "computed": "computed by TradePro",
     "computed_from_closes": "computed from our own closes",
     "broker_only": "IBKR (broker IV, unverified)",
+    "own_capture": "IBKR via TradePro's own daily capture",
     "cross_checked": "solved by TradePro, cross-checked vs broker",
     "DISAGREEMENT": "solved by TradePro — DISAGREES with the broker",
     "earnings_calendar": "TradePro earnings calendar (confirmed dates)",

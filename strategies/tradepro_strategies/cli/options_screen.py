@@ -534,6 +534,7 @@ def solve_iv_and_crosscheck(*, premium: float | None, spot: float | None,
 
 def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
                    chain_source: str | None, premium_source: str | None,
+                   oi_source: str | None = None,
                    premium_as_of_utc: str | None, premium: float | None,
                    iv_solved: dict | None, open_interest: int | None,
                    div_yield: float | None, div_yield_source: str | None, is_etf: bool,
@@ -646,13 +647,19 @@ def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
         detail=ivp.get("detail") or "no IV established", now=now))
 
     # 5) Open interest — liquidity gate input; only ever from the chain.
+    # OI is published ONCE A DAY, so a value from our own capture is the same
+    # number, not a stale one — but it must still SAY where it came from.
+    _oi_detail = "not served — the liquidity gate cannot be evaluated"
+    if open_interest is not None:
+        _oi_detail = (f"{open_interest:,} contracts from the chain feed"
+                      if oi_source in (None, "g3", "ibkr", "yfinance") else
+                      f"{open_interest:,} contracts from TradePro's own capture — "
+                      f"OI is published once daily, so this is the current figure, "
+                      f"not a stale one")
     b.entries.append(describe(
         input="open_interest", label="Open interest",
-        source=chain_source if open_interest is not None else None,
-        detail=(f"{open_interest:,} contracts from the chain feed"
-                if open_interest is not None else
-                "not served — the liquidity gate cannot be evaluated"),
-        now=now))
+        source=((oi_source or chain_source) if open_interest is not None else None),
+        detail=_oi_detail, now=now))
 
     # 6) Dividend yield — feeds the forward and the pricer's q.
     # The SOURCE matters here: IBKR's field is dark across this universe, so a
@@ -735,6 +742,71 @@ def resolve_div_yield(symbol: str, broker_div_yield: float | None) -> tuple[floa
         log.debug("%s: dividend-yield fallback failed: %s", symbol, exc)
     _DIV_YIELD_CACHE[key] = out
     return out
+
+
+_OI_CACHE: dict[str, list[dict]] = {}
+
+
+def resolve_open_interest(symbol: str, *, expiry: str | None, strike: float | None,
+                          right: str, chain_oi: int | None) -> tuple[int | None, str]:
+    """Open interest with a fallback to our OWN captured quotes.
+
+    Returns (open_interest, source).
+
+    Why this is legitimate rather than a degradation: **open interest is
+    published once a day.** OCC computes it overnight and it does not tick.
+    A value captured at yesterday's close IS the current value until the next
+    publication — unlike a price, there is no "live" OI to be stale against.
+
+    Why it is needed: the G3 chain serves OI only patchily — measured 16 Aug
+    2026, KO returned 0 of 7 puts with OI and SPY 9 of 19 — which left the
+    liquidity gate unevaluable on 59 of 82 rows. Those rows then BLOCK, because
+    a missing feed must fail closed. So the board showed nothing, not because
+    the names were illiquid but because nobody could say whether they were.
+
+    `option_quote_daily` (our own capture, started 13 Aug) holds the figure.
+    Match is exact on (expiry, strike, right) — never a nearest-strike guess,
+    since OI is strike-specific and a neighbouring strike's OI says nothing
+    about this one.
+    """
+    if chain_oi is not None:
+        return chain_oi, "g3"
+    if not expiry or strike is None:
+        return None, "unavailable"
+    key = symbol.upper()
+    if key not in _OI_CACHE:
+        rows: list[dict] = []
+        try:
+            import requests as _rq
+            from .push_to_api import load_credentials
+            _b, _t = load_credentials()
+            if _b:
+                r = _rq.get(f"{_b.rstrip('/')}/api/options/quotes-daily/{key}?days=7",
+                            headers={"Authorization": f"Bearer {_t}"} if _t else {},
+                            timeout=20)
+                if r.status_code == 200:
+                    rows = (r.json() or {}).get("quotes") or []
+        except Exception as exc:  # noqa: BLE001 — absence is reported, not raised
+            log.debug("%s: captured-OI lookup failed: %s", symbol, exc)
+        _OI_CACHE[key] = rows
+    exp10 = str(expiry)[:10]
+    best: tuple[str, int] | None = None   # (capture_date, oi) — newest wins
+    for q in _OI_CACHE[key]:
+        if (q.get("open_interest") in (None, 0)
+                or str(q.get("right") or "").upper()[:1] != right.upper()[:1]
+                or str(q.get("expiry") or "")[:10] != exp10):
+            continue
+        try:
+            if abs(float(q.get("strike")) - float(strike)) > 1e-6:
+                continue
+        except (TypeError, ValueError):
+            continue
+        cd = str(q.get("capture_date") or "")[:10]
+        if best is None or cd > best[0]:
+            best = (cd, int(q["open_interest"]))
+    if best is not None:
+        return best[1], "own_capture"
+    return None, "unavailable"
 
 
 def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
@@ -1090,6 +1162,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     dte = 35
     chain_ok = False
     chain_source = None
+    chain_expiry = None   # selected expiry — needed to match captured OI exactly
     chain_iv = None         # the selected quote's own IV — feeds the model cross-check
     spot_divergence = None  # |yf spot / IBKR close − 1| when both known
     from ..quant_engine.options.black_scholes import BlackScholesPricer
@@ -1134,6 +1207,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                 notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                 chain_ok = True
                 chain_source = "g3"
+                chain_expiry = getattr(gc, "expiry", None)
                 if ref_close is None:
                     # No daily bars → the chain feed's own spot stands in. A
                     # DIFFERENT number from a settled daily close (live/last
@@ -1168,6 +1242,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                     chain_ok = True
                     chain_source = "ibkr"
+                    chain_expiry = getattr(ic, "expiry", None)
         except Exception as e:  # noqa: BLE001 — fall through to yfinance
             log.warning("%s IBKR chain failed, trying yfinance: %s", sym, e)
 
@@ -1201,6 +1276,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                     chain_ok = True
                     chain_source = "yfinance"
+                    chain_expiry = getattr(chain, "expiry", None)
         except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (fail-visible)
             log.warning("%s yfinance chain fetch failed: %s", sym, e)
 
@@ -1213,6 +1289,16 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             "sparse/stale chain; no suggestion rendered", sym, strike, delta, ref_close)
         strike = delta = premium = oi = spread = bid = ask = chain_iv = None
         notional_gbp = None
+
+    # Open interest — the G3 chain serves it only patchily (16 Aug: KO 0 of 7
+    # puts, SPY 9 of 19), which left the liquidity gate unevaluable on 59 of 82
+    # rows. Those BLOCK, correctly — a missing feed fails closed — so the board
+    # showed nothing because nobody could say whether the names were liquid,
+    # not because they weren't. OI is published ONCE A DAY, so our own captured
+    # value for the same contract is the same number, not a stale one.
+    oi, oi_source = resolve_open_interest(
+        sym, expiry=chain_expiry, strike=strike,
+        right="P", chain_oi=oi)
 
     # ── Carry-forward pricing tier (owner priority, 10 Aug 2026) ─────────
     # When live mid AND the option's prior close are BOTH dark (post-close /
@@ -1493,6 +1579,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         # Self-check: which no-arbitrage identities this quote satisfies.
         "quote_sanity": _sane.to_dict(),
         "open_interest": oi,
+        "open_interest_source": oi_source,
         # Concrete quote parameters (owner 2026-08-09: "quote a few technical
         # parameters and price needs to be checked to make it concrete") —
         # the raw buy/sell numbers behind every suggested trade.
@@ -1528,7 +1615,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             bars_prov=bars_prov, spot_basis=spot_basis,
             chain_source=chain_source, premium_source=premium_source,
             premium_as_of_utc=premium_as_of_utc, premium=premium,
-            iv_solved=iv_solved, open_interest=oi,
+            iv_solved=iv_solved, open_interest=oi, oi_source=oi_source,
             div_yield=_div_y, div_yield_source=_div_src,
             is_etf=(sym in _ETF_UNDERLYINGS),
             earnings_in_window=earnings_in_window),

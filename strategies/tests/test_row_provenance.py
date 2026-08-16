@@ -438,3 +438,48 @@ class TestRunLevelRollup:
         rows = [{"symbol": "X", "vega_gate": "rank", "chain_source": "g3",
                  "suggested_premium": 1.0}]
         assert screen_data_health(rows, market_open=True)["fallback_bar_count"] == 0
+
+
+class TestOpenInterestFallback:
+    """OI is published ONCE A DAY by OCC, so our captured value for the same
+    contract is the CURRENT figure, not a stale one. That is why it may be
+    graded golden — and why the token must never be reused for prices.
+
+    The gap it closes: the G3 chain served OI only patchily (16 Aug 2026 —
+    KO 0 of 7 puts, SPY 9 of 19), leaving the liquidity gate unevaluable on
+    59 of 82 rows. Those BLOCK correctly (a missing feed fails closed), so the
+    board showed nothing because nobody could say whether the names were
+    liquid — not because they were illiquid.
+    """
+
+    def test_live_chain_oi_is_preferred_and_labelled_g3(self):
+        from tradepro_strategies.cli.options_screen import resolve_open_interest
+        oi, src = resolve_open_interest("KO", expiry="2026-09-04", strike=82.0,
+                                        right="P", chain_oi=1234)
+        assert (oi, src) == (1234, "g3")
+
+    def test_no_expiry_or_strike_cannot_be_matched(self):
+        from tradepro_strategies.cli.options_screen import resolve_open_interest
+        assert resolve_open_interest("KO", expiry=None, strike=82.0,
+                                     right="P", chain_oi=None)[1] == "unavailable"
+        assert resolve_open_interest("KO", expiry="2026-09-04", strike=None,
+                                     right="P", chain_oi=None)[1] == "unavailable"
+
+    def test_captured_oi_grades_golden_by_origin(self):
+        """Verified live: every option_quote_daily row carries source='g3_chain',
+        i.e. IBKR through our own chain feed."""
+        assert grade("own_capture") == "golden"
+        assert "own daily capture" in source_label("own_capture")
+
+    def test_provenance_says_it_came_from_our_capture_not_the_live_chain(self):
+        from tradepro_strategies.cli.options_screen import row_provenance as rp
+        b = rp(bars_prov=TestWheelRowProvenance.GOLDEN_BARS, spot_basis="daily_close",
+               chain_source="g3", premium_source="live_mid", premium_as_of_utc=None,
+               premium=1.25, iv_solved={"iv": 0.29, "source": "cross_checked", "detail": "x"},
+               open_interest=601, oi_source="own_capture", div_yield=0.02,
+               div_yield_source="fundamentals", is_etf=False,
+               earnings_in_window=False, now=NOW)
+        e = next(x for x in b["inputs"] if x["input"] == "open_interest")
+        assert e["source"] == "own_capture"
+        assert "own capture" in e["detail"]
+        assert "published once daily" in e["detail"]
