@@ -16,7 +16,7 @@ harvest records the failure and the cockpit can FLAG the symbol.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 import pandas as pd
@@ -32,18 +32,50 @@ _log = logging.getLogger("tradepro.bar_cache.ibkr_web")
 # 1-min harvest — off the local Gateway entirely.
 _BAR = {"1d": "1d", "1h": "1h", "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min"}
 _INTRADAY_RES = {"1m", "5m", "15m", "30m"}
+# Largest intraday span IBKR will serve in ONE request. A whole-month ask
+# (period="1m") returns 503 Service Unavailable; a 5-day ask returns cleanly.
+# 7 days keeps us inside that and matches the "1w" period the mapping already
+# emits, so the request is one IBKR understands well.
+_INTRADAY_CHUNK_DAYS = 7
 
 
-def _ibkr_period(start: datetime, end: datetime, resolution: str = "1d") -> str:
+def _ibkr_period(start: datetime, end: datetime, resolution: str = "1d",
+                 now: datetime | None = None) -> str:
     """IBKR history 'period' window (counts back from now) covering [start, end].
     Intraday resolutions are bounded — IBKR caps 1-min history (~1 month), and a
-    huge period on a minute bar is rejected/truncated."""
-    days = max(1, (end - start).days)
+    huge period on a minute bar is rejected/truncated.
+
+    MEASURED FROM NOW, NOT THE SPAN (fixed 16 Aug 2026). IBKR's `period`
+    counts BACKWARDS from the present, so it must cover now→start. This used
+    to use `(end - start)`, which meant a request for an OLD window asked for a
+    period of that window's WIDTH and therefore fetched the most RECENT bars
+    instead — which the caller then filtered away, producing the
+    "N bar(s) returned but none within [...]" failures. Masked for daily
+    (those fetches usually run to now, so span ≈ distance back), fatal for any
+    historical window.
+    """
+    # Match `start`'s awareness — callers pass both naive and tz-aware datetimes,
+    # and mixing them raises. Defaulting to UTC-aware broke the naive callers.
+    if now is None:
+        now = datetime.now(start.tzinfo) if start.tzinfo is not None else datetime.now()
+    elif (now.tzinfo is None) != (start.tzinfo is None):
+        now = (now.replace(tzinfo=timezone.utc) if now.tzinfo is None
+               else now.astimezone(timezone.utc).replace(tzinfo=None))
+    # Cover the whole of [start, end] as seen from now; +1 so a same-day
+    # window still asks for at least a day.
+    days = max(1, (now - start).days + 1)
     if resolution in _INTRADAY_RES:
         if days <= 1:
             return "1d"
         if days <= 7:
             return "1w"
+        # 2w/3w matter now that period is measured from NOW: a chunk covering
+        # 10 days ago needs a window reaching back that far, and rounding it
+        # up to "1m" is what draws the 503.
+        if days <= 14:
+            return "2w"
+        if days <= 21:
+            return "3w"
         return "1m"  # ≈ IBKR's practical intraday ceiling (≈30d for 1-min)
     if days <= 30:
         return "1m"
@@ -58,6 +90,48 @@ def _ibkr_period(start: datetime, end: datetime, resolution: str = "1d") -> str:
 
 class IBKRWebProvider(Provider):
     """Fetch bars from the central backend IBKR endpoint (Option B / Web API)."""
+
+    def _fetch_chunked(
+        self, canonical: str, asset_class: str, resolution: str,
+        start: datetime, end: datetime,
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+        """Walk [start, end) in <=_INTRADAY_CHUNK_DAYS slices and concatenate.
+
+        Partial tolerance is deliberate: IBKR caps intraday history at ~30 days,
+        so the OLDEST slices of a monthly partition legitimately return nothing.
+        Failing the whole fetch because the first week is out of reach would
+        hand the partition straight back to yfinance — the exact outcome this
+        exists to prevent. We raise only if EVERY slice fails.
+        """
+        frames: list[pd.DataFrame] = []
+        meta: dict[str, Any] = {}
+        errors: list[str] = []
+        cursor = start
+        step = timedelta(days=_INTRADAY_CHUNK_DAYS)
+        while cursor < end:
+            chunk_end = min(cursor + step, end)
+            try:
+                df, m = self.fetch(canonical, asset_class, resolution, cursor, chunk_end)
+                if df is not None and not df.empty:
+                    frames.append(df)
+                    meta = m or meta
+            except Exception as exc:  # noqa: BLE001 — a dead slice is expected
+                errors.append(f"{cursor.date()}→{chunk_end.date()}: {str(exc)[:80]}")
+            cursor = chunk_end
+
+        if not frames:
+            raise ProviderNetworkError(
+                provider=self.name, canonical=canonical,
+                message=(f"ibkr_web: all {len(errors)} intraday slice(s) failed for "
+                         f"{canonical} [{start.date()}→{end.date()}]; "
+                         f"first: {errors[0] if errors else 'no slices'}"),
+            )
+        out = pd.concat(frames)
+        out = out[~out.index.duplicated(keep="first")].sort_index()
+        meta = dict(meta)
+        meta["chunks"] = len(frames)
+        meta["chunks_failed"] = len(errors)
+        return out, meta
 
     name = "ibkr_web"
 
@@ -105,6 +179,25 @@ class IBKRWebProvider(Provider):
                 message=f"resolution {resolution!r} not supported by ibkr_web "
                         f"(supported: {sorted(_BAR)})",
             )
+        # CHUNK INTRADAY (16 Aug 2026) — the root cause of a yfinance-heavy
+        # intraday store. BarStore always fetches a WHOLE MONTHLY PARTITION, so
+        # every intraday call asked IBKR for period="1m" (one month) of 1/5-min
+        # bars and got back:
+        #     {"error":"Service Unavailable","statusCode":503}
+        # The chain then fell to the retired local Gateway (connection refused)
+        # and finally to yfinance, which wrote the bars — permanently, because a
+        # cache hit is never re-sourced. That is how 1m ended up 1% IBKR /
+        # 99% yfinance while the SAME provider served 279 bars on demand for a
+        # 5-day window seconds later.
+        #
+        # Same remedy the yfinance provider already uses for Yahoo's own
+        # per-request cap (`_call_yfinance_chunked`): ask for short spans and
+        # stitch. Not a workaround — a request-size limit is a property of the
+        # API and belongs in the adapter.
+        if resolution in _INTRADAY_RES:
+            span = (end - start)
+            if span > timedelta(days=_INTRADAY_CHUNK_DAYS):
+                return self._fetch_chunked(canonical, asset_class, resolution, start, end)
         base, token = self._resolve_base()
         base = (base or "").rstrip("/")
         period, bar = _ibkr_period(start, end, resolution), _BAR[resolution]

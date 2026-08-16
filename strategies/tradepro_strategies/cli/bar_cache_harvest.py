@@ -46,6 +46,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -237,9 +238,18 @@ def main() -> int:
     # daily mode (no --ibkr-only): full chain — yfinance is an acceptable
     #   same-day fallback if TWS briefly lags.
     # ibkr_web (OAuth Web API via the central backend endpoint) is the WORKING
-    # IBKR-GOOD source for 1d/1h — preferred FIRST. The legacy 'ibkr' (local
-    # Gateway/ib_insync) stays as a fallback (it hangs on session contention, and
-    # only it does 1m). See migration 055 / Data Accuracy Turnaround.
+    # IBKR-GOOD source — preferred FIRST. The legacy 'ibkr' (local
+    # Gateway/ib_insync) stays only as a fallback; it hangs on session
+    # contention and was RETIRED by owner ruling on 9 Aug 2026 (OAuth-only,
+    # code must be runnable off-Mac).
+    #
+    # CORRECTION 16 Aug 2026: this comment used to claim "only [the Gateway]
+    # does 1m". That is FALSE and it cost an investigation — ibkr_web's _BAR map
+    # covers 1d/1h/1m/5m/15m/30m, and it was verified serving 649 one-minute and
+    # 129 five-minute bars for SPY on demand. Because of the stale claim, a
+    # rate-limited ibkr_web failure surfaced as "PENDING — IBKR unavailable (TWS
+    # closed?)" and pointed at a Gateway that no longer exists. We do NOT need
+    # the Gateway for intraday. See migration 055 / Data Accuracy Turnaround.
     if args.ibkr_only:
         chain = ["ibkr_web", "ibkr"]           # IBKR-only: web first, Gateway for 1m
     elif args.no_ibkr:
@@ -286,7 +296,19 @@ def main() -> int:
     # the local-cache → EC2 gap). Best-effort; never blocks the harvest.
     health_records: list[dict] = []
 
-    for symbol in symbols:
+    # Pace IBKR requests. On 16 Aug a batch re-source fired 11 symbols inside
+    # ONE SECOND (17:07:07.275 → .954); SPY succeeded and every symbol after it
+    # failed, because the backend drops into auth cooldown under that load. The
+    # data was fine — AAPL fetched normally moments later — so this was pure
+    # self-inflicted throttling. A background harvest has no deadline, so
+    # spending a second per symbol to get the GOLDEN source instead of a
+    # fallback is the right trade (the same reasoning as 9255cc5).
+    _ibkr_in_chain = any(p.startswith("ibkr") for p in chain)
+    _pace_s = float(os.environ.get("TRADEPRO_HARVEST_PACE_S", "1.0")) if _ibkr_in_chain else 0.0
+
+    for idx, symbol in enumerate(symbols):
+        if _pace_s and idx:
+            time.sleep(_pace_s)
         try:
             result = store.get(
                 canonical=symbol,
@@ -346,9 +368,26 @@ def main() -> int:
         except BarFetchError as exc:
             fail_count += 1
             quality_counts["missing"] += 1
-            # Be explicit: IBKR-only mode means "PENDING — open TWS to fill"
+            # Be explicit: IBKR-only mode means "PENDING — open TWS to fill".
+            #
+            # 16 Aug 2026: this message actively MISDIRECTED. A batch re-source
+            # showed SPY succeeding then 11 symbols "PENDING — IBKR unavailable
+            # (TWS closed?)", which sent me chasing a local Gateway that was
+            # RETIRED weeks ago (owner ruling 9 Aug: OAuth-only). The truth was
+            # that `ibkr_web` — the provider that matters — had failed silently
+            # from rate-limiting, and the only visible error came from the dead
+            # `ibkr` fallback further down the chain. AAPL fetched fine from
+            # ibkr_web moments later.
+            #
+            # So name what the GOLDEN provider actually said. A failure message
+            # that points at the wrong subsystem is worse than none: it costs an
+            # investigation and teaches the wrong lesson.
             if args.ibkr_only and "no_provider" in exc.error_class:
-                print(f"  ⏳ {symbol:<8s} PENDING  — IBKR unavailable (TWS closed?)")
+                _tried = ", ".join(getattr(exc, "attempted", None) or []) or "unknown"
+                _cause = getattr(exc, "__cause__", None)
+                _why = f"{type(_cause).__name__}: {str(_cause)[:90]}" if _cause else "no detail"
+                print(f"  ⏳ {symbol:<8s} PENDING  — chain [{_tried}] exhausted; "
+                      f"last error {_why}")
             else:
                 print(
                     f"  ✗ {symbol:<8s} "
