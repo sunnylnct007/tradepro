@@ -127,6 +127,20 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--force-refresh", action="store_true",
+        help=(
+            "RE-FETCH partitions that are already cached and OVERWRITE them. "
+            "Without this a cached partition always wins, so bars written by a "
+            "fallback provider are never re-sourced even once the golden source "
+            "is working again — which is why the intraday store stayed "
+            "yfinance-heavy after ibkr_web recovered. Pair with --ibkr-only so "
+            "a fallback cannot write into the window you are cleaning. Safe by "
+            "construction: the store refuses to replace a partition with FEWER "
+            "rows than it already holds (partial_write_refused) and never "
+            "overwrites good data with an empty response."
+        ),
+    )
+    parser.add_argument(
         "--api-base", default=None,
         help=(
             "Optional API base URL (e.g. http://16.60.201.137). "
@@ -255,6 +269,11 @@ def main() -> int:
     )
     if args.ibkr_only:
         print("  ⚡ IBKR-only mode: gaps will be reported as PENDING — no yfinance fallback")
+    if args.force_refresh:
+        print("  ♻  FORCE-REFRESH: cached partitions will be RE-FETCHED AND OVERWRITTEN")
+        if not args.ibkr_only:
+            print("     ⚠ WITHOUT --ibkr-only a fallback provider may write into the "
+                  "window you are trying to clean")
     print("-" * 70)
 
     # ── Harvest loop ───────────────────────────────────────────
@@ -276,6 +295,7 @@ def main() -> int:
                 start=from_date,
                 end=to_date,
                 allow_partial=True,   # always read what's there; we report below
+                force_refresh=args.force_refresh,
                 fetched_by=os.environ.get("USER", "harvest"),
             )
             tier = _quality_tier(result.provider_used, result.coverage_complete,
