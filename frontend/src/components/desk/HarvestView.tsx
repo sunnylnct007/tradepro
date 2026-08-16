@@ -645,9 +645,21 @@ function FlexChartControls({ coverage, symbol, res, setRes, tf, setTf }: {
         ))}
       </div>
       <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 6, fontFamily: "var(--font-mono)" }}>
+        {/* THE NOTICE MUST MATCH THE STORE THE CHART ACTUALLY READS.
+            `rows` describes ibkr_price_bars — the DEEP INTRADAY store. The
+            daily chart does not read it (the component fetches daily candles
+            from the bar cache; only 1m/5m come from ibkr_price_bars). So on
+            Daily this printed "no harvested data for this symbol yet"
+            directly above a full chart — MRVL, 16 Aug 2026, showing
+            LATEST 2026-08-14 O 221.40 H 223.52 L 217.10 C 222.02. The label
+            contradicted the picture underneath it. Scope it to the intraday
+            resolutions, and on Daily say which store the notice is about
+            rather than implying the symbol has nothing. */}
         {res !== "1d" && <span style={{ color: "var(--warn)" }}>deep IBKR store · </span>}
         {rows.length === 0
-          ? "no harvested data for this symbol yet"
+          ? (res === "1d"
+              ? "daily candles come from the bar cache — the deep intraday store holds nothing for this symbol"
+              : "no harvested data for this symbol yet")
           : rows.map((r) => {
               const ib = r.bars > 0 ? Math.round((100 * r.ibkrBars) / r.bars) : 0;
               return `${r.resolution}: ${(r.firstTs ?? "?").slice(0, 10)}→${(r.lastTs ?? "?").slice(0, 10)} · ${r.bars.toLocaleString()} bars · ${ib}% IBKR`;
