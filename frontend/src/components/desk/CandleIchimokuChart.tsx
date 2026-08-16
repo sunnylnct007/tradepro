@@ -121,6 +121,10 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
   const [hover, setHover] = useState<Candle | null>(null);
   // Candles ⇄ Renko. Persisted per symbol-independent preference so flipping a
   // chart doesn't reset every time the component remounts.
+  // Renko crosshair readout — a BRICK, not a session, so it carries the
+  // brick's own edges plus the bar it formed on.
+  const [brickHover, setBrickHover] = useState<
+    { open: number; close: number; up: boolean; sourceTime: string } | null>(null);
   const [renko, setRenko] = useState<boolean>(() => {
     try { return localStorage.getItem("tp.chart.renko") === "1"; } catch { return false; }
   });
@@ -447,7 +451,45 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     // produce a picture that looks like the strategy's signal and is not it —
     // and this chart exists specifically to VALIDATE that signal. Skipped.
     if (renko) {
-      chart.timeScale().fitContent();
+      // WINDOW THE SAME WAY THE CANDLE VIEW DOES (fixed 16 Aug 2026).
+      // This used to call fitContent(), which shows EVERY brick — including
+      // those built from the 130-day Ichimoku lookback pad. So "3M" on the
+      // candle chart showed Jun-Sep while "3M" on Renko reached back to
+      // February, and the two views could not be compared as if they covered
+      // the same period. The pad must still FEED the brick builder (Renko is
+      // path-dependent — you cannot start a brick sequence mid-series and get
+      // the same bricks), so bricks are built from the full series and only
+      // the DISPLAY is clipped. Same split the candle path already uses.
+      const lastBrickTs = bricks.length
+        ? (bricks[bricks.length - 1].time as number)
+        : (toTime(candles[candles.length - 1].timestamp) as number);
+      const fromTsR = lastBrickTs - windowDays * 24 * 3600;
+      const firstBrickTs = bricks.length ? (bricks[0].time as number) : fromTsR;
+      if (bricks.length && firstBrickTs >= fromTsR) {
+        // Fewer bricks than the window — a genuinely quiet stretch. Showing
+        // them all is right; there is nothing to clip.
+        chart.timeScale().fitContent();
+      } else {
+        chart.timeScale().setVisibleRange({
+          from: fromTsR as Time, to: (lastBrickTs + 24 * 3600) as Time,
+        });
+      }
+
+      // Hover readout. Without this the crosshair handler further down never
+      // ran in Renko mode, so the header silently showed the last CANDLE's
+      // OHLC no matter where you pointed. A brick is not a session, so report
+      // the brick's own open/close and the bar it formed on rather than
+      // pretending a session's OHLC belongs to it.
+      chart.subscribeCrosshairMove((pt) => {
+        if (!pt?.time) { setBrickHover(null); return; }
+        const t = pt.time as number;
+        const b = bricks.find((x) => (x.time as number) === t);
+        setBrickHover(b ? {
+          open: b.open, close: b.close, up: b.up,
+          sourceTime: new Date(b.sourceTime * 1000).toISOString().slice(0, 10),
+        } : null);
+      });
+
       // No cloud overlay in this mode, so no ResizeObserver to tear down —
       // just the chart itself. (`ro` below is declared after this point.)
       return () => { chart.remove(); chartRef.current = null; };
@@ -623,6 +665,26 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
         }}
       >
         {(() => {
+          // RENKO: report the BRICK, not a session. The header used to fall
+          // through to the last candle's OHLC while the chart displayed bricks,
+          // so it read as though those four numbers described what was drawn.
+          // They never did — a brick has only two edges, and it may span part
+          // of a session or several.
+          if (renko && brickHover) {
+            const b = brickHover;
+            return (
+              <>
+                <span style={{ fontWeight: 700, color: b.up ? "#1fc16b" : "#ef4444" }}>
+                  BRICK {b.up ? "▲" : "▼"}
+                </span>
+                <span>open {b.open.toFixed(2)}</span>
+                <span>close {b.close.toFixed(2)}</span>
+                <span style={{ color: "var(--text-muted)" }}>
+                  formed on {b.sourceTime} · a brick is one ATR(14) move, not a session
+                </span>
+              </>
+            );
+          }
           // Show the hovered bar; otherwise show the LATEST bar (never generic
           // help text) so it's unambiguous which session the chart ends on — the
           // "why isn't the 24th here?" confusion was that only a hover revealed a
@@ -636,7 +698,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
           return (
             <>
               <span style={{ fontWeight: 700, color: isStale ? "#ef4444" : "var(--text-dim)" }}>
-                {hover ? "" : "LATEST "}{bar.timestamp.slice(0, 10)}
+                {renko ? "LATEST SESSION " : hover ? "" : "LATEST "}{bar.timestamp.slice(0, 10)}
               </span>
               <span>O {fmt(bar.open, ccy)}</span>
               <span>H {fmt(bar.high, ccy)}</span>
