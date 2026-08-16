@@ -648,8 +648,25 @@ public static class DataTrustEndpoints
             // silently interleaves daily and 1-minute health — the exact
             // confusion this key change exists to end. Default 1d: every
             // backtest, regime and "good for today" question is a daily one.
-            var res = string.IsNullOrWhiteSpace(resolution) ? "1d" : resolution.Trim();
+            // Defaulting to 1d BROKE EVERY CALLER THAT DOES NOT PASS A
+            // RESOLUTION (found by external review hours after I shipped it):
+            // the MCP data-health tool returned "0 rows tracked" while the UI
+            // showed 251, because the UI falls back client-side and nothing
+            // else does. A silent empty response is the exact failure class
+            // this weekend was spent removing, so: an EXPLICIT resolution is
+            // honoured literally — asking for 1d when 1d is empty must return
+            // empty — but an UNSPECIFIED one falls back server-side to a lane
+            // that actually has rows, and says which in `resolution`.
+            var explicitRes = !string.IsNullOrWhiteSpace(resolution);
+            var res = explicitRes ? resolution!.Trim() : "1d";
             await using var conn = await db.OpenConnectionAsync();
+            if (!explicitRes)
+            {
+                var have = (await conn.QueryAsync<string>(
+                    "SELECT DISTINCT resolution FROM bar_cache_health ORDER BY resolution;")).AsList();
+                if (have.Count > 0 && !have.Contains(res))
+                    res = have.Contains("1m") ? "1m" : have[0];
+            }
             var rows = await conn.QueryAsync(@"
                 SELECT canonical, asset_class, resolution,
                        last_fetched_at_utc, last_fetched_result,
