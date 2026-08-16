@@ -45,10 +45,17 @@ export interface PayoffPlacement {
   iv: number | null;
 }
 
-export function OptionsPayoff({ seed, onPlace, placing, chartHeight = 240 }: {
+export function OptionsPayoff({ seed, onPlace, placing, chartHeight = 240, shareSymbols = [] }: {
   seed?: PayoffSeed; onPlace?: (p: PayoffPlacement) => void; placing?: boolean;
   // Taller chart when hosted in the analyze modal — same math, more zoom.
   chartHeight?: number;
+  /** Symbols where the ledger says we actually HOLD SHARES — i.e. positions in
+   *  state ASSIGNED or COVERED_CALL_OPEN. A covered call is only a real trade
+   *  against stock you own; without this the explorer happily models one on a
+   *  name you have no position in, which is not an order you could place.
+   *  An open SHORT_PUT does NOT count — that is the obligation to buy, not the
+   *  stock. */
+  shareSymbols?: string[];
 }) {
   const [structure, setStructure] = useState<Structure>(seed?.structure ?? "CASH_SECURED_PUT");
   const [symbol, setSymbol] = useState(seed?.symbol ?? "");
@@ -57,6 +64,11 @@ export function OptionsPayoff({ seed, onPlace, placing, chartHeight = 240 }: {
   const [premium, setPremium] = useState(num(seed?.premium, 1.5));
   const [contracts, setContracts] = useState(num(seed?.contracts, 1));
   const [costBasis, setCostBasis] = useState(num(seed?.strike, 95)); // CC: assigned cost basis
+  // Tracks the EDITED symbol field, not just the seed — the explorer lets you
+  // retype the ticker, and the covered-call prerequisite has to follow it.
+  const holdsShares = useMemo(
+    () => shareSymbols.some((s) => s.toUpperCase() === symbol.toUpperCase()),
+    [shareSymbols, symbol]);
   const [dte, setDte] = useState(num(seed?.dte, 35));
   const [target, setTarget] = useState<number | null>(null);
 
@@ -141,12 +153,33 @@ export function OptionsPayoff({ seed, onPlace, placing, chartHeight = 240 }: {
         </div>
         <div style={{ display: "flex", gap: 4 }}>
           {(["CASH_SECURED_PUT", "COVERED_CALL"] as Structure[]).map((s) => (
-            <button key={s} onClick={() => setStructure(s)} style={pill(structure === s)}>
+            <button key={s} onClick={() => setStructure(s)} style={pill(structure === s)}
+              title={s === "COVERED_CALL"
+                ? "Selling calls against shares you ALREADY OWN. In the wheel you only reach this after a cash-secured put is assigned — so it is not available on a name you have no stock in."
+                : "Selling a put with the cash to buy the shares set aside. This is the wheel's entry: you get paid to set a buy limit."}
+            >
               {s === "CASH_SECURED_PUT" ? "Cash-secured put" : "Covered call"}
             </button>
           ))}
         </div>
       </div>
+
+      {/* A covered call on stock you do not own is not a trade — it is a naked
+          call, which is a different (and unbounded-risk) position entirely. Say
+          so plainly rather than rendering a payoff that implies otherwise. */}
+      {!m.isPut && symbol && !holdsShares && (
+        <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 6, fontSize: 12,
+                      border: "1px solid var(--warn)", color: "var(--warn)",
+                      background: "color-mix(in srgb, var(--warn) 10%, transparent)" }}>
+          <b>You do not hold {symbol} shares.</b> A covered call requires owning 100 shares per
+          contract — in the wheel you only get there after a cash-secured put is <i>assigned</i>.
+          {shareSymbols.length > 0
+            ? <> Shares held right now: <b>{shareSymbols.join(", ")}</b>.</>
+            : <> The ledger shows no assigned stock in any name, so this is modelling only.</>}
+          {" "}Sold without the stock this is a <b>naked call</b> — unbounded loss, and not what
+          this payoff draws.
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         <Num label="Symbol" text v={symbol} on={(x) => setSymbol(x.toUpperCase())} w={70} />
@@ -208,7 +241,17 @@ export function OptionsPayoff({ seed, onPlace, placing, chartHeight = 240 }: {
             <YAxis tick={{ fontSize: 10, fill: "var(--text-muted)" }} tickFormatter={(v) => `£${Math.round(v)}`} width={48} />
             <Tooltip
               contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12 }}
-              formatter={(v: number, name: string) => [`£${fmt(v)}`, name === "now" ? "P&L now" : "P&L at expiry"]}
+              // The payoff is split into `gain`/`loss` so the fill can be two
+              // colours. Both used to render as "P&L at expiry", so a single
+              // point showed that label TWICE with different numbers (the MRVL
+              // report: £717 and £0) and read as a contradiction. One curve, two
+              // halves — name them accordingly.
+              formatter={(v: number, name: string) => [
+                `£${fmt(v)}`,
+                name === "now" ? "P&L now (T+0)"
+                  : name === "gain" ? "profit at expiry"
+                  : "loss at expiry",
+              ]}
               labelFormatter={(v) => `underlying $${v}`}
             />
             <ReferenceLine y={0} stroke="var(--text-muted)" />

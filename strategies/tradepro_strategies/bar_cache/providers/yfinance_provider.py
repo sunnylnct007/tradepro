@@ -20,6 +20,7 @@ are the reason the trustworthy-data roadmap exists.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -184,11 +185,47 @@ class YFinanceProvider(Provider):
         return result.sort_index()
 
     @staticmethod
+    def _session():
+        """A yfinance session with a REAL timeout.
+
+        Without one, `ticker.history()` blocks on a socket read that has no
+        deadline. On 15 Aug 2026 the identical omission in the OPTION-CHAIN
+        fetcher (`quant_engine/options/chains.py`) turned a single day's
+        options-screen run into 2h50m while Yahoo rate-limited this machine.
+        This is the same bug in the BAR path, and it is what stopped the 5-minute
+        harvest: it started 2026-08-16T10:17:54Z, never printed a completion
+        line, and never reported to run_log — so the Data screen showed the lane
+        as broken while the job was simply hanging.
+
+        A fallback with no time bound is not a fallback, it is a hang.
+        """
+        cached = getattr(YFinanceProvider, "_YF_SESSION", None)
+        if cached is not None:
+            return cached
+        timeout = float(os.environ.get("TRADEPRO_YF_TIMEOUT_S", "8"))
+        sess = None
+        try:
+            from curl_cffi import requests as _cr
+            sess = _cr.Session(timeout=timeout)
+        except Exception:  # noqa: BLE001 — no session beats no bars
+            try:
+                import functools
+                import requests as _rq
+                s = _rq.Session()
+                s.request = functools.partial(s.request, timeout=timeout)  # type: ignore[method-assign]
+                sess = s
+            except Exception:  # noqa: BLE001
+                sess = None
+        YFinanceProvider._YF_SESSION = sess
+        return sess
+
+    @staticmethod
     def _call_yfinance_single(
         yf: Any, symbol: str, interval: str, start: datetime, end: datetime
     ) -> pd.DataFrame:
         try:
-            ticker = yf.Ticker(symbol)
+            sess = YFinanceProvider._session()
+            ticker = yf.Ticker(symbol, session=sess) if sess is not None else yf.Ticker(symbol)
             df = ticker.history(
                 interval=interval,
                 start=start,

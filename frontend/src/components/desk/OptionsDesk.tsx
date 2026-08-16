@@ -38,7 +38,20 @@ interface Candidate {
   suggested_strike: number | null;
   suggested_delta: number | null;
   suggested_premium: number | null;
-  premium_source?: "live_mid" | "prev_close_indicative" | null;
+  premium_source?: "live_mid" | "prev_close_indicative" | "carried_last_live" | null;
+  premium_age_h?: number | null;   // how old a CARRIED premium is, in hours
+  // TIER_SHORT (SPEC §1) — attempted ONLY when the standard ~35 DTE band would
+  // hold through an earnings print. It ships to the live desk and was never
+  // rendered here, so its verdict (usually a REASON IT DIDN'T FIRE) was
+  // invisible: 15 Aug had 7 attempts and 0 candidates, and nothing said so.
+  short_tier?: {
+    status: string;
+    detail?: string;
+    strike?: number | null;
+    premium?: number | null;
+    dte?: number | null;
+    eligible?: boolean;
+  } | null;
   dte?: number | null;
   annualized_yield_pct?: number | null;  // ranking metric
   is_best?: boolean;                      // the single best eligible CSP
@@ -265,6 +278,12 @@ export function OptionsDesk() {
   const eligible = cands.filter((c) => c.eligible);
   const best = cands.find((c) => c.is_best) ?? null;
   const open = positions.filter((p) => p.state !== "CLOSED");
+  // Names where we actually HOLD STOCK. Only ASSIGNED and COVERED_CALL_OPEN
+  // qualify: an open SHORT_PUT is the obligation to buy, not the shares, and a
+  // covered call written against it would be a naked call.
+  const shareSymbols = positions
+    .filter((p) => p.state === "ASSIGNED" || p.state === "COVERED_CALL_OPEN")
+    .map((p) => p.symbol);
   const realised = positions.reduce((s, p) => s + (p.realised_pnl_gbp ?? 0), 0);
 
   return (
@@ -340,6 +359,20 @@ export function OptionsDesk() {
                 <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b", background: c.is_best ? `${TONE.ok}12` : undefined }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
                     {c.is_best && <span title="best eligible CSP right now" style={{ marginRight: 5 }}>⭐</span>}{c.symbol}
+                    {/* Short-dated tier verdict. Only present when earnings
+                        conflict with the standard band — and usually it is a
+                        REASON IT DIDN'T FIRE, which is exactly the thing worth
+                        showing rather than hiding. */}
+                    {c.short_tier && (
+                      <span
+                        title={`SHORT-DATED TIER (7-21 DTE, earnings avoidance)\n\n${c.short_tier.status}\n${c.short_tier.detail ?? ""}\n\nThis tier is attempted only when the standard ~35 DTE expiry would hold through an earnings print. A status other than a live suggestion means it could NOT find a safe short-dated alternative — the name simply stays blocked on earnings.`}
+                        style={{ display: "block", marginTop: 2, fontSize: 9, fontWeight: 600,
+                                 cursor: "help",
+                                 color: c.short_tier.eligible ? TONE.ok : TONE.dim }}
+                      >
+                        {c.short_tier.eligible ? "◆ SHORT-DATED" : `◇ short: ${c.short_tier.status.replace(/_/g, " ")}`}
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: "8px 10px" }}>
                     <ProvenanceCell prov={c.provenance} />
@@ -378,12 +411,24 @@ export function OptionsDesk() {
                     {c.suggested_strike != null ? (
                       <span>
                         {`$${c.suggested_strike} · Δ${(c.suggested_delta ?? 0).toFixed(2)}${c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)}` : ""}`}
-                        {c.premium_source === "prev_close_indicative" && (
+                        {/* EVERY pricing state gets a badge, not just one. The
+                            15 Aug board was 55 prev-close, 19 CARRIED and only
+                            8 live — and `carried_last_live`, the stalest of the
+                            three, rendered with no label at all, so a number
+                            hours old looked identical to a live quote. */}
+                        {c.premium_source && c.premium_source !== "live_mid" && (
                           <span
-                            title="Options have no pre-market session — this premium is the PRIOR session's close (IBKR field 7741), shown as the last available value. Indicative only; live quotes take over at the US open."
+                            title={c.premium_source === "prev_close_indicative"
+                              ? "Options have no pre-market session — this premium is the PRIOR session's close (IBKR field 7741), shown as the last available value. Indicative only; live quotes take over at the US open."
+                              : `Pricing CARRIED WHOLESALE from the last screen that had live quotes${c.premium_age_h != null ? ` — ${c.premium_age_h}h old` : ""}. Strike, premium, OI and spread all belong to that earlier snapshot, so nothing is grafted across moments. Hard-blocked from eligibility: informative, never actionable.`}
                             style={{ marginLeft: 4, fontSize: 9, padding: "1px 4px", borderRadius: 4,
-                                     border: `1px solid ${TONE.warn}`, color: TONE.warn }}
-                          >prev close</span>
+                                     border: `1px solid ${c.premium_source === "carried_last_live" ? TONE.bad : TONE.warn}`,
+                                     color: c.premium_source === "carried_last_live" ? TONE.bad : TONE.warn }}
+                          >
+                            {c.premium_source === "prev_close_indicative"
+                              ? "prev close"
+                              : `carried${c.premium_age_h != null ? ` ${c.premium_age_h}h` : ""}`}
+                          </span>
                         )}
                         {c.forward_price != null && (
                           <span
@@ -491,7 +536,7 @@ export function OptionsDesk() {
                       style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6,
                                color: "var(--text-dim)", padding: "4px 10px", cursor: "pointer", fontSize: 13 }}>✕</button>
             </div>
-            <OptionsPayoff seed={seed} onPlace={placeFromExplorer} placing={busy} chartHeight={430} />
+            <OptionsPayoff seed={seed} onPlace={placeFromExplorer} placing={busy} chartHeight={430} shareSymbols={shareSymbols} />
           </div>
         </div>
       )}
@@ -499,7 +544,7 @@ export function OptionsDesk() {
       {/* ── Payoff explorer (manual entry) ─────────────────────── */}
       <div id="options-payoff" style={{ marginBottom: 18 }}>
         <SectionTitle>Payoff explorer — max gain / loss / breakeven · place a paper trade</SectionTitle>
-        <OptionsPayoff onPlace={placeFromExplorer} placing={busy} />
+        <OptionsPayoff onPlace={placeFromExplorer} placing={busy} shareSymbols={shareSymbols} />
       </div>
 
       {/* ── Position watchdog ──────────────────────────────────── */}
