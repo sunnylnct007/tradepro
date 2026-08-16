@@ -171,13 +171,21 @@ export function OptionsPayoff({ seed, onPlace, placing, chartHeight = 240, share
         <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 6, fontSize: 12,
                       border: "1px solid var(--warn)", color: "var(--warn)",
                       background: "color-mix(in srgb, var(--warn) 10%, transparent)" }}>
-          <b>You do not hold {symbol} shares.</b> A covered call requires owning 100 shares per
-          contract — in the wheel you only get there after a cash-secured put is <i>assigned</i>.
+          <b>The PAPER LEDGER shows no {symbol} shares.</b> A covered call requires owning
+          100 shares per contract — sold without them it is a <b>naked call</b>, unbounded
+          loss, and not what this payoff draws.
           {shareSymbols.length > 0
-            ? <> Shares held right now: <b>{shareSymbols.join(", ")}</b>.</>
-            : <> The ledger shows no assigned stock in any name, so this is modelling only.</>}
-          {" "}Sold without the stock this is a <b>naked call</b> — unbounded loss, and not what
-          this payoff draws.
+            ? <> Recorded here: <b>{shareSymbols.join(", ")}</b>.</>
+            : <> Nothing is recorded here as assigned.</>}
+          {" "}
+          {/* Corrected 16 Aug 2026: this used to assert "you do not hold X" as
+              fact. It reads the PAPER LEDGER, and the ledger is not the book —
+              the live IBKR account that day held 100 APLD and 100 PG with calls
+              already written against both, none of it recorded here. Asserting
+              a broker fact from a paper record is exactly the false-positive
+              class the standing rule forbids. */}
+          <b>This reflects the paper ledger, not your broker account</b> — if you hold the
+          shares there, this warning does not apply.
         </div>
       )}
 

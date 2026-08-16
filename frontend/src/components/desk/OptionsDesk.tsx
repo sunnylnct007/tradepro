@@ -564,6 +564,25 @@ export function OptionsDesk() {
             )}
           </SectionTitle>
           {watchdogErr && <div style={{ color: TONE.bad, padding: "8px 0" }}>Watchdog unavailable: {watchdogErr}</div>}
+          {/* SCOPE, STATED (16 Aug 2026). This watches `options_paper_position`
+              — the PAPER LEDGER — not the broker. Owner's standing rule is
+              "broker is golden source for positions; never trust the OMS for
+              'do we own X'", and the owner has decided NOT to wire live
+              positions into this platform for now. That decision is fine; what
+              is not fine is a panel that shows one position and reads as a
+              complete book. Verified against the live IBKR account the same
+              day: SIX open option positions existed, the ledger held ONE. So
+              the panel must never imply completeness. */}
+          <div style={{
+            fontSize: 11, color: TONE.warn, border: `1px solid ${TONE.warn}55`,
+            background: `${TONE.warn}12`, borderRadius: 6, padding: "6px 10px",
+            margin: "6px 0 10px",
+          }}>
+            <b>PAPER LEDGER ONLY</b> — this watches positions recorded here, not your
+            broker account. Live positions you hold elsewhere are <b>not monitored</b>:
+            no expiry clock, no assignment warning. Treat this as a record of what was
+            recorded, never as your book.
+          </div>
           {watchdog && watchdog.positions.length > 0 && (
             <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
