@@ -252,10 +252,25 @@ export function HarvestView() {
     let live = true;
     const load = () => {
       api.barCacheHealth()
-        .then((r) => {
+        .then(async (r) => {
           if (!live) return;
-          setRows(r.health || []);
           setAvailableRes(r.available || []);
+          // FALL BACK RATHER THAN SHOW NOTHING. After migration 064 the health
+          // table can legitimately hold no 1d rows until the next 21:30
+          // harvest, and rendering an empty table reads as "all the daily data
+          // vanished" — a false alarm dressed as a fact. If the default lane is
+          // empty but another has rows, show that one and SAY which.
+          if ((r.health || []).length === 0 && (r.available || []).length > 0) {
+            const alt = (r.available || []).find((x) => x !== r.resolution);
+            if (alt) {
+              const r2 = await api.barCacheHealth({ resolution: alt });
+              if (!live) return;
+              setRows(r2.health || []);
+              setErr(null);
+              return;
+            }
+          }
+          setRows(r.health || []);
           setErr(null);
         })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })

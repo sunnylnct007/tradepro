@@ -393,6 +393,30 @@ def main() -> int:
             })
         except BarFetchError as exc:
             fail_count += 1
+            # "MISSING" MUST MEAN "NO DATA", NOT "THIS FETCH FAILED".
+            #
+            # 16 Aug 2026, the THIRD instance of this exact conflation (after
+            # cache→bronze, and provider_used="cache" in bars_provenance): a
+            # maintenance re-source hit transient IBKR errors on 104 symbols and
+            # the Data screen announced "104 of 251 symbols have NO data" — while
+            # every one of those symbols had a full cached history on disk. A
+            # failed fetch says something about the RUN; it says nothing about
+            # the data. Grade on what is actually on disk.
+            _cached = None
+            try:
+                _cached = store.get(
+                    canonical=symbol, asset_class=args.asset,
+                    resolution=args.resolution, start=from_date, end=to_date,
+                    allow_partial=True, fetched_by="harvest-fallback-read",
+                )
+            except Exception:  # noqa: BLE001 — genuinely nothing there
+                _cached = None
+            if _cached is not None and _cached.df is not None and not _cached.df.empty:
+                _t = _quality_tier("cache", _cached.coverage_complete, _cached.df)
+                quality_counts[_t] += 1
+                print(f"  ! {symbol:<8s} fetch failed ({exc.error_class}) — "
+                      f"KEEPING {_cached.rows_returned} cached bars [{_t}]")
+                continue
             quality_counts["missing"] += 1
             # Be explicit: IBKR-only mode means "PENDING — open TWS to fill".
             #
