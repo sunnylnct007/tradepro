@@ -140,16 +140,41 @@ def _yf_session():
     return _YF_SESSION
 
 
+def fetch_chain_result(symbol: str, target_dte: int = 45, *,
+                       pricer: BlackScholesPricer | None = None
+                       ) -> "tuple[OptionChain | None, str]":
+    """As `fetch_chain`, but also returns WHY it failed.
+
+    `fetch_chain` returns None for every failure, which conflates two very
+    different things: "Yahoo is rate-limiting us, back off and try later" and
+    "this symbol has no chain". A paced capture job cannot back off correctly
+    without telling them apart — mine counted rate limits as ordinary failures
+    and so never slowed down, which is exactly how the limit is earned.
+
+    Returns (chain, reason) where reason is 'ok' | 'rate_limited' |
+    'no_expiries' | 'error' | 'no_yfinance'.
+    """
+    global _LAST_FAIL_KIND
+    _LAST_FAIL_KIND = "ok"
+    chain = fetch_chain(symbol, target_dte, pricer=pricer)
+    return chain, ("ok" if chain is not None else _LAST_FAIL_KIND)
+
+
+_LAST_FAIL_KIND = "ok"
+
+
 def fetch_chain(symbol: str, target_dte: int = 45, *, pricer: BlackScholesPricer | None = None) -> OptionChain | None:
     """yfinance adapter: pick the expiry nearest `target_dte` and return a
     normalised OptionChain. Fills a missing/zero IV by solving Black-Scholes
     from the mid so delta selection still works. Best-effort: returns None
     if the chain can't be read (no network / delisted / rate-limited) — but
     it now says WHY at WARNING level instead of returning None in silence."""
+    global _LAST_FAIL_KIND
     try:
         import yfinance as yf
     except ImportError:
         _log.warning("%s: yfinance not installed — no fallback chain", symbol)
+        _LAST_FAIL_KIND = "no_yfinance"
         return None
     pricer = pricer or BlackScholesPricer()
     _t0 = _time.monotonic()
@@ -158,6 +183,7 @@ def fetch_chain(symbol: str, target_dte: int = 45, *, pricer: BlackScholesPricer
         tk = yf.Ticker(symbol, session=_sess) if _sess is not None else yf.Ticker(symbol)
         exps = tk.options
         if not exps:
+            _LAST_FAIL_KIND = "no_expiries"
             return None
         today = _dt.date.today()
         def dte(e: str) -> int:
@@ -205,6 +231,7 @@ def fetch_chain(symbol: str, target_dte: int = 45, *, pricer: BlackScholesPricer
         # to answer us". Those must never read the same on a trading board.
         _name = type(exc).__name__
         _rate_limited = "RateLimit" in _name or "Too Many Requests" in str(exc)
+        _LAST_FAIL_KIND = "rate_limited" if _rate_limited else "error"
         _log.warning(
             "%s: yfinance chain fetch FAILED after %.1fs — %s: %s%s",
             symbol, _time.monotonic() - _t0, _name, str(exc)[:160],
