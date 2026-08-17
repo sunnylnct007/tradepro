@@ -112,8 +112,41 @@ fi
 # Run harvest.
 # ---------------------------------------------------------------------------
 if [[ $EC2_REACHABLE -eq 1 ]]; then
+
+# ---------------------------------------------------------------------------
+# WALL-CLOCK GUARD (17 Aug 2026)
+#
+# A stalled run used to block its OWN SCHEDULE indefinitely: launchd will not
+# start a new instance while the previous one is alive, so one hung harvest
+# took the 5-minute lane down for NINE HOURS and the Data screen reported
+# "has not run for 9h" while a process from the night before was still sitting
+# on a socket. The cause that night was IBKR session contention — two jobs
+# competing for the single OAuth session, each waiting on the other.
+#
+# `timeout(1)` is NOT present on stock macOS, so this is done by hand: run in
+# background, poll to a deadline, then TERM and finally KILL. A harvest that
+# cannot finish in the budget is far less harmful than one that never ends.
+run_with_deadline() {
+    local budget="${TRADEPRO_HARVEST_MAX_SECONDS:-3600}"
+    "$@" &
+    local pid=$!
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ "$waited" -ge "$budget" ]]; then
+            log "DEADLINE: harvest exceeded ${budget}s — terminating pid $pid so the next scheduled run is not blocked"
+            kill -TERM "$pid" 2>/dev/null
+            sleep 10
+            kill -0 "$pid" 2>/dev/null && { log "escalating to SIGKILL"; kill -9 "$pid" 2>/dev/null; }
+            return 124
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+    wait "$pid"
+}
+
     log "Running tradepro-bar-cache-harvest (with backend telemetry) args: $* ${WINDOW_ARGS[*]:-} ${SYMBOL_ARGS[*]:-}"
-    exec "$UV" run tradepro-bar-cache-harvest "$@" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} ${SYMBOL_ARGS[@]+"${SYMBOL_ARGS[@]}"} >>"$LOG_FILE" 2>&1
+    run_with_deadline "$UV" run tradepro-bar-cache-harvest "$@" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} ${SYMBOL_ARGS[@]+"${SYMBOL_ARGS[@]}"} >>"$LOG_FILE" 2>&1
 else
     log "EC2 unreachable — harvesting locally only, telemetry skipped"
     # Pass all args EXCEPT any existing --api-base / --api-url flags the
@@ -138,5 +171,5 @@ else
                 ;;
         esac
     done
-    exec "$UV" run tradepro-bar-cache-harvest "${FILTERED_ARGS[@]}" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} ${SYMBOL_ARGS[@]+"${SYMBOL_ARGS[@]}"} >>"$LOG_FILE" 2>&1
+    run_with_deadline "$UV" run tradepro-bar-cache-harvest "${FILTERED_ARGS[@]}" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} ${SYMBOL_ARGS[@]+"${SYMBOL_ARGS[@]}"} >>"$LOG_FILE" 2>&1
 fi
