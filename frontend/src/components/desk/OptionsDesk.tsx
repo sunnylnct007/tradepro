@@ -938,6 +938,13 @@ function ProvenanceCell({ prov }: { prov: Candidate["provenance"] }) {
       </span>
     );
   }
+  // A single worst-grade word does NOT discriminate. On 17 Aug every one of 82
+  // rows read "MISSING", because open interest and dividend yield are dark
+  // universe-wide — so the column cost a table width and told the reader
+  // nothing about which row was worse than which. Show WHICH inputs are dark
+  // and HOW MANY, so two rows with different gaps look different.
+  const dark = prov.inputs.filter((i) => i.trust === "unavailable");
+  const weak = prov.inputs.filter((i) => i.trust === "fallback" || i.trust === "carried");
   const tone = PROV_TONE[prov.worst] ?? TONE.bad;
   // The hover ledger IS the explainer (house rule: every metric needs one).
   const ledger = prov.inputs
@@ -959,10 +966,23 @@ function ProvenanceCell({ prov }: { prov: Candidate["provenance"] }) {
       }}
     >
       <span style={{ width: 6, height: 6, borderRadius: 999, background: tone, flex: "0 0 auto" }} />
-      {PROV_WORD[prov.worst] ?? "?"}
+      {/* Name the dark inputs rather than repeating one word on every row.
+          "MISSING" told the reader nothing when all 82 rows said it; "OI, div"
+          says exactly what this row is missing and lets two rows differ. */}
+      {dark.length
+        ? `no ${dark.map((i) => SHORT_INPUT[i.input] ?? i.input).join(", ")}`
+        : weak.length
+          ? `${PROV_WORD[prov.worst]} ${weak.map((i) => SHORT_INPUT[i.input] ?? i.input).join(", ")}`
+          : PROV_WORD[prov.worst] ?? "?"}
     </span>
   );
 }
+
+// Compact labels for the Data pill — the full names are in the hover ledger.
+const SHORT_INPUT: Record<string, string> = {
+  bars: "bars", spot: "spot", premium: "premium", iv: "IV",
+  open_interest: "OI", div_yield: "div", earnings: "earnings",
+};
 
 function IvGauge({ rank }: { rank: number | null }) {
   if (rank == null) return <span style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>;
