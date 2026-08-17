@@ -611,13 +611,43 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
 
   // Fail-loud staleness: if the LAST bar isn't current, SAY it on the chart —
   // never let stale candles read as live (the GOOGL case: daily 2 sessions
-  // behind through a -7% gap, drawn as if it were the market now). Daily
-  // tolerates a weekend (3 calendar days); intraday must be same-day.
+  // behind through a -7% gap, drawn as if it were the market now).
+  //
+  // MEASURED IN SESSIONS, NOT CALENDAR DAYS (fixed 17 Aug 2026). The old check
+  // used a 3-calendar-day tolerance, so on Monday — with Friday's close being
+  // the LATEST SETTLED DAILY BAR THAT CAN EXIST — it fired "STALE DATA … 3 days
+  // old. Do not trade off this chart." That is a false alarm on the single most
+  // consequential message this component prints, and it is the FOURTH instance
+  // of the same underlying mistake this weekend (readiness lanes, the
+  // dead-process check, the bar-cache warnings, now this): a freshness test that
+  // does not know the market is shut at weekends will cry wolf every Monday, and
+  // an alarm that cries wolf is worse than no alarm.
   const _lastCandle = series?.candles?.[(series?.candles?.length ?? 0) - 1];
   const _lastMs = _lastCandle ? Date.parse(String(_lastCandle.timestamp).replace(" ", "T")) : NaN;
   const _ageDays = Number.isFinite(_lastMs) ? (Date.now() - _lastMs) / 86_400_000 : null;
-  const _staleAfterDays = resolution === "1d" ? 3 : 1;
-  const isStale = _ageDays !== null && _ageDays > _staleAfterDays;
+  // Count only weekdays between the last bar and now — a Sat/Sun gap is not
+  // staleness, it is the calendar. (US holidays are not modelled; a holiday
+  // Monday will read one session behind, which is the safe direction.)
+  const _sessionsBehind = (() => {
+    if (!Number.isFinite(_lastMs)) return null;
+    let n = 0;
+    const cur = new Date(_lastMs);
+    cur.setUTCHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    while (cur < today) {
+      cur.setUTCDate(cur.getUTCDate() + 1);
+      const d = cur.getUTCDay();
+      if (d !== 0 && d !== 6) n += 1;
+    }
+    return n;
+  })();
+  // Daily: one session behind is NORMAL — today's bar does not settle until the
+  // close. Two or more means a genuinely missed harvest. Intraday must be
+  // same-day.
+  const isStale = resolution === "1d"
+    ? (_sessionsBehind !== null && _sessionsBehind >= 2)
+    : (_ageDays !== null && _ageDays > 1);
   const lastBarDate = _lastCandle ? String(_lastCandle.timestamp).slice(0, 10) : "";
 
   return (
@@ -719,7 +749,10 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
           fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(239,68,68,0.85)",
           border: "1px solid #ef4444", borderRadius: 5, padding: "4px 9px", marginBottom: 4,
         }}>
-          ⚠ STALE DATA — last {resolution} bar is {lastBarDate} ({Math.floor(_ageDays as number)} days old).
+          ⚠ STALE DATA — last {resolution} bar is {lastBarDate}
+          {resolution === "1d"
+            ? ` (${_sessionsBehind} trading sessions behind)`
+            : ` (${Math.floor(_ageDays as number)} days old)`}.
           The latest price/move is NOT shown here. Do not trade off this chart.
         </div>
       )}
