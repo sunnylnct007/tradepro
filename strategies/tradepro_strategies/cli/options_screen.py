@@ -1662,7 +1662,31 @@ def screen_data_health(rows: list[dict], market_open: bool) -> dict:
     # dark fields: off-hours, IBKR still serves the last session's snapshot.
     # Gaps are graded as DATA problems to chase, never waved off as "closed".
     degraded = (iv_dark > n * 0.2) or (no_premium > n * 0.3) or (no_chain > n * 0.2)
+
     reasons = []
+    # NAME THE LIKELY CAUSE WHEN THE MARKET-DATA SESSION IS GONE.
+    #
+    # IBKR grants ONE market-data session per account. When the owner opens the
+    # IBKR portal or TWS — or another client does, including an MCP connector on
+    # the same account — the desk keeps its AUTH but silently loses live quotes:
+    # contracts still resolve, prices do not. The board then falls back to
+    # carried premiums and, until 18 Aug 2026, said nothing about why.
+    #
+    # The signature is unambiguous and worth stating rather than leaving the
+    # reader to infer it: chains RESOLVE (so auth and reference data are fine)
+    # while almost nothing carries a live price.
+    carried = sum(1 for r in rows if r.get("premium_source") == "carried_last_live")
+    chains_ok = sum(1 for r in rows if r.get("chain_source"))
+    md_session_lost = (n >= 10 and chains_ok > n * 0.5 and carried > n * 0.7)
+    if md_session_lost:
+        degraded = True
+        reasons.append(
+            f"MARKET-DATA SESSION UNAVAILABLE — {chains_ok}/{len(rows)} chains RESOLVED "
+            f"(so IBKR auth and contract data are fine) but {carried}/{len(rows)} rows have "
+            f"no live price and fell back to carried quotes. IBKR allows ONE market-data "
+            f"session per account: the usual cause is the IBKR portal, TWS, or another "
+            f"client (including an MCP connector) holding it. Close those and re-run, or "
+            f"give the desk its own IBKR user. Prices below are NOT live")
     if iv_dark:
         reasons.append(f"{iv_dark}/{len(rows)} symbols have NO vega-edge data (IV snapshot dark)")
     if no_chain:
