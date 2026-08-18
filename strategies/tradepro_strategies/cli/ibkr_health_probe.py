@@ -51,7 +51,20 @@ def main() -> int:
                     f"{base}/api/integrations/ibkr/quote?symbol=SPY&fields=31,7283",
                     headers=headers, timeout=45)
                 snap = (r.json() or {}).get("snapshot") or {}
-                if snap.get("31") is not None or snap.get("7283") is not None:
+                # "N/A" IS NOT A QUOTE (fixed 18 Aug 2026). IBKR returns the
+                # literal STRING "N/A" for a field it cannot serve, and
+                # `"N/A" is not None` is True — so this probe reported
+                # "ok — auth + live snapshot" for an entire trading day while
+                # every symbol's last price was dark and the wheel board ran
+                # 100% on carried prices. A health check that accepts the
+                # provider's own word for "I don't have this" is worse than no
+                # health check: it actively certifies the outage as healthy.
+                def _real(v):
+                    if v is None:
+                        return False
+                    sv = str(v).strip().upper()
+                    return sv not in ("", "N/A", "NA", "-", "NONE")
+                if _real(snap.get("31")) or _real(snap.get("7283")):
                     quote_ok = True
                     break
             except Exception as exc:  # noqa: BLE001
