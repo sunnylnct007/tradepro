@@ -131,6 +131,31 @@ export const api = {
    * harvester → ibkr_price_bars) — separate from the legacy yfinance bar_cache.
    * Surfaces enabled/ticks/IBKR-vs-Yahoo split/backfill so IBKR harvesting is
    * visible on the Data Health screen. */
+  /** Live market-data probe. IBKR grants ONE market-data session per account,
+   *  so opening the IBKR portal or TWS silently takes it from the desk: auth
+   *  stays valid, contracts still resolve, prices go dark. This lets the UI
+   *  say so and offer a retry once the portal is closed.
+   *
+   *  NOTE the "N/A" handling — IBKR returns that literal STRING for a field it
+   *  cannot serve, and treating it as a value is exactly how the health probe
+   *  certified a full-day outage as healthy (18 Aug 2026). */
+  ibkrMarketDataCheck: async (symbol = "SPY") => {
+    const snap = await get<{ snapshot?: Record<string, unknown> }>(
+      "/api/integrations/ibkr/quote", { symbol, fields: "31,7283,6509" });
+    const s = snap?.snapshot ?? {};
+    const real = (v: unknown) => {
+      if (v === null || v === undefined) return false;
+      const t = String(v).trim().toUpperCase();
+      return t !== "" && t !== "N/A" && t !== "NA" && t !== "-" && t !== "NONE";
+    };
+    return {
+      live: real(s["31"]) || real(s["7283"]),
+      last: real(s["31"]) ? String(s["31"]) : null,
+      availability: real(s["6509"]) ? String(s["6509"]) : null,
+      symbol,
+    };
+  },
+
   ibkrHarvesterStatus: () =>
     get<{
       enabled: boolean;

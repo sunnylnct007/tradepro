@@ -288,6 +288,7 @@ export function OptionsDesk() {
 
   return (
     <div style={{ padding: "8px 4px" }}>
+      <MarketDataBanner />
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}>Options Desk — the Wheel</div>
         <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 2 }}>
@@ -894,6 +895,66 @@ function BestPick({ best, onAnalyze, onRecord, busy }: { best: Candidate | null;
         <button onClick={() => onAnalyze(best)} style={btnStyle(true, TONE.line)}>Analyze</button>
         <button disabled={busy || best.suggested_strike == null} onClick={() => onRecord(best)} style={btnStyle(best.suggested_strike != null)}>Record CSP</button>
       </div>
+    </div>
+  );
+}
+
+/** Market-data session banner.
+ *
+ * IBKR grants ONE market-data session per account. Opening the IBKR portal or
+ * TWS — or another client on the same account, including an MCP connector —
+ * silently takes it: auth stays valid, contracts still resolve, prices go dark
+ * and the board falls back to carried premiums. That cost a full trading day of
+ * investigation before anything on screen said so (18 Aug 2026).
+ *
+ * The owner NEEDS the portal, so the answer is not "don't use it" — it is to
+ * make the state visible and give a one-click recheck for after they close it.
+ */
+function MarketDataBanner() {
+  const [state, setState] = useState<{ live: boolean; last: string | null; availability: string | null } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const check = useCallback(() => {
+    setChecking(true);
+    api.ibkrMarketDataCheck("SPY")
+      .then((r) => { setState(r); setErr(null); })
+      .catch((e) => setErr(String((e as Error)?.message || e)))
+      .finally(() => setChecking(false));
+  }, []);
+
+  useEffect(() => { check(); }, [check]);
+
+  if (!state && !err) return null;
+  const live = state?.live === true;
+  if (live) {
+    return (
+      <div style={{ fontSize: 11, color: TONE.ok, marginBottom: 8 }}>
+        ● IBKR market data LIVE{state?.last ? ` — SPY ${state.last}` : ""}
+        {state?.availability ? ` (${state.availability})` : ""}
+      </div>
+    );
+  }
+  return (
+    <div style={{
+      border: `1px solid ${TONE.bad}`, background: `${TONE.bad}14`, borderRadius: 8,
+      padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "var(--text)",
+    }}>
+      <div style={{ fontWeight: 700, color: TONE.bad, marginBottom: 4 }}>
+        ⛔ IBKR market data is DARK — prices below are NOT live
+      </div>
+      <div style={{ color: "var(--text-dim)", lineHeight: 1.5 }}>
+        Auth is fine and contracts still resolve — it is the market-data session that is
+        missing. IBKR allows <b>one per account</b>, and the usual cause is the
+        <b> IBKR portal or TWS being open</b> (or another client on the same account).
+        Close it, then press Recheck. Until then every premium on this board is a
+        <b> carried</b> quote from an earlier moment.
+        {err ? <> <span style={{ color: TONE.bad }}>Probe error: {err}</span></> : null}
+      </div>
+      <button onClick={check} disabled={checking}
+        style={{ ...btnStyle(!checking, TONE.ok), marginTop: 8 }}>
+        {checking ? "Checking…" : "Recheck market data"}
+      </button>
     </div>
   );
 }
