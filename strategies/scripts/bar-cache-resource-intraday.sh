@@ -74,14 +74,34 @@ if [[ -z "$SYMBOLS" ]]; then
     exit 0
 fi
 
+# DEADLINE. The wall-clock guard added to bar-cache-harvest.sh does NOT cover
+# this script — it invokes the module directly. Consequence, found 18 Aug: the
+# 22:30 re-source was still running FOURTEEN HOURS later at 12:30 the next day,
+# holding the single IBKR OAuth session straight through the following market
+# open. A background job with no deadline is not patient, it is stuck.
+run_bounded() {
+    local budget="${TRADEPRO_RESOURCE_MAX_SECONDS:-5400}"
+    "$@" >>"$LOG_FILE" 2>&1 &
+    local pid=$! waited=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ "$waited" -ge "$budget" ]]; then
+            log "DEADLINE: exceeded ${budget}s — terminating pid $pid so it cannot hold the IBKR session into the next session"
+            kill -TERM "$pid" 2>/dev/null; sleep 10
+            kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+            return 124
+        fi
+        sleep 10; waited=$((waited + 10))
+    done
+    wait "$pid"
+}
+
 for RES in 5m 1m; do
     log "re-sourcing $RES from IBKR: $FROM_DATE → $TO_DATE"
-    "$PY" -m tradepro_strategies.cli.bar_cache_harvest \
+    run_bounded "$PY" -m tradepro_strategies.cli.bar_cache_harvest \
         --resolution "$RES" --asset us_etf \
         --symbols "$SYMBOLS" \
         --from "$FROM_DATE" --to "$TO_DATE" \
-        --ibkr-only --force-refresh --allow-partial \
-        >>"$LOG_FILE" 2>&1
+        --ibkr-only --force-refresh --allow-partial
     log "$RES done rc=$?"
 done
 
