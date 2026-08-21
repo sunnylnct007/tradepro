@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
@@ -26,6 +27,17 @@ namespace TradePro.Api.Providers.IBKR;
 /// </summary>
 public sealed class IBKRClient
 {
+    // symbol|secType → conid. Conids are stable for the life of a listing, yet
+    // before this cache EVERY price-history/quote/snapshot call re-ran
+    // /iserver/secdef/search — measured 21 Aug 2026 as ~half of ALL IBKR
+    // traffic (~200k requests/day system-wide), the pacing budget the options
+    // screen then starved behind. Static because the typed HttpClient makes
+    // this class transient; process-lifetime is the safety valve (an API
+    // restart clears it after a corporate action re-plumbs a listing).
+    // Positive results only — a transient search failure must not poison it.
+    // Order placement deliberately bypasses this cache (real-money path).
+    private static readonly ConcurrentDictionary<string, long> _conidCache = new();
+
     private readonly HttpClient _http;
     private readonly IBKROptions _options;
     private readonly IBKRSessionCache _session;
@@ -497,9 +509,13 @@ public sealed class IBKRClient
             return new IBKRHistoryResult(Array.Empty<IBKRBar>(), null, "empty symbol", 0);
         try
         {
-            // 1) symbol → conid (secdef/search, best-first, STK).
+            // 1) symbol → conid (cached; secdef/search best-first STK on miss).
             long conid;
-            using (var searchResp = await SendWithAuthAsync(
+            if (_conidCache.TryGetValue($"{sym}|STK", out var cached))
+            {
+                conid = cached;
+            }
+            else using (var searchResp = await SendWithAuthAsync(
                 HttpMethod.Get,
                 $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(sym)}&secType=STK",
                 null, ct))
@@ -513,6 +529,7 @@ public sealed class IBKRClient
                     return new IBKRHistoryResult(Array.Empty<IBKRBar>(), null,
                         $"no IBKR contract for {sym}", (int)searchResp.StatusCode);
                 conid = resolved.Value;
+                _conidCache[$"{sym}|STK"] = conid;
             }
 
             // 2) conid → OHLCV history. startTime (YYYYMMDD-HH:mm:ss) anchors the
@@ -914,7 +931,10 @@ public sealed class IBKRClient
     {
         if (!_options.AllowOrders)
             return new IBKROrderResult(null, "REJECTED", "IBKR order placement disabled (read-only)", 0);
-        var conid = await ResolveConidAsync(symbol, secType, ct);
+        // Orders resolve FRESH every time (useCache: false): a stale conid
+        // after a corporate action must surface as an IBKR-side reject on a
+        // fresh lookup, never as an order routed via a cached mapping.
+        var conid = await ResolveConidAsync(symbol, secType, ct, useCache: false);
         if (conid is null)
             return new IBKROrderResult(null, "REJECTED", $"no IBKR contract for {symbol} ({secType})", 0);
         return await PlaceMarketOrderConfirmedAsync(conid.Value, side, quantity, ct);
@@ -922,19 +942,28 @@ public sealed class IBKRClient
 
     /// <summary>symbol → conid via secdef/search (best-first match). Null when
     /// there's no match (caller FLAGS it — fail-loud). Shared helper so orders
-    /// and price-history resolve contracts the same way.</summary>
+    /// and price-history resolve contracts the same way. Cached process-wide
+    /// (see <c>_conidCache</c>); pass <paramref name="useCache"/>=false for
+    /// paths that must resolve fresh (order placement).</summary>
     public async Task<long?> ResolveConidAsync(
-        string symbol, string secType = "STK", CancellationToken ct = default)
+        string symbol, string secType = "STK", CancellationToken ct = default,
+        bool useCache = true)
     {
         var sym = (symbol ?? string.Empty).Trim().ToUpperInvariant();
         if (sym.Length == 0) return null;
+        var cacheKey = $"{sym}|{secType.Trim().ToUpperInvariant()}";
+        if (useCache && _conidCache.TryGetValue(cacheKey, out var cached))
+            return cached;
         using var searchResp = await SendWithAuthAsync(
             HttpMethod.Get,
             $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(sym)}&secType={Uri.EscapeDataString(secType)}",
             null, ct);
         if (!searchResp.IsSuccessStatusCode) return null;
         var searchText = await searchResp.Content.ReadAsStringAsync(ct);
-        return IBKRResponseParser.ParseConidSearch(searchText);
+        var resolved = IBKRResponseParser.ParseConidSearch(searchText);
+        if (resolved is not null)
+            _conidCache[cacheKey] = resolved.Value;
+        return resolved;
     }
 
     /// <summary>
