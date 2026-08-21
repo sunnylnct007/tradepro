@@ -39,6 +39,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import date as _date_cls
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -226,6 +227,7 @@ class BarStore:
         chain_log: list[str] = []
         provider_used = "cache"
         provider_versions: dict[str, Any] = {}
+        fetch_error: Optional[BarFetchError] = None
 
         t0 = time.perf_counter()
 
@@ -238,6 +240,7 @@ class BarStore:
             )
 
             need_fetch = force_refresh
+            delta_from: _date_cls | None = None
             if self._ensure_local(manifest_path):  # read-through: shared S3 store
                 try:
                     manifest = Manifest.read(manifest_path)
@@ -267,20 +270,68 @@ class BarStore:
                     continue   # this partition is fine; move on
                 else:
                     # Partition isn't fully complete for the month (e.g. it's
-                    # a live month with future sessions uncached). But if
-                    # every session the CALLER asked for is already in
-                    # actual_session_dates, treat it as a range cache hit —
-                    # no re-fetch needed.
+                    # a live month with future sessions uncached). Decide from
+                    # the manifest which sessions the CALLER asked for are
+                    # actually absent, and fetch ONLY those (delta), instead of
+                    # re-pulling the whole month. The whole-month re-fetch was
+                    # the harvest's dominant IBKR cost (5×7-day slices per
+                    # partition per symbol per run) AND, combined with the
+                    # replace-not-merge write path, produced the 21 Aug loop:
+                    # rate-limited partial month → shrink refused → nothing
+                    # written → next run re-pulls the whole month again.
                     if not force_refresh:
-                        requested = plugin.expected_session_dates(
-                            start_utc, end_utc,
-                        )
+                        # Sessions must be judged against THIS partition's
+                        # window, not the caller's full range — a request that
+                        # straddles a month boundary otherwise marks a fully
+                        # cached earlier month "incomplete" (its manifest can
+                        # never contain the other month's sessions) and
+                        # re-fetches it every run.
+                        p_start, p_end = self._partition_range(plugin, partition)
+                        # expected_session_dates is END-INCLUSIVE, but get()'s
+                        # range is half-open [start, end) — without this filter
+                        # the session sitting exactly on the end boundary
+                        # (harvest passes end=tomorrow) reads as "missing"
+                        # forever and the delta window degenerates.
+                        req_end = min(end_utc, p_end)
+                        requested = [
+                            d for d in plugin.expected_session_dates(
+                                max(start_utc, p_start), req_end,
+                            )
+                            if datetime(d.year, d.month, d.day,
+                                        tzinfo=timezone.utc) < req_end
+                        ]
                         actual_set = set(manifest.actual_session_dates)
-                        if requested and all(
-                            d.isoformat() in actual_set for d in requested
-                        ):
+                        missing = [
+                            d for d in requested
+                            if d.isoformat() not in actual_set
+                        ]
+                        cached_req = [
+                            d for d in requested if d.isoformat() in actual_set
+                        ]
+                        # A session counts as "present" the moment ONE bar for
+                        # it is on disk, so a live session harvested mid-day
+                        # would freeze at its first write. Detect that from
+                        # the manifest alone: if the total cached bar count is
+                        # below what the cached sessions should hold, the tail
+                        # session is short — re-fetch from it so intraday
+                        # top-ups keep flowing and session tails heal.
+                        short = False
+                        if manifest.actual_session_dates:
+                            expected_for_cached = sum(
+                                plugin.expected_bar_count(
+                                    resolution, _date_cls.fromisoformat(s),
+                                )
+                                for s in manifest.actual_session_dates
+                            )
+                            short = manifest.actual_bar_count < expected_for_cached
+                        if not missing and not short:
                             chain_log.append("cache_hit_range")
                             continue
+                        delta_dates = list(missing)
+                        if short and cached_req:
+                            delta_dates.append(max(cached_req))
+                        if delta_dates:
+                            delta_from = min(delta_dates)
                     need_fetch = True
                     chain_log.append("cache_incomplete")
             else:
@@ -293,20 +344,55 @@ class BarStore:
                 partition_start, partition_end = self._partition_range(
                     plugin, partition,
                 )
-                self._fetch_and_write(
-                    plugin=plugin,
-                    canonical=canonical,
-                    asset_class=asset_class,
-                    resolution=resolution,
-                    partition=partition,
-                    partition_start=partition_start,
-                    partition_end=partition_end,
-                    partition_path=partition_path,
-                    manifest_path=manifest_path,
-                    chain_log=chain_log,
-                    provider_versions=provider_versions,
-                    fetched_by=fetched_by,
-                )
+                # Delta mode: ask the provider only for the window from the
+                # first absent session forward, and MERGE the answer into the
+                # cached partition instead of replacing it. Falls back to the
+                # full partition window when there is nothing cached to
+                # preserve (cache miss) or on force_refresh (re-source).
+                fetch_window: tuple[datetime, datetime] | None = None
+                if delta_from is not None and not force_refresh:
+                    _ds = max(
+                        partition_start,
+                        datetime(delta_from.year, delta_from.month,
+                                 delta_from.day, tzinfo=timezone.utc),
+                    )
+                    _de = min(partition_end, end_utc)
+                    if _ds < _de:
+                        fetch_window = (_ds, _de)
+                        chain_log.append(
+                            f"delta:{_ds.date().isoformat()}"
+                            f"→{_de.date().isoformat()}"
+                        )
+                try:
+                    self._fetch_and_write(
+                        plugin=plugin,
+                        canonical=canonical,
+                        asset_class=asset_class,
+                        resolution=resolution,
+                        partition=partition,
+                        partition_start=partition_start,
+                        partition_end=partition_end,
+                        partition_path=partition_path,
+                        manifest_path=manifest_path,
+                        chain_log=chain_log,
+                        provider_versions=provider_versions,
+                        fetched_by=fetched_by,
+                        fetch_window=fetch_window,
+                        merge=fetch_window is not None,
+                    )
+                except NoProviderAvailableError as exc:
+                    # Don't let a provider outage make DATA ON DISK unreadable.
+                    # 21 Aug 2026: with the IBKR session dark and Yahoo
+                    # rate-limited, every read raised no_provider even though
+                    # months of bars sat in the cache — the wheel board ran on
+                    # 19-hour-old carried picks while the truth was local. An
+                    # allow_partial caller gets whatever is cached (flagged
+                    # coverage_complete=False); the outage is re-raised after
+                    # the read only if the disk is ALSO empty, or the caller
+                    # demanded completeness.
+                    fetch_error = exc
+                    chain_log.append("fetch_failed_serving_cache")
+                    continue
                 provider_used = chain_log[-1].split(":", 1)[0] \
                     if ":" in chain_log[-1] else chain_log[-1]
 
@@ -316,6 +402,12 @@ class BarStore:
             canonical, asset_class, resolution,
             partitions, start_utc, end_utc,
         )
+
+        # A fetch failed somewhere above. Serve the cached rows only when the
+        # caller opted into partial data AND the disk actually has something;
+        # otherwise the outage stays loud.
+        if fetch_error is not None and (df.empty or not allow_partial):
+            raise fetch_error
 
         # Validate post-read coverage.
         rows_expected = self._sum_expected_bar_count(
@@ -441,12 +533,19 @@ class BarStore:
         chain_log: list[str],
         provider_versions: dict[str, Any],
         fetched_by: str,
+        fetch_window: tuple[datetime, datetime] | None = None,
+        merge: bool = False,
     ) -> None:
         """Walk the provider chain until one succeeds. Write the
         parquet + manifest atomically. Caller catches the
-        chain-exhausted case."""
+        chain-exhausted case.
+
+        ``fetch_window`` narrows the provider request to a sub-window of the
+        partition (delta fetch); ``merge`` makes the write ADD to the cached
+        partition instead of replacing it. The two travel together."""
         last_exc: Optional[BarFetchError] = None
         attempted: list[str] = []
+        saw_empty = False
 
         chain, chain_source = self._chain_for(asset_class, resolution)
         # Leave breadcrumb in the audit trail so the cockpit can show
@@ -477,8 +576,9 @@ class BarStore:
             # sub-window the provider can actually serve.  If the whole
             # window is out of range, skip this provider for this partition.
             max_hist = provider.max_history(resolution)
-            fetch_start = partition_start
-            fetch_end = partition_end
+            fetch_start, fetch_end = fetch_window or (
+                partition_start, partition_end,
+            )
             if max_hist is not None:
                 from datetime import timezone as _tz
                 now_utc = datetime.now(_tz.utc).replace(
@@ -518,6 +618,7 @@ class BarStore:
             # window.  Don't write an empty parquet over good cached data;
             # fall through to the next provider instead.
             if df.empty:
+                saw_empty = True
                 chain_log.append(f"{provider_name}_empty")
                 continue
 
@@ -541,6 +642,7 @@ class BarStore:
                     provider_used=provider_name,
                     provider_meta=meta,
                     fetched_by=fetched_by,
+                    merge=merge,
                 )
             except BarFetchError as exc:
                 if exc.error_class != "partial_write_refused":
@@ -552,7 +654,19 @@ class BarStore:
             provider_versions[provider_name] = meta.get("provider_version", "")
             return
 
-        # Chain exhausted.
+        # Chain exhausted. In delta (merge) mode an all-providers-empty
+        # outcome is NOT a failure: it means "no new bars yet" — normal
+        # pre-market, on holidays, and right after the close — and the cached
+        # partition is intact. Raising here turned every quiet delta window
+        # into a loud no_provider failure (the 21 Aug morning runs failed
+        # every symbol this way before the session opened).
+        # ANY provider affirmatively answering "zero bars in this recent
+        # window" is a trustworthy no-new-bars signal (the chain is
+        # golden-first), even if a later fallback errored.
+        if merge and saw_empty:
+            chain_log.append("delta_no_new_bars")
+            chain_log.append("cache")   # provider_used → grade from disk
+            return
         raise NoProviderAvailableError(
             canonical=canonical,
             asset_class=asset_class,
@@ -575,6 +689,7 @@ class BarStore:
         provider_used: str,
         provider_meta: dict[str, Any],
         fetched_by: str,
+        merge: bool = False,
     ) -> None:
         """tmp + fsync + rename for the parquet, then for the manifest.
         Never leaves a partial file under the partition path."""
@@ -584,6 +699,28 @@ class BarStore:
         # have over-fetched slightly at the edges.
         if not df.empty:
             df = df[(df.index >= partition_start) & (df.index < partition_end)]
+
+        # Delta merge: keep every cached row, add only timestamps we don't
+        # already hold. Prefer-existing is deliberate — cached rows keep their
+        # provenance (a golden ibkr_web row is never downgraded by a fallback
+        # answer for the same timestamp); upgrading bronze→gold stays the job
+        # of force_refresh (the resource-intraday lane). The merged frame is
+        # always >= the cached one, so the shrink guard below can't fire on a
+        # delta write.
+        if merge and not df.empty and partition_path.exists():
+            try:
+                existing = pq.read_table(partition_path).to_pandas()
+            except Exception:  # noqa: BLE001 — unreadable cache: replace it
+                existing = pd.DataFrame()
+            if not existing.empty:
+                if "timestamp" in existing.columns:
+                    existing = existing.set_index("timestamp")
+                if existing.index.tz is None:
+                    existing.index = existing.index.tz_localize("UTC")
+                else:
+                    existing.index = existing.index.tz_convert("UTC")
+                fresh = df[~df.index.isin(existing.index)]
+                df = pd.concat([existing, fresh], axis=0).sort_index()
 
         # Safety net: never overwrite non-empty cached data with an empty
         # frame. _fetch_and_write should have caught this already (empty
