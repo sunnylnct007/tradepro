@@ -38,8 +38,8 @@ type NavSection = { label: string; items: NavItem[] };
 
 // Trader's daily surfaces — the top, ungrouped block of the sidebar.
 const marketNav: NavItem[] = [
-  // Cockpit points at the new IBKR-style /desk surface. The legacy
-  // TraderCockpit is still reachable via "Cockpit (legacy)" in System.
+  // Cockpit points at the IBKR-style /desk surface (the legacy
+  // TraderCockpit was deleted 21 Aug 2026).
   { to: "/desk",         label: "Cockpit"    },
   // Decide — long-term / multi-strategy comparison view. Daily-use.
   { to: "/compare",      label: "Decide"     },
@@ -72,8 +72,6 @@ const moreSections: NavSection[] = [
     { to: "/intraday/leaderboard",  label: "Intraday board"  },
   ]},
   { label: "System", items: [
-    // Legacy trader cockpit — kept reachable during the /desk transition.
-    { to: "/trader-legacy",      label: "Cockpit (legacy)" },
     { to: "/risk",               label: "Risk"      },
     { to: "/universes",          label: "Universes" },
     { to: "/settings",           label: "Settings"  },

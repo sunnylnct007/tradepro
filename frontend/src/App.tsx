@@ -6,7 +6,6 @@ import { Backtests } from "./pages/Backtests";
 import { PaperBacktest } from "./pages/PaperBacktest";
 import { PaperLive } from "./pages/PaperLive";
 import { SessionDetail } from "./pages/SessionDetail";
-import { TraderCockpit } from "./pages/TraderCockpit";
 import { Dashboard } from "./pages/Dashboard";
 import { DocumentDetail } from "./pages/DocumentDetail";
 import { Documents } from "./pages/Documents";
@@ -83,12 +82,11 @@ const router = createBrowserRouter([
       // worker once the run completes.
       { path: "backtests", element: <Backtests /> },
       { path: "oms", element: <Navigate to="/desk?view=oms" replace /> },
-      // Cockpit promotion: /trader is now the IBKR-style /desk cockpit.
-      // The old TraderCockpit is preserved (not deleted) at /trader-legacy
-      // as a reversible fallback during the transition. Reverting = restore
-      // `{ path: "trader", element: <TraderCockpit /> }` here.
+      // Cockpit promotion: /trader is the IBKR-style /desk cockpit. The old
+      // TraderCockpit was deleted 21 Aug 2026 after the transition settled
+      // (recoverable from git history); /trader-legacy redirects with it.
       { path: "trader", element: <Navigate to="/desk" replace /> },
-      { path: "trader-legacy", element: <TraderCockpit /> },
+      { path: "trader-legacy", element: <Navigate to="/desk" replace /> },
       // Intraday strategy leaderboard — per-(symbol, strategy)
       // cumulative P&L rolled up from completed session_requests.
       // Powers the "did this strategy actually make money on this
