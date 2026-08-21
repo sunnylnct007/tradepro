@@ -97,8 +97,19 @@ if [[ "$*" != *"--symbols"* ]]; then
         ASSET=$(printf '%s\n' "$@" | grep -A1 -- '^--asset$' | tail -1)
     fi
     CACHE_DIR="$HOME/.tradepro/bar_cache/$ASSET"
+    # US listings only (owner call 21 Aug 2026). Foreign listings (0700.HK,
+    # 7203.T, AIR.PA, SAP.DE …) fail IBKR on EVERY run: we send them as Yahoo
+    # tickers (broker_ticker_map never consulted), and off-platform (API)
+    # market data for those exchanges needs paid entitlements we don't hold.
+    # Each one burned a full provider-chain walk + retries per sweep for a
+    # guaranteed zero. Foreign = contains a dot; US tickers use dashes (BRK-B).
+    # Set TRADEPRO_HARVEST_INCLUDE_FOREIGN=1 to re-include them once symbol
+    # harmonization (ISIN + currency guard) and entitlements are in place.
+    FOREIGN_FILTER='\.'
+    [[ "${TRADEPRO_HARVEST_INCLUDE_FOREIGN:-0}" == "1" ]] && FOREIGN_FILTER='^$'
     SYMS=$(ls "$CACHE_DIR" 2>/dev/null | grep -v -i "^$ASSET$" \
-        | grep -E '^[A-Z0-9.-]+$' | tr '\n' ',' | sed 's/,$//')
+        | grep -E '^[A-Z0-9.-]+$' | grep -Ev "$FOREIGN_FILTER" \
+        | tr '\n' ',' | sed 's/,$//')
     if [[ -n "$SYMS" ]]; then
         N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)
         SYMBOL_ARGS=(--symbols "$SYMS")

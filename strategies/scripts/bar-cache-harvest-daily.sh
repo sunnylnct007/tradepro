@@ -31,8 +31,15 @@ log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
 # marking every daily harvest FAIL from ~6 Jul 2026 to 8 Aug 2026 (37+ runs)
 # even though all 179 real symbols harvested fine. Directory removed; this
 # guard is the durable fix so a stray dir can't masquerade as a ticker again.
+# US listings only (owner call 21 Aug 2026): foreign listings (dot-suffixed —
+# 0700.HK, AIR.PA, SAP.DE …) fail IBKR every run (Yahoo tickers + no
+# off-platform API entitlement) and only ever produced bronze yfinance rows.
+# TRADEPRO_HARVEST_INCLUDE_FOREIGN=1 re-includes them once harmonization +
+# entitlements exist.
+FOREIGN_FILTER='\.'
+[[ "${TRADEPRO_HARVEST_INCLUDE_FOREIGN:-0}" == "1" ]] && FOREIGN_FILTER='^$'
 SYMS=$(ls "$CACHE_DIR" 2>/dev/null | grep -v -i "^$(basename "$CACHE_DIR")$" \
-    | grep -E '^[A-Z0-9.-]+$' | tr '\n' ',' | sed 's/,$//')
+    | grep -E '^[A-Z0-9.-]+$' | grep -Ev "$FOREIGN_FILTER" | tr '\n' ',' | sed 's/,$//')
 [[ -n "$SYMS" ]] || { log "FATAL: no symbols in $CACHE_DIR"; exit 1; }
 N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)
 
