@@ -16,6 +16,7 @@ until every consumer is migrated and it can be deleted outright.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -45,7 +46,13 @@ def bar_store():
 
     _BAR_STORE = BarStore(
         base_dir=Path.home() / ".tradepro" / "bar_cache",
-        provider_chain=["ibkr_web", "ibkr", "ig", "yfinance"],
+        # `ibkr` (local Gateway) omitted by default — retired 9 Aug 2026, and
+        # every attempt costs a ConnectionRefused round-trip per symbol.
+        provider_chain=(["ibkr_web"]
+                        + (["ibkr"] if os.environ.get(
+                            "TRADEPRO_USE_LOCAL_GATEWAY", "0").strip().lower()
+                            in ("1", "true", "yes", "on") else [])
+                        + ["ig", "yfinance"]),
         preferences_loader=preferences_loader,
     )
     return _BAR_STORE

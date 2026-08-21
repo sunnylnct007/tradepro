@@ -250,12 +250,20 @@ def main() -> int:
     # rate-limited ibkr_web failure surfaced as "PENDING — IBKR unavailable (TWS
     # closed?)" and pointed at a Gateway that no longer exists. We do NOT need
     # the Gateway for intraday. See migration 055 / Data Accuracy Turnaround.
+    # THE LOCAL GATEWAY IS RETIRED (owner ruling 9 Aug 2026: OAuth-only, the
+    # code must run off-Mac). Leaving `ibkr` in the chain costs a
+    # ConnectionRefused on 127.0.0.1:7500 for EVERY SYMBOL — which is what
+    # pushed the 5-minute harvest past its 60-minute deadline on every run
+    # (starts 91 minutes apart: 60 of deadline + the 30-minute interval), so it
+    # never reached "Done:" and the lane reported 'fail' for 19 hours.
+    # Re-enable only if you actually have TWS open locally.
+    _gw = os.environ.get("TRADEPRO_USE_LOCAL_GATEWAY", "0").strip().lower() in ("1", "true", "yes", "on")
     if args.ibkr_only:
-        chain = ["ibkr_web", "ibkr"]           # IBKR-only: web first, Gateway for 1m
+        chain = ["ibkr_web"] + (["ibkr"] if _gw else [])
     elif args.no_ibkr:
         chain = ["yfinance"]
     else:
-        chain = ["ibkr_web", "ibkr", "ig", "yfinance"]
+        chain = ["ibkr_web"] + (["ibkr"] if _gw else []) + ["ig", "yfinance"]
 
     store = BarStore(
         base_dir=base_dir,
