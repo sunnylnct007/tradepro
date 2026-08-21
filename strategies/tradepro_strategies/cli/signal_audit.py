@@ -172,11 +172,47 @@ def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
     missed_buys.sort(key=lambda m: m["symbol"])
 
     # Honest P&L: NLV vs start, splitting realized+costs from unrealised-on-held.
-    start = cfg["start_capital"]
+    #
+    # START CAPITAL IS CONFIG, NOT A CONSTANT (fixed 21 Aug 2026). It was
+    # hardcoded at 1_000_000 for the IBKR sleeve. The owner then RESET the paper
+    # account and deliberately brought the balance down to ~151k — and this
+    # audit went on subtracting from the old figure, reporting
+    #
+    #     total_pnl -848,807.88   total_pnl_pct -84.88%
+    #
+    # i.e. it published a deliberate balance change as a catastrophic TRADING
+    # LOSS, on the surface whose entire job is honest P&L. Meanwhile the sleeve's
+    # three open positions were +2.7%, -0.4% and +14.2% and its recent realised
+    # was about -$442. Nothing about -84.88% was true.
+    #
+    # Env override first (TRADEPRO_START_CAPITAL_<STRATEGY>), then the table.
+    _env_key = f"TRADEPRO_START_CAPITAL_{strategy.upper()}"
+    start = float(os.environ.get(_env_key) or cfg["start_capital"])
     nlv = account.get("nlv")
     unreal = account.get("unrealised")
     total_pnl = (nlv - start) if nlv is not None else None
     realized_and_costs = (total_pnl - unreal) if (total_pnl is not None and unreal is not None) else None
+
+    # BASELINE SANITY. A P&L this large has to be explainable by trades. If the
+    # implied realised loss exceeds what the whole account could plausibly have
+    # traded away, the baseline is stale (an account reset, a re-fund, a broker
+    # switch) — and reporting it as performance is a false positive of exactly
+    # the kind the standing rule forbids. Say "baseline is wrong" instead of
+    # publishing a number that is not a loss.
+    baseline_suspect = False
+    baseline_note = None
+    if total_pnl is not None and start > 0 and nlv is not None:
+        if total_pnl < 0 and abs(total_pnl) > 0.5 * start and nlv > 0.05 * start:
+            baseline_suspect = True
+            baseline_note = (
+                f"START CAPITAL LOOKS STALE: configured {start:,.0f} vs current NLV "
+                f"{nlv:,.0f} implies {total_pnl:,.0f} of realised loss, which is more "
+                f"than half the starting balance while the account is still solvent and "
+                f"open positions are healthy. That pattern is an account RESET or "
+                f"re-fund, not trading. P&L is NOT reported until the baseline is "
+                f"corrected — set {_env_key} or fix the table."
+            )
+            log.warning("%s: %s", strategy, baseline_note)
 
     def n(c): return sum(r["classification"] == c for r in rows)
     overdue = [r for r in rows if r["classification"] == "exit_overdue"]
@@ -189,9 +225,14 @@ def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
         "pnl": {
             "start_capital": start, "nlv": nlv, "cash": account.get("cash"),
             "invested_cost": account.get("invested_cost"),
-            "unrealised_on_held": unreal, "total_pnl": total_pnl,
-            "realized_and_costs": realized_and_costs,
-            "total_pnl_pct": round(total_pnl / start * 100, 2) if total_pnl is not None else None,
+            "unrealised_on_held": unreal,
+            # Suppressed rather than published when the baseline is not credible.
+            "total_pnl": None if baseline_suspect else total_pnl,
+            "realized_and_costs": None if baseline_suspect else realized_and_costs,
+            "total_pnl_pct": (None if baseline_suspect else
+                              (round(total_pnl / start * 100, 2) if total_pnl is not None else None)),
+            "baseline_suspect": baseline_suspect,
+            "baseline_note": baseline_note,
         },
         "counts": {"held": len(rows), "hold": n("hold"),
                    "exit_overdue": n("exit_overdue"), "blind": n("blind"),
