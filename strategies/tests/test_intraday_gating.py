@@ -25,19 +25,29 @@ def test_vwap_does_not_auto_emit_on_bare_tick():
 
 
 def test_explicit_scan_runs_exactly_that_strategy():
-    out = _resolve_enabled_strategies({"strategy": "vwap_mean_reversion"})
-    assert set(out) == {"vwap_mean_reversion"}
+    # (was vwap_mean_reversion until 21 Aug 2026 — that strategy is deleted;
+    # orb is the surviving registered-but-not-auto-run strategy.)
+    out = _resolve_enabled_strategies({"strategy": "orb"})
+    assert set(out) == {"orb"}
+
+
+def test_deleted_strategy_request_resolves_to_nothing():
+    # A settings block naming a strategy that no longer exists must resolve
+    # to an empty run (fail-loud upstream), never a crash or a silent
+    # substitute.
+    assert _resolve_enabled_strategies(
+        {"strategy": "vwap_mean_reversion"}) == {}
 
 
 def test_settings_block_is_opt_in():
     # Only entries explicitly present AND enabled run; a name absent from the
     # block does NOT run (previously it defaulted to enabled).
     enabled = _resolve_enabled_strategies(
-        {"strategies": {"vwap_mean_reversion": {"enabled": True}}}
+        {"strategies": {"orb": {"enabled": True}}}
     )
-    assert set(enabled) == {"vwap_mean_reversion"}
+    assert set(enabled) == {"orb"}
 
     disabled = _resolve_enabled_strategies(
-        {"strategies": {"vwap_mean_reversion": {"enabled": False}}}
+        {"strategies": {"orb": {"enabled": False}}}
     )
-    assert "vwap_mean_reversion" not in disabled
+    assert "orb" not in disabled
