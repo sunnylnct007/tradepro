@@ -612,7 +612,43 @@ class IchimokuEquityStrategy(Strategy):
             )
             return []
 
-        position = self._positions.get(sym, 0)
+        # ── NEVER ORDER MORE THAN YOU CAN VERIFY YOU HOLD ────────────────
+        #
+        # `_positions` is the strategy's own view; `position_for()` reads the
+        # engine's, which is what seed_positions() fills from the BROKER. When
+        # they disagree the smaller is the only safe number, because the
+        # difference is either a fill that did not happen or a position that
+        # is not there.
+        #
+        # KO, 28-29 Jul 2026: a BUY for 18 filled only 15 (@89.21), and every
+        # subsequent SELL was still sized 18 — fifteen of them, then a SELL 18
+        # FILLED, a BUY 18 straight back, and a SELL 15. Selling a quantity you
+        # do not hold is how a long sleeve ends up flat-and-re-entered inside
+        # eleven minutes, and it is the other half of the churn the persisted
+        # MOO lock addresses.
+        #
+        # Fail LOUD on disagreement: this is a reconciliation fault, and the
+        # standing rule is that the broker is the golden source for "do we own
+        # X" (feedback_broker_is_golden_source).
+        _own = int(self._positions.get(sym, 0))
+        try:
+            _engine_qty = int(getattr(self.position_for(sym), "quantity", 0) or 0)
+        except Exception:  # noqa: BLE001 — a missing engine view must not block the bar
+            _engine_qty = _own
+        position = _own
+        if _own > 0 and _engine_qty > 0 and _engine_qty != _own:
+            position = min(_own, _engine_qty)
+            _log.warning(
+                "%s POSITION DISAGREEMENT — strategy holds %d, engine/broker holds %d; "
+                "using %d. Ordering the larger is how a SELL for a quantity we do not "
+                "own gets placed (the KO 18-vs-15 case, 29 Jul 2026).",
+                sym, _own, _engine_qty, position)
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp, action="position-disagreement",
+                reason=(f"strategy {_own} vs engine/broker {_engine_qty} — clamped to "
+                        f"{position}; broker is the golden source for 'do we own X'"),
+                qty=position, prior_position=_own,
+            )
         cloud_pos = meta.get("cloud_position", "?") if meta else "?"
 
         # ── Risk-control exits: stop-loss / take-profit (OPT-IN) ─────────
