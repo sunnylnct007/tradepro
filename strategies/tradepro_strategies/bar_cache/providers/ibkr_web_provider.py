@@ -213,9 +213,11 @@ class IBKRWebProvider(Provider):
         # Only for windows that are meaningfully in the past: a live/current
         # window must keep measuring from now, or we would pin it to a stale
         # anchor and miss today's bars.
-        _now = datetime.now(timezone.utc)
-        if (_now - end) > timedelta(days=1):
-            url += f"&startTime={end.strftime('%Y%m%d-%H:%M:%S')}"
+        # Naive datetimes reach this provider (callers are inconsistent), so
+        # normalise before comparing — a tz mix raises TypeError.
+        _end_utc = end if end.tzinfo is not None else end.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - _end_utc) > timedelta(days=1):
+            url += f"&startTime={_end_utc.strftime('%Y%m%d-%H:%M:%S')}"
         headers = {"Authorization": f"Bearer {token}"} if token else {}
 
         # 60s (not 30s): the backend retries IBKR's transient history errors
