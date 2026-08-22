@@ -35,6 +35,26 @@ month was migrated), 22 non-LSE foreign listings, 4 HK, 12 futures,
 4 indices, 9 crypto. **`us_etf` now contains zero non-US symbols.**
 Audit end-state: clean except 30 known relic bars in SWDA.L 2010.
 
+### S3 is now the SOURCE, local disk is a cache (22 Aug 2026, owner ruling)
+Read-through is **ON**. A local miss downloads from
+`s3://tradepro-bar-cache-108703420282/bar_cache/` and re-caches; the harvest
+write-throughs on every partition write. The Mac is no longer the single
+point of truth for market data. Verified by deleting a local partition and
+watching the store restore it.
+
+Config lives in `~/.tradepro/credentials` (`bar-cache-s3-bucket`), NOT in
+plists — so every lane picks it up with no per-plist edit. Credentials fall
+back to the scoped `bar-mirror` keys (read+write, deliberately no delete)
+when boto3's default chain is empty, because the Mac's SSO session expires
+and daemons would otherwise lose S3 silently.
+
+- `TRADEPRO_BAR_CACHE_S3_DISABLE=1` forces local-only — **unit tests must set
+  it**, or the credentials fallback turns offline tests into network tests.
+- boto3 is now a CORE dependency. It was an optional extra, so the S3 path
+  and the Secrets Manager path had both been failing silently for months.
+- The nightly mirror lane still runs — write-through can miss if S3 blips,
+  and the sync is the reconciliation sweep + staleness reporter.
+
 ### Data platform (DATA lane)
 - **The parquet store is certified clean.** `tradepro-bar-cache-audit` (new
   CLI, weekly Sat 10:00 lane, reports ok/warn to run log) sweeps every
