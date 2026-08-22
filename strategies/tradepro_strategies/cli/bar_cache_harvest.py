@@ -579,12 +579,32 @@ def main() -> int:
             _base, _tok = _pta.load_credentials()
             _h = {"Authorization": f"Bearer {_tok}"}
             _n = 0
+            _dropped: list[str] = []
             for _rec in health_records:
-                _r = _rq.post(f"{_base.rstrip('/')}/api/admin/data-trust/bar-cache/health",
-                              headers=_h, json=_rec, timeout=15)
-                if _r.status_code in (200, 201):
+                # Retry ONCE on any failure — 22 Aug 2026: fire-and-forget
+                # dropped 3 of 5 records silently and the Data screen simply
+                # never showed those symbols. A record that fails twice is
+                # NAMED, not vanished.
+                _ok = False
+                for _attempt in (1, 2):
+                    try:
+                        _r = _rq.post(f"{_base.rstrip('/')}/api/admin/data-trust/bar-cache/health",
+                                      headers=_h, json=_rec, timeout=15)
+                        if _r.status_code in (200, 201):
+                            _ok = True
+                            break
+                    except Exception:  # noqa: BLE001 — retry then report
+                        pass
+                    if _attempt == 1:
+                        time.sleep(1.0)
+                if _ok:
                     _n += 1
+                else:
+                    _dropped.append(str(_rec.get("canonical")))
             print(f"  ↑ reported health for {_n}/{len(health_records)} symbol(s) to the cockpit")
+            if _dropped:
+                print(f"  ⚠ health records DROPPED after retry for: {', '.join(_dropped)} "
+                      f"— these symbols will look stale on the Data screen")
         except Exception as _exc:  # noqa: BLE001
             print(f"  (health report skipped: {_exc})")
 
