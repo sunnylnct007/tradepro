@@ -196,6 +196,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--write", action="store_true", help="write the universe file")
     ap.add_argument("--show-excluded", action="store_true")
+    ap.add_argument("--push", action="store_true",
+                    help="publish to the API so the desk can offer the names and tiers")
     a = ap.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
@@ -248,6 +250,21 @@ def main() -> int:
         p = universe_path(); p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(out, indent=2) + "\n")
         print(f"\nwrote {p}")
+        if a.push:
+            try:
+                import requests
+                from .push_to_api import load_credentials
+                base, token = load_credentials()
+                if base:
+                    r = requests.post(f"{base.rstrip('/')}/api/ingest/today-setups",
+                                      json={"universe": "universe", "label": "latest",
+                                            "uploaded_by": os.uname().nodename,
+                                            "artifact": {"kind": "tradeable_universe", **out}},
+                                      headers={"Authorization": f"Bearer {token}"} if token else {},
+                                      timeout=60)
+                    print(f"push -> HTTP {r.status_code}")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("push failed: %s", exc)
     else:
         print("\n(dry run — pass --write to save)")
     return 0

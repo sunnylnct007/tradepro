@@ -671,6 +671,22 @@ export const api = {
       };
     }>("/api/today-setups/momentum/latest"),
 
+  tradeableUniverse: () =>
+    get<{
+      universe: string; label: string; asOfUtc: string;
+      artifact: {
+        kind: string; as_of: string;
+        criteria: { min_price: number; min_dollar_volume: number; min_sessions: number };
+        counts: { scanned: number; included: number; excluded: number };
+        symbols: Array<{
+          symbol: string; price: number; dollar_volume_median: number; sessions: number;
+          beta: number | null; beta_long: number | null; beta_tier: string | null;
+          beta_unstable?: boolean; atr_pct: number | null; volatility_tier: string | null;
+        }>;
+        excluded: Array<{ symbol: string; class: string; reason: string }>;
+      };
+    }>("/api/today-setups/universe/latest"),
+
   todaySetups: (universe: string) =>
     get<{
       universe: string;

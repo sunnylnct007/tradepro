@@ -117,3 +117,88 @@ export function sweepTargets(
     };
   });
 }
+
+
+/**
+ * DIP-FROM-OPEN scan — the owner's own strategy shape.
+ *
+ * Different from `barrierScan` in one way that matters: the limit is placed
+ * relative to each session's OPEN, not to one reference price. That is how the
+ * order would actually be worked — you decide "1% below wherever it opens"
+ * every morning, not a fixed price.
+ *
+ * SAME-SESSION AMBIGUITY. If the session's low reaches the limit AND its high
+ * clears the target, the trade only worked if the low came first, and daily
+ * bars cannot say. `pessimistic` (the default, and what the study graded on)
+ * assumes it did not, and carries the position. The owner spotted this
+ * unprompted: "the high might have hit early then we placed the order and then
+ * it never hit that high in that day."
+ *
+ * EXPECTANCY IS THE ANSWER, NOT WIN RATE. Backtested at a 0.5% target against
+ * an 8% stop this wins 66% of the time and loses 0.41% per trade, because it
+ * needs 94% to break even. The UI must show both or it teaches the wrong
+ * lesson. See INTRADAY_DIP_GATES_V1.md — REJECTED.
+ */
+export function dipScan(
+  bars: Bar[],
+  opts: { dipPct: number; targetPct: number; stopPct: number; carryDays: number;
+          pessimistic?: boolean; startIdx?: number },
+) {
+  const { dipPct, targetPct, stopPct, carryDays } = opts;
+  const pess = opts.pessimistic ?? true;
+  const MAXDAY = 0.35;
+  let sessions = 0, fills = 0, sameDay = 0;
+  const res: number[] = [], days: number[] = [];
+  const n = bars.length;
+  let i = Math.max(1, opts.startIdx ?? 1);
+  while (i < n) {
+    const o = bars[i].open, pc = bars[i - 1].close;
+    if (!(o > 0) || !(pc > 0) || Math.abs(o / pc - 1) > MAXDAY) { i++; continue; }
+    sessions++;
+    const limit = o * (1 - dipPct / 100);
+    if (bars[i].low > limit) { i++; continue; }   // never traded down to us
+    fills++;
+    const T = limit * (1 + targetPct / 100), S = limit * (1 + stopPct / 100);
+    let out: [number, number] | null = null;
+    for (let j = i; j < Math.min(n, i + carryDays + 1); j++) {
+      if (j > i && (!(bars[j - 1].close > 0) || Math.abs(bars[j].close / bars[j - 1].close - 1) > MAXDAY)) break;
+      let hitT = bars[j].high >= T;
+      const hitS = bars[j].low <= S;
+      if (j === i && pess) hitT = false;
+      if (hitS) { out = [stopPct, j - i]; break; }
+      if (hitT) { out = [targetPct, j - i]; break; }
+    }
+    if (!out) {
+      const j = Math.min(n - 1, i + carryDays);
+      out = [100 * (bars[j].close / limit - 1), j - i];
+    }
+    res.push(out[0]); days.push(Math.max(1, out[1]));
+    if (out[1] === 0) sameDay++;
+    i += Math.max(1, out[1]) + 1;
+  }
+  if (!res.length) return null;
+  const totalDays = days.reduce((a, b) => a + b, 0);
+  const wins = res.filter((x) => x > 0).length;
+  return {
+    sessions, fills, trades: res.length,
+    fillRate: sessions ? fills / sessions : 0,
+    winRate: (100 * wins) / res.length,
+    expPerTrade: res.reduce((a, b) => a + b, 0) / res.length,
+    // Capital-time weighting: total return over total days COMMITTED. Not
+    // mean(return/days), which overweights short lucky trades — that error
+    // reported a 11.6x result that was really 5.08x.
+    expPerDayHeld: totalDays ? res.reduce((a, b) => a + b, 0) / totalDays : 0,
+    meanHold: totalDays / res.length,
+    sameDayPct: (100 * sameDay) / res.length,
+  };
+}
+
+/** Being long open→close, the thing any of this has to beat. */
+export function benchmarkPerDay(bars: Bar[]) {
+  const r: number[] = [];
+  for (let i = 1; i < bars.length; i++) {
+    const o = bars[i].open, pc = bars[i - 1].close;
+    if (o > 0 && pc > 0 && Math.abs(bars[i].close / pc - 1) <= 0.35) r.push(100 * (bars[i].close / o - 1));
+  }
+  return r.length ? r.reduce((a, b) => a + b, 0) / r.length : null;
+}

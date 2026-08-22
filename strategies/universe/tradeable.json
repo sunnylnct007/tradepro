@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-08-22T17:53:32.397958+00:00",
+  "as_of": "2026-08-22T18:09:46.023196+00:00",
   "criteria": {
     "min_price": 5.0,
     "min_dollar_volume": 10000000,
@@ -8,9 +8,9 @@
     "min_recent_coverage": 0.9
   },
   "counts": {
-    "scanned": 250,
+    "scanned": 253,
     "included": 89,
-    "excluded": 161
+    "excluded": 164
   },
   "symbols": [
     {
@@ -1953,6 +1953,11 @@
       "reason": "median daily turnover $1.0M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "ALV.DE",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "AMKR",
       "class": "liquidity",
       "reason": "median daily turnover $2.1M below the $10M floor \u2014 too thin to fill against"
@@ -2458,6 +2463,11 @@
       "reason": "median daily turnover $3.2M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "SAP.DE",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "SBUX",
       "class": "liquidity",
       "reason": "median daily turnover $3.2M below the $10M floor \u2014 too thin to fill against"
@@ -2476,6 +2486,11 @@
       "symbol": "SHOP",
       "class": "liquidity",
       "reason": "median daily turnover $5.3M below the $10M floor \u2014 too thin to fill against"
+    },
+    {
+      "symbol": "SIE.DE",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
     },
     {
       "symbol": "SITM",
