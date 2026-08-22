@@ -47,7 +47,9 @@ class BarStoreSource(BarSource):
     """Serve one session's bars out of the canonical BarStore. Read-only."""
 
     name: str = "bar_store"
-    asset_class: str = "us_etf"   # the single canonical tree
+    # Resolved PER SYMBOL (22 Aug 2026). Hardcoding us_etf sent the FX paper
+    # lane's EURGBP/GBPJPY asks into the US equity tree.
+    asset_class: str | None = None
     _warned: set = field(default_factory=set)
 
     async def fetch(
@@ -62,16 +64,23 @@ class BarStoreSource(BarSource):
         resolution, tf_seconds = mapped
         try:
             from ...bar_cache import BarStore
-            from ...bar_cache import asset_classes as _ac  # noqa: F401 — registers
+            from ...bar_cache import asset_classes as _reg  # noqa: F401 — registers
             from ...ibkr_bars import bar_store
 
             store: BarStore = bar_store()
+            if self.asset_class:
+                cls = self.asset_class
+            else:
+                from ...bar_cache.asset_class_resolver import resolve_asset_class
+                cls = resolve_asset_class(symbol)
+                if cls in ("us_equity", "unknown"):
+                    cls = "us_etf"
             day = session_date.replace(hour=0, minute=0, second=0, microsecond=0)
             if day.tzinfo is None:
                 day = day.replace(tzinfo=timezone.utc)
             frame = store.get(
                 canonical=symbol,
-                asset_class=self.asset_class,
+                asset_class=cls,
                 resolution=resolution,
                 start=day,
                 end=day + timedelta(days=1),

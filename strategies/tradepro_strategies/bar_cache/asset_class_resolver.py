@@ -49,6 +49,12 @@ ASSET_CLASS_US_EQUITY: Final[str] = "us_equity"
 ASSET_CLASS_INDEX_US: Final[str] = "index_us"
 ASSET_CLASS_INDEX_UK: Final[str] = "index_uk"
 
+# ISO-4217 codes seen on the FX desk. Deliberately a closed list: a loose
+# six-letter rule would misclassify real tickers.
+_FX_CODES: Final[frozenset[str]] = frozenset({
+    "EUR", "USD", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD", "SEK", "NOK",
+})
+
 # UK indices carry the LSE calendar, not NYSE — filing ^FTSE under a US
 # calendar reports phantom missing sessions every UK bank holiday.
 _UK_INDEX_TICKERS: Final[frozenset[str]] = frozenset({
@@ -114,6 +120,14 @@ def resolve_asset_class(ticker: str | None) -> str:
 
     # 1. FX — Yahoo encodes pairs with the ``=X`` sentinel.
     if t.endswith("=X"):
+        return ASSET_CLASS_FX_SPOT
+
+    # 1b. BARE six-letter FX pairs (EURGBP, GBPJPY) — how the paper FX desk
+    # names them. Without this they fell to the us_equity default and, since
+    # 22 Aug, into the canonical US tree: the FX lane was creating EURGBP and
+    # GBPJPY directories inside us_etf, and `ls us_etf` IS the harvest
+    # universe, so they would have become "US symbols" on the next sweep.
+    if len(t) == 6 and t[:3] in _FX_CODES and t[3:] in _FX_CODES:
         return ASSET_CLASS_FX_SPOT
 
     # 2. Crypto — quote-currency suffix. Check after FX because some

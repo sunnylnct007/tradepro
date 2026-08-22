@@ -81,6 +81,16 @@ def golden_daily(
     # retired); everything else goes to its proper home.
     from .bar_cache.asset_class_resolver import resolve_asset_class
     _resolved = resolve_asset_class(symbol)
+    # Foreign listings we hold no entitlement for (.PA/.DE/.HK/.T/…) must not
+    # be filed into a canonical tree just because nothing better matched.
+    # 22 Aug 2026: they were re-creating the very directories that had just
+    # been quarantined — and `ls us_etf` IS the harvest universe, so an empty
+    # directory silently becomes a tracked symbol on the next sweep.
+    _sym = symbol.strip().upper()
+    if "." in _sym and not _sym.endswith(".L"):
+        _log.debug("%s: foreign listing with no supported asset class — "
+                   "not fetched into the canonical store", _sym)
+        return pd.DataFrame()
     asset_class = "us_etf" if _resolved in ("us_equity", "us_etf", "unknown") else _resolved
     df = fetch_daily_bars(symbol, start, end, asset_class=asset_class,
                           fetched_by=fetched_by, legacy_provider=legacy_provider)

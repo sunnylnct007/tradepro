@@ -35,7 +35,7 @@ log "syncing $SRC -> s3://$BUCKET/bar_cache"
 OUT=$(aws s3 sync "$SRC" "s3://$BUCKET/bar_cache" \
         --exclude "*" --include "*.parquet" --include "*.manifest.json" 2>&1)
 RC=$?
-UP=$(printf '%s' "$OUT" | grep -c '^upload:' || true)
+UP=$(printf '%s' "$OUT" | grep -c 'upload:' || true)
 ERRS=$(printf '%s' "$OUT" | grep -ci 'failed' || true)
 # Anything still pending AFTER a successful sync means the mirror is not
 # actually protecting the store — that must be loud, not inferred.

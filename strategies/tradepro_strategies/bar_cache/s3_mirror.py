@@ -120,8 +120,22 @@ class S3Mirror:
         if key is None:
             return False
         try:
+            # Download to a TEMP file first, then create the directory and
+            # move. mkdir-before-download left an empty tree behind on every
+            # miss (22 Aug 2026: the FX paper lane asking for symbols that
+            # aren't in the store re-created the very directories that had
+            # just been quarantined, and an empty dir IS a symbol as far as
+            # the harvest universe is concerned — `ls us_etf` is the universe).
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+            try:
+                self._s3().download_file(self.bucket, key, str(tmp_path))
+            except Exception:
+                tmp_path.unlink(missing_ok=True)
+                raise
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-            self._s3().download_file(self.bucket, key, str(path))
+            tmp_path.replace(Path(path))
             return True
         except Exception as exc:  # noqa: BLE001
             # 404 = genuine miss (not yet harvested); anything else = S3 issue →
