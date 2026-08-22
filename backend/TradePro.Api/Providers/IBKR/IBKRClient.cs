@@ -44,6 +44,19 @@ public sealed class IBKRClient
     private static string SearchSymbol(string sym, string secType) =>
         secType == "STK" ? sym.Replace('-', ' ') : sym;
 
+    // Option-chain resolution caches (22 Aug 2026). The wheel screen ran
+    // ~2,900 IBKR requests per sweep and ~1,700 of them re-resolved the SAME
+    // static facts twice a day: available months (secdef/search), strikes
+    // per month (secdef/strikes), and — one call per strike — the contract
+    // conid (secdef/info). Months/strikes get a 12h TTL (listings change
+    // slowly, weeklies appear overnight); a resolved CONTRACT is immutable
+    // for its life, so those cache without expiry. Successes only; the
+    // process restart on deploy is the flush valve.
+    private static readonly TimeSpan _chainMetaTtl = TimeSpan.FromHours(12);
+    private static readonly ConcurrentDictionary<string, (DateTime AtUtc, IBKROptionMonthsResult R)> _monthsCache = new();
+    private static readonly ConcurrentDictionary<string, (DateTime AtUtc, IBKROptionStrikesResult R)> _strikesCache = new();
+    private static readonly ConcurrentDictionary<string, IBKROptionContractsResult> _optContractCache = new();
+
     private readonly HttpClient _http;
     private readonly IBKROptions _options;
     private readonly IBKRSessionCache _session;
@@ -607,6 +620,29 @@ public sealed class IBKRClient
     /// IBKR may return empty/null for fields that aren't yet "warm" — the
     /// caller should use defaults for missing fields.
     /// </summary>
+    /// <summary>
+    /// Batched raw snapshot — same endpoint, MANY conids in one request
+    /// (IBKR documents a 50-conid cap; callers stay under it). Returns the
+    /// raw JSON ARRAY string: one element per conid, each carrying a
+    /// "conid" property for correlation. Added 22 Aug 2026: /api/screener/
+    /// live burned 30 single-conid calls where one sufficed.
+    /// </summary>
+    public async Task<string?> GetSnapshotRawBatchAsync(
+        IReadOnlyList<long> conids, string fields, CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled || conids.Count == 0) return null;
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"v1/api/iserver/marketdata/snapshot?conids={string.Join(",", conids)}&fields={Uri.EscapeDataString(fields)}",
+                null, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch { return null; }
+    }
+
     public async Task<string?> GetSnapshotRawAsync(
         long conid, string fields, CancellationToken ct = default)
     {
@@ -644,6 +680,9 @@ public sealed class IBKRClient
         var sym = (symbol ?? string.Empty).Trim().ToUpperInvariant();
         if (sym.Length == 0)
             return new IBKROptionMonthsResult(null, Array.Empty<string>(), "empty symbol", 0);
+        if (_monthsCache.TryGetValue(sym, out var hit)
+            && DateTime.UtcNow - hit.AtUtc < _chainMetaTtl)
+            return hit.R;
         try
         {
             using var resp = await SendWithAuthAsync(
@@ -661,7 +700,9 @@ public sealed class IBKRClient
             if (months.Count == 0)
                 return new IBKROptionMonthsResult(conId, Array.Empty<string>(),
                     $"{sym} has no listed option chain", (int)resp.StatusCode);
-            return new IBKROptionMonthsResult(conId, months, null, (int)resp.StatusCode);
+            var ok = new IBKROptionMonthsResult(conId, months, null, (int)resp.StatusCode);
+            _monthsCache[sym] = (DateTime.UtcNow, ok);
+            return ok;
         }
         catch (Exception ex)
         {
@@ -678,6 +719,10 @@ public sealed class IBKRClient
     {
         if (!_options.IsEnabled)
             return new IBKROptionStrikesResult(Array.Empty<decimal>(), Array.Empty<decimal>(), "IBKR disabled", 0);
+        var strikesKey = $"{underlyingConId}|{month}";
+        if (_strikesCache.TryGetValue(strikesKey, out var hit)
+            && DateTime.UtcNow - hit.AtUtc < _chainMetaTtl)
+            return hit.R;
         try
         {
             using var resp = await SendWithAuthAsync(
@@ -692,7 +737,9 @@ public sealed class IBKRClient
             if (calls.Count == 0 && puts.Count == 0)
                 return new IBKROptionStrikesResult(calls, puts,
                     $"IBKR returned NO strikes for conid {underlyingConId} month {month}", (int)resp.StatusCode);
-            return new IBKROptionStrikesResult(calls, puts, null, (int)resp.StatusCode);
+            var ok = new IBKROptionStrikesResult(calls, puts, null, (int)resp.StatusCode);
+            _strikesCache[strikesKey] = (DateTime.UtcNow, ok);
+            return ok;
         }
         catch (Exception ex)
         {
@@ -715,6 +762,10 @@ public sealed class IBKRClient
     {
         if (!_options.IsEnabled)
             return new IBKROptionContractsResult(Array.Empty<IBKROptionContract>(), "IBKR disabled", 0);
+        var contractKey = FormattableString.Invariant(
+            $"{underlyingConId}|{month}|{strike}|{right}");
+        if (_optContractCache.TryGetValue(contractKey, out var cachedContracts))
+            return cachedContracts;
         try
         {
             using var resp = await SendWithAuthAsync(
@@ -733,7 +784,9 @@ public sealed class IBKRClient
                 return new IBKROptionContractsResult(contracts,
                     $"IBKR returned NO contract for conid {underlyingConId} month {month} strike {strike} right {right}",
                     (int)resp.StatusCode);
-            return new IBKROptionContractsResult(contracts, null, (int)resp.StatusCode);
+            var ok = new IBKROptionContractsResult(contracts, null, (int)resp.StatusCode);
+            _optContractCache[contractKey] = ok;
+            return ok;
         }
         catch (Exception ex)
         {

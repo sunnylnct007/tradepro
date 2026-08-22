@@ -201,19 +201,34 @@ public static class ScreenerEndpoints
             const string LiveFields = "31,7293,7294,7282,7283,7631,7286,87,82,83";
 
             var rows = new List<object>();
-            foreach (var (ticker, conid) in Universe)
+            // ONE batched snapshot for the whole universe (the endpoint takes
+            // up to 50 conids) instead of a request per ticker — 22 Aug 2026:
+            // 30 serial calls here were part of the pacing budget the wheel
+            // screen starved behind. Correlate results by the "conid"
+            // property; a ticker absent from the answer is simply skipped,
+            // same as a failed single call before.
+            var byConid = new Dictionary<long, string>();
+            foreach (var (t, c) in Universe) byConid[c] = t;
+            var batchRaw = await ibkr.GetSnapshotRawBatchAsync(
+                Universe.Select(u => u.ConId).ToList(), LiveFields, ct);
+            if (string.IsNullOrWhiteSpace(batchRaw))
+                return Results.Ok(new { rows, asOfUtc = DateTime.UtcNow });
+
+            using var batchDoc = JsonDocument.Parse(batchRaw);
+            var batchRoot = batchDoc.RootElement;
+            var elems = batchRoot.ValueKind == JsonValueKind.Array
+                ? batchRoot.EnumerateArray().ToList()
+                : new List<JsonElement> { batchRoot };
+            foreach (var elem in elems)
             {
+                if (elem.ValueKind != JsonValueKind.Object) continue;
+                if (!elem.TryGetProperty("conid", out var cEl)) continue;
+                long conidVal = cEl.ValueKind == JsonValueKind.Number && cEl.TryGetInt64(out var cn)
+                    ? cn
+                    : (cEl.ValueKind == JsonValueKind.String && long.TryParse(cEl.GetString(), out var cs) ? cs : 0);
+                if (conidVal == 0 || !byConid.TryGetValue(conidVal, out var ticker)) continue;
                 try
                 {
-                    var raw = await ibkr.GetSnapshotRawAsync(conid, LiveFields, ct);
-                    if (string.IsNullOrWhiteSpace(raw)) continue;
-
-                    using var doc = JsonDocument.Parse(raw);
-                    var root = doc.RootElement;
-                    var elem = root.ValueKind == JsonValueKind.Array
-                        ? root.EnumerateArray().FirstOrDefault()
-                        : root;
-                    if (elem.ValueKind != JsonValueKind.Object) continue;
 
                     static double? N(JsonElement e, string key)
                     {
