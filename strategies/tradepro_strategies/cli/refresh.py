@@ -12,7 +12,6 @@ import argparse
 import sys
 from datetime import datetime, timedelta, timezone
 
-from ..cache import refresh_symbol
 from ..watchlists import WATCHLISTS, resolve as resolve_watchlist
 
 
@@ -24,6 +23,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--provider", default="yahoo", choices=["yahoo", "stooq", "binance"])
     p.add_argument("--interval", default="1d")
     p.add_argument("--years", type=int, default=10)
+    p.add_argument(
+        "--legacy-cache",
+        action="store_true",
+        default=False,
+        help=(
+            "Write prices into the LEGACY yahoo cache (~/.tradepro/cache) "
+            "instead of the canonical bar store. Deprecated escape hatch — "
+            "the legacy cache is being retired; its readers are migrated."
+        ),
+    )
     p.add_argument(
         "--eps-snapshot",
         action="store_true",
@@ -56,7 +65,38 @@ def main() -> None:
     errors: list[str] = []
     for sym in symbols:
         try:
-            n = refresh_symbol(args.provider, sym, start, end, args.interval)
+            if args.legacy_cache:
+                from ..cache import refresh_symbol
+                n = refresh_symbol(args.provider, sym, start, end, args.interval)
+            else:
+                # CANONICAL STORE (22 Aug 2026). This wrote only into the
+                # legacy yahoo cache, whose readers are now migrated — so the
+                # weekly EPS lane was spending ~150 Yahoo fetches topping up a
+                # cache almost nothing reads, against the very throttle that
+                # starves the options screen. golden_daily routes each symbol
+                # by the resolver: BARC.L → uk_equity, ^FTSE → index_uk,
+                # US names → us_etf.
+                from ..ibkr_bars import fetch_daily_bars_with_provenance
+                from ..bar_cache.asset_class_resolver import resolve_asset_class
+                _ac = resolve_asset_class(sym)
+                _ac = "us_etf" if _ac in ("us_equity", "unknown") else _ac
+                df, prov = fetch_daily_bars_with_provenance(
+                    sym, start, end, asset_class=_ac, fetched_by="refresh",
+                    legacy_provider=args.provider)
+                n = 0 if df is None else len(df)
+                src = (prov or {}).get("source") or "unknown"
+                # HONEST REPORTING (22 Aug 2026): a legacy-cache SERVE is not a
+                # store refresh. Reporting "757 bars" for bars that were merely
+                # read out of the cache we are retiring made the weekly lane
+                # claim success while writing nothing to the canonical store.
+                if str(src).startswith("legacy"):
+                    print(f"  {sym:10s}  {n:>6d} bars  ⚠ served from {src} — "
+                          f"NOT written to the {_ac} store")
+                    errors.append(f"{sym}: golden chain unavailable (served {src})")
+                    continue
+                print(f"  {sym:10s}  {n:>6d} bars  [{_ac} · {src}]")
+                ok += 1
+                continue
             print(f"  {sym:10s}  {n:>6d} bars")
             ok += 1
         except Exception as e:  # noqa: BLE001 — surface any provider error

@@ -47,6 +47,13 @@ ASSET_CLASS_UK_EQUITY: Final[str] = "uk_equity"
 ASSET_CLASS_US_ETF: Final[str] = "us_etf"
 ASSET_CLASS_US_EQUITY: Final[str] = "us_equity"
 ASSET_CLASS_INDEX_US: Final[str] = "index_us"
+ASSET_CLASS_INDEX_UK: Final[str] = "index_uk"
+
+# UK indices carry the LSE calendar, not NYSE — filing ^FTSE under a US
+# calendar reports phantom missing sessions every UK bank holiday.
+_UK_INDEX_TICKERS: Final[frozenset[str]] = frozenset({
+    "^FTSE", "^FTMC", "^FTAS", "^FTLC", "^FTAI",
+})
 ASSET_CLASS_UNKNOWN: Final[str] = "unknown"
 
 
@@ -103,7 +110,7 @@ def resolve_asset_class(ticker: str | None) -> str:
     # 0. Index — Yahoo's ``^`` prefix (^VIX, ^TNX, ^GSPC). Context
     # data, never a tradeable instrument.
     if t.startswith("^"):
-        return ASSET_CLASS_INDEX_US
+        return ASSET_CLASS_INDEX_UK if t in _UK_INDEX_TICKERS else ASSET_CLASS_INDEX_US
 
     # 1. FX — Yahoo encodes pairs with the ``=X`` sentinel.
     if t.endswith("=X"):

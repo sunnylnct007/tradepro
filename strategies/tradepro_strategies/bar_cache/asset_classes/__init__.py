@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from .crypto import CryptoPlugin       # noqa: F401 — registers
 from .fx import FxPlugin               # noqa: F401 — registers
+from .index_uk import IndexUkPlugin    # noqa: F401 — registers
 from .index_us import IndexUsPlugin    # noqa: F401 — registers
 from .uk_equity import UkEquityPlugin  # noqa: F401 — registers
 from .us_equity import UsEquityPlugin  # noqa: F401 — registers
