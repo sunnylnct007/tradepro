@@ -182,21 +182,42 @@ public static class IBKRResponseParser
     /// best-first. Returns the FIRST match's conid (may be a string or number in
     /// the payload). Null when there's no match — the caller FLAGS the symbol as
     /// unresolvable rather than swallowing it (fail-loud).</summary>
+    // /iserver/secdef/search items carry the listing venue in "description"
+    // (e.g. "NYSE", "LSE", "IBIS"). "Best-first" is IBKR's ranking, NOT
+    // ours: for ambiguous tickers it can rank a foreign listing first —
+    // measured 22 Aug 2026: 16 liquid US names (BA→BAE Systems/LSE,
+    // SN→Smith & Nephew/LSE, C, T, GLD, MCD …) resolved to contracts whose
+    // chart data our account has no API entitlement for, so every fetch
+    // died with "Chart data unavailable" while BAC et al. worked.
+    private static readonly HashSet<string> _usVenues = new(StringComparer.OrdinalIgnoreCase)
+        { "NYSE", "NASDAQ", "ARCA", "AMEX", "BATS", "IEX", "CBOE", "PSE" };
+
     public static long? ParseConidSearch(string json)
     {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         if (root.ValueKind != JsonValueKind.Array) return null;
+        long? first = null;
         foreach (var m in root.EnumerateArray())
         {
             if (m.ValueKind != JsonValueKind.Object) continue;
+            long? conid = null;
             if (m.TryGetProperty("conid", out var c))
             {
-                if (c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n)) return n;
-                if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var s)) return s;
+                if (c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n)) conid = n;
+                else if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var s)) conid = s;
             }
+            if (conid is null) continue;
+            first ??= conid;
+            // Prefer the first US-venue listing; fall back to IBKR's first
+            // hit only when no US listing exists in the result (FX, or a
+            // genuinely foreign-only symbol).
+            if (m.TryGetProperty("description", out var d)
+                && d.ValueKind == JsonValueKind.String
+                && _usVenues.Contains((d.GetString() ?? string.Empty).Trim()))
+                return conid;
         }
-        return null;
+        return first;
     }
 
     /// <summary>Classify a failed /iserver/marketdata/history response as

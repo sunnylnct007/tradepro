@@ -38,6 +38,12 @@ public sealed class IBKRClient
     // Order placement deliberately bypasses this cache (real-money path).
     private static readonly ConcurrentDictionary<string, long> _conidCache = new();
 
+    // Yahoo-style class-share notation → IBKR notation for secdef/search:
+    // BRK-B / BF-B are "BRK B" / "BF B" at IBKR. Only for STK lookups —
+    // FX pairs and other secTypes never carry this convention.
+    private static string SearchSymbol(string sym, string secType) =>
+        secType == "STK" ? sym.Replace('-', ' ') : sym;
+
     private readonly HttpClient _http;
     private readonly IBKROptions _options;
     private readonly IBKRSessionCache _session;
@@ -517,7 +523,7 @@ public sealed class IBKRClient
             }
             else using (var searchResp = await SendWithAuthAsync(
                 HttpMethod.Get,
-                $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(sym)}&secType=STK",
+                $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(SearchSymbol(sym, "STK"))}&secType=STK",
                 null, ct))
             {
                 var searchText = await searchResp.Content.ReadAsStringAsync(ct);
@@ -956,7 +962,7 @@ public sealed class IBKRClient
             return cached;
         using var searchResp = await SendWithAuthAsync(
             HttpMethod.Get,
-            $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(sym)}&secType={Uri.EscapeDataString(secType)}",
+            $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(SearchSymbol(sym, secType))}&secType={Uri.EscapeDataString(secType)}",
             null, ct);
         if (!searchResp.IsSuccessStatusCode) return null;
         var searchText = await searchResp.Content.ReadAsStringAsync(ct);
