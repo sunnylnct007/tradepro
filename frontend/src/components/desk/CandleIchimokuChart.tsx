@@ -118,10 +118,10 @@ const BARS_PER_DAY: Record<string, number> = { "1m": 390, "5m": 78, "15m": 26, "
 /** Indicator toggles — persisted so the trader's chart setup survives
  *  navigation. Defaults chosen per timeframe use: volume always, SMAs for
  *  swing (daily), VWAP for intraday; RSI opt-in. */
-type IndState = { vol: boolean; sma50: boolean; sma200: boolean; vwap: boolean; rsi: boolean; ich: boolean };
+type IndState = { vol: boolean; sma50: boolean; sma200: boolean; vwap: boolean; rsi: boolean; ich: boolean; obv: boolean };
 // ich defaults OFF (owner 22 Aug: the cloud misleads; platform studies concur
 // — it visualizes the strategy's view on demand, it is not evidence).
-const IND_DEFAULTS: IndState = { vol: true, sma50: true, sma200: true, vwap: true, rsi: false, ich: false };
+const IND_DEFAULTS: IndState = { vol: true, sma50: true, sma200: true, vwap: true, rsi: false, ich: false, obv: false };
 const IND_KEY = "tp-chart-indicators";
 
 export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", height = 360, ccy, entryPrice, entryDate, fills }: Props) {
@@ -144,6 +144,27 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
   const [err, setErr] = useState<string | null>(null);
   // Live crosshair readout (OHLC + date) shown above the chart.
   const [hover, setHover] = useState<Candle | null>(null);
+
+  // REGIME READ (22 Aug 2026). Stated as a verdict, not another squiggle,
+  // because it answers a gate question: "is this even a trending market?"
+  // Five of the stack's filters are trend-family and none of them tests
+  // whether a trend exists — MU fired at ER 0.06 / ADX 12, WCC at 0.09 / 13.8.
+  // In chop, trend-family signals are noise regardless of which way they point.
+  const regime = useMemo(() => {
+    const cs = series?.candles ?? [];
+    if (cs.length < 40) return null;
+    const er = efficiencyRatio(cs, 20);
+    const adx = adxPoints(cs, 14);
+    if (!er.length || !adx.length) return null;
+    const e = er[er.length - 1].value, a = adx[adx.length - 1].value;
+    const trending = e >= 0.30 && a >= 20;
+    const weak = e < 0.20 || a < 15;
+    return {
+      er: e, adx: a,
+      label: trending ? "TRENDING" : weak ? "CHOP" : "WEAK TREND",
+      tone: trending ? "#1fc16b" : weak ? "#ef4444" : "#e0b341",
+    };
+  }, [series]);
 
   // Relative volume (bar vol ÷ trailing-20-bar average) per timestamp — the
   // breakout-vs-fakeout tell: a push through resistance at ×2.0 average is a
@@ -380,6 +401,19 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
       const s = lineSeries(chart, "#4f8cff", 2);
       s.setData(vwapPoints(candles));
     }
+    // OBV on its own hidden scale — its magnitude has nothing to do with
+    // price, so it shares the pane but never the axis. Read the SHAPE against
+    // price: new price high without a new OBV high = the move is unfunded.
+    if (!renko && ind.obv) {
+      const o = chart.addSeries(LineSeries, {
+        color: "#b78cff", lineWidth: 2, priceScaleId: "obv",
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      chart.priceScale("obv").applyOptions({ scaleMargins: { top: 0.05, bottom: 0.55 } });
+      o.setData(obvPoints(candles));
+    }
+
     // RSI(14) in its OWN pane (own 0-100 scale — never overlaid on price).
     if (!renko && ind.rsi) {
       const rsiSeries = chart.addSeries(LineSeries, {
@@ -805,6 +839,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
               ["sma200", "SMA200", "#b78cff", "200-bar SMA — the regime floor the backtests gate on", true],
               ["vwap", "VWAP", "#4f8cff", "Session-anchored VWAP — the intraday value line (intraday resolutions only)", resolution !== "1d"],
               ["rsi", "RSI", "#e0b341", "RSI(14) in its own pane with 30/70 bands", true],
+              ["obv", "OBV", "#b78cff", "On-Balance Volume — cumulative signed volume. Compare its SHAPE to price: a new price high without a new OBV high means the move is not funded (MU rallied +30.8% while OBV sat at 71% of its peak).", true],
               ["ich", "Cloud", "#1fc16b", "Ichimoku overlay at the STRATEGY's 5·32·50 params — shows what ichimoku_equity sees. Off by default: the platform's own studies found no standalone edge in these lines, and the displaced cloud lags fast moves badly.", true],
             ] as const).filter(([, , , , show]) => show).map(([key, label, color, tip]) => (
               <button
@@ -875,6 +910,12 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
               <span style={{ fontWeight: 700, color: isStale ? "#ef4444" : "var(--text-dim)" }}>
                 {renko ? "LATEST SESSION " : hover ? "" : "LATEST "}{bar.timestamp.slice(0, 10)}
               </span>
+              {regime && (
+                <span style={{ color: regime.tone, fontWeight: 700 }}
+                  title={`Kaufman Efficiency Ratio(20) = ${regime.er.toFixed(3)} (0 = pure chop, 1 = pure trend; <0.30 is chop) · ADX(14) = ${regime.adx.toFixed(1)} (<20 = no trend worth trading). Trend-family signals — moving-average crosses, cloud position, breakouts — only carry information in a trending regime. Neither of these is a price forecast; they say whether the OTHER indicators mean anything right now.`}>
+                  {regime.label}
+                </span>
+              )}
               <span>O {fmt(bar.open, ccy)}</span>
               <span>H {fmt(bar.high, ccy)}</span>
               <span>L {fmt(bar.low, ccy)}</span>
@@ -1197,6 +1238,73 @@ function vwapPoints(candles: Candle[]): { time: UTCTimestamp; value: number }[] 
     pv += typical * vol;
     vv += vol;
     if (vv > 0) out.push({ time: toTime(c.timestamp), value: pv / vv });
+  }
+  return out;
+}
+
+/** Kaufman Efficiency Ratio(n) — net move ÷ total path travelled.
+ *  0 = pure chop, 1 = pure trend. The missing test in the whole stack:
+ *  cloud position, moving averages and breakout rules all encode "which way
+ *  is the trend", and none of them asks whether a trend EXISTS. Measured on
+ *  MU and WCC this weekend: 0.06 and 0.09 — price travelled an enormous
+ *  distance to end up where it started, and trend-family signals fired in
+ *  both. Below ~0.30 is chop. */
+function efficiencyRatio(candles: Candle[], n = 20): { time: UTCTimestamp; value: number }[] {
+  const out: { time: UTCTimestamp; value: number }[] = [];
+  for (let i = n; i < candles.length; i++) {
+    const net = Math.abs(candles[i].close - candles[i - n].close);
+    let path = 0;
+    for (let j = i - n + 1; j <= i; j++) path += Math.abs(candles[j].close - candles[j - 1].close);
+    if (path > 0) out.push({ time: toTime(candles[i].timestamp), value: net / path });
+  }
+  return out;
+}
+
+/** Wilder ADX(n) — trend STRENGTH, direction-agnostic. Below 20 conventionally
+ *  means no trend worth trading; MU printed 12.0 and WCC 13.8 on signals that
+ *  fired anyway. Pairs with the Efficiency Ratio: ER measures how straight the
+ *  path was, ADX how persistent the directional pressure. */
+function adxPoints(candles: Candle[], n = 14): { time: UTCTimestamp; value: number }[] {
+  const out: { time: UTCTimestamp; value: number }[] = [];
+  if (candles.length <= n * 2) return out;
+  let tr = 0, plus = 0, minus = 0;
+  const dxs: number[] = [];
+  let adx = 0;
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const trueRange = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    const up = c.high - p.high, down = p.low - c.low;
+    const pDM = up > down && up > 0 ? up : 0;
+    const mDM = down > up && down > 0 ? down : 0;
+    if (i <= n) { tr += trueRange; plus += pDM; minus += mDM; continue; }
+    // Wilder smoothing
+    tr = tr - tr / n + trueRange;
+    plus = plus - plus / n + pDM;
+    minus = minus - minus / n + mDM;
+    if (tr === 0) continue;
+    const pDI = (plus / tr) * 100, mDI = (minus / tr) * 100;
+    const sum = pDI + mDI;
+    const dx = sum === 0 ? 0 : (Math.abs(pDI - mDI) / sum) * 100;
+    dxs.push(dx);
+    if (dxs.length === n) { adx = dxs.reduce((a, b) => a + b, 0) / n; }
+    else if (dxs.length > n) { adx = (adx * (n - 1) + dx) / n; }
+    if (dxs.length >= n) out.push({ time: toTime(candles[i].timestamp), value: adx });
+  }
+  return out;
+}
+
+/** On-Balance Volume — cumulative signed volume. Orthogonal to price, which
+ *  is the point: it answers "is anyone actually behind this move". MU rallied
+ *  +30.8% off the 29 Jul low while OBV sat at 71% of its own peak and topped
+ *  first — the divergence you can see by eye but the stack could not express. */
+function obvPoints(candles: Candle[]): { time: UTCTimestamp; value: number }[] {
+  const out: { time: UTCTimestamp; value: number }[] = [];
+  let obv = 0;
+  for (let i = 1; i < candles.length; i++) {
+    const v = Number.isFinite(candles[i].volume) ? Number(candles[i].volume) : 0;
+    if (candles[i].close > candles[i - 1].close) obv += v;
+    else if (candles[i].close < candles[i - 1].close) obv -= v;
+    out.push({ time: toTime(candles[i].timestamp), value: obv });
   }
   return out;
 }
