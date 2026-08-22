@@ -187,6 +187,9 @@ KNOWN_PEERS: dict[str, list[str]] = {
 # Pure-function helpers (testable without network)
 # ---------------------------------------------------------------------------
 
+from .fundamentals import _dividend_yield_pct
+
+
 def _safe_float(x: Any) -> float | None:
     """Return float or None — never NaN / inf."""
     try:
@@ -476,18 +479,41 @@ def _quality_verdict(trends: dict, info: dict) -> dict:
         negatives.append("Operating margin compressing")
         score -= 8
 
-    # ROE
+    # ROE — and SAY WHICH ROE.
+    #
+    # There are two in this payload and they are both correct:
+    #   roe_pct_latest  computed from the annual statements — LATEST FISCAL YEAR
+    #   roe_ttm_pct     yfinance returnOnEquity              — TRAILING 12 MONTHS
+    #
+    # Unlabelled, they read as one company contradicting itself: a quality
+    # snapshot showing 66.6% and five stars beside a verdict reasoning from
+    # 15.8% and a grade of D, in the same response. Flagged by the data lane
+    # 22 Aug. The fix is not to pick one — a fiscal year and a trailing twelve
+    # months genuinely differ, most of all for a company that has just turned —
+    # it is to name the basis so the reader can see two measures rather than
+    # one number that cannot decide.
+    #
+    # A large divergence is itself a finding: a business earning 4x its
+    # last full year is mid-inflection, and a quality grade anchored to the
+    # closed year describes a company that no longer exists.
     roe = trends.get("roe_pct_latest")
+    roe_ttm = _safe_float(info.get("returnOnEquity"))
+    roe_ttm = roe_ttm * 100 if roe_ttm is not None else None
     if roe is not None:
         if roe >= 20:
-            positives.append(f"High ROE: {roe:.1f}%")
+            positives.append(f"High ROE: {roe:.1f}% (latest fiscal year)")
             score += 10
         elif roe >= 12:
-            positives.append(f"Acceptable ROE: {roe:.1f}%")
+            positives.append(f"Acceptable ROE: {roe:.1f}% (latest fiscal year)")
             score += 4
         elif roe < 5:
-            negatives.append(f"Weak ROE: {roe:.1f}%")
+            negatives.append(f"Weak ROE: {roe:.1f}% (latest fiscal year)")
             score -= 8
+        if roe_ttm is not None and roe > 0 and (roe_ttm / roe >= 2 or roe / max(roe_ttm, 0.01) >= 2):
+            negatives.append(
+                f"ROE basis disagrees — {roe:.1f}% latest fiscal year vs "
+                f"{roe_ttm:.1f}% trailing twelve months. This grade is anchored to "
+                f"the closed year; the business has moved since.")
 
     # FCF conversion
     fcf_conv = trends.get("fcf_conversion_latest")
@@ -679,10 +705,14 @@ def analyse_long_term(
             round(_safe_float(info.get("profitMargins")) * 100, 2)
             if _safe_float(info.get("profitMargins")) is not None else None
         ),
-        "dividend_yield_pct":(
-            round(_safe_float(info.get("dividendYield")) * 100, 2)
-            if _safe_float(info.get("dividendYield")) is not None else None
-        ),
+        # SECOND SITE OF THE SAME x100 BUG. fundamentals.py was corrected on
+        # 22 Aug — yfinance's `dividendYield` is ALREADY PERCENT (MU 0.05
+        # meaning 0.05%), while `trailingAnnualDividendYield` is a fraction —
+        # but this path kept multiplying by 100 and was missed, so every
+        # low-yield name reported 100x too high here: MU 5.0% against a real
+        # 0.0548%. Delegated to the one corrected implementation rather than
+        # repaired in place, because a third copy would be found the same way.
+        "dividend_yield_pct": _dividend_yield_pct(info),
         "beta":              _safe_float(info.get("beta")),
         "52w_high":          _safe_float(info.get("fiftyTwoWeekHigh")),
         "52w_low":           _safe_float(info.get("fiftyTwoWeekLow")),
