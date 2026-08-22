@@ -263,9 +263,25 @@ def build_artifact(rows: list[dict], universe: str,
             "gates_commit": "6c9f330",
             "trades": 2413, "win_rate_pct": 62.4, "mean_per_trade_pct": 0.77,
             "worst_trade_pct": -12.5, "median_hold_sessions": 4,
+            # TAIL UNDER RECONCILIATION (22 Aug). These figures predate the
+            # _tradeable() fix, so the population included futures, indices
+            # and foreign listings — the same error found and corrected on the
+            # momentum screen. An independent replay on the tradeable universe
+            # gives 2,227 trades, 66.0% win, +0.89%/trade, median +1.76% and a
+            # worst trade of -22.0%, but a median hold of 8 rather than 4,
+            # which means its exit mechanics do not match the original
+            # harness. Until that is reconciled the win/mean stay as published
+            # (the replay is BETTER on both, so they are not flattering) and
+            # the WORST TRADE is flagged, because -12.5% is not defensible and
+            # a tail figure is the one number a trader must not under-read.
+            "worst_trade_under_review": True,
+            "worst_trade_replay_pct": -22.0,
             "note": ("Gates committed to git BEFORE the run. High-ATR names (>=4%) "
                      "averaged +1.91%/trade. A 5-day-SMA target scored 76% win but only "
-                     "+0.06%/trade and was rejected; volume filtering added nothing."),
+                     "+0.06%/trade and was rejected; volume filtering added nothing. "
+                     "TAIL UNDER RECONCILIATION: the -12.5% worst trade predates the "
+                     "tradeable-universe fix; an independent replay puts it near -22%. "
+                     "Assume the larger number until reconciled."),
         },
         "limits": [
             "No sentiment or fundamentals filter — neither is backtestable here (EPS store is 3 months deep), so neither is claimed.",

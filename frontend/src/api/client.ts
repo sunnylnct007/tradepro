@@ -624,6 +624,7 @@ export const api = {
           gates_file: string; gates_commit: string; trades: number;
           win_rate_pct: number; mean_per_trade_pct: number;
           worst_trade_pct: number; median_hold_sessions: number; note: string;
+          worst_trade_under_review?: boolean; worst_trade_replay_pct?: number;
         };
         limits: string[];
         quarantined?: Array<{ symbol: string; reason: string; detail: string }>;

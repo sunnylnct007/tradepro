@@ -62,7 +62,12 @@ export function SwingView() {
                     padding: "8px 12px", marginBottom: 12, fontSize: 12, lineHeight: 1.6 }}>
         <b style={{ color: TONE.ok }}>Backtested</b> — {a.evidence.trades.toLocaleString()} trades ·{" "}
         <b>{a.evidence.win_rate_pct}% win</b> · {a.evidence.mean_per_trade_pct}%/trade ·{" "}
-        median hold {a.evidence.median_hold_sessions} sessions · worst {a.evidence.worst_trade_pct}%.
+        median hold {a.evidence.median_hold_sessions} sessions · worst{" "}
+        {a.evidence.worst_trade_under_review ? (
+          <b style={{ color: TONE.warn }}>
+            {a.evidence.worst_trade_replay_pct}% (under reconciliation — assume the larger number)
+          </b>
+        ) : (<b style={{ color: TONE.bad }}>{a.evidence.worst_trade_pct}%</b>)}.
         <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 3 }}>
           Gates <code>{a.evidence.gates_file}</code> committed <code>{a.evidence.gates_commit}</code>{" "}
           BEFORE the run — see Research. {a.evidence.note}
