@@ -37,6 +37,20 @@ _INTRADAY_RES = {"1m", "5m", "15m", "30m"}
 # 7 days keeps us inside that and matches the "1w" period the mapping already
 # emits, so the request is one IBKR understands well.
 _INTRADAY_CHUNK_DAYS = 7
+# IBKR caps a history response at 1000 BARS regardless of the period asked
+# for (measured 22 Aug 2026: period=1m and period=3m both returned exactly
+# 1000). A fixed 7-day chunk is therefore wrong in BOTH directions:
+#   1m  — 7 days is ~2,730 bars, so only the most recent 1000 came back and
+#         roughly 4.5 days of every chunk were SILENTLY LOST.
+#   5m  — 7 days is ~429 bars, under half the cap, so we paid 2.3x the
+#         requests a backfill needed.
+# Sized here from bars-per-session with headroom under the cap.
+_CHUNK_DAYS_BY_RES: dict[str, int] = {
+    "1m": 3,     # ~390/session → 2.5 sessions fits
+    "5m": 14,    # ~78/session  → 10 sessions ≈ 780 bars
+    "15m": 45,   # ~26/session
+    "30m": 90,   # ~13/session
+}
 
 
 def _ibkr_period(start: datetime, end: datetime, resolution: str = "1d",
@@ -107,7 +121,7 @@ class IBKRWebProvider(Provider):
         meta: dict[str, Any] = {}
         errors: list[str] = []
         cursor = start
-        step = timedelta(days=_INTRADAY_CHUNK_DAYS)
+        step = timedelta(days=_CHUNK_DAYS_BY_RES.get(resolution, _INTRADAY_CHUNK_DAYS))
         while cursor < end:
             chunk_end = min(cursor + step, end)
             try:
@@ -216,7 +230,7 @@ class IBKRWebProvider(Provider):
         # API and belongs in the adapter.
         if resolution in _INTRADAY_RES:
             span = (end - start)
-            if span > timedelta(days=_INTRADAY_CHUNK_DAYS):
+            if span > timedelta(days=_CHUNK_DAYS_BY_RES.get(resolution, _INTRADAY_CHUNK_DAYS)):
                 return self._fetch_chunked(canonical, asset_class, resolution, start, end)
         base, token = self._resolve_base()
         base = (base or "").rstrip("/")
