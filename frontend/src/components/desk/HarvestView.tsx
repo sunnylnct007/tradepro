@@ -305,26 +305,43 @@ export function HarvestView() {
     return m;
   }, [quality]);
 
-  const summary = useMemo(() => {
-    const s = { total: rows.length, healthy: 0, warn: 0, bad: 0, none: 0, missing: 0 };
+  // ONE ROW PER SYMBOL (22 Aug 2026). The health table carries rows for both
+  // asset-class trees (us_etf + a retired us_equity twin for ~250 symbols),
+  // and the display keyed rows by canonical alone — duplicate React keys made
+  // filtering leave stale phantom rows behind (the "1 shown but 13 visible"
+  // screenshot). us_etf is the single canonical tree now: prefer its row,
+  // fall back to whatever exists for symbols that only ever lived elsewhere.
+  const dedupedRows = useMemo(() => {
+    const byCanonical = new Map<string, Row>();
     for (const r of rows) {
+      const prev = byCanonical.get(r.canonical);
+      if (!prev || (r.asset_class === "us_etf" && prev.asset_class !== "us_etf")) {
+        byCanonical.set(r.canonical, r);
+      }
+    }
+    return [...byCanonical.values()];
+  }, [rows]);
+
+  const summary = useMemo(() => {
+    const s = { total: dedupedRows.length, healthy: 0, warn: 0, bad: 0, none: 0, missing: 0 };
+    for (const r of dedupedRows) {
       const v = verdict(r).tone;
       if (v === "ok") s.healthy++; else if (v === "warn") s.warn++;
       else if (v === "bad") s.bad++; else s.none++;
       s.missing += r.missing_days_count || 0;
     }
     return s;
-  }, [rows]);
+  }, [dedupedRows]);
 
   // Which harvest resolutions actually wrote the rows on screen. More than one
   // means you are looking at the overwrite described above, not at a genuine
   // per-symbol difference.
   const shownRes = useMemo(
-    () => [...new Set(rows.map((r) => r.last_fetched_resolution).filter(Boolean) as string[])].sort(),
-    [rows]);
+    () => [...new Set(dedupedRows.map((r) => r.last_fetched_resolution).filter(Boolean) as string[])].sort(),
+    [dedupedRows]);
 
   const shown = useMemo(() => {
-    let r = rows;
+    let r = dedupedRows;
     if (q.trim()) r = r.filter((x) => x.canonical.toLowerCase().includes(q.trim().toLowerCase()));
     if (onlyIssues) r = r.filter((x) => verdict(x).tone === "warn" || verdict(x).tone === "bad");
     // Issues first, then by symbol.
@@ -333,7 +350,7 @@ export function HarvestView() {
       const d = rank[verdict(a).tone] - rank[verdict(b).tone];
       return d !== 0 ? d : a.canonical.localeCompare(b.canonical);
     });
-  }, [rows, q, onlyIssues]);
+  }, [dedupedRows, q, onlyIssues]);
 
   if (loading && rows.length === 0) return <div style={{ padding: 20, color: "var(--text-dim)" }}>Loading harvest health…</div>;
   if (err) return <div style={{ padding: 20, color: "var(--down)" }}>Data-trust API unavailable: {err}</div>;
@@ -485,7 +502,7 @@ export function HarvestView() {
               const v = verdict(r);
               const ds = daysSince(r.last_fetched_at_utc);
               return (
-                <tr key={r.canonical}
+                <tr key={`${r.canonical}|${r.asset_class}`}
                   onClick={() => setSelected(selected === r.canonical ? null : r.canonical)}
                   title="Click to show the price curve"
                   style={{
