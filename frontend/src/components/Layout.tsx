@@ -36,47 +36,36 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./desk/shellTheme";
 type NavItem = { to: string; label: string; end?: boolean };
 type NavSection = { label: string; items: NavItem[] };
 
-// Trader's daily surfaces — the top, ungrouped block of the sidebar.
+// ── CUT TO WHAT EARNS ITS PLACE (22 Aug 2026) ─────────────────────────
+//
+// The /desk rail was cut from 17 surfaces to 6 earlier today; the owner then
+// pointed out — correctly — that the MAIN APP nav still carried 22 items, so
+// nothing had actually got simpler. Same standard applied here.
+//
+// Owner: "even if we get 1 thing right it's better than to have 10 wrong",
+// "we already have so many screeners built and not usable", "delete if of no
+// use", "better to have a clean slate".
+//
+// Removed are SIGNAL surfaces that have never passed a pre-registered gate
+// (Decide, Scan, Scanner, Charts, Daily Screener, Research, Backtest) plus
+// strategy/paper detail views the cockpit now covers. Every route still EXISTS
+// and is reachable by URL — a decluttered nav, not a code deletion. Anything
+// that clears its gates comes back; that is what the Research surface is for.
 const marketNav: NavItem[] = [
-  // Cockpit points at the IBKR-style /desk surface (the legacy
-  // TraderCockpit was deleted 21 Aug 2026).
-  { to: "/desk",         label: "Cockpit"    },
-  // Decide — long-term / multi-strategy comparison view. Daily-use.
-  { to: "/compare",      label: "Decide"     },
-  { to: "/scan",         label: "Scan"       },
-  { to: "/oms",          label: "OMS"        },
-  { to: "/portfolio",    label: "Portfolio"  },
+  { to: "/desk",      label: "Cockpit"   },  // the 6-surface desk
+  { to: "/portfolio", label: "Portfolio" },  // raw truth: actual positions
+  { to: "/oms",       label: "OMS"       },  // raw truth: actual orders
 ];
 
-// Grouped secondary surfaces. Previously hidden behind a "More ▾" dropdown;
-// now rendered inline as labeled sidebar sections (the section labels double
-// as group headers).
+// Operational surfaces the platform needs to RUN — deliberately not signal
+// surfaces. Health/IT Data matter more than usual right now because a second
+// developer owns the harvest + connectivity work.
 const moreSections: NavSection[] = [
-  { label: "Strategy", items: [
-    { to: "/strategies",                  label: "Strategies catalog" },
-    { to: "/strategies/ichimoku-equity",  label: "Ichimoku Equity"    },
-    { to: "/strategies/ichimoku-fx",      label: "Ichimoku FX"        },
-    { to: "/backtests",                   label: "Backtests"          },
-  ]},
-  { label: "Research", items: [
-    { to: "/signals",      label: "Research"   },
-    { to: "/simulations",  label: "Backtest"   },
-    { to: "/scanner",      label: "Scanner"    },
-    { to: "/charts",       label: "Charts"     },
-    { to: "/documents",    label: "Docs"       },
-    { to: "/screener",     label: "Daily Screener" },
-  ]},
-  { label: "Paper / History", items: [
-    { to: "/paper-live",            label: "Paper sessions"  },
-    { to: "/paper-backtest",        label: "PA Reports"      },
-    { to: "/intraday/leaderboard",  label: "Intraday board"  },
-  ]},
   { label: "System", items: [
-    { to: "/risk",               label: "Risk"      },
-    { to: "/universes",          label: "Universes" },
     { to: "/settings",           label: "Settings"  },
     { to: "/health",             label: "Health"    },
     { to: "/admin/data",         label: "IT Data"   },
+    { to: "/universes",          label: "Universes" },
     { to: "/help/trade-support", label: "Support"   },
     { to: "/help/ops-runbook",   label: "IT Guide"  },
   ]},
