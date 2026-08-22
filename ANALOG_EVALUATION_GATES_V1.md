@@ -81,3 +81,21 @@ Analog evaluation ships only if it passes **every** gate.
    of writing it down first.
 
 If it fails, the screens keep quoting the base rate and say so plainly.
+
+---
+
+# PARKED, not run. 2026-08-22.
+
+Stopped before producing a result, at the owner's push-back: *"we run and
+cross in circles ... no concrete plan yet."*
+
+That is a fair call and this study is the evidence for it. It was started
+because the idea was interesting, not because it was the next most important
+thing. The machinery exists (`strategies/tradepro_strategies/analogs.py`,
+with the no-lookahead assertion) and the harness got as far as building
+461,183 state/outcome records across 243 symbols before being halted.
+
+**Do not resume this until the universe is defined and one sleeve has been
+tested against a broker.** A better per-candidate score computed over an
+undefined symbol list would be a more sophisticated version of the same
+mistake this file was written to avoid.
