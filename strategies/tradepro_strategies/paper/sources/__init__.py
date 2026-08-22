@@ -29,6 +29,7 @@ The Engine's BarBus stays in-process; only the source layer crosses
 the network.
 """
 from .base import BarSource, MultiSymbolSourceBackedBus, SourceBackedBus
+from .bar_store import BarStoreSource
 from .cache import CachedSource, ParquetBarStore
 from .errors import DataUnavailableError
 from .fallback import FallbackSource

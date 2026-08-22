@@ -34,6 +34,7 @@ from .multi_router import MultiBrokerRouter
 from .router import OrderRouter, PaperOrderRouter, StubLiveRouter
 from .sources import (
     BarSource,
+    BarStoreSource,
     CachedSource,
     FallbackSource,
     MultiSymbolSourceBackedBus,
@@ -325,6 +326,12 @@ def default_bar_source() -> BarSource:
     Override by passing your own `BarSource` to `SourceBackedBus` when you need
     a different chain (e.g. Polygon-first for a sub-second latency strategy)."""
     return FallbackSource(sources=[
+        # GOLDEN FIRST (22 Aug 2026): the canonical BarStore the harvest
+        # fills and the audit certifies — the same bars the strategy's own
+        # signal reads. Read-only: never fetches on a trading tick.
+        BarStoreSource(),
+        # Visible fallback: an end-of-session top-up the harvest has not
+        # written yet still needs a live source.
         CachedSource(inner=YfinanceSource()),
     ])
 
