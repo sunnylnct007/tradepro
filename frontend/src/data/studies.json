@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "note": "Every pre-registered study run on TradePro. Gates were COMMITTED TO GIT BEFORE each run — the commit sha is on each entry so the claim is checkable, not trusted. A study with a FAIL verdict is kept, not deleted: the negative results are the point.",
+  "studies": [
+    {
+      "id": "wheel_v3",
+      "title": "Wheel CSP — 200-SMA primary-trend floor",
+      "date": "2026-08-15",
+      "gatesFile": "WHEEL_BACKTEST_GATES_V3.md",
+      "gatesCommit": "f296405",
+      "question": "Does refusing to sell puts on names below their 200-SMA fix the wheel's single-name drawdown?",
+      "prediction": "G4 passes (the floor blocks the META-class entry); G3 is the risk.",
+      "verdict": "FAIL — DO NOT FUND",
+      "headline": "G3 CAGR 7.61% (v2 8.25%), G4 full-period META −71.4%",
+      "why": "The trend floor did not save it. Worse, the harness had never graded G4 on the FULL window — v2's celebrated '8/9 PASS' was flattered by a gate that was never scored. Entry filters cannot reach the failure mechanism, which is being assigned into a decliner and holding it.",
+      "gates": [
+        {"id": "G3", "test": "Full-period net CAGR ≥ 8%/yr", "result": "7.61%", "pass": false},
+        {"id": "G4", "test": "Worst single-symbol DD ≤ 40%", "result": "META −71.4% (full)", "pass": false}
+      ]
+    },
+    {
+      "id": "sr_levels_v1",
+      "title": "Support/resistance levels — do they predict anything?",
+      "date": "2026-08-15",
+      "gatesFile": "SR_LEVEL_STUDY_GATES_V1.md",
+      "gatesCommit": "aac6b03",
+      "question": "When price touches one of the levels drawn on our charts, does it reject more often than an identically-placed line that is NOT a level?",
+      "prediction": "G1/G2 fail with an edge of 0-3 points.",
+      "verdict": "FAIL — the chart lines carry no edge",
+      "headline": "76,260 touch events. Resistance edge −0.34 pts, support −1.26 pts vs placebo.",
+      "why": "Both edges are NEGATIVE: a randomly-placed line predicted the next 5 bars marginally better than a real pivot level. The unconditional 5-bar down-rate is 45.50% against a 45.19% resistance rejection rate — touching resistance tells you nothing drift does not. Well-powered, not a small sample.",
+      "gates": [
+        {"id": "V0", "test": "≥2,000 touch events per side", "result": "40,888 / 35,372", "pass": true},
+        {"id": "G1", "test": "Resistance edge ≥ +5.0 pts", "result": "−0.34 pts", "pass": false},
+        {"id": "G2", "test": "Support edge ≥ +5.0 pts", "result": "−1.26 pts", "pass": false},
+        {"id": "G4", "test": "Edge same sign in both halves", "result": "+0.03 / −0.66", "pass": false}
+      ]
+    },
+    {
+      "id": "ich_sr_filter",
+      "title": "Ichimoku — support-distance entry filter",
+      "date": "2026-08-20",
+      "gatesFile": "ICH_SR_FILTER_GATES_V1.md",
+      "gatesCommit": "93585ad",
+      "question": "ICH's live record is −$376 at a 20% win rate with losses 4.7x wins. Does refusing entries within 2 ATR of a support level fix it?",
+      "prediction": "G1/G2/G5 pass, G3 fails — better trades, less money.",
+      "verdict": "FAIL",
+      "headline": "Win rate +1.9 pts (needed +4). Avg/trade +9% relative (needed +50%). Loss/win ratio got WORSE.",
+      "why": "A forward-return study on 25,120 entries had shown a clean 2.25x separation at 2 ATR. It did not survive real entries, real exits and costs. Prediction was wrong in the opposite direction — the per-trade improvement barely exists.",
+      "gates": [
+        {"id": "G1", "test": "Win rate ≥ +4 pts vs unfiltered", "result": "+1.9 pts", "pass": false},
+        {"id": "G2", "test": "Avg P&L ≥ +50% relative", "result": "+9%", "pass": false},
+        {"id": "G5", "test": "Loss/win size ratio improves", "result": "0.41 vs 0.38 — worse", "pass": false}
+      ]
+    },
+    {
+      "id": "ich_exit_v1",
+      "title": "Ichimoku — exit rule variants",
+      "date": "2026-08-21",
+      "gatesFile": "ICH_EXIT_GATES_V1.md",
+      "gatesCommit": "fc2fdcf",
+      "question": "Three entry ideas failed. The exit is 'close<cloud_bottom OR tenkan<kijun' — tenkan is a 5-period line against kijun's 32, so it fires on any pullback. Is the fast leg what cuts winners?",
+      "prediction": "B (cloud-only) passes G1/G2/G3; G4 is the risk.",
+      "verdict": "PASS — all five gates",
+      "headline": "Removing the tenkan<kijun leg: total +41%, mean/trade 2.46x, median hold 19→34 bars, tail concentration FELL 55%→51%.",
+      "why": "Confirmed by the control: variant D (kijun trail) exits fastest at a 6-bar median and is the WORST on every measure with a 72% tail share — which is the live sleeves' behaviour reproduced deliberately. Caveat: win rate falls 39.1%→34.7%, and this DEPARTS from the trader's documented spec so it needs a parity test before adoption.",
+      "gates": [
+        {"id": "G1", "test": "Total ≥ baseline x1.30", "result": "1.41x", "pass": true},
+        {"id": "G2", "test": "Mean/trade ≥ x1.20", "result": "2.46x", "pass": true},
+        {"id": "G3", "test": "Median hold ≥ 21 bars", "result": "34 bars", "pass": true},
+        {"id": "G4", "test": "Top-1% share must not rise", "result": "51% vs 55%", "pass": true}
+      ]
+    },
+    {
+      "id": "ich_exit_v2",
+      "title": "Ichimoku — profit targets, win rate as a HARD gate",
+      "date": "2026-08-22",
+      "gatesFile": "ICH_EXIT_GATES_V2_TARGETS.md",
+      "gatesCommit": "d9f0790",
+      "question": "Owner: 'a winrate of 34-35% is a no-go for an algo platform.' Can profit targets lift the win rate without gutting the tail?",
+      "prediction": "H (scale-out) passes all four; E (+10% target) passes G1 and fails G2.",
+      "verdict": "FAIL — the family's ceiling is ~44%",
+      "headline": "Best win rate 44.2% (E), which loses money vs baseline. Best overall G (min-hold+20% target): 43.2% win, beats baseline total, and cuts tail dependence 54%→23%.",
+      "why": "No variant reached 45%. The prediction was WRONG — H (scale-out) was the worst variant, below baseline. The conclusion registered in advance applies: this signal family cannot deliver ≥45%, so the choice is accept ~43% or change family. Notably G more than halves tail dependence, which addresses the fragility behind the win-rate objection.",
+      "gates": [
+        {"id": "G1", "test": "Win rate ≥ 45% (HARD)", "result": "44.2% best", "pass": false},
+        {"id": "G2", "test": "Total ≥ baseline", "result": "G: 18,419% vs 17,836%", "pass": true},
+        {"id": "G3", "test": "Median hold ≥ 21 bars", "result": "G: 22 bars", "pass": true},
+        {"id": "G4", "test": "Top-1% share ≤ baseline", "result": "G: 23% vs 54%", "pass": true}
+      ]
+    },
+    {
+      "id": "mean_reversion_v1",
+      "title": "Mean-reversion swing candidates",
+      "date": "2026-08-22",
+      "gatesFile": "MEAN_REVERSION_GATES_V1.md",
+      "gatesCommit": "6c9f330",
+      "question": "Owner wants candidates to get into and out of quickly with a high hit rate. Ichimoku cannot do that — its edge IS the long hold and the tail. Can mean reversion?",
+      "prediction": "M1 (RSI2) + X1 strongest; G5 (worst trade) is where I expect trouble.",
+      "verdict": "PARTIAL — the family works, one gate unmet",
+      "headline": "M2+X2 (lower-Bollinger dip in an uptrend, exit above the 5-day MA): 65.5% win rate, 4-bar median hold, top-1% share 25%. Fails G5 only — worst trade −34.1%.",
+      "why": "Completely different profile from Ichimoku: 65% win vs 39%, 4-bar holds vs 41+ bars needed, and profit spread across many trades rather than 54% from the top 1%. A stop fixes the worst trade (−34%→−16%) but breaks G4 by concentrating the tail (25%→37%) — a real trade-off, not a fix. IMPORTANT: the first pass was contaminated by corrupt bars; mean reversion is uniquely exposed because its premise is BUY THE CRASH, and a fake −60% print is exactly what it buys. Numbers here are post-guard.",
+      "gates": [
+        {"id": "V0", "test": "≥1,000 trades", "result": "5,621", "pass": true},
+        {"id": "G1", "test": "Win rate ≥ 55%", "result": "65.5%", "pass": true},
+        {"id": "G2", "test": "Mean net > 0", "result": "+0.59%", "pass": true},
+        {"id": "G3", "test": "Median hold ≤ 10 bars", "result": "4 bars", "pass": true},
+        {"id": "G4", "test": "Top-1% share ≤ 25%", "result": "25%", "pass": true},
+        {"id": "G5", "test": "Worst trade ≥ −25%", "result": "−34.1%", "pass": false}
+      ]
+    }
+  ]
+}
