@@ -187,3 +187,64 @@ A study is not finished until its harness is committed to
 `strategies/backtests/studies/` alongside its gates file, the gates commit sha,
 its log, and its `studies.json` record. Every harness from 22 Aug onward is
 there. See `strategies/backtests/README.md`.
+
+---
+
+# v2 RE-RUN — 22 Aug 2026. ALL SIX GATES PASS. Harness committed.
+
+`backtests/studies/mean_reversion_v2.py` · 89-name defined universe · cleaned
+store, verified phantom-free · realistic gap fills.
+
+| gate | threshold | v1 | v2 | |
+|---|---|---|---|---|
+| V0 | >= 1,000 trades | 2,400 | 1,270 | PASS |
+| G1 | win >= 55% | 65.5% | **66.2%** | PASS |
+| G2 | mean net > 0 | +0.59% | **+0.88%** | PASS |
+| G3 | median hold <= 10 | 4 | **7** | PASS |
+| **G4** | top-1% share <= 25% | **26% FAIL** | **19.9%** | **PASS** |
+| G5 | worst >= -25% | -12.5% | **-17.7%** | PASS |
+
+**G4, the gate v1 failed and shipped anyway, now passes** — 19.9% of net
+profit from the top 1% against a 25% ceiling. The open decision flagged
+earlier is therefore closed by measurement rather than by argument.
+
+Also passes a **two-split test** that is not a v1 gate, added because it
+rejected momentum v3 and the intraday dip study the same day:
+
+| cell | n | win | mean |
+|---|---|---|---|
+| time 1st half | 633 | 67.0% | +0.74% |
+| time 2nd half | 637 | 65.5% | +1.01% |
+| symbols even | 629 | 66.9% | +1.04% |
+| symbols odd | 641 | 65.5% | +0.71% |
+
+## Why the numbers moved
+
+**Trade count halved** (2,400 → 1,270): v1 ran over a symbol list that included
+futures, indices and foreign listings. The universe is now 89 defined names.
+
+**The worst trade got worse** (-12.5% → -17.7%) and this is a correction, not
+a deterioration. v2 fills stops at `min(stop, open)` because a gap through a
+stop does not fill at the stop. Modelling the fill at the trigger produced
+exactly **-8.0% in every variant** — a stop that never slips, which does not
+exist. The first version of this harness had that flaw and was corrected
+before grading.
+
+**The hold could not be reproduced.** All four exit conventions were run —
+target moving vs fixed at entry, filled on the session high vs the close — and
+they give 7, 9, 9 and 10 bars. **None gives 4.** v1's hold figure remains
+unexplained and is now superseded rather than reconciled.
+
+**G4 was measured both ways** because v1's definition is unrecoverable: top 1%
+as a share of WINNING profit is 7.0%, as a share of NET profit 19.9%. The
+stricter reading is the one graded.
+
+## Robustness
+
+All four exit conventions pass every gate (tail 19.4-21.3% of net, hold 7-10,
+worst -17.7% to -20.4%). The result does not depend on choosing one.
+
+## Status
+
+The Swing screen now publishes these figures with the harness path beside
+them. **This is the first number set in the project that can be re-run.**

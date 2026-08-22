@@ -287,6 +287,19 @@
       "prediction_graded": "3 of 5 correct. The one that mattered \u2014 that G7 would kill it \u2014 was called before the run.",
       "headline": "Entry-bar volume looked monotonic on the full sample (<0.7x: 45.4% win; >1.2x: 52.2%). It is a REGIME, not an edge: in the first half of the record, filtering on volume makes the strategy WORSE, and worst for the strictest filter. D goes +2.24%\u2192+1.62% pre-2020 and +2.17%\u2192+3.50% after. All three variants fail G7.",
       "notes": "D passed the symbol split cleanly \u2014 either split ALONE would have shipped it. Requiring two independent cuts is what caught it. No untouched hold-out existed (the effect was found on the full sample), which is stated in the gates file rather than glossed. Consequence: no volume filter ships; v2 stands. Volume is shown in the drill-down as context labelled a failed filter. Also corrected the screen's published evidence \u2014 5,815/47.0%/+1.53%/-14.7% predated the _tradeable fix and included futures and indices; the true figures are 5,396 trades, 48.8% win, +2.20%/trade, median -0.33%, worst -29.7%."
+    },
+    {
+      "id": "mean_reversion_v2",
+      "title": "Mean reversion v2 \u2014 first reproducible Swing measurement",
+      "date": "2026-08-22",
+      "verdict": "PASS",
+      "verdict_label": "ALL SIX gates pass, incl. G4 which v1 failed",
+      "gates_file": "MEAN_REVERSION_GATES_V1.md",
+      "gates_commit": "6c9f330",
+      "harness": "backtests/studies/mean_reversion_v2.py",
+      "prediction": "Not a fresh pre-registration \u2014 graded against v1's gates, unchanged, on a defined universe and cleaned data.",
+      "headline": "1,270 trades \u00b7 66.2% win \u00b7 +0.88%/trade \u00b7 median +1.91% \u00b7 worst -17.7% \u00b7 hold 7. G4 (top-1% tail) 19.9% of net vs the 25% ceiling \u2014 v1 FAILED this at 26% and shipped anyway. Passes a two-split test that rejected momentum v3 and the intraday dip study the same day.",
+      "notes": "The v1 harness did not exist \u2014 written in a scratch dir, never committed, and its surviving log does not record hold length, so '4 bars' traced to no artifact. This is therefore the FIRST reproducible measurement, not a reconciliation. Trade count halved because v1's universe included futures and indices. The worst trade got WORSE (-12.5% -> -17.7%) as a CORRECTION: stops now fill at min(stop, open), because a gap through a stop does not fill at the stop \u2014 modelling the fill at the trigger gave exactly -8.0% in every variant, a stop that never slips. No exit convention reproduces v1's 4-bar hold; all four give 7-10 and all four pass every gate."
     }
   ]
 }

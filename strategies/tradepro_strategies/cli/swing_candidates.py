@@ -245,41 +245,33 @@ def build_artifact(rows: list[dict], universe: str,
             "stop": f"-{STOP_PCT:.0%}",
             "timeout": f"{MAX_HOLD} sessions",
         },
+        # FIRST REPRODUCIBLE MEASUREMENT — harness committed at
+        # backtests/studies/mean_reversion_v2.py, run 22 Aug 2026 against the
+        # 89-name defined universe on the cleaned store.
+        #
+        # These supersede v1's figures (2,413 trades / 62.4% / +0.77% / worst
+        # -12.5% / hold 4). Those were measured over a symbol list that included
+        # futures and indices, on data since found to contain wrong-contract
+        # series, by a harness that no longer exists. Their hold figure could
+        # not be reproduced under ANY of the four exit conventions.
+        #
+        # The worst trade is honest now: stops fill at min(stop, open), because
+        # a gap through a stop does not fill at the stop. Modelling the fill at
+        # the trigger produced exactly -8.0% in every variant — a stop that
+        # never slips, which does not exist.
         "evidence": {
             "gates_file": "MEAN_REVERSION_GATES_V1.md",
             "gates_commit": "6c9f330",
-            "trades": 2413, "win_rate_pct": 62.4, "mean_per_trade_pct": 0.77,
-            "worst_trade_pct": -12.5, "median_hold_sessions": 4,
-            # BOTH of these are flagged, for different reasons.
-            # The worst trade was measured on the pre-_tradeable()
-            # population. The median hold traces to NOTHING: the study
-            # harness was never committed and the surviving log does not
-            # record hold length at all, so "4 bars" is not a disputed
-            # measurement — there is no artifact behind it. An
-            # independent replay gives 8. Flagged rather than quietly
-            # corrected, because replacing it with the replay's number
-            # would just be a second unverifiable figure.
-            "median_hold_under_review": True,
-            "median_hold_replay_sessions": 8,
-            # TAIL UNDER RECONCILIATION (22 Aug). These figures predate the
-            # _tradeable() fix, so the population included futures, indices
-            # and foreign listings — the same error found and corrected on the
-            # momentum screen. An independent replay on the tradeable universe
-            # gives 2,227 trades, 66.0% win, +0.89%/trade, median +1.76% and a
-            # worst trade of -22.0%, but a median hold of 8 rather than 4,
-            # which means its exit mechanics do not match the original
-            # harness. Until that is reconciled the win/mean stay as published
-            # (the replay is BETTER on both, so they are not flattering) and
-            # the WORST TRADE is flagged, because -12.5% is not defensible and
-            # a tail figure is the one number a trader must not under-read.
-            "worst_trade_under_review": True,
-            "worst_trade_replay_pct": -22.0,
-            "note": ("Gates committed to git BEFORE the run. High-ATR names (>=4%) "
-                     "averaged +1.91%/trade. A 5-day-SMA target scored 76% win but only "
-                     "+0.06%/trade and was rejected; volume filtering added nothing. "
-                     "TAIL UNDER RECONCILIATION: the -12.5% worst trade predates the "
-                     "tradeable-universe fix; an independent replay puts it near -22%. "
-                     "Assume the larger number until reconciled."),
+            "harness": "backtests/studies/mean_reversion_v2.py",
+            "trades": 1270, "win_rate_pct": 66.2, "mean_per_trade_pct": 0.88,
+            "median_per_trade_pct": 1.91,
+            "worst_trade_pct": -17.7, "median_hold_sessions": 7,
+            "note": ("ALL SIX gates pass, including G4 (top-1% tail 19.9% of net vs the "
+                     "25% ceiling) which v1 FAILED at 26%. Also passes a two-split test "
+                     "that rejected three other candidates the same day: both halves of "
+                     "history and both halves of the universe hold 65-67% win and a "
+                     "positive mean. All four exit conventions pass every gate, so the "
+                     "result does not depend on picking one."),
         },
         "limits": [
             "No sentiment or fundamentals filter — neither is backtestable here (EPS store is 3 months deep), so neither is claimed.",
