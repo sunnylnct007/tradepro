@@ -133,13 +133,23 @@ def _drop_garbage_bars(df: pd.DataFrame, *, symbol: str | None = None, provider:
         detail = (f"dropped {int(bad.sum())} garbage bar(s) for {symbol or '?'} "
                   f"({n_nan} NaN-close, {n_spike} price-spike): {dates}")
         _log.warning(detail)
+        # Alarm each (provider, symbol, bar-date) ONCE. The 15 Aug rule
+        # stopped ancient bars re-alarming, but a RECENT drop still re-warned
+        # on every run for as long as it stayed recent — 22 Aug 2026 the run
+        # log carried 282 warns in 24h, ~270 of them the same 14 LSE ETFs
+        # repeating "Yahoo served a NaN close for Friday" every ~30 minutes.
+        # The first sighting is the actionable event; re-drops of the same
+        # bar go to the local log only. Dedupe state is ephemeral (7-day
+        # prune) so a bar that REAPPEARS weeks later alarms again.
+        recent = _first_sighting_only(provider, symbol, recent)
         if recent:
             when = ", ".join(
                 f"{d} ({'today' if ages[d] == 0 else 'yesterday' if ages[d] == 1 else f'{ages[d]}d ago'})"
                 for d in sorted(recent))
             summary = (f"{symbol or '?'}: dropped {len(recent)} RECENT garbage bar(s) "
                        f"[{when}] on a run dated {today.isoformat()} "
-                       f"({n_nan} NaN-close, {n_spike} price-spike)"
+                       f"({n_nan} NaN-close, {n_spike} price-spike); "
+                       f"re-drops of the same bar(s) will not re-alarm"
                        + (f"; plus {len(historical)} historical bar(s) re-dropped, not alarmed"
                           if historical else ""))
             try:
@@ -150,6 +160,40 @@ def _drop_garbage_bars(df: pd.DataFrame, *, symbol: str | None = None, provider:
                 _log.debug("garbage-bar-drop run_log post failed (non-fatal)", exc_info=True)
         df = df.loc[~bad]
     return df
+
+
+def _first_sighting_only(provider: str | None, symbol: str | None,
+                         recent_dates: list[str]) -> list[str]:
+    """Filter to bar-dates not already alarmed for this (provider, symbol).
+    Ephemeral JSON state under ~/.tradepro/state/, pruned after 7 days;
+    best-effort — any state failure alarms everything (fail-loud beats
+    fail-silent)."""
+    if not recent_dates:
+        return recent_dates
+    import datetime as _d
+    import json as _json
+    from pathlib import Path as _Path
+    import os as _os
+    _state_dir = _os.environ.get("TRADEPRO_STATE_DIR") or str(
+        _Path.home() / ".tradepro" / "state")
+    state_path = _Path(_state_dir) / "garbage_bar_alarmed.json"
+    now = _d.datetime.now(_d.UTC).isoformat()
+    cutoff = (_d.datetime.now(_d.UTC) - _d.timedelta(days=7)).isoformat()
+    try:
+        seen: dict[str, str] = {}
+        if state_path.exists():
+            seen = {k: v for k, v in _json.loads(state_path.read_text()).items()
+                    if v >= cutoff}
+        fresh = [d for d in recent_dates
+                 if f"{provider or '?'}|{symbol or '?'}|{d}" not in seen]
+        for d in fresh:
+            seen[f"{provider or '?'}|{symbol or '?'}|{d}"] = now
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(_json.dumps(seen, indent=0))
+        return fresh
+    except Exception:  # noqa: BLE001 — dedupe must never suppress by accident
+        _log.debug("garbage-bar dedupe state failed; alarming all", exc_info=True)
+        return recent_dates
 
 
 def refresh_symbol(

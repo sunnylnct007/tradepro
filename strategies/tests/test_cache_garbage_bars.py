@@ -80,10 +80,22 @@ def test_too_few_rows_for_spike_check_still_checks_nan():
     assert not out["close"].isna().any()
 
 
-def test_drop_is_not_silent_any_more(mock_log_run):
+def test_drop_is_not_silent_any_more(mock_log_run, monkeypatch, tmp_path):
     """The fix itself was silent (dropped rows, told nobody) until this pass —
-    pin that it now logs to the central run_log when it fires."""
-    df = _bars([10.0, 11.0, np.nan, 13.0, 14.0])
+    pin that it now logs to the central run_log when it fires. The bar must
+    be RECENT: since the 15 Aug noise rule only recent drops alarm (this
+    test's original hardcoded 2026-01 dates aged out of the window and it
+    silently rotted). State dir isolated so the once-per-bar dedupe never
+    touches the real machine's alarm memory."""
+    monkeypatch.setenv("TRADEPRO_STATE_DIR", str(tmp_path))
+    import datetime as dt
+    idx = pd.date_range(end=dt.date.today(), periods=5, freq="D")
+    closes = [10.0, 11.0, 12.0, np.nan, 14.0]
+    df = pd.DataFrame(
+        {"open": closes, "high": closes, "low": closes, "close": closes,
+         "volume": [1000] * 5},
+        index=idx,
+    )
     _drop_garbage_bars(df, symbol="SPY", provider="yahoo")
     mock_log_run.assert_called_once()
     args, kwargs = mock_log_run.call_args
@@ -91,6 +103,17 @@ def test_drop_is_not_silent_any_more(mock_log_run):
     assert args[2] == "warn"
     assert kwargs["symbol"] == "SPY"
     assert "NaN" in kwargs["error"]
+
+    # Second run dropping the SAME bar must NOT re-alarm (the 282-warns/24h
+    # dashboard flood of 22 Aug 2026 — one alarm per bar, ever).
+    mock_log_run.reset_mock()
+    df2 = pd.DataFrame(
+        {"open": closes, "high": closes, "low": closes, "close": closes,
+         "volume": [1000] * 5},
+        index=idx,
+    )
+    _drop_garbage_bars(df2, symbol="SPY", provider="yahoo")
+    mock_log_run.assert_not_called()
 
 
 def test_no_garbage_no_log_call(mock_log_run):

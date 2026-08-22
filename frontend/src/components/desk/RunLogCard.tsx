@@ -23,7 +23,28 @@ function ago(iso: string): string {
   return `${Math.round(s / 86400)}d`;
 }
 
-export function RunLogCard() {
+/** Collapse identical (process, status, message) rows into one line with a
+ * ×N count. 22 Aug 2026: 24h of run log held 282 warns, ~270 of them the
+ * SAME 14 symbols repeating one Yahoo NaN-close message every ~30 min — as
+ * raw rows that reads as catastrophe; as "message ×19" it reads as what it
+ * is: one condition, still present. */
+function groupRows(rows: Row[]): Array<Row & { repeats: number }> {
+  const out: Array<Row & { repeats: number }> = [];
+  const index = new Map<string, number>();
+  for (const r of rows) {
+    const key = `${r.process}|${r.status}|${r.error ?? r.summary ?? ""}`;
+    const at = index.get(key);
+    if (at === undefined) {
+      index.set(key, out.length);
+      out.push({ ...r, repeats: 1 });
+    } else {
+      out[at].repeats += 1;   // rows arrive newest-first; keep the newest row's timestamp
+    }
+  }
+  return out;
+}
+
+export function RunLogCard({ compact = false }: { compact?: boolean } = {}) {
   const [state, setState] = useState<State>("loading");
   const [rows, setRows] = useState<Row[]>([]);
   const [health, setHealth] = useState<Record<string, number>>({});
@@ -43,6 +64,39 @@ export function RunLogCard() {
 
   const fails = health.fail ?? 0;
   const partials = (health.partial ?? 0) + (health.warn ?? 0) + (health.stale ?? 0);
+  const staleProcs = procs.filter((p) => p.stale);
+
+  // Compact mode (the main dashboard): a one-line health INDICATOR, not a
+  // log. Worst-status dot + 24h counts + the dead-process alert (that one
+  // must stay loud everywhere); the full stream lives on the Data tab.
+  if (compact) {
+    const dot = fails ? "#f85149" : partials ? "#d29922" : "#3fb950";
+    const label = fails ? `${fails} FAIL` : partials ? `${partials} warn` : "all ok";
+    return (
+      <div style={{ border: "1px solid var(--border)", borderRadius: 8, background: "rgba(255,255,255,0.02)", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", fontSize: 11 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 4, background: dot, flex: "0 0 auto" }} />
+          <span style={{ fontWeight: 600 }}>Processes</span>
+          <span style={{ color: fails ? "#f85149" : partials ? "#d29922" : "#3fb950", fontSize: 10 }}>
+            {label}
+          </span>
+          <span style={{ color: "var(--text-muted)", fontSize: 9.5 }}>
+            24h: {health.ok ?? 0} ok · {fails} fail · {partials} warn
+          </span>
+          <a href="/desk?view=harvest" style={{ marginLeft: "auto", fontSize: 9.5, color: "var(--text-dim)", textDecoration: "none", border: "1px solid #1b2233", borderRadius: 5, padding: "1px 7px" }}
+            title="Full run log lives on the Data tab">
+            log →
+          </a>
+        </div>
+        {staleProcs.length > 0 && (
+          <div style={{ padding: "5px 10px", fontSize: 10.5, color: "#f85149", background: "rgba(248,81,73,0.08)", borderTop: "1px solid #5a2222" }}>
+            ⚠ <b>Dead / stale process{staleProcs.length > 1 ? "es" : ""}:</b>{" "}
+            {staleProcs.map((p) => `${p.process} (${p.lastRunUtc ? `${Math.round(p.ageHours ?? 0)}h ago` : "never run"})`).join(", ")}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, background: "rgba(255,255,255,0.02)", overflow: "hidden" }}>
@@ -73,8 +127,8 @@ export function RunLogCard() {
       {state === "ok" && rows.length === 0 && <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>No runs recorded yet.</div>}
 
       {state === "ok" && rows.length > 0 && (
-        <div style={{ maxHeight: 320, overflow: "auto" }}>
-          {rows.map((r) => (
+        <div style={{ maxHeight: 420, overflow: "auto" }}>
+          {groupRows(rows).map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, padding: "3px 10px", borderTop: "1px solid #11161f", alignItems: "baseline", fontSize: 10.5 }}>
               <span style={{ fontWeight: 700, color: STATUS_COLOR[r.status] ?? "var(--text)", minWidth: 46, fontSize: 9.5, textTransform: "uppercase" }}>{r.status}</span>
               <span style={{ color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -83,6 +137,7 @@ export function RunLogCard() {
                 {r.symbol ? <span style={{ color: "var(--text-muted)" }}> {r.symbol}</span> : null}
                 {" "}
                 {r.error ? <span style={{ color: "#f85149" }}>{r.error}</span> : <span>{r.summary}</span>}
+                {r.repeats > 1 ? <b style={{ color: "var(--text)", marginLeft: 6 }}>×{r.repeats}</b> : null}
               </span>
               <span style={{ color: "var(--text-muted)", fontSize: 9 }} title={r.created_at_utc}>{ago(r.created_at_utc)}</span>
             </div>

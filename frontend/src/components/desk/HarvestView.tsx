@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import { CandleIchimokuChart } from "./CandleIchimokuChart";
+import { RunLogCard } from "./RunLogCard";
 
 type Row = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
 type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
@@ -346,6 +347,14 @@ export function HarvestView() {
       </div>
 
       <DataReadinessBanner />
+
+      {/* Full run-log stream — moved here from the main dashboard (owner,
+          22 Aug 2026): the dashboard keeps a one-line indicator; the detail
+          lives with the rest of the data-operations story. Identical rows
+          are collapsed ×N inside the card. */}
+      <div style={{ marginBottom: 12 }}>
+        <RunLogCard />
+      </div>
 
       {/* NEW: C# IBKR bar harvester — the IBKR-primary intraday feed. This is the
           answer to "is IBKR actually harvesting?" — separate from the legacy

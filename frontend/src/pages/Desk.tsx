@@ -146,7 +146,10 @@ export function Desk() {
               <BrokerBookCard key="brk" />,
               <EquityTrackingCard key="eq" />,
               <FillReplayCard key="fill" />,
-              <RunLogCard key="runlog" />,
+              // Compact indicator only — the full run-log stream lives on the
+              // Data tab (owner, 22 Aug 2026: "dashboard should be an
+              // indicator; logs should be a separate tab").
+              <RunLogCard key="runlog" compact />,
               <TodaySetupsCard key="setups" />,
             ].map((card) => (
               <div key={card.key} style={{ breakInside: "avoid", marginBottom: 12 }}>

@@ -16,7 +16,13 @@ import pandas as pd
 import tradepro_strategies.cache as cache
 
 
-def _run(dates, closes, monkeypatch):
+def _run(dates, closes, monkeypatch, tmp_path=None):
+    # Isolate the once-per-bar alarm dedupe state from the real machine's —
+    # otherwise a test's synthetic "TEST dropped yesterday" entry leaks into
+    # (or is suppressed by) ~/.tradepro/state/garbage_bar_alarmed.json.
+    import tempfile
+    monkeypatch.setenv("TRADEPRO_STATE_DIR",
+                       str(tmp_path) if tmp_path is not None else tempfile.mkdtemp())
     calls = []
     monkeypatch.setattr(cache, "_drop_garbage_bars", cache._drop_garbage_bars)
     import tradepro_strategies.run_log as rl
