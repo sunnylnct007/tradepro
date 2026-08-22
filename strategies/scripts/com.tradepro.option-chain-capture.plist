@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightly option-quote/OI capture for the wheel universe (Yahoo chains,
+  provenance-tagged source='yfinance_chain' in option_quote_daily).
+
+  WHY (22 Aug 2026): the wheel screen's liquidity gate reads open interest
+  from option_quote_daily via resolve_open_interest(), but IBKR's G3 chain
+  serves OI only patchily (measured 16 Aug: KO 0/7, SPY 9/19 — gate
+  unevaluable on 59 of 82 rows) and the capture CLI that fills the table
+  was written 17 Aug and NEVER SCHEDULED. One run per weekday evening,
+  after the options close, with the CLI's own adaptive pacing throttle.
+
+  Scheduled 22:15 London (21:15 UTC summer) — after the 16:15 ET options
+  close, before the nightly harvests.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.option-chain-capture</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-option-chain-capture --rights PC >> "$HOME/.tradepro/logs/option-chain-capture.log" 2>&amp;1</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>5</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/skumar/.tradepro/logs/option-chain-capture.out</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/skumar/.tradepro/logs/option-chain-capture.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
