@@ -611,6 +611,31 @@ export const api = {
       };
     }>(`/api/fill-replay/${encodeURIComponent(strategy)}/latest`, label ? { label } : undefined),
   // Today's Setups scanner (tradepro-today-setups): universe ranked by entry quality.
+  /** Swing candidates — the mean-reversion bracket-order list.
+   *  Reuses the today_setups_results store (universe="swing"); the artifact
+   *  shape is different from the older setups scanner, hence its own method. */
+  swingCandidates: () =>
+    get<{
+      universe: string; label: string; asOfUtc: string;
+      artifact: {
+        kind: string; as_of_utc: string; count: number;
+        rule: { entry: string; target: string; stop: string; timeout: string };
+        evidence: {
+          gates_file: string; gates_commit: string; trades: number;
+          win_rate_pct: number; mean_per_trade_pct: number;
+          worst_trade_pct: number; median_hold_sessions: number; note: string;
+        };
+        limits: string[];
+        candidates: Array<{
+          symbol: string; tier: string; bar: string; close: number;
+          entry_hint: number; target: number; stop: number; target_pct: number;
+          reward_risk: number | null; sigma_below: number; atr_pct: number;
+          pct_above_200sma: number; off_52w_high_pct: number | null;
+          volume_vs_20d: number | null; max_hold_sessions: number;
+        }>;
+      };
+    }>("/api/today-setups/swing/latest"),
+
   todaySetups: (universe: string) =>
     get<{
       universe: string;

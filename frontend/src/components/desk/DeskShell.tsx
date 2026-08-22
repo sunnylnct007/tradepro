@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research";
+export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing";
 
 type NavEntry = {
   key: string;
@@ -99,6 +99,8 @@ type NavEntry = {
 // and are reachable via "More" — this is a decluttered cockpit, not a code
 // deletion, so anything that later clears a gate can come straight back.
 const NAV: NavEntry[] = [
+  { key: "swing",     label: "Swing",     icon: "🎣", view: "swing",     tier: "trusted",
+    title: "Swing candidates — the only screen built on a strategy that cleared pre-registered gates" },
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", tier: "trusted",
     title: "Portfolio — your actual positions" },
   { key: "oms",       label: "Orders",    icon: "📋", view: "oms",       tier: "trusted",
