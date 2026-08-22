@@ -73,10 +73,15 @@ def golden_daily(
     MCP analysis tools, run_backtest, build_high_beta_universe and the
     worker all read the ≤7-day-stale yahoo cache while fresh IBKR bars sat
     unread in the store."""
-    # ^-prefixed symbols are US index CONTEXT series (^VIX, ^TNX) — route
-    # them to the index_us tree, where zero-volume bars are legitimate and
-    # the NYSE calendar still applies (22 Aug 2026).
-    asset_class = "index_us" if symbol.strip().startswith("^") else "us_etf"
+    # Let the RESOLVER decide the tree (22 Aug 2026). Hardcoding us_etf sent
+    # ^VIX to a NYSE-equity calendar and LSE ETFs (VUSA.L, VWRL.L …) to a
+    # tree whose session expectations they can never satisfy — which is what
+    # made those 14 symbols spam the run log with "missing days" every night.
+    # us_equity resolves to the canonical us_etf tree (the write fork is
+    # retired); everything else goes to its proper home.
+    from .bar_cache.asset_class_resolver import resolve_asset_class
+    _resolved = resolve_asset_class(symbol)
+    asset_class = "us_etf" if _resolved in ("us_equity", "us_etf", "unknown") else _resolved
     df = fetch_daily_bars(symbol, start, end, asset_class=asset_class,
                           fetched_by=fetched_by, legacy_provider=legacy_provider)
     return df if df is not None else pd.DataFrame()
