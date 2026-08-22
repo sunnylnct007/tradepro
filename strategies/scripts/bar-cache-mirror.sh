@@ -50,7 +50,16 @@ log "rc=$RC uploaded=$UP failed=$ERRS still_pending=$LEFT"
 # disaster-recovery restore would resurrect exactly what we just fixed.
 STALE=""
 for PFX in $(aws s3 ls "s3://$BUCKET/bar_cache/" 2>/dev/null | awk '/PRE/{print $2}' | tr -d '/'); do
-    [[ -d "$SRC/$PFX" ]] || STALE="$STALE $PFX"
+    if [[ ! -d "$SRC/$PFX" ]]; then
+        STALE="$STALE $PFX"          # whole tree retired locally
+        continue
+    fi
+    # SYMBOL-level too: the 22 Aug case was 43 symbols (futures, foreign,
+    # crypto) left live inside us_etf after being quarantined locally — a
+    # tree-level check alone would have missed every one of them.
+    for SYM in $(aws s3 ls "s3://$BUCKET/bar_cache/$PFX/" 2>/dev/null | awk '/PRE/{print $2}' | tr -d '/'); do
+        [[ -d "$SRC/$PFX/$SYM" ]] || STALE="$STALE $PFX/$SYM"
+    done
 done
 [[ -n "$STALE" ]] && log "STALE IN S3 (present in bucket, absent locally):$STALE"
 printf '%s\n' "$OUT" | grep -i 'failed' | head -5 >> "$LOG" || true
