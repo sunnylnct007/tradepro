@@ -79,22 +79,30 @@ def golden_daily(
     # made those 14 symbols spam the run log with "missing days" every night.
     # us_equity resolves to the canonical us_etf tree (the write fork is
     # retired); everything else goes to its proper home.
-    from .bar_cache.asset_class_resolver import resolve_asset_class
-    _resolved = resolve_asset_class(symbol)
-    # Foreign listings we hold no entitlement for (.PA/.DE/.HK/.T/…) must not
-    # be filed into a canonical tree just because nothing better matched.
-    # 22 Aug 2026: they were re-creating the very directories that had just
-    # been quarantined — and `ls us_etf` IS the harvest universe, so an empty
-    # directory silently becomes a tracked symbol on the next sweep.
-    _sym = symbol.strip().upper()
-    if "." in _sym and not _sym.endswith(".L"):
-        _log.debug("%s: foreign listing with no supported asset class — "
-                   "not fetched into the canonical store", _sym)
-        return pd.DataFrame()
-    asset_class = "us_etf" if _resolved in ("us_equity", "us_etf", "unknown") else _resolved
-    df = fetch_daily_bars(symbol, start, end, asset_class=asset_class,
+    df = fetch_daily_bars(symbol, start, end,
                           fetched_by=fetched_by, legacy_provider=legacy_provider)
     return df if df is not None else pd.DataFrame()
+
+
+def route_asset_class(symbol: str) -> str | None:
+    """Which canonical tree this symbol belongs in, or None if it belongs in
+    NONE of them.
+
+    Single routing authority (22 Aug 2026). It previously lived only in
+    golden_daily, so every caller of fetch_daily_bars() got the us_etf
+    DEFAULT instead — which is how ^STOXX and ^GDAXI (via compare.py) kept
+    reappearing inside the US equity tree hours after being quarantined,
+    pulling 200 partitions back down from S3 each time. `ls us_etf` IS the
+    harvest universe, so a stray directory there silently becomes a tracked
+    symbol."""
+    from .bar_cache.asset_class_resolver import resolve_asset_class
+    sym = (symbol or "").strip().upper()
+    # Foreign listings we hold no entitlement for (.PA/.DE/.HK/.T/…) belong
+    # in no canonical tree — refuse rather than defaulting them into one.
+    if "." in sym and not sym.endswith(".L"):
+        return None
+    resolved = resolve_asset_class(sym)
+    return "us_etf" if resolved in ("us_equity", "us_etf", "unknown") else resolved
 
 
 def fetch_daily_bars(
@@ -110,13 +118,22 @@ def fetch_daily_bars(
     # UsEtfPlugin) — the wrong-venue poison had to be remediated TWICE
     # because of it. us_equity remains registered + readable; nothing
     # writes to it by default any more.
-    asset_class: str = "us_etf",
+    asset_class: str | None = None,
     fetched_by: str = "unknown",
     legacy_provider: str = "yahoo",
 ) -> pd.DataFrame | None:
     """IBKR-first daily bar fetch with legacy-cache fallback. Returns None only
     if BOTH the BarStore chain and the legacy cache come back empty/erroring —
-    callers keep their existing fail-open behaviour on None, unchanged."""
+    callers keep their existing fail-open behaviour on None, unchanged.
+
+    ``asset_class=None`` (the default since 22 Aug 2026) RESOLVES the tree from
+    the symbol. It used to default to "us_etf", so any caller that did not pass
+    one filed indices and foreign listings into the US equity tree."""
+    if asset_class is None:
+        asset_class = route_asset_class(symbol)
+        if asset_class is None:
+            _log.debug("%s: no supported asset class — not fetched", symbol)
+            return None
     df, _ = fetch_daily_bars_with_provenance(
         symbol, start, end, asset_class=asset_class,
         fetched_by=fetched_by, legacy_provider=legacy_provider)
@@ -211,7 +228,7 @@ def fetch_daily_bars_with_provenance(
     start: datetime,
     end: datetime,
     *,
-    asset_class: str = "us_etf",   # one canonical tree — see fetch_daily_bars
+    asset_class: str | None = None,   # None = resolve; see fetch_daily_bars
     fetched_by: str = "unknown",
     legacy_provider: str = "yahoo",
 ) -> "tuple[pd.DataFrame | None, dict]":
@@ -221,6 +238,12 @@ def fetch_daily_bars_with_provenance(
     plain variant discards the origin, which is how the screen spent a week
     unable to say whether a close came from IBKR, from yahoo, or from a cache
     partition written days earlier."""
+    if asset_class is None:
+        asset_class = route_asset_class(symbol)
+        if asset_class is None:
+            return None, bars_provenance(
+                None, error=f"{symbol}: no supported asset class "
+                            f"(foreign listing with no entitlement)")
     try:
         frame = bar_store().get(
             symbol, asset_class, "1d", start, end,

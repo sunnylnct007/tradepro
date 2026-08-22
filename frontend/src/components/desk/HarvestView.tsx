@@ -485,7 +485,14 @@ export function HarvestView() {
             <tr>
               <th style={TH}>Symbol</th>
               <th style={TH}>Good today?</th>
-              <th style={TH}>Class</th>
+              {/* "Store", not "Class" (22 Aug 2026). This column shows which
+                  CANONICAL TREE the bars live in — and us_etf is the
+                  everything-bucket for US listings, single stocks included.
+                  Labelled "Class" it read as an instrument classification and
+                  flatly contradicted get_instrument_fit, which correctly calls
+                  MU a single_stock. Two classifiers appeared to disagree when
+                  only one of them was classifying anything. */}
+              <th style={TH} title="Which canonical bar-store tree holds this symbol — us_etf (all US listings, stocks included), uk_equity (LSE), index_us / index_uk (context series). This is STORAGE, not an instrument type: for what an instrument IS, see get_instrument_fit.">Store</th>
               <th style={TH}>Status</th>
               <th style={TH}>Coverage</th>
               <th style={TH_R}>Months</th>
@@ -525,7 +532,8 @@ export function HarvestView() {
                       );
                     })()}
                   </td>
-                  <td style={{ ...TD, color: "var(--text-dim)" }}>{r.asset_class || "—"}</td>
+                  <td style={{ ...TD, color: "var(--text-dim)" }}
+                      title="Canonical store tree (not an instrument classification)">{r.asset_class || "—"}</td>
                   <td style={TD}>
                     <span style={{ color: TONE[v.tone], fontWeight: 600 }}>●</span>{" "}
                     <span style={{ color: TONE[v.tone] }}>{v.label}</span>

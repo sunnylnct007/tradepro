@@ -141,6 +141,40 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             pass
 
+    # CROSS-RESOLUTION CHECK (22 Aug 2026). Per-partition tests cannot see a
+    # whole intraday partition that belongs to a DIFFERENT LISTING — every bar
+    # in it is internally consistent. But the same symbol's daily series is an
+    # independent witness: 5m prices that exceed the daily range by 2.5x are
+    # not a move, they are another instrument. Found 5 such partitions
+    # (STX 2026-08 was 100% wrong-contract) that every other check passed.
+    #
+    # Daily is the reference because it is the series with the deepest history
+    # and the most scrutiny. If daily is ever wrong this check goes quiet, so
+    # it complements the per-bar tests rather than replacing them.
+    for sym_dir in sorted(p for p in base.rglob("*") if p.is_dir() and p.name in ("5m", "1m", "15m", "30m", "1h")):
+        sym_root = sym_dir.parent
+        daily = list((sym_root / "1d").glob("*.parquet"))
+        if not daily:
+            continue
+        try:
+            dmax = float(pd.concat([pd.read_parquet(f) for f in daily])["close"].max())
+        except Exception:  # noqa: BLE001
+            continue
+        for f in sorted(sym_dir.glob("*.parquet")):
+            try:
+                df = pd.read_parquet(f)
+            except Exception:  # noqa: BLE001
+                continue
+            if df.empty:
+                continue
+            imax = float(df["close"].max())
+            if imax > dmax * 2.5:
+                n = int((df["close"] > dmax * 1.5).sum())
+                total_bad += n
+                print(f"  ✗ {f.relative_to(base)}  {n}/{len(df)} bars ABOVE the "
+                      f"daily range (max {imax:.2f} vs daily {dmax:.2f}) — "
+                      f"wrong-contract intraday partition")
+
     if not total_bad:
         print("CLEAN: no garbage bars in any cached partition.")
         _report("ok", f"integrity audit: {len(parquets)} partitions clean")

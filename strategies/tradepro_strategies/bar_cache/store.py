@@ -788,6 +788,36 @@ class BarStore:
         # Equal-or-larger writes pass untouched: re-sourcing a month from a
         # better provider (yfinance → ibkr_web) is the whole point and keeps
         # the same session count.
+        # POISON NEVER WINS ON SIZE (22 Aug 2026). The shrink guard counts
+        # ROWS, so 4,900 wrong-contract bars beat 1,000 correct ones and the
+        # poison became permanent — force_refresh could not dislodge STX's
+        # 1m partition however many times it ran. A smaller TRUE partition is
+        # worth more than a larger FALSE one, always.
+        #
+        # The incoming frame is the witness: the provider has just told us
+        # what this instrument actually trades at. If the CACHED data sits an
+        # order of magnitude away from that, the cached data is a different
+        # listing (STX in LSE pence at 5,491 vs $1,013; MTUM at 5,495 vs
+        # $324) and must be replaced regardless of size.
+        if existing_rows > 0 and not df.empty and partition_path.exists():
+            try:
+                _old = pq.read_table(partition_path).to_pandas()
+                if "close" in _old.columns and len(_old):
+                    _old_max = float(pd.to_numeric(_old["close"], errors="coerce").max())
+                    _new_max = float(pd.to_numeric(df["close"], errors="coerce").max())
+                    if _new_max > 0 and _old_max > _new_max * 2.5:
+                        _log.error(
+                            "bar_cache: REPLACING %s — cached data tops out at "
+                            "%.2f but %s reports %.2f for the same window; the "
+                            "cached partition is a DIFFERENT LISTING, not more "
+                            "data. Overwriting %d rows with %d.",
+                            partition_path.name, _old_max, provider_used,
+                            _new_max, existing_rows, len(df),
+                        )
+                        existing_rows = 0   # fall through to the normal write
+            except Exception:  # noqa: BLE001 — never block a write on this check
+                pass
+
         if existing_rows > 0 and 0 < len(df) < existing_rows:
             # VALIDATED-SHRINK exception (22 Aug 2026): "more rows = better"
             # is exactly wrong when the cached rows are phantoms. The
