@@ -187,6 +187,7 @@ class BarStore:
         allow_partial: bool = False,
         force_refresh: bool = False,
         fetched_by: str = "unknown",
+        skip_fetch: bool = False,
     ) -> BarFrame:
         """Fetch bars for the (canonical, resolution, range) tuple.
 
@@ -198,7 +199,12 @@ class BarStore:
 
         ``force_refresh`` bypasses the cache check + re-pulls from
         the provider chain regardless of what's on disk. Used by
-        the reload op."""
+        the reload op.
+
+        ``skip_fetch`` serves ONLY what is on disk — no provider is
+        contacted even for missing partitions. Used by the harvest's
+        circuit breaker once the provider chain is known-down for this
+        run; combine with ``allow_partial=True``."""
         plugin = get_asset_class(asset_class)
         if resolution not in plugin.supported_resolutions():
             raise BarFetchError(
@@ -338,6 +344,13 @@ class BarStore:
                 # No manifest = cache miss = must fetch
                 need_fetch = True
                 chain_log.append("cache_miss")
+
+            if need_fetch and skip_fetch and not force_refresh:
+                # Circuit-breaker mode: the caller already knows the chain is
+                # down for this run — don't spend a doomed round-trip per
+                # partition; the read below serves whatever is cached.
+                chain_log.append("fetch_skipped")
+                continue
 
             if need_fetch:
                 # Fall through the provider chain for this partition.

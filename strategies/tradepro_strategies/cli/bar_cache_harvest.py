@@ -314,8 +314,23 @@ def main() -> int:
     _ibkr_in_chain = any(p.startswith("ibkr") for p in chain)
     _pace_s = float(os.environ.get("TRADEPRO_HARVEST_PACE_S", "1.0")) if _ibkr_in_chain else 0.0
 
+    # CIRCUIT BREAKER (22 Aug 2026). On a dead-provider day (IBKR session
+    # dark + Yahoo rate-limited) every symbol still burned a doomed fetch
+    # attempt plus retries before its cache served — a 224-symbol sweep took
+    # 48 minutes to deliver what the disk already held. After N consecutive
+    # whole-chain failures, stop asking: serve cache-only for the rest of the
+    # run, probing one real fetch every P symbols so a mid-run recovery
+    # closes the circuit. The next scheduled run always starts closed.
+    _breaker_n = int(os.environ.get("TRADEPRO_HARVEST_BREAKER_N", "5"))
+    _probe_every = max(1, int(os.environ.get("TRADEPRO_HARVEST_BREAKER_PROBE", "20")))
+    _consec_fail = 0
+    _circuit_open = False
+    _skipped_fetches = 0
+
     for idx, symbol in enumerate(symbols):
-        if _pace_s and idx:
+        _probe = _circuit_open and (idx % _probe_every == 0)
+        _skip = _circuit_open and not _probe
+        if _pace_s and idx and not _skip:
             time.sleep(_pace_s)
         try:
             # RETRY TRANSIENTS (16 Aug 2026). Without this a batch always
@@ -326,6 +341,9 @@ def main() -> int:
             # re-sourced, so today's blip becomes next year's provenance.
             # Bounded and paced; a genuinely dead symbol still fails loud.
             _attempts = int(os.environ.get("TRADEPRO_HARVEST_RETRIES", "3")) if _ibkr_in_chain else 1
+            if _skip:
+                _attempts = 1       # cache read can't fail transiently
+                _skipped_fetches += 1
             result = None
             _last: Exception | None = None
             for _try in range(max(1, _attempts)):
@@ -339,6 +357,7 @@ def main() -> int:
                         allow_partial=True,   # always read what's there; we report below
                         force_refresh=args.force_refresh,
                         fetched_by=os.environ.get("USER", "harvest"),
+                        skip_fetch=_skip,
                     )
                     break
                 except BarFetchError as _exc:
@@ -354,6 +373,17 @@ def main() -> int:
                           f"{_try + 1}/{_attempts - 1} in {_backoff}s", flush=True)
                     time.sleep(_backoff)
             assert result is not None  # loop either breaks with a result or raises
+            # Breaker accounting: a real provider answer closes the circuit;
+            # a fetch that failed into cache-serving opens it further. Pure
+            # cache hits say nothing about the chain and leave it unchanged.
+            _tried = getattr(result, "provider_chain_tried", None) or []
+            if any(str(e).endswith("_ok") for e in _tried):
+                _consec_fail = 0
+                if _circuit_open:
+                    _circuit_open = False
+                    print(f"  ⚡ circuit CLOSED at {symbol} — providers answering again")
+            elif "fetch_failed_serving_cache" in _tried:
+                _consec_fail += 1
             tier = _quality_tier(result.provider_used, result.coverage_complete,
                                  getattr(result, "df", None))
             tier_icon = _tier_icon(tier)
@@ -401,6 +431,7 @@ def main() -> int:
             })
         except BarFetchError as exc:
             fail_count += 1
+            _consec_fail += 1
             # "MISSING" MUST MEAN "NO DATA", NOT "THIS FETCH FAILED".
             #
             # 16 Aug 2026, the THIRD instance of this exact conflation (after
@@ -456,6 +487,12 @@ def main() -> int:
             quality_counts["missing"] += 1
             print(f"  ✗ {symbol:<8s} ERROR: {exc}")
 
+        if not _circuit_open and _consec_fail >= _breaker_n:
+            _circuit_open = True
+            print(f"  ⚡ circuit OPEN after {_consec_fail} consecutive provider "
+                  f"failures — serving cache-only, probing every "
+                  f"{_probe_every} symbols")
+
     # ── Summary ────────────────────────────────────────────────
     print("-" * 70)
     print(
@@ -471,6 +508,9 @@ def main() -> int:
         f"🥉 {quality_counts['bronze']} BRONZE  "
         f"✗ {quality_counts['missing']} MISSING"
     )
+    if _skipped_fetches:
+        print(f"  ⚡ circuit breaker skipped {_skipped_fetches} doomed fetch(es) "
+              f"— cached data served instead; next run retries normally")
     if fail_count and args.ibkr_only:
         print(
             f"\n  ⏳ {fail_count} symbol(s) PENDING — open TWS on port 7497 and re-run:\n"

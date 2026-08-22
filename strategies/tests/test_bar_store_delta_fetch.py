@@ -177,6 +177,21 @@ def test_provider_outage_serves_cached_rows_when_partial_allowed(
         )
 
 
+def test_skip_fetch_serves_disk_without_touching_providers(
+        store_and_provider):
+    """Circuit-breaker mode: skip_fetch=True must contact NO provider and
+    serve whatever is cached, flagged partial."""
+    store, provider = store_and_provider
+    _get(store, _AUG4, _AUG7)   # cache Aug 4-6
+    calls_before = len(provider.calls)
+
+    result = _get(store, _AUG4, _AUG8, skip_fetch=True)  # Aug 7 absent
+    assert len(provider.calls) == calls_before           # no provider contact
+    assert len(result.df) == 3
+    assert result.coverage_complete is False
+    assert "fetch_skipped" in result.provider_chain_tried
+
+
 def test_fully_cached_prior_month_not_refetched_on_straddling_range(
         store_and_provider):
     store, provider = store_and_provider
