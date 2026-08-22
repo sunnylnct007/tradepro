@@ -1100,13 +1100,49 @@ public static class IntegrationsEndpoints
             var res = string.IsNullOrWhiteSpace(resolution) ? "1m" : resolution;
             var n = Math.Clamp(limit ?? 200, 1, 5000);
             await using var conn = await db.OpenConnectionAsync(ct);
-            var rows = (await conn.QueryAsync(@"
-                SELECT ts, open, high, low, close, volume, source
-                FROM ibkr_price_bars
-                WHERE symbol = @symbol AND resolution = @res
-                ORDER BY ts DESC
-                LIMIT @n;",
-                new { symbol, res, n })).AsList();
+
+            // 5m/15m/30m/1h are DERIVED from the stored 1m rows on the fly —
+            // deliberately never stored (one source of truth; a 5m bar IS five
+            // 1m bars). 22 Aug 2026: the chart's 5-min pill showed "No candle
+            // data" for every symbol because the harvester stores only 1m + 1d
+            // and this endpoint answered a literal resolution match.
+            var bucketSeconds = res switch
+            {
+                "5m" => 300, "15m" => 900, "30m" => 1800, "1h" => 3600,
+                _ => 0,
+            };
+            List<dynamic> rows;
+            if (bucketSeconds > 0)
+            {
+                rows = (await conn.QueryAsync(@"
+                    SELECT to_timestamp(floor(extract(epoch FROM ts) / @bucket) * @bucket)
+                               AT TIME ZONE 'UTC'                          AS ts,
+                           (array_agg(open  ORDER BY ts ASC))[1]           AS open,
+                           max(high)                                       AS high,
+                           min(low)                                        AS low,
+                           (array_agg(close ORDER BY ts DESC))[1]          AS close,
+                           sum(volume)                                     AS volume,
+                           -- honest provenance for a derived bar: the mix of
+                           -- its constituents, not a fabricated single source
+                           CASE WHEN count(DISTINCT source) = 1
+                                THEN min(source) ELSE 'mixed' END          AS source
+                    FROM ibkr_price_bars
+                    WHERE symbol = @symbol AND resolution = '1m'
+                    GROUP BY 1
+                    ORDER BY 1 DESC
+                    LIMIT @n;",
+                    new { symbol, bucket = bucketSeconds, n })).AsList();
+            }
+            else
+            {
+                rows = (await conn.QueryAsync(@"
+                    SELECT ts, open, high, low, close, volume, source
+                    FROM ibkr_price_bars
+                    WHERE symbol = @symbol AND resolution = @res
+                    ORDER BY ts DESC
+                    LIMIT @n;",
+                    new { symbol, res, n })).AsList();
+            }
             rows.Reverse(); // chronological for charts
             var latest = rows.Count > 0 ? (object)rows[^1] : null;
             return Results.Ok(new { symbol, resolution = res, count = rows.Count, latest, bars = rows });
