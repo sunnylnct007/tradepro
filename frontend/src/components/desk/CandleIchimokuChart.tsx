@@ -39,6 +39,7 @@ import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  HistogramSeries,
   LineSeries,
   LineStyle,
   createChart,
@@ -109,7 +110,23 @@ type IchiPoint = { time: UTCTimestamp; value: number };
 // a bar LIMIT for the intraday fetch (the store returns the latest N bars).
 const BARS_PER_DAY: Record<string, number> = { "1m": 390, "5m": 78, "15m": 26, "1h": 7, "1d": 1 };
 
+/** Indicator toggles — persisted so the trader's chart setup survives
+ *  navigation. Defaults chosen per timeframe use: volume always, SMAs for
+ *  swing (daily), VWAP for intraday; RSI opt-in. */
+type IndState = { vol: boolean; sma50: boolean; sma200: boolean; vwap: boolean; rsi: boolean };
+const IND_DEFAULTS: IndState = { vol: true, sma50: true, sma200: true, vwap: true, rsi: false };
+const IND_KEY = "tp-chart-indicators";
+
 export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", height = 360, ccy, entryPrice, entryDate, fills }: Props) {
+  const [ind, setInd] = useState<IndState>(() => {
+    try { return { ...IND_DEFAULTS, ...JSON.parse(localStorage.getItem(IND_KEY) ?? "{}") }; }
+    catch { return IND_DEFAULTS; }
+  });
+  const toggleInd = (k: keyof IndState) => setInd((p) => {
+    const nx = { ...p, [k]: !p[k] };
+    try { localStorage.setItem(IND_KEY, JSON.stringify(nx)); } catch { /* private mode */ }
+    return nx;
+  });
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -300,6 +317,63 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
           close: c.close,
         })),
       );
+    }
+
+    // ── Volume + trader overlays (22 Aug 2026) ────────────────────────────
+    // Volume: histogram in a bottom band of the SAME pane (classic terminal
+    // layout), bars tinted by candle direction at low alpha so candles stay
+    // dominant. Own overlay price scale so it never distorts the price axis.
+    // Suppressed in Renko mode — a brick spans arbitrary time, so per-brick
+    // volume would be a lie.
+    if (!renko && ind.vol) {
+      const volSeries = chart.addSeries(HistogramSeries, {
+        priceScaleId: "vol",
+        priceFormat: { type: "volume" },
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+      volSeries.setData(candles.map((c) => ({
+        time: toTime(c.timestamp),
+        value: Number.isFinite(c.volume) ? Number(c.volume) : 0,
+        color: c.close >= c.open ? "rgba(31,193,107,0.35)" : "rgba(239,68,68,0.35)",
+      })));
+    }
+    // SMA 50/200 — the swing-trade trend context (and where the 200-SMA
+    // regime floor sits). VWAP — the intraday value anchor, session-reset;
+    // hidden on daily bars where it has no meaning.
+    if (!renko && ind.sma50) {
+      const s = lineSeries(chart, "#e0b341", 1);
+      s.setData(smaPoints(candles, 50));
+    }
+    if (!renko && ind.sma200) {
+      const s = lineSeries(chart, "#b78cff", 1);
+      s.setData(smaPoints(candles, 200));
+    }
+    if (!renko && ind.vwap && resolution !== "1d") {
+      const s = lineSeries(chart, "#4f8cff", 2);
+      s.setData(vwapPoints(candles));
+    }
+    // RSI(14) in its OWN pane (own 0-100 scale — never overlaid on price).
+    if (!renko && ind.rsi) {
+      const rsiSeries = chart.addSeries(LineSeries, {
+        color: "#e0b341", lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: true,
+        crosshairMarkerVisible: true,
+      }, 1);
+      rsiSeries.setData(rsiPoints(candles, 14));
+      for (const lvl of [30, 70]) {
+        rsiSeries.createPriceLine({
+          price: lvl, color: "rgba(155,161,173,0.35)", lineWidth: 1,
+          lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "",
+        });
+      }
+      // Keep the RSI pane a band, not half the chart. Best-effort: the pane
+      // API varies across 5.x minors.
+      try {
+        (chart.panes()[1] as unknown as { setHeight?: (h: number) => void })
+          ?.setHeight?.(Math.max(70, Math.round(height * 0.2)));
+      } catch { /* default pane sizing is acceptable */ }
     }
 
     // ── Support / Resistance levels (pivot-based) ─────────────────────────
@@ -604,7 +678,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
       chart.remove();
       chartRef.current = null;
     };
-  }, [series, height, windowDays, entryPrice, entryDate, fills, renko]);
+  }, [series, height, windowDays, entryPrice, entryDate, fills, renko, ind, resolution]);
 
   // ---- States ------------------------------------------------------------
   const noData = !loading && !err && (series?.candles?.length ?? 0) === 0;
@@ -677,6 +751,35 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
         {renko && (
           <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 4 }}>
             brick = ATR(14) · time discarded · no Ichimoku/markers
+          </span>
+        )}
+        {/* Indicator toggles — doubles as the legend: each pill wears its
+            series' color when active, so identity is never color-alone
+            guesswork on the plot. Hidden in Renko (time-series constructs). */}
+        {!renko && (
+          <span style={{ display: "flex", gap: 4, marginLeft: "auto", flexWrap: "wrap" }}>
+            {([
+              ["vol", "Vol", "#9ba1ad", "Volume — bottom band, tinted by candle direction", true],
+              ["sma50", "SMA50", "#e0b341", "50-bar simple moving average — swing trend", true],
+              ["sma200", "SMA200", "#b78cff", "200-bar SMA — the regime floor the backtests gate on", true],
+              ["vwap", "VWAP", "#4f8cff", "Session-anchored VWAP — the intraday value line (intraday resolutions only)", resolution !== "1d"],
+              ["rsi", "RSI", "#e0b341", "RSI(14) in its own pane with 30/70 bands", true],
+            ] as const).filter(([, , , , show]) => show).map(([key, label, color, tip]) => (
+              <button
+                key={key}
+                onClick={() => toggleInd(key)}
+                title={tip}
+                style={{
+                  fontSize: 10, padding: "1px 8px", borderRadius: 999, cursor: "pointer",
+                  border: `1px solid ${ind[key] ? color : "var(--border)"}`,
+                  background: ind[key] ? `color-mix(in srgb, ${color} 16%, transparent)` : "transparent",
+                  color: ind[key] ? "var(--text)" : "var(--text-muted)",
+                  fontWeight: ind[key] ? 700 : 400,
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </span>
         )}
       </div>
@@ -1003,6 +1106,68 @@ function lineSeries(
     lastValueVisible: false,
     crosshairMarkerVisible: false,
   });
+}
+
+// ── Trader indicators (22 Aug 2026 — owner: "the chart is not very usable"
+// for intraday/swing). Pure functions over the candle array; each returns
+// lightweight-charts points. Kept dependency-free and O(n).
+
+/** Simple moving average of closes; first n-1 bars omitted (no fake ramp). */
+function smaPoints(candles: Candle[], n: number): { time: UTCTimestamp; value: number }[] {
+  const out: { time: UTCTimestamp; value: number }[] = [];
+  let sum = 0;
+  for (let i = 0; i < candles.length; i++) {
+    sum += candles[i].close;
+    if (i >= n) sum -= candles[i - n].close;
+    if (i >= n - 1) out.push({ time: toTime(candles[i].timestamp), value: sum / n });
+  }
+  return out;
+}
+
+/** Session-anchored VWAP (intraday): Σ(typical·vol)/Σvol, reset each UTC day.
+ *  The intraday reference line — above VWAP longs are "paying up", below they
+ *  are buying value. Meaningless on daily bars (callers gate on resolution). */
+function vwapPoints(candles: Candle[]): { time: UTCTimestamp; value: number }[] {
+  const out: { time: UTCTimestamp; value: number }[] = [];
+  let day = "";
+  let pv = 0;
+  let vv = 0;
+  for (const c of candles) {
+    const d = String(c.timestamp).slice(0, 10);
+    if (d !== day) { day = d; pv = 0; vv = 0; }
+    const vol = Number.isFinite(c.volume) ? Number(c.volume) : 0;
+    const typical = (c.high + c.low + c.close) / 3;
+    pv += typical * vol;
+    vv += vol;
+    if (vv > 0) out.push({ time: toTime(c.timestamp), value: pv / vv });
+  }
+  return out;
+}
+
+/** Wilder RSI(n). First n bars omitted. */
+function rsiPoints(candles: Candle[], n = 14): { time: UTCTimestamp; value: number }[] {
+  const out: { time: UTCTimestamp; value: number }[] = [];
+  if (candles.length <= n) return out;
+  let gain = 0;
+  let loss = 0;
+  for (let i = 1; i <= n; i++) {
+    const d = candles[i].close - candles[i - 1].close;
+    if (d >= 0) gain += d; else loss -= d;
+  }
+  let avgG = gain / n;
+  let avgL = loss / n;
+  const push = (i: number) => out.push({
+    time: toTime(candles[i].timestamp),
+    value: avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL),
+  });
+  push(n);
+  for (let i = n + 1; i < candles.length; i++) {
+    const d = candles[i].close - candles[i - 1].close;
+    avgG = (avgG * (n - 1) + Math.max(d, 0)) / n;
+    avgL = (avgL * (n - 1) + Math.max(-d, 0)) / n;
+    push(i);
+  }
+  return out;
 }
 
 /** ISO date (or datetime) → UTC seconds Time for a daily series. */
