@@ -151,3 +151,39 @@ worst-trade figure, and the median-hold discrepancy (this file says 4 bars;
 an independent replay says 8, which means the exit mechanics differ somewhere).
 
 Until then the Swing screen carries its evidence with the tail flagged.
+
+---
+
+# THE HARNESS DOES NOT EXIST. Read this before citing any number above.
+
+Discovered 22 Aug while trying to reconcile the median-hold figure against an
+independent replay. **The script that produced every number in this file was
+written in a scratch directory and never committed.** All that survived is
+`backtests/logs/mr_sweep.log`.
+
+That log records: sigma, volume filter, target, trades, win%, mean%, total%,
+tail share, worst trade, and high-ATR breakdown. It **does not record median
+hold at all.**
+
+So the "median hold 4 bars" that satisfied G3, and that the live Swing screen
+displays, traces to no surviving artifact. It is not a disputed measurement —
+there is nothing to dispute it against. An independent replay gives 8.
+
+## What this means for the re-run
+
+It is **not a reconciliation of two numbers. It is the first reproducible
+measurement.** Anything downstream that cited "4 bars" was citing a log line
+that does not contain it.
+
+The same caution applies more weakly to the rest of the table: those figures
+DO appear in the log, so they were really produced — but they cannot be
+re-derived, checked for an off-by-one, or re-run on a corrected universe
+without rewriting the harness from the gates description. Which is what the
+re-run will do.
+
+## Rule adopted as a result
+
+A study is not finished until its harness is committed to
+`strategies/backtests/studies/` alongside its gates file, the gates commit sha,
+its log, and its `studies.json` record. Every harness from 22 Aug onward is
+there. See `strategies/backtests/README.md`.

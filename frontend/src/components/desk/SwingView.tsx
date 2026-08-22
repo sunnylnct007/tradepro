@@ -62,7 +62,13 @@ export function SwingView() {
                     padding: "8px 12px", marginBottom: 12, fontSize: 12, lineHeight: 1.6 }}>
         <b style={{ color: TONE.ok }}>Backtested</b> — {a.evidence.trades.toLocaleString()} trades ·{" "}
         <b>{a.evidence.win_rate_pct}% win</b> · {a.evidence.mean_per_trade_pct}%/trade ·{" "}
-        median hold {a.evidence.median_hold_sessions} sessions · worst{" "}
+        median hold{" "}
+        {a.evidence.median_hold_under_review ? (
+          <b style={{ color: TONE.warn }} title="The study harness was never committed and the surviving log does not record hold length. An independent replay gives 8.">
+            {a.evidence.median_hold_sessions}–{a.evidence.median_hold_replay_sessions} sessions (unverified)
+          </b>
+        ) : (<>{a.evidence.median_hold_sessions} sessions</>)}{" "}
+        · worst{" "}
         {a.evidence.worst_trade_under_review ? (
           <b style={{ color: TONE.warn }}>
             {a.evidence.worst_trade_replay_pct}% (under reconciliation — assume the larger number)

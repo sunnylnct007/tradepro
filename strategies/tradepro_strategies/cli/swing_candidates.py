@@ -250,6 +250,17 @@ def build_artifact(rows: list[dict], universe: str,
             "gates_commit": "6c9f330",
             "trades": 2413, "win_rate_pct": 62.4, "mean_per_trade_pct": 0.77,
             "worst_trade_pct": -12.5, "median_hold_sessions": 4,
+            # BOTH of these are flagged, for different reasons.
+            # The worst trade was measured on the pre-_tradeable()
+            # population. The median hold traces to NOTHING: the study
+            # harness was never committed and the surviving log does not
+            # record hold length at all, so "4 bars" is not a disputed
+            # measurement — there is no artifact behind it. An
+            # independent replay gives 8. Flagged rather than quietly
+            # corrected, because replacing it with the replay's number
+            # would just be a second unverifiable figure.
+            "median_hold_under_review": True,
+            "median_hold_replay_sessions": 8,
             # TAIL UNDER RECONCILIATION (22 Aug). These figures predate the
             # _tradeable() fix, so the population included futures, indices
             # and foreign listings — the same error found and corrected on the

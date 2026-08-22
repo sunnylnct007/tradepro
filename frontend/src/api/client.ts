@@ -625,6 +625,7 @@ export const api = {
           win_rate_pct: number; mean_per_trade_pct: number;
           worst_trade_pct: number; median_hold_sessions: number; note: string;
           worst_trade_under_review?: boolean; worst_trade_replay_pct?: number;
+          median_hold_under_review?: boolean; median_hold_replay_sessions?: number;
         };
         limits: string[];
         quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
