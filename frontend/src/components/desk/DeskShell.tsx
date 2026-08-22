@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing";
+export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum";
 
 type NavEntry = {
   key: string;
@@ -101,6 +101,8 @@ type NavEntry = {
 const NAV: NavEntry[] = [
   { key: "swing",     label: "Swing",     icon: "🎣", view: "swing",     tier: "trusted",
     title: "Swing candidates — the only screen built on a strategy that cleared pre-registered gates" },
+  { key: "momentum",  label: "Momentum",  icon: "🚀", view: "momentum",  tier: "trusted",
+    title: "Momentum candidates — the SECOND strategy to clear pre-registered gates. Longer hold (~7 weeks), trailing stop, not a bracket order" },
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", tier: "trusted",
     title: "Portfolio — your actual positions" },
   { key: "oms",       label: "Orders",    icon: "📋", view: "oms",       tier: "trusted",

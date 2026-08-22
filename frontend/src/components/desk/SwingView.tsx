@@ -12,8 +12,14 @@
  * the run). The evidence is shown inline rather than buried, and so are the
  * limits — a screen that states 62% win also has to state that 38% lose.
  *
- * It refreshes every 20 minutes from the bar cache and makes NO IBKR calls, so
- * it can never compete for the market-data session the options desk needs.
+ * It rebuilds after the daily harvest (22:00, plus a 12:00 catch-up if the
+ * nightly harvest failed and backfilled late) and makes NO IBKR calls, so it
+ * can never compete for the market-data session the options desk needs.
+ *
+ * NOT every 20 minutes — the header and the on-screen badge both said that,
+ * and both were false. The signal is computed on a SETTLED daily bar, so it
+ * cannot change until the next close lands. Recomputing it intraday returns an
+ * identical list while LOOKING live, which is worse than an honest timestamp.
  */
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
@@ -41,7 +47,7 @@ export function SwingView() {
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Swing candidates</h2>
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          refreshed {ago}m ago · every 20 min · {a.count} candidate{a.count === 1 ? "" : "s"}
+          signal bar {a.signal_bar} · rebuilt {ago}m ago · {a.count} candidate{a.count === 1 ? "" : "s"}
         </span>
       </div>
 

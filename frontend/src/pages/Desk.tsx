@@ -31,6 +31,7 @@ import { useSearchParams } from "react-router-dom";
 import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { ResearchView } from "../components/desk/ResearchView";
 import { SwingView } from "../components/desk/SwingView";
+import { MomentumView } from "../components/desk/MomentumView";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
@@ -214,6 +215,7 @@ export function Desk() {
       {view === "harvest"    && <HarvestView />}
       {view === "research"   && <ResearchView />}
       {view === "swing"      && <SwingView />}
+      {view === "momentum"   && <MomentumView />}
       {view === "options"    && <OptionsDesk />}
       {view === "decide"         && <Compare />}
       {view === "scan"           && <UniverseScan />}

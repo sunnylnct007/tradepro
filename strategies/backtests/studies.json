@@ -223,6 +223,56 @@
           "pass": true
         }
       ]
+    },
+    {
+      "id": "momentum_v2",
+      "title": "Momentum \u2014 pullback in an uptrend, trailing + hard stop",
+      "date": "2026-08-22",
+      "gatesFile": "MOMENTUM_GATES_V2.md",
+      "gatesCommit": "ca494bf",
+      "question": "The mean-reversion screen refuses to buy strength \u2014 MU on Friday (966.78, 69% above its 200-SMA) triggered nothing, its entry sat 24% lower. Is there a tradeable edge in continuation, with calculated risk?",
+      "prediction": "C (hard \u22128%) passes all six; D (\u22126%) passes G5 but fails G1; the risk is G4.",
+      "verdict": "PASS \u2014 all six gates",
+      "headline": "Pullback to the 10-SMA in an uptrend, 8% trailing stop plus a hard \u22128% initial stop: 5,815 trades \u00b7 47.0% win \u00b7 +1.53%/trade \u00b7 34-bar median hold \u00b7 worst \u221214.7%. The \u221210% variant also passes.",
+      "why": "v1 proved the family's edge REQUIRES the hold \u2014 a trailing stop earns +1.9%/trade over 32-35 bars, while forcing 10 bars costs two thirds of it. G3 was therefore changed from \u226420 to \u226440 bars as a DECLARED scope change, written down before the v2 run: momentum is accepted as a longer-hold sleeve running alongside the 4-day Swing screen, not as a substitute. The hard stop cut the worst case from \u221233.3% to \u221214.7% for 1.3 points of win rate and 0.07%/trade \u2014 cheap insurance. Prediction was correct: C passed, D (\u22126%) failed G1 at 42.9% by stopping out of trades that later worked. NOTE the first run was contaminated (\u221298% worst cases): capping total return is the WRONG guard for a 30-bar hold, since a real winner can exceed it; the guard belongs on the HOLD (reject any session moving >35% mid-trade).",
+      "gates": [
+        {
+          "id": "V0",
+          "test": "\u22651,000 trades",
+          "result": "5,815",
+          "pass": true
+        },
+        {
+          "id": "G1",
+          "test": "Win rate \u2265 45%",
+          "result": "47.0%",
+          "pass": true
+        },
+        {
+          "id": "G2",
+          "test": "Mean net > 0",
+          "result": "+1.53%",
+          "pass": true
+        },
+        {
+          "id": "G3",
+          "test": "Median hold \u2264 40 bars (changed from \u226420, declared)",
+          "result": "34 bars",
+          "pass": true
+        },
+        {
+          "id": "G4",
+          "test": "Top-1% share \u2264 35%",
+          "result": "31%",
+          "pass": true
+        },
+        {
+          "id": "G5",
+          "test": "Worst trade \u2265 \u221225%",
+          "result": "\u221214.7%",
+          "pass": true
+        }
+      ]
     }
   ]
 }

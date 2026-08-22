@@ -618,7 +618,7 @@ export const api = {
     get<{
       universe: string; label: string; asOfUtc: string;
       artifact: {
-        kind: string; as_of_utc: string; count: number;
+        kind: string; as_of_utc: string; count: number; signal_bar: string;
         rule: { entry: string; target: string; stop: string; timeout: string };
         evidence: {
           gates_file: string; gates_commit: string; trades: number;
@@ -636,6 +636,29 @@ export const api = {
         }>;
       };
     }>("/api/today-setups/swing/latest"),
+
+  momentumCandidates: () =>
+    get<{
+      universe: string; label: string; asOfUtc: string;
+      artifact: {
+        kind: string; as_of_utc: string; count: number; signal_bar: string;
+        rule: { entry: string; stop: string; trailing: string; timeout: string };
+        evidence: {
+          gates_file: string; gates_commit: string; trades: number;
+          win_rate_pct: number; mean_per_trade_pct: number;
+          worst_trade_pct: number; median_hold_sessions: number; note: string;
+        };
+        limits: string[];
+        quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
+        candidates: Array<{
+          symbol: string; bar: string; close: number; entry_hint: number;
+          stop: number; trailing_pct: number; pct_above_200sma: number;
+          pct_above_20sma: number; atr_pct: number | null;
+          off_52w_high_pct: number | null;
+          expected_hold_sessions: number; max_hold_sessions: number;
+        }>;
+      };
+    }>("/api/today-setups/momentum/latest"),
 
   todaySetups: (universe: string) =>
     get<{

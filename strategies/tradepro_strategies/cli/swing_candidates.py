@@ -71,6 +71,26 @@ ETFS = {"SPY","QQQ","IVV","VTI","DIA","IWM","XLK","XLF","XLI","XLE","XLV","XLP",
 
 
 
+def _tradeable(sym: str) -> bool:
+    """Is this a symbol we could actually place a bracket order on?
+
+    The cache directory is not a tradeable universe. Excluded:
+      "."  foreign listings (0700.HK, AIR.PA) — no IBKR API entitlement, and
+           the symbol-harmonization work to map them is not done
+      "=F" futures (HG=F copper) — different contract mechanics entirely
+      "^"  indices (^STOXX) — not directly tradeable at all
+      "-USD" crypto pairs
+
+    Caught only because a momentum run surfaced HG=F and ^STOXX as candidates
+    with an entry and a stop, as if they were shares.
+    """
+    if not sym or "." in sym:
+        return False
+    if "=" in sym or sym.startswith("^"):
+        return False
+    return not sym.endswith("-USD")
+
+
 def poison_check(closes) -> tuple[bool, float | None]:
     """Reject a symbol whose history belongs to a DIFFERENT INSTRUMENT.
 
@@ -248,7 +268,7 @@ def main() -> int:
 
     syms = ([s.strip().upper() for s in args.symbols.split(",") if s.strip()]
             if args.symbols else
-            [s for s in sorted(os.listdir(BASE_DIR)) if "." not in s])
+            [s for s in sorted(os.listdir(BASE_DIR)) if _tradeable(s)])
     rows, quarantined = scan(syms)
     art = build_artifact(rows, args.universe, quarantined)
 
