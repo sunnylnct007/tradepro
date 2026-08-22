@@ -107,6 +107,15 @@ def _load(path: Path) -> pd.DataFrame:
 def main() -> int:
     ap = argparse.ArgumentParser(prog="tradepro-bar-cache-audit")
     ap.add_argument("--base-dir", default=str(_DEFAULT_BASE))
+    ap.add_argument("--refresh", action="store_true",
+                    help="RE-SOURCE every flagged partition from the golden "
+                         "chain (force_refresh) and re-check it. This is the "
+                         "remediation the wrong-contract incidents needed; it "
+                         "was run four times from throwaway inline scripts on "
+                         "22 Aug 2026 before being written down. Poison is "
+                         "REPLACED, not deleted — the store's quality-aware "
+                         "shrink guard allows a smaller TRUE partition to "
+                         "overwrite a larger FALSE one.")
     ap.add_argument("--quarantine", action="store_true",
                     help="rewrite affected partitions without the bad rows; "
                          "removed rows are SAVED to ~/.tradepro/quarantine/ "
@@ -184,8 +193,55 @@ def main() -> int:
     _report("warn", f"integrity audit: {total_bad} suspect bar(s) across "
                     f"{len(affected)} of {len(parquets)} partition(s) — "
                     f"run tradepro-bar-cache-audit for detail")
+    if args.refresh:
+        import time as _time
+        from datetime import timedelta as _td
+        from ..bar_cache import BarStore
+        from ..bar_cache import asset_classes as _reg  # noqa: F401 — registers
+        from ..ibkr_bars import bar_store as _bs
+        store = _bs()
+        fixed = still_bad = 0
+        seen: set = set()
+        for p_, _df, _bad in affected:
+            rel = p_.relative_to(base).parts          # (tree, symbol, res, file)
+            if len(rel) < 4:
+                continue
+            tree, sym, res, part = rel[0], rel[1], rel[2], p_.stem
+            if (tree, sym, res, part) in seen:
+                continue
+            seen.add((tree, sym, res, part))
+            try:
+                y, mth = int(part[:4]), int(part[5:7])
+            except ValueError:
+                continue
+            start = datetime(y, mth, 1, tzinfo=UTC)
+            end = min(datetime.now(UTC), start + _td(days=32))
+            try:
+                store.get(canonical=sym, asset_class=tree, resolution=res,
+                          start=start, end=end, allow_partial=True,
+                          force_refresh=True, fetched_by="audit-refresh")
+            except Exception as exc:  # noqa: BLE001 — report, never abort the sweep
+                print(f"  ! {sym} {res} {part}: {str(exc)[:70]}")
+            try:
+                after = find_garbage(_load(p_)) if p_.exists() else []
+            except Exception:  # noqa: BLE001
+                after = []
+            if after:
+                still_bad += 1
+                print(f"  ✗ {sym} {res} {part}: STILL {len(after)} suspect bar(s)")
+            else:
+                fixed += 1
+                print(f"  ✓ {sym} {res} {part}: clean after re-source")
+            _time.sleep(1.0)          # pace the shared IBKR session
+        print(f"\nrefresh: {fixed} partition(s) clean, {still_bad} still suspect")
+        _report("ok" if not still_bad else "warn",
+                f"integrity audit --refresh: {fixed} re-sourced clean, "
+                f"{still_bad} still suspect")
+        return 0 if not still_bad else 1
+
     if not args.quarantine:
-        print("Report-only (re-run with --quarantine to remove them; removed "
+        print("Report-only (re-run with --quarantine to remove them, or "
+              "--refresh to re-source them from the golden chain; removed "
               "rows are preserved under ~/.tradepro/quarantine/).")
         return 1
 
