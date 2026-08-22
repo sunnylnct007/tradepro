@@ -373,12 +373,80 @@ class IchimokuEquityStrategy(Strategy):
         # with TTL cache; None ⇒ no overlay).
         self._catalyst_fetcher = p.get("_catalyst_fetcher") or None
 
+
+    # ── MOO once-per-session lock: PERSISTED (fixed 22 Aug 2026) ─────────
+    #
+    # `_moo_fired` was an in-memory set. The daemon runs on a */15 schedule, so
+    # EVERY RUN IS A FRESH PROCESS and the set was empty each time — the
+    # "at most one decision per symbol per session" contract was silently void.
+    #
+    # What that produced, straight from the OMS (KO, 28-29 Jul 2026):
+    #     28 Jul 11:13, 11:28, 11:43, 11:59, 12:14, 12:29, 12:44, 12:59,
+    #            13:14, 13:29  -> TEN identical BUY 18 orders, each
+    #            "superseded by newer order", ~15 min apart
+    #     28 Jul 13:37  BUY 15 FILLED @89.21   (only 15 of the 18 filled)
+    #     29 Jul 07:45 → 11:42  -> FIFTEEN identical SELL 18 orders, superseded
+    #     29 Jul 15:11  SELL 18 FILLED
+    #     29 Jul 15:22  BUY  18 FILLED   <- bought straight back, 11 min later
+    #     29 Jul 15:22  SELL 15 FILLED @90.19
+    #
+    # Sold, re-bought and sold again inside eleven minutes. That is the churn
+    # behind the live record (T212 −$376 at a 20% win rate, losses 4.7x wins)
+    # and behind the "exited while the signal still said LONG" cases — with the
+    # order quantity drifting between 15 and 18, the engine's position view and
+    # the broker's disagree and the difference gets flattened.
+    #
+    # The signal was fixed on 2026-06-03; the EXECUTION LOOP never was.
+    #
+    # State dir is shared with the rest of the platform (TRADEPRO_STATE_DIR).
+    # Fail-open by design: if the lock file cannot be read or written we let the
+    # decision through rather than silently freezing a strategy — a duplicate
+    # order is recoverable, a strategy that stops trading without saying so is
+    # not.
+    def _moo_lock_path(self, session_date) -> "Path":
+        from pathlib import Path
+        import os as _os
+        base = Path(_os.environ.get("TRADEPRO_STATE_DIR",
+                                    Path.home() / ".tradepro" / "state"))
+        d = base / "moo_fired"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{self.strategy_id}_{session_date}.json"
+
+    def _load_moo_fired(self, session_date) -> set[str]:
+        import json
+        try:
+            p = self._moo_lock_path(session_date)
+            if p.exists():
+                return set(json.loads(p.read_text()))
+        except Exception as exc:  # noqa: BLE001 — fail OPEN, see above
+            _log.warning("MOO lock unreadable (%s) — proceeding unlocked", exc)
+        return set()
+
+    def _persist_moo_fired(self, sym: str) -> None:
+        import json
+        sd = getattr(self, "_session_date", None)
+        if sd is None:
+            return
+        try:
+            p = self._moo_lock_path(sd)
+            cur = self._load_moo_fired(sd)
+            cur.add(sym)
+            p.write_text(json.dumps(sorted(cur)))
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("MOO lock unwritable (%s) — duplicate orders possible", exc)
+
     def on_session_start(self, session_date) -> None:  # type: ignore[override]
         self._daily_signals.clear()
         self._realised_vols.clear()
         self._closes_for_vol.clear()
         self._vol_scalar = 1.0
-        self._moo_fired.clear()
+        # Restore the lock from disk — the daemon restarts every 15 minutes,
+        # so clearing here is what let it re-decide all day.
+        self._session_date = session_date
+        self._moo_fired = self._load_moo_fired(session_date)
+        if self._moo_fired:
+            _log.info("MOO lock restored for %s: %d symbol(s) already decided this session",
+                          session_date, len(self._moo_fired))
         self._regime_issue_logged = False
         # Pre-load positions from params.initial_positions so the
         # strategy knows what we ALREADY hold at the broker. Without
@@ -527,6 +595,7 @@ class IchimokuEquityStrategy(Strategy):
         if sym in self._moo_fired:
             return []
         self._moo_fired.add(sym)
+        self._persist_moo_fired(sym)
 
         # Compute signal + realised vol.
         signal, vol, meta = self._compute_signal(sym, bar, p)
