@@ -166,23 +166,80 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     };
   }, [series]);
 
+  // ADR BUDGET (intraday). How much of a typical day's range this session has
+  // already used. Past ~1.5x, breakout odds collapse and fade odds rise — the
+  // move has already happened. On a name running ~7% ATR/day that budget IS
+  // the intraday game, and nothing on the chart said where we were in it.
+  const adrBudget = useMemo(() => {
+    const cs = series?.candles ?? [];
+    if (resolution === "1d" || cs.length < 30) return null;
+    const byDay = new Map<string, { hi: number; lo: number }>();
+    for (const c of cs) {
+      const d = String(c.timestamp).slice(0, 10);
+      const cur = byDay.get(d);
+      if (!cur) byDay.set(d, { hi: c.high, lo: c.low });
+      else { cur.hi = Math.max(cur.hi, c.high); cur.lo = Math.min(cur.lo, c.low); }
+    }
+    const days = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    if (days.length < 6) return null;
+    const prior = days.slice(-21, -1).map(([, r]) => r.hi - r.lo).filter((x) => x > 0);
+    if (prior.length < 5) return null;
+    const adr = prior.reduce((a, b) => a + b, 0) / prior.length;
+    const today = days[days.length - 1][1];
+    return { used: (today.hi - today.lo) / adr };
+  }, [series, resolution]);
+
   // Relative volume (bar vol ÷ trailing-20-bar average) per timestamp — the
   // breakout-vs-fakeout tell: a push through resistance at ×2.0 average is a
   // move; the same push at ×0.5 is nobody there. Computed once per series so
   // the crosshair readout costs a Map lookup per hover, not a scan.
   const rvolByTs = useMemo(() => {
     const m = new Map<string, number>();
+    const cs = series?.candles ?? [];
+    const vol = (c: Candle) => (Number.isFinite(c.volume) ? Number(c.volume) : 0);
+
+    if (resolution !== "1d") {
+      // INTRADAY: compare each bar to the SAME TIME OF DAY on prior sessions,
+      // never to a trailing average (corrected 22 Aug 2026 — the first version
+      // shipped that morning was wrong). Intraday volume is U-shaped: the
+      // opening bars are always huge and midday is always thin, so a trailing
+      // window that straddles the open makes every 11:00 bar look weak and
+      // every 09:35 bar look explosive, regardless of what is happening. The
+      // real question is "busy FOR THIS TIME OF DAY".
+      const byMinute = new Map<string, number[]>();
+      for (const c of cs) {
+        const t = String(c.timestamp);
+        const hhmm = t.length >= 16 ? t.slice(11, 16) : "";
+        if (!hhmm) continue;
+        (byMinute.get(hhmm) ?? byMinute.set(hhmm, []).get(hhmm)!).push(vol(c));
+      }
+      // Median, not mean — one earnings-day open would otherwise define
+      // "normal" for that minute for weeks.
+      const typical = new Map<string, number>();
+      for (const [hhmm, vs] of byMinute) {
+        const sorted = [...vs].sort((a, b) => a - b);
+        if (sorted.length >= 5) typical.set(hhmm, sorted[Math.floor(sorted.length / 2)]);
+      }
+      for (const c of cs) {
+        const t = String(c.timestamp);
+        const base = typical.get(t.length >= 16 ? t.slice(11, 16) : "");
+        if (base && base > 0) m.set(t, vol(c) / base);
+      }
+      return m;
+    }
+
+    // DAILY: a trailing 20-session average is the right reference.
     const win: number[] = [];
     let sum = 0;
-    for (const c of series?.candles ?? []) {
-      const v = Number.isFinite(c.volume) ? Number(c.volume) : 0;
+    for (const c of cs) {
+      const v = vol(c);
       if (win.length >= 20 && sum > 0) m.set(String(c.timestamp), v / (sum / win.length));
       win.push(v);
       sum += v;
       if (win.length > 20) sum -= win.shift() as number;
     }
     return m;
-  }, [series]);
+  }, [series, resolution]);
   // Candles ⇄ Renko. Persisted per symbol-independent preference so flipping a
   // chart doesn't reset every time the component remounts.
   // Renko crosshair readout — a BRICK, not a session, so it carries the
@@ -400,6 +457,18 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     if (!renko && ind.vwap && resolution !== "1d") {
       const s = lineSeries(chart, "#4f8cff", 2);
       s.setData(vwapPoints(candles));
+      // Session-anchored +/-1 and +/-2 sigma bands. Mean-reversion entries
+      // live at the outer band, trend continuation holds inside the inner
+      // one. Faint on purpose — they FRAME price, they are not signals.
+      const bands = vwapBands(candles);
+      const specs: Array<[{ time: UTCTimestamp; value: number }[], string]> = [
+        [bands.upper1, "rgba(79,140,255,0.45)"], [bands.lower1, "rgba(79,140,255,0.45)"],
+        [bands.upper2, "rgba(79,140,255,0.22)"], [bands.lower2, "rgba(79,140,255,0.22)"],
+      ];
+      for (const [pts, colour] of specs) {
+        const b = lineSeries(chart, colour, 1, LineStyle.Dotted);
+        b.setData(pts);
+      }
     }
     // OBV on its own hidden scale — its magnitude has nothing to do with
     // price, so it shares the pane but never the axis. Read the SHAPE against
@@ -910,6 +979,14 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
               <span style={{ fontWeight: 700, color: isStale ? "#ef4444" : "var(--text-dim)" }}>
                 {renko ? "LATEST SESSION " : hover ? "" : "LATEST "}{bar.timestamp.slice(0, 10)}
               </span>
+              {adrBudget && (
+                <span style={{ color: adrBudget.used >= 1.5 ? "#ef4444"
+                               : adrBudget.used >= 1.0 ? "#e0b341" : "var(--text-muted)",
+                               fontWeight: adrBudget.used >= 1.0 ? 700 : 400 }}
+                  title={`This session has covered ${adrBudget.used.toFixed(2)}x the average daily range of the last 20 sessions. Past ~1.5x the move has largely happened: breakout odds collapse and fade odds rise. Under ~0.5x there is room left in the day.`}>
+                  ADR {adrBudget.used.toFixed(2)}x
+                </span>
+              )}
               {regime && (
                 <span style={{ color: regime.tone, fontWeight: 700 }}
                   title={`Kaufman Efficiency Ratio(20) = ${regime.er.toFixed(3)} (0 = pure chop, 1 = pure trend; <0.30 is chop) · ADX(14) = ${regime.adx.toFixed(1)} (<20 = no trend worth trading). Trend-family signals — moving-average crosses, cloud position, breakouts — only carry information in a trending regime. Neither of these is a price forecast; they say whether the OTHER indicators mean anything right now.`}>
@@ -1307,6 +1384,38 @@ function obvPoints(candles: Candle[]): { time: UTCTimestamp; value: number }[] {
     out.push({ time: toTime(candles[i].timestamp), value: obv });
   }
   return out;
+}
+
+/** Session-anchored VWAP +/-1 and +/-2 sigma. Sigma is the volume-weighted
+ *  dispersion of typical price about the running VWAP, reset each session, so
+ *  the bands widen with genuine two-way trade rather than with elapsed time. */
+function vwapBands(candles: Candle[]): {
+  upper1: { time: UTCTimestamp; value: number }[];
+  lower1: { time: UTCTimestamp; value: number }[];
+  upper2: { time: UTCTimestamp; value: number }[];
+  lower2: { time: UTCTimestamp; value: number }[];
+} {
+  const upper1: { time: UTCTimestamp; value: number }[] = [];
+  const lower1: { time: UTCTimestamp; value: number }[] = [];
+  const upper2: { time: UTCTimestamp; value: number }[] = [];
+  const lower2: { time: UTCTimestamp; value: number }[] = [];
+  let day = "", pv = 0, vv = 0, pv2 = 0;
+  for (const c of candles) {
+    const d = String(c.timestamp).slice(0, 10);
+    if (d !== day) { day = d; pv = 0; vv = 0; pv2 = 0; }
+    const v = Number.isFinite(c.volume) ? Number(c.volume) : 0;
+    const tp = (c.high + c.low + c.close) / 3;
+    pv += tp * v; vv += v; pv2 += tp * tp * v;
+    if (vv <= 0) continue;
+    const mean = pv / vv;
+    const sd = Math.sqrt(Math.max(0, pv2 / vv - mean * mean));
+    const t = toTime(c.timestamp);
+    upper1.push({ time: t, value: mean + sd });
+    lower1.push({ time: t, value: mean - sd });
+    upper2.push({ time: t, value: mean + 2 * sd });
+    lower2.push({ time: t, value: mean - 2 * sd });
+  }
+  return { upper1, lower1, upper2, lower2 };
 }
 
 /** Wilder RSI(n). First n bars omitted. */
