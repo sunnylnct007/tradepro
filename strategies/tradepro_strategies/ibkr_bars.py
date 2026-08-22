@@ -63,7 +63,15 @@ def fetch_daily_bars(
     start: datetime,
     end: datetime,
     *,
-    asset_class: str = "us_equity",
+    # ONE canonical tree (owner ruling 22 Aug 2026): "us_etf" is the
+    # everything-bucket every scheduled lane harvests, mirrors to S3, and
+    # audits. The old "us_equity" default silently forked 255 symbols'
+    # daily bars into a second unharvested tree with zero behavioural
+    # difference between the plugins (UsEquityPlugin only renames
+    # UsEtfPlugin) — the wrong-venue poison had to be remediated TWICE
+    # because of it. us_equity remains registered + readable; nothing
+    # writes to it by default any more.
+    asset_class: str = "us_etf",
     fetched_by: str = "unknown",
     legacy_provider: str = "yahoo",
 ) -> pd.DataFrame | None:
@@ -164,7 +172,7 @@ def fetch_daily_bars_with_provenance(
     start: datetime,
     end: datetime,
     *,
-    asset_class: str = "us_equity",
+    asset_class: str = "us_etf",   # one canonical tree — see fetch_daily_bars
     fetched_by: str = "unknown",
     legacy_provider: str = "yahoo",
 ) -> "tuple[pd.DataFrame | None, dict]":

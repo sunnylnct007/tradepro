@@ -107,8 +107,11 @@ if [[ "$*" != *"--symbols"* ]]; then
     # harmonization (ISIN + currency guard) and entitlements are in place.
     FOREIGN_FILTER='\.'
     [[ "${TRADEPRO_HARVEST_INCLUDE_FOREIGN:-0}" == "1" ]] && FOREIGN_FILTER='^$'
+    # -USD$ = crypto pairs (BTC-USD …): with us_etf now the single canonical
+    # tree (22 Aug 2026), stray crypto dirs must never enter the IBKR
+    # harvest universe — they'd fail the chain on every sweep forever.
     SYMS=$(ls "$CACHE_DIR" 2>/dev/null | grep -v -i "^$ASSET$" \
-        | grep -E '^[A-Z0-9.-]+$' | grep -Ev "$FOREIGN_FILTER" \
+        | grep -E '^[A-Z0-9.-]+$' | grep -Ev "$FOREIGN_FILTER" | grep -Ev -- '-USD$' \
         | tr '\n' ',' | sed 's/,$//')
     if [[ -n "$SYMS" ]]; then
         N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)

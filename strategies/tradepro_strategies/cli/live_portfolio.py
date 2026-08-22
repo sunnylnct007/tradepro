@@ -33,7 +33,6 @@ import math
 
 import requests
 
-from ..cache import ensure_cached
 from ..quant_engine import (
     QuantEngineConfig,
     build_high_beta,
@@ -48,8 +47,14 @@ DEFAULT_OUT_PATH = Path.home() / ".tradepro" / "cache" / "live_portfolio_latest.
 
 
 def _fetch_one(ticker: str, start: datetime, end: datetime) -> pd.DataFrame | None:
+    # Golden source first (22 Aug 2026): this LIVE lane read only the legacy
+    # yahoo cache — which refreshes at most every 7 days — so portfolio marks
+    # could sit a week stale while fresh IBKR bars sat unread in the store.
+    # fetch_daily_bars walks ibkr_web → ig → yfinance and falls back to the
+    # legacy cache VISIBLY.
     try:
-        df = ensure_cached("yahoo", ticker, start, end, "1d")
+        from ..ibkr_bars import fetch_daily_bars
+        df = fetch_daily_bars(ticker, start, end, fetched_by="live-portfolio")
     except Exception as exc:  # noqa: BLE001
         log.debug("fetch %s failed: %s", ticker, exc)
         return None

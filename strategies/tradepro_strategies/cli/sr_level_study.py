@@ -90,9 +90,6 @@ def run(symbols: list[str], *, seed: int = 20260815) -> dict:
         df, prov = fetch_daily_bars_with_provenance(
             sym, start, end, asset_class="us_etf", fetched_by="sr-study")
         if df is None or df.empty or len(df) < 300:
-            df, prov = fetch_daily_bars_with_provenance(
-                sym, start, end, asset_class="us_equity", fetched_by="sr-study")
-        if df is None or df.empty or len(df) < 300:
             skipped.append(sym)
             continue
         cols = {c.lower() for c in df.columns}

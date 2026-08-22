@@ -1129,11 +1129,10 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         # closes up to FOUR DAYS old (XOM: last bar 11 Aug while the harvested
         # IBKR store held 14 Aug) while fresh bars sat unread. Standing rule:
         # "IBKR = golden source, Yahoo = fallback only, never a silent default."
+        # Single canonical tree (22 Aug 2026): us_etf only — the us_equity
+        # retry kept the duplicate store alive.
         prices, bars_prov = fetch_daily_bars_with_provenance(
             sym, start, end, asset_class="us_etf", fetched_by="options-screen")
-        if prices is None or prices.empty:
-            prices, bars_prov = fetch_daily_bars_with_provenance(
-                sym, start, end, asset_class="us_equity", fetched_by="options-screen")
         if prices is None or prices.empty:
             raise ValueError(f"no daily bars for {sym} from any source")
         close_col = "adj_close" if "adj_close" in prices.columns else "close"

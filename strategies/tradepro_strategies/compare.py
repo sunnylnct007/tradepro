@@ -1149,11 +1149,10 @@ def compare(
                 _gold = None
                 try:
                     from .ibkr_bars import fetch_daily_bars as _fdb
-                    for _ac in ("us_etf", "us_equity"):
-                        _gold = _fdb(symbol, start, end, asset_class=_ac,
-                                     fetched_by="compare")
-                        if _gold is not None and not _gold.empty:
-                            break
+                    # Single canonical tree (22 Aug 2026): us_etf. The old
+                    # two-pass us_etf→us_equity walk kept the duplicate
+                    # store alive.
+                    _gold = _fdb(symbol, start, end, fetched_by="compare")
                 except Exception:  # noqa: BLE001 — fall back to the legacy cache
                     _gold = None
                 price_cache[symbol] = (

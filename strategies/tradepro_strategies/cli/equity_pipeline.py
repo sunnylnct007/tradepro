@@ -54,7 +54,6 @@ import pandas as pd
 
 import requests
 
-from ..cache import ensure_cached
 from ..quant_engine import (
     Ensemble,
     MonteCarloSimulator,
@@ -73,11 +72,16 @@ DEFAULT_OUT_PATH = Path.home() / ".tradepro" / "cache" / "equity_pipeline_latest
 
 
 def _fetch_one(ticker: str, start: datetime, end: datetime) -> pd.DataFrame | None:
-    """Wrap cache.ensure_cached with the trader's "Capitalised columns"
+    """Golden-first daily bars with the trader's "Capitalised columns"
     convention (Open / High / Low / Close). Returns None if no usable
-    history (silent — caller decides whether that's fatal)."""
+    history (silent — caller decides whether that's fatal).
+
+    22 Aug 2026: was cache.ensure_cached (legacy yahoo, ≤7-day staleness)
+    while the SAME run also read the BarStore in its preflight — one run,
+    two stores, two answers. Now both read the canonical store."""
     try:
-        df = ensure_cached("yahoo", ticker, start, end, "1d")
+        from ..ibkr_bars import fetch_daily_bars
+        df = fetch_daily_bars(ticker, start, end, fetched_by="equity-pipeline")
     except Exception as exc:  # noqa: BLE001
         log.debug("fetch %s failed: %s", ticker, exc)
         return None

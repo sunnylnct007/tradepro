@@ -61,34 +61,19 @@
       Run at 21:15 UTC Monday–Friday.
       Weekday: 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri
     -->
+    <!-- WEEKLY, not nightly (22 Aug 2026): consumer mapping proved NO live
+         lane reads 1m parquet — every running strategy/screen uses 5m/1d.
+         One Saturday sweep keeps the 1m archive growing inside IBKR's
+         ~1-year 1m history ceiling (a week's gap is recoverable; the
+         nightly cost was the single heaviest load on the shared OAuth
+         session). Existing 1m partitions are kept: tradepro-slippage-sweep
+         and operator backtests read them on demand. -->
     <key>StartCalendarInterval</key>
-    <array>
-        <dict>
-            <key>Weekday</key><integer>1</integer>
-            <key>Hour</key><integer>21</integer>
-            <key>Minute</key><integer>15</integer>
-        </dict>
-        <dict>
-            <key>Weekday</key><integer>2</integer>
-            <key>Hour</key><integer>21</integer>
-            <key>Minute</key><integer>15</integer>
-        </dict>
-        <dict>
-            <key>Weekday</key><integer>3</integer>
-            <key>Hour</key><integer>21</integer>
-            <key>Minute</key><integer>15</integer>
-        </dict>
-        <dict>
-            <key>Weekday</key><integer>4</integer>
-            <key>Hour</key><integer>21</integer>
-            <key>Minute</key><integer>15</integer>
-        </dict>
-        <dict>
-            <key>Weekday</key><integer>5</integer>
-            <key>Hour</key><integer>21</integer>
-            <key>Minute</key><integer>15</integer>
-        </dict>
-    </array>
+    <dict>
+        <key>Weekday</key><integer>6</integer>
+        <key>Hour</key><integer>11</integer>
+        <key>Minute</key><integer>30</integer>
+    </dict>
 
     <key>StandardOutPath</key>
     <string>/Users/skumar/.tradepro/logs/bar-cache-harvest.log</string>

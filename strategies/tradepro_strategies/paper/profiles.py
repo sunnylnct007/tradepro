@@ -309,10 +309,13 @@ def _yfinance_bus(
 def default_bar_source() -> BarSource:
     """The standard bar source chain: **cache → yfinance**.
 
-    `CachedSource` is preferred first, and the shared bar cache is what the
-    IBKR harvest populates — so when IBKR data has been harvested for a symbol
-    it is served from cache (IBKR quality); otherwise we fall through to live
-    yfinance. That is the "use IBKR if available, else yfinance" behaviour.
+    CORRECTION (22 Aug 2026): the claim that "the shared bar cache is what
+    the IBKR harvest populates" was FALSE. `CachedSource` reads
+    ~/.tradepro/cache/intraday/ — a fourth, separate parquet tree that NO
+    installed lane writes (last writer ran 8 Jul 2026). The IBKR harvest
+    populates ~/.tradepro/bar_cache/ (the BarStore), which this chain never
+    touches. So in practice this is yfinance-live with a stale local
+    memo — consolidation ticket: point the paper bus at the BarStore.
 
     Finnhub was REMOVED from the chain: its free `/stock/candle` endpoint now
     returns 403 Forbidden (premium-only), so it contributed nothing but noise
