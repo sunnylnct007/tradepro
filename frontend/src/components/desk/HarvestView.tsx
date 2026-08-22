@@ -244,6 +244,7 @@ export function HarvestView() {
   }, []);
   const [analyzeInput, setAnalyzeInput] = useState("");            // free-text "analyze ANY symbol"
   const [popOut, setPopOut] = useState(false);                     // large chart overlay
+  const [maxi, setMaxi] = useState(false);                         // pop-out → full viewport
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -579,29 +580,44 @@ export function HarvestView() {
       )}
       </div>{/* end flex row */}
 
-      {/* Pop-out: the same chart in a large, comfortable overlay. */}
+      {/* Pop-out: the same chart in a large overlay. ⛶ maximizes to the full
+          viewport (mobile is always full-screen — a padded modal on a phone
+          wastes the pixels the trader came for). */}
       {selected && popOut && (
         <div
           onClick={() => setPopOut(false)}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000,
-            display: "flex", alignItems: "center", justifyContent: "center", padding: isNarrow ? 0 : 24 }}
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: isNarrow || maxi ? 0 : 24 }}
         >
-          {/* Full-screen on mobile so the chart is actually readable. */}
           <div onClick={(e) => e.stopPropagation()}
-            style={{ background: "var(--surface-1)", border: isNarrow ? "none" : "1px solid var(--border)",
-              borderRadius: isNarrow ? 0 : 10, padding: isNarrow ? 12 : 18,
-              width: isNarrow ? "100vw" : "min(1200px, 94vw)",
-              height: isNarrow ? "100vh" : undefined,
-              maxHeight: isNarrow ? "100vh" : "92vh", overflow: "auto" }}>
+            style={{ background: "var(--surface-1)",
+              border: isNarrow || maxi ? "none" : "1px solid var(--border)",
+              borderRadius: isNarrow || maxi ? 0 : 10, padding: isNarrow ? 12 : 18,
+              width: isNarrow || maxi ? "100vw" : "min(1200px, 94vw)",
+              height: isNarrow || maxi ? "100vh" : undefined,
+              maxHeight: isNarrow || maxi ? "100vh" : "92vh", overflow: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 16 }}>{selected} — Ichimoku cloud + S/R</span>
-              <button onClick={() => setPopOut(false)}
-                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 26, lineHeight: 1, padding: "0 6px" }}
-                title="Close">✕</button>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {!isNarrow && (
+                  <button onClick={() => setMaxi((v) => !v)}
+                    style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 6px" }}
+                    title={maxi ? "Restore windowed view" : "Maximize to full screen"}>
+                    {maxi ? "🗗" : "⛶"}
+                  </button>
+                )}
+                <button onClick={() => setPopOut(false)}
+                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 26, lineHeight: 1, padding: "0 6px" }}
+                  title="Close">✕</button>
+              </span>
             </div>
             <FlexChartControls coverage={coverage} symbol={selected}
               res={chartRes} setRes={setChartRes} tf={chartTf} setTf={setChartTf} />
-            <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes} height={isNarrow ? 440 : 640} />
+            <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes}
+              height={isNarrow || maxi
+                ? Math.max(440, (typeof window !== "undefined" ? window.innerHeight : 800) - 190)
+                : 640} />
           </div>
         </div>
       )}
@@ -883,11 +899,17 @@ function HarvesterPanel({ h, err, onChanged }: { h: Harvester | null; err: strin
               </div>
             </div>
           )}
-          {h.lastError && (
-            <div style={{ fontSize: 11, color: "var(--down)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
-              last error: {h.lastError}
-            </div>
-          )}
+          {h.lastError && (() => {
+            // "idle — outside US market hours" and "paused — session released"
+            // are STATES, not errors — painting them red made a healthy
+            // weekend look broken (owner, 22 Aug). Neutral ink + honest label.
+            const isState = /^(idle|paused)\b/i.test(h.lastError);
+            return (
+              <div style={{ fontSize: 11, color: isState ? "var(--text-muted)" : "var(--down)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
+                {isState ? "status" : "last error"}: {h.lastError}
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

@@ -34,7 +34,7 @@
  * Mobile/responsive: autoSize follows the container; a ResizeObserver also
  * repaints the cloud overlay on width changes.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CandlestickSeries,
   ColorType,
@@ -80,7 +80,12 @@ const SHIFT = 32; // displacement: forward shift for the cloud + back shift for 
 /** Leading-history pad (calendar days) so Ichimoku is valid at the LEFT edge of
  * the visible window. Senkou B needs 52 trading bars and the cloud is shifted
  * 26 forward → ~78 trading bars ≈ ~115 calendar days; we pad generously. */
-const PAD_DAYS = 130;
+// Widened 130 → 310 calendar days (≈210 sessions) on 22 Aug 2026: the SMA200
+// overlay needs 200 SESSIONS of lead-in before its first point exists, so at
+// the old pad it started mid-window and read as "the chart is broken". Now
+// every indicator (cloud ~82 bars, SMA200) spans the whole visible window.
+// Daily fetches are cache-served from the store, so the wider ask is free.
+const PAD_DAYS = 310;
 
 type Props = {
   symbol: string;
@@ -127,6 +132,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     try { localStorage.setItem(IND_KEY, JSON.stringify(nx)); } catch { /* private mode */ }
     return nx;
   });
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -136,6 +142,24 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
   const [err, setErr] = useState<string | null>(null);
   // Live crosshair readout (OHLC + date) shown above the chart.
   const [hover, setHover] = useState<Candle | null>(null);
+
+  // Relative volume (bar vol ÷ trailing-20-bar average) per timestamp — the
+  // breakout-vs-fakeout tell: a push through resistance at ×2.0 average is a
+  // move; the same push at ×0.5 is nobody there. Computed once per series so
+  // the crosshair readout costs a Map lookup per hover, not a scan.
+  const rvolByTs = useMemo(() => {
+    const m = new Map<string, number>();
+    const win: number[] = [];
+    let sum = 0;
+    for (const c of series?.candles ?? []) {
+      const v = Number.isFinite(c.volume) ? Number(c.volume) : 0;
+      if (win.length >= 20 && sum > 0) m.set(String(c.timestamp), v / (sum / win.length));
+      win.push(v);
+      sum += v;
+      if (win.length > 20) sum -= win.shift() as number;
+    }
+    return m;
+  }, [series]);
   // Candles ⇄ Renko. Persisted per symbol-independent preference so flipping a
   // chart doesn't reset every time the component remounts.
   // Renko crosshair readout — a BRICK, not a session, so it carries the
@@ -839,7 +863,22 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
               <span style={{ color: bar.close >= bar.open ? "#1fc16b" : "#ef4444" }}>
                 C {fmt(bar.close, ccy)}
               </span>
-              <span>Vol {Number.isFinite(bar.volume) ? bar.volume.toLocaleString() : "—"}</span>
+              <span>
+                Vol {Number.isFinite(bar.volume) ? bar.volume.toLocaleString() : "—"}
+                {(() => {
+                  const rv = rvolByTs.get(String(bar.timestamp));
+                  if (rv === undefined) return null;
+                  // ≥1.5× average = real participation (breakout credible);
+                  // ≤0.5× = thin (a poke through a level is suspect).
+                  const tone = rv >= 1.5 ? "#1fc16b" : rv <= 0.5 ? "#e0b341" : "var(--text-muted)";
+                  return (
+                    <span style={{ color: tone, fontWeight: rv >= 1.5 || rv <= 0.5 ? 700 : 400 }}
+                      title="This bar's volume vs its trailing 20-bar average — ×1.5+ = real participation behind the move; ×0.5- = thin, treat a level break as suspect">
+                      {" "}(×{rv.toFixed(1)} avg)
+                    </span>
+                  );
+                })()}
+              </span>
               {!hover && <span style={{ color: "var(--text-muted)" }}>· hover for any bar · scroll to zoom</span>}
             </>
           );
