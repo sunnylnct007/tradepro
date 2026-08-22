@@ -26,7 +26,8 @@ Three trees under `~/.tradepro/bar_cache/`, each governed by
 |---|---|---|
 | `us_etf` | **250** US-listed ETFs + single names | the everything-bucket for US; `us_equity` folds into it |
 | `uk_equity` | **19** LSE ETFs (`.L`) | relocated 22 Aug; LSE calendar, not NYSE |
-| `index_us` | `^`-prefixed context series (^VIX, ^TNX) | zero-volume bars are legitimate here |
+| `index_us` | US context series (^VIX, ^TNX) | zero-volume bars are legitimate here |
+| `index_uk` | UK context series (^FTSE, ^FTMC) | LSE calendar — awaiting seed, see below |
 
 Retired to `~/.tradepro/bar_cache_quarantine/` (reversible, NOT deleted):
 the whole `us_equity` tree (proven 0 unique partitions after CAVA's IPO
@@ -109,6 +110,14 @@ Audit end-state: clean except 30 known relic bars in SWDA.L 2010.
 ## Update log
 - 2026-08-22 (DATA): file created; data-platform truth + scoreboard as
   relayed by owner from RESEARCH session output.
+- 2026-08-22 night (DATA): legacy cache.py retirement is now blocked only on
+  DATA AVAILABILITY, not architecture. tradepro-refresh writes to the canonical
+  store (resolver-routed) and no longer counts a legacy-cache SERVE as a
+  refresh — it printed "10/10 refreshed" while writing nothing. UK symbols
+  (BARC.L, ^FTSE …) cannot seed until Yahoo's throttle on this Mac clears;
+  IBKR has no LSE entitlement. RE-RUN `tradepro-refresh --watchlist uk`
+  when it does, then cache.py has only 2 read-only consumers left
+  (wheel_backtest_run, straddle_scan) + the ibkr_bars fallback.
 - 2026-08-22 evening (DATA): ONE-SOURCE-OF-TRUTH consolidation essentially
   COMPLETE — store reduced to three properly-classed trees (see table above),
   us_equity retired after proving 0 unique partitions, resolver now governs
