@@ -153,11 +153,31 @@ class IBKRWebProvider(Provider):
     def supports_resolution(self, resolution: str) -> bool:
         return resolution in _BAR
 
+    # MEASURED against the live account 22 Aug 2026 (SPY, 4-day probe windows
+    # at 1/6/12/24/36 months back), not assumed. The old code returned 30 days
+    # for EVERY intraday resolution, so BarStore clipped any older window to
+    # zero width and skipped this provider as "out_of_range" — the provider was
+    # never even called. That is why deep intraday never accumulated: median 14
+    # sessions of 5m across the tradeable universe and not one symbol with a
+    # year, while IBKR was willing to serve 5m from three years back all along.
+    #
+    # Erring LONG is the safe direction: an over-long limit costs one failed
+    # request that the chain handles, while an over-short one makes the data
+    # silently unreachable — which is the bug being fixed here.
+    _MAX_HISTORY_DAYS: dict[str, int] = {
+        "1m": 200,     # worked at 6 months, failed at 12
+        "5m": 1095,    # worked at 12, 24 AND 36 months
+        "15m": 1095,
+        "30m": 1095,
+        "1h": 730,     # worked at 24 months, failed at 36
+    }
+
     def max_history(self, resolution: str) -> timedelta:
         if resolution not in _BAR:
             return timedelta(0)
-        # IBKR caps intraday history (1-min ≈ a month); daily/hourly go back years.
-        return timedelta(days=30) if resolution in _INTRADAY_RES else timedelta(days=365 * 5)
+        if resolution in self._MAX_HISTORY_DAYS:
+            return timedelta(days=self._MAX_HISTORY_DAYS[resolution])
+        return timedelta(days=365 * 5)   # daily and anything longer
 
     def _resolve_base(self) -> tuple[str, str | None]:
         if self._base:
