@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..backtest import BacktestConfig, FeeModel, run_backtest
-from ..cache import ensure_cached
+from ..ibkr_bars import golden_daily
 from ..observability import RunLogger
 from ..regimes import all_regime_stats
 from ..strategies import available, resolve
@@ -46,7 +46,7 @@ def main() -> None:
         start=start, end=end, capital=args.capital,
     )
 
-    prices = ensure_cached(args.provider, args.symbol, start, end)
+    prices = golden_daily(args.symbol, start, end, fetched_by="run-backtest", legacy_provider=args.provider)
     if prices.empty:
         print(f"no data for {args.symbol} on {args.provider}")
         logger.emit("cli.nodata")

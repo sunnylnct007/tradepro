@@ -58,6 +58,26 @@ def bar_store():
     return _BAR_STORE
 
 
+def golden_daily(
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    *,
+    fetched_by: str,
+    legacy_provider: str = "yahoo",
+) -> pd.DataFrame:
+    """Drop-in replacement for the legacy ``cache.ensure_cached`` contract
+    (returns a DataFrame, possibly EMPTY, never None) but golden-first:
+    ibkr_web → ig → yfinance, legacy yahoo cache as the loudly-logged last
+    resort. Added 22 Aug 2026 for the Wave-1 legacy-cache retirement — the
+    MCP analysis tools, run_backtest, build_high_beta_universe and the
+    worker all read the ≤7-day-stale yahoo cache while fresh IBKR bars sat
+    unread in the store."""
+    df = fetch_daily_bars(symbol, start, end,
+                          fetched_by=fetched_by, legacy_provider=legacy_provider)
+    return df if df is not None else pd.DataFrame()
+
+
 def fetch_daily_bars(
     symbol: str,
     start: datetime,

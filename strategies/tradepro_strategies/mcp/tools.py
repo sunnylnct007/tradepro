@@ -262,11 +262,11 @@ def get_market_state(symbol: str, lookback_days: int = 365) -> dict:
     try:
         # Lazy imports so importing the mcp package is cheap.
         from datetime import timedelta
-        from ..cache import ensure_cached
+        from ..ibkr_bars import golden_daily
         from ..market_state import market_state
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=max(lookback_days, 365))
-        prices = ensure_cached("yahoo", symbol, start, end)
+        prices = golden_daily(symbol, start, end, fetched_by="mcp:get_market_state")
         state = market_state(symbol, prices)
     except Exception as e:  # noqa: BLE001
         return _err("get_market_state", str(e), symbol=symbol)
@@ -1068,7 +1068,7 @@ def get_returns(symbols_csv: str, periods: str = "1d,5d,30d,90d,ytd") -> dict:
 
     try:
         from datetime import timedelta
-        from ..cache import ensure_cached
+        from ..ibkr_bars import golden_daily
         from ..watchlists import macro_axis_for
     except Exception as e:  # noqa: BLE001
         return _err("get_returns", f"import failed: {e}")
@@ -1081,7 +1081,7 @@ def get_returns(symbols_csv: str, periods: str = "1d,5d,30d,90d,ytd") -> dict:
     rows: list[dict] = []
     for sym in symbols:
         try:
-            prices = ensure_cached("yahoo", sym, start, end)
+            prices = golden_daily(sym, start, end, fetched_by="mcp:get_returns")
         except Exception as e:  # noqa: BLE001
             rows.append({
                 "_source": f"error://returns/{sym}",
@@ -1166,7 +1166,7 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
     try:
         from datetime import timedelta
         from ..backtest import BacktestConfig, FeeModel, run_backtest
-        from ..cache import ensure_cached
+        from ..ibkr_bars import golden_daily
         from ..compare import compute_bucket
         from ..market_state import market_state
         from ..regimes import all_regime_stats
@@ -1186,7 +1186,7 @@ def evaluate_symbols(symbols_csv: str, lookback_years: int = 5) -> dict:
     results: list[dict] = []
     for sym in symbols:
         try:
-            prices = ensure_cached("yahoo", sym, start, end)
+            prices = golden_daily(sym, start, end, fetched_by="mcp:evaluate_symbols")
         except Exception as e:  # noqa: BLE001
             results.append({
                 "_source": f"error://evaluate/{sym}",
@@ -2249,7 +2249,7 @@ def get_watchlist(name: str) -> dict:
 def get_compass_score(symbol: str) -> dict:
     """Compute the full 6-factor COMPASS score for a symbol on demand.
 
-    Builds the required row dict from live price data (via ensure_cached +
+    Builds the required row dict from live price data (via golden_daily +
     market_state), yfinance fundamentals, sector RS (compute_sector_rs), and
     EPS revision (eps_tracker). Analyst and sentiment factors default to
     neutral when not pre-scored. Takes ~4–8s (price + fundamentals fetches).
@@ -2261,7 +2261,7 @@ def get_compass_score(symbol: str) -> dict:
     sym = symbol.strip().upper()
     try:
         from datetime import timedelta
-        from ..cache import ensure_cached
+        from ..ibkr_bars import golden_daily
         from ..market_state import market_state as _market_state
         from ..compass_scorer import compute_compass_score
         from ..sector_rs import compute_sector_rs
@@ -2269,7 +2269,7 @@ def get_compass_score(symbol: str) -> dict:
 
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=400)
-        prices = ensure_cached("yahoo", sym, start, end)
+        prices = golden_daily(sym, start, end, fetched_by="mcp:get_compass_score")
         if prices.empty:
             return _err("get_compass_score", "no price data — invalid symbol?", symbol=sym)
 

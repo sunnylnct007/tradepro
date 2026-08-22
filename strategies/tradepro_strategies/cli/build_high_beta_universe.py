@@ -51,7 +51,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ..cache import ensure_cached
+from ..ibkr_bars import golden_daily
 from ..quant_engine import BetaResult, build_high_beta
 from ..quant_engine.config import QuantEngineConfig
 from ..secrets import get_secret
@@ -152,7 +152,7 @@ def _fetch_closes(
         if i % 50 == 0:
             log.info("  fetched %d/%d", i, len(tickers))
         try:
-            df = ensure_cached("yahoo", t, start, end, "1d")
+            df = golden_daily(t, start, end, fetched_by="high-beta-universe")
         except Exception as e:  # noqa: BLE001 — one bad ticker shouldn't halt
             log.debug("fetch %s failed: %s", t, e)
             skipped.append(t)
@@ -271,7 +271,7 @@ def build_and_push(
     start = end - timedelta(days=int(eff_lookback * 1.5) + 50)
 
     log.info("fetching SPY benchmark...")
-    spy_df = ensure_cached("yahoo", SPY_TICKER, start, end, "1d")
+    spy_df = golden_daily(SPY_TICKER, start, end, fetched_by="high-beta-universe")
     if spy_df.empty:
         raise RuntimeError("SPY cache fetch returned empty — cannot compute betas")
     spy_close = spy_df["close" if "close" in spy_df.columns else "Close"].copy()

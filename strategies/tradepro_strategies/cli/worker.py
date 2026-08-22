@@ -30,7 +30,7 @@ from pathlib import Path
 from dateutil import parser as dtparser
 
 from ..backtest import BacktestConfig, FeeModel, run_backtest
-from ..cache import ensure_cached
+from ..ibkr_bars import golden_daily
 from ..observability import RunLogger, git_sha
 from ..strategies import resolve as resolve_strategy
 
@@ -66,7 +66,7 @@ def _run_backtest_job(req: dict, logger: RunLogger) -> dict:
     params = req.get("params") or {}
 
     logger.emit("load.start", symbol=symbol, provider=provider)
-    prices = ensure_cached(provider, symbol, start, end)
+    prices = golden_daily(symbol, start, end, fetched_by="worker", legacy_provider=provider)
     logger.emit("load.done", bars=len(prices))
     if prices.empty:
         raise ValueError(f"no data for {symbol} on {provider}")
