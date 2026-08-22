@@ -61,6 +61,27 @@ function RowDetail({ c }: { c: Cand }) {
                 ))}
               </tbody>
             </table>
+            {(c.volume_vs_20d != null || c.chg_5d_pct != null) && (
+              <div style={{ marginTop: 8, padding: "6px 8px", border: "1px solid #1b2233",
+                            borderRadius: 6, fontSize: 10, lineHeight: 1.6 }}>
+                <b style={{ color: "var(--text-dim)" }}>CONTEXT — not part of the rule</b>
+                <div style={{ marginTop: 2 }}>
+                  Entry-bar volume{" "}
+                  <b style={{ color: (c.volume_vs_20d ?? 1) < 0.7 ? TONE.warn : "inherit" }}>
+                    {c.volume_vs_20d != null ? `${c.volume_vs_20d}x` : "—"}
+                  </b>{" "}
+                  its 20-day average · price {c.chg_5d_pct != null ? `${c.chg_5d_pct > 0 ? "+" : ""}${c.chg_5d_pct}%` : "—"} over 5 sessions
+                  {c.chg_5d_pct != null && Math.abs(c.chg_5d_pct) <= 1 &&
+                    " — flat, so the average rose to meet the price rather than the price falling to it"}
+                </div>
+                <div style={{ color: "var(--text-muted)", marginTop: 3 }}>
+                  Low volume LOOKS like a warning and we tested it as one — momentum v3 gated on
+                  entry volume and was <b>REJECTED</b>. The apparent edge exists only in the second
+                  half of the record and inverts before 2020. Shown so it is not hidden; not acted
+                  on, because it did not earn the right to be. See Research.
+                </div>
+              </div>
+            )}
             <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.6 }}>
               Moving averages: 10 <b>{c.levels?.sma10}</b> · 20 <b>{c.levels?.sma20}</b> ·
               50 <b>{c.levels?.sma50}</b> · 200 <b>{c.levels?.sma200}</b>.
@@ -186,8 +207,12 @@ export function MomentumView() {
       <div style={{ border: `1px solid ${TONE.ok}55`, background: `${TONE.ok}0e`, borderRadius: 8,
                     padding: "8px 12px", marginBottom: 12, fontSize: 12, lineHeight: 1.6 }}>
         <b style={{ color: TONE.ok }}>Backtested</b> — {a.evidence.trades.toLocaleString()} trades ·{" "}
-        <b>{a.evidence.win_rate_pct}% win</b> · {a.evidence.mean_per_trade_pct}%/trade ·{" "}
-        median hold {a.evidence.median_hold_sessions} sessions · worst {a.evidence.worst_trade_pct}%.
+        <b>{a.evidence.win_rate_pct}% win</b> · mean {a.evidence.mean_per_trade_pct}%/trade ·{" "}
+        {a.evidence.median_per_trade_pct !== undefined && (
+          <>median <b style={{ color: TONE.bad }}>{a.evidence.median_per_trade_pct}%</b> · </>
+        )}
+        median hold {a.evidence.median_hold_sessions} sessions · worst{" "}
+        <b style={{ color: TONE.bad }}>{a.evidence.worst_trade_pct}%</b>.
         <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 3 }}>
           Gates <code>{a.evidence.gates_file}</code> committed <code>{a.evidence.gates_commit}</code>{" "}
           BEFORE the run — see Research. {a.evidence.note}

@@ -647,11 +647,13 @@ export const api = {
           gates_file: string; gates_commit: string; trades: number;
           win_rate_pct: number; mean_per_trade_pct: number;
           worst_trade_pct: number; median_hold_sessions: number; note: string;
+          median_per_trade_pct?: number;
         };
         limits: string[];
         quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
         candidates: Array<{
           symbol: string; bar: string; close: number; entry_hint: number;
+          volume_vs_20d?: number | null; chg_5d_pct?: number | null;
           stop: number; trailing_pct: number; pct_above_200sma: number;
           pct_above_20sma: number; atr_pct: number | null;
           off_52w_high_pct: number | null;

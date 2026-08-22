@@ -153,6 +153,18 @@ def _load(sym: str):
     return df if len(df) >= 220 and "open" in df.columns else None
 
 
+def _vol_ratio(df, i):
+    """Entry-bar volume against the mean of the prior 20 bars, or None."""
+    if "volume" not in getattr(df, "columns", []) or i < 20:
+        return None
+    try:
+        v = df["volume"].tolist()
+        av = sum(v[i - 20:i]) / 20
+        return round(v[i] / av, 2) if av else None
+    except Exception:  # noqa: BLE001 — context only, never worth failing a row
+        return None
+
+
 def sma(c, i, n):
     return sum(c[i - n + 1:i + 1]) / n
 
@@ -256,7 +268,6 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
                                           f"consistent with a wrong-venue or wrong-contract series"})
             continue
         dates = [str(x)[:10] for x in df.index]
-        i = len(c) - 1
         i = _pick_signal_index(dates, _last_completed_session())
         if i < 210:
             continue
@@ -307,6 +318,14 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
                        "sma50": round(s50, 2), "sma200": round(s200, 2)},
             # How this exact rule has done on THIS symbol, not the universe.
             "history": replay_symbol(c, h, l, dates, i),
+            # Entry-bar volume vs its own 20-day average. Shown as CONTEXT and
+            # labelled a failed filter: momentum v3 tested it as a gate and it
+            # was REJECTED (MOMENTUM_GATES_V3.md, e50cd2a) — the apparent edge
+            # exists only in the second half of the record and INVERTS before
+            # 2020. Visible so a low-volume entry is not hidden; not acted on,
+            # because it did not earn the right to be.
+            "volume_vs_20d": _vol_ratio(df, i),
+            "chg_5d_pct": (round(100 * (c[i] / c[i - 5] - 1), 1) if i >= 5 and c[i - 5] else None),
         })
     out.sort(key=lambda r: -(r["pct_above_200sma"] or 0))
     return out, quarantined
@@ -325,16 +344,28 @@ def build_artifact(rows, universe, quarantined=None) -> dict:
             "trailing": f"{TRAIL_PCT:.0%} from the peak close",
             "timeout": f"{MAX_HOLD} sessions",
         },
+        # Recomputed on the TRADEABLE universe. The v2 headline (5,815 trades,
+        # 47.0% win, +1.53%, worst -14.7%) was measured before _tradeable()
+        # existed, so futures, indices and foreign listings were in it. Win
+        # rate and mean are better than published; the worst trade is twice as
+        # bad, because a -8% stop is checked on the CLOSE and does not survive
+        # a gap. Published numbers must be the ones the screen would actually
+        # produce — see MOMENTUM_GATES_V3.md.
         "evidence": {
             "gates_file": "MOMENTUM_GATES_V2.md", "gates_commit": "ca494bf",
-            "trades": 5815, "win_rate_pct": 47.0, "mean_per_trade_pct": 1.53,
-            "worst_trade_pct": -14.7, "median_hold_sessions": 34,
-            "note": ("ALL SIX gates passed. The hold is long by design — v1 proved the "
-                     "trailing stop carries the edge and needs 32-35 bars; forcing 10 "
-                     "bars costs two thirds of the return."),
+            "trades": 5396, "win_rate_pct": 48.8, "mean_per_trade_pct": 2.20,
+            "median_per_trade_pct": -0.33,
+            "worst_trade_pct": -29.7, "median_hold_sessions": 35,
+            "note": ("All six v2 gates passed. Restated on the tradeable universe after "
+                     "the earlier figures were found to include futures and indices. "
+                     "The hold is long by design — the trailing stop carries the edge "
+                     "and needs 32-35 bars."),
         },
         "limits": [
-            "53% of these lose — the edge is the average, never any single row.",
+            "51% of these lose, and the MEDIAN trade loses 0.33%. The positive average is "
+            "carried by the winners in the tail, not by the typical trade.",
+            "Worst historical trade: -29.7%. The -8% stop is checked on the close, so it "
+            "does NOT protect against an overnight gap.",
             "A 34-bar median hold is about SEVEN WEEKS. This is not the in-and-out trade; use Swing for that.",
             "No sentiment or fundamentals filter — neither is backtestable on this data.",
         ],

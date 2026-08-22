@@ -273,6 +273,20 @@
           "pass": true
         }
       ]
+    },
+    {
+      "id": "momentum_v3_volume",
+      "title": "Momentum v3 \u2014 does entry-bar volume add anything?",
+      "date": "2026-08-22",
+      "verdict": "FAIL",
+      "verdict_label": "REJECTED \u2014 all three variants fail G7",
+      "gates_file": "MOMENTUM_GATES_V3.md",
+      "gates_commit": "d147326",
+      "result_commit": "e50cd2a",
+      "prediction": "G7 (must survive a TIME split and a SYMBOL split) is where this most likely dies \u2014 under 50% that anything passes G1-G6 and then survives it. D (>=1.2x) fails G1 on trade count. C (>=1.0x) marginal on G4, median between -0.1% and +0.4%.",
+      "prediction_graded": "3 of 5 correct. The one that mattered \u2014 that G7 would kill it \u2014 was called before the run.",
+      "headline": "Entry-bar volume looked monotonic on the full sample (<0.7x: 45.4% win; >1.2x: 52.2%). It is a REGIME, not an edge: in the first half of the record, filtering on volume makes the strategy WORSE, and worst for the strictest filter. D goes +2.24%\u2192+1.62% pre-2020 and +2.17%\u2192+3.50% after. All three variants fail G7.",
+      "notes": "D passed the symbol split cleanly \u2014 either split ALONE would have shipped it. Requiring two independent cuts is what caught it. No untouched hold-out existed (the effect was found on the full sample), which is stated in the gates file rather than glossed. Consequence: no volume filter ships; v2 stands. Volume is shown in the drill-down as context labelled a failed filter. Also corrected the screen's published evidence \u2014 5,815/47.0%/+1.53%/-14.7% predated the _tradeable fix and included futures and indices; the true figures are 5,396 trades, 48.8% win, +2.20%/trade, median -0.33%, worst -29.7%."
     }
   ]
 }
