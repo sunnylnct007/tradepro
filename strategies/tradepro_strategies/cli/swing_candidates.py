@@ -51,6 +51,8 @@ import json
 import logging
 import os
 
+from ..universe import universe_symbols
+
 log = logging.getLogger("tradepro.swing_candidates")
 
 SIGMA = 2.5
@@ -72,7 +74,18 @@ ETFS = {"SPY","QQQ","IVV","VTI","DIA","IWM","XLK","XLF","XLI","XLE","XLV","XLP",
 
 
 def _tradeable(sym: str) -> bool:
-    """Is this a symbol we could actually place a bracket order on?
+    """DEPRECATED as a universe filter — kept only because tests pin it and it
+    still correctly describes instrument TYPE.
+
+    This was string matching standing in for a universe: it excluded futures
+    and indices but would happily admit a $0.40 shell trading 900 shares a
+    day. The screens now read `universe.load_universe()`, which decides
+    membership on price, turnover, history, data quality and coverage. See
+    `universe.py` for why that mattered.
+
+    Original doc follows.
+
+    Is this a symbol we could actually place a bracket order on?
 
     The cache directory is not a tradeable universe. Excluded:
       "."  foreign listings (0700.HK, AIR.PA) — no IBKR API entitlement, and
@@ -307,7 +320,7 @@ def main() -> int:
 
     syms = ([s.strip().upper() for s in args.symbols.split(",") if s.strip()]
             if args.symbols else
-            [s for s in sorted(os.listdir(BASE_DIR)) if _tradeable(s)])
+            universe_symbols())
     rows, quarantined = scan(syms)
     art = build_artifact(rows, args.universe, quarantined)
 
@@ -326,7 +339,7 @@ def main() -> int:
             for q in quarantined:
                 print(f"   {q['symbol']:<7} {q['detail']}")
         if not rows:
-            print("none today — the screen is selective (~7 signals/week across 257 names)")
+            print("none today — the screen is selective (~7 signals/week across the universe)")
 
     if args.push:
         try:

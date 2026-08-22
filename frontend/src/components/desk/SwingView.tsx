@@ -78,7 +78,7 @@ export function SwingView() {
         <div style={{ padding: 16, border: "1px dashed var(--border)", borderRadius: 8,
                       color: "var(--text-dim)", fontSize: 13 }}>
           <b>No candidates right now.</b> The screen is deliberately selective — roughly 1–2 signals
-          a day across 257 names. An empty list is the screen working, not the screen broken:
+          a day across the defined universe. An empty list is the screen working, not the screen broken:
           it fires only on a 2.5σ dip in a name still above its 200-day average.
         </div>
       ) : (
