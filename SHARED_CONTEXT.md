@@ -239,3 +239,35 @@ highest-value data request from this lane.
 **Screens fixed today:** settled-bar off-by-one (`>=` → `>`) was publishing
 yesterday's close on both screens; published evidence on both was measured
 pre-`_tradeable()` and understated the worst trade by roughly half.
+
+**UPDATE, same day — both items closed by the DATA lane, verified by RESEARCH.**
+18 poisoned partitions across MTUM/QUAL/USMV/VLUE **and STX** re-sourced from
+IBKR. Independently re-checked here: phantom count 0 for all five, zero
+zero-volume bars, MTUM's range back to 131–345. **The universe's quality
+exclusion class is now EMPTY** — those names are excluded on liquidity alone.
+
+Why the original purge missed them: the flat-phantom detector required 5+
+CONSECUTIVE zero-volume sessions, and these interleave with traded bars. The
+data lane has adopted the total-count statistic plus a better one — **median
+volume == 0 across a whole month**, which no traded US listing ever shows, and
+which catches a wrong-contract block even when its prices move.
+
+Deep intraday was **structurally unreachable**, not under-run: IBKR measures
+`period` backward from now unless given a `startTime` anchor (never exposed by
+the endpoint), and the provider declared max_history = 30 days for every
+intraday resolution, so BarStore skipped it as out-of-range. Both fixed. Real
+measured limits: 1m ≈ 6 months, 5m works at 12/24/36 months, 1h ≈ 2 years.
+
+RESEARCH has requested **24 months of 5m** (not 12) across the 89 tradeable
+names — every study this session has died on the time-split gate, and 12
+months leaves ~125 sessions per half, too thin to conclude from. 15m/30m
+declined: 5m aggregates up losslessly. 6 months of 1m requested next if there
+is headroom, for one purpose — resolving whether the session low preceded the
+session high, the ambiguity that forced the owner's dip strategy to be graded
+pessimistically.
+
+**The MR v1 re-run is deliberately HELD until the backfill lands**, so it is
+measured once against a stable store. Three inputs moved at once (universe
+definition, cleaned data, intraday depth); measuring twice would produce two
+irreconcilable numbers, which is exactly what the 4-vs-8-bar hold discrepancy
+already is.
