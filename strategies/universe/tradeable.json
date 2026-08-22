@@ -1,16 +1,16 @@
 {
-  "as_of": "2026-08-22T18:09:46.023196+00:00",
+  "as_of": "2026-08-22T18:21:18.235732+00:00",
   "criteria": {
     "min_price": 5.0,
     "min_dollar_volume": 10000000,
     "min_sessions": 500,
-    "max_poison_ratio": 6.0,
+    "max_phantom_bars": 4,
     "min_recent_coverage": 0.9
   },
   "counts": {
-    "scanned": 253,
+    "scanned": 266,
     "included": 89,
-    "excluded": 164
+    "excluded": 177
   },
   "symbols": [
     {
@@ -23,7 +23,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.57,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr": 2,
         "yfinance": 53,
@@ -46,7 +46,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.2,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -68,7 +68,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.11,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -90,7 +90,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.18,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -112,7 +112,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.1,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -134,7 +134,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.13,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -156,7 +156,7 @@
       "sessions": 1415,
       "first_bar": "2021-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.18,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -178,7 +178,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.16,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -200,7 +200,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.2,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -222,7 +222,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.13,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -244,7 +244,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.95,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -266,7 +266,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.06,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -288,7 +288,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.48,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -309,7 +309,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 2.87,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -331,7 +331,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.05,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -352,7 +352,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.06,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -373,7 +373,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.09,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 55,
         "ibkr_web": 5
@@ -395,7 +395,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.25,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -416,7 +416,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.15,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -437,7 +437,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.24,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -458,7 +458,7 @@
       "sessions": 1166,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.14,
+      "poison_ratio": 0,
       "recent_sources": {
         "yfinance": 51,
         "ibkr_web": 9
@@ -480,7 +480,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.34,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -501,7 +501,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.61,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -522,7 +522,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.16,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -543,7 +543,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.16,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -564,7 +564,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.31,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -585,7 +585,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.24,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -606,7 +606,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.07,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -627,7 +627,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.68,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 38,
         "yfinance": 22
@@ -649,7 +649,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.26,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -670,7 +670,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.42,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -691,7 +691,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.18,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -712,7 +712,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.26,
+      "poison_ratio": 1,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -733,7 +733,7 @@
       "sessions": 1166,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 5.32,
+      "poison_ratio": 1,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -754,7 +754,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.25,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -775,7 +775,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.61,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -796,7 +796,7 @@
       "sessions": 999,
       "first_bar": "2022-08-29",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.05,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -817,7 +817,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.23,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -838,7 +838,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.15,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -859,7 +859,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.19,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -880,7 +880,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.6,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -901,7 +901,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.48,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -922,7 +922,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.05,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -943,7 +943,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.19,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -964,7 +964,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.14,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 39,
         "yfinance": 21
@@ -986,7 +986,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.07,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1007,7 +1007,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.23,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1028,7 +1028,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.5,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1049,7 +1049,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.17,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1070,7 +1070,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.26,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr": 2,
         "yfinance": 21,
@@ -1093,7 +1093,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.31,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1114,7 +1114,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.54,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 39,
         "yfinance": 21
@@ -1136,7 +1136,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 2.13,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1157,7 +1157,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.06,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 39,
         "yfinance": 21
@@ -1179,7 +1179,7 @@
       "sessions": 999,
       "first_bar": "2022-08-29",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.38,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1200,7 +1200,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.16,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1221,7 +1221,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.55,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 39,
         "yfinance": 21
@@ -1243,7 +1243,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.12,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1264,7 +1264,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.16,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1285,7 +1285,7 @@
       "sessions": 999,
       "first_bar": "2022-08-29",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.02,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1306,7 +1306,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 2.81,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1327,7 +1327,7 @@
       "sessions": 1415,
       "first_bar": "2021-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.27,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1348,7 +1348,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.33,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1369,7 +1369,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.59,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1390,7 +1390,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.11,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 39,
         "yfinance": 21
@@ -1412,7 +1412,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.66,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1433,7 +1433,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.46,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1454,7 +1454,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.41,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1475,7 +1475,7 @@
       "sessions": 768,
       "first_bar": "2023-08-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.76,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1496,7 +1496,7 @@
       "sessions": 999,
       "first_bar": "2022-08-29",
       "last_bar": "2026-08-21",
-      "poison_ratio": 2.25,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1517,7 +1517,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.12,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1538,7 +1538,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.16,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 39,
         "yfinance": 21
@@ -1560,7 +1560,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.11,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1581,7 +1581,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.53,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1602,7 +1602,7 @@
       "sessions": 1415,
       "first_bar": "2021-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.09,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1623,7 +1623,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.5,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1644,7 +1644,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 2.0,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1665,7 +1665,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.21,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1686,7 +1686,7 @@
       "sessions": 1152,
       "first_bar": "2022-01-19",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.46,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1707,7 +1707,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.54,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1728,7 +1728,7 @@
       "sessions": 736,
       "first_bar": "2023-09-15",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.8,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1749,7 +1749,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.16,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1770,7 +1770,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.29,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr": 2,
         "yfinance": 21,
@@ -1793,7 +1793,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.2,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1814,7 +1814,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 3.92,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1835,7 +1835,7 @@
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.12,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 39,
         "yfinance": 21
@@ -1857,7 +1857,7 @@
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.43,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1878,7 +1878,7 @@
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.34,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1899,7 +1899,7 @@
       "sessions": 999,
       "first_bar": "2022-08-29",
       "last_bar": "2026-08-21",
-      "poison_ratio": 1.88,
+      "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
@@ -1936,6 +1936,11 @@
       "symbol": "AGG",
       "class": "liquidity",
       "reason": "median daily turnover $6.2M below the $10M floor \u2014 too thin to fill against"
+    },
+    {
+      "symbol": "AIR.PA",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
     },
     {
       "symbol": "ALB",
@@ -1988,6 +1993,11 @@
       "reason": "median daily turnover $0.6M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "ASML.AS",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "ATI",
       "class": "liquidity",
       "reason": "median daily turnover $1.4M below the $10M floor \u2014 too thin to fill against"
@@ -2004,8 +2014,8 @@
     },
     {
       "symbol": "BILL",
-      "class": "quality",
-      "reason": "suspect series \u2014 historical max is 6.5x the recent median, consistent with a wrong venue or contract"
+      "class": "liquidity",
+      "reason": "median daily turnover $0.6M below the $10M floor \u2014 too thin to fill against"
     },
     {
       "symbol": "BLK",
@@ -2238,6 +2248,11 @@
       "reason": "median daily turnover $9.3M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "INGA.AS",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "IONQ",
       "class": "liquidity",
       "reason": "median daily turnover $5.8M below the $10M floor \u2014 too thin to fill against"
@@ -2251,6 +2266,11 @@
       "symbol": "ITA",
       "class": "liquidity",
       "reason": "median daily turnover $1.1M below the $10M floor \u2014 too thin to fill against"
+    },
+    {
+      "symbol": "ITX.MC",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
     },
     {
       "symbol": "IVZ",
@@ -2313,6 +2333,11 @@
       "reason": "median daily turnover $1.3M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "MC.PA",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "MCHP",
       "class": "liquidity",
       "reason": "median daily turnover $3.8M below the $10M floor \u2014 too thin to fill against"
@@ -2350,7 +2375,7 @@
     {
       "symbol": "MTUM",
       "class": "quality",
-      "reason": "suspect series \u2014 historical max is 19.2x the recent median, consistent with a wrong venue or contract"
+      "reason": "suspect series \u2014 31 phantom bars (unchanged close on ZERO volume), consistent with a wrong venue or contract"
     },
     {
       "symbol": "NCLH",
@@ -2368,6 +2393,11 @@
       "reason": "median daily turnover $4.1M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "NESN.SW",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "NET",
       "class": "liquidity",
       "reason": "median daily turnover $4.5M below the $10M floor \u2014 too thin to fill against"
@@ -2376,6 +2406,11 @@
       "symbol": "NKE",
       "class": "liquidity",
       "reason": "median daily turnover $5.2M below the $10M floor \u2014 too thin to fill against"
+    },
+    {
+      "symbol": "NOVN.SW",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
     },
     {
       "symbol": "NOVT",
@@ -2418,6 +2453,11 @@
       "reason": "median daily turnover $1.8M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "OR.PA",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "OXY",
       "class": "liquidity",
       "reason": "median daily turnover $3.6M below the $10M floor \u2014 too thin to fill against"
@@ -2440,7 +2480,7 @@
     {
       "symbol": "QUAL",
       "class": "quality",
-      "reason": "suspect series \u2014 historical max is 17.1x the recent median, consistent with a wrong venue or contract"
+      "reason": "suspect series \u2014 34 phantom bars (unchanged close on ZERO volume), consistent with a wrong venue or contract"
     },
     {
       "symbol": "RH",
@@ -2453,6 +2493,11 @@
       "reason": "median daily turnover $1.9M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "ROG.SW",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "RRX",
       "class": "liquidity",
       "reason": "median daily turnover $1.7M below the $10M floor \u2014 too thin to fill against"
@@ -2461,6 +2506,11 @@
       "symbol": "SAIA",
       "class": "liquidity",
       "reason": "median daily turnover $3.2M below the $10M floor \u2014 too thin to fill against"
+    },
+    {
+      "symbol": "SAN.PA",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
     },
     {
       "symbol": "SAP.DE",
@@ -2583,6 +2633,11 @@
       "reason": "median daily turnover $0.8M below the $10M floor \u2014 too thin to fill against"
     },
     {
+      "symbol": "TTE.PA",
+      "class": "instrument",
+      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
+    },
+    {
       "symbol": "TTMI",
       "class": "liquidity",
       "reason": "median daily turnover $3.1M below the $10M floor \u2014 too thin to fill against"
@@ -2615,7 +2670,7 @@
     {
       "symbol": "USMV",
       "class": "quality",
-      "reason": "suspect series \u2014 historical max is 14.7x the recent median, consistent with a wrong venue or contract"
+      "reason": "suspect series \u2014 26 phantom bars (unchanged close on ZERO volume), consistent with a wrong venue or contract"
     },
     {
       "symbol": "UUP",
@@ -2634,13 +2689,13 @@
     },
     {
       "symbol": "VIXY",
-      "class": "quality",
-      "reason": "suspect series \u2014 historical max is 14.4x the recent median, consistent with a wrong venue or contract"
+      "class": "liquidity",
+      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
     },
     {
       "symbol": "VLUE",
       "class": "quality",
-      "reason": "suspect series \u2014 historical max is 9.8x the recent median, consistent with a wrong venue or contract"
+      "reason": "suspect series \u2014 15 phantom bars (unchanged close on ZERO volume), consistent with a wrong venue or contract"
     },
     {
       "symbol": "VST",
@@ -2731,6 +2786,16 @@
       "symbol": "ZBRA",
       "class": "liquidity",
       "reason": "median daily turnover $1.0M below the $10M floor \u2014 too thin to fill against"
+    },
+    {
+      "symbol": "^GDAXI",
+      "class": "instrument",
+      "reason": "index \u2014 not directly tradeable"
+    },
+    {
+      "symbol": "^STOXX",
+      "class": "instrument",
+      "reason": "index \u2014 not directly tradeable"
     }
   ]
 }

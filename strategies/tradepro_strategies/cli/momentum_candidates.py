@@ -44,7 +44,7 @@ import json
 import logging
 import os
 
-from ..universe import universe_symbols
+from ..universe import universe_symbols, poison_check
 
 log = logging.getLogger("tradepro.momentum_candidates")
 
@@ -84,34 +84,6 @@ def _tradeable(sym: str) -> bool:
     if "=" in sym or sym.startswith("^"):
         return False
     return not sym.endswith("-USD")
-
-
-def poison_check(closes) -> tuple[bool, float | None]:
-    """Reject a symbol whose history belongs to a DIFFERENT INSTRUMENT.
-
-    The wrong-venue failure (found 22 Aug across VLUE/USMV/QUAL/MTUM/STX): the
-    stored series is an LSE-pence listing or the wrong contract entirely. It
-    passes every NaN/spike/OHLC guard because the series is internally
-    CONSISTENT — it is simply not this security. Signature: a historical price
-    level that is a large multiple of the recent level, with no corporate action
-    to explain it.
-
-    Owner ruling 22 Aug: "if we get poisoned prices then we better drop that
-    symbol, highlight the fact." So this DROPS and REPORTS rather than trying to
-    repair — a screen that quietly trades a mis-priced series is worse than one
-    that is short a name.
-
-    Mean reversion is the strategy most exposed to this: it buys what looks
-    cheap, and a wrong-venue series looks permanently, enormously cheap.
-    """
-    xs = [x for x in closes if x and x > 0]
-    if len(xs) < 80:
-        return True, None
-    recent = sorted(xs[-60:])[30]        # median of the last 60
-    if recent <= 0:
-        return True, None
-    ratio = max(xs) / recent
-    return ratio < 6.0, round(ratio, 1)
 
 
 def _last_completed_session() -> str:
@@ -274,10 +246,11 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
         if df is None:
             continue
         c = df["close"].tolist(); h = df["high"].tolist(); l = df["low"].tolist()
-        ok_hist, ratio = poison_check(c)
+        ok_hist, ratio = poison_check(
+            c, df["volume"].tolist() if "volume" in df.columns else None)
         if not ok_hist:
             quarantined.append({"symbol": sym, "reason": "suspect price history",
-                                "detail": f"historical max is {ratio}x the recent median — "
+                                "detail": f"{ratio} phantom bars (unchanged close on ZERO volume) — "
                                           f"consistent with a wrong-venue or wrong-contract series"})
             continue
         dates = [str(x)[:10] for x in df.index]
@@ -337,6 +310,63 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
             # exists only in the second half of the record and INVERTS before
             # 2020. Visible so a low-volume entry is not hidden; not acted on,
             # because it did not earn the right to be.
+            # SHOW THE ARITHMETIC. Lifted from the options desk, which gives
+            # every number a `why` (what it is for) and a `formula` (the actual
+            # sum with this row's numbers substituted). Owner: "i need something
+            # like that for the equity screen as well."
+            #
+            # The point is that a reader can CHECK it. A screen printing
+            # "stop 160.04" asks to be trusted; one printing
+            # "173.96 x 0.92 = 160.04" can be caught being wrong — which matters
+            # more than usual here, given how much was found wrong today.
+            "calcs": {
+                "entry": {
+                    "value": round(c[i], 2),
+                    "why": "the close on the last settled bar — the price the rule fired at.",
+                    "formula": f"close of {dates[i]} = {c[i]:.2f}",
+                },
+                "stop": {
+                    "value": round(c[i] * (1 - STOP_PCT), 2),
+                    "why": "the hard floor. Checked on the CLOSE, so a gap can go straight through "
+                           "it — the worst historical trade was -29.7%, not -8%.",
+                    "formula": f"entry x (1 - {STOP_PCT:.2f}) = {c[i]:.2f} x {1-STOP_PCT:.2f} "
+                               f"= {c[i]*(1-STOP_PCT):.2f}",
+                },
+                "risk_per_share": {
+                    "value": round(c[i] * STOP_PCT, 2),
+                    "why": "what one share loses if the stop is hit cleanly. Size the position off "
+                           "this, not off the share price.",
+                    "formula": f"entry - stop = {c[i]:.2f} - {c[i]*(1-STOP_PCT):.2f} "
+                               f"= {c[i]*STOP_PCT:.2f} per share",
+                },
+                "trailing_stop": {
+                    "value": round(TRAIL_PCT * 100, 1),
+                    "why": "the exit that carries the entire edge — it needs 32-35 bars to work. "
+                           "It follows the highest close reached and never moves down.",
+                    "formula": f"exit if close <= peak close x {1-TRAIL_PCT:.2f} "
+                               f"(from today's close that is {c[i]*(1-TRAIL_PCT):.2f})",
+                },
+                "vs_200sma": {
+                    "value": round(100 * (c[i] / s200 - 1), 1),
+                    "why": "the trend floor. Below its 200-day average the rule does not fire.",
+                    "formula": f"close / 200-SMA - 1 = {c[i]:.2f} / {s200:.2f} - 1 "
+                               f"= {100*(c[i]/s200-1):+.1f}%",
+                },
+                "pullback_depth": {
+                    "value": round(100 * (c[i] / s10 - 1), 1),
+                    "why": "how close price sits to its 10-day average — the entry trigger. It must "
+                           "come back TO the average, having been above it the day before.",
+                    "formula": f"close / 10-SMA - 1 = {c[i]:.2f} / {s10:.2f} - 1 "
+                               f"= {100*(c[i]/s10-1):+.1f}%  (fires at <= +0.5%)",
+                },
+                "atr_pct": {
+                    "value": round(100 * atr / c[i], 2) if c[i] else None,
+                    "why": "ordinary daily range — how much of the stop is just noise.",
+                    "formula": (f"14-day ATR / close = {atr:.2f} / {c[i]:.2f} = {100*atr/c[i]:.2f}%"
+                                f"  -> the 8% stop is ~{8/(100*atr/c[i]):.0f} average sessions away"
+                                if atr and c[i] else "unavailable"),
+                },
+            },
             "volume_vs_20d": _vol_ratio(df, i),
             "chg_5d_pct": (round(100 * (c[i] / c[i - 5] - 1), 1) if i >= 5 and c[i - 5] else None),
         })

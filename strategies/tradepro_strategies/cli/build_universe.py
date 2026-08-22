@@ -19,8 +19,8 @@ import logging
 import os
 import statistics as st
 
-from ..universe import (MIN_PRICE, MIN_DOLLAR_VOLUME, MIN_SESSIONS, MAX_POISON_RATIO,
-                        MIN_RECENT_COVERAGE, _instrument_ok, universe_path)
+from ..universe import (MIN_PRICE, MIN_DOLLAR_VOLUME, MIN_SESSIONS, MAX_PHANTOM_BARS,
+                        MIN_RECENT_COVERAGE, _instrument_ok, universe_path, poison_check)
 
 log = logging.getLogger("tradepro.build_universe")
 BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
@@ -134,13 +134,12 @@ def assess(sym: str) -> dict:
                 "reason": f"only {len(c)} stored sessions, need {MIN_SESSIONS}",
                 "class": "history"}
 
-    recent = c[-120:]
-    med = st.median(recent) if recent else 0
-    ratio = (max(c) / med) if med > 0 else 999
-    if ratio > MAX_POISON_RATIO:
+    _vols = df["volume"].tolist() if "volume" in df.columns else None
+    clean, ratio = poison_check(c, _vols)
+    if not clean:
         return {"symbol": sym, "include": False,
-                "reason": f"suspect series — historical max is {ratio:.1f}x the recent "
-                          f"median, consistent with a wrong venue or contract",
+                "reason": f"suspect series — {ratio} phantom bars (unchanged close on ZERO "
+                          f"volume), consistent with a wrong venue or contract",
                 "class": "quality"}
 
     price = c[-1]
@@ -209,7 +208,7 @@ def main() -> int:
 
     print(f"scanned {len(syms)} · INCLUDED {len(inc)} · excluded {len(exc)}\n")
     print(f"criteria: price >= ${MIN_PRICE:.2f} · turnover >= ${MIN_DOLLAR_VOLUME/1e6:.0f}M/day"
-          f" · >= {MIN_SESSIONS} sessions · poison <= {MAX_POISON_RATIO}x"
+          f" · >= {MIN_SESSIONS} sessions · <= {MAX_PHANTOM_BARS} phantom bars"
           f" · coverage >= {MIN_RECENT_COVERAGE:.0%}\n")
     by_class: dict[str, int] = {}
     for r in exc:
@@ -240,7 +239,7 @@ def main() -> int:
         out = {
             "as_of": _dt.datetime.now(_dt.UTC).isoformat(),
             "criteria": {"min_price": MIN_PRICE, "min_dollar_volume": MIN_DOLLAR_VOLUME,
-                         "min_sessions": MIN_SESSIONS, "max_poison_ratio": MAX_POISON_RATIO,
+                         "min_sessions": MIN_SESSIONS, "max_phantom_bars": MAX_PHANTOM_BARS,
                          "min_recent_coverage": MIN_RECENT_COVERAGE},
             "counts": {"scanned": len(syms), "included": len(inc), "excluded": len(exc)},
             "symbols": inc,

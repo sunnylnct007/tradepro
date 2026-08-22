@@ -51,7 +51,7 @@ import json
 import logging
 import os
 
-from ..universe import universe_symbols
+from ..universe import universe_symbols, poison_check
 
 log = logging.getLogger("tradepro.swing_candidates")
 
@@ -103,33 +103,6 @@ def _tradeable(sym: str) -> bool:
         return False
     return not sym.endswith("-USD")
 
-
-def poison_check(closes) -> tuple[bool, float | None]:
-    """Reject a symbol whose history belongs to a DIFFERENT INSTRUMENT.
-
-    The wrong-venue failure (found 22 Aug across VLUE/USMV/QUAL/MTUM/STX): the
-    stored series is an LSE-pence listing or the wrong contract entirely. It
-    passes every NaN/spike/OHLC guard because the series is internally
-    CONSISTENT — it is simply not this security. Signature: a historical price
-    level that is a large multiple of the recent level, with no corporate action
-    to explain it.
-
-    Owner ruling 22 Aug: "if we get poisoned prices then we better drop that
-    symbol, highlight the fact." So this DROPS and REPORTS rather than trying to
-    repair — a screen that quietly trades a mis-priced series is worse than one
-    that is short a name.
-
-    Mean reversion is the strategy most exposed to this: it buys what looks
-    cheap, and a wrong-venue series looks permanently, enormously cheap.
-    """
-    xs = [x for x in closes if x and x > 0]
-    if len(xs) < 80:
-        return True, None
-    recent = sorted(xs[-60:])[30]        # median of the last 60
-    if recent <= 0:
-        return True, None
-    ratio = max(xs) / recent
-    return ratio < 6.0, round(ratio, 1)
 
 def _last_completed_session() -> str:
     """The date whose daily bar can actually be COMPLETE right now (YYYY-MM-DD).
@@ -190,10 +163,11 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
         if df is None:
             continue
         c = df["close"].tolist(); h = df["high"].tolist(); l = df["low"].tolist()
-        ok_hist, ratio = poison_check(c)
+        ok_hist, ratio = poison_check(
+            c, df["volume"].tolist() if "volume" in df.columns else None)
         if not ok_hist:
             quarantined.append({"symbol": sym, "reason": "suspect price history",
-                                "detail": f"historical max is {ratio}x the recent median — "
+                                "detail": f"{ratio} phantom bars (unchanged close on ZERO volume) — "
                                           f"consistent with a wrong-venue or wrong-contract series"})
             continue
         v = df["volume"].tolist() if "volume" in df.columns else [0] * len(c)
