@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 authors = [{ name = "TradePro" }]
 
 dependencies = [
+    "boto3>=1.34",          # S3 bar-store read-through + Secrets Manager
     "numpy>=1.26",
     "pandas>=2.2",
     "yfinance>=0.2.40",
@@ -42,10 +43,12 @@ ml = [
     "lightgbm>=4.3",
     "torch>=2.3",             # MPS accelerated on Apple Silicon
 ]
-# boto3 is only needed when reading credentials from AWS Secrets
-# Manager (TRADEPRO_USE_AWS_SECRETS=1). Local dev with env vars or
-# ~/.tradepro/credentials doesn't need it. Pinned generously since
-# we only use the secretsmanager + sts clients.
+# boto3 was an OPTIONAL extra until 22 Aug 2026 — which meant the bar
+# store's S3 read-through could never run (ModuleNotFoundError, swallowed
+# by its fail-safe) and the Secrets Manager path silently no-op'd. S3 is
+# now the SOURCE OF TRUTH for market data (owner ruling), so it is core.
+# The `aws` extra is kept as an alias so existing `uv sync --extra aws`
+# invocations keep working.
 aws = [
     "boto3>=1.34",
 ]

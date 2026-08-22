@@ -77,7 +77,11 @@ class _RecordingProvider(Provider):
 
 @pytest.fixture()
 def store_and_provider(tmp_path, monkeypatch, request):
+    # Force LOCAL-ONLY. Since 22 Aug 2026 the store falls back to the bucket
+    # configured in ~/.tradepro/credentials, so clearing the env var alone no
+    # longer guarantees isolation — these are offline unit tests.
     monkeypatch.delenv("TRADEPRO_BAR_CACHE_S3_BUCKET", raising=False)
+    monkeypatch.setenv("TRADEPRO_BAR_CACHE_S3_DISABLE", "1")
     provider = _RecordingProvider(f"faketest_{request.node.name}"[:60])
     register_provider(provider)
     store = BarStore(base_dir=tmp_path, provider_chain=[provider.name])

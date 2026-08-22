@@ -26,6 +26,30 @@ from typing import Optional
 _log = logging.getLogger("tradepro.bar_cache.s3")
 
 
+
+def _scoped_conf(key: str) -> Optional[str]:
+    """Read one value from ~/.tradepro/credentials, or None."""
+    try:
+        import json
+        return json.loads(
+            (Path.home() / ".tradepro" / "credentials").read_text()).get(key)
+    except Exception:  # noqa: BLE001 — absent creds is a normal dev state
+        return None
+
+
+def _scoped_mirror_keys() -> tuple[Optional[str], Optional[str]]:
+    """The bar-mirror IAM keys from ~/.tradepro/credentials, or (None, None).
+    Read-and-write, deliberately WITHOUT s3:DeleteObject."""
+    try:
+        import json
+        creds = json.loads(
+            (Path.home() / ".tradepro" / "credentials").read_text())
+        return (creds.get("bar-mirror-aws-access-key-id") or None,
+                creds.get("bar-mirror-aws-secret-access-key") or None)
+    except Exception:  # noqa: BLE001 — absent creds is a normal dev state
+        return (None, None)
+
+
 class S3Mirror:
     """Maps a local cache path ↔ an S3 key (same relative layout) and does
     best-effort upload/download. Every method is fail-safe: errors log + return
@@ -40,7 +64,33 @@ class S3Mirror:
     def _s3(self):
         if self._client is None:
             import boto3  # lazy import: only when S3 is actually configured
-            self._client = boto3.client("s3")
+            # Credential resolution, in order:
+            #   1. boto3's standard chain — env vars, instance role (EC2),
+            #      SSO profile. This is what prod uses; nothing to configure.
+            #   2. The scoped bar-mirror keys in ~/.tradepro/credentials.
+            # (2) exists because the Mac lanes run under launchd with no SSO
+            # session — `aws sso login` expires and every daemon would silently
+            # lose S3 (22 Aug 2026). The nightly mirror script already reads
+            # these keys; the store now shares them so read-through works from
+            # a daemon without anyone re-authenticating each morning. The key
+            # is deliberately delete-less, so this cannot wipe the backup.
+            region = (os.environ.get("AWS_REGION")
+                      or os.environ.get("TRADEPRO_AWS_REGION") or "eu-west-2")
+            try:
+                client = boto3.client("s3", region_name=region)
+                # Force credential resolution NOW so a missing chain falls
+                # through to (2) rather than failing on the first real call.
+                if client._request_signer._credentials is None:  # noqa: SLF001
+                    raise RuntimeError("no credentials in the default chain")
+                self._client = client
+            except Exception:  # noqa: BLE001 — fall through to scoped keys
+                ak, sk = _scoped_mirror_keys()
+                if not (ak and sk):
+                    raise
+                self._client = boto3.client(
+                    "s3", region_name=region,
+                    aws_access_key_id=ak, aws_secret_access_key=sk)
+                _log.info("bar cache S3: using scoped bar-mirror credentials")
         return self._client
 
     def _key(self, path: Path) -> Optional[str]:
@@ -86,7 +136,20 @@ def mirror_from_env(base_dir: Path) -> Optional[S3Mirror]:
     """Build an S3Mirror from env, or None (pure-local) when unconfigured.
     TRADEPRO_BAR_CACHE_S3_BUCKET is the single switch — set it and the SAME
     code shares the cache; unset and it's local-only (dev)."""
+    # Explicit off-switch. Needed because the credentials fallback below
+    # would otherwise enable S3 inside unit tests on any machine that has
+    # the file — turning offline unit tests into network tests.
+    if (os.environ.get("TRADEPRO_BAR_CACHE_S3_DISABLE") or "").strip().lower() \
+            in ("1", "true", "yes", "on"):
+        return None
     bucket = (os.environ.get("TRADEPRO_BAR_CACHE_S3_BUCKET") or "").strip()
+    if not bucket:
+        # Fall back to ~/.tradepro/credentials (key: bar-cache-s3-bucket).
+        # 22 Aug 2026 — owner ruling "we should read from S3". Configuring it
+        # here rather than in 15 launchd plists means every lane picks it up
+        # with no per-plist edit and no secret in a plist file; a machine
+        # without the credentials file stays purely local, unchanged.
+        bucket = (_scoped_conf("bar-cache-s3-bucket") or "").strip()
     if not bucket:
         return None
     prefix = os.environ.get("TRADEPRO_BAR_CACHE_S3_PREFIX", "bar_cache")
