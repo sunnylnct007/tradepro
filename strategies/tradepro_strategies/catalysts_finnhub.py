@@ -169,6 +169,33 @@ def fetch_upcoming_earnings(
     return catalysts
 
 
+# ── Fundamental metrics ───────────────────────────────────────────────────────
+
+def fetch_dividend_yield_pct(symbol: str, *, api_key: str | None = None) -> float | None:
+    """Dividend yield in PERCENT from Finnhub /stock/metric, or None.
+
+    Added 22 Aug 2026 for the wheel screen: IBKR's snapshot dividend field
+    is dark for the whole universe (IBKR-side), and the only fallback was
+    Yahoo-based fundamentals — which dies exactly when Yahoo rate-limits,
+    i.e. whenever the screen needs it most. Finnhub is a separate quota the
+    earnings/catalyst lanes already pay into, so the yield gate no longer
+    shares Yahoo's fate. Prefers trailing-twelve-month; falls back to the
+    indicated-annual figure. Values are sanity-capped by the CALLER (the
+    screen's plausible-yield guard), not here."""
+    key = api_key or _get_api_key()
+    if not key:
+        return None
+    data = _get("/stock/metric", {"symbol": symbol, "metric": "all"}, api_key=key)
+    if not isinstance(data, dict):
+        return None
+    metric = data.get("metric") or {}
+    for field in ("currentDividendYieldTTM", "dividendYieldIndicatedAnnual"):
+        v = metric.get(field)
+        if isinstance(v, (int, float)):
+            return float(v)
+    return None
+
+
 # ── Combined fetch ────────────────────────────────────────────────────────────
 
 @dataclass

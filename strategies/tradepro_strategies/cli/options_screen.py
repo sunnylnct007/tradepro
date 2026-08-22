@@ -669,6 +669,9 @@ def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
     _dy_detail = {
         "ibkr_web": (f"{div_yield:.2%} from the broker snapshot"
                      if div_yield is not None else ""),
+        "finnhub": (f"{div_yield:.2%} from Finnhub metrics — IBKR's snapshot "
+                    f"dividend field is dark for this universe"
+                    if div_yield is not None else ""),
         "fundamentals": (f"{div_yield:.2%} from TradePro fundamentals — IBKR's "
                          f"snapshot field 7286 is dark for this universe"
                          if div_yield is not None else ""),
@@ -730,16 +733,29 @@ def resolve_div_yield(symbol: str, broker_div_yield: float | None) -> tuple[floa
     if key in _DIV_YIELD_CACHE:
         return _DIV_YIELD_CACHE[key]
     out: tuple[float | None, str] = (None, "unavailable")
+    # Finnhub BEFORE the Yahoo-based fundamentals: the old chain was
+    # ibkr (dark, IBKR-side) → Yahoo (rate-limited whenever the rest of the
+    # screen has already fallen back to it), which is how the yield gate ran
+    # 100% dark and eligible=0. Finnhub is a separate quota the catalyst
+    # lanes already use; the source is reported per-row either way.
     try:
-        from ..fundamentals import fetch_fundamentals
-        f = fetch_fundamentals(symbol)
-        pct = getattr(f, "dividend_yield_pct", None)
-        if pct is None:
-            pct = getattr(f, "distribution_yield_pct", None)
+        from ..catalysts_finnhub import fetch_dividend_yield_pct
+        pct = fetch_dividend_yield_pct(symbol)
         if pct is not None and 0.0 <= float(pct) <= 25.0:
-            out = (float(pct) / 100.0, "fundamentals")
+            out = (float(pct) / 100.0, "finnhub")
     except Exception as exc:  # noqa: BLE001 — a missing fundamental is not fatal
-        log.debug("%s: dividend-yield fallback failed: %s", symbol, exc)
+        log.debug("%s: finnhub dividend-yield failed: %s", symbol, exc)
+    if out[0] is None:
+        try:
+            from ..fundamentals import fetch_fundamentals
+            f = fetch_fundamentals(symbol)
+            pct = getattr(f, "dividend_yield_pct", None)
+            if pct is None:
+                pct = getattr(f, "distribution_yield_pct", None)
+            if pct is not None and 0.0 <= float(pct) <= 25.0:
+                out = (float(pct) / 100.0, "fundamentals")
+        except Exception as exc:  # noqa: BLE001 — a missing fundamental is not fatal
+            log.debug("%s: dividend-yield fallback failed: %s", symbol, exc)
     _DIV_YIELD_CACHE[key] = out
     return out
 

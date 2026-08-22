@@ -139,7 +139,9 @@ def _fetch_bundle() -> Optional[dict[str, str]]:
     except ImportError:
         log.debug("boto3 not installed — bundle fetch skipped")
         return None
-    region = os.environ.get("TRADEPRO_AWS_REGION", _SM_DEFAULT_REGION)
+    # `or` (not a get() default): an env var SET TO EMPTY STRING must not
+    # produce region_name="" — boto3 rejects that the same as None.
+    region = os.environ.get("TRADEPRO_AWS_REGION") or _SM_DEFAULT_REGION
     try:
         client = boto3.client("secretsmanager", region_name=region)
         resp = client.get_secret_value(SecretId=_SM_BUNDLE_NAME)
@@ -178,7 +180,16 @@ def _try_aws_secrets_manager(name: str) -> Optional[str]:
             log.warning("TRADEPRO_USE_AWS_SECRETS=1 but boto3 not installed")
         return None
     try:
-        client = boto3.client("secretsmanager")
+        # region_name was MISSING here (only the bundle path had it), so on
+        # any machine without AWS_REGION in the environment every per-secret
+        # lookup died with "You must specify a region" — which is why the
+        # Finnhub key never resolved on the Mac lanes (22 Aug 2026; the
+        # eu-west-2 note above documents the same failure mode for the
+        # bundle).
+        client = boto3.client(
+            "secretsmanager",
+            region_name=os.environ.get("TRADEPRO_AWS_REGION") or _SM_DEFAULT_REGION,
+        )
         resp = client.get_secret_value(SecretId=f"{_SM_PREFIX}{name}")
         # SM returns either SecretString (the common case) or
         # SecretBinary. We only store strings.
