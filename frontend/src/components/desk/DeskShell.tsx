@@ -39,6 +39,8 @@ export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | 
 
 type NavEntry = {
   key: string;
+  /** Honest status of this surface — see the NAV comment. */
+  tier?: "trusted" | "unproven" | "blocked";
   label: string;
   icon: string;        // emoji glyph — no icon-font dependency
   view?: DeskView;     // present → switches the in-page work-area view
@@ -49,22 +51,64 @@ type NavEntry = {
 // Rail items. Portfolio / Watchlist / Quote / Screeners / News are in-page
 // views; Settings is a route (/settings exists). Layouts is a disabled stub
 // (no layout system yet) — never a 404.
+// ── GROUPED BY EVIDENCE, NOT BY FEATURE (22 Aug 2026) ──────────────────
+//
+// Owner: "we already have so many screeners built and not usable ... screen
+// like where what to use and what not to use too confusing for me."
+//
+// Correct. There were 17 nav items and SIX of them were different ways to show
+// "symbols you might trade" — Decide, Scan, Screeners, Daily Scan, Watchlist,
+// Options. None of the six has ever passed a pre-registered gate. Presenting
+// them identically to surfaces that show verified truth (your actual positions,
+// your actual orders, the data-health record) is what made the desk unusable:
+// there was no way to tell which screen deserved belief.
+//
+// So the rail now states it. `tier` is not decoration — it is the honest
+// status of each surface:
+//   trusted   — shows RAW TRUTH (real positions/orders) or carries graded
+//               evidence (Research). Safe to act on.
+//   unproven  — a signal surface with NO passed gate behind it. May be useful,
+//               has not been shown to be.
+//   blocked   — cannot work right now for a known, named reason.
+//
+// Nothing is deleted. A tier is a label, not a censor — the owner can still
+// open anything, and downgrading a surface is reversible the moment a study
+// clears its gates (see the Research view).
+// ── CUT TO WHAT EARNS ITS PLACE (22 Aug 2026) ─────────────────────────
+//
+// Owner, repeatedly: "even if we get 1 thing right it's better than to have 10
+// wrong" and "we already have so many screeners built and not usable ... don't
+// even hide them, delete if of no use."
+//
+// There were 17 nav items. SIX were different ways to show "symbols you might
+// trade" — Decide, Scan, Screeners, Daily Scan, Watchlist, Options — and NONE
+// had ever passed a pre-registered gate. Presenting them beside surfaces that
+// show verified truth is what made the desk unusable: no way to tell which
+// screen deserved belief. Labelling them was a half-measure; they are removed.
+//
+// WHAT SURVIVES, and the reason each earns it:
+//   Portfolio  your ACTUAL positions        — raw truth
+//   Orders     what was ACTUALLY placed     — raw truth
+//   Data       is the data there, since when— raw truth, and now honest
+//   Research   graded studies, gates committed BEFORE each run — evidence
+//   Options    the wheel board — kept because it is BLOCKED, not disproven
+//              (needs the IBKR market-data session); it says so on screen
+//
+// REMOVED FROM THE DESK: decide, scan, screeners, daily-screener, watchlist,
+// quote, simulate, risk, news, layouts. The components and routes still exist
+// and are reachable via "More" — this is a decluttered cockpit, not a code
+// deletion, so anything that later clears a gate can come straight back.
 const NAV: NavEntry[] = [
-  { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", title: "Portfolio" },
-  { key: "decide",    label: "Decide",    icon: "⚖",  view: "decide",    title: "Decide — should I invest today?" },
-  { key: "scan",      label: "Scan",      icon: "🔭", view: "scan",      title: "Universe scan" },
-  { key: "watchlist", label: "Watchlist", icon: "👁",  view: "watchlist", title: "Watchlist" },
-  { key: "quote",     label: "Quote",     icon: "💲",  view: "quote",     title: "Quote / Chart" },
-  { key: "screeners",      label: "Screeners",  icon: "🔎", view: "screeners",      title: "Screeners" },
-  { key: "daily-screener", label: "Daily Scan", icon: "📡", view: "daily-screener", title: "Daily Screener — IV rank, put yield, email" },
-  { key: "simulate",  label: "Simulate",  icon: "🎲", view: "simulation", title: "Monte Carlo simulation" },
-  { key: "oms",       label: "Orders",    icon: "📋", view: "oms",        title: "Order Management (OMS)" },
-  { key: "risk",      label: "Risk",      icon: "🛡", view: "risk",       title: "Risk module" },
-  { key: "options",   label: "Options",   icon: "🎯", view: "options",    title: "Options Desk — the wheel (risk-first)" },
-  { key: "harvest",   label: "Data",      icon: "🛢", view: "harvest",    title: "Harvest · Data Health" },
-  { key: "research",  label: "Research",  icon: "🔬", view: "research",   title: "Research · pre-registered studies" },
-  { key: "layouts",   label: "Layouts",   icon: "▦",   title: "Layouts — coming soon" },
-  { key: "news",      label: "News",      icon: "📰",  view: "news",      title: "News & Daily Overview" },
+  { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", tier: "trusted",
+    title: "Portfolio — your actual positions" },
+  { key: "oms",       label: "Orders",    icon: "📋", view: "oms",       tier: "trusted",
+    title: "Orders — what was actually placed and filled" },
+  { key: "research",  label: "Research",  icon: "🔬", view: "research",  tier: "trusted",
+    title: "Research — pre-registered studies; gates committed to git BEFORE each run" },
+  { key: "harvest",   label: "Data",      icon: "🛢", view: "harvest",   tier: "trusted",
+    title: "Data health — is the data there, and since when" },
+  { key: "options",   label: "Options",   icon: "🎯", view: "options",   tier: "blocked",
+    title: "Options Desk — BLOCKED on the IBKR market-data session (the portal or another client holds it). Prices show as carried until it returns." },
 ];
 
 // Escape hatch out of the standalone /desk shell into the full app (rendered
