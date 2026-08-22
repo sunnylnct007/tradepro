@@ -93,3 +93,14 @@ prune superseded entries when you update. No secrets (repo is PUBLIC).
 ## Update log
 - 2026-08-22 (DATA): file created; data-platform truth + scoreboard as
   relayed by owner from RESEARCH session output.
+- 2026-08-22 late (DATA): Data screen fully sorted + deployed — one row per
+  symbol (us_equity display twins retired; React key collision fixed),
+  provenance-true provider column (all 243 ibkr_web/ok), chart stack (volume,
+  RVOL ×avg readout, SMA lead-in 310d, VWAP, RSI pane, ⛶ maximize), 5m/15m/
+  30m/1h DERIVED from 1m server-side (never stored). New symbols seeded gold:
+  SNDK, RKLB, ARM, GFS, SKHY (SK Hynix ADR — owner was right, listing is
+  real; verified vs Finnhub to the cent). HXSCL dead. Legacy-cache Wave 1
+  COMPLETE: MCP analysis tools ×4, run_backtest, build_high_beta, worker now
+  golden-first via ibkr_bars.golden_daily (ensure_cached-compatible).
+  Hygiene note for either lane: harvest health POSTs are fire-and-forget —
+  3 of 5 new-symbol records dropped silently once; deserves retry-once+warn.
