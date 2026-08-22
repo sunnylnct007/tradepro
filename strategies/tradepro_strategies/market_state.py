@@ -732,11 +732,22 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
     # reading "−20% off 52w high" can immediately see *when* that
     # high was set and reconcile against what their broker shows
     # (recent rally peak vs. pre-crash high are different things).
+    # CONVENTION: INTRADAY high, not the highest CLOSE (22 Aug 2026).
+    # These disagreed on the same screen: market_state read the max close
+    # (MU 1213.37, "-19.70% off — room to run", a PASS) while the S/R overlay
+    # on that very chart showed 1255.00, which IBKR and stockanalysis.com both
+    # confirm. On the intraday basis MU is -22.97% off, so the gate was being
+    # fed the softer of two numbers while the human saw the harder one. The
+    # intraday extreme is what every external source reports and what a trader
+    # who bought the top actually paid, so it is the one convention to keep.
+    # Falls back to closes when high/low columns are absent.
     window_252 = series.tail(252)
-    high_52w = _safe_float(window_252.max())
+    _highs = (prices["high"].tail(252)
+              if "high" in prices.columns else window_252)
+    high_52w = _safe_float(_highs.max())
     high_52w_date: str | None = None
-    if not window_252.empty and high_52w is not None:
-        idx = window_252.idxmax()
+    if not _highs.empty and high_52w is not None:
+        idx = _highs.idxmax()
         try:
             high_52w_date = idx.isoformat() if hasattr(idx, "isoformat") else str(idx)
         except Exception:  # noqa: BLE001
@@ -751,7 +762,11 @@ def market_state(symbol: str, prices: pd.DataFrame) -> MarketState:
     # the (low → high) range. 100 = at high, 0 = at low. The classify
     # rules use this to demote a near-the-highs BUY to HOLD even when
     # the technical gates pass.
-    low_52w = _safe_float(window_252.min())
+    # Intraday low, matching the high convention above (MU: 114.25 intraday
+    # vs 116.23 on closes — the same split, and the range position depends
+    # on both ends agreeing).
+    _lows = prices["low"].tail(252) if "low" in prices.columns else window_252
+    low_52w = _safe_float(_lows.min())
     low_52w_date: str | None = None
     if not window_252.empty and low_52w is not None:
         idx = window_252.idxmin()

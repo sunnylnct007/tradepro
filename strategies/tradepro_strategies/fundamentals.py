@@ -254,6 +254,46 @@ def _yield_pct(x) -> float | None:
     return pct
 
 
+
+def _dividend_yield_pct(info: dict) -> float | None:
+    """Dividend yield in PERCENT, computed unambiguously.
+
+    yfinance exposes two fields with DIFFERENT UNITS and the old code ran
+    both through the fraction heuristic (22 Aug 2026):
+
+        trailingAnnualDividendYield = 0.000544   ← a FRACTION  (0.054%)
+        dividendYield               = 0.05       ← already PERCENT (0.05%)
+
+    When the first was absent the code fell back to the second and
+    multiplied it by 100, so every LOW-yield name came out exactly 100x
+    too high: MU 5.0% (real 0.05%), WCC 57% (real 0.5%), AAPL 35%
+    (real 0.35%). The fraction heuristic cannot save this — a true yield
+    below 1% is indistinguishable from a fraction.
+
+    So don't guess. dividendRate (annual $/share) ÷ price is unambiguous
+    by construction, and is used whenever both are present; the declared
+    fields are cross-checks and fallbacks with their real units honoured.
+    Verified against MU/WCC/AAPL/KO.
+    """
+    rate = _safe_float(info.get("dividendRate")
+                       or info.get("trailingAnnualDividendRate"))
+    price = _safe_float(info.get("currentPrice")
+                        or info.get("regularMarketPrice")
+                        or info.get("previousClose"))
+    if rate is not None and price and price > 0:
+        computed = rate / price * 100.0
+        if abs(computed) <= _MAX_PLAUSIBLE_YIELD_PCT:
+            return computed
+    # Declared fields, each with its OWN unit convention.
+    frac = _safe_float(info.get("trailingAnnualDividendYield"))
+    if frac is not None:
+        return _yield_pct(frac)              # a fraction → scale
+    pct = _safe_float(info.get("dividendYield"))
+    if pct is not None and abs(pct) <= _MAX_PLAUSIBLE_YIELD_PCT:
+        return pct                            # ALREADY percent → do NOT scale
+    return None
+
+
 def _inception_iso(epoch) -> str | None:
     """Yahoo's fundInceptionDate is a Unix timestamp."""
     f = _safe_float(epoch)
@@ -414,9 +454,7 @@ def fetch_fundamentals(symbol: str, info: dict | None = None) -> Fundamentals:
             info.get("netExpenseRatio") or info.get("expenseRatio") or info.get("annualReportExpenseRatio")
         ),
         aum_usd=_safe_float(info.get("totalAssets") or info.get("netAssets")),
-        dividend_yield_pct=_yield_pct(
-            info.get("trailingAnnualDividendYield") or info.get("dividendYield")
-        ),
+        dividend_yield_pct=_dividend_yield_pct(info),
         distribution_yield_pct=_yield_pct(info.get("yield")),
         ytd_return_pct=_frac_to_pct(info.get("ytdReturn")),
         three_year_return_pct=_frac_to_pct(info.get("threeYearAverageReturn")),
