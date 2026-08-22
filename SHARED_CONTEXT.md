@@ -100,6 +100,16 @@ and daemons would otherwise lose S3 silently.
 
 ## Open handovers
 
+0. ⚠️ **THE BAR-CACHE UNIVERSE CHANGED ON 2026-08-22.**
+   `ls ~/.tradepro/bar_cache/us_etf` went **286 → 250** symbols (futures,
+   indices, crypto, foreign listings removed; LSE ETFs moved to `uk_equity`;
+   the `us_equity` tree retired). Any study or screen that derives its
+   universe from that directory produces **results that are not comparable
+   across the boundary** — say so explicitly in any gates doc that spans it.
+   The tree IS the universe, which is also why the fix was to move the junk
+   out of the tree rather than filter it at the screen.
+
+
 1. **MR v1 confirmation re-run — UNBLOCKED as of 22 Aug afternoon.**
    Research session's handover item 3 waited on the data-lane validator +
    clean store; both landed (see Current truth). Action: re-run the
