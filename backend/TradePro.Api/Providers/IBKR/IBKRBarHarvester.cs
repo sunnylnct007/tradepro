@@ -102,6 +102,15 @@ public sealed class IBKRBarHarvester : BackgroundService
                 try { await Task.Delay(_interval, ct); } catch (OperationCanceledException) { break; }
                 continue;
             }
+            // Closed market: the bars this sweep would fetch cannot have
+            // changed. Idle quietly (status says why) instead of burning the
+            // shared session's pacing budget on a re-download of Friday.
+            if (_options.RthOnly && !IsUsMarketHours(DateTime.UtcNow))
+            {
+                _status.LastError = "idle — outside US market hours (RthOnly)";
+                try { await Task.Delay(_interval, ct); } catch (OperationCanceledException) { break; }
+                continue;
+            }
             try
             {
                 await OneTickAsync(ct);
@@ -117,6 +126,28 @@ public sealed class IBKRBarHarvester : BackgroundService
             _status.NextTickEtaUtc = DateTime.UtcNow + _interval;
             try { await Task.Delay(_interval, ct); }
             catch (OperationCanceledException) { break; }
+        }
+    }
+
+    /// <summary>US regular trading hours with a small pad: 09:25–16:05 ET,
+    /// Mon–Fri. DST-correct via the IANA zone; if tzdata is missing in the
+    /// container the fixed-UTC fallback window covers RTH in BOTH DST states
+    /// (13:20–21:10 UTC) — erring on the side of fetching.</summary>
+    internal static bool IsUsMarketHours(DateTime utcNow)
+    {
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
+            var et = TimeZoneInfo.ConvertTimeFromUtc(utcNow, tz);
+            if (et.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return false;
+            var t = et.TimeOfDay;
+            return t >= new TimeSpan(9, 25, 0) && t <= new TimeSpan(16, 5, 0);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            if (utcNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return false;
+            var t = utcNow.TimeOfDay;
+            return t >= new TimeSpan(13, 20, 0) && t <= new TimeSpan(21, 10, 0);
         }
     }
 
@@ -302,6 +333,16 @@ public sealed class IBKRHarvesterOptions
 
     /// <summary>Seconds between sweeps. Clamped to [60, 3600]. 300 = 5 min.</summary>
     public int IntervalSeconds { get; set; } = 300;
+
+    /// <summary>Sweep only during US regular trading hours (09:25–16:05 ET,
+    /// Mon–Fri). Outside RTH the bars can't change, yet before this gate the
+    /// harvester re-fetched the same closed-session window 24/7 — measured
+    /// 21 Aug 2026 at ~96k IBKR requests/day, ~65% of ALL traffic on the one
+    /// shared session, weekends included. Set false only for a deliberate
+    /// overnight catch-up run. US holidays are not special-cased: ~10
+    /// idle-market days/year of cheap no-change fetches, not worth a
+    /// calendar dependency.</summary>
+    public bool RthOnly { get; set; } = true;
 
     /// <summary>Bar resolution: '1m' | '5m' | '15m' | '30m' | '1h' | '1d'.</summary>
     public string Resolution { get; set; } = "1m";
