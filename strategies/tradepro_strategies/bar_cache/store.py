@@ -392,8 +392,9 @@ class BarStore:
                         fetched_by=fetched_by,
                         fetch_window=fetch_window,
                         merge=fetch_window is not None,
+                        allow_validated_shrink=force_refresh,
                     )
-                except NoProviderAvailableError as exc:
+                except NoProviderAvailableError as exc:  # noqa: PERF203
                     # Don't let a provider outage make DATA ON DISK unreadable.
                     # 21 Aug 2026: with the IBKR session dark and Yahoo
                     # rate-limited, every read raised no_provider even though
@@ -548,6 +549,7 @@ class BarStore:
         fetched_by: str,
         fetch_window: tuple[datetime, datetime] | None = None,
         merge: bool = False,
+        allow_validated_shrink: bool = False,
     ) -> None:
         """Walk the provider chain until one succeeds. Write the
         parquet + manifest atomically. Caller catches the
@@ -623,6 +625,25 @@ class BarStore:
             except BarFetchError as exc:
                 last_exc = exc
                 chain_log.append(f"{provider_name}_parse")
+                # QUARANTINE, don't just vanish (22 Aug 2026): a rejected
+                # frame used to leave no trace beyond a chain-log token, so a
+                # provider serving garbage was an invisible problem. Preserve
+                # the frame for inspection + say so in the central run log.
+                try:
+                    from pathlib import Path as _P
+                    _qdir = _P.home() / ".tradepro" / "quarantine"
+                    _qdir.mkdir(parents=True, exist_ok=True)
+                    _qname = (f"reject_{canonical}_{partition}_{provider_name}_"
+                              f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.parquet")
+                    df.to_parquet(_qdir / _qname)
+                    from ..run_log import log_run
+                    log_run("bar-cache", "frame-quarantined", "warn",
+                            broker=provider_name, symbol=canonical,
+                            error=(f"{canonical} {partition}: {provider_name} frame "
+                                   f"REJECTED by validation ({str(exc)[:120]}) — "
+                                   f"preserved as quarantine/{_qname}"))
+                except Exception:  # noqa: BLE001 — quarantine must never break the chain walk
+                    _log.debug("quarantine write failed (non-fatal)", exc_info=True)
                 continue
 
             # Treat 0-row response as a soft provider failure.
@@ -656,6 +677,7 @@ class BarStore:
                     provider_meta=meta,
                     fetched_by=fetched_by,
                     merge=merge,
+                    allow_validated_shrink=allow_validated_shrink,
                 )
             except BarFetchError as exc:
                 if exc.error_class != "partial_write_refused":
@@ -703,6 +725,7 @@ class BarStore:
         provider_meta: dict[str, Any],
         fetched_by: str,
         merge: bool = False,
+        allow_validated_shrink: bool = False,
     ) -> None:
         """tmp + fsync + rename for the parquet, then for the manifest.
         Never leaves a partial file under the partition path."""
@@ -765,6 +788,40 @@ class BarStore:
         # Equal-or-larger writes pass untouched: re-sourcing a month from a
         # better provider (yfinance → ibkr_web) is the whole point and keeps
         # the same session count.
+        if existing_rows > 0 and 0 < len(df) < existing_rows:
+            # VALIDATED-SHRINK exception (22 Aug 2026): "more rows = better"
+            # is exactly wrong when the cached rows are phantoms. The
+            # wrong-venue contracts (VLUE flat at 2536.93, STX in pence)
+            # printed bars on days the US market was CLOSED, so the poisoned
+            # months held MORE rows than the truth — and this guard kept the
+            # poison immortal against every re-source. On an explicit
+            # force_refresh, an incoming validated frame that covers EVERY
+            # expected session of the partition (up to today) may replace a
+            # larger cached one: rows beyond the session calendar are not
+            # data, they are the corruption.
+            if allow_validated_shrink:
+                today = datetime.now(timezone.utc).date()
+                # expected_session_dates is END-INCLUSIVE (same trap as the
+                # delta-fetch boundary): asked for [1st, next-1st] it includes
+                # the NEXT month's first session, which this month's frame can
+                # never contain — clamp to the partition proper.
+                expected = {
+                    d for d in plugin.expected_session_dates(
+                        partition_start, partition_end)
+                    if d <= today and d < partition_end.date()
+                }
+                got = set(df.index.tz_convert("UTC").date)
+                if expected and expected.issubset(got):
+                    _log.warning(
+                        "bar_cache: VALIDATED SHRINK of %s — replacing %d "
+                        "cached rows with %d rows from %s covering every "
+                        "expected session; the %d extra cached row(s) sat on "
+                        "non-session dates (phantom bars from a wrong "
+                        "contract).",
+                        partition_path.name, existing_rows, len(df),
+                        provider_used, existing_rows - len(df),
+                    )
+                    existing_rows = 0   # fall through to the normal write
         if existing_rows > 0 and 0 < len(df) < existing_rows:
             _log.error(
                 "bar_cache: REFUSING to shrink %s — provider %s returned %d "

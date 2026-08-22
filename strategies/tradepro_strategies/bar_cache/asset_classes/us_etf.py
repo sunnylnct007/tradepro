@@ -231,6 +231,40 @@ class UsEtfPlugin(AssetClassPlugin):
                         f"{[str(t) for t in df.index[spike]]}"
                     ),
                 )
+        # FLAT-PHANTOM series — the failure mode the spike check CANNOT see.
+        # Found 22 Aug 2026: VLUE/USMV/QUAL/MTUM/STX 1d partitions held weeks
+        # of an IDENTICAL close with volume 0 (a wrong-venue contract's
+        # stale indicative price — VLUE flat at 2536.93, real price ~$202).
+        # No NaN, no spike, so the frame validated and every backtest read
+        # it. A real US-listed instrument does not print 5+ consecutive
+        # SESSIONS of the same close with zero volume — but 5 flat
+        # zero-volume 5-MINUTE bars is ordinary quiet-market microstructure
+        # in a thin name, so this check applies to daily-spaced frames only
+        # (median index gap ≥ 20h).
+        _daily_spaced = (
+            len(df) >= 5
+            and pd.Series(df.index).diff().median() >= pd.Timedelta(hours=20)
+        )
+        if _daily_spaced and {"close", "volume"}.issubset(set(c.lower() for c in df.columns)):
+            c = df["close"]
+            flat = (c == c.shift(1))
+            zerovol = pd.to_numeric(df["volume"], errors="coerce").fillna(0) == 0
+            run = 0
+            worst = 0
+            for f_ in (flat & zerovol).tolist():
+                run = run + 1 if f_ else 0
+                worst = max(worst, run)
+            if worst >= 4:   # 4 repeats = 5 identical zero-volume sessions
+                raise ProviderParseError(
+                    provider="us_etf_validator",
+                    canonical="<unknown>",
+                    message=(
+                        f"provider returned a FLAT-PHANTOM series: "
+                        f"{worst + 1}+ consecutive sessions with identical "
+                        f"close and zero volume — stale/wrong-contract data, "
+                        f"not a market"
+                    ),
+                )
 
     # ── Internal helpers ────────────────────────────────────────────
 

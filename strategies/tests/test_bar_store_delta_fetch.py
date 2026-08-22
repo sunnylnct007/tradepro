@@ -150,6 +150,43 @@ def test_merge_prefers_existing_rows_so_provenance_survives(
     assert aug7["source"] == "fallback"   # new session added
 
 
+def test_force_refresh_validated_shrink_replaces_phantom_rows(
+        store_and_provider):
+    """22 Aug 2026: wrong-venue contracts printed bars on US-closed days, so
+    poisoned months held MORE rows than truth and the shrink guard kept the
+    poison immortal. A force_refresh whose frame covers every expected
+    session may replace a larger cached partition."""
+    store, provider = store_and_provider
+
+    def _with_phantom(start, end):
+        df = _bars_for(start, min(end, provider.cutoff), source="poison")
+        # An extra bar on a SUNDAY — a date no US session calendar contains.
+        phantom_ts = datetime(2025, 8, 3, tzinfo=UTC)
+        phantom = df.iloc[[0]].copy()
+        phantom.index = pd.DatetimeIndex([phantom_ts])
+        return pd.concat([phantom, df]).sort_index()
+
+    provider.responder = _with_phantom
+    provider.cutoff = datetime(2025, 9, 1, tzinfo=UTC)   # serve FULL months
+    seeded = _get(store, _AUG4, _AUG8)
+    assert len(seeded.df) >= 4          # phantom row is on disk
+
+    # Truthful re-source: one FEWER row (no phantom), but every expected
+    # session of the month covered — the validated-shrink case.
+    provider.responder = lambda start, end: _bars_for(
+        start, min(end, provider.cutoff), source="truth")
+    fixed = _get(store, _AUG4, _AUG8, force_refresh=True)
+    assert datetime(2025, 8, 3, tzinfo=UTC) not in fixed.df.index
+    assert set(fixed.df["source"]) == {"truth"}
+
+    # WITHOUT force_refresh a smaller answer still can't shrink the cache —
+    # the guard's original job (rate-limited partials) is intact.
+    provider.responder = lambda start, end: _bars_for(
+        _AUG7, min(end, provider.cutoff), source="partial")
+    read = _get(store, _AUG4, _AUG8)
+    assert set(read.df["source"]) == {"truth"}
+
+
 def test_provider_outage_serves_cached_rows_when_partial_allowed(
         store_and_provider):
     """21 Aug 2026: IBKR session dark + Yahoo rate-limited made every read
