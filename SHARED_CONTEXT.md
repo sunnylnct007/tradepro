@@ -18,6 +18,22 @@ prune superseded entries when you update. No secrets (repo is PUBLIC).
 
 ## Current truth — 2026-08-22 (evening)
 
+### Store layout — CANONICAL as of 2026-08-22 (read this before touching data)
+Three trees under `~/.tradepro/bar_cache/`, each governed by
+`resolve_asset_class()` (no caller hardcodes a tree any more):
+
+| tree | holds | notes |
+|---|---|---|
+| `us_etf` | **250** US-listed ETFs + single names | the everything-bucket for US; `us_equity` folds into it |
+| `uk_equity` | **19** LSE ETFs (`.L`) | relocated 22 Aug; LSE calendar, not NYSE |
+| `index_us` | `^`-prefixed context series (^VIX, ^TNX) | zero-volume bars are legitimate here |
+
+Retired to `~/.tradepro/bar_cache_quarantine/` (reversible, NOT deleted):
+the whole `us_equity` tree (proven 0 unique partitions after CAVA's IPO
+month was migrated), 22 non-LSE foreign listings, 4 HK, 12 futures,
+4 indices, 9 crypto. **`us_etf` now contains zero non-US symbols.**
+Audit end-state: clean except 30 known relic bars in SWDA.L 2010.
+
 ### Data platform (DATA lane)
 - **The parquet store is certified clean.** `tradepro-bar-cache-audit` (new
   CLI, weekly Sat 10:00 lane, reports ok/warn to run log) sweeps every
@@ -93,6 +109,14 @@ prune superseded entries when you update. No secrets (repo is PUBLIC).
 ## Update log
 - 2026-08-22 (DATA): file created; data-platform truth + scoreboard as
   relayed by owner from RESEARCH session output.
+- 2026-08-22 evening (DATA): ONE-SOURCE-OF-TRUTH consolidation essentially
+  COMPLETE — store reduced to three properly-classed trees (see table above),
+  us_equity retired after proving 0 unique partitions, resolver now governs
+  all routing, paper bus reads the canonical store (signal and fills finally
+  agree — they did not before), index_us shipped so ^VIX/^TNX are golden.
+  Legacy cache.py is down to ONE blocker: refresh.py UK watchlist wants
+  UK SINGLE NAMES (BARC.L, SHEL.L …) which the store does not hold — the 19
+  it holds are ETFs. Everything else migrated.
 - 2026-08-22 late (DATA): Data screen fully sorted + deployed — one row per
   symbol (us_equity display twins retired; React key collision fixed),
   provenance-true provider column (all 243 ibkr_web/ok), chart stack (volume,
