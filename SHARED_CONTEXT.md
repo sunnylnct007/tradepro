@@ -95,6 +95,23 @@ Audit end-state: clean except 30 known relic bars in SWDA.L 2010.
    "missing days" judged against a symbol's own coverage. If a screen number
    looks insane again, suspect the METRIC's denominator before the data.
 
+## Owner action needed (needs ADMIN creds — the mirror key cannot do it)
+
+**S3 stale-prefix cleanup.** The mirror IAM user (`tradepro-bar-mirror`) is
+deliberately WRITE-ONLY — no `s3:DeleteObject` — so a compromised Mac cannot
+wipe the backup. Good posture, but it means today's reorganisation left the
+OLD layout live in the bucket alongside the new one. The retired data is
+already COPIED to `retired_2026-08-22/` (31,174 objects), so this is a
+tidy-up, not a rescue. With an admin profile:
+
+    aws s3 rm s3://tradepro-bar-cache-108703420282/bar_cache/us_equity/ --recursive
+    # then the 43 stale symbol prefixes under bar_cache/us_etf/ — the mirror
+    # lane now LOGS the exact list each night ("STALE IN S3: …")
+
+Until then a disaster-recovery restore would resurrect the retired trees.
+Not urgent (nothing reads S3 — read-through was never enabled), but it means
+the bucket is not yet a faithful mirror of canonical.
+
 ## Owner rulings in force (do not relitigate)
 - **No horizon expansion.** IBKR leverage backlog (scanner API, /hmds,
   WebSocket, wider snapshot capture) is PARKED until the current stack proves
