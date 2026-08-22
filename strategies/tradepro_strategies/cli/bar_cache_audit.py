@@ -100,11 +100,23 @@ def main() -> int:
             for ts, reason in bad:
                 print(f"  ✗ {rel}  {str(ts)[:19]}  {reason}")
 
+    def _report(status: str, msg: str) -> None:
+        try:
+            from tradepro_strategies.run_log import log_run
+            log_run("bar-cache", "integrity-audit", status,
+                    error=msg if status != "ok" else None, summary=msg)
+        except Exception:  # noqa: BLE001
+            pass
+
     if not total_bad:
         print("CLEAN: no garbage bars in any cached partition.")
+        _report("ok", f"integrity audit: {len(parquets)} partitions clean")
         return 0
 
     print(f"\n{total_bad} suspect bar(s) across {len(affected)} partition(s).")
+    _report("warn", f"integrity audit: {total_bad} suspect bar(s) across "
+                    f"{len(affected)} of {len(parquets)} partition(s) — "
+                    f"run tradepro-bar-cache-audit for detail")
     if not args.quarantine:
         print("Report-only (re-run with --quarantine to remove them; removed "
               "rows are preserved under ~/.tradepro/quarantine/).")

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Weekly bar-cache integrity audit (Saturday 10:00 London, market closed).
+
+  WHY (22 Aug 2026): the wrong-venue poison (VLUE flat at 2536.93 for
+  YEARS, STX in LSE pence) was only found when a human went digging.
+  Write-time guards catch bad frames as they ARRIVE; this sweep is the
+  backstop that re-checks what's already ON DISK — the data every backtest
+  reads — and reports ok/warn to the central run log, so silent corruption
+  becomes a dashboard row instead of a discovery.
+
+  Report-only: quarantine/remediation stays a deliberate human-triggered
+  action (tradepro-bar-cache-audit --quarantine).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.bar-cache-audit</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-bar-cache-audit >> "$HOME/.tradepro/logs/bar-cache-audit.log" 2>&amp;1</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key>
+  <string>/Users/skumar/.tradepro/logs/bar-cache-audit.out</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/skumar/.tradepro/logs/bar-cache-audit.err</string>
+</dict>
+</plist>

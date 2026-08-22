@@ -411,13 +411,38 @@ def main() -> int:
             import pandas as _pd
             _pq = _glob.glob(str(base_dir / args.asset / symbol / args.resolution / "*.parquet"))
             _cov_start = None
+            _rows_on_disk = 0
             for _f in _pq:
                 try:
-                    _mn = _pd.to_datetime(_pd.read_parquet(_f).index).min().date().isoformat()
+                    _idx = _pd.to_datetime(_pd.read_parquet(_f).index)
+                    _rows_on_disk += len(_idx)
+                    _mn = _idx.min().date().isoformat()
                     if _cov_start is None or _mn < _cov_start:
                         _cov_start = _mn
                 except Exception:  # noqa: BLE001
                     continue
+            # "Missing days" judged against the SYMBOL'S OWN coverage span,
+            # never against this run's requested window. 22 Aug 2026: a
+            # 13-year re-source probe (--from 2013) made 5 symbols report
+            # "2,288-3,227 missing days" on the Data screen when their disk
+            # was complete for the span they actually hold — the metric was
+            # inheriting whatever window the last run happened to ask for.
+            _missing = max(0, int(result.rows_expected) - int(result.rows_returned))
+            if _cov_start is not None:
+                try:
+                    from tradepro_strategies.bar_cache.asset_class import (
+                        get_asset_class as _gac,
+                    )
+                    _plugin = _gac(args.asset)
+                    _span_start = datetime.strptime(_cov_start, "%Y-%m-%d").replace(tzinfo=UTC)
+                    _expected_span = sum(
+                        _plugin.expected_bar_count(args.resolution, _d)
+                        for _d in _plugin.expected_session_dates(_span_start, to_date)
+                        if datetime(_d.year, _d.month, _d.day, tzinfo=UTC) < to_date
+                    )
+                    _missing = max(0, _expected_span - _rows_on_disk)
+                except Exception:  # noqa: BLE001 — fall back to window math
+                    pass
             # Report WHERE THE DATA CAME FROM, not which code path answered
             # this call. Since delta-fetching (21 Aug) most runs are cache
             # serves, and posting provider="cache" made the Data screen grade
@@ -440,7 +465,7 @@ def main() -> int:
                 "coverageStartDate": _cov_start or str(from_date)[:10],  # TRUE earliest bar
                 "coverageEndDate": str(to_date)[:10],
                 "coveragePartitions": len(_pq),                          # real partition count
-                "missingDaysCount": max(0, int(result.rows_expected) - int(result.rows_returned)),
+                "missingDaysCount": _missing,
             })
         except BarFetchError as exc:
             fail_count += 1
