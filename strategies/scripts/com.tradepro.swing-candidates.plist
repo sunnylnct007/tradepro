@@ -11,8 +11,25 @@
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>/Users/skumar/.tradepro/logs/swing-candidates.out</string>
   <key>StandardErrorPath</key><string>/Users/skumar/.tradepro/logs/swing-candidates.err</string>
-  <!-- Every 20 minutes. Cheap: reads cached parquet, makes NO IBKR calls, so it
-       cannot contend for the market-data session. -->
-  <key>StartInterval</key><integer>1200</integer>
+  <!-- The signal needs a SETTLED daily bar, and daily bars only settle after
+       the 20:00 UTC close. The 21:30 harvest writes them; this runs at 22:00,
+       after it. A second run at 12:00 covers the case where the nightly harvest
+       failed and backfilled later, so the morning list is never built on a bar
+       that never arrived.
+       An intraday cadence was tried first and REMOVED: it recomputed the same
+       answer from the same bar all day, which looked live and was not. -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>5</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>5</integer></dict>
+  </array>
 </dict>
 </plist>

@@ -69,6 +69,24 @@ ETFS = {"SPY","QQQ","IVV","VTI","DIA","IWM","XLK","XLF","XLI","XLE","XLV","XLP",
         "XLB","XLY","SOXX","ITA","GDX","GLD","SLV","TLT","AGG","EEM","EFA","KRE"}
 
 
+
+def _last_completed_session() -> str:
+    """The date whose daily bar can actually be COMPLETE right now (YYYY-MM-DD).
+
+    A US session settles at 20:00 UTC (16:00 ET). Before that, today's bar is
+    partial; on a weekend the last completed session is the preceding Friday.
+    Deliberately ignores US holidays — that errs toward treating a holiday as a
+    session and stepping back one extra bar, which is the SAFE direction: a
+    slightly older settled bar beats a partial one.
+    """
+    now = _dt.datetime.now(_dt.UTC)
+    d = now.date()
+    if now.hour < 20:                 # today has not settled yet
+        d -= _dt.timedelta(days=1)
+    while d.weekday() >= 5:           # back off Sat/Sun
+        d -= _dt.timedelta(days=1)
+    return d.isoformat()
+
 def _load(sym: str):
     fs = sorted(glob.glob(f"{BASE_DIR}/{sym}/1d/*.parquet"))
     if not fs:
@@ -92,6 +110,17 @@ def scan(symbols: list[str]) -> list[dict]:
         v = df["volume"].tolist() if "volume" in df.columns else [0] * len(c)
         dates = [str(x)[:10] for x in df.index]
         i = len(c) - 1
+        # ── SETTLED-BAR ONLY ──────────────────────────────────────────────
+        # The backtest signalled on a SETTLED close and filled the next open.
+        # A daily bar for TODAY is PARTIAL until the session ends — the harvest
+        # writes "today partial" rows during the day — and a name down 3% at
+        # 11am may close flat. Computing on that produces signals the backtest
+        # never saw and cannot vouch for. The same trap the Ichimoku config
+        # guards with entry_settled_bar_only=True.
+        if dates[i] >= _last_completed_session():
+            i -= 1                      # step back to the last SETTLED bar
+            if i < 210:
+                continue
         # ── data guard (see module docstring) ──────────────────────────────
         if not (h[i] >= l[i] and l[i] - 1e-9 <= c[i] <= h[i] + 1e-9 and c[i] > 0):
             continue
@@ -164,6 +193,8 @@ def build_artifact(rows: list[dict], universe: str) -> dict:
             "Data guard applied at screen time; mean reversion is uniquely exposed to corrupt bars because it buys crashes.",
             "Worst historical trade was -34% pre-stop (CRWD, 2024 outage). The stop caps it; nothing prevents an event.",
         ],
+        "signal_bar": rows[0]["bar"] if rows else _last_completed_session(),
+        "settled_bar_only": True,
         "count": len(rows),
         "candidates": rows,
     }
