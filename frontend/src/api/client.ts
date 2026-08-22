@@ -656,6 +656,14 @@ export const api = {
           pct_above_20sma: number; atr_pct: number | null;
           off_52w_high_pct: number | null;
           expected_hold_sessions: number; max_hold_sessions: number;
+          checks: Array<{ label: string; detail: string; value: string; ok: boolean }>;
+          levels: { sma10: number; sma20: number; sma50: number; sma200: number };
+          history: {
+            trades: number; win_rate_pct: number; mean_pct: number;
+            median_pct: number; best_pct: number; worst_pct: number;
+            median_bars: number; sample_warning: string | null;
+            last_5: Array<{ entry_date: string; exit_date: string; pct: number; bars: number; exit: string }>;
+          } | null;
         }>;
       };
     }>("/api/today-setups/momentum/latest"),

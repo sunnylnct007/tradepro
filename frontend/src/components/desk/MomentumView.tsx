@@ -19,12 +19,134 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 
+type Cand = Resp["artifact"]["candidates"][number];
+
+/**
+ * The row detail. Deliberately NOT chart-first — the owner's standing note is
+ * "looking at graph adds me no value" — so it leads with the two questions a
+ * chart cannot answer: why is this row here, and has this rule ever worked on
+ * THIS symbol.
+ *
+ * The per-symbol record is the part that earns its place. MDB qualifies on
+ * every clause of the entry today and this rule has lost money on MDB in 6 of
+ * its last 7 attempts. The universe-wide 47%/+1.53% is true and would have
+ * hidden that completely.
+ */
+function RowDetail({ c }: { c: Cand }) {
+  const h = c.history;
+  const cell = { padding: "4px 10px", fontFamily: "var(--font-mono)" } as const;
+  return (
+    <tr>
+      <td colSpan={8} style={{ padding: "12px 14px 16px", background: "rgba(255,255,255,0.02)",
+                               borderTop: "1px solid #141b2b" }}>
+        <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))" }}>
+
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)", marginBottom: 6 }}>
+              WHY {c.symbol} IS ON THIS LIST
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <tbody>
+                {c.checks?.map((k, i) => (
+                  <tr key={i} style={{ borderTop: i ? "1px solid #141b2b" : undefined }}>
+                    <td style={{ padding: "4px 8px 4px 0", color: TONE.ok, width: 14 }}>✓</td>
+                    <td style={{ padding: "4px 0" }}>
+                      {k.label}
+                      <div style={{ color: "var(--text-muted)", fontSize: 10, fontFamily: "var(--font-mono)" }}>
+                        {k.detail}
+                      </div>
+                    </td>
+                    <td style={{ ...cell, textAlign: "right", fontWeight: 700, whiteSpace: "nowrap" }}>{k.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.6 }}>
+              Moving averages: 10 <b>{c.levels?.sma10}</b> · 20 <b>{c.levels?.sma20}</b> ·
+              50 <b>{c.levels?.sma50}</b> · 200 <b>{c.levels?.sma200}</b>.
+              The 10-day average is the support this trade is buying — see the note below the table.
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)", marginBottom: 6 }}>
+              THIS RULE&apos;S RECORD ON {c.symbol}
+            </div>
+            {!h ? (
+              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                This rule has never completed a trade on {c.symbol} in the stored history.
+                Today would be the first. The universe-wide evidence is all you have here.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+                  <b style={{ color: h.mean_pct > 0 ? TONE.ok : TONE.bad }}>
+                    {h.trades} trades · {h.win_rate_pct}% win · {h.mean_pct > 0 ? "+" : ""}{h.mean_pct}%/trade
+                  </b>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                    best +{h.best_pct}% · worst {h.worst_pct}% · median hold {h.median_bars} sessions
+                  </div>
+                </div>
+                {h.sample_warning && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: TONE.warn, lineHeight: 1.5 }}>
+                    ⚠ {h.sample_warning}
+                  </div>
+                )}
+                {h.mean_pct < 0 && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: TONE.bad, lineHeight: 1.5 }}>
+                    This rule has LOST money on {c.symbol} historically. It qualifies today on every
+                    clause of the entry — and it has not worked here. That is a reason to skip the row.
+                  </div>
+                )}
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, marginTop: 8 }}>
+                  <thead>
+                    <tr style={{ color: "var(--text-dim)", textAlign: "left" }}>
+                      {["Entered", "Exited", "Bars", "Why", "Result"].map((x) => (
+                        <th key={x} style={{ padding: "3px 6px", fontWeight: 600 }}>{x}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {h.last_5.map((t, i) => (
+                      <tr key={i} style={{ borderTop: "1px solid #141b2b" }}>
+                        <td style={cell}>{t.entry_date}</td>
+                        <td style={cell}>{t.exit_date}</td>
+                        <td style={cell}>{t.bars}</td>
+                        <td style={{ ...cell, color: "var(--text-muted)" }}>{t.exit}</td>
+                        <td style={{ ...cell, fontWeight: 700, color: t.pct > 0 ? TONE.ok : TONE.bad }}>
+                          {t.pct > 0 ? "+" : ""}{t.pct}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* SUPPORT AND RESISTANCE — answered here rather than left implicit,
+            because it is the first thing anyone asks of a screen like this. */}
+        <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px solid #141b2b",
+                      fontSize: 10, color: "var(--text-muted)", lineHeight: 1.6 }}>
+          <b>On support &amp; resistance:</b> drawn S/R levels are deliberately NOT used. We tested
+          them — 76,260 touch events — and both edges came out NEGATIVE against a placebo of random
+          lines. They are in the Research view as a failed study. What this rule uses instead is
+          DYNAMIC support: the 10-day average, which is the one "buy the dip to support" formulation
+          that cleared its gates. The stop is a fixed −8% and then an 8% trail, never a level.
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
 type Resp = Awaited<ReturnType<typeof api.momentumCandidates>>;
 
 export function MomentumView() {
   const [d, setD] = useState<Resp | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const load = useCallback(() => {
     api.momentumCandidates().then((r) => { setD(r); setErr(null); })
       .catch((e) => setErr(String((e as Error)?.message || e)));
@@ -91,8 +213,22 @@ export function MomentumView() {
             </thead>
             <tbody>
               {a.candidates.map((c) => (
-                <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b" }}>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{c.symbol}</td>
+                <>
+                <tr key={c.symbol}
+                    onClick={() => setOpen(open === c.symbol ? null : c.symbol)}
+                    title={`Open ${c.symbol} — why it qualified, and how this rule has done on it`}
+                    style={{ borderTop: "1px solid #141b2b", cursor: "pointer",
+                             background: open === c.symbol ? "rgba(255,255,255,0.03)" : undefined }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+                    <span style={{ color: "var(--text-dim)", marginRight: 6, fontSize: 9 }}>
+                      {open === c.symbol ? "▼" : "▶"}
+                    </span>
+                    {c.symbol}
+                    {c.history && c.history.mean_pct < 0 && (
+                      <span title="This rule has lost money on this symbol historically — open the row"
+                            style={{ marginLeft: 6, color: TONE.bad, fontSize: 10 }}>⚠</span>
+                    )}
+                  </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>{c.entry_hint.toFixed(2)}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: TONE.bad }}>{c.stop.toFixed(2)}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>{c.trailing_pct.toFixed(0)}% off peak</td>
@@ -101,6 +237,8 @@ export function MomentumView() {
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>{c.atr_pct?.toFixed(1) ?? "—"}%</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>{c.off_52w_high_pct?.toFixed(1) ?? "—"}%</td>
                 </tr>
+                {open === c.symbol && <RowDetail c={c} />}
+                </>
               ))}
             </tbody>
           </table>

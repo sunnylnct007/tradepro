@@ -135,6 +135,27 @@ def _last_completed_session() -> str:
         d -= _dt.timedelta(days=1)
     return d.isoformat()
 
+def _pick_signal_index(dates: list[str], last_settled: str) -> int:
+    """Index of the newest bar that is safe to compute a signal on.
+
+    The harvest writes a PARTIAL row for the in-progress session, and reading
+    one as a close invents signals the backtest never saw. So a bar dated
+    AFTER the last completed session is stepped over.
+
+    A bar dated EXACTLY the last completed session is settled and is the one
+    we want — the comparison is ">", not ">=". It was ">=" for a day, which
+    stepped back an extra session and ran the whole screen on yesterday's
+    close: PLTR was published with an entry of 173.96 when the settled 21 Aug
+    close was 179.94, and twelve of the thirteen rows were expired triggers
+    from a session that had already passed. Shared by both screens so they
+    can never disagree about which bar "today" is.
+    """
+    i = len(dates) - 1
+    if i >= 0 and dates[i] > last_settled:
+        i -= 1
+    return i
+
+
 def _load(sym: str):
     fs = sorted(glob.glob(f"{BASE_DIR}/{sym}/1d/*.parquet"))
     if not fs:
@@ -172,10 +193,12 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
         # 11am may close flat. Computing on that produces signals the backtest
         # never saw and cannot vouch for. The same trap the Ichimoku config
         # guards with entry_settled_bar_only=True.
-        if dates[i] >= _last_completed_session():
-            i -= 1                      # step back to the last SETTLED bar
-            if i < 210:
-                continue
+        i = _pick_signal_index(dates, _last_completed_session())
+        # NOTE: this length guard used to sit INSIDE the step-back branch, so
+        # it only ran on the days the screen stepped back a bar — a symbol with
+        # too little history could reach the indicator maths unguarded.
+        if i < 210:
+            continue
         # ── data guard (see module docstring) ──────────────────────────────
         if not (h[i] >= l[i] and l[i] - 1e-9 <= c[i] <= h[i] + 1e-9 and c[i] > 0):
             continue

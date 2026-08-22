@@ -66,3 +66,40 @@ class TestPoisonCheck:
         prices = [10.0 + i * 0.5 for i in range(300)]   # 10 -> 159, all upward
         ok, _ = module.poison_check(prices)
         assert ok is True
+
+
+@pytest.mark.parametrize("module", [mom, swing], ids=["momentum", "swing"])
+class TestSignalBarSelection:
+    """Which bar is "today" — the single most consequential line in either
+    screen, because it decides the price the owner would place an order at.
+
+    Regression: the comparison was ">=", which stepped back an extra session
+    and published a stale close. PLTR went out with an entry of 173.96 when
+    the settled 21 Aug close was 179.94 (3.4% wrong), and 12 of 13 rows were
+    triggers that had already expired the previous session.
+    """
+
+    def test_a_bar_dated_the_last_settled_session_is_used(self, module):
+        dates = ["2026-08-19", "2026-08-20", "2026-08-21"]
+        assert module._pick_signal_index(dates, "2026-08-21") == 2
+
+    def test_an_in_progress_session_is_stepped_over(self, module):
+        # The harvest writes a partial row for today mid-session.
+        dates = ["2026-08-19", "2026-08-20", "2026-08-21", "2026-08-24"]
+        assert module._pick_signal_index(dates, "2026-08-21") == 2
+
+    def test_a_store_lagging_behind_uses_its_own_newest_bar(self, module):
+        # Harvest failed; newest stored bar predates the last settled session.
+        # Use it (and let the screen's signal_bar date show the staleness)
+        # rather than stepping back to an even older one.
+        dates = ["2026-08-18", "2026-08-19"]
+        assert module._pick_signal_index(dates, "2026-08-21") == 1
+
+
+def test_both_screens_agree_on_which_bar_is_today():
+    """They read the same store and are read side by side; if they disagreed
+    about the signal bar, two screens would quote different prices for the
+    same session."""
+    dates = ["2026-08-20", "2026-08-21"]
+    assert mom._pick_signal_index(dates, "2026-08-21") == \
+           swing._pick_signal_index(dates, "2026-08-21")

@@ -119,6 +119,27 @@ def _last_completed_session() -> str:
     return d.isoformat()
 
 
+def _pick_signal_index(dates: list[str], last_settled: str) -> int:
+    """Index of the newest bar that is safe to compute a signal on.
+
+    The harvest writes a PARTIAL row for the in-progress session, and reading
+    one as a close invents signals the backtest never saw. So a bar dated
+    AFTER the last completed session is stepped over.
+
+    A bar dated EXACTLY the last completed session is settled and is the one
+    we want — the comparison is ">", not ">=". It was ">=" for a day, which
+    stepped back an extra session and ran the whole screen on yesterday's
+    close: PLTR was published with an entry of 173.96 when the settled 21 Aug
+    close was 179.94, and twelve of the thirteen rows were expired triggers
+    from a session that had already passed. Shared by both screens so they
+    can never disagree about which bar "today" is.
+    """
+    i = len(dates) - 1
+    if i >= 0 and dates[i] > last_settled:
+        i -= 1
+    return i
+
+
 def _load(sym: str):
     fs = sorted(glob.glob(f"{BASE_DIR}/{sym}/1d/*.parquet"))
     if not fs:
@@ -136,6 +157,90 @@ def sma(c, i, n):
     return sum(c[i - n + 1:i + 1]) / n
 
 
+def _entry_signal(c, h, l, i):
+    """The v2 entry, evaluated at bar i. One definition, used by BOTH the live
+    scan and the per-symbol replay below — if they ever drift, the drill-down
+    would be describing a rule the screen does not run."""
+    if i < 210 or c[i - 1] <= 0:
+        return False
+    s200, s50, s20, s10 = sma(c, i, 200), sma(c, i, 50), sma(c, i, 20), sma(c, i, 10)
+    prev10 = sma(c, i - 1, 10)
+    return bool(s200 > 0 and c[i] > s200 and s20 > s50 and c[i] > s20
+                and c[i] <= s10 * 1.005 and c[i - 1] > prev10)
+
+
+def replay_symbol(c, h, l, dates, upto):
+    """Replay this rule over THIS symbol's own history.
+
+    The headline evidence is 5,815 trades across the universe. That says the
+    rule works on average; it says nothing about whether it has ever worked on
+    MDB. This answers the question the owner actually asks when looking at a
+    row — "has this thing ever done anything here?" — and is deliberately
+    reported with its own sample size, because 6 trades is not evidence and
+    the screen should not let it look like evidence.
+
+    Non-overlapping: a new entry is only taken once the previous trade is out,
+    which is how it would actually be traded.
+    """
+    trades = []
+    i = 210
+    while i < upto:
+        if not _entry_signal(c, h, l, i):
+            i += 1
+            continue
+        entry = c[i]
+        peak = entry
+        exit_i = None
+        why = "open"
+        j = i + 1
+        while j <= min(upto, i + MAX_HOLD):
+            if c[j - 1] > 0 and abs(c[j] / c[j - 1] - 1) > 0.35:
+                # A >35% single session inside the hold is a corrupt bar, not a
+                # move. Discard the whole trade rather than book the fiction —
+                # this exact contamination produced a -98% "worst trade" on the
+                # first momentum run.
+                why = "discarded"
+                break
+            if c[j] <= entry * (1 - STOP_PCT):
+                exit_i, why = j, "stop"
+                break
+            peak = max(peak, c[j])
+            if c[j] <= peak * (1 - TRAIL_PCT):
+                exit_i, why = j, "trail"
+                break
+            j += 1
+        if why == "discarded":
+            i = j + 1
+            continue
+        if exit_i is None:
+            if j > i + MAX_HOLD:
+                exit_i, why = min(upto, i + MAX_HOLD), "timeout"
+            else:
+                break  # still open at the end of history — not a completed trade
+        trades.append({"entry_date": dates[i], "exit_date": dates[exit_i],
+                       "pct": round(100 * (c[exit_i] / entry - 1), 2),
+                       "bars": exit_i - i, "exit": why})
+        i = exit_i + 1
+    if not trades:
+        return None
+    pcts = sorted(t["pct"] for t in trades)
+    wins = [p for p in pcts if p > 0]
+    return {
+        "trades": len(trades),
+        "win_rate_pct": round(100 * len(wins) / len(trades), 1),
+        "mean_pct": round(sum(pcts) / len(pcts), 2),
+        "median_pct": pcts[len(pcts) // 2],
+        "best_pct": pcts[-1],
+        "worst_pct": pcts[0],
+        "median_bars": sorted(t["bars"] for t in trades)[len(trades) // 2],
+        "last_5": trades[-5:][::-1],
+        # Said out loud rather than left for the reader to work out.
+        "sample_warning": (None if len(trades) >= 15 else
+                           f"only {len(trades)} completed trades on this symbol — "
+                           f"too few to mean anything on its own; lean on the "
+                           f"universe-wide 5,815."),
+    }
+
 def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
     out: list[dict] = []
     quarantined: list[dict] = []
@@ -152,19 +257,17 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
             continue
         dates = [str(x)[:10] for x in df.index]
         i = len(c) - 1
-        if dates[i] >= _last_completed_session():
-            i -= 1
+        i = _pick_signal_index(dates, _last_completed_session())
         if i < 210:
             continue
         if not (h[i] >= l[i] and l[i] - 1e-9 <= c[i] <= h[i] + 1e-9 and c[i] > 0):
             continue
         if c[i - 1] <= 0 or abs(c[i] / c[i - 1] - 1) > MAX_DAY_MOVE:
             continue
+        if not _entry_signal(c, h, l, i):
+            continue
         s200, s50, s20, s10 = sma(c, i, 200), sma(c, i, 50), sma(c, i, 20), sma(c, i, 10)
         prev10 = sma(c, i - 1, 10)
-        if not (s200 > 0 and c[i] > s200 and s20 > s50 and c[i] > s20
-                and c[i] <= s10 * 1.005 and c[i - 1] > prev10):
-            continue
         trs = [max(h[j] - l[j], abs(h[j] - c[j - 1]), abs(l[j] - c[j - 1])) for j in range(i - 13, i + 1)]
         atr = sum(trs) / 14
         hi52 = max(h[max(0, i - 251):i + 1])
@@ -179,6 +282,31 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
             "off_52w_high_pct": round(100 * (hi52 - c[i]) / hi52, 1) if hi52 else None,
             "expected_hold_sessions": 34,
             "max_hold_sessions": MAX_HOLD,
+            # WHY this row is here, with the numbers behind each clause. A
+            # screen that says "it qualified" and not "it qualified because
+            # the 20-SMA is 3.1% above the 50-SMA" is asking to be trusted
+            # rather than checked.
+            "checks": [
+                {"label": "Above the 200-day average",
+                 "detail": f"close {c[i]:.2f} vs 200-SMA {s200:.2f}",
+                 "value": f"+{100 * (c[i] / s200 - 1):.1f}%", "ok": True},
+                {"label": "20-day average above the 50-day (uptrend)",
+                 "detail": f"20-SMA {s20:.2f} vs 50-SMA {s50:.2f}",
+                 "value": f"+{100 * (s20 / s50 - 1):.1f}%", "ok": True},
+                {"label": "Still above the 20-day average",
+                 "detail": f"close {c[i]:.2f} vs 20-SMA {s20:.2f}",
+                 "value": f"+{100 * (c[i] / s20 - 1):.1f}%", "ok": True},
+                {"label": "Pulled back TO the 10-day average",
+                 "detail": f"close {c[i]:.2f} vs 10-SMA {s10:.2f} — this is the entry trigger",
+                 "value": f"{100 * (c[i] / s10 - 1):+.1f}%", "ok": True},
+                {"label": "Was above it yesterday (a pullback, not a breakdown)",
+                 "detail": f"prior close {c[i - 1]:.2f} vs prior 10-SMA {prev10:.2f}",
+                 "value": f"+{100 * (c[i - 1] / prev10 - 1):.1f}%", "ok": True},
+            ],
+            "levels": {"sma10": round(s10, 2), "sma20": round(s20, 2),
+                       "sma50": round(s50, 2), "sma200": round(s200, 2)},
+            # How this exact rule has done on THIS symbol, not the universe.
+            "history": replay_symbol(c, h, l, dates, i),
         })
     out.sort(key=lambda r: -(r["pct_above_200sma"] or 0))
     return out, quarantined
