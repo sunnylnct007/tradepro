@@ -241,8 +241,11 @@ class UsEtfPlugin(AssetClassPlugin):
         # zero-volume 5-MINUTE bars is ordinary quiet-market microstructure
         # in a thin name, so this check applies to daily-spaced frames only
         # (median index gap ≥ 20h).
+        # Class-gated: index plugins set _flat_phantom_guard=False because
+        # indices legitimately print volume 0 on every bar (22 Aug 2026).
         _daily_spaced = (
-            len(df) >= 5
+            getattr(self, "_flat_phantom_guard", True)
+            and len(df) >= 5
             and pd.Series(df.index).diff().median() >= pd.Timedelta(hours=20)
         )
         if _daily_spaced and {"close", "volume"}.issubset(set(c.lower() for c in df.columns)):

@@ -46,6 +46,7 @@ ASSET_CLASS_CRYPTO: Final[str] = "crypto"
 ASSET_CLASS_UK_EQUITY: Final[str] = "uk_equity"
 ASSET_CLASS_US_ETF: Final[str] = "us_etf"
 ASSET_CLASS_US_EQUITY: Final[str] = "us_equity"
+ASSET_CLASS_INDEX_US: Final[str] = "index_us"
 ASSET_CLASS_UNKNOWN: Final[str] = "unknown"
 
 
@@ -98,6 +99,11 @@ def resolve_asset_class(ticker: str | None) -> str:
     t = ticker.strip().upper()
     if not t:
         return ASSET_CLASS_UNKNOWN
+
+    # 0. Index — Yahoo's ``^`` prefix (^VIX, ^TNX, ^GSPC). Context
+    # data, never a tradeable instrument.
+    if t.startswith("^"):
+        return ASSET_CLASS_INDEX_US
 
     # 1. FX — Yahoo encodes pairs with the ``=X`` sentinel.
     if t.endswith("=X"):

@@ -88,8 +88,14 @@ class MarketContext:
 
 
 def _safe_fetch(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
+    # Golden-first (22 Aug 2026): this was the LAST major consumer pinned to
+    # the legacy yahoo cache (≤7-day staleness), because ^VIX/^TNX had no
+    # asset class in the store. index_us exists now; golden_daily routes
+    # ^-prefixed symbols there and equities/ETFs (SPY, HYG) to us_etf.
+    # Same tolerance contract: any failure → empty frame, field goes null.
     try:
-        return ensure_cached("yahoo", symbol, start, end)
+        from .ibkr_bars import golden_daily
+        return golden_daily(symbol, start, end, fetched_by="market-context")
     except Exception:
         return pd.DataFrame()
 

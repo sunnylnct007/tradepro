@@ -118,8 +118,10 @@ const BARS_PER_DAY: Record<string, number> = { "1m": 390, "5m": 78, "15m": 26, "
 /** Indicator toggles — persisted so the trader's chart setup survives
  *  navigation. Defaults chosen per timeframe use: volume always, SMAs for
  *  swing (daily), VWAP for intraday; RSI opt-in. */
-type IndState = { vol: boolean; sma50: boolean; sma200: boolean; vwap: boolean; rsi: boolean };
-const IND_DEFAULTS: IndState = { vol: true, sma50: true, sma200: true, vwap: true, rsi: false };
+type IndState = { vol: boolean; sma50: boolean; sma200: boolean; vwap: boolean; rsi: boolean; ich: boolean };
+// ich defaults OFF (owner 22 Aug: the cloud misleads; platform studies concur
+// — it visualizes the strategy's view on demand, it is not evidence).
+const IND_DEFAULTS: IndState = { vol: true, sma50: true, sma200: true, vwap: true, rsi: false, ich: false };
 const IND_KEY = "tp-chart-indicators";
 
 export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", height = 360, ccy, entryPrice, entryDate, fills }: Props) {
@@ -593,16 +595,25 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
       return () => { chart.remove(); chartRef.current = null; };
     }
 
-    const tenkan = lineSeries(chart, "#4f8cff", 1.5);
-    tenkan.setData(ich.tenkan);
-    const kijun = lineSeries(chart, "#d4793b", 1.5);
-    kijun.setData(ich.kijun);
-    const spanA = lineSeries(chart, "rgba(31,193,107,0.9)", 1, LineStyle.Solid);
-    spanA.setData(ich.spanA);
-    const spanB = lineSeries(chart, "rgba(239,68,68,0.9)", 1, LineStyle.Solid);
-    spanB.setData(ich.spanB);
-    const chikou = lineSeries(chart, "rgba(155,110,255,0.85)", 1, LineStyle.Solid);
-    chikou.setData(ich.chikou);
+    // Ichimoku overlay is now a TOGGLE, default OFF (owner, 22 Aug 2026:
+    // "the ich cloud is always misleading" — and the platform's own studies
+    // agree: S/R lines zero edge, the TK construct cuts winners, cloud-based
+    // entry filters cost 43% of profit). It exists to visualize what the
+    // ichimoku_equity strategy SEES, on demand — it is not evidence.
+    if (ind.ich) {
+      const tenkan = lineSeries(chart, "#4f8cff", 1.5);
+      tenkan.setData(ich.tenkan);
+      const kijun = lineSeries(chart, "#d4793b", 1.5);
+      kijun.setData(ich.kijun);
+    }
+    const spanA = ind.ich ? lineSeries(chart, "rgba(31,193,107,0.9)", 1, LineStyle.Solid) : null;
+    spanA?.setData(ich.spanA);
+    const spanB = ind.ich ? lineSeries(chart, "rgba(239,68,68,0.9)", 1, LineStyle.Solid) : null;
+    spanB?.setData(ich.spanB);
+    if (ind.ich) {
+      const chikou = lineSeries(chart, "rgba(155,110,255,0.85)", 1, LineStyle.Solid);
+      chikou.setData(ich.chikou);
+    }
 
     // Cloud overlay: keep refs to the two span series so we can project their
     // values to pixels each frame.
@@ -618,6 +629,12 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     const paintCloud = () => {
       const canvas = overlayRef.current;
       if (!canvas) return;
+      // Overlay off → make sure a previously painted cloud is CLEARED, not
+      // left as a stale ghost under the fresh chart.
+      if (!ind.ich || !spanARef || !spanBRef) {
+        canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
       const w = el.clientWidth;
       const h = el.clientHeight;
       const dpr = window.devicePixelRatio || 1;
@@ -788,6 +805,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
               ["sma200", "SMA200", "#b78cff", "200-bar SMA — the regime floor the backtests gate on", true],
               ["vwap", "VWAP", "#4f8cff", "Session-anchored VWAP — the intraday value line (intraday resolutions only)", resolution !== "1d"],
               ["rsi", "RSI", "#e0b341", "RSI(14) in its own pane with 30/70 bands", true],
+              ["ich", "Cloud", "#1fc16b", "Ichimoku overlay at the STRATEGY's 5·32·50 params — shows what ichimoku_equity sees. Off by default: the platform's own studies found no standalone edge in these lines, and the displaced cloud lags fast moves badly.", true],
             ] as const).filter(([, , , , show]) => show).map(([key, label, color, tip]) => (
               <button
                 key={key}

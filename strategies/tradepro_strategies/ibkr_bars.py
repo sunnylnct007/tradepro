@@ -73,7 +73,11 @@ def golden_daily(
     MCP analysis tools, run_backtest, build_high_beta_universe and the
     worker all read the ≤7-day-stale yahoo cache while fresh IBKR bars sat
     unread in the store."""
-    df = fetch_daily_bars(symbol, start, end,
+    # ^-prefixed symbols are US index CONTEXT series (^VIX, ^TNX) — route
+    # them to the index_us tree, where zero-volume bars are legitimate and
+    # the NYSE calendar still applies (22 Aug 2026).
+    asset_class = "index_us" if symbol.strip().startswith("^") else "us_etf"
+    df = fetch_daily_bars(symbol, start, end, asset_class=asset_class,
                           fetched_by=fetched_by, legacy_provider=legacy_provider)
     return df if df is not None else pd.DataFrame()
 
