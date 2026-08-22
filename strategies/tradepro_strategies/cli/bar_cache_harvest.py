@@ -418,11 +418,24 @@ def main() -> int:
                         _cov_start = _mn
                 except Exception:  # noqa: BLE001
                     continue
+            # Report WHERE THE DATA CAME FROM, not which code path answered
+            # this call. Since delta-fetching (21 Aug) most runs are cache
+            # serves, and posting provider="cache" made the Data screen grade
+            # every symbol BRONZE while the disk was overwhelmingly IBKR-gold
+            # — the same call-path/provenance conflation as the 16 Aug "0
+            # gold" incident, one level further downstream. Grade from the
+            # stored source column, exactly like the G/S/B summary does.
+            _prov_true = (result.provider_used or "").removesuffix("_ok")
+            if _prov_true == "cache" and result.df is not None \
+                    and not result.df.empty and "source" in result.df.columns:
+                _srcs = result.df["source"].dropna()
+                if len(_srcs):
+                    _prov_true = str(_srcs.mode().iloc[0])
             health_records.append({
                 "canonical": symbol,
                 "assetClass": args.asset,
                 "lastFetchedResult": "ok" if result.coverage_complete else "partial",
-                "lastFetchedProvider": result.provider_used,
+                "lastFetchedProvider": _prov_true,
                 "lastFetchedResolution": args.resolution,
                 "coverageStartDate": _cov_start or str(from_date)[:10],  # TRUE earliest bar
                 "coverageEndDate": str(to_date)[:10],

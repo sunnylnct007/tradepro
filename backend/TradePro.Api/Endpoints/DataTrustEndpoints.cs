@@ -746,7 +746,14 @@ public static class DataTrustEndpoints
             var symbols = new List<object>();
             foreach (var r in rows)
             {
+                // Older harvest senders posted the chain outcome ("ibkr_web_ok")
+                // or the call path ("cache") instead of the data's origin —
+                // strip the suffix so a direct IBKR fetch never grades BRONZE
+                // on a naming technicality. ("cache" itself is fixed at the
+                // sender: it now reports the dominant stored source column.)
                 var prov = (r.Provider ?? "").Trim().ToLowerInvariant();
+                if (prov.EndsWith("_ok", StringComparison.Ordinal))
+                    prov = prov[..^3];
                 int miss = r.MissingDays ?? 0;
                 string score; bool gft; int? daysBehind = null; string reason;
                 if (r.CoverageEnd is null)
