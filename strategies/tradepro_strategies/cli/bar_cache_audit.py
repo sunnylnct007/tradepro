@@ -50,6 +50,39 @@ def find_garbage(df: pd.DataFrame) -> list[tuple[object, str]]:
     # intraday resolutions in thin names.
     daily_spaced = (len(df) >= 5
                     and pd.Series(df.index).diff().median() >= pd.Timedelta(hours=20))
+
+    # SCATTERED phantoms + dead partitions (22 Aug 2026). The run-based check
+    # below only fires on 5+ CONSECUTIVE flat zero-volume sessions, so a
+    # wrong-contract block whose phantoms are INTERLEAVED with traded bars
+    # sailed straight through — MTUM/QUAL/USMV/VLUE kept London-listed prices
+    # (in pence: 2713, 4448, 1387) across 18 partitions after a purge that
+    # reported clean. Credit to the research session for the separating
+    # statistic: TOTAL zero-volume-unchanged-close count, not runs
+    # (MTUM 31 / QUAL 34 / USMV 26 / VLUE 15 vs STX 1, AMD 1, rest 0).
+    # Ratio-based tests were tried and rejected in both directions — they
+    # condemned BILL (a real 85% fall) and VIXY (decay is what it does),
+    # while any threshold loose enough to spare those cleared MTUM.
+    #
+    # KNOWN BENIGN PATTERN: a newly-listed thin ETF genuinely prints
+    # zero-volume days in its first years (SWDA.L 2010-2012, 108 such bars,
+    # on an otherwise smooth 16-year curve). This audit is REPORT-ONLY by
+    # design precisely because that judgement needs a human — flagging is
+    # cheap, deleting real history is not.
+    if daily_spaced and "volume" in df.columns:
+        vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+        flat_zero = (c == c.shift(1)) & (vol == 0)
+        n_phantom = int(flat_zero.sum())
+        if n_phantom >= 3:
+            for ts in df.index[flat_zero]:
+                out.append((ts, f"phantom bar ({n_phantom} in this partition — "
+                                f"unchanged close on zero volume)"))
+        # A traded US listing never has a median-ZERO-VOLUME month. This is
+        # the signature that caught the survivors: the partition is a
+        # different instrument's stale quote feed, not a market.
+        elif float(vol.median()) == 0:
+            out.append((df.index[0], "dead partition (median volume 0 across "
+                                     "the month — stale/wrong-contract feed)"))
+
     if daily_spaced and "volume" in df.columns:
         flat_zero = ((c == c.shift(1))
                      & (pd.to_numeric(df["volume"], errors="coerce").fillna(0) == 0))
