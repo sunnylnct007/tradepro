@@ -106,6 +106,30 @@ export function SwingView() {
         </div>
       )}
 
+      {/* QUARANTINE — dropped symbols are stated, never silently omitted.
+          Owner ruling 22 Aug: "if we get poisoned prices then we better drop
+          that symbol, highlight the fact." A screen that is quietly short a
+          name is a screen you cannot reason about. */}
+      {a.quarantined && a.quarantined.length > 0 && (
+        <div style={{ marginTop: 12, border: `1px solid ${TONE.warn}55`, background: `${TONE.warn}0e`,
+                      borderRadius: 8, padding: "8px 12px", fontSize: 12, lineHeight: 1.6 }}>
+          <b style={{ color: TONE.warn }}>
+            {a.quarantined.length} symbol{a.quarantined.length === 1 ? "" : "s"} dropped — suspect price history
+          </b>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 3 }}>
+            These carry a stored series that looks like a different instrument (wrong venue or wrong
+            contract). It passes NaN/spike checks because the series is internally consistent — it is
+            simply not this security. Mean reversion is the strategy most exposed to it: a wrong-venue
+            series looks permanently, enormously cheap.
+          </div>
+          <div style={{ marginTop: 5, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+            {a.quarantined.map((q) => (
+              <div key={q.symbol}><b>{q.symbol}</b> — {q.detail}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Limits stated on the surface, not in a doc nobody opens. */}
       <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
         <b>What this does not do:</b>

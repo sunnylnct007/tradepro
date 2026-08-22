@@ -70,6 +70,34 @@ ETFS = {"SPY","QQQ","IVV","VTI","DIA","IWM","XLK","XLF","XLI","XLE","XLV","XLP",
 
 
 
+
+def poison_check(closes) -> tuple[bool, float | None]:
+    """Reject a symbol whose history belongs to a DIFFERENT INSTRUMENT.
+
+    The wrong-venue failure (found 22 Aug across VLUE/USMV/QUAL/MTUM/STX): the
+    stored series is an LSE-pence listing or the wrong contract entirely. It
+    passes every NaN/spike/OHLC guard because the series is internally
+    CONSISTENT — it is simply not this security. Signature: a historical price
+    level that is a large multiple of the recent level, with no corporate action
+    to explain it.
+
+    Owner ruling 22 Aug: "if we get poisoned prices then we better drop that
+    symbol, highlight the fact." So this DROPS and REPORTS rather than trying to
+    repair — a screen that quietly trades a mis-priced series is worse than one
+    that is short a name.
+
+    Mean reversion is the strategy most exposed to this: it buys what looks
+    cheap, and a wrong-venue series looks permanently, enormously cheap.
+    """
+    xs = [x for x in closes if x and x > 0]
+    if len(xs) < 80:
+        return True, None
+    recent = sorted(xs[-60:])[30]        # median of the last 60
+    if recent <= 0:
+        return True, None
+    ratio = max(xs) / recent
+    return ratio < 6.0, round(ratio, 1)
+
 def _last_completed_session() -> str:
     """The date whose daily bar can actually be COMPLETE right now (YYYY-MM-DD).
 
@@ -100,13 +128,20 @@ def _load(sym: str):
     return df if len(df) >= 220 and "open" in df.columns else None
 
 
-def scan(symbols: list[str]) -> list[dict]:
+def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
     out: list[dict] = []
+    quarantined: list[dict] = []
     for sym in symbols:
         df = _load(sym)
         if df is None:
             continue
         c = df["close"].tolist(); h = df["high"].tolist(); l = df["low"].tolist()
+        ok_hist, ratio = poison_check(c)
+        if not ok_hist:
+            quarantined.append({"symbol": sym, "reason": "suspect price history",
+                                "detail": f"historical max is {ratio}x the recent median — "
+                                          f"consistent with a wrong-venue or wrong-contract series"})
+            continue
         v = df["volume"].tolist() if "volume" in df.columns else [0] * len(c)
         dates = [str(x)[:10] for x in df.index]
         i = len(c) - 1
@@ -165,10 +200,11 @@ def scan(symbols: list[str]) -> list[dict]:
         })
     # Best reward:risk first — the number that decides whether a bracket is worth placing.
     out.sort(key=lambda r: -(r["reward_risk"] or 0))
-    return out
+    return out, quarantined
 
 
-def build_artifact(rows: list[dict], universe: str) -> dict:
+def build_artifact(rows: list[dict], universe: str,
+                   quarantined: list[dict] | None = None) -> dict:
     return {
         "kind": "swing_candidates",
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
@@ -195,6 +231,7 @@ def build_artifact(rows: list[dict], universe: str) -> dict:
         ],
         "signal_bar": rows[0]["bar"] if rows else _last_completed_session(),
         "settled_bar_only": True,
+        "quarantined": quarantined or [],
         "count": len(rows),
         "candidates": rows,
     }
@@ -212,8 +249,8 @@ def main() -> int:
     syms = ([s.strip().upper() for s in args.symbols.split(",") if s.strip()]
             if args.symbols else
             [s for s in sorted(os.listdir(BASE_DIR)) if "." not in s])
-    rows = scan(syms)
-    art = build_artifact(rows, args.universe)
+    rows, quarantined = scan(syms)
+    art = build_artifact(rows, args.universe, quarantined)
 
     if args.json:
         print(json.dumps(art, indent=1))
@@ -225,7 +262,11 @@ def main() -> int:
                 print(f"{r['symbol']:<7}{r['tier']:<11}{r['close']:>9.2f}{r['target']:>9.2f}"
                       f"{r['stop']:>9.2f}{r['target_pct']:>7.1f}%{r['reward_risk'] or 0:>6.2f}"
                       f"{r['sigma_below']:>7.2f}{r['atr_pct']:>6.1f}%")
-        else:
+        if quarantined:
+            print(f"\n⚠ {len(quarantined)} symbol(s) DROPPED for suspect price history:")
+            for q in quarantined:
+                print(f"   {q['symbol']:<7} {q['detail']}")
+        if not rows:
             print("none today — the screen is selective (~7 signals/week across 257 names)")
 
     if args.push:

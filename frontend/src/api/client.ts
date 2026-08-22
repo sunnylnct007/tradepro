@@ -626,6 +626,7 @@ export const api = {
           worst_trade_pct: number; median_hold_sessions: number; note: string;
         };
         limits: string[];
+        quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
         candidates: Array<{
           symbol: string; tier: string; bar: string; close: number;
           entry_hint: number; target: number; stop: number; target_pct: number;
