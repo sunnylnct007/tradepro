@@ -87,3 +87,71 @@ after it:
 
 If nothing passes, v2 stays exactly as it is and this file is kept as a
 failed study, like the other four.
+
+---
+
+# RESULT — REJECTED. All three variants fail. v2 stays.
+
+Run against the corrected settled-bar logic and the tradeable universe.
+242 symbols · 3,977 sessions · 5,396 control entries · time split 2020-05-01.
+
+| variant | trades | win% | mean% | median% | worst% | hold | /session |
+|---|---|---|---|---|---|---|---|
+| A control | 5,396 | 48.8% | +2.20% | -0.33% | -29.7% | 35 | 1.36 |
+| B >=0.7x | 3,888 | 50.1% | +2.19% | +0.03% | -29.7% | 36 | 0.98 |
+| C >=1.0x | 1,999 | 50.7% | +2.21% | +0.18% | -29.7% | 34 | 0.50 |
+| D >=1.2x | 1,184 | **52.2%** | **+2.84%** | **+0.57%** | -19.4% | 32 | 0.30 |
+
+**Every variant fails G7.** B and C also fail G5; D also fails G1 and G8.
+
+## G7 is the whole story: the effect is one half of history
+
+| variant | time 1st half | time 2nd half | symbols even | symbols odd |
+|---|---|---|---|---|
+| B | **FAIL** +2.01 vs +2.24 | PASS +2.30 vs +2.17 | **FAIL** +1.85 vs +1.90 | PASS +2.56 vs +2.53 |
+| C | **FAIL** +1.96 vs +2.24 | PASS +2.35 vs +2.17 | PASS +2.01 vs +1.90 | **FAIL** +2.43 vs +2.53 |
+| D | **FAIL** +1.62 vs +2.24 | PASS +3.50 vs +2.17 | PASS +2.93 vs +1.90 | PASS +2.75 vs +2.53 |
+
+Read the first column. **In the first half of the history, filtering on
+volume makes the strategy WORSE** — and worst for the strictest filter,
+which is the exact inverse of the full-sample table that motivated the
+study. D goes from +2.24% to +1.62% pre-2020 and from +2.17% to +3.50%
+after.
+
+That is not an edge, it is a regime. The full-sample buckets looked
+monotonic because the second half dominates them. Anyone reading only that
+table — as I was about to — would have shipped a filter that has never
+worked in half of the record.
+
+D survives the symbol split cleanly, which is what makes this instructive:
+one split alone would have passed it. Requiring TWO independent cuts is
+what caught it.
+
+## Prediction grading (predictions were committed at d147326)
+
+| # | Predicted | Actual | |
+|---|---|---|---|
+| 1 | effect shrinks, ~half survives | it INVERTS pre-2020 | **wrong — worse than predicted** |
+| 2 | D fails G1 (~1,184 trades) | 1,184 trades, fails G1 | **right, and the count was exact** |
+| 3 | C marginal on G4, median -0.1%..+0.4% | +0.18%, passed G4 | **right** |
+| 4 | G7 most likely killer, <50% anything survives | G7 killed all three | **right** |
+| 5 | B passes G1, fails G3 | passes G1, fails G3 (+2.19 vs 2.00 threshold)... | **wrong** — B passed G3; it died on G5/G7 |
+
+Three of five. The one that matters — that G7 was where this would die —
+was called before the run.
+
+## Consequence
+
+1. **No volume filter ships.** The Momentum screen keeps the v2 rule.
+2. Entry-bar volume is still shown in the drill-down as CONTEXT, labelled as
+   a failed filter, so a low-volume entry is visible without pretending it
+   is predictive.
+3. **The screen's published evidence was wrong and is corrected.** The
+   5,815 / 47.0% / +1.53% / -14.7% headline was computed before the
+   `_tradeable` fix, so it included futures, indices and foreign listings.
+   On the tradeable universe it is **5,396 trades, 48.8% win, +2.20%/trade,
+   median -0.33%, worst -29.7%, median hold 35**.
+
+   Win rate and mean are BETTER than published. The worst trade is **twice
+   as bad**: -29.7%, not -14.7%. A -8% stop is checked on the close and does
+   not survive a gap. That number goes on the screen.
