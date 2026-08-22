@@ -184,3 +184,58 @@ the bucket is not yet a faithful mirror of canonical.
   golden-first via ibkr_bars.golden_daily (ensure_cached-compatible).
   Hygiene note for either lane: harvest health POSTs are fire-and-forget —
   3 of 5 new-symbol records dropped silently once; deserves retry-once+warn.
+
+---
+
+## 2026-08-22 (late) — RESEARCH lane
+
+**⚠️ FOUR SYMBOLS STILL WRONG-CONTRACT ON DISK.** The wrong-venue purge covered
+STX (now clean). It did NOT cover **MTUM (31), QUAL (34), USMV (26), VLUE (15)**
+— counts are phantom bars, an unchanged close on ZERO volume. Evidence:
+MTUM sat at 5,730–6,000 on volume 9–309 through June 2026 then printed 328.10
+on volume 10,744 the next session; VLUE sat flat at exactly 1,861.00 on volume
+zero for consecutive days in Feb 2023. Both `src=ibkr_web`. A write-time guard
+does not help partitions already on disk.
+
+**THE QUALITY TEST WAS WRONG IN BOTH DIRECTIONS.** Max-vs-recent-median ratio
+falsely condemned **BILL** (genuinely fell $256.90 → $40 on 1.3M shares) and
+**VIXY** (decay is what a VIX futures ETF does), while any threshold loose
+enough to spare them would have cleared MTUM. A second attempt — "far from the
+price level AND thin volume" — condemned **MU** for having risen 10x, because
+old bars are legitimately cheaper and quieter. What separates them cleanly is
+the zero-volume-unchanged-close count (MTUM 31 / QUAL 34 / USMV 26 / VLUE 15
+vs STX 1, AMD 1, everything else 0). One implementation now in
+`strategies/tradepro_strategies/universe.py`; the three near-copies are gone.
+
+**THE UNIVERSE IS NOW DEFINED, NOT INFERRED.** `strategies/universe/tradeable.json`
+— 266 scanned → **89 included**. Criteria: price ≥ $5, median turnover ≥
+$10M/day, ≥ 500 sessions, ≤ 4 phantom bars, ≥ 90% recent coverage. Encodes the
+owner's "solid stocks, not penny stocks" as numbers. **No screen lists a
+directory any more, and there is deliberately no fallback if the file is
+missing** — that fallback was the bug. Every exclusion carries a reason
+(`universe.exclusion_reason("HPQ")` → "$2.5M/day, below the floor"). Beta and
+volatility tiers ship with it for suite runs; beta is tiered on the 1000-day
+window because over 252 days XLP correlates −0.04 with SPY (semis are driving
+the index) while IVV correlates 0.97 — a regime, not a property.
+
+**PROTOCOL BREACH RECORDED.** MR v1 FAILED G4 (top-1% tail share 26% vs ≤25%)
+and the Swing screen shipped anyway with no reasoning written down, while
+momentum v3 / analog v1 / intraday dip v1 were all held to "passes every gate".
+Now recorded in `MEAN_REVERSION_GATES_V1.md` and flagged to the owner as an
+open decision. Its G5 figure (−12.5%) is also wrong — measured pre-`_tradeable()`,
+true value near −22%.
+
+**TWO STUDIES REJECTED, ONE PARKED.**
+- *Momentum v3* (entry volume) REJECTED — the edge inverts pre-2020.
+- *Intraday dip v1* (the owner's own idea) REJECTED — 66% win, **−0.41%/trade**;
+  a −8% stop against a +0.5% target needs 94% to break even.
+- *Analog evaluation v1* PARKED before running — wrong priority.
+
+**BIGGEST DATA GAP FOR RESEARCH: intraday coverage.** Median **14 sessions** of
+5m bars across the 89 names, **zero symbols with a year**. The owner's
+in-and-out strategy is untestable until that changes. This is now the single
+highest-value data request from this lane.
+
+**Screens fixed today:** settled-bar off-by-one (`>=` → `>`) was publishing
+yesterday's close on both screens; published evidence on both was measured
+pre-`_tradeable()` and understated the worst trade by roughly half.
