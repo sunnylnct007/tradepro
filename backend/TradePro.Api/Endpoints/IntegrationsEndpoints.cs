@@ -797,15 +797,24 @@ public static class IntegrationsEndpoints
         // OAuth). FAIL-LOUD: an unresolved symbol / empty history returns an explicit
         // 502 + reason, NEVER an empty 200 — so the cockpit can FLAG the symbol
         // instead of silently showing "no data".
+        // `startTime` (YYYYMMDD-HH:mm:ss) anchors the MOST-RECENT bar; IBKR then
+        // returns `period` worth of bars BACKWARD from it. Without it every
+        // request is measured from NOW, so INTRADAY HISTORY WAS UNREACHABLE:
+        // asking for last May's 5m bars returned the most recent 1000 and the
+        // provider correctly reported "none within the requested window".
+        // That is why deep 5m coverage never accumulated (22 Aug 2026: median
+        // 14 sessions across the tradeable universe, zero symbols with a year)
+        // — the client supported the anchor all along; this endpoint just
+        // never exposed it.
         app.MapGet("/integrations/ibkr/price-history", async (
-            string symbol, string? period, string? bar,
+            string symbol, string? period, string? bar, string? startTime,
             TradePro.Api.Providers.IBKR.IBKRClient ibkr, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(symbol))
                 return Results.BadRequest(new { error = "symbol is required" });
             var p = string.IsNullOrWhiteSpace(period) ? "1y" : period;
             var b = string.IsNullOrWhiteSpace(bar) ? "1d" : bar;
-            var r = await ibkr.GetPriceHistoryAsync(symbol, p, b, ct);
+            var r = await ibkr.GetPriceHistoryAsync(symbol, p, b, ct, startTime);
             if (r.Error is not null || r.Bars.Count == 0)
             {
                 return Results.Json(new

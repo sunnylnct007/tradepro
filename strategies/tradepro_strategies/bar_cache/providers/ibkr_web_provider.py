@@ -203,6 +203,19 @@ class IBKRWebProvider(Provider):
         period, bar = _ibkr_period(start, end, resolution), _BAR[resolution]
         url = (f"{base}/api/integrations/ibkr/price-history"
                f"?symbol={canonical}&period={period}&bar={bar}")
+        # ANCHOR HISTORICAL WINDOWS (22 Aug 2026). IBKR measures `period`
+        # backward from NOW unless a startTime is given, so a request for an
+        # older window returned the most RECENT bars and this provider
+        # correctly rejected them ("N bars returned but none within [...]").
+        # That is why intraday history never accumulated — median 14 sessions
+        # of 5m across the tradeable universe and not one symbol with a year.
+        # Anchor on the window's END so IBKR walks backward into the window.
+        # Only for windows that are meaningfully in the past: a live/current
+        # window must keep measuring from now, or we would pin it to a stale
+        # anchor and miss today's bars.
+        _now = datetime.now(timezone.utc)
+        if (_now - end) > timedelta(days=1):
+            url += f"&startTime={end.strftime('%Y%m%d-%H:%M:%S')}"
         headers = {"Authorization": f"Bearer {token}"} if token else {}
 
         # 60s (not 30s): the backend retries IBKR's transient history errors
