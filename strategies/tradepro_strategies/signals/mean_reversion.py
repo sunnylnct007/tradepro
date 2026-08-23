@@ -34,7 +34,20 @@ SIGMA = 2.5
 BB_WINDOW = 20
 TREND_WINDOW = 200
 STOP_PCT = 0.08
-MAX_HOLD = 10
+MAX_HOLD = 20
+"""Raised from 10 on 2026-08-23, BEFORE the forward test started. See
+MEAN_REVERSION_HOLD_V3.md.
+
+The 10-session cap was closing 31.4% of trades before either the target or the
+stop was reached — the one exit that ends a trade which has not actually
+failed. Extending to 20 lifts the win rate 64.6% -> 72.5% and per-trade return
++0.71% -> +0.97% on the same 2,308 trades, and the gain holds in all four
+cells of the two-split test (+0.25% to +0.29%, which is unusually even).
+
+NOT true GTC, deliberately: no timeout scores +0.99% against 20 sessions'
++0.97%, and gives up the bound on how long capital is committed for two basis
+points. Median hold is 7 sessions either way — the cap only ever truncated the
+tail."""
 
 MIN_BARS = TREND_WINDOW + 10
 """History needed before a signal can be computed at all. A strategy with

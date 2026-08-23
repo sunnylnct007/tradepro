@@ -55,10 +55,18 @@ from ..universe import universe_symbols, poison_check
 
 log = logging.getLogger("tradepro.swing_candidates")
 
-SIGMA = 2.5
-BB_WINDOW = 20
-STOP_PCT = 0.08
-MAX_HOLD = 10
+# THE RULE'S CONSTANTS ARE IMPORTED, NOT RETYPED.
+#
+# These were four local literals, and MAX_HOLD was still 10 after the shared
+# module moved to 20 — so this screen would have advertised "exit by 10
+# sessions" on every row while the live strategy held for 20. A screen and the
+# strategy it describes disagreeing about the rule is the worst version of
+# this bug, because the number is printed in front of a human.
+#
+# Third duplicated constant found today, after poison_check (three near-copies)
+# and the backtest harness's own MAX_HOLD. There is one definition now.
+from ..signals.mean_reversion import (SIGMA, BB_WINDOW, STOP_PCT,  # noqa: E402
+                                      MAX_HOLD)
 MAX_DAY_MOVE = 0.25
 BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
@@ -263,10 +271,10 @@ def build_artifact(rows: list[dict], universe: str,
             "gates_file": "MEAN_REVERSION_GATES_V1.md",
             "gates_commit": "6c9f330",
             "harness": "backtests/studies/mean_reversion_v2.py",
-            "trades": 2251, "win_rate_pct": 64.9, "mean_per_trade_pct": 0.85,
+            "trades": 2310, "win_rate_pct": 72.8, "mean_per_trade_pct": 1.06,
             "median_per_trade_pct": 1.78,
-            "worst_trade_pct": -17.7, "median_hold_sessions": 7,
-            "note": ("ALL SIX gates pass, including G4 (top-1% tail 21.9% of net vs the "
+            "worst_trade_pct": -23.9, "median_hold_sessions": 7,
+            "note": ("ALL SIX gates pass, including G4 (top-1% tail 18.2% of net vs the "
                      "25% ceiling) which v1 FAILED at 26%. Re-measured on the corrected "
                      "244-name universe after IBKR volume was found stored in 100-share "
                      "lots. Also passes a two-split test "

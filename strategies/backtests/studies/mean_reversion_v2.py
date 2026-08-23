@@ -36,7 +36,13 @@ import numpy as np
 from tradepro_strategies.universe import universe_symbols, poison_check
 from tradepro_strategies.cli.build_universe import _load
 
-SIGMA, WINDOW, STOP_PCT, MAX_HOLD = 2.5, 20, 0.08, 10
+# IMPORTED, NOT RETYPED. These were a hardcoded tuple here, which meant
+# raising MAX_HOLD in signals/mean_reversion.py did not reach the harness —
+# it silently kept grading a 10-session hold and appeared to CONTRADICT the
+# result that motivated the change. Same duplicate-constant drift this session
+# has chased through poison_check, the strategy list and the entry rule.
+from tradepro_strategies.signals.mean_reversion import (   # noqa: E402
+    SIGMA, BB_WINDOW as WINDOW, STOP_PCT, MAX_HOLD)
 MAX_DAY_MOVE = 0.35          # a >35% session inside a hold is a corrupt bar
 
 
