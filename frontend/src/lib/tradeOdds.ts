@@ -364,13 +364,20 @@ function lastSettledDate(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function replaySwing(bars: Bar[], p: SwingParams): SwingReplay | null {
+export function replaySwing(bars: Bar[], p: SwingParams,
+                            opts?: { previewBar?: Bar | null }): SwingReplay | null {
   // Drop any bar dated after the last settled session before computing
   // anything. ">" not ">=" — a bar dated exactly the last settled session HAS
   // settled and is the one we want. The screens had that off-by-one for a day
   // and published yesterday's close as today's signal.
   const settled = lastSettledDate();
   while (bars.length && bars[bars.length - 1].ts.slice(0, 10) > settled) bars = bars.slice(0, -1);
+  // A preview bar is appended AFTER the settled series is trimmed, so the
+  // partial day is used deliberately and visibly rather than leaking in.
+  if (opts?.previewBar && bars.length
+      && opts.previewBar.ts.slice(0, 10) > bars[bars.length - 1].ts.slice(0, 10)) {
+    bars = [...bars, opts.previewBar];
+  }
 
   const c = bars.map((b) => b.close), h = bars.map((b) => b.high);
   const l = bars.map((b) => b.low), o = bars.map((b) => b.open);
@@ -448,5 +455,46 @@ export function replaySwing(bars: Bar[], p: SwingParams): SwingReplay | null {
       }
       return Math.max(0, n - 1);
     })(),
+  };
+}
+
+/**
+ * TODAY'S PARTIAL BAR, built from the 5-minute lane.
+ *
+ * Owner: "don't we need to run and evaluate it on demand with latest data
+ * within the day... it will use prev day data and market has already moved
+ * on." Correct, and this closes it without a live-quote endpoint.
+ *
+ * The DAILY harvest runs once at 21:30, so during a session the newest daily
+ * bar is yesterday's. The 5-MINUTE harvest runs every 30 minutes. So today's
+ * open/high/low/last can be assembled from 5m bars and is at most half an hour
+ * stale, using data we already collect — no IBKR quote, and therefore no
+ * contention for the single market-data session the portal needs.
+ *
+ * Verified against the official daily bar for MU on 2026-08-21:
+ *   synthesised  open 989.55  high 989.96  low 958.26  close 966.72
+ *   official     open 989.55  high 989.96  low 958.26  close 966.78
+ * Six pence on the close, because the 5m lane's final bar ends 19:55 and the
+ * session runs to 20:00. Open, high and low match exactly.
+ *
+ * THIS IS A PREVIEW, NOT A SIGNAL, and the distinction is not cosmetic. The
+ * live strategy is settled-bar-only because the backtest measured settled
+ * closes; a name down 3% at 11am may close flat, and trading the partial bar
+ * would produce entries the evidence never covered. What this answers is
+ * "IF the session closed here, would the rule fire" — which is a legitimate
+ * question to ask at 2pm and a dangerous one to act on at 2pm.
+ */
+export function todayBarFrom5m(fiveMin: Bar[], afterDate: string): Bar | null {
+  if (!fiveMin.length) return null;
+  const day = fiveMin[fiveMin.length - 1].ts.slice(0, 10);
+  if (day <= afterDate) return null;          // nothing newer than the settled series
+  const rows = fiveMin.filter((b) => b.ts.slice(0, 10) === day);
+  if (!rows.length) return null;
+  return {
+    ts: day,
+    open: rows[0].open,
+    high: Math.max(...rows.map((r) => r.high)),
+    low: Math.min(...rows.map((r) => r.low)),
+    close: rows[rows.length - 1].close,
   };
 }

@@ -22,13 +22,16 @@
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
-import { replaySwing, LIVE_PARAMS, type Bar, type SwingParams, type SwingReplay } from "../../lib/tradeOdds";
+import { replaySwing, todayBarFrom5m, LIVE_PARAMS, type Bar, type SwingParams, type SwingReplay } from "../../lib/tradeOdds";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
 type Row = { symbol: string; tier: string; atr: number } & SwingReplay;
 
 export function ScannerView() {
   const bars = useRef<Record<string, Bar[]>>({});
+  const intraday = useRef<Record<string, Bar[]>>({});
+  const [preview, setPreview] = useState(false);
+  const [previewDate, setPreviewDate] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -61,19 +64,37 @@ export function ScannerView() {
           } catch { bars.current[s] = []; }
         }
       }
+      if (preview) {
+        for (let i = 0; i < syms.length; i++) {
+          const s2 = syms[i].symbol;
+          if (intraday.current[s2]) continue;
+          setProgress(`today's session ${i + 1}/${syms.length} · ${s2}`);
+          try {
+            const r = await api.ibkrBars({ symbol: s2, resolution: "5m", limit: 400 });
+            intraday.current[s2] = (r.bars ?? []).filter((x) => x.high >= x.low && x.close > 0)
+              .map((x) => ({ ts: x.ts, open: x.open, high: x.high, low: x.low, close: x.close }));
+          } catch { intraday.current[s2] = []; }
+        }
+      }
       setProgress("computing…");
       const out: Row[] = [];
+      let pd: string | null = null;
       for (const u of syms) {
         const b = bars.current[u.symbol];
         if (!b || b.length < 250) continue;
-        const r = replaySwing(b, p);
+        let pv: Bar | null = null;
+        if (preview && intraday.current[u.symbol]?.length) {
+          pv = todayBarFrom5m(intraday.current[u.symbol], b[b.length - 1].ts.slice(0, 10));
+          if (pv) pd = pv.ts;
+        }
+        const r = replaySwing(b, p, { previewBar: pv });
         if (r) out.push({ symbol: u.symbol, tier: `${u.beta_tier ?? "?"}β/${u.volatility_tier ?? "?"}v`,
                           atr: u.atr_pct ?? 0, ...r });
       }
-      setRows(out);
+      setRows(out); setPreviewDate(pd);
     } catch (e) { setErr(String((e as Error)?.message || e)); }
     finally { setProgress(null); }
-  }, [p]);
+  }, [p, preview]);
 
   /** THE LEGITIMATE USE OF THE SLIDERS.
    *
@@ -177,6 +198,13 @@ export function ScannerView() {
                 style={{ ...inp, width: "auto", cursor: "pointer", fontWeight: 700 }}>
           {progress ? progress : rows ? "Recompute" : "Scan universe"}
         </button>
+        <label style={{ fontSize: 11, color: "var(--text-dim)", display: "flex", gap: 5,
+                        alignItems: "center", border: `1px solid ${preview ? TONE.warn : "var(--border)"}`,
+                        borderRadius: 6, padding: "5px 8px" }}
+               title="Build today's partial bar from the 5-minute lane and preview the rule on it">
+          <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} />
+          include today&apos;s session
+        </label>
         {rows && (
           <button onClick={runSensitivity} style={{ ...inp, width: "auto", cursor: "pointer" }}
                   title="Sweep each number around the live value — does the edge depend on the exact settings?">
@@ -216,11 +244,22 @@ export function ScannerView() {
                   {st === 0 ? " (current)" : ` · ${st} trading session${st === 1 ? "" : "s"} old`}
                 </b>
                 <div style={{ color: "var(--text-muted)" }}>
-                  Daily closes only — <b>no live price, no intraday bar</b>. The harvest runs at
-                  21:30, so during a session the newest settled bar is the previous close. A partial
-                  bar for today is discarded before anything is computed, because a name down 3% at
-                  11am may close flat.
+                  {preview && previewDate
+                    ? <>Plus <b style={{ color: TONE.warn }}>today&apos;s partial bar for {previewDate}</b>,
+                      assembled from the 5-minute lane — which harvests every 30 minutes, so it is at
+                      most half an hour behind. No IBKR quote is used, so this cannot take the
+                      market-data session.</>
+                    : <>Daily closes only — <b>no live price, no intraday bar</b>. The harvest runs at
+                      21:30, so during a session the newest settled bar is the previous close.</>}
                 </div>
+                {preview && (
+                  <div style={{ color: TONE.warn, marginTop: 3 }}>
+                    ⚠ PREVIEW, NOT A SIGNAL. This answers &ldquo;if the session closed here, would the
+                    rule fire&rdquo;. The live strategy stays settled-bar-only because the backtest
+                    measured settled closes — a name down 3% at 11am may close flat, and trading the
+                    partial bar produces entries the evidence never covered.
+                  </div>
+                )}
               </div>
             );
           })()}
