@@ -278,28 +278,116 @@
       "id": "momentum_v3_volume",
       "title": "Momentum v3 \u2014 does entry-bar volume add anything?",
       "date": "2026-08-22",
-      "verdict": "FAIL",
-      "verdict_label": "REJECTED \u2014 all three variants fail G7",
-      "gates_file": "MOMENTUM_GATES_V3.md",
-      "gates_commit": "d147326",
-      "result_commit": "e50cd2a",
+      "verdict": "FAIL \u2014 all three variants",
       "prediction": "G7 (must survive a TIME split and a SYMBOL split) is where this most likely dies \u2014 under 50% that anything passes G1-G6 and then survives it. D (>=1.2x) fails G1 on trade count. C (>=1.0x) marginal on G4, median between -0.1% and +0.4%.",
-      "prediction_graded": "3 of 5 correct. The one that mattered \u2014 that G7 would kill it \u2014 was called before the run.",
       "headline": "Entry-bar volume looked monotonic on the full sample (<0.7x: 45.4% win; >1.2x: 52.2%). It is a REGIME, not an edge: in the first half of the record, filtering on volume makes the strategy WORSE, and worst for the strictest filter. D goes +2.24%\u2192+1.62% pre-2020 and +2.17%\u2192+3.50% after. All three variants fail G7.",
-      "notes": "D passed the symbol split cleanly \u2014 either split ALONE would have shipped it. Requiring two independent cuts is what caught it. No untouched hold-out existed (the effect was found on the full sample), which is stated in the gates file rather than glossed. Consequence: no volume filter ships; v2 stands. Volume is shown in the drill-down as context labelled a failed filter. Also corrected the screen's published evidence \u2014 5,815/47.0%/+1.53%/-14.7% predated the _tradeable fix and included futures and indices; the true figures are 5,396 trades, 48.8% win, +2.20%/trade, median -0.33%, worst -29.7%."
+      "gates": [
+        {
+          "id": "G1",
+          "test": "\u2265 1,500 trades",
+          "result": "D: 1,184",
+          "pass": false
+        },
+        {
+          "id": "G2",
+          "test": "Win rate \u2265 50%",
+          "result": "D: 52.2%",
+          "pass": true
+        },
+        {
+          "id": "G3",
+          "test": "Mean \u2265 +2.00%",
+          "result": "D: +2.84%",
+          "pass": true
+        },
+        {
+          "id": "G4",
+          "test": "Median > 0.00%",
+          "result": "D: +0.57%",
+          "pass": true
+        },
+        {
+          "id": "G5",
+          "test": "Worst \u2265 \u221225%",
+          "result": "B/C: \u221229.7%",
+          "pass": false
+        },
+        {
+          "id": "G6",
+          "test": "Median hold \u2264 40",
+          "result": "32",
+          "pass": true
+        },
+        {
+          "id": "G7",
+          "test": "Survives BOTH splits",
+          "result": "fails the time split \u2014 inverts pre-2020",
+          "pass": false
+        },
+        {
+          "id": "G8",
+          "test": "\u2265 0.5 signals/session",
+          "result": "D: 0.30",
+          "pass": false
+        }
+      ],
+      "gatesFile": "MOMENTUM_GATES_V3.md",
+      "gatesCommit": "d147326",
+      "verdictLabel": "REJECTED \u2014 all three variants fail G7",
+      "predictionGraded": "3 of 5 correct. The one that mattered \u2014 that G7 would kill it \u2014 was called before the run.",
+      "resultCommit": "e50cd2a",
+      "why": "D passed the symbol split cleanly \u2014 either split ALONE would have shipped it. Requiring two independent cuts is what caught it. No untouched hold-out existed (the effect was found on the full sample), which is stated in the gates file rather than glossed. Consequence: no volume filter ships; v2 stands. Volume is shown in the drill-down as context labelled a failed filter. Also corrected the screen's published evidence \u2014 5,815/47.0%/+1.53%/-14.7% predated the _tradeable fix and included futures and indices; the true figures are 5,396 trades, 48.8% win, +2.20%/trade, median -0.33%, worst -29.7%."
     },
     {
       "id": "mean_reversion_v2",
       "title": "Mean reversion v2 \u2014 first reproducible Swing measurement",
       "date": "2026-08-22",
-      "verdict": "PASS",
-      "verdict_label": "ALL SIX gates pass, incl. G4 which v1 failed",
-      "gates_file": "MEAN_REVERSION_GATES_V1.md",
-      "gates_commit": "6c9f330",
+      "verdict": "PASS \u2014 all six gates",
       "harness": "backtests/studies/mean_reversion_v2.py",
       "prediction": "Not a fresh pre-registration \u2014 graded against v1's gates, unchanged, on a defined universe and cleaned data.",
       "headline": "1,270 trades \u00b7 66.2% win \u00b7 +0.88%/trade \u00b7 median +1.91% \u00b7 worst -17.7% \u00b7 hold 7. G4 (top-1% tail) 19.9% of net vs the 25% ceiling \u2014 v1 FAILED this at 26% and shipped anyway. Passes a two-split test that rejected momentum v3 and the intraday dip study the same day.",
-      "notes": "The v1 harness did not exist \u2014 written in a scratch dir, never committed, and its surviving log does not record hold length, so '4 bars' traced to no artifact. This is therefore the FIRST reproducible measurement, not a reconciliation. Trade count halved because v1's universe included futures and indices. The worst trade got WORSE (-12.5% -> -17.7%) as a CORRECTION: stops now fill at min(stop, open), because a gap through a stop does not fill at the stop \u2014 modelling the fill at the trigger gave exactly -8.0% in every variant, a stop that never slips. No exit convention reproduces v1's 4-bar hold; all four give 7-10 and all four pass every gate."
+      "gates": [
+        {
+          "id": "V0",
+          "test": "\u2265 1,000 trades",
+          "result": "2,310",
+          "pass": true
+        },
+        {
+          "id": "G1",
+          "test": "Win rate \u2265 55%",
+          "result": "72.8%",
+          "pass": true
+        },
+        {
+          "id": "G2",
+          "test": "Mean net > 0",
+          "result": "+1.06%/trade",
+          "pass": true
+        },
+        {
+          "id": "G3",
+          "test": "Median hold \u2264 10 bars",
+          "result": "7 bars",
+          "pass": true
+        },
+        {
+          "id": "G4",
+          "test": "Top-1% share of net \u2264 25%",
+          "result": "18.2%",
+          "pass": true
+        },
+        {
+          "id": "G5",
+          "test": "Worst trade \u2265 \u221225%",
+          "result": "\u221223.9%",
+          "pass": true
+        }
+      ],
+      "gatesFile": "MEAN_REVERSION_GATES_V1.md",
+      "gatesCommit": "6c9f330",
+      "verdictLabel": "ALL SIX gates pass, incl. G4 which v1 failed",
+      "why": "The v1 harness did not exist \u2014 written in a scratch dir, never committed, and its surviving log does not record hold length, so '4 bars' traced to no artifact. This is therefore the FIRST reproducible measurement, not a reconciliation. Trade count halved because v1's universe included futures and indices. The worst trade got WORSE (-12.5% -> -17.7%) as a CORRECTION: stops now fill at min(stop, open), because a gap through a stop does not fill at the stop \u2014 modelling the fill at the trigger gave exactly -8.0% in every variant, a stop that never slips. No exit convention reproduces v1's 4-bar hold; all four give 7-10 and all four pass every gate."
     }
   ]
 }

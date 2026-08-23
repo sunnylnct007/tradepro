@@ -86,7 +86,13 @@ export function ResearchView() {
                 <div style={{ margin: "10px 0 4px", fontWeight: 700, color: "var(--text-dim)" }}>Gates</div>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <tbody>
-                    {s.gates.map((g) => (
+                    {/* `?? []` is not defensive padding — a study record with no
+                        `gates` key took the ENTIRE /desk route down with
+                        "Cannot read properties of undefined (reading 'map')"
+                        on 23 Aug. A data file should never be able to crash a
+                        route; a study missing its gates should render without
+                        them and say so. */}
+                    {(s.gates ?? []).map((g) => (
                       <tr key={g.id} style={{ borderTop: "1px solid #141b2b" }}>
                         <td style={{ padding: "5px 8px", width: 44, fontFamily: "var(--font-mono)",
                                      color: g.pass ? TONE.ok : TONE.bad, fontWeight: 700 }}>
@@ -100,6 +106,11 @@ export function ResearchView() {
                     ))}
                   </tbody>
                 </table>
+                {!s.gates?.length && (
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "4px 0" }}>
+                    Gate-by-gate results are not recorded for this study — see its gates file.
+                  </div>
+                )}
 
                 <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>
                   Gates: <code>strategies/{s.gatesFile}</code> · committed{" "}
