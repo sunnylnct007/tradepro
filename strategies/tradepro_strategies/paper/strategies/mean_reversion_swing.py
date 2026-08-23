@@ -180,9 +180,25 @@ class MeanReversionSwingStrategy(Strategy):
                     f"stop {stop_price(closes[i]):.2f} (-{100*STOP_PCT:.0f}%), "
                     f"timeout {MAX_HOLD} sessions"))
         self.mark_order_in_flight(sym)
+        # RECORD THE REFERENCE PRICE ON THE ORDER.
+        #
+        # Forward-test gate F3 measures entry slippage against "the published
+        # price", and until now NOTHING recorded what that price was. Checked
+        # against the live paper record: all 43 matched fills sit INSIDE their
+        # session's high-low range, so they are real fills — but their distance
+        # from the open measures WHEN they filled, not how badly. Slippage
+        # needs the price at SEND time, and the OMS stores none for a market
+        # order (limitPrice is null by definition).
+        #
+        # So F3 would have been UNGRADEABLE in week twelve — the same shape of
+        # failure as G4 in the rejected dip study, found too late to fix. These
+        # fields make it measurable from the order record alone.
         return [Order(strategy_id=self.strategy_id, symbol=sym, side=OrderSide.BUY,
                       quantity=qty, type=OrderType.MARKET,
-                      tag=f"swing entry 2.5sigma tgt={target_price(closes,i):.2f} "
+                      risk_target_price=round(target_price(closes, i), 4),
+                      risk_stop_price=round(stop_price(closes[i]), 4),
+                      tag=f"swing entry 2.5sigma ref={closes[i]:.4f} "
+                          f"tgt={target_price(closes,i):.2f} "
                           f"stop={stop_price(closes[i]):.2f}")]
 
     # ── helpers ───────────────────────────────────────────────────────────

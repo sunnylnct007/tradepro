@@ -59,7 +59,7 @@ edge test.**
 |---|---|---|---|
 | F1 | Signal fidelity | >= 95% of live candidates match what the committed harness produces for the same dates | Tests the PIPELINE. A live screen disagreeing with its own backtest invalidates everything downstream. |
 | F2 | Every fill reconciles | 100% of fills trace to a published signal | An unattributable fill means something else is trading. Zero tolerance. |
-| F3 | Entry slippage | median <= 0.30% vs the published entry | The backtest assumed the signal-bar close. Worse than this and the edge is being eaten at the door. |
+| F3 | Entry slippage | median <= 0.30% vs the RECORDED reference price | The backtest assumed the signal-bar close. Worse than this and the edge is eaten at the door. **See the amendment below — this gate was UNGRADEABLE as written.** |
 | F4 | Stop behaviour | every stop-out fills at or below `min(stop, open)` as modelled | The v2 harness models gap-through. If reality is worse, the -17.7% worst trade is optimistic. |
 | F5 | No silent failures | zero sessions where the screen fails to run without a loud alert | A screen that quietly does not fire is indistinguishable from a screen with no signals. |
 | F6 | Trade count | >= 15 completed trades | Below this even the execution questions cannot be answered. If unmet, EXTEND the window — do not grade it. |
@@ -67,6 +67,38 @@ edge test.**
 **Explicitly NOT a gate: P&L, win rate, or expectancy.** They are recorded and
 reported, never graded, at this sample size. Recording them without grading
 them is deliberate: it builds the sample toward the six-month test.
+
+## AMENDMENT, 23 Aug — F3 was ungradeable and is now fixed
+
+Written before the window opened, after checking the gate against real data
+rather than assuming it would work.
+
+**F3 measures entry slippage "against the published price", and nothing
+recorded what that price was.** The OMS stores no reference for a market order
+— `limitPrice` is null by definition — so there was nothing to measure
+against.
+
+The check that found it: 4 months of live paper fills, matched to their
+sessions. **All 43 matched fills sit INSIDE their session's high-low range**,
+so they are genuine fills. Comparing them to the session OPEN gave a median
+"slippage" of +0.335% with outliers past 5%, and 51% of fills breaching the
+0.30% gate — but that number is measuring WHEN an order filled during the day,
+not how badly it filled. Timing, not slippage.
+
+Had this gone unfixed, F3 would have failed on day one for reasons unrelated
+to Swing, or been quietly reinterpreted in week twelve. That is the same shape
+of failure as G4 in the rejected intraday-dip study — a gate that cannot be
+computed, discovered after the run.
+
+**Fix:** Swing's entry orders now carry the signal-bar close as
+`risk_target_price` / `risk_stop_price` and in the order tag (`ref=`). F3 is
+measured against that recorded reference, not against a session open.
+
+**The 0.30% threshold itself remains UNVALIDATED** and is retained only because
+there is no evidence to replace it with. The live record cannot calibrate it,
+for the reason above. First real slippage numbers arrive in week one, and if
+they show 0.30% was the wrong number that is an honest amendment to make then
+— with data — rather than a failed gate in week twelve.
 
 ## Failure means
 
