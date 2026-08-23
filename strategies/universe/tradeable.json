@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-08-23T07:03:22.169780+00:00",
+  "as_of": "2026-08-23T14:57:52.927030+00:00",
   "criteria": {
     "min_price": 5.0,
     "min_dollar_volume": 10000000,
@@ -4993,7 +4993,7 @@
       "class": "ok",
       "price": 18.21,
       "dollar_volume_median": 41830267,
-      "sessions": 1185,
+      "sessions": 1225,
       "first_bar": "2021-08-23",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
