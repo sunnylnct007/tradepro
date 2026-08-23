@@ -100,6 +100,35 @@ does not prevent data from moving, it prevents data moving *unaccountably*.
 
 **Freeze window: from the start date below, TWELVE weeks** (revised from four — the corrected signal rate makes an edge answer reachable, and a freeze that ends before the test does is not a freeze).
 
+## What a NORMAL result looks like — simulated before the test, on purpose
+
+`backtests/studies/forward_simulation.py`. 20,000 bootstrap runs over the real
+2,453-trade record, ~84 trades in 12 weeks, 5% of capital each.
+
+| | 5th pct | median | 95th pct | P(loses money) | worst drawdown |
+|---|---|---|---|---|---|
+| losses independent | -0.1% | +4.0% | +8.3% | 5% | -3.0% |
+| **losses CLUSTER (realistic)** | **-5.0%** | **+4.2%** | **+12.6%** | **21%** | **-8.3%** |
+
+**There is a ONE IN FIVE chance this window loses money while the strategy is
+working exactly as measured.** Losses cluster — bad conditions persist for
+months, which is what 2022 was — so the independent-losses figure understates
+the risk of a losing quarter by a factor of four. Both are shown for that
+reason and the clustered one is the one to plan against.
+
+Recorded BEFORE the window opens so neither of us can reinterpret the outcome
+afterwards. Concretely:
+
+* **A twelve-week loss is not evidence the strategy is broken.** It is inside
+  the 5th-to-95th range and happens one time in five.
+* **A +10% quarter is not evidence it is better than measured** either — that
+  is the 90th percentile of the same distribution.
+* **A drawdown of 8% intra-window is normal.** Only below roughly -12%, or a
+  result outside this band entirely, is there anything to explain.
+
+This is why P&L is RECORDED BUT NOT GRADED in this window. The execution gates
+are answerable at 84 trades; the edge is not.
+
 ## Start date
 
     START:  2026-08-24  (Monday — the first trading session after the owner
