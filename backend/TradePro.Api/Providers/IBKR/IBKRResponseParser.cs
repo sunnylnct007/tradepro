@@ -239,6 +239,9 @@ public static class IBKRResponseParser
     /// <summary>Parse GET /iserver/marketdata/history — OHLCV bars in the "data"
     /// array ({t: epoch-MILLISECONDS UTC, o,h,l,c, v}). Empty list when there are
     /// no bars; the caller FLAGS that (never a silent empty).</summary>
+    /// <summary>IBKR historical bars report volume in lots of 100 shares.</summary>
+    public const int IbkrVolumeLotSize = 100;
+
     public static IReadOnlyList<IBKRBar> ParseHistory(string json)
     {
         using var doc = JsonDocument.Parse(json);
@@ -253,7 +256,16 @@ public static class IBKRResponseParser
             long? t = Long(b, "t");
             decimal? o = Dec(b, "o"), h = Dec(b, "h"), l = Dec(b, "l"), c = Dec(b, "c");
             if (t is null || o is null || h is null || l is null || c is null) continue;
-            bars.Add(new IBKRBar(t.Value, o.Value, h.Value, l.Value, c.Value, (long)(Dec(b, "v") ?? 0m)));
+            // IBKR reports historical volume in 100-SHARE LOTS, not shares
+            // (23 Aug 2026). Stored raw, every IBKR bar was 100x understated:
+            // SPY's 21 Aug daily bar read 589,831 against a real ~59,000,000.
+            // Confirmed by A/B against yfinance rows for the same symbols in
+            // the parquet store (META exactly 100.0x) and by the physical
+            // impossibility of SPY trading 590k shares a day. The same fix is
+            // applied in the Python bar_cache provider; existing rows are
+            // migrated by db/migrations/065.
+            bars.Add(new IBKRBar(t.Value, o.Value, h.Value, l.Value, c.Value,
+                (long)((Dec(b, "v") ?? 0m) * IbkrVolumeLotSize)));
         }
         return bars;
     }

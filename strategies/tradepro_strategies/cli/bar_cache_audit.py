@@ -97,6 +97,65 @@ def find_garbage(df: pd.DataFrame) -> list[tuple[object, str]]:
     return out
 
 
+
+def _fix_ibkr_volume(base: Path, parquets: list[Path], *, apply: bool) -> int:
+    """Scale IBKR-sourced volume from 100-share lots to shares.
+
+    Idempotent by construction: each partition's manifest records
+    `ibkr_volume_lot_fixed`, and a partition carrying that marker is skipped.
+    Without it a second run would multiply by 100 again, which is exactly the
+    class of silent corruption this whole audit exists to catch."""
+    import json as _json
+    scaled = skipped = untouched = 0
+    rows_changed = 0
+    for p in parquets:
+        man = p.with_suffix(".manifest.json")
+        meta = {}
+        if man.exists():
+            try:
+                meta = _json.loads(man.read_text())
+            except Exception:  # noqa: BLE001
+                meta = {}
+        if meta.get("ibkr_volume_lot_fixed"):
+            skipped += 1
+            continue
+        try:
+            df = pd.read_parquet(p)
+        except Exception:  # noqa: BLE001
+            continue
+        if df.empty or "source" not in df.columns or "volume" not in df.columns:
+            untouched += 1
+            continue
+        mask = df["source"].astype(str).str.startswith("ibkr")
+        n = int(mask.sum())
+        if n == 0:
+            untouched += 1
+            continue
+        rows_changed += n
+        scaled += 1
+        if apply:
+            df.loc[mask, "volume"] = (
+                pd.to_numeric(df.loc[mask, "volume"], errors="coerce").fillna(0)
+                * 100).astype("int64")
+            df.to_parquet(p)
+            meta["ibkr_volume_lot_fixed"] = True
+            man.write_text(_json.dumps(meta, indent=2))
+    verb = "scaled" if apply else "WOULD scale"
+    print(f"{verb} {rows_changed:,} IBKR row(s) across {scaled} partition(s); "
+          f"{skipped} already fixed, {untouched} with no IBKR rows")
+    if not apply:
+        print("dry run — re-run with --apply to write")
+        return 1
+    try:
+        from tradepro_strategies.run_log import log_run
+        log_run("bar-cache", "ibkr-volume-lot-fix", "warn",
+                error=f"migrated {rows_changed} IBKR volume rows x100 across "
+                      f"{scaled} partitions (lots to shares)")
+    except Exception:  # noqa: BLE001
+        pass
+    return 0
+
+
 def _load(path: Path) -> pd.DataFrame:
     df = pd.read_parquet(path)
     if "timestamp" in df.columns:
@@ -107,6 +166,17 @@ def _load(path: Path) -> pd.DataFrame:
 def main() -> int:
     ap = argparse.ArgumentParser(prog="tradepro-bar-cache-audit")
     ap.add_argument("--base-dir", default=str(_DEFAULT_BASE))
+    ap.add_argument("--fix-ibkr-volume", action="store_true",
+                    help="ONE-SHOT MIGRATION: multiply volume by 100 on every "
+                         "row whose source is an IBKR provider. IBKR reports "
+                         "historical volume in 100-share LOTS and it was "
+                         "stored raw, so every IBKR bar is 100x understated "
+                         "(SPY 21 Aug read 590,483 against a real ~59,000,000). "
+                         "Prices are unaffected — only volume. Idempotency is "
+                         "enforced by a marker in the manifest, so re-running "
+                         "cannot double-apply. Dry-run unless --apply.")
+    ap.add_argument("--apply", action="store_true",
+                    help="with --fix-ibkr-volume, actually write the change")
     ap.add_argument("--refresh", action="store_true",
                     help="RE-SOURCE every flagged partition from the golden "
                          "chain (force_refresh) and re-check it. This is the "
@@ -124,6 +194,10 @@ def main() -> int:
 
     base = Path(args.base_dir).expanduser()
     parquets = sorted(base.rglob("*.parquet"))
+
+    if args.fix_ibkr_volume:
+        return _fix_ibkr_volume(base, parquets, apply=args.apply)
+
     print(f"bar-cache audit — {len(parquets)} partition file(s) under {base}")
     total_bad = 0
     affected: list[tuple[Path, pd.DataFrame, list[tuple[object, str]]]] = []

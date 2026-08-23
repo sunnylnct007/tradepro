@@ -36,6 +36,9 @@ _INTRADAY_RES = {"1m", "5m", "15m", "30m"}
 # (period="1m") returns 503 Service Unavailable; a 5-day ask returns cleanly.
 # 7 days keeps us inside that and matches the "1w" period the mapping already
 # emits, so the request is one IBKR understands well.
+# IBKR historical bars report volume in lots of 100 shares for US listings.
+_IBKR_VOLUME_LOT_SIZE = 100
+
 _INTRADAY_CHUNK_DAYS = 7
 # IBKR caps a history response at 1000 BARS regardless of the period asked
 # for (measured 22 Aug 2026: period=1m and period=3m both returned exactly
@@ -366,6 +369,17 @@ class IBKRWebProvider(Provider):
         df = (df.set_index("timestamp")
                 .rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
                 [["open", "high", "low", "close", "volume"]]
+                # IBKR reports historical volume in 100-SHARE LOTS, not shares
+                # (23 Aug 2026). Stored raw, every IBKR-sourced bar was 100x
+                # understated — SPY's 21 Aug bar read 590,483 against a real
+                # ~59,000,000. That is not cosmetic: the tradeable universe is
+                # built on a median-dollar-turnover floor, so the most liquid
+                # names in the market were being EXCLUDED as too thin to fill
+                # against — XOM at "$9.7M/day", JNJ "$8.2M", IBM "$9.3M".
+                # Confirmed by A/B against yfinance rows for the same symbols
+                # (META exactly 100.0x) and by the physical impossibility of
+                # SPY trading 590k shares a day.
+                .assign(volume=lambda d: d["volume"] * _IBKR_VOLUME_LOT_SIZE)
                 .sort_index())
         # bar_cache schema REQUIRES adj_factor + source (column_order = open/high/low/
         # close/volume/adj_factor/source). Without BOTH, BarStore rejects the frame
