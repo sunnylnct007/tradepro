@@ -36,9 +36,23 @@ HEARTBEAT_INTERVAL_SECONDS="${HEARTBEAT_INTERVAL_SECONDS:-300}"  # 5 min livenes
 
 mkdir -p "$LOG_DIR"
 
-UV="$(command -v uv || echo /usr/local/bin/uv)"
+# Resolve uv robustly — launchd supplies a minimal PATH. This script was the
+# only one in scripts/ still guessing: it fell through to /opt/homebrew/bin/uv
+# without checking the file exists, and uv actually lives in /opt/anaconda3/bin
+# here. Every heartbeat since at least 17 Aug died on "No such file or
+# directory" — 250 of them on 22 Aug alone — and nobody saw it because the call
+# site ends in `|| true`. Same candidate search as bar-cache-harvest.sh.
+export PATH="/opt/homebrew/bin:/opt/anaconda3/bin:$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
+UV="$(command -v uv || true)"
 if [[ ! -x "$UV" ]]; then
-  UV="/opt/homebrew/bin/uv"
+  for cand in /opt/anaconda3/bin/uv /opt/homebrew/bin/uv "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv" /usr/local/bin/uv; do
+    if [[ -x "$cand" ]]; then UV="$cand"; break; fi
+  done
+fi
+if [[ ! -x "$UV" ]]; then
+  echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] FATAL: uv not found on PATH or known locations" \
+    >>"$LOG_DIR/worker-$(date -u +%Y-%m-%d).log"
+  exit 1
 fi
 
 log() {
@@ -55,8 +69,13 @@ heartbeat_loop() {
       sleep "$HEARTBEAT_INTERVAL_SECONDS"
       continue
     fi
-    "$UV" run tradepro-heartbeat >>"$LOG_DIR/worker-heartbeat-$(date -u +%Y-%m-%d).log" 2>&1 \
-      || true
+    # `|| true` keeps the loop alive across a transient failure, but on its own
+    # it also hid a heartbeat that had not run once in six days. Log the failure
+    # to the worker log so a dead heartbeat is visible where someone looks.
+    if ! "$UV" run tradepro-heartbeat \
+         >>"$LOG_DIR/worker-heartbeat-$(date -u +%Y-%m-%d).log" 2>&1; then
+      log "heartbeat FAILED (exit $?) — see worker-heartbeat-$(date -u +%Y-%m-%d).log"
+    fi
     sleep "$HEARTBEAT_INTERVAL_SECONDS"
   done
 }
