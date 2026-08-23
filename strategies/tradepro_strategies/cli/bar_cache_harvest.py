@@ -52,6 +52,7 @@ from pathlib import Path
 
 from tradepro_strategies.bar_cache import BarFetchError, BarStore, PreferencesLoader
 from tradepro_strategies.bar_cache.asset_classes import UsEtfPlugin  # noqa: F401 — registers
+from tradepro_strategies.bar_cache.quality import fetch_tier, fetch_tier_icon
 from tradepro_strategies.bar_cache.providers import YFinanceProvider  # noqa: F401 — registers
 from tradepro_strategies.bar_cache.providers.ibkr_provider import (
     IBKRProvider,  # noqa: F401 — registers
@@ -630,46 +631,12 @@ def main() -> int:
     return 0
 
 
-def _quality_tier(provider_used: str | None, complete: bool,
-                  df: "pd.DataFrame | None" = None) -> str:
-    """Map provider + completeness → quality tier label.
-
-    ``provider_used`` is the store's chain outcome — ``"<provider>_ok"``
-    (e.g. ``ibkr_web_ok``) or ``"cache"`` — NOT the bare provider name.
-    Until 2026-08-09 this compared the suffixed value against ``"ibkr"``,
-    so every IBKR-sourced fetch (gateway AND web) displayed as 🥉 bronze
-    and the G/S/B run summary under-reported IBKR success.
-
-    16 Aug 2026 — the SAME CLASS OF BUG, one level down. ``"cache"`` was
-    graded bronze outright, and on a steady-state run almost every symbol is
-    a cache hit. So the G/S/B summary read "0 gold" and the data-readiness
-    endpoint that parses it reported **"0 from IBKR, 172 from the yfinance
-    fallback"** — a false statement about the data. The bars on disk were
-    25% ibkr_web at 5m. "Which provider answered THIS call" is not "where
-    the data came from"; the stored ``source`` column is the only thing that
-    knows, so grade on it whenever we have the frame.
-    """
-    if not provider_used or provider_used == "none":
-        return "missing"
-    p = (provider_used or "").lower().removesuffix("_ok")
-    if p in ("ibkr", "ibkr_web"):
-        return "gold" if complete else "silver"
-    if p == "cache" and df is not None and not df.empty and "source" in df.columns:
-        srcs = df["source"].dropna()
-        if len(srcs):
-            golden = int(srcs.isin(["ibkr", "ibkr_web", "g3"]).sum())
-            # Majority rule: a partition that is mostly IBKR is IBKR-grade.
-            # A mixed one is reported by its dominant source, and the exact
-            # split stays visible in the row provenance (ibkr_bars.py).
-            if golden * 2 >= len(srcs):
-                return "gold" if complete else "silver"
-        return "bronze"
-    # ig / yfinance, or cache with no frame to inspect.
-    return "bronze"
-
-
-def _tier_icon(tier: str) -> str:
-    return {"gold": "🥇", "silver": "🥈", "bronze": "🥉", "missing": "✗ "}.get(tier, "?")
+# Grading vocabulary is owned by bar_cache.quality — BOTH schemes live there
+# so a future divergence shows up in one diff. `_quality_tier` and `_tier_icon`
+# stay as names here because tests and readers already know them; the logic is
+# no longer duplicated.
+_quality_tier = fetch_tier
+_tier_icon = fetch_tier_icon
 
 
 def _parse_date(s: str) -> datetime:

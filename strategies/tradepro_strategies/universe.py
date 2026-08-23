@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 # ── criteria ──────────────────────────────────────────────────────────────
@@ -122,6 +123,65 @@ def load_universe(*, strict: bool = True) -> dict:
 
 def universe_symbols(**kw) -> list[str]:
     return [r["symbol"] for r in load_universe(**kw)["symbols"]]
+
+
+def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
+    """What the daily harvest should REFRESH — the one definition of it.
+
+    Harvesting is not screening, and the two want different sets. A screen must
+    only ever consider the committed universe (`universe_symbols`), which is why
+    `load_universe` refuses to fall back to a directory listing. A harvest also
+    wants to keep refreshing names that have recently DROPPED out of the
+    universe, so their history stays current if they qualify again — re-seeding
+    years of bars is expensive, and a name near the liquidity floor crosses it in
+    both directions.
+
+    So: the union of the committed universe and whatever the store already
+    holds, put through the same `_instrument_ok` filter as everything else.
+
+    Why this exists at all. `scripts/bar-cache-harvest-daily.sh` derived its list
+    by `ls`-ing the cache directory and re-implementing the exclusions in grep.
+    Two consequences:
+
+    1. **A new universe member was never harvested.** No directory yet, so `ls`
+       could not see it, so it got no daily bars — silently, until somebody
+       noticed and ran a separate seed step. The script's own comment conceded
+       this ("adding new symbols is a separate seed step").
+    2. **The two filters had already drifted.** The shell pattern
+       `^[A-Z0-9.-]+$` admits a `-USD` crypto pair; `_instrument_ok` rejects it.
+       Nobody would notice until a crypto directory appeared in the us_etf tree.
+
+    The directory listing also once produced a phantom `US_ETF` "symbol" from a
+    mis-nested folder and marked 37 consecutive daily harvests FAILED while every
+    real symbol was fine. Anything that is not a plausible ticker is dropped here
+    rather than handed to a provider to 404 on.
+    """
+    out: dict[str, None] = {}          # ordered set
+
+    for sym in universe_symbols(strict=False):
+        ok, _ = _instrument_ok(sym)
+        if ok:
+            out.setdefault(sym.upper(), None)
+
+    if store_dir is not None:
+        p = Path(store_dir)
+        if p.is_dir():
+            for child in sorted(p.iterdir()):
+                if not child.is_dir():
+                    continue
+                sym = child.name.strip()
+                # A directory name is not a ticker just because it is a
+                # directory. Reject the asset-class folder appearing inside
+                # itself, and anything not ticker-shaped.
+                if sym.upper() == p.name.upper():
+                    continue
+                if not re.fullmatch(r"[A-Za-z0-9.\-^=]+", sym):
+                    continue
+                ok, _ = _instrument_ok(sym)
+                if ok:
+                    out.setdefault(sym.upper(), None)
+
+    return sorted(out)
 
 
 def exclusion_reason(symbol: str) -> str | None:

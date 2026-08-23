@@ -21,26 +21,41 @@ LOG_DIR="$HOME/.tradepro/logs"; mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/bar-cache-harvest-daily-$(date -u +%F).log"
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
 
-# Universe = every symbol already tracked in the daily cache (keeps the existing
-# 127 current; adding new symbols is a separate seed step).
+# What to harvest = tradepro_strategies.universe.harvest_symbols(), which is the
+# ONE definition of it: the committed universe UNION whatever the store already
+# holds, both put through the same `_instrument_ok` filter every other screen
+# uses.
 #
-# Filtered to real ticker-shaped dir names (uppercase alnum/dot/hyphen), and
-# explicitly excludes the asset-class dir name itself — a stray mis-nested
-# ~/.tradepro/bar_cache/us_etf/us_etf/ leftover got `ls`-derived into a
-# phantom "US_ETF" symbol that every provider correctly 404'd on, silently
-# marking every daily harvest FAIL from ~6 Jul 2026 to 8 Aug 2026 (37+ runs)
-# even though all 179 real symbols harvested fine. Directory removed; this
-# guard is the durable fix so a stray dir can't masquerade as a ticker again.
-# US listings only (owner call 21 Aug 2026): foreign listings (dot-suffixed —
-# 0700.HK, AIR.PA, SAP.DE …) fail IBKR every run (Yahoo tickers + no
-# off-platform API entitlement) and only ever produced bronze yfinance rows.
-# TRADEPRO_HARVEST_INCLUDE_FOREIGN=1 re-includes them once harmonization +
-# entitlements exist.
-FOREIGN_FILTER='\.'
-[[ "${TRADEPRO_HARVEST_INCLUDE_FOREIGN:-0}" == "1" ]] && FOREIGN_FILTER='^$'
-SYMS=$(ls "$CACHE_DIR" 2>/dev/null | grep -v -i "^$(basename "$CACHE_DIR")$" \
-    | grep -E '^[A-Z0-9.-]+$' | grep -Ev "$FOREIGN_FILTER" | tr '\n' ',' | sed 's/,$//')
-[[ -n "$SYMS" ]] || { log "FATAL: no symbols in $CACHE_DIR"; exit 1; }
+# This used to be derived here, by `ls`-ing the cache directory and
+# re-implementing the exclusions in grep. That had two failure modes, and the
+# first one was silent for as long as it existed:
+#
+#   1. A NEW universe member was never harvested. No directory yet, so `ls`
+#      could not see it, so it got no daily bars until somebody noticed. The
+#      comment that used to live here conceded it: "adding new symbols is a
+#      separate seed step".
+#   2. The two filters had already drifted. This grep pattern
+#      (`^[A-Z0-9.-]+$`) admits a `-USD` crypto pair, which `_instrument_ok`
+#      rejects — nobody would have noticed until a crypto dir appeared in the
+#      us_etf tree.
+#
+# It also once turned a mis-nested ~/.tradepro/bar_cache/us_etf/us_etf/ folder
+# into a phantom "US_ETF" symbol that every provider correctly 404'd on, marking
+# 37+ consecutive daily harvests FAILED while all 179 real symbols were fine.
+# The ticker-shape and self-name guards now live in harvest_symbols() so a stray
+# directory cannot masquerade as a ticker again, wherever it is called from.
+#
+# US listings only (owner call 21 Aug 2026): foreign (dot-suffixed) listings fail
+# IBKR every run — Yahoo tickers, no off-platform entitlement — and only ever
+# produced bronze yfinance rows. That exclusion lives in `_instrument_ok`.
+SYMS=$("$UV" run python -c "
+from tradepro_strategies.universe import harvest_symbols
+print(','.join(harvest_symbols('$CACHE_DIR')))
+" 2>>"$LOG")
+# Fail LOUD and stop. An empty list here means the universe file is missing or
+# the store is gone; harvesting nothing while reporting success is how a lane
+# goes quietly dark.
+[[ -n "$SYMS" ]] || { log "FATAL: harvest_symbols() returned nothing (universe file missing, or $CACHE_DIR gone)"; exit 1; }
 N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)
 
 # Trailing 10-day window: catches the latest sessions + backfills any small gap
