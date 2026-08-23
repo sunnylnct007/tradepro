@@ -248,3 +248,33 @@ worst -17.7% to -20.4%). The result does not depend on choosing one.
 
 The Swing screen now publishes these figures with the harness path beside
 them. **This is the first number set in the project that can be re-run.**
+
+---
+
+# G4 IS THE SENSITIVE GATE. Expect it to be the one that breaks.
+
+Flagged by the data lane 23 Aug, and correct. Across the two runs:
+
+| universe | trades | G4 (top-1% share of net) | margin to the 25% ceiling |
+|---|---|---|---|
+| 89 names | 1,270 | 19.9% | 5.1 points |
+| 244 names | 2,251 | **21.9%** | **3.1 points** |
+
+G4 moves WITH POPULATION SIZE by construction — a wider universe contains more
+names capable of an outsized single winner, so tail concentration rises even
+when nothing about the strategy has changed. The direction is explainable and
+it still passes. But the margin has shrunk by 40% for a reason that has
+nothing to do with the edge.
+
+**So if the universe changes again — a liquidity-floor adjustment, a new
+listing set, another data correction that restores excluded names — G4 is the
+gate most likely to fail, and such a failure should be read as a population
+effect FIRST, not as the strategy degrading.**
+
+Every other gate is population-stable: win rate, mean, hold and worst trade
+barely moved across a near-tripling (66.2%→64.9%, +0.88%→+0.85%, 7→7 bars,
+-17.7% unchanged). G4 moved 2 points. It is the outlier and it is the one to
+watch.
+
+Recorded in advance so a future failure reads as expected rather than as a
+surprise — which is the entire purpose of writing gates down before running.

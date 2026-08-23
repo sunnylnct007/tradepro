@@ -74,21 +74,29 @@ F1, F2 or F5 failing = a platform defect. Fix it, restart the window.
 F3 or F4 failing = the backtest's assumptions are wrong; the gates file is
 re-opened before any further forward testing.
 
-## Data freeze — agreed with the DATA lane
+## Data freeze — agreed with the DATA lane, on THEIR revised terms
 
-For the duration of the window, on the data side: **no store-wide remediation,
-no convention changes, no universe edits without recording them.** Routine
-harvesting continues — that is the test running, not a change to it.
+The original proposal was "nothing changes for the window". The data lane
+withdrew that as not credible and I agree with their reasoning: in two days
+they found wrong-contract poison, a routing default that refiled quarantined
+symbols, a 100x dividend error, two 52-week conventions on one screen, an
+RVOL that was wrong by construction, and volume stored in 100-share lots.
+Promising no changes for three months means either breaking the promise or
+knowingly serving data known to be wrong — **and a known-wrong dataset is
+worse for this test than a logged change.**
 
-Reason: on 22 Aug alone the data lane purged wrong-contract series, retired a
-tree, redefined routing, changed the 52-week convention and corrected RVOL.
-Every one was correct. Every one moved numbers underneath somebody. If that
-continues mid-test, a bad week becomes unattributable — strategy
-underperformance and a data change are indistinguishable after the fact.
+The rule actually in force is **"nothing changes SILENTLY"**:
 
-Anything that must break the freeze gets a dated line in `SHARED_CONTEXT.md`
-naming the symbols and dates affected, so any anomaly can be checked against
-it.
+* **No discretionary changes** — no convention changes, no universe edits, no
+  re-sourcing sweeps, no refactors of stored data.
+* **Corrections ARE allowed** when correctness demands, and every one is
+  logged in `DATA_CHANGE_LOG.md` with date, what changed, symbols affected,
+  date range affected and commit hash.
+* **Routine harvesting is not a change** — that is the test running.
+
+**Any anomaly in the window is checked against `DATA_CHANGE_LOG.md` FIRST**,
+before it is attributed to the strategy. That is the whole point: the freeze
+does not prevent data from moving, it prevents data moving *unaccountably*.
 
 **Freeze window: from the start date below, TWELVE weeks** (revised from four — the corrected signal rate makes an edge answer reachable, and a freeze that ends before the test does is not a freeze).
 
