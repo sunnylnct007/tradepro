@@ -23,10 +23,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { RuleChart } from "./RuleChart";
+import { scoreSymbol, type SymbolScore } from "../../lib/tradeOdds";
 import { replaySwing, todayBarFrom5m, LIVE_PARAMS, type Bar, type SwingParams, type SwingReplay } from "../../lib/tradeOdds";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
-type Row = { symbol: string; tier: string; atr: number } & SwingReplay;
+type Row = { symbol: string; tier: string; atr: number; score?: SymbolScore } & SwingReplay;
 
 export function ScannerView() {
   const bars = useRef<Record<string, Bar[]>>({});
@@ -41,6 +42,7 @@ export function ScannerView() {
   const [onlyFiring, setOnlyFiring] = useState(false);
   const [sort, setSort] = useState<"mean" | "win" | "n" | "sigma">("mean");
   const [open, setOpen] = useState<string | null>(null);
+  const [legend, setLegend] = useState(false);
   const [sens, setSens] = useState<Array<{ label: string; v: number; n: number; win: number; mean: number; live: boolean }> | null>(null);
 
   const isLive = useMemo(() =>
@@ -92,6 +94,11 @@ export function ScannerView() {
         if (r) out.push({ symbol: u.symbol, tier: `${u.beta_tier ?? "?"}β/${u.volatility_tier ?? "?"}v`,
                           atr: u.atr_pct ?? 0, ...r });
       }
+      // Score each symbol against the UNIVERSE base rate. Done after the loop
+      // because the base rate is every trade from every symbol — a symbol
+      // cannot be judged better than average until the average exists.
+      const pool = out.flatMap((r) => r.trades.map((t) => t.pct));
+      for (const r of out) r.score = scoreSymbol(r.trades.map((t) => t.pct), pool);
       setRows(out); setPreviewDate(pd);
     } catch (e) { setErr(String((e as Error)?.message || e)); }
     finally { setProgress(null); }
@@ -220,6 +227,48 @@ export function ScannerView() {
         )}
       </div>
 
+      {/* EXPLAINABILITY. Owner: "the screen should be readable with all data we
+          are showing so we understand better — observability and explainability
+          is key." A table of eleven numeric columns is unreadable without it,
+          and a number you cannot interpret is worse than no number: it looks
+          like information. Every column says what it is, and where it can
+          mislead. */}
+      <button onClick={() => setLegend(!legend)}
+              style={{ ...inp, width: "auto", cursor: "pointer", marginBottom: 8, fontSize: 11 }}>
+        {legend ? "▼" : "▶"} What does each column mean?
+      </button>
+      {legend && (
+        <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px",
+                      marginBottom: 12, fontSize: 11, lineHeight: 1.7 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <tbody>
+              {([
+                ["Today", "How far this symbol is from triggering RIGHT NOW. \u201cFIRES\u201d means the rule wants to buy it today; \u201c1.4\u03c3 below\u201d means it has fallen 1.4 standard deviations under its 20-day average and needs 2.5 to trigger. \u201cabove\u201d means it is trading ABOVE its average \u2014 the opposite of what this rule buys."],
+                ["trades", "How many times the rule has fired on this symbol in its whole stored history. THE MOST IMPORTANT COLUMN. 65 of 240 symbols have three or fewer, and with three trades every other number on the row is noise. Amber below 8."],
+                ["win%", "Share of those trades that made money. Seductive and incomplete \u2014 the rejected dip strategy won 66% and lost money, because a big stop against a small target needs a huge win rate to break even."],
+                ["mean%", "Average return per trade, and the column that actually matters. Positive means the trades made money on average even after the losers."],
+                ["median%", "The MIDDLE trade. If median is far below mean, the profit is coming from a few big winners rather than the typical trade \u2014 that is Momentum's shape, and it needs many trades taken mechanically."],
+                ["worst%", "The worst single trade. Usually near \u22128% (the stop), but worse when price GAPPED through the stop overnight \u2014 a stop is checked on the close and does not survive a gap."],
+                ["hold", "Median sessions from entry to exit. About 7 for this rule; the target is the 20-day average, which drifts down to meet a recovering price."],
+                ["ATR%", "How much the symbol moves on an ordinary day, as a percentage. MU at 5.8% means an \u22128% stop is about 1.4 normal days away; SPY at 0.8% means 10 days away. The same stop means completely different things."],
+                ["Verdict", "Whether this symbol beats the universe average AFTER discounting for how little we know about it. \u201cBETTER\u201d requires the bottom of its bootstrapped range to clear the average \u2014 not merely a higher number, which any lucky run produces. Below 10 trades it says \u201ctoo few\u201d however good the average looks."],
+              ] as const).map(([k, v], i) => (
+                <tr key={k} style={{ borderTop: i ? "1px solid #141b2b" : undefined }}>
+                  <td style={{ padding: "5px 12px 5px 0", fontWeight: 700, whiteSpace: "nowrap",
+                               verticalAlign: "top", fontFamily: "var(--font-mono)" }}>{k}</td>
+                  <td style={{ padding: "5px 0", color: "var(--text-muted)" }}>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #141b2b", color: "var(--text-muted)" }}>
+            <b>How to read a row in one sentence:</b> trades tells you whether to believe it,
+            mean% tells you whether it is worth doing, ATR% tells you what the stop means, and
+            Verdict tells you whether it beats simply taking every signal.
+          </div>
+        </div>
+      )}
+
       {err && <div style={{ color: TONE.bad, fontSize: 12, marginBottom: 10 }}>{err}</div>}
       {!rows && !progress && (
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -328,7 +377,9 @@ export function ScannerView() {
                         onClick={() => setSort(k)}>{l} {sort === k ? "▼" : ""}</th>
                   ))}
                   <th style={th}>median%</th><th style={th}>worst%</th>
-                  <th style={th}>hold</th><th style={th}>ATR%</th><th style={th}>Tier</th>
+                  <th style={th}>hold</th><th style={th}>ATR%</th>
+                  <th style={th} title="Own edge blended toward the universe base rate by sample size — a symbol is only 'better' if its interval clears the average">
+                    Verdict</th>
                 </tr>
               </thead>
               <tbody>
@@ -357,7 +408,13 @@ export function ScannerView() {
                       <td style={{ ...td, color: TONE.bad }}>{r.worstPct.toFixed(1)}%</td>
                       <td style={{ ...td, color: "var(--text-dim)" }}>{r.medianHold}</td>
                       <td style={{ ...td, color: "var(--text-dim)" }}>{r.atrPct.toFixed(1)}%</td>
-                      <td style={{ ...td, color: "var(--text-dim)", fontSize: 10 }}>{r.tier}</td>
+                      <td style={{ ...td, fontSize: 10,
+                                   color: r.score?.verdict === "better" ? TONE.ok
+                                        : r.score?.verdict === "worse" ? TONE.bad : "var(--text-muted)" }}>
+                        {r.score?.verdict === "better" ? "BETTER"
+                          : r.score?.verdict === "worse" ? "worse"
+                          : r.score?.verdict === "too few trades" ? "too few" : "in line"}
+                      </td>
                     </tr>
                     {open === r.symbol && (
                       <tr key={r.symbol + "-d"}>
@@ -393,6 +450,61 @@ export function ScannerView() {
                                 </div>
                               )}
                             </div>
+                            {r.score && r.score.n > 0 && (
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>
+                                  IF {r.symbol} FIRES — what that ONE trade looks like
+                                </div>
+                                <div style={{ fontSize: 11, color: "var(--text-muted)", margin: "3px 0 6px", lineHeight: 1.6 }}>
+                                  Not &ldquo;how will {r.symbol} do this quarter&rdquo; — it fires about{" "}
+                                  {(60 * r.n / 4000).toFixed(2)} times in 12 weeks, so the honest
+                                  question is what a single trade is worth when it does.
+                                </div>
+                                <table style={{ borderCollapse: "collapse", fontSize: 11, width: "100%" }}>
+                                  <tbody>
+                                    <tr>
+                                      <td style={{ ...td, padding: "3px 8px 3px 0", color: "var(--text-dim)" }}>
+                                        {r.symbol}&apos;s own record</td>
+                                      <td style={{ ...td, padding: "3px 8px", fontWeight: 700,
+                                                   color: r.score.ownMean > 0 ? TONE.ok : TONE.bad }}>
+                                        {r.score.ownMean > 0 ? "+" : ""}{r.score.ownMean.toFixed(2)}%</td>
+                                      <td style={{ ...td, padding: "3px 8px", color: "var(--text-muted)" }}>
+                                        90% range {r.score.ownLo.toFixed(2)}% to {r.score.ownHi.toFixed(2)}%
+                                        {" "}on {r.score.n} trades</td>
+                                    </tr>
+                                    <tr>
+                                      <td style={{ ...td, padding: "3px 8px 3px 0", color: "var(--text-dim)" }}>
+                                        universe base rate</td>
+                                      <td style={{ ...td, padding: "3px 8px" }}>
+                                        +{r.score.baseMean.toFixed(2)}%</td>
+                                      <td style={{ ...td, padding: "3px 8px", color: "var(--text-muted)" }}>
+                                        {r.score.baseWin.toFixed(0)}% win across every symbol</td>
+                                    </tr>
+                                    <tr style={{ borderTop: "1px solid #141b2b" }}>
+                                      <td style={{ ...td, padding: "3px 8px 3px 0", color: "var(--text-dim)" }}>
+                                        <b>discounted for sample size</b></td>
+                                      <td style={{ ...td, padding: "3px 8px", fontWeight: 700,
+                                                   color: r.score.shrunkMean > r.score.baseMean ? TONE.ok : "inherit" }}>
+                                        {r.score.shrunkMean > 0 ? "+" : ""}{r.score.shrunkMean.toFixed(2)}%</td>
+                                      <td style={{ ...td, padding: "3px 8px", color: "var(--text-muted)" }}>
+                                        {(100 * r.score.weight).toFixed(0)}% its own record,{" "}
+                                        {(100 * (1 - r.score.weight)).toFixed(0)}% the base rate</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                                <div style={{ fontSize: 11, marginTop: 5, lineHeight: 1.6,
+                                              color: r.score.verdict === "better" ? TONE.ok
+                                                   : r.score.verdict === "worse" ? TONE.bad : "var(--text-muted)" }}>
+                                  {r.score.verdict === "too few trades"
+                                    ? `Only ${r.score.n} trades — too few to call. A bootstrap of a tiny sample gives a falsely narrow range: resample 3 wins and every draw is positive, so the symbol looks proven on no evidence. Its ${r.score.ownMean.toFixed(2)}% is shown, not trusted.`
+                                    : r.score.verdict === "better"
+                                    ? `Genuinely better than average — even the bottom of its range (${r.score.ownLo.toFixed(2)}%) clears the base rate.`
+                                    : r.score.verdict === "worse"
+                                    ? `Worse than average — even the TOP of its range (${r.score.ownHi.toFixed(2)}%) sits below the base rate.`
+                                    : `In line with the universe. Its ${r.score.ownMean.toFixed(2)}% looks better or worse, but ${r.score.n} trades cannot tell it apart from the +${r.score.baseMean.toFixed(2)}% average — the range spans it.`}
+                                </div>
+                              </div>
+                            )}
                             <div>
                               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>
                                 LAST {Math.min(8, r.trades.length)} TRADES ON {r.symbol}

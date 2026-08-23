@@ -498,3 +498,103 @@ export function todayBarFrom5m(fiveMin: Bar[], afterDate: string): Bar | null {
     close: rows[rows.length - 1].close,
   };
 }
+
+/**
+ * WHAT HAPPENS IF THIS SYMBOL FIRES — the per-symbol scorecard.
+ *
+ * Owner: "it's a scorecard of our favourite symbols we should trade on" and
+ * "if the symbol fires then it should also run the simulation".
+ *
+ * That framing avoids a trap I hit trying to build it the other way round.
+ * Simulating "twelve weeks of trading MU" is mostly simulating NOTHING: MU
+ * fires 0.21 times in a 12-week window, and across 238 symbols the median is
+ * 0.25 — about 78% of symbols produce no trade at all in a quarter. The
+ * useful question is not "how will MU do this quarter", it is "IF it fires,
+ * what does that trade look like".
+ *
+ * SMALL SAMPLES ARE THE WHOLE DIFFICULTY. MU's +4.96% average comes from 14
+ * trades. Bootstrapping 14 outcomes tells you about those 14, not about the
+ * next one, and a naive per-symbol figure would rank one lucky trade above a
+ * genuine edge. So:
+ *
+ *   • the symbol's own distribution is bootstrapped and shown WITH its
+ *     interval, so 14 trades visibly produces a wide one
+ *   • the universe distribution is shown beside it as the base rate
+ *   • a SHRUNK estimate blends the two, weighted by sample size — the
+ *     standard remedy for exactly this problem. With 14 trades MU keeps most
+ *     of its own signal; with 3 it would sit almost on the universe average.
+ *
+ * The verdict a symbol earns is therefore about whether its edge survives
+ * being discounted for how little we know about it.
+ */
+export type SymbolScore = {
+  n: number;
+  ownMean: number; ownWin: number;
+  ownLo: number; ownHi: number;        // 90% interval on the mean, bootstrapped
+  baseMean: number; baseWin: number;
+  shrunkMean: number;                  // blended toward the universe by sample size
+  weight: number;                      // 0 = trust the universe, 1 = trust the symbol
+  verdict: "better" | "in line" | "worse" | "too few trades";
+};
+
+/** Deterministic PRNG so the same inputs always give the same scorecard. */
+function mulberry(seed: number) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Prior strength: how many universe-equivalent trades a symbol must have
+ *  before we mostly believe its own number. 20 is deliberate — MU's 14 lands
+ *  at 0.41 weight, i.e. still pulled meaningfully toward the base rate. */
+const PRIOR_TRADES = 20;
+
+/** Minimum trades before a symbol may be called better or worse than average.
+ *
+ * NOT cosmetic. A bootstrap of a tiny same-signed sample produces a falsely
+ * NARROW interval: resample 3 wins and every draw is positive, so the interval
+ * "clears" the base rate and the symbol is declared better on no evidence.
+ * Measured before shipping — at a 3-trade floor the top of the leaderboard was
+ * ONTO, MKSI, ENTG and STX, all on 3 trades, and IONQ and CAVA were called
+ * WORSE on 3 stop-outs each. Those are degenerate intervals, not findings.
+ *
+ * 10 is the floor; below it a symbol is honestly "too few trades" however
+ * flattering its average. MU's 14 survives, which is the point — the names
+ * that pass should be ones with a record, not ones with a lucky run. */
+const MIN_TRADES_FOR_VERDICT = 10;
+
+export function scoreSymbol(own: number[], universe: number[], seed = 42): SymbolScore {
+  const mean_ = (x: number[]) => x.reduce((a, b) => a + b, 0) / x.length;
+  const baseMean = universe.length ? mean_(universe) : 0;
+  const baseWin = universe.length ? (100 * universe.filter((v) => v > 0).length) / universe.length : 0;
+  if (own.length < MIN_TRADES_FOR_VERDICT) {
+    const w0 = own.length / (own.length + PRIOR_TRADES);
+    return { n: own.length, ownMean: own.length ? mean_(own) : 0,
+             ownWin: own.length ? (100 * own.filter((v) => v > 0).length) / own.length : 0,
+             ownLo: NaN, ownHi: NaN, baseMean, baseWin,
+             shrunkMean: own.length ? w0 * mean_(own) + (1 - w0) * baseMean : baseMean,
+             weight: own.length ? w0 : 0, verdict: "too few trades" };
+  }
+  const rnd = mulberry(seed);
+  const means: number[] = [];
+  for (let k = 0; k < 2000; k++) {
+    let s = 0;
+    for (let i = 0; i < own.length; i++) s += own[Math.floor(rnd() * own.length)];
+    means.push(s / own.length);
+  }
+  means.sort((a, b) => a - b);
+  const w = own.length / (own.length + PRIOR_TRADES);
+  const ownMean = mean_(own);
+  const shrunk = w * ownMean + (1 - w) * baseMean;
+  const lo = means[Math.floor(0.05 * means.length)], hi = means[Math.floor(0.95 * means.length)];
+  // "Better" requires the interval to clear the base rate — not merely a
+  // higher point estimate, which any lucky run produces.
+  const verdict: SymbolScore["verdict"] =
+    lo > baseMean ? "better" : hi < baseMean ? "worse" : "in line";
+  return { n: own.length, ownMean,
+           ownWin: (100 * own.filter((v) => v > 0).length) / own.length,
+           ownLo: lo, ownHi: hi, baseMean, baseWin, shrunkMean: shrunk, weight: w, verdict };
+}
