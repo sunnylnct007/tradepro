@@ -263,44 +263,47 @@ def build_artifact(rows: list[dict], universe: str,
             "gates_file": "MEAN_REVERSION_GATES_V1.md",
             "gates_commit": "6c9f330",
             "harness": "backtests/studies/mean_reversion_v2.py",
-            "trades": 1270, "win_rate_pct": 66.2, "mean_per_trade_pct": 0.88,
-            "median_per_trade_pct": 1.91,
+            "trades": 2251, "win_rate_pct": 64.9, "mean_per_trade_pct": 0.85,
+            "median_per_trade_pct": 1.78,
             "worst_trade_pct": -17.7, "median_hold_sessions": 7,
-            "note": ("ALL SIX gates pass, including G4 (top-1% tail 19.9% of net vs the "
-                     "25% ceiling) which v1 FAILED at 26%. Also passes a two-split test "
+            "note": ("ALL SIX gates pass, including G4 (top-1% tail 21.9% of net vs the "
+                     "25% ceiling) which v1 FAILED at 26%. Re-measured on the corrected "
+                     "244-name universe after IBKR volume was found stored in 100-share "
+                     "lots. Also passes a two-split test "
                      "that rejected three other candidates the same day: both halves of "
                      "history and both halves of the universe hold 65-67% win and a "
                      "positive mean. All four exit conventions pass every gate, so the "
                      "result does not depend on picking one."),
         },
-        # MEASURED FAILURE MODE, not a disclaimer. Split by SPY's regime at
-        # entry (backtests/studies/mean_reversion_recency.py):
-        #   SPY above its 200-SMA   1,168 trades  67.3% win  +1.00%/trade
-        #   SPY BELOW its 200-SMA     102 trades  53.9% win  -0.48%/trade
-        #   SPY drawdown 5-15%        282 trades  70.6% win  +1.61%/trade  <- best
-        #   SPY drawdown > 15%         41 trades  48.8% win  -1.02%/trade
-        # Only 8% of history sits in the losing regime, so the headline is
-        # dominated by favourable conditions and must not be read as
-        # all-weather.
+        # MEASURED REGIME DEPENDENCE, re-measured on the corrected 244-name
+        # universe after IBKR volume was found to be stored in 100-share lots.
+        # The earlier 89-name reading said this LOSES money below the 200-SMA
+        # (-0.48%/trade). On the full universe it does not — it earns +0.24%,
+        # which is weak but positive. The claim was too strong and is corrected
+        # here rather than quietly softened.
+        #   SPY above its 200-SMA  2,016 trades  65.5% win  +0.93%/trade
+        #   SPY below its 200-SMA    235 trades  60.0% win  +0.24%/trade
+        #   SPY drawdown 5-15%       471 trades  68.8% win  +1.30%/trade  <- best
+        #   SPY drawdown over 15%    133 trades  53.4% win  -0.28%/trade  <- only losing cell
         "regime_dependence": {
-            "above_200sma": {"trades": 1168, "win_pct": 67.3, "mean_pct": 1.00},
-            "below_200sma": {"trades": 102, "win_pct": 53.9, "mean_pct": -0.48},
-            "drawdown_5_15": {"trades": 282, "win_pct": 70.6, "mean_pct": 1.61},
-            "drawdown_over_15": {"trades": 41, "win_pct": 48.8, "mean_pct": -1.02},
+            "above_200sma": {"trades": 2016, "win_pct": 65.5, "mean_pct": 0.93},
+            "below_200sma": {"trades": 235, "win_pct": 60.0, "mean_pct": 0.24},
+            "drawdown_5_15": {"trades": 471, "win_pct": 68.8, "mean_pct": 1.30},
+            "drawdown_over_15": {"trades": 133, "win_pct": 53.4, "mean_pct": -0.28},
         },
         "limits": [
-            "THIS LOSES MONEY IN BEAR MARKETS. With SPY below its 200-day average it wins "
-            "53.9% and averages -0.48% a trade; in a drawdown deeper than 15% it wins 48.8% "
-            "and averages -1.02%. Only 8% of the tested history sits in that regime, so the "
-            "headline numbers describe a market that mostly went up.",
-            "Recent results flatter it. The last three months show 87% win and +7.65%/trade "
-            "while SPY rose with a 4.5% maximum drawdown — that is the regime, not the edge.",
-            "No sentiment or fundamentals filter — neither is backtestable here (EPS store is 3 months deep), so neither is claimed.",
-            "Data guard applied at screen time; mean reversion is uniquely exposed to corrupt bars because it buys crashes.",
-            "Worst historical trade was -34% pre-stop (CRWD, 2024 outage). The stop caps it; nothing prevents an event.",
+            "THE EDGE THINS BADLY IN FALLING MARKETS. Below the S&P's 200-day average it earns "
+            "+0.24% a trade against +0.93% above it — still positive, but a quarter of the "
+            "strength. In a drawdown deeper than 15% it turns negative at -0.28% on 133 trades. "
+            "Ordinary pullbacks of 5-15% are its best conditions (+1.30%).",
+            "Recent results flatter it. The last months show far higher win rates while the S&P "
+            "rose 19% with a 9% maximum drawdown — that is the regime, not the edge.",
+            "35% of these lose. The edge is the average across many, never any single row.",
+            "Settled bars only — the signal is computed on a closed session, so it cannot "
+            "chase an intraday move.",
+            "Symbols with a suspect price series are DROPPED and named below, never silently "
+            "included.",
         ],
-        "signal_bar": rows[0]["bar"] if rows else _last_completed_session(),
-        "settled_bar_only": True,
         "quarantined": quarantined or [],
         "count": len(rows),
         "candidates": rows,

@@ -15,19 +15,32 @@ more backtests.
 
 ## ⚠️ WHAT FOUR WEEKS CAN AND CANNOT ANSWER
 
-**Measured, not assumed:** the rule fires **2.9 times per week** across the
-89-name universe (151 signals in the last 12 months). Four weeks is therefore
-**about 12 trades** — and the monthly spread is severe: 42 in March 2026, 1 so
-far in August.
+**REVISED 23 Aug** after IBKR volume was found to be stored in 100-share lots,
+which had wrongly excluded 155 liquid names as too thin to trade. On the
+corrected **244-name** universe the rule fires **7.0 times per week** (366
+signals in the last 12 months), not 2.9.
 
-**At n≈12 the edge CANNOT be validated.** A 66% win rate over 12 trades has a
-95% interval of roughly 39%-93%. Any outcome in that range — including a
+Four weeks is therefore **about 28 trades**, not 12. The monthly spread is
+still severe: 88 in March 2026, 8 so far in August.
+
+**This changes the recommended window.** 70-80 trades — the point at which a
+65% win rate can be told from a coin flip — now arrives in **10-11 weeks,
+about 2.5 months**, not the six months computed on the broken universe.
+
+**At n≈28 the edge still CANNOT be validated.** A 65% win rate over 28 trades
+has a 95% interval of roughly 46%-80% — it still contains 50%, so four weeks
+cannot show it beats a coin flip. Any outcome in that range — including a
 miserable one — is consistent with the backtest being exactly right. A four-week
 test that "confirms" the edge would be measuring noise, and one that
 "disproves" it would be doing the same.
 
-To distinguish a true 66% from a coin flip with reasonable power needs roughly
-**70-80 trades ≈ six months** at the observed rate.
+To distinguish a true 65% from a coin flip with reasonable power needs roughly
+**70-80 trades ≈ 10-11 weeks** at the corrected rate.
+
+**RECOMMENDED: run 12 weeks, not 4.** The execution gates below are answerable
+within the first fortnight; carrying on to twelve weeks costs nothing extra
+and converts a plumbing test into an edge test. Grading the execution gates
+early and the edge gates at the end gets both from one window.
 
 **So this test is about EXECUTION, not edge.** It answers: do signals fire when
 they should, do orders reach the broker, do fills land where the screen said,
@@ -49,7 +62,7 @@ edge test.**
 | F3 | Entry slippage | median <= 0.30% vs the published entry | The backtest assumed the signal-bar close. Worse than this and the edge is being eaten at the door. |
 | F4 | Stop behaviour | every stop-out fills at or below `min(stop, open)` as modelled | The v2 harness models gap-through. If reality is worse, the -17.7% worst trade is optimistic. |
 | F5 | No silent failures | zero sessions where the screen fails to run without a loud alert | A screen that quietly does not fire is indistinguishable from a screen with no signals. |
-| F6 | Trade count | >= 5 completed trades | Below this even the execution questions cannot be answered. If unmet, EXTEND the window — do not grade it. |
+| F6 | Trade count | >= 15 completed trades | Below this even the execution questions cannot be answered. If unmet, EXTEND the window — do not grade it. |
 
 **Explicitly NOT a gate: P&L, win rate, or expectancy.** They are recorded and
 reported, never graded, at this sample size. Recording them without grading
@@ -77,11 +90,11 @@ Anything that must break the freeze gets a dated line in `SHARED_CONTEXT.md`
 naming the symbols and dates affected, so any anomaly can be checked against
 it.
 
-**Freeze window: from the start date below, four weeks.**
+**Freeze window: from the start date below, TWELVE weeks** (revised from four — the corrected signal rate makes an edge answer reachable, and a freeze that ends before the test does is not a freeze).
 
 ## Start date
 
     START:  __________  (not set — owner's decision)
-    END:    START + 28 days
+    END:    START + 84 days
 
 The window is not running until this is filled in and committed.

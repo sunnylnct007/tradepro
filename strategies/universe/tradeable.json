@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-08-22T18:21:18.235732+00:00",
+  "as_of": "2026-08-23T07:03:22.169780+00:00",
   "criteria": {
     "min_price": 5.0,
     "min_dollar_volume": 10000000,
@@ -8,18 +8,586 @@
     "min_recent_coverage": 0.9
   },
   "counts": {
-    "scanned": 266,
-    "included": 89,
-    "excluded": 177
+    "scanned": 250,
+    "included": 244,
+    "excluded": 6
   },
   "symbols": [
+    {
+      "symbol": "MU",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 966.78,
+      "dollar_volume_median": 73096079731,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.33,
+      "beta_long": 1.92,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.81,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SPY",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 765.72,
+      "dollar_volume_median": 58644906232,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.0,
+      "beta_long": 1.0,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 0.78,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "QQQ",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 713.44,
+      "dollar_volume_median": 46346062955,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.41,
+      "beta_long": 1.2,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.37,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "TSLA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 362.86,
+      "dollar_volume_median": 26428967947,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.28,
+      "beta_long": 1.97,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.17,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "AAPL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 309.35,
+      "dollar_volume_median": 21675206284,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.69,
+      "beta_long": 1.1,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.07,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ASML",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 1763.76,
+      "dollar_volume_median": 21144889022,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.22,
+      "beta_long": 1.65,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 3.33,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "MSFT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 483.24,
+      "dollar_volume_median": 19699895718,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.92,
+      "beta_long": 1.06,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.18,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "KLAC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 183.99,
+      "dollar_volume_median": 15040885412,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.67,
+      "beta_long": 1.74,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.39,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "NVDA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 214.72,
+      "dollar_volume_median": 15014879609,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.88,
+      "beta_long": 1.96,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 2.68,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "GOOGL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 344.82,
+      "dollar_volume_median": 14324397040,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.45,
+      "beta_long": 1.2,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.42,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "META",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 549.9,
+      "dollar_volume_median": 13876982742,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.36,
+      "beta_long": 1.44,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.1,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "AVGO",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 368.45,
+      "dollar_volume_median": 11684316458,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.15,
+      "beta_long": 1.74,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.07,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "IWM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 299.96,
+      "dollar_volume_median": 11282486926,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.18,
+      "beta_long": 1.06,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.06,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "SOXX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 520.05,
+      "dollar_volume_median": 8971010811,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.48,
+      "beta_long": 1.76,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 3.74,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "INTC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 90.07,
+      "dollar_volume_median": 8368339856,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.94,
+      "beta_long": 1.66,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 6.34,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "TSM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 418.95,
+      "dollar_volume_median": 7913117006,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.08,
+      "beta_long": 1.45,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 2.69,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "AMD",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 473.25,
+      "dollar_volume_median": 7668993744,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 1,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.22,
+      "beta_long": 2.09,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 4.94,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "STX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 850.0,
+      "dollar_volume_median": 7271124933,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.34,
+      "beta_long": 1.38,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.56,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "LITE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 866.71,
+      "dollar_volume_median": 6404435809,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.06,
+      "beta_long": 1.92,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 9.66,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "AMAT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 492.32,
+      "dollar_volume_median": 6251702926,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.57,
+      "beta_long": 1.73,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.52,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "VOO",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 703.71,
+      "dollar_volume_median": 6237000382,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.96,
+      "beta_long": 0.91,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 0.78,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "MPWR",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 1316.28,
+      "dollar_volume_median": 6035550394,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.45,
+      "beta_long": 2.14,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.9,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "AMZN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 258.63,
+      "dollar_volume_median": 5415978296,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.68,
+      "beta_long": 1.39,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 2.47,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "MRVL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 237.04,
+      "dollar_volume_median": 5316708202,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": 2.89,
+      "beta_long": 2.3,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.39,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "FIX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 1655.61,
+      "dollar_volume_median": 4942012117,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.47,
+      "beta_long": 1.51,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.18,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "APP",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 305.77,
+      "dollar_volume_median": 4727263524,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.16,
+      "beta_long": 2.1,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 6.51,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "MELI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 1922.73,
+      "dollar_volume_median": 4687856862,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.13,
+      "beta_long": 1.07,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.88,
+      "volatility_tier": "high"
+    },
     {
       "symbol": "WDC",
       "include": true,
       "reason": null,
       "class": "ok",
       "price": 459.44,
-      "dollar_volume_median": 4161998285,
+      "dollar_volume_median": 4377214512,
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
@@ -37,12 +605,202 @@
       "volatility_tier": "high"
     },
     {
+      "symbol": "IVV",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 769.31,
+      "dollar_volume_median": 4373714877,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.96,
+      "beta_long": 0.96,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 0.76,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "LLY",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 1255.4,
+      "dollar_volume_median": 3976842393,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.39,
+      "beta_long": 0.56,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 3.6,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "DIA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 532.22,
+      "dollar_volume_median": 3753629104,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.8,
+      "beta_long": 0.8,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 0.84,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "CAT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 827.9,
+      "dollar_volume_median": 3455645403,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.71,
+      "beta_long": 1.17,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 4.01,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "PLTR",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 179.94,
+      "dollar_volume_median": 3136344923,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.05,
+      "beta_long": 1.89,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 5.34,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "JPM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 351.58,
+      "dollar_volume_median": 3074973232,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.81,
+      "beta_long": 0.92,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.63,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "COHR",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 289.52,
+      "dollar_volume_median": 3037702587,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.4,
+      "beta_long": 2.23,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 12.35,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "V",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 371.04,
+      "dollar_volume_median": 2929689175,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 0.35,
+      "beta_long": 0.67,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.73,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ORCL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 146.47,
+      "dollar_volume_median": 2917249132,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.87,
+      "beta_long": 1.22,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 4.43,
+      "volatility_tier": "high"
+    },
+    {
       "symbol": "GLD",
       "include": true,
       "reason": null,
       "class": "ok",
       "price": 423.36,
-      "dollar_volume_median": 2702569083,
+      "dollar_volume_median": 2902794093,
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
@@ -59,12 +817,55 @@
       "volatility_tier": "mid"
     },
     {
+      "symbol": "UNH",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 390.11,
+      "dollar_volume_median": 2589372526,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 0.39,
+      "beta_long": 0.3,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.45,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "CRWD",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 191.95,
+      "dollar_volume_median": 2371124473,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.56,
+      "beta_long": 1.44,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.76,
+      "volatility_tier": "high"
+    },
+    {
       "symbol": "BRK-B",
       "include": true,
       "reason": null,
       "class": "ok",
       "price": 495.82,
-      "dollar_volume_median": 2222845053,
+      "dollar_volume_median": 2337503753,
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
@@ -81,12 +882,205 @@
       "volatility_tier": "mid"
     },
     {
+      "symbol": "GS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 1039.28,
+      "dollar_volume_median": 2249611458,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.54,
+      "beta_long": 1.2,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.34,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "NFLX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 79.59,
+      "dollar_volume_median": 2161895004,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 0.37,
+      "beta_long": 0.97,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 2.79,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "VTI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 378.24,
+      "dollar_volume_median": 2090301223,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 0.98,
+      "beta_long": 0.94,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 0.8,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "VRT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 261.95,
+      "dollar_volume_median": 2056028923,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 2.78,
+      "beta_long": 2.18,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.26,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "COST",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 947.74,
+      "dollar_volume_median": 2002259885,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.1,
+      "beta_long": 0.61,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 1.82,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ADI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 373.09,
+      "dollar_volume_median": 1889040536,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.55,
+      "beta_long": 1.38,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.31,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "HYG",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 79.61,
+      "dollar_volume_median": 1854404902,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.22,
+      "beta_long": 0.29,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 0.22,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "ADBE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 275.3,
+      "dollar_volume_median": 1830848970,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.33,
+      "beta_long": 1.01,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 3.84,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "HD",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 335.61,
+      "dollar_volume_median": 1827415800,
+      "sessions": 1415,
+      "first_bar": "2021-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.72,
+      "beta_long": 0.86,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.65,
+      "volatility_tier": "mid"
+    },
+    {
       "symbol": "MA",
       "include": true,
       "reason": null,
       "class": "ok",
       "price": 580.63,
-      "dollar_volume_median": 1755237228,
+      "dollar_volume_median": 1802492932,
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
@@ -101,6 +1095,91 @@
       "beta_unstable": false,
       "atr_pct": 1.68,
       "volatility_tier": "mid"
+    },
+    {
+      "symbol": "TER",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 375.74,
+      "dollar_volume_median": 1741589040,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.49,
+      "beta_long": 1.88,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.21,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "DELL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 442.08,
+      "dollar_volume_median": 1642090272,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.13,
+      "beta_long": 1.58,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 6.73,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "WMT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 103.7,
+      "dollar_volume_median": 1624945260,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": -0.02,
+      "beta_long": 0.43,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.77,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "TLT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 82.05,
+      "dollar_volume_median": 1545439708,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.15,
+      "beta_long": 0.12,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 0.8,
+      "volatility_tier": "low"
     },
     {
       "symbol": "EEM",
@@ -123,6 +1202,69 @@
       "beta_unstable": true,
       "atr_pct": 1.55,
       "volatility_tier": "mid"
+    },
+    {
+      "symbol": "LRCX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 314.0,
+      "dollar_volume_median": 1535972542,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.13,
+      "beta_long": 1.91,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.54,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "CIEN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 395.79,
+      "dollar_volume_median": 1529040846,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.83,
+      "beta_long": 1.59,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.55,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "HOOD",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 108.13,
+      "dollar_volume_median": 1526993383,
+      "sessions": 768,
+      "first_bar": "2023-08-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.92,
+      "beta_long": 2.29,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 4.94,
+      "volatility_tier": "high"
     },
     {
       "symbol": "C",
@@ -152,7 +1294,7 @@
       "reason": null,
       "class": "ok",
       "price": 348.37,
-      "dollar_volume_median": 1365087061,
+      "dollar_volume_median": 1479515377,
       "sessions": 1415,
       "first_bar": "2021-01-04",
       "last_bar": "2026-08-21",
@@ -167,6 +1309,154 @@
       "beta_unstable": false,
       "atr_pct": 2.75,
       "volatility_tier": "mid"
+    },
+    {
+      "symbol": "NOW",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 128.48,
+      "dollar_volume_median": 1478369019,
+      "sessions": 999,
+      "first_bar": "2022-08-29",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.68,
+      "beta_long": 1.21,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 4.62,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "XLF",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 57.48,
+      "dollar_volume_median": 1442505631,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.61,
+      "beta_long": 0.77,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.02,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "XLE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 63.64,
+      "dollar_volume_median": 1394736324,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.27,
+      "beta_long": 0.54,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 1.94,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "XLV",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 174.62,
+      "dollar_volume_median": 1376060116,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 0.29,
+      "beta_long": 0.47,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.75,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "AAL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 13.82,
+      "dollar_volume_median": 1370728590,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.83,
+      "beta_long": 1.41,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.72,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "LIN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 487.57,
+      "dollar_volume_median": 1353406264,
+      "sessions": 1415,
+      "first_bar": "2021-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.12,
+      "beta_long": 0.61,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.71,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "QCOM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 160.75,
+      "dollar_volume_median": 1319637547,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.91,
+      "beta_long": 1.44,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.67,
+      "volatility_tier": "high"
     },
     {
       "symbol": "T",
@@ -196,7 +1486,7 @@
       "reason": null,
       "class": "ok",
       "price": 270.95,
-      "dollar_volume_median": 1182858449,
+      "dollar_volume_median": 1257853254,
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
@@ -211,6 +1501,111 @@
       "beta_unstable": false,
       "atr_pct": 1.98,
       "volatility_tier": "mid"
+    },
+    {
+      "symbol": "CRM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 209.17,
+      "dollar_volume_median": 1204176181,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.38,
+      "beta_long": 1.03,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 3.72,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "BAC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 61.69,
+      "dollar_volume_median": 1169111041,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.73,
+      "beta_long": 0.96,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.71,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "CEG",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 272.88,
+      "dollar_volume_median": 1153255169,
+      "sessions": 1152,
+      "first_bar": "2022-01-19",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.37,
+      "beta_long": 1.24,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.71,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "GLW",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 149.84,
+      "dollar_volume_median": 1151031992,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.91,
+      "beta_long": 1.24,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 6.83,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ARM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 243.32,
+      "dollar_volume_median": 1139720468,
+      "sessions": 736,
+      "first_bar": "2023-09-15",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.15,
+      "beta_long": 2.49,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.83,
+      "volatility_tier": "high"
     },
     {
       "symbol": "MS",
@@ -235,12 +1630,54 @@
       "volatility_tier": "mid"
     },
     {
+      "symbol": "CSCO",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 111.04,
+      "dollar_volume_median": 1108880304,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.99,
+      "beta_long": 0.92,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.43,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "AXP",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 336.0,
+      "dollar_volume_median": 1106994556,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.94,
+      "beta_long": 1.12,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.8,
+      "volatility_tier": "mid"
+    },
+    {
       "symbol": "BA",
       "include": true,
       "reason": null,
       "class": "ok",
       "price": 214.2,
-      "dollar_volume_median": 1089918952,
+      "dollar_volume_median": 1102445579,
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
@@ -254,6 +1691,155 @@
       "beta_tier": "mid",
       "beta_unstable": false,
       "atr_pct": 2.4,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "SMCI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 37.24,
+      "dollar_volume_median": 1100492550,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.71,
+      "beta_long": 2.2,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 6.84,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "XLK",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 183.31,
+      "dollar_volume_median": 1080027268,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 1.67,
+      "beta_long": 1.31,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 2.01,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "CVNA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 69.91,
+      "dollar_volume_median": 1028118864,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.26,
+      "beta_long": 2.49,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 5.33,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "GDX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 102.83,
+      "dollar_volume_median": 1027792667,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.71,
+      "beta_long": 0.84,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 3.78,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "RKLB",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 72.57,
+      "dollar_volume_median": 1024061970,
+      "sessions": 999,
+      "first_bar": "2022-08-29",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.39,
+      "beta_long": 2.11,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.48,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "TXN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 264.36,
+      "dollar_volume_median": 983265100,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 1.32,
+      "beta_long": 1.19,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.61,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "XOM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 165.11,
+      "dollar_volume_median": 966960997,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.48,
+      "beta_long": 0.38,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 2.26,
       "volatility_tier": "mid"
     },
     {
@@ -279,12 +1865,12 @@
       "volatility_tier": "low"
     },
     {
-      "symbol": "MU",
+      "symbol": "IBM",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 966.78,
-      "dollar_volume_median": 730960797,
+      "price": 235.68,
+      "dollar_volume_median": 925825454,
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
@@ -292,12 +1878,372 @@
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 3.33,
-      "beta_long": 1.92,
+      "beta": 0.83,
+      "beta_long": 0.78,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.74,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "EFA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 108.24,
+      "dollar_volume_median": 857656888,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.92,
+      "beta_long": 0.83,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 0.75,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "MDB",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 430.83,
+      "dollar_volume_median": 825157396,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.62,
+      "beta_long": 1.64,
       "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 5.81,
+      "beta_unstable": false,
+      "atr_pct": 5.19,
       "volatility_tier": "high"
+    },
+    {
+      "symbol": "JNJ",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 270.24,
+      "dollar_volume_median": 820608107,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.22,
+      "beta_long": 0.23,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.0,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "UBER",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 78.8,
+      "dollar_volume_median": 815450760,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.91,
+      "beta_long": 1.05,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.79,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "BLK",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 1156.55,
+      "dollar_volume_median": 799298358,
+      "sessions": 1415,
+      "first_bar": "2021-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.15,
+      "beta_long": 1.16,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.79,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "RCL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 292.0,
+      "dollar_volume_median": 778170784,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.59,
+      "beta_long": 1.38,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 2.74,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "KRE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 74.86,
+      "dollar_volume_median": 776604835,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.74,
+      "beta_long": 1.07,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.45,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "XLI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 180.25,
+      "dollar_volume_median": 754363429,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.93,
+      "beta_long": 0.83,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.24,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "XLU",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 42.77,
+      "dollar_volume_median": 747744948,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.13,
+      "beta_long": 0.42,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.59,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ANET",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 188.65,
+      "dollar_volume_median": 742202472,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.0,
+      "beta_long": 1.53,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 5.09,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SNOW",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 332.78,
+      "dollar_volume_median": 728232891,
+      "sessions": 999,
+      "first_bar": "2022-08-29",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.26,
+      "beta_long": 1.45,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.76,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "PFE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 28.07,
+      "dollar_volume_median": 690405391,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.32,
+      "beta_long": 0.41,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.32,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "CVX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 205.27,
+      "dollar_volume_median": 687462656,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.45,
+      "beta_long": 0.58,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 2.04,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "XLY",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 118.02,
+      "dollar_volume_median": 686530140,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 1.12,
+      "beta_long": 1.09,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.34,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "KO",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 91.1,
+      "dollar_volume_median": 676234396,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.28,
+      "beta_long": 0.28,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 1.49,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "VZ",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 49.45,
+      "dollar_volume_median": 664908311,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.33,
+      "beta_long": 0.14,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.85,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "SLV",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 62.72,
+      "dollar_volume_median": 648043498,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.69,
+      "beta_long": 0.66,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 2.93,
+      "volatility_tier": "mid"
     },
     {
       "symbol": "USO",
@@ -322,33 +2268,33 @@
       "volatility_tier": "mid"
     },
     {
-      "symbol": "SPY",
+      "symbol": "SCHD",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 765.72,
-      "dollar_volume_median": 586449062,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
+      "price": 35.11,
+      "dollar_volume_median": 628828594,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 1.0,
-      "beta_long": 1.0,
-      "beta_tier": "mid",
+      "beta": 0.25,
+      "beta_long": 0.59,
+      "beta_tier": "low",
       "beta_unstable": false,
-      "atr_pct": 0.78,
+      "atr_pct": 1.07,
       "volatility_tier": "low"
     },
     {
-      "symbol": "QQQ",
+      "symbol": "AGG",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 713.44,
-      "dollar_volume_median": 463460629,
+      "price": 97.35,
+      "dollar_volume_median": 623563565,
       "sessions": 4184,
       "first_bar": "2010-01-04",
       "last_bar": "2026-08-21",
@@ -356,12 +2302,1035 @@
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 1.41,
-      "beta_long": 1.2,
+      "beta": 0.1,
+      "beta_long": 0.22,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 0.33,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "FN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 436.67,
+      "dollar_volume_median": 605252572,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.9,
+      "beta_long": 1.71,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 10.58,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "STRL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 516.81,
+      "dollar_volume_median": 601787835,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.5,
+      "beta_long": 1.68,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.04,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ABBV",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 264.96,
+      "dollar_volume_median": 601512551,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.05,
+      "beta_long": 0.41,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.1,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "HPE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 53.45,
+      "dollar_volume_median": 590814384,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.88,
+      "beta_long": 1.33,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.67,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "IONQ",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 44.86,
+      "dollar_volume_median": 582427520,
+      "sessions": 999,
+      "first_bar": "2022-08-29",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.41,
+      "beta_long": 2.57,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 6.41,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "MRK",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 152.55,
+      "dollar_volume_median": 565369839,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.15,
+      "beta_long": 0.38,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.95,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "F",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 14.41,
+      "dollar_volume_median": 564556788,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.06,
+      "beta_long": 1.27,
       "beta_tier": "mid",
       "beta_unstable": false,
-      "atr_pct": 1.37,
+      "atr_pct": 2.81,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "PG",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 144.68,
+      "dollar_volume_median": 562912320,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.06,
+      "beta_long": 0.23,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.76,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "GILD",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 146.12,
+      "dollar_volume_median": 562858187,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": 0.3,
+      "beta_long": 0.52,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.99,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "WFC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 83.84,
+      "dollar_volume_median": 562745908,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.74,
+      "beta_long": 0.84,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.05,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "DIS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 107.78,
+      "dollar_volume_median": 547846884,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.67,
+      "beta_long": 0.95,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.1,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ACN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 185.28,
+      "dollar_volume_median": 546178248,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.28,
+      "beta_long": 0.84,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 4.3,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "DDOG",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 235.62,
+      "dollar_volume_median": 539679834,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.16,
+      "beta_long": 1.36,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 7.4,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SHOP",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 149.25,
+      "dollar_volume_median": 533738274,
+      "sessions": 999,
+      "first_bar": "2022-08-29",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.78,
+      "beta_long": 1.93,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.92,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "NKE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 40.76,
+      "dollar_volume_median": 524726389,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.74,
+      "beta_long": 0.93,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.82,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "NEE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 83.65,
+      "dollar_volume_median": 517962885,
+      "sessions": 1415,
+      "first_bar": "2021-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "yfinance": 23,
+        "ibkr_web": 37
+      },
+      "beta": 0.16,
+      "beta_long": 0.41,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.74,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "XLB",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 53.54,
+      "dollar_volume_median": 514417676,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": 0.74,
+      "beta_long": 0.8,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.53,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "XLC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 111.4,
+      "dollar_volume_median": 513176128,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.64,
+      "beta_long": 0.9,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.43,
       "volatility_tier": "low"
+    },
+    {
+      "symbol": "NXPI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 225.56,
+      "dollar_volume_median": 504506931,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.57,
+      "beta_long": 1.56,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.31,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "FCX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 76.66,
+      "dollar_volume_median": 500182001,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.36,
+      "beta_long": 1.48,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 3.83,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "JBL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 313.21,
+      "dollar_volume_median": 498922407,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.08,
+      "beta_long": 1.28,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 5.07,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "PEP",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 143.48,
+      "dollar_volume_median": 485787886,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.22,
+      "beta_long": 0.22,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.63,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ON",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 74.21,
+      "dollar_volume_median": 469730642,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.47,
+      "beta_long": 1.89,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 4.83,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "VST",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 136.21,
+      "dollar_volume_median": 456412889,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.51,
+      "beta_long": 1.39,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.98,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "NET",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 293.14,
+      "dollar_volume_median": 447413562,
+      "sessions": 1059,
+      "first_bar": "2022-06-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.52,
+      "beta_long": 1.82,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 6.29,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "CMCSA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 26.85,
+      "dollar_volume_median": 442492485,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.09,
+      "beta_long": 0.64,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 2.28,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "APLD",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 27.21,
+      "dollar_volume_median": 435592773,
+      "sessions": 912,
+      "first_bar": "2023-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.74,
+      "beta_long": 2.42,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.69,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SCHW",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 112.3,
+      "dollar_volume_median": 429203300,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.45,
+      "beta_long": 0.73,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.66,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "SLB",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 53.97,
+      "dollar_volume_median": 413796274,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": 0.75,
+      "beta_long": 0.94,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.64,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "NEM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 131.58,
+      "dollar_volume_median": 409186403,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.51,
+      "beta_long": 0.73,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 3.83,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "MO",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 66.09,
+      "dollar_volume_median": 384317846,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": -0.52,
+      "beta_long": 0.38,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 2.18,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "MCHP",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 76.08,
+      "dollar_volume_median": 383874228,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.2,
+      "beta_long": 1.77,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 5.3,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "DASH",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 223.49,
+      "dollar_volume_median": 376274403,
+      "sessions": 999,
+      "first_bar": "2022-08-29",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.34,
+      "beta_long": 1.36,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.56,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "CVS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 93.02,
+      "dollar_volume_median": 364814226,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.11,
+      "beta_long": 0.5,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 3.22,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "HON",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 215.9,
+      "dollar_volume_median": 362403139,
+      "sessions": 1415,
+      "first_bar": "2021-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.8,
+      "beta_long": 0.87,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.67,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "VXUS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 87.71,
+      "dollar_volume_median": 362077504,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.04,
+      "beta_long": 0.71,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 0.91,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "FLEX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 110.45,
+      "dollar_volume_median": 357399391,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.87,
+      "beta_long": 1.54,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.99,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SITM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 614.83,
+      "dollar_volume_median": 356631072,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 3.22,
+      "beta_long": 2.52,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 9.13,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "OXY",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 61.59,
+      "dollar_volume_median": 349685414,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": -0.55,
+      "beta_long": 0.56,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 2.51,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "COP",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 134.87,
+      "dollar_volume_median": 349273988,
+      "sessions": 1415,
+      "first_bar": "2021-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.45,
+      "beta_long": 0.64,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 2.57,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "CCL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 25.73,
+      "dollar_volume_median": 347968522,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.08,
+      "beta_long": 1.69,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.37,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "GM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 87.43,
+      "dollar_volume_median": 346667035,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": 1.04,
+      "beta_long": 1.01,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.33,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "BMY",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 67.01,
+      "dollar_volume_median": 343615359,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.24,
+      "beta_long": 0.46,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 2.59,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "WBD",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 28.55,
+      "dollar_volume_median": 336940140,
+      "sessions": 1162,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.59,
+      "beta_long": 1.33,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 1.72,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "MTUM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 305.17,
+      "dollar_volume_median": 335526982,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.49,
+      "beta_long": 1.0,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.33,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "UAL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 113.17,
+      "dollar_volume_median": 323198256,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.9,
+      "beta_long": 1.5,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.3,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "HIMS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 33.78,
+      "dollar_volume_median": 319823493,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.91,
+      "beta_long": 1.91,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.75,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SBUX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 107.08,
+      "dollar_volume_median": 318438677,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.55,
+      "beta_long": 0.82,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.53,
+      "volatility_tier": "mid"
     },
     {
       "symbol": "D",
@@ -386,12 +3355,77 @@
       "volatility_tier": "mid"
     },
     {
-      "symbol": "TSLA",
+      "symbol": "AEIS",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 362.86,
-      "dollar_volume_median": 264289679,
+      "price": 285.83,
+      "dollar_volume_median": 312741697,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.62,
+      "beta_long": 1.71,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.26,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "BX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 143.38,
+      "dollar_volume_median": 308443393,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.36,
+      "beta_long": 1.49,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.27,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "TTMI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 110.54,
+      "dollar_volume_median": 306999266,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 3.19,
+      "beta_long": 1.64,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 10.01,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "DAL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 82.41,
+      "dollar_volume_median": 299707763,
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
@@ -399,54 +3433,337 @@
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 2.28,
-      "beta_long": 1.97,
+      "beta": 1.68,
+      "beta_long": 1.37,
       "beta_tier": "high",
       "beta_unstable": false,
-      "atr_pct": 3.17,
+      "atr_pct": 2.71,
       "volatility_tier": "mid"
     },
     {
-      "symbol": "AAPL",
+      "symbol": "WMB",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 309.35,
-      "dollar_volume_median": 216752062,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
+      "price": 70.49,
+      "dollar_volume_median": 290887596,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": -0.03,
+      "beta_long": 0.53,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 3.05,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "DVN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 49.1,
+      "dollar_volume_median": 287180801,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.48,
+      "beta_long": 0.9,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 2.73,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "MTSI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 266.61,
+      "dollar_volume_median": 281194082,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 2.08,
+      "beta_long": 1.6,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 7.53,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "TGT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 165.44,
+      "dollar_volume_median": 266585999,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.46,
+      "beta_long": 0.91,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.94,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "UPS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 102.01,
+      "dollar_volume_median": 258351996,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.78,
+      "beta_long": 0.8,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.2,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "MDLZ",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 64.45,
+      "dollar_volume_median": 255497645,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -0.22,
+      "beta_long": 0.33,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 1.95,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "NCLH",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 17.24,
+      "dollar_volume_median": 254850169,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.84,
+      "beta_long": 1.49,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.93,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "WCC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 349.14,
+      "dollar_volume_median": 254419818,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.9,
+      "beta_long": 1.54,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.56,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "DOW",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 32.35,
+      "dollar_volume_median": 250536668,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": 0.08,
+      "beta_long": 1.04,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 3.36,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "HPQ",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 29.71,
+      "dollar_volume_median": 249362107,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.8,
+      "beta_long": 1.17,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 4.43,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "USB",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 62.05,
+      "dollar_volume_median": 245434137,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
       "beta": 0.69,
-      "beta_long": 1.1,
+      "beta_long": 0.94,
       "beta_tier": "mid",
       "beta_unstable": false,
-      "atr_pct": 2.07,
+      "atr_pct": 1.72,
       "volatility_tier": "mid"
     },
     {
-      "symbol": "ASML",
+      "symbol": "APO",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 1763.76,
-      "dollar_volume_median": 211448890,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
+      "price": 132.69,
+      "dollar_volume_median": 232274283,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 2.22,
-      "beta_long": 1.65,
+      "beta": 1.2,
+      "beta_long": 1.38,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.84,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "DOCN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 115.64,
+      "dollar_volume_median": 224539477,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.71,
+      "beta_long": 1.9,
       "beta_tier": "high",
       "beta_unstable": true,
-      "atr_pct": 3.33,
-      "volatility_tier": "mid"
+      "atr_pct": 9.06,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SAIA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 362.15,
+      "dollar_volume_median": 214141710,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.42,
+      "beta_long": 1.26,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.73,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "AMKR",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 50.26,
+      "dollar_volume_median": 209070721,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.53,
+      "beta_long": 1.95,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 7.2,
+      "volatility_tier": "high"
     },
     {
       "symbol": "FIVE",
@@ -471,96 +3788,12 @@
       "volatility_tier": "mid"
     },
     {
-      "symbol": "MSFT",
+      "symbol": "KHC",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 483.24,
-      "dollar_volume_median": 196998957,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.92,
-      "beta_long": 1.06,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 2.18,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "KLAC",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 183.99,
-      "dollar_volume_median": 150408854,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.67,
-      "beta_long": 1.74,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 5.39,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "NVDA",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 214.72,
-      "dollar_volume_median": 150148796,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.88,
-      "beta_long": 1.96,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 2.68,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "GOOGL",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 344.82,
-      "dollar_volume_median": 143243970,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.45,
-      "beta_long": 1.2,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 2.42,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "META",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 549.9,
-      "dollar_volume_median": 138769827,
+      "price": 25.58,
+      "dollar_volume_median": 205508930,
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
@@ -568,62 +3801,83 @@
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 1.36,
-      "beta_long": 1.44,
-      "beta_tier": "high",
+      "beta": 0.02,
+      "beta_long": 0.42,
+      "beta_tier": "low",
       "beta_unstable": false,
-      "atr_pct": 3.1,
+      "atr_pct": 2.92,
       "volatility_tier": "mid"
     },
     {
-      "symbol": "AVGO",
+      "symbol": "KKR",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 368.45,
-      "dollar_volume_median": 116843164,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
+      "price": 108.48,
+      "dollar_volume_median": 204750529,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 2.15,
-      "beta_long": 1.74,
+      "beta": 1.44,
+      "beta_long": 1.55,
       "beta_tier": "high",
       "beta_unstable": false,
-      "atr_pct": 4.07,
+      "atr_pct": 4.13,
       "volatility_tier": "high"
     },
     {
-      "symbol": "IWM",
+      "symbol": "IBKR",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 299.96,
-      "dollar_volume_median": 112824869,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
+      "price": 93.87,
+      "dollar_volume_median": 201392332,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 2,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.96,
+      "beta_long": 1.11,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 2.96,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "DUK",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 119.85,
+      "dollar_volume_median": 200000945,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 1.18,
-      "beta_long": 1.06,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 1.06,
-      "volatility_tier": "low"
+      "beta": -0.29,
+      "beta_long": 0.3,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 1.88,
+      "volatility_tier": "mid"
     },
     {
-      "symbol": "MRVL",
+      "symbol": "KMI",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 237.04,
-      "dollar_volume_median": 96222346,
+      "price": 31.74,
+      "dollar_volume_median": 198933519,
       "sessions": 1796,
       "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
@@ -632,441 +3886,41 @@
         "ibkr_web": 38,
         "yfinance": 22
       },
-      "beta": 2.89,
-      "beta_long": 2.3,
-      "beta_tier": "high",
+      "beta": -0.15,
+      "beta_long": 0.66,
+      "beta_tier": "low",
       "beta_unstable": true,
-      "atr_pct": 7.39,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "SOXX",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 520.05,
-      "dollar_volume_median": 89710108,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.48,
-      "beta_long": 1.76,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 3.74,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "INTC",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 90.07,
-      "dollar_volume_median": 83683398,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.94,
-      "beta_long": 1.66,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 6.34,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "TSM",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 418.95,
-      "dollar_volume_median": 79131170,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.08,
-      "beta_long": 1.45,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 2.69,
+      "atr_pct": 2.19,
       "volatility_tier": "mid"
     },
     {
-      "symbol": "AMD",
+      "symbol": "XLRE",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 473.25,
-      "dollar_volume_median": 76689937,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 1,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 3.22,
-      "beta_long": 2.09,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 4.94,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "STX",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 850.0,
-      "dollar_volume_median": 72711249,
-      "sessions": 1166,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 1,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.34,
-      "beta_long": 16.71,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 7.56,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "LITE",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 866.71,
-      "dollar_volume_median": 64044358,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
+      "price": 45.08,
+      "dollar_volume_median": 195784735,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 3.06,
-      "beta_long": 1.92,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 9.66,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "AMAT",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 492.32,
-      "dollar_volume_median": 62517029,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.57,
-      "beta_long": 1.73,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 5.52,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "VOO",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 703.71,
-      "dollar_volume_median": 62370003,
-      "sessions": 999,
-      "first_bar": "2022-08-29",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.96,
-      "beta_long": 0.91,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 0.78,
-      "volatility_tier": "low"
-    },
-    {
-      "symbol": "MPWR",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 1316.28,
-      "dollar_volume_median": 60355503,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.45,
-      "beta_long": 2.14,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 4.9,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "AMZN",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 258.63,
-      "dollar_volume_median": 54159782,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.68,
-      "beta_long": 1.39,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 2.47,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "FIX",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 1655.61,
-      "dollar_volume_median": 49420121,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.47,
-      "beta_long": 1.51,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 5.18,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "APP",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 305.77,
-      "dollar_volume_median": 47272635,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.16,
-      "beta_long": 2.1,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 6.51,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "MELI",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 1922.73,
-      "dollar_volume_median": 46878568,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.13,
-      "beta_long": 1.07,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 3.88,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "IVV",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 769.31,
-      "dollar_volume_median": 43737148,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.96,
-      "beta_long": 0.96,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 0.76,
-      "volatility_tier": "low"
-    },
-    {
-      "symbol": "LLY",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 1255.4,
-      "dollar_volume_median": 39768423,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.39,
-      "beta_long": 0.56,
+      "beta": 0.28,
+      "beta_long": 0.63,
       "beta_tier": "low",
       "beta_unstable": false,
-      "atr_pct": 3.6,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "V",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 371.04,
-      "dollar_volume_median": 38925612,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 39,
-        "yfinance": 21
-      },
-      "beta": 0.35,
-      "beta_long": 0.67,
-      "beta_tier": "low",
-      "beta_unstable": false,
-      "atr_pct": 1.73,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "DIA",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 532.22,
-      "dollar_volume_median": 37536291,
-      "sessions": 1796,
-      "first_bar": "2019-07-01",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.8,
-      "beta_long": 0.8,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 0.84,
+      "atr_pct": 1.24,
       "volatility_tier": "low"
     },
     {
-      "symbol": "CAT",
+      "symbol": "NRG",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 827.9,
-      "dollar_volume_median": 34556454,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.71,
-      "beta_long": 1.17,
-      "beta_tier": "mid",
-      "beta_unstable": true,
-      "atr_pct": 4.01,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "PLTR",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 179.94,
-      "dollar_volume_median": 31363449,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.05,
-      "beta_long": 1.89,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 5.34,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "JPM",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 351.58,
-      "dollar_volume_median": 30749732,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.81,
-      "beta_long": 0.92,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 1.63,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "VRT",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 261.95,
-      "dollar_volume_median": 30427626,
+      "price": 113.11,
+      "dollar_volume_median": 195702096,
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
@@ -1076,697 +3930,62 @@
         "yfinance": 21,
         "ibkr_web": 37
       },
-      "beta": 2.78,
-      "beta_long": 2.18,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 5.26,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "COHR",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 289.52,
-      "dollar_volume_median": 30377025,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 3.4,
-      "beta_long": 2.23,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 12.35,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "UNH",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 390.11,
-      "dollar_volume_median": 29747887,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 39,
-        "yfinance": 21
-      },
-      "beta": 0.39,
-      "beta_long": 0.3,
-      "beta_tier": "low",
-      "beta_unstable": false,
-      "atr_pct": 2.45,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "ORCL",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 146.47,
-      "dollar_volume_median": 29172491,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.87,
-      "beta_long": 1.22,
-      "beta_tier": "mid",
-      "beta_unstable": true,
-      "atr_pct": 4.43,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "VTI",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 378.24,
-      "dollar_volume_median": 25830866,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 39,
-        "yfinance": 21
-      },
-      "beta": 0.98,
-      "beta_long": 0.94,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 0.8,
-      "volatility_tier": "low"
-    },
-    {
-      "symbol": "CRWD",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 191.95,
-      "dollar_volume_median": 23711244,
-      "sessions": 999,
-      "first_bar": "2022-08-29",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.56,
-      "beta_long": 1.44,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 4.76,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "GS",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 1039.28,
-      "dollar_volume_median": 22496114,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.54,
-      "beta_long": 1.2,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 2.34,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "NFLX",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 79.59,
-      "dollar_volume_median": 21618950,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 39,
-        "yfinance": 21
-      },
-      "beta": 0.37,
-      "beta_long": 0.97,
-      "beta_tier": "mid",
-      "beta_unstable": true,
-      "atr_pct": 2.79,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "COST",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 947.74,
-      "dollar_volume_median": 20022598,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": -0.1,
-      "beta_long": 0.61,
-      "beta_tier": "low",
-      "beta_unstable": true,
-      "atr_pct": 1.82,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "ADI",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 373.09,
-      "dollar_volume_median": 18890405,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.55,
-      "beta_long": 1.38,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 3.31,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "HYG",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 79.61,
-      "dollar_volume_median": 18544049,
-      "sessions": 999,
-      "first_bar": "2022-08-29",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.22,
-      "beta_long": 0.29,
-      "beta_tier": "low",
-      "beta_unstable": false,
-      "atr_pct": 0.22,
-      "volatility_tier": "low"
-    },
-    {
-      "symbol": "ADBE",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 275.3,
-      "dollar_volume_median": 18308489,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.33,
-      "beta_long": 1.01,
-      "beta_tier": "mid",
-      "beta_unstable": true,
-      "atr_pct": 3.84,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "HD",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 335.61,
-      "dollar_volume_median": 18274158,
-      "sessions": 1415,
-      "first_bar": "2021-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.72,
-      "beta_long": 0.86,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 2.65,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "TER",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 375.74,
-      "dollar_volume_median": 17415890,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 3.49,
-      "beta_long": 1.88,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 7.21,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "DELL",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 442.08,
-      "dollar_volume_median": 16420902,
-      "sessions": 1796,
-      "first_bar": "2019-07-01",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.13,
-      "beta_long": 1.58,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 6.73,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "WMT",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 103.7,
-      "dollar_volume_median": 16249452,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 39,
-        "yfinance": 21
-      },
-      "beta": -0.02,
-      "beta_long": 0.43,
-      "beta_tier": "low",
-      "beta_unstable": false,
-      "atr_pct": 2.77,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "TLT",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 82.05,
-      "dollar_volume_median": 15454397,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.15,
-      "beta_long": 0.12,
-      "beta_tier": "low",
-      "beta_unstable": false,
-      "atr_pct": 0.8,
-      "volatility_tier": "low"
-    },
-    {
-      "symbol": "LRCX",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 314.0,
-      "dollar_volume_median": 15359725,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 3.13,
-      "beta_long": 1.91,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 5.54,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "CIEN",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 395.79,
-      "dollar_volume_median": 15290408,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.83,
-      "beta_long": 1.59,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 7.55,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "HOOD",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 108.13,
-      "dollar_volume_median": 15269933,
-      "sessions": 768,
-      "first_bar": "2023-08-01",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.92,
-      "beta_long": 2.29,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 4.94,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "NOW",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 128.48,
-      "dollar_volume_median": 14783690,
-      "sessions": 999,
-      "first_bar": "2022-08-29",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.68,
+      "beta": 1.32,
       "beta_long": 1.21,
       "beta_tier": "mid",
-      "beta_unstable": true,
-      "atr_pct": 4.62,
+      "beta_unstable": false,
+      "atr_pct": 6.06,
       "volatility_tier": "high"
     },
     {
-      "symbol": "XLF",
+      "symbol": "QUAL",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 57.48,
-      "dollar_volume_median": 14425056,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
+      "price": 223.22,
+      "dollar_volume_median": 194420570,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 0.61,
-      "beta_long": 0.77,
-      "beta_tier": "low",
+      "beta": 0.87,
+      "beta_long": 0.9,
+      "beta_tier": "mid",
       "beta_unstable": false,
-      "atr_pct": 1.02,
+      "atr_pct": 0.74,
       "volatility_tier": "low"
     },
     {
-      "symbol": "XLV",
+      "symbol": "HAL",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 174.62,
-      "dollar_volume_median": 14092307,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 39,
-        "yfinance": 21
-      },
-      "beta": 0.29,
-      "beta_long": 0.47,
-      "beta_tier": "low",
-      "beta_unstable": false,
-      "atr_pct": 1.75,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "XLE",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 63.64,
-      "dollar_volume_median": 13947363,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
+      "price": 35.34,
+      "dollar_volume_median": 191898379,
+      "sessions": 1796,
+      "first_bar": "2019-07-01",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": -0.27,
-      "beta_long": 0.54,
-      "beta_tier": "low",
-      "beta_unstable": true,
-      "atr_pct": 1.94,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "AAL",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 13.82,
-      "dollar_volume_median": 13707285,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.83,
-      "beta_long": 1.41,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 3.72,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "LIN",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 487.57,
-      "dollar_volume_median": 13534062,
-      "sessions": 1415,
-      "first_bar": "2021-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.12,
-      "beta_long": 0.61,
-      "beta_tier": "low",
-      "beta_unstable": false,
-      "atr_pct": 1.71,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "QCOM",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 160.75,
-      "dollar_volume_median": 13196375,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.91,
-      "beta_long": 1.44,
-      "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 3.67,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "CRM",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 209.17,
-      "dollar_volume_median": 12041761,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.38,
-      "beta_long": 1.03,
+      "beta": 0.23,
+      "beta_long": 0.94,
       "beta_tier": "mid",
       "beta_unstable": true,
-      "atr_pct": 3.72,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "BAC",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 61.69,
-      "dollar_volume_median": 11691110,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.73,
-      "beta_long": 0.96,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 1.71,
+      "atr_pct": 2.6,
       "volatility_tier": "mid"
     },
     {
-      "symbol": "CEG",
+      "symbol": "RMBS",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 272.88,
-      "dollar_volume_median": 11532551,
-      "sessions": 1152,
-      "first_bar": "2022-01-19",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 1.37,
-      "beta_long": 1.24,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 3.71,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "GLW",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 149.84,
-      "dollar_volume_median": 11510319,
-      "sessions": 1163,
-      "first_bar": "2022-01-03",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 2.91,
-      "beta_long": 1.24,
-      "beta_tier": "mid",
-      "beta_unstable": true,
-      "atr_pct": 6.83,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "ARM",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 243.32,
-      "dollar_volume_median": 11397204,
-      "sessions": 736,
-      "first_bar": "2023-09-15",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 3.15,
-      "beta_long": 2.49,
-      "beta_tier": "high",
-      "beta_unstable": true,
-      "atr_pct": 7.83,
-      "volatility_tier": "high"
-    },
-    {
-      "symbol": "CSCO",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 111.04,
-      "dollar_volume_median": 11088803,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.99,
-      "beta_long": 0.92,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 3.43,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "RCL",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 292.0,
-      "dollar_volume_median": 11082735,
+      "price": 91.24,
+      "dollar_volume_median": 189088460,
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
@@ -1776,41 +3995,20 @@
         "yfinance": 21,
         "ibkr_web": 37
       },
-      "beta": 1.59,
-      "beta_long": 1.38,
+      "beta": 3.33,
+      "beta_long": 1.89,
       "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 2.74,
-      "volatility_tier": "mid"
+      "beta_unstable": true,
+      "atr_pct": 6.14,
+      "volatility_tier": "high"
     },
     {
-      "symbol": "AXP",
+      "symbol": "MKSI",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 336.0,
-      "dollar_volume_median": 11069945,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
-      "last_bar": "2026-08-21",
-      "poison_ratio": 0,
-      "recent_sources": {
-        "ibkr_web": 60
-      },
-      "beta": 0.94,
-      "beta_long": 1.12,
-      "beta_tier": "mid",
-      "beta_unstable": false,
-      "atr_pct": 1.8,
-      "volatility_tier": "mid"
-    },
-    {
-      "symbol": "SMCI",
-      "include": true,
-      "reason": null,
-      "class": "ok",
-      "price": 37.24,
-      "dollar_volume_median": 11004925,
+      "price": 279.11,
+      "dollar_volume_median": 186159862,
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
@@ -1818,42 +4016,83 @@
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 3.71,
-      "beta_long": 2.2,
+      "beta": 2.82,
+      "beta_long": 2.19,
       "beta_tier": "high",
       "beta_unstable": true,
-      "atr_pct": 6.84,
+      "atr_pct": 6.2,
       "volatility_tier": "high"
     },
     {
-      "symbol": "XLK",
+      "symbol": "AA",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 183.31,
-      "dollar_volume_median": 10800272,
-      "sessions": 4184,
-      "first_bar": "2010-01-04",
+      "price": 51.85,
+      "dollar_volume_median": 182412364,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
-        "ibkr_web": 39,
-        "yfinance": 21
+        "ibkr_web": 60
       },
-      "beta": 1.67,
-      "beta_long": 1.31,
+      "beta": 1.75,
+      "beta_long": 1.57,
       "beta_tier": "high",
       "beta_unstable": false,
-      "atr_pct": 2.01,
-      "volatility_tier": "mid"
+      "atr_pct": 4.53,
+      "volatility_tier": "high"
     },
     {
-      "symbol": "CVNA",
+      "symbol": "ONTO",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 69.91,
-      "dollar_volume_median": 10281188,
+      "price": 293.33,
+      "dollar_volume_median": 180046876,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.12,
+      "beta_long": 2.08,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 8.31,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ENTG",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 143.66,
+      "dollar_volume_median": 180023321,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 3.28,
+      "beta_long": 2.17,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 6.44,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "CLF",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 11.27,
+      "dollar_volume_median": 171236507,
       "sessions": 1163,
       "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
@@ -1862,40 +4101,212 @@
         "ibkr_web": 60
       },
       "beta": 2.26,
-      "beta_long": 2.49,
+      "beta_long": 1.51,
       "beta_tier": "high",
-      "beta_unstable": false,
-      "atr_pct": 5.33,
+      "beta_unstable": true,
+      "atr_pct": 6.15,
       "volatility_tier": "high"
     },
     {
-      "symbol": "GDX",
+      "symbol": "EVR",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 102.83,
-      "dollar_volume_median": 10277926,
-      "sessions": 1796,
-      "first_bar": "2019-07-01",
+      "price": 291.89,
+      "dollar_volume_median": 170855028,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
       "last_bar": "2026-08-21",
       "poison_ratio": 0,
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 1.71,
-      "beta_long": 0.84,
-      "beta_tier": "mid",
-      "beta_unstable": true,
-      "atr_pct": 3.78,
-      "volatility_tier": "high"
+      "beta": 1.84,
+      "beta_long": 1.44,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.4,
+      "volatility_tier": "mid"
     },
     {
-      "symbol": "RKLB",
+      "symbol": "LFUS",
       "include": true,
       "reason": null,
       "class": "ok",
-      "price": 72.57,
-      "dollar_volume_median": 10240619,
+      "price": 412.26,
+      "dollar_volume_median": 154827003,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.64,
+      "beta_long": 1.3,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.27,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SWKS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 67.14,
+      "dollar_volume_median": 152972703,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.41,
+      "beta_long": 1.42,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.18,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "RRX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 166.15,
+      "dollar_volume_median": 152546338,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 2.07,
+      "beta_long": 1.45,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.47,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "NVT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 151.98,
+      "dollar_volume_median": 152350642,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.95,
+      "beta_long": 1.39,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 4.82,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "VICR",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 200.54,
+      "dollar_volume_median": 149232065,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 3.18,
+      "beta_long": 1.73,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 8.3,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ARES",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 141.25,
+      "dollar_volume_median": 147534189,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.61,
+      "beta_long": 1.39,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.59,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ATI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 207.01,
+      "dollar_volume_median": 138628605,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.65,
+      "beta_long": 1.29,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 4.92,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "EL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 101.94,
+      "dollar_volume_median": 137802267,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.58,
+      "beta_long": 1.18,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.63,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "GFS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 48.05,
+      "dollar_volume_median": 137753422,
       "sessions": 999,
       "first_bar": "2022-08-29",
       "last_bar": "2026-08-21",
@@ -1903,9 +4314,911 @@
       "recent_sources": {
         "ibkr_web": 60
       },
-      "beta": 3.39,
-      "beta_long": 2.11,
+      "beta": 2.21,
+      "beta_long": 1.58,
       "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 6.2,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "USMV",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 101.23,
+      "dollar_volume_median": 137222679,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.33,
+      "beta_long": 0.52,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 0.75,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "LSCC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 117.69,
+      "dollar_volume_median": 133552285,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.89,
+      "beta_long": 2.06,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 6.12,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "LUV",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 40.38,
+      "dollar_volume_median": 131822194,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.5,
+      "beta_long": 1.04,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.26,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ALB",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 143.25,
+      "dollar_volume_median": 128914475,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.73,
+      "beta_long": 1.49,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.91,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "CAVA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 73.63,
+      "dollar_volume_median": 128884553,
+      "sessions": 809,
+      "first_bar": "2023-06-15",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.26,
+      "beta_long": 1.46,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 5.31,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SYF",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 79.47,
+      "dollar_volume_median": 118665461,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.15,
+      "beta_long": 1.25,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.17,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "BROS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 49.87,
+      "dollar_volume_median": 111809330,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.29,
+      "beta_long": 1.44,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 5.51,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ELF",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 101.94,
+      "dollar_volume_median": 109888115,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.9,
+      "beta_long": 1.12,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 4.86,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ITA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 237.34,
+      "dollar_volume_median": 109310758,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.99,
+      "beta_long": 0.78,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 1.81,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "VLUE",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 202.52,
+      "dollar_volume_median": 102070545,
+      "sessions": 1246,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.15,
+      "beta_long": 0.86,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 1.33,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "CG",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 49.37,
+      "dollar_volume_median": 98275303,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.4,
+      "beta_long": 1.46,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.83,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ZBRA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 368.51,
+      "dollar_volume_median": 95348099,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.76,
+      "beta_long": 1.44,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.53,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "XPO",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 197.74,
+      "dollar_volume_median": 94926740,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.35,
+      "beta_long": 1.34,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.06,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ALK",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 40.41,
+      "dollar_volume_median": 92709663,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 38,
+        "yfinance": 22
+      },
+      "beta": 2.04,
+      "beta_long": 1.31,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 4.51,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "CRL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 295.19,
+      "dollar_volume_median": 91355933,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.37,
+      "beta_long": 1.14,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 4.11,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "FLS",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 79.39,
+      "dollar_volume_median": 86135762,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.62,
+      "beta_long": 1.25,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 2.7,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "VFC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 14.37,
+      "dollar_volume_median": 79942553,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.69,
+      "beta_long": 1.52,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.27,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "TRU",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 84.61,
+      "dollar_volume_median": 79392043,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.9,
+      "beta_long": 1.36,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.14,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "RH",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 153.21,
+      "dollar_volume_median": 78033344,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.72,
+      "beta_long": 1.8,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 6.38,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "WFRD",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 90.51,
+      "dollar_volume_median": 77574513,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.15,
+      "beta_long": 1.22,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.45,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "IVZ",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 32.02,
+      "dollar_volume_median": 70159873,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.74,
+      "beta_long": 1.4,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 2.57,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "SWK",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 100.02,
+      "dollar_volume_median": 66254916,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.57,
+      "beta_long": 1.33,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 2.76,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ALGM",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 37.16,
+      "dollar_volume_median": 62957972,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.85,
+      "beta_long": 1.8,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 6.9,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "BBWI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 19.45,
+      "dollar_volume_median": 62566610,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.32,
+      "beta_long": 1.24,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 4.51,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "FLR",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 52.42,
+      "dollar_volume_median": 62529904,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.86,
+      "beta_long": 1.29,
+      "beta_tier": "mid",
+      "beta_unstable": true,
+      "atr_pct": 5.03,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "ARWR",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 87.11,
+      "dollar_volume_median": 61275946,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.5,
+      "beta_long": 1.44,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.52,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "BILL",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 47.82,
+      "dollar_volume_median": 60037599,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.35,
+      "beta_long": 1.53,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.77,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "JEF",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 52.33,
+      "dollar_volume_median": 52965241,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.95,
+      "beta_long": 1.36,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 3.05,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "UUP",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 27.9,
+      "dollar_volume_median": 49885428,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 39,
+        "yfinance": 21
+      },
+      "beta": -0.13,
+      "beta_long": -0.1,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 0.34,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "SYNA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 97.66,
+      "dollar_volume_median": 44005737,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.43,
+      "beta_long": 1.99,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.97,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "NOVT",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 145.24,
+      "dollar_volume_median": 42500326,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 2.03,
+      "beta_long": 1.5,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 5.77,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "VIXY",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 18.21,
+      "dollar_volume_median": 41830267,
+      "sessions": 1185,
+      "first_bar": "2021-08-23",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": -3.49,
+      "beta_long": -2.83,
+      "beta_tier": "low",
+      "beta_unstable": true,
+      "atr_pct": 2.28,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "ST",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 42.83,
+      "dollar_volume_median": 40768299,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.95,
+      "beta_long": 1.38,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 3.5,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "OLN",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 18.4,
+      "dollar_volume_median": 40488770,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 0.94,
+      "beta_long": 1.28,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.53,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "SLAB",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 218.0,
+      "dollar_volume_median": 39270730,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 0.53,
+      "beta_long": 1.48,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 0.5,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "OLED",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 85.84,
+      "dollar_volume_median": 38436132,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr": 2,
+        "yfinance": 21,
+        "ibkr_web": 37
+      },
+      "beta": 1.5,
+      "beta_long": 1.32,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 3.75,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "TEX",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 66.48,
+      "dollar_volume_median": 37635010,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.87,
+      "beta_long": 1.37,
+      "beta_tier": "high",
+      "beta_unstable": true,
+      "atr_pct": 3.6,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "CPRI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 13.65,
+      "dollar_volume_median": 33729470,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.7,
+      "beta_long": 1.38,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 5.01,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "YETI",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 43.76,
+      "dollar_volume_median": 32008869,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.26,
+      "beta_long": 1.38,
+      "beta_tier": "high",
+      "beta_unstable": false,
+      "atr_pct": 4.83,
+      "volatility_tier": "high"
+    },
+    {
+      "symbol": "BC",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 80.83,
+      "dollar_volume_median": 23852949,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 1.43,
+      "beta_long": 1.23,
+      "beta_tier": "mid",
+      "beta_unstable": false,
+      "atr_pct": 3.31,
+      "volatility_tier": "mid"
+    },
+    {
+      "symbol": "DBA",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 28.32,
+      "dollar_volume_median": 20757774,
+      "sessions": 4184,
+      "first_bar": "2010-01-04",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 0.05,
+      "beta_long": 0.3,
+      "beta_tier": "low",
+      "beta_unstable": false,
+      "atr_pct": 0.96,
+      "volatility_tier": "low"
+    },
+    {
+      "symbol": "IPGP",
+      "include": true,
+      "reason": null,
+      "class": "ok",
+      "price": 73.26,
+      "dollar_volume_median": 16208343,
+      "sessions": 1163,
+      "first_bar": "2022-01-03",
+      "last_bar": "2026-08-21",
+      "poison_ratio": 0,
+      "recent_sources": {
+        "ibkr_web": 60
+      },
+      "beta": 2.07,
+      "beta_long": 1.29,
+      "beta_tier": "mid",
       "beta_unstable": true,
       "atr_pct": 7.48,
       "volatility_tier": "high"
@@ -1913,284 +5226,9 @@
   ],
   "excluded": [
     {
-      "symbol": "AA",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ABBV",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ACN",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "AEIS",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "AGG",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "AIR.PA",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "ALB",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ALGM",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ALK",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ALV.DE",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "AMKR",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ANET",
-      "class": "liquidity",
-      "reason": "median daily turnover $7.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "APLD",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "APO",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ARES",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ARWR",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ASML.AS",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "ATI",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "BBWI",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "BC",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "BILL",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "BLK",
-      "class": "liquidity",
-      "reason": "median daily turnover $8.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "BMY",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "BROS",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "BX",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CAVA",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CCL",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CG",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CLF",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CMCSA",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "COP",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CPRI",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CRL",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CVS",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "CVX",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DAL",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DASH",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DBA",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DDOG",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DIS",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DOCN",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DOW",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DUK",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "DVN",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "EFA",
-      "class": "liquidity",
-      "reason": "median daily turnover $8.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "EL",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ELF",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ENTG",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "EVR",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "F",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "FCX",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "FLEX",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "FLR",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "FLS",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "FN",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
       "symbol": "FXY",
       "class": "liquidity",
-      "reason": "median daily turnover $0.1M below the $10M floor \u2014 too thin to fill against"
+      "reason": "median daily turnover $8.8M below the $10M floor \u2014 too thin to fill against"
     },
     {
       "symbol": "GEV",
@@ -2198,379 +5236,14 @@
       "reason": "only 494 stored sessions, need 500"
     },
     {
-      "symbol": "GFS",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "GILD",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "GM",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "HAL",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "HIMS",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "HON",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "HPE",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "HPQ",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "IBKR",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "IBM",
-      "class": "liquidity",
-      "reason": "median daily turnover $9.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "INGA.AS",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "IONQ",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "IPGP",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ITA",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ITX.MC",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "IVZ",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "JBL",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "JEF",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "JNJ",
-      "class": "liquidity",
-      "reason": "median daily turnover $8.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "KHC",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "KKR",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "KMI",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "KO",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "KRE",
-      "class": "liquidity",
-      "reason": "median daily turnover $7.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "LFUS",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "LSCC",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "LUV",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "MC.PA",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "MCHP",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "MDB",
-      "class": "liquidity",
-      "reason": "median daily turnover $8.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "MDLZ",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "MKSI",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "MO",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "MRK",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "MTSI",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "MTUM",
-      "class": "quality",
-      "reason": "suspect series \u2014 31 phantom bars (unchanged close on ZERO volume), consistent with a wrong venue or contract"
-    },
-    {
-      "symbol": "NCLH",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "NEE",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "NEM",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "NESN.SW",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "NET",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "NKE",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "NOVN.SW",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "NOVT",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "NRG",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "NVT",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "NXPI",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "OLED",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "OLN",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ON",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ONTO",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "OR.PA",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "OXY",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "PEP",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "PFE",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "PG",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "QUAL",
-      "class": "quality",
-      "reason": "suspect series \u2014 34 phantom bars (unchanged close on ZERO volume), consistent with a wrong venue or contract"
-    },
-    {
-      "symbol": "RH",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "RMBS",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ROG.SW",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "RRX",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SAIA",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SAN.PA",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "SAP.DE",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "SBUX",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SCHD",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SCHW",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SHOP",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SIE.DE",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "SITM",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
       "symbol": "SIZE",
       "class": "liquidity",
-      "reason": "median daily turnover $0.0M below the $10M floor \u2014 too thin to fill against"
+      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
     },
     {
       "symbol": "SKHY",
       "class": "history",
       "reason": "only 30 stored sessions, need 500"
-    },
-    {
-      "symbol": "SLAB",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SLB",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SLV",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.5M below the $10M floor \u2014 too thin to fill against"
     },
     {
       "symbol": "SN",
@@ -2581,221 +5254,6 @@
       "symbol": "SNDK",
       "class": "history",
       "reason": "only 381 stored sessions, need 500"
-    },
-    {
-      "symbol": "SNOW",
-      "class": "liquidity",
-      "reason": "median daily turnover $7.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ST",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "STRL",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SWK",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SWKS",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SYF",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "SYNA",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "TEX",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "TGT",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "TRU",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "TTE.PA",
-      "class": "instrument",
-      "reason": "foreign listing \u2014 no IBKR entitlement and the ticker is unmapped"
-    },
-    {
-      "symbol": "TTMI",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "TXN",
-      "class": "liquidity",
-      "reason": "median daily turnover $9.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "UAL",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "UBER",
-      "class": "liquidity",
-      "reason": "median daily turnover $8.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "UPS",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "USB",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "USMV",
-      "class": "quality",
-      "reason": "suspect series \u2014 26 phantom bars (unchanged close on ZERO volume), consistent with a wrong venue or contract"
-    },
-    {
-      "symbol": "UUP",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "VFC",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "VICR",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "VIXY",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "VLUE",
-      "class": "quality",
-      "reason": "suspect series \u2014 15 phantom bars (unchanged close on ZERO volume), consistent with a wrong venue or contract"
-    },
-    {
-      "symbol": "VST",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "VXUS",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "VZ",
-      "class": "liquidity",
-      "reason": "median daily turnover $6.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "WBD",
-      "class": "liquidity",
-      "reason": "median daily turnover $3.4M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "WCC",
-      "class": "liquidity",
-      "reason": "median daily turnover $4.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "WFC",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "WFRD",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.8M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "WMB",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "XLB",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.6M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "XLC",
-      "class": "liquidity",
-      "reason": "median daily turnover $5.1M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "XLI",
-      "class": "liquidity",
-      "reason": "median daily turnover $7.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "XLRE",
-      "class": "liquidity",
-      "reason": "median daily turnover $2.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "XLU",
-      "class": "liquidity",
-      "reason": "median daily turnover $7.5M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "XLY",
-      "class": "liquidity",
-      "reason": "median daily turnover $7.2M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "XOM",
-      "class": "liquidity",
-      "reason": "median daily turnover $9.7M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "XPO",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.9M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "YETI",
-      "class": "liquidity",
-      "reason": "median daily turnover $0.3M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "ZBRA",
-      "class": "liquidity",
-      "reason": "median daily turnover $1.0M below the $10M floor \u2014 too thin to fill against"
-    },
-    {
-      "symbol": "^GDAXI",
-      "class": "instrument",
-      "reason": "index \u2014 not directly tradeable"
-    },
-    {
-      "symbol": "^STOXX",
-      "class": "instrument",
-      "reason": "index \u2014 not directly tradeable"
     }
   ]
 }
