@@ -572,6 +572,38 @@ def test_from_config_applies_keys_without_argparse_flags(monkeypatch):
 # phantom fresh entry. With the flag on, today's row is dropped and the
 # signal derives from settled closes only.
 # ─────────────────────────────────────────────────────────────────────────
+def _bdays_ending_today(n: int):
+    """`n` business days ending at the most recent one, ALWAYS exactly `n`."""
+    import datetime as _dt
+    return pd.bdate_range(end=_dt.datetime.now(), periods=n + 5)[-n:]
+
+
+def _bdays_with_today_last(n: int):
+    """`n` dates whose LAST entry is TODAY — which is the point of these tests.
+
+    Two things went wrong here and they compound, which is why these sat red
+    and unowned across two sessions with each of us confirming they were not
+    ours:
+
+    1. `pd.bdate_range(end=now, periods=n)` returns n-1 rows when `now` is not
+       a business day, because pandas drops the non-business endpoint. That is
+       the "Length of values (300) does not match length of index (299)".
+    2. Fixing only the length is not enough. These fixtures mean "the last row
+       is TODAY'S PARTIAL BAR", and on a weekend a business-day range ends on
+       Friday — a SETTLED bar. The strategy then correctly enters, and the
+       test fails for the opposite reason to the one it started with.
+
+    So: history on business days strictly before today, with today's real
+    calendar date appended. Exactly `n` rows, last row always today, on any
+    day of the week.
+    """
+    import datetime as _dt
+    today = pd.Timestamp(_dt.date.today())
+    hist = pd.bdate_range(end=today, periods=n + 6)
+    hist = hist[hist < today][-(n - 1):]
+    return hist.append(pd.DatetimeIndex([today]))
+
+
 def _df_cross_only_on_todays_partial_bar():
     """Declining series (signal flat on settled data) with today's partial
     bar spiking hard enough to cross long intraday."""
@@ -582,7 +614,7 @@ def _df_cross_only_on_todays_partial_bar():
     close[-1] = 170.0                          # today's partial bar: huge rally
     high = close * 1.01
     low = close * 0.99
-    idx = pd.bdate_range(end=_dt.datetime.now(), periods=n)  # last row = today
+    idx = _bdays_with_today_last(n)   # last row = TODAY, i.e. the partial bar
     return pd.DataFrame({"High": high, "Low": low, "Close": close}, index=idx)
 
 
@@ -604,7 +636,7 @@ def test_settled_bar_only_keeps_genuine_settled_cross():
     the flag removes phantom crosses, not the trade-the-delta entry."""
     import datetime as _dt
     df0 = _uptrend_df()   # monotone uptrend: settled signal long + fresh throughout
-    df0.index = pd.bdate_range(end=_dt.datetime.now(), periods=len(df0))
+    df0.index = _bdays_ending_today(len(df0))
     strat = _make_strategy(["AAPL"], {"AAPL": df0}, entry_settled_bar_only=True)
     orders = strat.on_bar(_bar("AAPL", 250.0))
     assert len(orders) == 1 and orders[0].side == OrderSide.BUY

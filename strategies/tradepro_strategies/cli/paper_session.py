@@ -1134,6 +1134,43 @@ def _seed_strategy_positions_from_broker(strategy, broker: str) -> tuple[dict[st
         log = logging.getLogger("tradepro.cli")
         import asyncio as _aio
         import os as _os
+
+        # WEB API FIRST — the local Gateway was retired 9 Aug 2026 and :7500 is
+        # usually not listening. This function still reached for ib_insync and
+        # a direct socket, which meant no Gateway => no session at all: the
+        # exact defect the account-state path already documents as "what left
+        # the clone showing $0/idle". It survived here because nothing ran the
+        # IBKR paper lane between the retirement and Swing going live.
+        #
+        # Fail-closed is preserved and is the point: if NEITHER path can
+        # confirm the book, we raise rather than trade on an unconfirmed one.
+        try:
+            _web = _fetch_ibkr_account_state_via_webapi(log)
+        except Exception as _exc:  # noqa: BLE001 — fall through to the Gateway
+            log.warning("position seed: web-api read failed (%s) — trying the Gateway", _exc)
+            _web = None
+        if _web is not None:
+            _pos, _avg = {}, {}
+            for _p in (_web.get("positions") or []):
+                _sym = (_p.get("symbol") or "").strip().upper()
+                try:
+                    _q = int(float(_p.get("qty") or 0))
+                except (TypeError, ValueError):
+                    continue
+                if not _sym or _q == 0:
+                    continue
+                _pos[_sym] = _q
+                try:
+                    _c = float(_p.get("avgCost") or 0)
+                    if _c > 0:
+                        _avg[_sym] = _c
+                except (TypeError, ValueError):
+                    pass
+            log.info("position seed: via IBKR WEB API (no gateway) — %d position(s): %s",
+                     len(_pos), ", ".join(f"{k}x{v}" for k, v in sorted(_pos.items())) or "none")
+            strategy.seed_positions(_pos, _avg)
+            return _pos, _avg
+
         from ib_insync import IB as _IB
         _host = _os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
         _port = int(_os.environ.get("TRADEPRO_IBKR_PORT", "7497"))
