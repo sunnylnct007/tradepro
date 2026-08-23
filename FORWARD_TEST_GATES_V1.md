@@ -102,7 +102,24 @@ does not prevent data from moving, it prevents data moving *unaccountably*.
 
 ## Start date
 
-    START:  __________  (not set — owner's decision)
-    END:    START + 84 days
+    START:  2026-08-24  (Monday — the first trading session after the owner
+                         said "start now" on Sunday 23 Aug)
+    END:    2026-11-16  (START + 84 days)
 
-The window is not running until this is filled in and committed.
+    Broker:   IBKR paper (account DUP656969)
+    Strategy: mean_reversion_swing
+    ICH continues on Trading 212 and is NOT part of this test.
+    The ICH IBKR clone was stopped 22 Aug and its slot is now Swing's.
+
+## Live baseline — what "as expected" looks like
+
+The backtest enters at the signal-bar CLOSE, which no order can achieve. Entry
+at the NEXT OPEN was measured separately:
+
+    signal close (backtest)     64.9% win   +0.854%/trade
+    next open (achievable)      64.9% win   +0.769%/trade
+
+**+0.77%/trade is the live baseline.** The 0.085% difference is the cost of the
+delay, not slippage, and F3 measures only what happens beyond it. The overnight
+gap at entry runs +0.13% median — a dip buyer is buying after a fall, so the
+open tends to gap UP against you.
