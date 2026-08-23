@@ -25,6 +25,18 @@ namespace TradePro.Api.Data;
 /// </summary>
 public sealed class MigrationRunner
 {
+    /// <summary>
+    /// Per-migration command timeout, in seconds. Dapper's default is 30s,
+    /// which is fine for DDL but not for a backfill: 065 rewrites 1.6M rows
+    /// of ibkr_price_bars (a 1.4GB table) and blew straight through it. The
+    /// client gave up mid-statement, the transaction rolled back, the runner
+    /// rethrew, and MigrationHostedService refused to start the app — so a
+    /// slow migration took the whole API down and held it down, restart after
+    /// restart. A migration that can't finish inside this window should be
+    /// run out-of-band rather than at startup.
+    /// </summary>
+    private const int MigrationCommandTimeoutSeconds = 900;
+
     private readonly string _connectionString;
     private readonly string _migrationsPath;
     private readonly ILogger<MigrationRunner> _log;
@@ -91,7 +103,8 @@ public sealed class MigrationRunner
             await using var tx = await conn.BeginTransactionAsync(ct);
             try
             {
-                await conn.ExecuteAsync(body, transaction: tx);
+                await conn.ExecuteAsync(
+                    body, transaction: tx, commandTimeout: MigrationCommandTimeoutSeconds);
                 await conn.ExecuteAsync(
                     "INSERT INTO schema_migrations (name, checksum) VALUES (@name, @checksum) ON CONFLICT (name) DO NOTHING",
                     new { name, checksum }, transaction: tx);
