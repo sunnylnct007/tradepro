@@ -626,6 +626,12 @@ export const api = {
           worst_trade_pct: number; median_hold_sessions: number; note: string;
           median_per_trade_pct?: number; harness?: string;
         };
+        regime_dependence?: {
+          above_200sma: { trades: number; win_pct: number; mean_pct: number };
+          below_200sma: { trades: number; win_pct: number; mean_pct: number };
+          drawdown_5_15: { trades: number; win_pct: number; mean_pct: number };
+          drawdown_over_15: { trades: number; win_pct: number; mean_pct: number };
+        };
         limits: string[];
         quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
         candidates: Array<{

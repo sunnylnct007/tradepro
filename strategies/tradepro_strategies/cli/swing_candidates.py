@@ -273,7 +273,28 @@ def build_artifact(rows: list[dict], universe: str,
                      "positive mean. All four exit conventions pass every gate, so the "
                      "result does not depend on picking one."),
         },
+        # MEASURED FAILURE MODE, not a disclaimer. Split by SPY's regime at
+        # entry (backtests/studies/mean_reversion_recency.py):
+        #   SPY above its 200-SMA   1,168 trades  67.3% win  +1.00%/trade
+        #   SPY BELOW its 200-SMA     102 trades  53.9% win  -0.48%/trade
+        #   SPY drawdown 5-15%        282 trades  70.6% win  +1.61%/trade  <- best
+        #   SPY drawdown > 15%         41 trades  48.8% win  -1.02%/trade
+        # Only 8% of history sits in the losing regime, so the headline is
+        # dominated by favourable conditions and must not be read as
+        # all-weather.
+        "regime_dependence": {
+            "above_200sma": {"trades": 1168, "win_pct": 67.3, "mean_pct": 1.00},
+            "below_200sma": {"trades": 102, "win_pct": 53.9, "mean_pct": -0.48},
+            "drawdown_5_15": {"trades": 282, "win_pct": 70.6, "mean_pct": 1.61},
+            "drawdown_over_15": {"trades": 41, "win_pct": 48.8, "mean_pct": -1.02},
+        },
         "limits": [
+            "THIS LOSES MONEY IN BEAR MARKETS. With SPY below its 200-day average it wins "
+            "53.9% and averages -0.48% a trade; in a drawdown deeper than 15% it wins 48.8% "
+            "and averages -1.02%. Only 8% of the tested history sits in that regime, so the "
+            "headline numbers describe a market that mostly went up.",
+            "Recent results flatter it. The last three months show 87% win and +7.65%/trade "
+            "while SPY rose with a 4.5% maximum drawdown — that is the regime, not the edge.",
             "No sentiment or fundamentals filter — neither is backtestable here (EPS store is 3 months deep), so neither is claimed.",
             "Data guard applied at screen time; mean reversion is uniquely exposed to corrupt bars because it buys crashes.",
             "Worst historical trade was -34% pre-stop (CRWD, 2024 outage). The stop caps it; nothing prevents an event.",

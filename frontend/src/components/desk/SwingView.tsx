@@ -78,6 +78,39 @@ export function SwingView() {
         </div>
       </div>
 
+      {/* The failure mode, stated where it cannot be missed. A screen that
+          shows 66% win without showing WHEN that 66% does not apply is
+          telling half a truth. */}
+      {a.regime_dependence && (
+        <div style={{ border: `1px solid ${TONE.bad}55`, background: `${TONE.bad}0e`, borderRadius: 8,
+                      padding: "8px 12px", marginBottom: 12, fontSize: 12, lineHeight: 1.6 }}>
+          <b style={{ color: TONE.bad }}>This loses money in a bear market.</b> Split by where the
+          S&amp;P was when each trade opened:
+          <table style={{ borderCollapse: "collapse", fontSize: 11, marginTop: 5 }}>
+            <tbody>
+              {([["S&P above its 200-day avg", a.regime_dependence.above_200sma],
+                 ["S&P BELOW its 200-day avg", a.regime_dependence.below_200sma],
+                 ["S&P drawdown 5–15% (best)", a.regime_dependence.drawdown_5_15],
+                 ["S&P drawdown over 15%", a.regime_dependence.drawdown_over_15]] as const).map(([l, g]) => (
+                <tr key={l}>
+                  <td style={{ padding: "2px 12px 2px 0", color: "var(--text-dim)" }}>{l}</td>
+                  <td style={{ padding: "2px 12px 2px 0", fontFamily: "var(--font-mono)" }}>{g.trades} trades</td>
+                  <td style={{ padding: "2px 12px 2px 0", fontFamily: "var(--font-mono)" }}>{g.win_pct}% win</td>
+                  <td style={{ padding: "2px 0", fontFamily: "var(--font-mono)", fontWeight: 700,
+                               color: g.mean_pct > 0 ? TONE.ok : TONE.bad }}>
+                    {g.mean_pct > 0 ? "+" : ""}{g.mean_pct}%/trade
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
+            Only 8% of the tested history sits in the losing regime, so the headline above describes
+            a market that mostly went up. Ordinary pullbacks are its sweet spot; real breaks are not.
+          </div>
+        </div>
+      )}
+
       {a.count === 0 ? (
         <div style={{ padding: 16, border: "1px dashed var(--border)", borderRadius: 8,
                       color: "var(--text-dim)", fontSize: 13 }}>
