@@ -299,3 +299,122 @@ export function checkMomentum(bars: Bar[]): RuleCheck | null {
     plan: { entry: c[i], stop: c[i] * 0.92 },
   };
 }
+
+/**
+ * PARAMETERISED SWING — the scanner's engine.
+ *
+ * The shipped rule with its four numbers exposed, so the screen can answer
+ * "what if I used 2.0 sigma, or a 5% stop, or held 30 sessions" without a
+ * round trip. Defaults are the LIVE values; anything else is exploration and
+ * the UI must say so, because a result found by moving sliders until it looks
+ * good is exactly what the pre-registered gates exist to distrust.
+ *
+ * Ported from `signals/mean_reversion.py` + `backtests/studies/
+ * mean_reversion_v2.py`. Conventions match the graded harness deliberately:
+ *   - entry at the NEXT OPEN (you cannot trade a close you have not seen)
+ *   - target is the 20-day mean RECOMPUTED daily, so it comes to meet you
+ *   - stops fill at min(stop, open) — a gap does not fill at the stop
+ *   - a session touching both target and stop counts as the STOP
+ *   - any trade whose window contains a >35% session is discarded as corrupt
+ */
+export type SwingParams = {
+  sigma: number; bbWindow: number; trendWindow: number;
+  stopPct: number; maxHold: number;
+};
+export const LIVE_PARAMS: SwingParams = {
+  sigma: 2.5, bbWindow: 20, trendWindow: 200, stopPct: 8, maxHold: 20,
+};
+
+export type SwingTrade = {
+  signal: string; entry: number; exitDate: string; exitPx: number;
+  why: "target" | "stop" | "timeout"; bars: number; pct: number;
+};
+
+export type SwingReplay = {
+  trades: SwingTrade[];
+  n: number; winPct: number; meanPct: number; medianPct: number;
+  bestPct: number; worstPct: number; medianHold: number;
+  firesNow: boolean; sigmasBelow: number; vs200: number;
+  entry: number; target: number; stop: number; targetPct: number;
+  atrPct: number; lastBar: string;
+};
+
+function pstdev(xs: number[]) {
+  const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+  return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length);
+}
+const mean_ = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const smaN = (c: number[], i: number, n: number) => mean_(c.slice(i - n + 1, i + 1));
+
+export function replaySwing(bars: Bar[], p: SwingParams): SwingReplay | null {
+  const c = bars.map((b) => b.close), h = bars.map((b) => b.high);
+  const l = bars.map((b) => b.low), o = bars.map((b) => b.open);
+  const ds = bars.map((b) => b.ts.slice(0, 10));
+  const warm = p.trendWindow + 10;
+  if (c.length < warm + 20) return null;
+
+  const fires = (i: number) => {
+    if (i < warm) return false;
+    const w = c.slice(i - p.bbWindow + 1, i + 1);
+    const sd = pstdev(w);
+    if (!(sd > 0)) return false;
+    return c[i] < mean_(w) - p.sigma * sd && c[i] > smaN(c, i, p.trendWindow);
+  };
+
+  const trades: SwingTrade[] = [];
+  let i = warm;
+  while (i < c.length - 2) {
+    if (!fires(i)) { i++; continue; }
+    const e = o[i + 1], stop = e * (1 - p.stopPct / 100);
+    let done: SwingTrade | null = null, j = i;
+    for (j = i + 1; j <= Math.min(c.length - 1, i + p.maxHold); j++) {
+      if (!(c[j - 1] > 0) || Math.abs(c[j] / c[j - 1] - 1) > 0.35) break;  // corrupt
+      const tgt = smaN(c, j, p.bbWindow);
+      if (l[j] <= stop) {
+        const px = Math.min(stop, o[j]);
+        done = { signal: ds[i], entry: e, exitDate: ds[j], exitPx: px, why: "stop",
+                 bars: j - i, pct: 100 * (px / e - 1) }; break;
+      }
+      if (h[j] >= tgt) {
+        const px = Math.max(tgt, o[j]);
+        done = { signal: ds[i], entry: e, exitDate: ds[j], exitPx: px, why: "target",
+                 bars: j - i, pct: 100 * (px / e - 1) }; break;
+      }
+    }
+    if (!done) {
+      const k = Math.min(c.length - 1, i + p.maxHold);
+      done = { signal: ds[i], entry: e, exitDate: ds[k], exitPx: c[k], why: "timeout",
+               bars: k - i, pct: 100 * (c[k] / e - 1) };
+      j = k;
+    }
+    trades.push(done);
+    i = j + 1;
+  }
+
+  const last = c.length - 1;
+  const w = c.slice(last - p.bbWindow + 1, last + 1);
+  const sd = pstdev(w), m20 = mean_(w), s200 = smaN(c, last, p.trendWindow);
+  const trs: number[] = [];
+  for (let k = last - 13; k <= last; k++)
+    trs.push(Math.max(h[k] - l[k], Math.abs(h[k] - c[k - 1]), Math.abs(l[k] - c[k - 1])));
+  const pcts = trades.map((t) => t.pct).sort((a, b) => a - b);
+
+  return {
+    trades,
+    n: trades.length,
+    winPct: trades.length ? (100 * trades.filter((t) => t.pct > 0).length) / trades.length : 0,
+    meanPct: trades.length ? mean_(trades.map((t) => t.pct)) : 0,
+    medianPct: pcts.length ? pcts[Math.floor(pcts.length / 2)] : 0,
+    bestPct: pcts.length ? pcts[pcts.length - 1] : 0,
+    worstPct: pcts.length ? pcts[0] : 0,
+    medianHold: trades.length
+      ? [...trades].map((t) => t.bars).sort((a, b) => a - b)[Math.floor(trades.length / 2)] : 0,
+    firesNow: fires(last),
+    sigmasBelow: sd > 0 ? (m20 - c[last]) / sd : 0,
+    vs200: 100 * (c[last] / s200 - 1),
+    entry: c[last], target: m20, stop: c[last] * (1 - p.stopPct / 100),
+    targetPct: 100 * (m20 / c[last] - 1),
+    atrPct: (100 * mean_(trs)) / c[last],
+    lastBar: ds[last],
+  };
+}

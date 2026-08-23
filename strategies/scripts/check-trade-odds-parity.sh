@@ -48,6 +48,72 @@ JSEOF
 "$ESB" "$TMP/check.mjs" --bundle --platform=node --format=esm --outfile="$TMP/check.js" --log-level=error || exit 1
 node "$TMP/check.js" "$TMP/ref.json" > "$TMP/ts.json" || exit 1
 
+# ── PART 2: the SCANNER engine (replaySwing) against the Python rule ────────
+# The scanner recomputes the whole universe in the browser, so its replay must
+# agree with the harness that graded the strategy. Real bars, not a fixture —
+# the barrier fixture above cannot exercise the 200-SMA trend gate.
+"$PY" - > "$TMP/bars.json" <<'PYEOF'
+import json, sys, os
+sys.path.insert(0, os.path.join(os.getcwd(), "strategies"))
+from tradepro_strategies.cli.build_universe import _load
+out = {}
+for s in ("MU", "AMD", "NVDA", "AAPL", "ORCL", "SOXX"):
+    df = _load(s)
+    if df is None:
+        continue
+    out[s] = [{"ts": str(x)[:10], "open": o, "high": h, "low": l, "close": c}
+              for x, o, h, l, c in zip(df.index, df["open"], df["high"], df["low"], df["close"])]
+print(json.dumps(out))
+PYEOF
+
+"$PY" - > "$TMP/py_scan.txt" <<'PYEOF'
+import sys, os, numpy as np
+sys.path.insert(0, os.path.join(os.getcwd(), "strategies"))
+from tradepro_strategies.cli.build_universe import _load
+from tradepro_strategies.signals.mean_reversion import (
+    entry_signal, MAX_HOLD, BB_WINDOW, STOP_PCT)
+def sma(c, i, n): return sum(c[i-n+1:i+1]) / n
+for s in ("MU", "AMD", "NVDA", "AAPL", "ORCL", "SOXX"):
+    df = _load(s)
+    if df is None: continue
+    c = df["close"].tolist(); o = df["open"].tolist()
+    h = df["high"].tolist(); l = df["low"].tolist()
+    res = []; n = len(c); i = 210
+    while i < n - 2:
+        if not entry_signal(c, i): i += 1; continue
+        e = o[i+1]; S = e * (1 - STOP_PCT); r = None
+        for j in range(i+1, min(n-1, i+MAX_HOLD)+1):
+            if c[j-1] <= 0 or abs(c[j]/c[j-1]-1) > 0.35: break
+            tgt = sma(c, j, BB_WINDOW)
+            if l[j] <= S: r = 100*(min(S, o[j])/e-1); break
+            if h[j] >= tgt: r = 100*(max(tgt, o[j])/e-1); break
+        if r is None:
+            j = min(n-1, i+MAX_HOLD); r = 100*(c[j]/e-1)
+        res.append(r); i = j + 1
+    a = np.array(res)
+    print(f"{s} {len(a)} {100*(a>0).mean():.1f} {a.mean():.4f} {a.min():.4f} "
+          f"{int(entry_signal(c, len(c)-1))}")
+PYEOF
+
+cat > "$TMP/scan.mjs" <<JSEOF
+import { replaySwing, LIVE_PARAMS } from "$ROOT/frontend/src/lib/tradeOdds";
+import fs from "fs";
+const d = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+for (const [s, bars] of Object.entries(d)) {
+  const r = replaySwing(bars, LIVE_PARAMS);
+  console.log(\`\${s} \${r.n} \${r.winPct.toFixed(1)} \${r.meanPct.toFixed(4)} \${r.worstPct.toFixed(4)} \${r.firesNow ? 1 : 0}\`);
+}
+JSEOF
+"$ESB" "$TMP/scan.mjs" --bundle --platform=node --format=esm --outfile="$TMP/scan.js" --log-level=error || exit 1
+node "$TMP/scan.js" "$TMP/bars.json" > "$TMP/ts_scan.txt" || exit 1
+if diff -q "$TMP/py_scan.txt" "$TMP/ts_scan.txt" >/dev/null; then
+  echo "PASS — scanner engine matches the Python rule on 6 real symbols"
+else
+  echo "FAIL — scanner engine has DRIFTED from the Python rule:"
+  diff "$TMP/py_scan.txt" "$TMP/ts_scan.txt"
+  exit 1
+fi
+
 TMP="$TMP" "$PY" - <<'PYEOF'
 import json, os, sys
 T = os.environ["TMP"]

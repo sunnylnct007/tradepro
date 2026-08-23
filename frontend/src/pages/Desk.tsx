@@ -33,6 +33,7 @@ import { ResearchView } from "../components/desk/ResearchView";
 import { SwingView } from "../components/desk/SwingView";
 import { MomentumView } from "../components/desk/MomentumView";
 import { TradeOddsView } from "../components/desk/TradeOddsView";
+import { ScannerView } from "../components/desk/ScannerView";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
@@ -218,6 +219,7 @@ export function Desk() {
       {view === "swing"      && <SwingView />}
       {view === "momentum"   && <MomentumView />}
       {view === "odds"       && <TradeOddsView />}
+      {view === "scanner"    && <ScannerView />}
       {view === "options"    && <OptionsDesk />}
       {view === "decide"         && <Compare />}
       {view === "scan"           && <UniverseScan />}

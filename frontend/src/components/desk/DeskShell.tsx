@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "odds";
+export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "odds" | "scanner";
 
 type NavEntry = {
   key: string;
@@ -103,6 +103,8 @@ const NAV: NavEntry[] = [
     title: "Swing candidates — the only screen built on a strategy that cleared pre-registered gates" },
   { key: "momentum",  label: "Momentum",  icon: "🚀", view: "momentum",  tier: "trusted",
     title: "Momentum candidates — the SECOND strategy to clear pre-registered gates. Longer hold (~7 weeks), trailing stop, not a bracket order" },
+  { key: "scanner",   label: "Scanner",   icon: "🔎", view: "scanner",  tier: "trusted",
+    title: "Scanner — the Swing rule with its numbers exposed; scan all 244 names and open any row" },
   { key: "odds",      label: "Odds",      icon: "🎲", view: "odds",      tier: "trusted",
     title: "Trade odds — rest a limit, set a target, see how often that order actually worked on this symbol's own history" },
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", tier: "trusted",
