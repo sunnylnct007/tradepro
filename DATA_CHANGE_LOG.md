@@ -50,9 +50,14 @@ that "did the data change?" has an answer during the 12 weeks.
 - **What would change this**: a symbol drifting to within ~0.25% of its 200-SMA,
   or a high-gap name (max bias 2.285%) doing the same. Re-run the check before
   concluding anything about a marginal entry.
-- **The real fix, when the window allows**: decide the store's close convention
-  and populate `adj_factor` for real, then repoint `wheel_backtest_run` and
-  `straddle_scan` off the legacy cache. Not started.
+- **The real fix, when the window allows**: **DECIDED 2026-08-23 by the owner —
+  store RAW OHLC plus a populated `adj_factor`**, so both series stay derivable.
+  Plan written up in `ADJ_FACTOR_MIGRATION_PLAN.md`. Not started, and
+  deliberately not started: the provider change and the history backfill **must
+  ship together**. Shipping the provider change alone would leave new bars raw
+  against adjusted history — a second, fresher convention boundary sitting right
+  at the live edge where the strategy reads, which is strictly worse than the one
+  boundary we have now.
 
 ### 2026-08-23 — IBKR volume was stored in 100-share lots
 - **What**: every IBKR-sourced bar carried 1/100th of real volume. Migrated x100.
