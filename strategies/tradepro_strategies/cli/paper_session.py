@@ -57,13 +57,36 @@ from ..paper.profiles import build_multi_broker_session, build_session
 from ..paper.strategies.opening_range_breakout import OpeningRangeBreakout
 
 
-_STRATEGY_CHOICES = ("orb", "ichimoku_equity", "ichimoku_fx_mr", "intraday_flat")
+def _strategy_choices() -> tuple[str, ...]:
+    """Every REGISTERED strategy, read from the registry rather than retyped.
+
+    This was a hardcoded four-tuple, which meant a strategy could be written,
+    registered, tested and still be unrunnable — `--strategy` would reject its
+    own registry's name. Found 23 Aug when mean_reversion_swing was ready to
+    go live and argparse refused it.
+
+    Importing the strategies package is what populates the registry (the
+    decorator runs at import), so that has to happen before the read.
+    """
+    try:
+        from ..paper import strategies as _s  # noqa: F401 — triggers registration
+        from ..paper.registry import list_names
+        names = tuple(sorted(list_names()))
+        if names:
+            return names
+    except Exception:  # noqa: BLE001 — a broken plugin must not stop the CLI
+        pass
+    return ("orb", "ichimoku_equity", "ichimoku_fx_mr", "intraday_flat")
+
+
+_STRATEGY_CHOICES = _strategy_choices()
 
 # Sensible interval defaults per strategy — overridden by --interval.
 _DEFAULT_INTERVALS = {
     "orb": "1m",
     "ichimoku_equity": "1d",
     "ichimoku_fx_mr": "1h",
+    "mean_reversion_swing": "1d",   # settled daily bars, like ichimoku_equity
 }
 
 
@@ -611,6 +634,33 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
             strategy_id=strategy_id,
             params=ix_params,
             # Long-only intraday by design — never short.
+            risk=RiskLimits(
+                max_position_value_usd=args.max_position_value_usd,
+                allow_short=False,
+                max_daily_loss_usd=args.max_daily_loss_usd,
+                max_drawdown_pct=_pct_to_fraction(args.max_drawdown_pct),
+                max_open_positions=args.max_open_positions,
+                max_position_pct_of_capital=_pct_to_fraction(args.max_position_pct_of_capital),
+                excluded_symbols=_parse_excluded(args.exclude_symbols),
+            ),
+        )
+
+    if strategy_name == "mean_reversion_swing":
+        from ..paper.strategies.mean_reversion_swing import MeanReversionSwingStrategy
+        return MeanReversionSwingStrategy(
+            strategy_id=strategy_id,
+            params={
+                "symbols": symbols,
+                "capital": args.capital_usd,
+                # Fraction of capital per position. The screen fires ~7 times a
+                # week across 244 names, so positions accumulate quickly; the
+                # binding constraint is max_open_positions below, not this.
+                "position_pct": getattr(args, "max_position_pct_of_capital", None)
+                                and _pct_to_fraction(args.max_position_pct_of_capital)
+                                or 0.05,
+            },
+            # LONG ONLY. The rule buys dips in names above their 200-day
+            # average; it has no short leg and was never tested with one.
             risk=RiskLimits(
                 max_position_value_usd=args.max_position_value_usd,
                 allow_short=False,

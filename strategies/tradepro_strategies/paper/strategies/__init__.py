@@ -69,3 +69,5 @@ __all__ = [
     "build",
     "available",
 ]
+
+from . import mean_reversion_swing  # noqa: F401 — registers the Swing sleeve
