@@ -3766,3 +3766,176 @@ def get_data_readiness() -> dict:
     except ApiUnreachable as exc:
         return _unreachable_envelope("get_data_readiness", exc)
     return {"ok": True, **d}
+
+
+# ── Swing / Scanner (added 23 Aug 2026) ────────────────────────────────────
+# Everything the desk's Scanner and Swing screens show, exposed so the owner
+# can interrogate it from Claude rather than only through the UI. These read
+# the SAME shared rule module the live strategy and the backtest import, so an
+# answer here cannot disagree with what is trading.
+
+def get_swing_candidates() -> dict:
+    """TODAY's Swing candidates — the mean-reversion sleeve now paper-trading.
+
+    Returns the published list with its evidence and its stated limits. An
+    EMPTY list is the normal case and is not a fault: the rule fires about 7
+    times a week across 244 names, so most days produce nothing.
+    """
+    return _get("/api/today-setups/swing/latest")
+
+
+def get_momentum_candidates() -> dict:
+    """TODAY's Momentum candidates — the longer-hold sleeve (~35-session hold).
+
+    NOT the same shape of trade as Swing. Its MEDIAN trade loses money; the
+    positive average comes from the tail, so it needs many trades taken
+    mechanically rather than one picked.
+    """
+    return _get("/api/today-setups/momentum/latest")
+
+
+def get_tradeable_universe() -> dict:
+    """The 244 symbols we trade, why each is in, and why the rest are out.
+
+    Membership is earned on measured criteria — price >= $5, median turnover
+    >= $10M/day, >= 500 sessions, no phantom bars, >= 90% recent coverage —
+    not a hand-kept list. Every exclusion carries its reason, so "why isn't X
+    on the screen" is always answerable.
+    """
+    return _get("/api/today-setups/universe/latest")
+
+
+def evaluate_swing_symbol(symbol: str) -> dict:
+    """Does the Swing rule fire on `symbol` today, and how has it done there?
+
+    The scorecard behind the Scanner's drill-down:
+      * whether it fires now, and if not HOW FAR from firing — a bare "no" is
+        the answer on almost every symbol on almost every day and tells you
+        nothing
+      * the rule's full trade record on this symbol
+      * a verdict against the universe base rate, DISCOUNTED for sample size
+
+    On that last point: a symbol needs 10+ trades before it can be called
+    better or worse. Bootstrapping a tiny same-signed sample gives a falsely
+    narrow interval — three wins resample to three wins, so the symbol looks
+    proven on no evidence. Measured: at a 3-trade floor the "best" names were
+    all 3-trade flukes.
+
+    Reads settled daily bars, not live prices.
+    """
+    import statistics as _st
+    from ..signals.mean_reversion import (entry_signal, MAX_HOLD, BB_WINDOW,
+                                          STOP_PCT, SIGMA, TREND_WINDOW)
+    from ..universe import poison_check, exclusion_reason
+    from ..cli.build_universe import _load
+
+    sym = (symbol or "").strip().upper()
+    df = _load(sym)
+    if df is None or "open" not in getattr(df, "columns", []):
+        return {"symbol": sym, "error": "no stored daily bars",
+                "universe": exclusion_reason(sym) or "not in the universe"}
+    c = df["close"].tolist(); o = df["open"].tolist()
+    h = df["high"].tolist(); l = df["low"].tolist()
+    d = [str(x)[:10] for x in df.index]
+    v = df["volume"].tolist() if "volume" in df.columns else None
+    clean, phantom = poison_check(c, v)
+    if not clean:
+        return {"symbol": sym, "error": f"quarantined — {phantom} phantom bars "
+                                        f"(unchanged close on zero volume)"}
+
+    def sma(x, i, n):
+        return sum(x[i - n + 1:i + 1]) / n
+
+    trades = []
+    n = len(c); i = 210
+    while i < n - 2:
+        if not entry_signal(c, i):
+            i += 1; continue
+        e = o[i + 1]; stop = e * (1 - STOP_PCT); res = None
+        for j in range(i + 1, min(n - 1, i + MAX_HOLD) + 1):
+            if c[j - 1] <= 0 or abs(c[j] / c[j - 1] - 1) > 0.35:
+                break
+            tgt = sma(c, j, BB_WINDOW)
+            if l[j] <= stop:
+                res = ("stop", d[j], min(stop, o[j]), j - i); break
+            if h[j] >= tgt:
+                res = ("target", d[j], max(tgt, o[j]), j - i); break
+        if res is None:
+            j = min(n - 1, i + MAX_HOLD); res = ("timeout", d[j], c[j], j - i)
+        trades.append({"signal": d[i], "entry": round(e, 2), "exit_date": res[1],
+                       "exit_price": round(res[2], 2), "why": res[0], "bars": res[3],
+                       "pct": round(100 * (res[2] / e - 1), 2)})
+        i = j + 1
+
+    last = n - 1
+    w = c[last - BB_WINDOW + 1:last + 1]
+    sd = _st.pstdev(w); m20 = sum(w) / BB_WINDOW
+    s200 = sma(c, last, TREND_WINDOW)
+    pcts = [t["pct"] for t in trades]
+    fires = entry_signal(c, last)
+
+    out = {
+        "symbol": sym, "as_of_bar": d[last], "close": round(c[last], 2),
+        "in_universe": exclusion_reason(sym) is None,
+        "excluded_because": exclusion_reason(sym),
+        "fires_today": fires,
+        "sigmas_below_mean": round((m20 - c[last]) / sd, 2) if sd else None,
+        "needs_sigmas": SIGMA,
+        "pct_vs_200sma": round(100 * (c[last] / s200 - 1), 1),
+        "blocked_by_trend_floor": c[last] <= s200,
+        "plan": ({"entry": round(c[last], 2), "target": round(m20, 2),
+                  "target_pct": round(100 * (m20 / c[last] - 1), 1),
+                  "stop": round(c[last] * (1 - STOP_PCT), 2),
+                  "max_hold_sessions": MAX_HOLD} if fires else None),
+        "record": ({"trades": len(pcts),
+                    "win_pct": round(100 * sum(1 for x in pcts if x > 0) / len(pcts), 1),
+                    "mean_pct": round(sum(pcts) / len(pcts), 2),
+                    "median_pct": round(sorted(pcts)[len(pcts) // 2], 2),
+                    "best_pct": max(pcts), "worst_pct": min(pcts),
+                    "judgeable": len(pcts) >= 10,
+                    "caveat": (None if len(pcts) >= 10 else
+                               f"only {len(pcts)} trades — too few to call better or worse "
+                               f"than average; a bootstrap of a tiny same-signed sample gives "
+                               f"a falsely narrow interval")}
+                   if pcts else None),
+        "recent_trades": trades[-8:][::-1],
+        "note": ("Settled daily bars, not live prices. The rule firing is not an "
+                 "instruction — Swing is in a 12-week paper forward test and nothing "
+                 "has been validated against a broker yet."),
+    }
+    return out
+
+
+def get_forward_test_status() -> dict:
+    """The Swing paper forward test: what is being tested, and what a NORMAL
+    result looks like — simulated and recorded BEFORE the window opened.
+
+    The expectations matter as much as the result. There is a ONE IN FIVE
+    chance the 12 weeks loses money while the strategy works exactly as
+    measured, because losses cluster. So a losing quarter is not evidence of
+    failure and a +10% quarter is not evidence of skill; only outside roughly
+    -12% is there anything to explain. P&L is recorded but NOT graded.
+    """
+    return {
+        "strategy": "mean_reversion_swing", "broker": "IBKR paper (DUP656969)",
+        "start": "2026-08-24", "end": "2026-11-16", "weeks": 12,
+        "capital_usd": 100000, "position_pct": 5, "max_open": 15,
+        "universe_size": 244,
+        "backtest": {"trades": 2310, "win_pct": 72.8, "mean_per_trade_pct": 1.06,
+                     "worst_trade_pct": -23.9, "median_hold_sessions": 7,
+                     "live_baseline_pct": 0.97,
+                     "why_lower": "entry at the next open rather than the signal close "
+                                  "costs about 0.09%/trade — that is the delay, not slippage"},
+        "expected_12_weeks": {
+            "median_pct": 4.2, "p5_pct": -5.0, "p95_pct": 12.6,
+            "prob_loses_money_pct": 21, "typical_worst_drawdown_pct": -8.3,
+            "method": "block bootstrap, 20k runs — losses resampled in contiguous runs "
+                      "because bad conditions persist for months. Resampling trades "
+                      "INDEPENDENTLY would say 5%, understating the risk fourfold."},
+        "graded_on": ["signal fidelity vs the committed harness", "every fill traces to a signal",
+                      "entry slippage", "stop gap-through behaviour", "no silent failures",
+                      ">=15 completed trades"],
+        "NOT_graded_on": ["P&L", "win rate", "expectancy"],
+        "gates_file": "FORWARD_TEST_GATES_V1.md",
+        "harness": "strategies/backtests/studies/mean_reversion_v2.py",
+    }

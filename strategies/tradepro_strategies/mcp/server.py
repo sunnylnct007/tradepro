@@ -29,6 +29,48 @@ def build_server():
     # ---- TOOLS (LLM-callable functions) -----------------------------------
 
     @mcp.tool()
+    @instrumented("get_swing_candidates")
+    def get_swing_candidates() -> str:
+        """TODAY's Swing candidates — the mean-reversion sleeve now paper-trading
+        on IBKR. Each row is placeable as one bracket order. An EMPTY list is
+        normal, not a fault: the rule fires ~7 times a week across 244 names."""
+        return _json(t.get_swing_candidates())
+
+    @mcp.tool()
+    @instrumented("get_momentum_candidates")
+    def get_momentum_candidates() -> str:
+        """TODAY's Momentum candidates — the longer-hold sleeve (~35 sessions).
+        Its MEDIAN trade LOSES money; the positive average is carried by the
+        tail, so it needs many trades taken mechanically, not one picked."""
+        return _json(t.get_momentum_candidates())
+
+    @mcp.tool()
+    @instrumented("get_tradeable_universe")
+    def get_tradeable_universe() -> str:
+        """The 244 symbols we trade and why each is in — price, turnover,
+        history, data quality, coverage. Every exclusion carries its reason, so
+        "why isn't X on the screen" is always answerable."""
+        return _json(t.get_tradeable_universe())
+
+    @mcp.tool()
+    @instrumented("evaluate_swing_symbol")
+    def evaluate_swing_symbol(symbol: str) -> str:
+        """Does the Swing rule fire on this symbol today, HOW FAR from firing if
+        not, and how has the rule actually done on it? Includes a sample-size
+        caveat: below 10 trades a symbol cannot be called better or worse than
+        average however flattering its record looks."""
+        return _json(t.evaluate_swing_symbol(symbol))
+
+    @mcp.tool()
+    @instrumented("get_forward_test_status")
+    def get_forward_test_status() -> str:
+        """The Swing paper forward test, and what a NORMAL result looks like —
+        simulated and recorded BEFORE the window opened. There is a 1-in-5
+        chance 12 weeks loses money while the strategy works exactly as
+        measured, so a losing quarter is not evidence of failure."""
+        return _json(t.get_forward_test_status())
+
+    @mcp.tool()
     @instrumented("list_universes")
     def list_universes() -> str:
         """Available comparator universes (etf_us_core, etf_uk_core, etc.)
