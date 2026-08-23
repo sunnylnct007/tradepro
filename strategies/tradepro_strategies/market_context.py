@@ -25,7 +25,6 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from .cache import ensure_cached
 from .regimes import REGIMES, Regime
 
 _log = logging.getLogger(__name__)

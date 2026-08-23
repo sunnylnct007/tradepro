@@ -155,6 +155,45 @@ the bucket is not yet a faithful mirror of canonical.
   memory); no new stores, no local durable files.
 
 ## Update log
+- 2026-08-23 evening (DATA): **cache.py retirement — the stated blocker was WRONG,
+  and the real one is worse.**
+  - "UK symbols cannot seed until Yahoo's throttle on this Mac clears" (22 Aug
+    entry below) was never going to happen. The 429s were **self-inflicted**: our
+    bar provider handed yfinance a bare `curl_cffi` session built for timeout
+    safety, which replaced yfinance's browser-impersonating default, and Yahoo's
+    bot detection answers a non-browser fingerprint with "Too Many Requests".
+    Measured back-to-back in one process: no session → 5 rows; `Session(timeout=8)`
+    → YFRateLimitError; `Session(timeout=8, impersonate="chrome")` → 5 rows.
+    Fixed in 7fe1039. **Yahoo is available again for seeding — plan accordingly.**
+  - Seeded as proof: `^VIX` 4185/4185 bars COMPLETE and `^TNX` 4182, both
+    2010-01-04 → 2026-08-21, matching the legacy cache row-for-row. These were
+    the two symbols falling back to legacy this morning.
+  - **The REAL blocker: the canonical store has no adjusted-close series, and its
+    `close` column silently mixes two conventions.** `adj_factor` is 1.0 for all
+    271 symbols — it carries no corporate-action information. Worse, measured on
+    SPY against the legacy cache: rows sourced from **yfinance are dividend-
+    ADJUSTED** (median 0.26% from legacy adj_close, 14.4% from raw), while rows
+    from **ibkr / ibkr_web are RAW** (0.00–0.09% from legacy raw close). Sources
+    alternate by monthly partition, so one symbol's series changes convention
+    partway through.
+  - Size of the seam, i.e. raw-vs-adjusted gap by era (SPY): 2015 16.4% ·
+    2018 11.2% · 2021 6.3% · 2023 3.4% · 2025 1.1% · 2026 0.26%. It shrinks
+    toward the present, so recent short-hold signals are barely affected, but
+    anything long-horizon crossing a seam is biased — SMA200, 52-week high/low,
+    and any multi-year backtest. NOT a crisis for 4-bar Swing; DO check it before
+    trusting a long-lookback result.
+  - Consequence: `wheel_backtest_run` and `straddle_scan` read
+    `load_cached("yahoo", …)` and prefer `adj_close`. Migrating them to the
+    canonical store today would **silently swap adjusted prices for raw** —
+    exactly the class of change DATA_CHANGE_LOG exists to prevent. Left on legacy
+    on purpose. `market_context.py`'s import was dead and is removed (this commit);
+    `compare.py` and `ibkr_bars.py` use legacy only as a visible fallback.
+  - **To actually finish the retirement, someone must first decide the store's
+    close convention and populate `adj_factor` for real.** That is the task; the
+    Yahoo throttle never was.
+  - Unrelated, pre-existing (NOT caused by this work): 3 failures in
+    `tests/test_equity_risk_controls.py` (settled-bar / partial-bar cross), a
+    pandas ValueError. Present on a clean tree too.
 - 2026-08-23 (DATA): **SITE WAS DOWN 07:16–13:25 UTC. Read this before trusting
   anything dated 23 Aug.** db migration 065 (the IBKR x100 volume fix) rewrites
   1.6M rows and blew Dapper's 30s default command timeout, so it rolled back on
