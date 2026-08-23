@@ -140,18 +140,38 @@ export const api = {
    *  cannot serve, and treating it as a value is exactly how the health probe
    *  certified a full-day outage as healthy (18 Aug 2026). */
   ibkrMarketDataCheck: async (symbol = "SPY") => {
-    const snap = await get<{ snapshot?: Record<string, unknown> }>(
-      "/api/integrations/ibkr/quote", { symbol, fields: "31,7283,6509" });
+    const snap = await get<{
+      live?: boolean;
+      asOf?: string;
+      source?: string;
+      marketData?: { state?: string; reason?: string | null };
+      quote?: { last?: number | null } | null;
+      snapshot?: Record<string, unknown>;
+    }>("/api/integrations/ibkr/quote", { symbol, fields: "31,7283,6509" });
+
+    // `live` and the reason come FROM THE SERVER now. This used to re-implement
+    // the "N/A" predicate here in TypeScript, which made three copies of the
+    // same rule — the Python health probe, this, and (as of today) the C#
+    // endpoint. Three copies of a rule is three chances for one of them to be
+    // updated alone, which is the failure mode that has cost this codebase more
+    // than any other. The server decides; the UI renders what it is told.
     const s = snap?.snapshot ?? {};
-    const real = (v: unknown) => {
-      if (v === null || v === undefined) return false;
-      const t = String(v).trim().toUpperCase();
-      return t !== "" && t !== "N/A" && t !== "NA" && t !== "-" && t !== "NONE";
-    };
+    const availabilityRaw = s["6509"];
+    const availability =
+      availabilityRaw === null || availabilityRaw === undefined
+        ? null
+        : String(availabilityRaw).trim() || null;
+
     return {
-      live: real(s["31"]) || real(s["7283"]),
-      last: real(s["31"]) ? String(s["31"]) : null,
-      availability: real(s["6509"]) ? String(s["6509"]) : null,
+      live: snap?.live === true,
+      last: snap?.quote?.last != null ? String(snap.quote.last) : null,
+      // Plain-English cause when dark — names the one-market-data-session
+      // contention rather than leaving the reader to chase an entitlement
+      // problem that does not exist.
+      reason: snap?.marketData?.reason ?? null,
+      asOf: snap?.asOf ?? null,
+      source: snap?.source ?? null,
+      availability,
       symbol,
     };
   },

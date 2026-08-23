@@ -911,7 +911,14 @@ function BestPick({ best, onAnalyze, onRecord, busy }: { best: Candidate | null;
  * make the state visible and give a one-click recheck for after they close it.
  */
 function MarketDataBanner() {
-  const [state, setState] = useState<{ live: boolean; last: string | null; availability: string | null } | null>(null);
+  const [state, setState] = useState<{
+    live: boolean; last: string | null; availability: string | null;
+    // Provenance from the server: WHEN the quote was taken and WHERE it came
+    // from, so a number on screen can be labelled rather than presented as
+    // timelessly current. `reason` carries the server's plain-English cause
+    // when dark.
+    asOf?: string | null; source?: string | null; reason?: string | null;
+  } | null>(null);
   const [checking, setChecking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -932,6 +939,10 @@ function MarketDataBanner() {
       <div style={{ fontSize: 11, color: TONE.ok, marginBottom: 8 }}>
         ● IBKR market data LIVE{state?.last ? ` — SPY ${state.last}` : ""}
         {state?.availability ? ` (${state.availability})` : ""}
+        {/* A live price is only meaningful with the moment it was taken —
+            without it, a quote fetched before you stepped away reads exactly
+            like one fetched now. */}
+        {state?.asOf ? ` · as of ${new Date(state.asOf).toLocaleTimeString()}` : ""}
       </div>
     );
   }

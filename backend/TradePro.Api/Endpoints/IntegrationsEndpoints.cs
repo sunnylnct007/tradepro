@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Dapper;
 using Npgsql;
 using TradePro.Api.Providers.Finnhub;
+using TradePro.Api.Providers.IBKR;
 using TradePro.Api.Providers.Trading212;
 
 namespace TradePro.Api.Endpoints;
@@ -867,11 +868,57 @@ public static class IntegrationsEndpoints
                 var el = doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array
                     ? doc.RootElement.EnumerateArray().FirstOrDefault()
                     : doc.RootElement;
+
+                // Is this snapshot actually carrying a price? A 200 with a body
+                // full of "N/A" is the most dangerous answer IBKR gives: it
+                // looks exactly like success. That is precisely how the health
+                // probe certified an all-day market-data outage as healthy on
+                // 18 Aug (22a7dcc) — `"N/A" is not None` is True. The same
+                // predicate now lives on this side of the wire, because the
+                // knowledge existing in the Python probe did not stop the C#
+                // endpoint from handing callers a confident empty quote.
+                var last = IbkrQuoteFields.RealOrNull(el, "31");
+                var bid = IbkrQuoteFields.RealOrNull(el, "84");
+                var ask = IbkrQuoteFields.RealOrNull(el, "86");
+                var live = last is not null || bid is not null || ask is not null;
+
+                // WHY it is dark, not just THAT it is. The signature of a lost
+                // market-data session is unambiguous and worth stating rather
+                // than leaving the reader to infer it: the contract RESOLVED
+                // (so auth and reference data are fine) while no field carries
+                // a price. IBKR grants ONE market-data session per account, so
+                // the usual cause is the IBKR portal, TWS, or another client —
+                // including an MCP connector — holding it. Saying "market data
+                // unavailable / not subscribed" instead sends the reader after
+                // an entitlement problem that does not exist; that cost a full
+                // trading day once already.
+                var reason = live ? null
+                    : "MARKET-DATA SESSION UNAVAILABLE — the contract RESOLVED at IBKR "
+                    + $"(conid {conid}), so auth and reference data are fine, but no field "
+                    + "carries a price. IBKR allows ONE market-data session per account: "
+                    + "the usual cause is the IBKR portal, TWS, or another client (including "
+                    + "an MCP connector) holding it. Close those and retry. This is NOT an "
+                    + "entitlement problem and NOT an auth problem. No price is returned "
+                    + "rather than a stale one.";
+
                 return Results.Ok(new
                 {
                     symbol = symbol.ToUpperInvariant(), conid, fields = f,
+                    // Provenance, so a caller can LABEL what it renders instead of
+                    // presenting a quote of unknown age as current.
+                    asOf = DateTime.UtcNow.ToString("o"),
+                    source = "ibkr_snapshot",
+                    live,
+                    marketData = new { state = live ? "live" : "dark", reason },
+                    // Named for humans; null when absent rather than "N/A", so a
+                    // consumer cannot render the provider's own "I don't have this"
+                    // as if it were a number.
+                    quote = live ? new { last, bid, ask } : null,
                     // Pass the raw IBKR field map through — callers/LLM read the
                     // documented field ids; never fabricate a missing quote.
+                    // UNCHANGED and always present: four consumers read this key
+                    // (desk client, MCP tool, health probe, IV-rank), so the
+                    // additions above are additive on purpose.
                     snapshot = el.Clone(),
                 });
             }
