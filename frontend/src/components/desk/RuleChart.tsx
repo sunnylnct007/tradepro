@@ -81,7 +81,7 @@ export function RuleChart({ bars, p, trades, height = 150, sessions = 130 }: {
           </g>
         ))}
       </svg>
-      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.6 }}>
         <span style={{ color: "#cfd8e8" }}>━ close</span>{"  "}
         <span style={{ color: TONE.ok }}>━ 20-day mean (the target)</span>{"  "}
         <span style={{ color: TONE.warn }}>┄ {p.sigma}σ band (the trigger — price must close below)</span>{"  "}

@@ -81,13 +81,13 @@ export function DipSuitePanel() {
   return (
     <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
       <h3 style={{ margin: 0, fontSize: 15 }}>Run a suite — dip from the open</h3>
-      <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "6px 0 10px", lineHeight: 1.6 }}>
+      <div style={{ fontSize: 14, color: "var(--text-dim)", margin: "6px 0 10px", lineHeight: 1.6 }}>
         Rest a buy limit below each morning&apos;s open, take profit at the target, carry over if it
         does not fill the target, stop out below. Run across a whole tier at once.
       </div>
 
       <div style={{ border: `1px solid ${TONE.bad}55`, background: `${TONE.bad}0e`, borderRadius: 8,
-                    padding: "8px 12px", marginBottom: 12, fontSize: 12, lineHeight: 1.6 }}>
+                    padding: "8px 12px", marginBottom: 12, fontSize: 14, lineHeight: 1.6 }}>
         <b style={{ color: TONE.bad }}>This strategy was backtested and REJECTED.</b> At a 0.5% target
         against an 8% stop it wins <b>66%</b> of the time and loses <b>0.41% per trade</b> — a −8% stop
         against a +0.5% target needs a <b>94%</b> win rate to break even. The cells that did make money
@@ -96,7 +96,7 @@ export function DipSuitePanel() {
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 10 }}>
-        <label style={{ fontSize: 11, color: "var(--text-dim)" }}>
+        <label style={{ fontSize: 13, color: "var(--text-dim)" }}>
           <div style={{ marginBottom: 3 }}>Tier</div>
           <div style={{ display: "flex", gap: 4 }}>
             {["high-beta", "high-vol", "low-beta", "all"].map((t) => (
@@ -108,7 +108,7 @@ export function DipSuitePanel() {
         </label>
         {([["Dip %", dip, setDip], ["Target %", tgt, setTgt], ["Stop %", stop, setStop],
            ["Carry days", carry, setCarry]] as const).map(([l, v, set]) => (
-          <label key={l} style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          <label key={l} style={{ fontSize: 13, color: "var(--text-dim)" }}>
             <div style={{ marginBottom: 3 }}>{l}</div>
             <input value={v} style={inp} onChange={(e) => set(e.target.value)} />
           </label>
@@ -119,11 +119,11 @@ export function DipSuitePanel() {
         </button>
       </div>
 
-      {!uni && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading universe…</div>}
+      {!uni && <div style={{ fontSize: 14, color: "var(--text-muted)" }}>Loading universe…</div>}
 
       {rows && (
         <>
-          <div style={{ fontSize: 12, marginBottom: 8, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 14, marginBottom: 8, lineHeight: 1.6 }}>
             {rows.length} symbols · <b style={{ color: profitable > rows.length / 2 ? TONE.ok : TONE.bad }}>
               {profitable} profitable per trade</b> · {winners} beat simply being long.
             {profitable < rows.length / 2 && (
@@ -131,7 +131,7 @@ export function DipSuitePanel() {
             )}
           </div>
           <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8, maxHeight: 460 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr style={{ background: "var(--surface-2)", textAlign: "left", position: "sticky", top: 0 }}>
                   {["Symbol", "Tier", "Fill %", "Trades", "Win %", "Exp / trade", "Exp / day held",
@@ -144,7 +144,7 @@ export function DipSuitePanel() {
                   return (
                     <tr key={r.symbol} style={{ borderTop: "1px solid #141b2b" }}>
                       <td style={{ ...td, fontWeight: 700 }}>{r.symbol}</td>
-                      <td style={{ ...td, color: "var(--text-dim)", fontSize: 11 }}>{r.tier}</td>
+                      <td style={{ ...td, color: "var(--text-dim)", fontSize: 13 }}>{r.tier}</td>
                       <td style={td}>{(100 * r.fillRate).toFixed(0)}%</td>
                       <td style={{ ...td, color: "var(--text-dim)" }}>{r.trades}</td>
                       {/* Win rate deliberately dimmed — it is the number that misleads here. */}
@@ -165,7 +165,7 @@ export function DipSuitePanel() {
               </tbody>
             </table>
           </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.6 }}>
             Graded pessimistically: when a session&apos;s low fills you and its high clears the target,
             daily bars cannot say which came first, so it is assumed the high came first and the
             position carries. Same-day exits therefore cannot be measured here at all — that needs

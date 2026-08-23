@@ -46,12 +46,12 @@ export function SwingView() {
     <div style={{ padding: "8px 4px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Swing candidates</h2>
-        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+        <span style={{ fontSize: 14, color: "var(--text-muted)" }}>
           signal bar {a.signal_bar} · rebuilt {ago}m ago · {a.count} candidate{a.count === 1 ? "" : "s"}
         </span>
       </div>
 
-      <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "6px 0 12px", lineHeight: 1.6 }}>
+      <div style={{ fontSize: 14, color: "var(--text-dim)", margin: "6px 0 12px", lineHeight: 1.6 }}>
         <b>Entry</b> {a.rule.entry} · <b>Target</b> {a.rule.target} · <b>Stop</b> {a.rule.stop} ·
         exit by {a.rule.timeout}. Each row is placeable as one bracket order.
       </div>
@@ -59,14 +59,14 @@ export function SwingView() {
       {/* Evidence inline — this is the only desk surface with graded evidence,
           and hiding it would waste the one thing that makes it trustworthy. */}
       <div style={{ border: `1px solid ${TONE.ok}55`, background: `${TONE.ok}0e`, borderRadius: 8,
-                    padding: "8px 12px", marginBottom: 12, fontSize: 12, lineHeight: 1.6 }}>
+                    padding: "8px 12px", marginBottom: 12, fontSize: 14, lineHeight: 1.6 }}>
         <b style={{ color: TONE.ok }}>Backtested</b> — {a.evidence.trades.toLocaleString()} trades ·{" "}
         <b>{a.evidence.win_rate_pct}% win</b> · {a.evidence.mean_per_trade_pct}%/trade ·{" "}
         median {a.evidence.median_per_trade_pct !== undefined && (
           <b style={{ color: TONE.ok }}>{a.evidence.median_per_trade_pct}%</b>
         )} · median hold {a.evidence.median_hold_sessions} sessions · worst{" "}
         <b style={{ color: TONE.bad }}>{a.evidence.worst_trade_pct}%</b>.
-        <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 3 }}>
+        <div style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 3 }}>
           Gates <code>{a.evidence.gates_file}</code> committed <code>{a.evidence.gates_commit}</code>{" "}
           BEFORE the run — see Research. {a.evidence.note}
           {a.evidence.harness && (
@@ -83,10 +83,10 @@ export function SwingView() {
           telling half a truth. */}
       {a.regime_dependence && (
         <div style={{ border: `1px solid ${TONE.bad}55`, background: `${TONE.bad}0e`, borderRadius: 8,
-                      padding: "8px 12px", marginBottom: 12, fontSize: 12, lineHeight: 1.6 }}>
+                      padding: "8px 12px", marginBottom: 12, fontSize: 14, lineHeight: 1.6 }}>
           <b style={{ color: TONE.bad }}>This loses money in a bear market.</b> Split by where the
           S&amp;P was when each trade opened:
-          <table style={{ borderCollapse: "collapse", fontSize: 11, marginTop: 5 }}>
+          <table style={{ borderCollapse: "collapse", fontSize: 13, marginTop: 5 }}>
             <tbody>
               {([["S&P above its 200-day avg", a.regime_dependence.above_200sma],
                  ["S&P BELOW its 200-day avg", a.regime_dependence.below_200sma],
@@ -104,7 +104,7 @@ export function SwingView() {
               ))}
             </tbody>
           </table>
-          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>
             Only 8% of the tested history sits in the losing regime, so the headline above describes
             a market that mostly went up. Ordinary pullbacks are its sweet spot; real breaks are not.
           </div>
@@ -113,14 +113,14 @@ export function SwingView() {
 
       {a.count === 0 ? (
         <div style={{ padding: 16, border: "1px dashed var(--border)", borderRadius: 8,
-                      color: "var(--text-dim)", fontSize: 13 }}>
+                      color: "var(--text-dim)", fontSize: 15 }}>
           <b>No candidates right now.</b> The screen is deliberately selective — roughly 1–2 signals
           a day across the defined universe. An empty list is the screen working, not the screen broken:
           it fires only on a 2.5σ dip in a name still above its 200-day average.
         </div>
       ) : (
         <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
                 {["Symbol", "Tier", "Entry", "Target", "Stop", "Upside", "R:R", "Depth", "ATR%", "vs 200-SMA"].map((x) => (
@@ -133,7 +133,7 @@ export function SwingView() {
                 <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{c.symbol}</td>
                   <td style={{ padding: "8px 10px" }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999,
+                    <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 999,
                                    color: c.tier === "core" ? TONE.ok : TONE.warn,
                                    border: `1px solid ${(c.tier === "core" ? TONE.ok : TONE.warn)}55` }}>
                       {c.tier}
@@ -160,17 +160,17 @@ export function SwingView() {
           name is a screen you cannot reason about. */}
       {a.quarantined && a.quarantined.length > 0 && (
         <div style={{ marginTop: 12, border: `1px solid ${TONE.warn}55`, background: `${TONE.warn}0e`,
-                      borderRadius: 8, padding: "8px 12px", fontSize: 12, lineHeight: 1.6 }}>
+                      borderRadius: 8, padding: "8px 12px", fontSize: 14, lineHeight: 1.6 }}>
           <b style={{ color: TONE.warn }}>
             {a.quarantined.length} symbol{a.quarantined.length === 1 ? "" : "s"} dropped — suspect price history
           </b>
-          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 3 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 3 }}>
             These carry a stored series that looks like a different instrument (wrong venue or wrong
             contract). It passes NaN/spike checks because the series is internally consistent — it is
             simply not this security. Mean reversion is the strategy most exposed to it: a wrong-venue
             series looks permanently, enormously cheap.
           </div>
-          <div style={{ marginTop: 5, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+          <div style={{ marginTop: 5, fontFamily: "var(--font-mono)", fontSize: 13 }}>
             {a.quarantined.map((q) => (
               <div key={q.symbol}><b>{q.symbol}</b> — {q.detail}</div>
             ))}
@@ -179,7 +179,7 @@ export function SwingView() {
       )}
 
       {/* Limits stated on the surface, not in a doc nobody opens. */}
-      <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+      <div style={{ marginTop: 12, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
         <b>What this does not do:</b>
         <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
           {a.limits.map((x, i) => <li key={i}>{x}</li>)}

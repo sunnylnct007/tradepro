@@ -163,14 +163,14 @@ export function ScannerView() {
     <div style={{ padding: "8px 4px" }}>
       <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Scanner</h2>
-        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+        <span style={{ fontSize: 14, color: "var(--text-muted)" }}>
           the Swing rule with its numbers exposed — scan all 244, then open any row
         </span>
       </div>
 
       <div style={{ border: `1px solid ${isLive ? TONE.ok : TONE.warn}55`,
                     background: `${isLive ? TONE.ok : TONE.warn}0e`, borderRadius: 8,
-                    padding: "8px 12px", margin: "10px 0", fontSize: 12, lineHeight: 1.6 }}>
+                    padding: "8px 12px", margin: "10px 0", fontSize: 14, lineHeight: 1.6 }}>
         {isLive ? (
           <><b style={{ color: TONE.ok }}>LIVE SETTINGS</b> — exactly the rule trading on IBKR
           paper: 2.5σ below the 20-day mean while above the 200-day average, target the 20-day
@@ -189,7 +189,7 @@ export function ScannerView() {
         {([["σ below mean", "sigma", 0.1], ["stop %", "stopPct", 1],
            ["hold (sessions)", "maxHold", 1], ["mean window", "bbWindow", 1],
            ["trend window", "trendWindow", 10]] as const).map(([label, k, step]) => (
-          <label key={k} style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          <label key={k} style={{ fontSize: 13, color: "var(--text-dim)" }}>
             <div style={{ marginBottom: 3 }}>
               {label}{p[k] !== LIVE_PARAMS[k] && <span style={{ color: TONE.warn }}> ✎</span>}
             </div>
@@ -197,7 +197,7 @@ export function ScannerView() {
                    onChange={(e) => setP({ ...p, [k]: parseFloat(e.target.value) || 0 })} />
           </label>
         ))}
-        <label style={{ fontSize: 11, color: "var(--text-dim)" }}>
+        <label style={{ fontSize: 13, color: "var(--text-dim)" }}>
           <div style={{ marginBottom: 3 }}>min trades</div>
           <input type="number" value={minTrades} style={inp}
                  onChange={(e) => setMinTrades(parseInt(e.target.value) || 0)} />
@@ -206,7 +206,7 @@ export function ScannerView() {
                 style={{ ...inp, width: "auto", cursor: "pointer", fontWeight: 700 }}>
           {progress ? progress : rows ? "Recompute" : "Scan universe"}
         </button>
-        <label style={{ fontSize: 11, color: "var(--text-dim)", display: "flex", gap: 5,
+        <label style={{ fontSize: 13, color: "var(--text-dim)", display: "flex", gap: 5,
                         alignItems: "center", border: `1px solid ${preview ? TONE.warn : "var(--border)"}`,
                         borderRadius: 6, padding: "5px 8px" }}
                title="Build today's partial bar from the 5-minute lane and preview the rule on it">
@@ -220,7 +220,7 @@ export function ScannerView() {
           </button>
         )}
         {rows && (
-          <label style={{ fontSize: 11, color: "var(--text-dim)", display: "flex", gap: 5, alignItems: "center" }}>
+          <label style={{ fontSize: 13, color: "var(--text-dim)", display: "flex", gap: 5, alignItems: "center" }}>
             <input type="checkbox" checked={onlyFiring} onChange={(e) => setOnlyFiring(e.target.checked)} />
             firing today only
           </label>
@@ -234,12 +234,12 @@ export function ScannerView() {
           like information. Every column says what it is, and where it can
           mislead. */}
       <button onClick={() => setLegend(!legend)}
-              style={{ ...inp, width: "auto", cursor: "pointer", marginBottom: 8, fontSize: 11 }}>
+              style={{ ...inp, width: "auto", cursor: "pointer", marginBottom: 8, fontSize: 13 }}>
         {legend ? "▼" : "▶"} What does each column mean?
       </button>
       {legend && (
         <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px",
-                      marginBottom: 12, fontSize: 11, lineHeight: 1.7 }}>
+                      marginBottom: 12, fontSize: 13, lineHeight: 1.7 }}>
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <tbody>
               {([
@@ -269,9 +269,9 @@ export function ScannerView() {
         </div>
       )}
 
-      {err && <div style={{ color: TONE.bad, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+      {err && <div style={{ color: TONE.bad, fontSize: 14, marginBottom: 10 }}>{err}</div>}
       {!rows && !progress && (
-        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+        <div style={{ fontSize: 14, color: "var(--text-muted)" }}>
           First scan fetches 244 symbols and takes a minute. After that, changing any number
           recomputes instantly from memory — no refetch.
         </div>
@@ -288,7 +288,7 @@ export function ScannerView() {
             const tone = st <= 1 ? TONE.ok : st <= 3 ? TONE.warn : TONE.bad;
             return (
               <div style={{ border: `1px solid ${tone}55`, background: `${tone}0e`, borderRadius: 8,
-                            padding: "7px 12px", marginBottom: 10, fontSize: 11, lineHeight: 1.7 }}>
+                            padding: "7px 12px", marginBottom: 10, fontSize: 13, lineHeight: 1.7 }}>
                 <b style={{ color: tone }}>
                   COMPUTED ON DAILY BARS TO {rows[0]?.lastBar}
                   {st === 0 ? " (current)" : ` · ${st} trading session${st === 1 ? "" : "s"} old`}
@@ -313,7 +313,7 @@ export function ScannerView() {
               </div>
             );
           })()}
-          <div style={{ fontSize: 12, marginBottom: 8, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 14, marginBottom: 8, lineHeight: 1.6 }}>
             <b style={{ color: firing.length ? TONE.ok : "var(--text-muted)" }}>
               {firing.length} firing today{firing.length ? `: ${firing.map((r) => r.symbol).join(", ")}` : ""}
             </b>
@@ -323,9 +323,9 @@ export function ScannerView() {
 
           {sens && (
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px",
-                          marginBottom: 12, fontSize: 12 }}>
+                          marginBottom: 12, fontSize: 14 }}>
               <b>Is the edge a knife edge?</b>
-              <div style={{ color: "var(--text-muted)", fontSize: 11, margin: "3px 0 8px", lineHeight: 1.6 }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 13, margin: "3px 0 8px", lineHeight: 1.6 }}>
                 Each number swept around its live value, everything else held at live. This is the
                 only honest reason to move these controls: a rule that works at 2.5σ and dies at
                 2.4σ should not be funded. Read whether the row is FLAT, not which cell is highest.
@@ -338,11 +338,11 @@ export function ScannerView() {
                   const flat = best - worst < 0.35;
                   return (
                     <div key={grp}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
                         {grp} <span style={{ color: flat ? TONE.ok : TONE.warn }}>
                           — {flat ? "flat, robust" : `varies ${(best - worst).toFixed(2)}pp`}</span>
                       </div>
-                      <table style={{ borderCollapse: "collapse", fontSize: 11, marginTop: 3, width: "100%" }}>
+                      <table style={{ borderCollapse: "collapse", fontSize: 13, marginTop: 3, width: "100%" }}>
                         <tbody>
                           {g.map((x) => (
                             <tr key={x.v} style={{ background: x.live ? "rgba(29,158,117,0.10)" : undefined }}>
@@ -367,7 +367,7 @@ export function ScannerView() {
           )}
 
           <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8, maxHeight: 560 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr style={{ background: "var(--surface-2)", position: "sticky", top: 0 }}>
                   <th style={th}>Symbol</th><th style={th}>Today</th>
@@ -408,7 +408,7 @@ export function ScannerView() {
                       <td style={{ ...td, color: TONE.bad }}>{r.worstPct.toFixed(1)}%</td>
                       <td style={{ ...td, color: "var(--text-dim)" }}>{r.medianHold}</td>
                       <td style={{ ...td, color: "var(--text-dim)" }}>{r.atrPct.toFixed(1)}%</td>
-                      <td style={{ ...td, fontSize: 10,
+                      <td style={{ ...td, fontSize: 12,
                                    color: r.score?.verdict === "better" ? TONE.ok
                                         : r.score?.verdict === "worse" ? TONE.bad : "var(--text-muted)" }}>
                         {r.score?.verdict === "better" ? "BETTER"
@@ -427,10 +427,10 @@ export function ScannerView() {
                           <div style={{ display: "grid", gap: 16,
                                         gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))" }}>
                             <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
                                 WHERE {r.symbol} IS TODAY · last bar {r.lastBar}
                               </div>
-                              <div style={{ fontSize: 12, lineHeight: 1.8, marginTop: 4,
+                              <div style={{ fontSize: 14, lineHeight: 1.8, marginTop: 4,
                                             fontFamily: "var(--font-mono)" }}>
                                 close <b>{r.entry.toFixed(2)}</b><br />
                                 {r.sigmasBelow >= 0 ? "below" : "ABOVE"} the 20-day mean by{" "}
@@ -441,7 +441,7 @@ export function ScannerView() {
                                 {r.vs200 <= 0 && " — this alone blocks the rule"}
                               </div>
                               {r.firesNow && (
-                                <div style={{ marginTop: 6, fontSize: 12, fontFamily: "var(--font-mono)",
+                                <div style={{ marginTop: 6, fontSize: 14, fontFamily: "var(--font-mono)",
                                               border: `1px solid ${TONE.ok}55`, borderRadius: 6, padding: "6px 9px" }}>
                                   entry <b>{r.entry.toFixed(2)}</b> · target{" "}
                                   <b style={{ color: TONE.ok }}>{r.target.toFixed(2)}</b>{" "}
@@ -452,15 +452,15 @@ export function ScannerView() {
                             </div>
                             {r.score && r.score.n > 0 && (
                               <div>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
                                   IF {r.symbol} FIRES — what that ONE trade looks like
                                 </div>
-                                <div style={{ fontSize: 11, color: "var(--text-muted)", margin: "3px 0 6px", lineHeight: 1.6 }}>
+                                <div style={{ fontSize: 13, color: "var(--text-muted)", margin: "3px 0 6px", lineHeight: 1.6 }}>
                                   Not &ldquo;how will {r.symbol} do this quarter&rdquo; — it fires about{" "}
                                   {(60 * r.n / 4000).toFixed(2)} times in 12 weeks, so the honest
                                   question is what a single trade is worth when it does.
                                 </div>
-                                <table style={{ borderCollapse: "collapse", fontSize: 11, width: "100%" }}>
+                                <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%" }}>
                                   <tbody>
                                     <tr>
                                       <td style={{ ...td, padding: "3px 8px 3px 0", color: "var(--text-dim)" }}>
@@ -492,7 +492,7 @@ export function ScannerView() {
                                     </tr>
                                   </tbody>
                                 </table>
-                                <div style={{ fontSize: 11, marginTop: 5, lineHeight: 1.6,
+                                <div style={{ fontSize: 13, marginTop: 5, lineHeight: 1.6,
                                               color: r.score.verdict === "better" ? TONE.ok
                                                    : r.score.verdict === "worse" ? TONE.bad : "var(--text-muted)" }}>
                                   {r.score.verdict === "too few trades"
@@ -506,11 +506,11 @@ export function ScannerView() {
                               </div>
                             )}
                             <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
                                 LAST {Math.min(8, r.trades.length)} TRADES ON {r.symbol}
                                 {r.n < 8 && <span style={{ color: TONE.warn }}> · only {r.n} ever — too few to mean much</span>}
                               </div>
-                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, marginTop: 4 }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 4 }}>
                                 <thead><tr style={{ color: "var(--text-dim)" }}>
                                   {["signal", "entry", "exit", "why", "bars", "P&L"].map((x) => (
                                     <th key={x} style={{ padding: "2px 6px", textAlign: "left" }}>{x}</th>))}
@@ -541,7 +541,7 @@ export function ScannerView() {
             </table>
           </div>
 
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.6 }}>
             <b>Read the trade count first.</b> 65 of 240 symbols have three or fewer trades in their
             whole history, and sorted by mean they fill both ends of the table — a single lucky trade
             reads as +34%, a single stop-out as −8%. That is sample size, not skill.

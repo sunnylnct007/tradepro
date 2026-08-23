@@ -92,7 +92,7 @@ export function TradeOddsView() {
           Scanner does the same job with history, sector context and an
           intraday preview, and two screens answering one question is how a
           desk grows back to seventeen tabs. */}
-      <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "6px 0 12px", lineHeight: 1.6 }}>
+      <div style={{ fontSize: 14, color: "var(--text-dim)", margin: "6px 0 12px", lineHeight: 1.6 }}>
         Rest a limit, set a target, and see how often that order actually worked on this symbol&apos;s
         own history. A <b>base rate, not a forecast</b> — every past bar is replayed as if the same
         order were sitting there.
@@ -103,7 +103,7 @@ export function TradeOddsView() {
           ["Target", target, setTarget, 100], ["Stop %", stopPct, setStopPct, 70],
           ["Wait (days)", fillWindow, setFillWindow, 80], ["Hold (days)", tradeWindow, setTradeWindow, 80],
         ].map(([label, val, set, w]) => (
-          <label key={label as string} style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          <label key={label as string} style={{ fontSize: 13, color: "var(--text-dim)" }}>
             <div style={{ marginBottom: 3 }}>{label as string}</div>
             <input value={val as string} style={{ ...inp, width: w as number }}
                    onChange={(ev) => (set as (s: string) => void)(ev.target.value)}
@@ -116,10 +116,10 @@ export function TradeOddsView() {
         </button>
       </div>
 
-      {err && <div style={{ color: TONE.bad, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+      {err && <div style={{ color: TONE.bad, fontSize: 14, marginBottom: 10 }}>{err}</div>}
 
       {last && (
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
+        <div style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 10 }}>
           {symbol.toUpperCase()} — last settled close <b style={{ fontFamily: "var(--font-mono)" }}>{last.close.toFixed(2)}</b>{" "}
           ({last.ts.slice(0, 10)}) · {bars!.length.toLocaleString()} stored sessions from {bars![0].ts.slice(0, 10)}
           {bars!.length < 500 && (
@@ -132,7 +132,7 @@ export function TradeOddsView() {
       )}
 
       {!valid && bars && (
-        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+        <div style={{ fontSize: 14, color: "var(--text-muted)" }}>
           Enter a limit price, a target above it, and a negative stop %.
         </div>
       )}
@@ -141,13 +141,13 @@ export function TradeOddsView() {
         <>
           {/* The chain, stated whole. */}
           <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px",
-                        marginBottom: 12, fontSize: 12, lineHeight: 1.7 }}>
+                        marginBottom: 12, fontSize: 14, lineHeight: 1.7 }}>
             <div style={{ color: "var(--text-dim)", marginBottom: 6 }}>
               Rest a limit at <b>{e.toFixed(2)}</b> ({(100 * (e / last.close - 1)).toFixed(1)}% from
               here) · target <b>{t.toFixed(2)}</b> (+{(100 * (t / e - 1)).toFixed(1)}% from entry) ·
               stop <b>{(e * (1 + sp)).toFixed(2)}</b> ({stopPct}%) · wait {fw}d, hold {tw}d
             </div>
-            <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 14 }}>
               <thead><tr><th style={th} /><th style={th}>P(filled)</th><th style={th}>P(target | filled)</th>
                 <th style={th}>P(both)</th><th style={th}>expectancy / filled order</th></tr></thead>
               <tbody>
@@ -164,7 +164,7 @@ export function TradeOddsView() {
                 ))}
               </tbody>
             </table>
-            <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 6 }}>
               <b>P(both)</b> is the one that happens to you — the limit has to fill before anything
               else can. A session touching both barriers is counted as a <b>stop</b>, because daily
               bars cannot say which came first; every number here is biased down, not up.
@@ -173,7 +173,7 @@ export function TradeOddsView() {
 
           {/* Target sweep, both eras. */}
           <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr style={{ background: "var(--surface-2)" }}>
                   <th style={th} colSpan={2} />
@@ -210,7 +210,7 @@ export function TradeOddsView() {
               </tbody>
             </table>
           </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.6 }}>
             A target that is best <b>only</b> in the recent column is a bet on the regime continuing,
             not a property of the symbol. Read expectancy, not hit rate: a 90% hit rate on a +1%
             target against a −8% stop loses money.
@@ -218,14 +218,14 @@ export function TradeOddsView() {
 
           {exAll && exRecent && (
             <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 8,
-                          padding: "8px 12px", fontSize: 12, lineHeight: 1.7 }}>
+                          padding: "8px 12px", fontSize: 14, lineHeight: 1.7 }}>
               <b style={{ color: "var(--text-dim)" }}>HOW FAR IT ACTUALLY TRAVELS</b> — best upward move
               within {tw} sessions
               <div style={{ fontFamily: "var(--font-mono)", marginTop: 3 }}>
                 all history — median +{exAll.median}% · 75th +{exAll.p75}% · 90th +{exAll.p90}%<br />
                 last 2 years — median +{exRecent.median}% · 75th +{exRecent.p75}% · 90th +{exRecent.p90}%
               </div>
-              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 5 }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 5 }}>
                 This is the measured answer to the question support and resistance is usually asked.
                 We tested drawn S/R over 76,260 touch events and both edges came out negative against
                 random placebo lines, so it is not used anywhere on this desk. How far a symbol
@@ -236,7 +236,7 @@ export function TradeOddsView() {
             </div>
           )}
 
-          <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+          <div style={{ marginTop: 12, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
             <b>What this does not do:</b>
             <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
               <li>These are <b>not live prices</b>. Stored daily bars up to the last settled session.</li>
