@@ -118,3 +118,38 @@ class TestStrategyMechanics:
         s = self._strategy()
         s._entry_bar["X"] = "2026-08-24"      # Monday
         assert s._bars_held("X", "2026-08-31") == 5   # the following Monday
+
+
+class TestInheritedPositions:
+    """A position this strategy did not open must be left alone.
+
+    The IBKR paper account carried three positions from the Ichimoku clone
+    that ran there until 22 Aug. On its first live run this strategy adopted
+    them, found the 20-day mean already above their price, and emitted
+    "swing exit target held=0" SELLs for DIS, ABBV and COP — three orders for
+    trades it never made. Gate F2 of the forward test requires every fill to
+    trace to a published signal; those trace to another strategy months ago,
+    and their cost basis belongs to it, so any P&L booked against them is
+    fiction.
+    """
+
+    def _strategy_holding(self, qty: int):
+        from tradepro_strategies.paper.strategies.mean_reversion_swing import (
+            MeanReversionSwingStrategy)
+        s = MeanReversionSwingStrategy(strategy_id="swing_test")
+        s.params = {"capital": 100_000}
+        s.seed_positions({"DIS": qty}, {"DIS": 100.0})
+        return s
+
+    def test_session_start_does_not_claim_broker_positions(self):
+        """initial_positions used to seed _entry_bar, which is what made a
+        foreign holding look like ours."""
+        s = self._strategy_holding(14)
+        s.params = {"capital": 100_000, "initial_positions": {"DIS": 14}}
+        s.on_session_start(__import__("datetime").datetime(2026, 8, 24))
+        assert "DIS" not in s._entry_bar
+        assert "DIS" not in s._fill_price
+
+    def test_a_position_we_never_filled_is_ours_only_after_a_fill(self):
+        s = self._strategy_holding(14)
+        assert "DIS" not in s._fill_price      # seeded, not filled

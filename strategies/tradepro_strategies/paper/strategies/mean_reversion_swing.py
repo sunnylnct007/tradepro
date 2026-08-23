@@ -76,13 +76,10 @@ class MeanReversionSwingStrategy(Strategy):
             self._decided_today = set(self.recall(key, []) or [])
         except Exception:  # noqa: BLE001
             self._decided_today = set()
-        p = self._p()
-        for sym, qty in (p.get("initial_positions") or {}).items():
-            try:
-                if int(qty) > 0:
-                    self._entry_bar.setdefault(sym, self._day(session_date))
-            except (TypeError, ValueError):
-                continue
+        # Deliberately does NOT seed _entry_bar from initial_positions. Doing so
+        # marked every pre-existing broker position as one of ours, which is
+        # exactly how the first run emitted exits for another strategy's trades.
+        # A position is this strategy's only once IT has filled one.
 
     @staticmethod
     def _day(ts) -> str:
@@ -107,6 +104,29 @@ class MeanReversionSwingStrategy(Strategy):
         i = len(closes) - 1
 
         held = int(self.position_for(sym).quantity or 0)
+
+        # ── INHERITED POSITIONS ARE NOT OURS ─────────────────────────────
+        # The IBKR paper account still holds positions opened by the Ichimoku
+        # clone that ran here until 22 Aug. On the very first run this strategy
+        # adopted them, found the 20-day mean already above their price, and
+        # emitted "swing exit target held=0" SELLs for DIS, ABBV and COP —
+        # three orders for trades it never made.
+        #
+        # That is not a rounding error in a forward test: gate F2 requires
+        # every fill to trace to a published signal, and an inherited position
+        # traces to a different strategy's decision months ago. Its cost basis
+        # belongs to that strategy, so any P&L booked against it is fiction.
+        #
+        # So: a position this strategy did not open is LEFT ALONE and named.
+        # Flattening them is a decision for a human, not a side effect of
+        # starting a test.
+        if held > 0 and sym not in self._fill_price and sym not in self._entry_bar:
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp, action="ignore-inherited",
+                reason=(f"holding {held} shares this strategy did not open — inherited from a "
+                        f"previous strategy in this account. Not managed, not exited, not "
+                        f"counted in the forward test. Flatten manually if you want them gone."))
+            return []
 
         # ── exits first: a held position is never re-entered ──────────────
         if held > 0:
