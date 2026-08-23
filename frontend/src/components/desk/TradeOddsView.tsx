@@ -23,7 +23,6 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { barrierScan, sweepTargets, excursion, type Bar } from "../../lib/tradeOdds";
 import { DipSuitePanel } from "./DipSuitePanel";
-import { SymbolVerdictPanel } from "./SymbolVerdictPanel";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
 const pct = (x: number | null | undefined) => (x == null ? "—" : `${Math.round(x * 100)}%`);
@@ -83,6 +82,16 @@ export function TradeOddsView() {
   return (
     <div style={{ padding: "8px 4px" }}>
       <h2 style={{ margin: 0, fontSize: 18 }}>Trade odds</h2>
+      {/* THE LINE BETWEEN THIS AND THE SCANNER, because they overlapped and one
+          of them had to give.
+            Scanner  — OUR rule, across all 244 names. "What does the strategy say?"
+            Odds     — YOUR order, any price, any target. "If I place this, what
+                       are the chances?" — a question the rule does not answer,
+                       because it is not the rule's trade.
+          The per-symbol rule panel that used to live here was removed: the
+          Scanner does the same job with history, sector context and an
+          intraday preview, and two screens answering one question is how a
+          desk grows back to seventeen tabs. */}
       <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "6px 0 12px", lineHeight: 1.6 }}>
         Rest a limit, set a target, and see how often that order actually worked on this symbol&apos;s
         own history. A <b>base rate, not a forecast</b> — every past bar is replayed as if the same
@@ -241,7 +250,6 @@ export function TradeOddsView() {
         </>
       )}
 
-      <SymbolVerdictPanel />
       <DipSuitePanel />
     </div>
   );
