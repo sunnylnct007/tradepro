@@ -13,7 +13,7 @@
 
   Pick ONE of refresh OR worker — running both schedules a redundant
   compare every 6 hours that the worker would have done anyway.
-  install-launchd.sh defaults to the worker; add --refresh to install
+  install-launchd.sh defaults to the worker; add [flag: refresh] to install
   the cron-style schedule instead.
 
   Cadence overrides via the user's launchd env vars (set in this

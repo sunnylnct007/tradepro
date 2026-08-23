@@ -28,7 +28,7 @@
     <!--
       Daily cron — yfinance fallback is ACCEPTABLE here because this only
       harvests TODAY's session and TWS may briefly lag behind the cron.
-      For historical backfill use --ibkr-only explicitly.
+      For historical backfill use [flag: ibkr-only] explicitly.
     -->
     <key>ProgramArguments</key>
     <array>
@@ -40,7 +40,7 @@
         <string>us_etf</string>
         <string>--allow-partial</string>
         <string>--verbose</string>
-        <!-- No --ibkr-only here: yfinance is a same-day fallback if TWS lags -->
+        <!-- No [flag: ibkr-only] here: yfinance is a same-day fallback if TWS lags -->
     </array>
 
     <key>EnvironmentVariables</key>

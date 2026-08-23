@@ -10,7 +10,7 @@
   Registry UPSERTs idempotently — same-day re-runs never duplicate.
 
   Install:
-    bash strategies/scripts/install-launchd.sh --catalysts-daily-sweep
+    bash strategies/scripts/install-launchd.sh [flag: catalysts-daily-sweep]
 
   Manual trigger:
     launchctl start com.tradepro.catalysts-daily-sweep

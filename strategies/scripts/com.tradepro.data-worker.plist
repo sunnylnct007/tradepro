@@ -22,7 +22,7 @@
     - Stop via launchctl bootout
 
   Opt-in install via:
-    bash strategies/scripts/install-launchd.sh --data-worker
+    bash strategies/scripts/install-launchd.sh [flag: data-worker]
 
   Logs:
     ~/.tradepro/logs/data-worker-stdout.log

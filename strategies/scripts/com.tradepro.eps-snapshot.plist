@@ -3,7 +3,7 @@
   Weekly EPS snapshot — fires every Sunday at 20:00 UTC, giving COMPASS
   fresh earnings-revision data before Monday's pre-market opens.
 
-  What it does: calls tradepro-refresh --eps-snapshot on every stock
+  What it does: calls tradepro-refresh [flag: eps-snapshot] on every stock
   watchlist, recording forwardEps from yfinance into
   ~/.tradepro/eps_snapshots/<SYMBOL>.json.  ETFs and symbols without
   analyst coverage are skipped silently.  Same-day entries are
@@ -14,9 +14,9 @@
   or when manually triggered.
 
   Install (any mode):
-    bash strategies/scripts/install-launchd.sh --eps-snapshot
-    bash strategies/scripts/install-launchd.sh --refresh --eps-snapshot
-    bash strategies/scripts/install-launchd.sh --worker --eps-snapshot
+    bash strategies/scripts/install-launchd.sh [flag: eps-snapshot]
+    bash strategies/scripts/install-launchd.sh [flag: refresh] [flag: eps-snapshot]
+    bash strategies/scripts/install-launchd.sh [flag: worker] [flag: eps-snapshot]
 
   Manual trigger (for testing):
     launchctl start com.tradepro.eps-snapshot

@@ -10,7 +10,7 @@
 
   Manual run / debug:
     launchctl start com.tradepro.heartbeat
-    uv run tradepro-heartbeat --dry-run   # see the payload
+    uv run tradepro-heartbeat [flag: dry-run]   # see the payload
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

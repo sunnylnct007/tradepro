@@ -11,7 +11,7 @@
   becomes a dashboard row instead of a discovery.
 
   Report-only: quarantine/remediation stays a deliberate human-triggered
-  action (tradepro-bar-cache-audit --quarantine).
+  action (tradepro-bar-cache-audit [flag: quarantine]).
 -->
 <plist version="1.0">
 <dict>
