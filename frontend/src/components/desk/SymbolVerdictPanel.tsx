@@ -24,6 +24,17 @@ import { useCallback, useState } from "react";
 import { api } from "../../api/client";
 import { checkSwing, checkMomentum, type Bar, type RuleCheck } from "../../lib/tradeOdds";
 
+/** Trading days between a bar date and now — how stale is what we are reading. */
+function sessionsStale(lastBar: string): number {
+  const d0 = new Date(lastBar + "T00:00:00Z"), now = new Date();
+  let n = 0;
+  for (const t = new Date(d0); t < now; t.setUTCDate(t.getUTCDate() + 1)) {
+    const wd = t.getUTCDay();
+    if (wd !== 0 && wd !== 6) n++;
+  }
+  return Math.max(0, n - 1);
+}
+
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
 
 function Rule({ name, check, evidence }:
@@ -80,6 +91,7 @@ export function SymbolVerdictPanel() {
   const [asOf, setAsOf] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [src, setSrc] = useState<Record<string, number>>({});
 
   const run = useCallback(async () => {
     setBusy(true); setErr(null); setBars(null);
@@ -88,6 +100,15 @@ export function SymbolVerdictPanel() {
       const b = (r.bars ?? []).filter((x) => x.high >= x.low && x.close > 0)
         .map((x) => ({ ts: x.ts, open: x.open, high: x.high, low: x.low, close: x.close }));
       if (!b.length) { setErr(`No stored daily bars for ${sym.toUpperCase()}.`); return; }
+      // Who produced the bars we are about to compute on. Graded over the
+      // recent tail only — that a bar from 2019 came from yahoo says nothing
+      // about whether today's close is golden.
+      const counts: Record<string, number> = {};
+      for (const x of (r.bars ?? []).slice(-60)) {
+        const k = x.source || "unknown";
+        counts[k] = (counts[k] || 0) + 1;
+      }
+      setSrc(counts);
       setBars(b); setAsOf(b[b.length - 1].ts.slice(0, 10));
     } catch (e) { setErr(String((e as Error)?.message || e)); }
     finally { setBusy(false); }
@@ -114,11 +135,45 @@ export function SymbolVerdictPanel() {
                 style={{ ...inp, cursor: "pointer", fontWeight: 700 }}>
           {busy ? "Checking…" : "Check"}
         </button>
-        {asOf && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          last settled bar {asOf} · {bars?.length.toLocaleString()} sessions
-        </span>}
+
       </div>
       {err && <div style={{ color: TONE.bad, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+
+      {/* WHAT WE READ, AND HOW OLD IT IS. Owner: "what data points have been
+          used and latest should be crystal clear on our UI so we do not go
+          blind." The daily harvest runs at 21:30, so DURING a session the
+          newest settled bar is yesterday's — a verdict computed now is a
+          verdict on yesterday's close, and saying so is the difference between
+          a stale number and a misleading one. */}
+      {bars && asOf && (() => {
+        const stale = sessionsStale(asOf);
+        const tone = stale <= 1 ? TONE.ok : stale <= 3 ? TONE.warn : TONE.bad;
+        return (
+          <div style={{ border: `1px solid ${tone}55`, background: `${tone}0e`, borderRadius: 8,
+                        padding: "8px 12px", marginBottom: 12, fontSize: 11, lineHeight: 1.7 }}>
+            <b style={{ color: tone }}>
+              DATA USED — last settled bar {asOf}
+              {stale === 0 ? " (current)" : ` · ${stale} trading session${stale === 1 ? "" : "s"} old`}
+            </b>
+            <div style={{ color: "var(--text-muted)" }}>
+              {bars.length.toLocaleString()} daily bars · source of the last 60:{" "}
+              {Object.entries(src).sort((a, b) => b[1] - a[1])
+                .map(([k, n]) => `${k} ${n}`).join(" · ") || "not reported"}
+            </div>
+            <div style={{ color: "var(--text-muted)" }}>
+              Computed from these: 10/20/50/200-day averages, 20-day standard deviation.
+              Daily closes only — <b>no live price, no intraday bar, no volume, no fundamentals</b>.
+            </div>
+            {stale > 1 && (
+              <div style={{ color: tone, marginTop: 3 }}>
+                ⚠ The harvest runs at 21:30 daily. During a session the newest settled bar is
+                yesterday&apos;s, so this is a verdict on {asOf}&apos;s close — not on where the
+                symbol is trading right now.
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {bars && (
         <>
           <Rule name="Swing (mean reversion)" check={swing}
