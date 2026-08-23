@@ -22,6 +22,7 @@
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
+import { RuleChart } from "./RuleChart";
 import { replaySwing, todayBarFrom5m, LIVE_PARAMS, type Bar, type SwingParams, type SwingReplay } from "../../lib/tradeOdds";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
@@ -361,6 +362,11 @@ export function ScannerView() {
                     {open === r.symbol && (
                       <tr key={r.symbol + "-d"}>
                         <td colSpan={10} style={{ padding: "10px 14px 14px", background: "rgba(255,255,255,0.02)" }}>
+                          {bars.current[r.symbol] && (
+                            <div style={{ marginBottom: 12 }}>
+                              <RuleChart bars={bars.current[r.symbol]} p={p} trades={r.trades} />
+                            </div>
+                          )}
                           <div style={{ display: "grid", gap: 16,
                                         gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))" }}>
                             <div>
