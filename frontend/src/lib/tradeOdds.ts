@@ -202,3 +202,100 @@ export function benchmarkPerDay(bars: Bar[]) {
   }
   return r.length ? r.reduce((a, b) => a + b, 0) / r.length : null;
 }
+
+/**
+ * THE STRATEGY RULES, evaluated against one symbol on demand.
+ *
+ * Owner: "what if I want to see the probability on a particular symbol — will
+ * I just put that symbol in odds and it will run all the strategy with latest
+ * data for it."
+ *
+ * It did not, and that was a fair expectation to have. Odds answered "if I
+ * place THIS order, how often did it work" — it never asked what our own
+ * strategies think of the name.
+ *
+ * These are ports of `signals/mean_reversion.py` and the momentum entry in
+ * `cli/momentum_candidates.py`. They are checked against the Python by
+ * `strategies/scripts/check-trade-odds-parity.sh` — if you change one, change
+ * both and re-run it. A drifting copy of an entry rule is how a screen starts
+ * disagreeing with the backtest that justified it.
+ *
+ * Each returns not just fires/does-not-fire but HOW FAR from firing, because
+ * "no" is the answer on almost every symbol on almost every day, and a bare
+ * "no" tells you nothing about whether to look again tomorrow.
+ */
+const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const smaAt = (c: number[], i: number, n: number) => mean(c.slice(i - n + 1, i + 1));
+
+export type RuleCheck = {
+  fires: boolean;
+  headline: string;
+  clauses: Array<{ label: string; value: string; ok: boolean }>;
+  plan?: { entry: number; target?: number; stop: number; targetPct?: number };
+};
+
+/** Swing — 2.5σ below the 20-day mean, while above the 200-day average. */
+export function checkSwing(bars: Bar[]): RuleCheck | null {
+  const c = bars.map((b) => b.close);
+  const i = c.length - 1;
+  if (i < 210) return null;
+  const w = c.slice(i - 19, i + 1);
+  const m20 = mean(w);
+  const sd = Math.sqrt(mean(w.map((x) => (x - m20) ** 2)));   // population sd, as Python
+  const s200 = smaAt(c, i, 200);
+  const band = m20 - 2.5 * sd;
+  const belowBand = c[i] < band;
+  const aboveTrend = c[i] > s200;
+  const sigmasBelow = sd > 0 ? (m20 - c[i]) / sd : 0;
+  const fires = belowBand && aboveTrend;
+  return {
+    fires,
+    // A negative "sigmasBelow" means the price is ABOVE its mean, and reading
+    // "-2.2σ below" is worse than useless — TSLA sits 2.2σ ABOVE and would
+    // have read as almost qualifying. Say which side of the mean it is on.
+    headline: fires
+      ? `FIRES — ${sigmasBelow.toFixed(1)}σ below the 20-day mean, above the 200-day average`
+      : sigmasBelow < 0
+        ? `no — trading ${Math.abs(sigmasBelow).toFixed(1)}σ ABOVE its 20-day mean; this rule buys dips`
+        : `no — only ${sigmasBelow.toFixed(1)}σ below the mean, needs 2.5σ${aboveTrend ? "" : ". It is also BELOW its 200-day average, which blocks the rule outright"}`,
+    clauses: [
+      { label: "At least 2.5σ below the 20-day mean", ok: belowBand,
+        value: `${sigmasBelow >= 0 ? "" : "+"}${Math.abs(sigmasBelow).toFixed(2)}σ ${sigmasBelow >= 0 ? "below" : "ABOVE"} · close ${c[i].toFixed(2)} vs band ${band.toFixed(2)}` },
+      { label: "Above the 200-day average (the trend floor)", ok: aboveTrend,
+        value: `${(100 * (c[i] / s200 - 1)).toFixed(1)}% · close ${c[i].toFixed(2)} vs ${s200.toFixed(2)}` },
+    ],
+    plan: { entry: c[i], target: m20, stop: c[i] * 0.92,
+            targetPct: 100 * (m20 / c[i] - 1) },
+  };
+}
+
+/** Momentum — a pullback TO the 10-day average inside a confirmed uptrend. */
+export function checkMomentum(bars: Bar[]): RuleCheck | null {
+  const c = bars.map((b) => b.close);
+  const i = c.length - 1;
+  if (i < 210) return null;
+  const s200 = smaAt(c, i, 200), s50 = smaAt(c, i, 50);
+  const s20 = smaAt(c, i, 20), s10 = smaAt(c, i, 10);
+  const prev10 = smaAt(c, i - 1, 10);
+  const cl = [
+    { label: "Above the 200-day average", ok: c[i] > s200,
+      value: `${(100 * (c[i] / s200 - 1)).toFixed(1)}%` },
+    { label: "20-day above the 50-day (uptrend)", ok: s20 > s50,
+      value: `${(100 * (s20 / s50 - 1)).toFixed(1)}%` },
+    { label: "Still above the 20-day average", ok: c[i] > s20,
+      value: `${(100 * (c[i] / s20 - 1)).toFixed(1)}%` },
+    { label: "Pulled back TO the 10-day average (trigger)", ok: c[i] <= s10 * 1.005,
+      value: `${(100 * (c[i] / s10 - 1)).toFixed(1)}% (fires at ≤ +0.5%)` },
+    { label: "Was above it yesterday — a pullback, not a breakdown", ok: c[i - 1] > prev10,
+      value: `${(100 * (c[i - 1] / prev10 - 1)).toFixed(1)}%` },
+  ];
+  const fires = cl.every((x) => x.ok);
+  const failed = cl.filter((x) => !x.ok);
+  return {
+    fires,
+    headline: fires ? "FIRES — pullback to the 10-day average in an uptrend"
+      : `no — ${failed.length} of 5 conditions unmet (${failed[0].label.toLowerCase()})`,
+    clauses: cl,
+    plan: { entry: c[i], stop: c[i] * 0.92 },
+  };
+}

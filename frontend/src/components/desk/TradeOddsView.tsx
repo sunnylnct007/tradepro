@@ -23,6 +23,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { barrierScan, sweepTargets, excursion, type Bar } from "../../lib/tradeOdds";
 import { DipSuitePanel } from "./DipSuitePanel";
+import { SymbolVerdictPanel } from "./SymbolVerdictPanel";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
 const pct = (x: number | null | undefined) => (x == null ? "—" : `${Math.round(x * 100)}%`);
@@ -240,6 +241,7 @@ export function TradeOddsView() {
         </>
       )}
 
+      <SymbolVerdictPanel />
       <DipSuitePanel />
     </div>
   );
