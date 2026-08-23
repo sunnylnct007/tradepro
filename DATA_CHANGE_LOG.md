@@ -33,6 +33,14 @@ Any anomaly in a forward test can then be checked against this file first.
 - **Prices unaffected** — volume only. But volume feeds the liquidity floor, so it
   silently shaped which instruments the platform would trade (universe 89 → 244).
 - **Commit**: 4064d5c. Both migrations idempotent (manifest marker / schema_data_migrations).
+- **When it actually applied to Postgres: 2026-08-23 13:25:47 UTC**, NOT at 4064d5c.
+  The parquet store changed at commit time, but db migration 065 failed on every
+  startup attempt for six hours first — it rewrites 1.6M rows and Dapper's default
+  30s command timeout cut it off, so the transaction rolled back and the API refused
+  to start. `ibkr_price_bars` volumes therefore changed under a running system at
+  13:25:47, hours after the parquet store did. If anything in a forward test
+  straddles 23 Aug, the two stores disagreed on volume units in between.
+  Fixed in b7f2183 (900s migration timeout). SPY 2026-08-21 daily: 589,831 → 58,983,100.
 
 ### 2026-08-22 — wrong-contract (foreign listing) data purged
 - **What**: partitions holding a different listing's series, in LSE pence.
