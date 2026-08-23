@@ -37,6 +37,7 @@ export function ScannerView() {
   const [onlyFiring, setOnlyFiring] = useState(false);
   const [sort, setSort] = useState<"mean" | "win" | "n" | "sigma">("mean");
   const [open, setOpen] = useState<string | null>(null);
+  const [sens, setSens] = useState<Array<{ label: string; v: number; n: number; win: number; mean: number; live: boolean }> | null>(null);
 
   const isLive = useMemo(() =>
     (Object.keys(LIVE_PARAMS) as (keyof SwingParams)[]).every((k) => p[k] === LIVE_PARAMS[k]),
@@ -73,6 +74,45 @@ export function ScannerView() {
     } catch (e) { setErr(String((e as Error)?.message || e)); }
     finally { setProgress(null); }
   }, [p]);
+
+  /** THE LEGITIMATE USE OF THE SLIDERS.
+   *
+   * Not "which settings score best" — that is hunting, and it is how a
+   * backtest lies. The question worth asking is "does this result depend on
+   * the exact numbers we picked?" A rule that only works at 2.5σ and dies at
+   * 2.4σ is a knife edge and should not be funded. One that holds across a
+   * range is a real effect that happens to be tuned.
+   *
+   * So this sweeps each parameter AROUND the live value and reports the whole
+   * neighbourhood, live setting marked. It answers fragility and gives no way
+   * to read off a winner.
+   */
+  const runSensitivity = useCallback(() => {
+    const syms = Object.keys(bars.current).filter((s) => (bars.current[s]?.length ?? 0) >= 250);
+    if (!syms.length) return;
+    const agg = (pp: SwingParams) => {
+      let n = 0, wins = 0, sum = 0;
+      for (const s of syms) {
+        const r = replaySwing(bars.current[s], pp);
+        if (!r || !r.n) continue;
+        n += r.n; wins += Math.round((r.winPct / 100) * r.n); sum += r.meanPct * r.n;
+      }
+      return { n, win: n ? (100 * wins) / n : 0, mean: n ? sum / n : 0 };
+    };
+    const out: typeof sens = [];
+    const sweeps: Array<[string, keyof SwingParams, number[]]> = [
+      ["σ below mean", "sigma", [2.0, 2.25, 2.5, 2.75, 3.0]],
+      ["stop %", "stopPct", [5, 6, 8, 10, 12]],
+      ["hold sessions", "maxHold", [10, 15, 20, 30, 40]],
+      ["mean window", "bbWindow", [10, 15, 20, 25, 30]],
+    ];
+    for (const [label, key, vals] of sweeps)
+      for (const v of vals) {
+        const a = agg({ ...LIVE_PARAMS, [key]: v });
+        out.push({ label, v, ...a, live: LIVE_PARAMS[key] === v });
+      }
+    setSens(out);
+  }, []);
 
   const view = useMemo(() => {
     if (!rows) return [];
@@ -138,6 +178,12 @@ export function ScannerView() {
           {progress ? progress : rows ? "Recompute" : "Scan universe"}
         </button>
         {rows && (
+          <button onClick={runSensitivity} style={{ ...inp, width: "auto", cursor: "pointer" }}
+                  title="Sweep each number around the live value — does the edge depend on the exact settings?">
+            How fragile is this?
+          </button>
+        )}
+        {rows && (
           <label style={{ fontSize: 11, color: "var(--text-dim)", display: "flex", gap: 5, alignItems: "center" }}>
             <input type="checkbox" checked={onlyFiring} onChange={(e) => setOnlyFiring(e.target.checked)} />
             firing today only
@@ -185,6 +231,51 @@ export function ScannerView() {
             {" · "}{view.length} of {rows.length} shown ({minTrades}+ trades)
             {" · "}{view.filter((r) => r.meanPct > 0).length} profitable
           </div>
+
+          {sens && (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px",
+                          marginBottom: 12, fontSize: 12 }}>
+              <b>Is the edge a knife edge?</b>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, margin: "3px 0 8px", lineHeight: 1.6 }}>
+                Each number swept around its live value, everything else held at live. This is the
+                only honest reason to move these controls: a rule that works at 2.5σ and dies at
+                2.4σ should not be funded. Read whether the row is FLAT, not which cell is highest.
+              </div>
+              <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))" }}>
+                {["σ below mean", "stop %", "hold sessions", "mean window"].map((grp) => {
+                  const g = sens.filter((x) => x.label === grp);
+                  const best = Math.max(...g.map((x) => x.mean));
+                  const worst = Math.min(...g.map((x) => x.mean));
+                  const flat = best - worst < 0.35;
+                  return (
+                    <div key={grp}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>
+                        {grp} <span style={{ color: flat ? TONE.ok : TONE.warn }}>
+                          — {flat ? "flat, robust" : `varies ${(best - worst).toFixed(2)}pp`}</span>
+                      </div>
+                      <table style={{ borderCollapse: "collapse", fontSize: 11, marginTop: 3, width: "100%" }}>
+                        <tbody>
+                          {g.map((x) => (
+                            <tr key={x.v} style={{ background: x.live ? "rgba(29,158,117,0.10)" : undefined }}>
+                              <td style={{ ...td, padding: "2px 6px", fontWeight: x.live ? 700 : 400 }}>
+                                {x.v}{x.live ? " ← live" : ""}
+                              </td>
+                              <td style={{ ...td, padding: "2px 6px", color: "var(--text-dim)" }}>{x.n}</td>
+                              <td style={{ ...td, padding: "2px 6px" }}>{x.win.toFixed(0)}%</td>
+                              <td style={{ ...td, padding: "2px 6px", fontWeight: 700,
+                                           color: x.mean > 0 ? TONE.ok : TONE.bad }}>
+                                {x.mean > 0 ? "+" : ""}{x.mean.toFixed(2)}%
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8, maxHeight: 560 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
