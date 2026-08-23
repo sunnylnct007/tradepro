@@ -25,6 +25,35 @@ Any anomaly in a forward test can then be checked against this file first.
 
 ## Entries
 
+### 2026-08-23 — DELIBERATELY NOT CHANGED before the forward test: the adjusted/raw close seam
+This is a **known condition carried into the test on purpose**, recorded here so
+that "did the data change?" has an answer during the 12 weeks.
+
+- **The condition**: the canonical store's `close` mixes conventions. Rows sourced
+  from yfinance are dividend-ADJUSTED; rows from ibkr / ibkr_web are RAW.
+  `adj_factor` is 1.0 for all 271 symbols, so nothing records which is which.
+  **127 of the 244 universe symbols have a 200-day window that mixes both**, and
+  the Swing rule gates every entry on price being above the 200-SMA.
+- **Measured impact on tomorrow's gate: none.** Using each symbol's OWN dividend
+  gap (not a flat assumption), the SMA200 understatement is median 0.241%,
+  max 2.285%. **Zero symbols sit closer to their 200-SMA than their own bias**,
+  so no entry decision flips. Closest calls: AXP −0.67% away with 0.18% bias,
+  WFRD −0.91% with 0.09%. BRK-B looks like the nearest miss at 0.75% but pays no
+  dividend, so its adjusted and raw series are identical (gap 0.000%) and its
+  true bias is zero.
+- **Why not fixed now**: a store-wide close rewrite hours before go-live is the
+  same shape of change that took the API down for six hours this morning, and it
+  would buy nothing measurable. The mixed rows are also the OLDEST part of the
+  window (for most symbols a contiguous 2025-12 → 2026-02 block, 61 of 200), so
+  they age out naturally as raw bars accumulate — the bias shrinks every week of
+  the test rather than growing.
+- **What would change this**: a symbol drifting to within ~0.25% of its 200-SMA,
+  or a high-gap name (max bias 2.285%) doing the same. Re-run the check before
+  concluding anything about a marginal entry.
+- **The real fix, when the window allows**: decide the store's close convention
+  and populate `adj_factor` for real, then repoint `wheel_backtest_run` and
+  `straddle_scan` off the legacy cache. Not started.
+
 ### 2026-08-23 — IBKR volume was stored in 100-share lots
 - **What**: every IBKR-sourced bar carried 1/100th of real volume. Migrated x100.
 - **Symbols**: all with `source` starting `ibkr` — 1,513,859 rows / 10,092 partitions
