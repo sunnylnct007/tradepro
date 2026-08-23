@@ -452,6 +452,14 @@ def main() -> int:
                                   headers={"Authorization": f"Bearer {token}"} if token else {},
                                   timeout=45)
                 print(f"\npush → HTTP {r.status_code}")
+                # Same dated archive as the swing screen — see the note there.
+                _d = art.get("signal_bar") or art["as_of_utc"][:10]
+                _a = requests.post(f"{base.rstrip('/')}/api/ingest/today-setups",
+                                   json={"universe": f"{args.universe}-{_d}", "label": "latest",
+                                         "uploaded_by": os.uname().nodename, "artifact": art},
+                                   headers={"Authorization": f"Bearer {token}"} if token else {},
+                                   timeout=45)
+                print(f"archived as {args.universe}-{_d} → HTTP {_a.status_code}")
         except Exception as exc:  # noqa: BLE001
             log.warning("push failed: %s", exc)
     return 0

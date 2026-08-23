@@ -247,6 +247,11 @@ def build_artifact(rows: list[dict], universe: str,
         "kind": "swing_candidates",
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
         "universe": universe,
+        # Restored 23 Aug: an earlier rewrite of the evidence block dropped
+        # this, so the screen rendered an undefined signal bar and a dated
+        # archive had nothing to key on.
+        "signal_bar": rows[0]["bar"] if rows else _last_completed_session(),
+        "settled_bar_only": True,
         "rule": {
             "entry": f"close < {SIGMA} sigma below the {BB_WINDOW}-day mean, while above the 200-SMA",
             "target": f"the {BB_WINDOW}-day mean",
@@ -365,6 +370,31 @@ def main() -> int:
                 headers={"Authorization": f"Bearer {token}"} if token else {},
                 timeout=45)
             print(f"\npush → HTTP {r.status_code}")
+            # ALSO PUBLISH UNDER A DATED LABEL, because "latest" is overwritten
+            # every run. By week two there would be no record of what was
+            # published on day one — and forward-test gates F2 (every fill
+            # traces to a signal) and F3 (slippage vs the published entry) both
+            # need exactly that.
+            #
+            # This is the ONLY route that persists. Checked against the live
+            # OMS: it stores 19 fields and neither `tag` nor the advisory
+            # risk_* prices is among them, so a reference price attached to an
+            # ORDER is silently dropped. A dated artifact joins to a fill on
+            # (symbol, date) with no backend change.
+            # Archived as a DATED UNIVERSE, not a dated label. The backend
+            # routes GET /{universe}/latest and nothing else, so a dated LABEL
+            # is stored and then unreadable — POST 200, GET 404. Verified
+            # before relying on it. Putting the date in the universe name keeps
+            # it inside the one route that exists, with no backend change hours
+            # before go-live.
+            _dated = art.get("signal_bar") or art["as_of_utc"][:10]
+            _a = requests.post(
+                f"{base.rstrip('/')}/api/ingest/today-setups",
+                json={"universe": f"{args.universe}-{_dated}", "label": "latest",
+                      "uploaded_by": os.uname().nodename, "artifact": art},
+                headers={"Authorization": f"Bearer {token}"} if token else {},
+                timeout=45)
+            print(f"archived as {args.universe}-{_dated} → HTTP {_a.status_code}")
         except Exception as exc:  # noqa: BLE001 — a push failure must not lose the scan
             log.warning("push failed: %s", exc)
     return 0
