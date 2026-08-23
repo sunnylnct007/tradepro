@@ -38,6 +38,11 @@ env:
   AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
   INSTANCE_NAME_PREFIX: ccit-dev-tradepro-host
   DEPLOY_DIR: /opt/tradepro
+  # The live, public health endpoint. This is the ONLY thing that proves a
+  # deploy worked: it exercises DNS → Caddy → nginx → api → Postgres exactly
+  # as a user does. `docker compose up -d` succeeding proves only that
+  # containers were created.
+  HEALTH_URL: https://tradepro.showsoldprice.com/health
 
 jobs:
   redeploy:
@@ -177,7 +182,10 @@ jobs:
             fi
             sleep 10
           done
-          echo "::warning::SSM command still in progress after 5 min"
+          # Previously a warning, which meant a redeploy that hung silently
+          # still finished green. A deploy we cannot confirm is a failed deploy.
+          echo "::error::SSM command still in progress after 5 min — treating as failed"
+          exit 1
 
       - name: Show command output tail
         if: always()
@@ -185,9 +193,102 @@ jobs:
           aws ssm list-command-invocations --command-id "${{ steps.ssm.outputs.command_id }}" --details \
             --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text | tail -50 || true
 
+      # ------------------------------------------------------------------
+      # VERIFICATION. Everything above proves only that `docker compose up`
+      # was accepted. On 2026-08-23 that was true while the api container
+      # crash-looped on a migration that blew its command timeout: this
+      # workflow reported success three times across a six-hour outage and
+      # the owner found out by trying to browse the site. Two gates now:
+      # the container must reach `healthy` on the box, and the public
+      # health URL must answer 200. Either one failing fails the deploy.
+      # ------------------------------------------------------------------
+      - name: Verify api container reaches healthy
+        id: onbox
+        run: |
+          cat > /tmp/verify.sh <<'SCRIPT_EOF'
+          cd /opt/tradepro
+          CID="$(docker compose -f docker-compose.aws.yaml ps -q api)"
+          if [ -z "$CID" ]; then
+            echo "FAIL: no api container exists after redeploy"
+            docker compose -f docker-compose.aws.yaml ps
+            exit 1
+          fi
+          # Allow ~17 min. MigrationRunner permits a 900s migration, so a
+          # legitimately slow start must not be reported as a failure. A crash
+          # loop does not wait that out — RestartCount catches it in seconds.
+          for i in $(seq 1 100); do
+            ST="$(docker inspect --format '{{.State.Status}}' "$CID")"
+            RC="$(docker inspect --format '{{.RestartCount}}' "$CID")"
+            HS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CID")"
+            echo "attempt $i: status=$ST health=$HS restarts=$RC"
+            if [ "$HS" = "healthy" ]; then echo "OK: api healthy"; exit 0; fi
+            if [ "$ST" = "exited" ] || [ "$RC" -gt 2 ]; then
+              echo "FAIL: api is crash-looping (status=$ST restarts=$RC)"
+              break
+            fi
+            sleep 10
+          done
+          echo "=== FAIL: api never became healthy ==="
+          docker compose -f docker-compose.aws.yaml ps
+          echo "--- api logs (last 100) — the reason is almost always here ---"
+          docker compose -f docker-compose.aws.yaml logs --tail=100 api 2>&1
+          exit 1
+          SCRIPT_EOF
+          jq -n --arg s "$(cat /tmp/verify.sh)" '{commands: [$s]}' > /tmp/verify-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.find.outputs.instance_id }}" \
+            --document-name AWS-RunShellScript \
+            --comment "tradepro post-deploy health verification" \
+            --parameters file:///tmp/verify-params.json \
+            --output text --query 'Command.CommandId')
+          echo "verify command: $CMD_ID"
+
+          for i in $(seq 1 115); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "${{ steps.find.outputs.instance_id }}" \
+              --query 'Status' --output text 2>/dev/null || echo Pending)
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ] \
+               || [ "$STATUS" = "TimedOut" ] || [ "$STATUS" = "Cancelled" ]; then
+              break
+            fi
+            sleep 10
+          done
+
+          echo "--- on-box verification output ---"
+          aws ssm get-command-invocation --command-id "$CMD_ID" \
+            --instance-id "${{ steps.find.outputs.instance_id }}" \
+            --query 'StandardOutputContent' --output text || true
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::api container did not reach healthy after redeploy (SSM $STATUS) — the site is down"
+            exit 1
+          fi
+
+      - name: Probe the live health endpoint
+        run: |
+          # End-to-end, from outside: DNS → Caddy → nginx → api → Postgres.
+          # /health is deliberately exempt from basic auth, so a 401 here means
+          # the backend is down and nginx is serving a gated error page — not
+          # that credentials changed. Do not "fix" that by sending a password.
+          for i in $(seq 1 18); do
+            CODE=$(curl -s -o /tmp/health.txt -w '%{http_code}' --max-time 15 "$HEALTH_URL" || echo 000)
+            BODY=$(head -c 200 /tmp/health.txt 2>/dev/null | tr -d '\n')
+            echo "attempt $i: HTTP $CODE $BODY"
+            if [ "$CODE" = "200" ] && grep -q '"status"' /tmp/health.txt 2>/dev/null; then
+              echo "OK: $HEALTH_URL is live and returning the API's own JSON"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$HEALTH_URL never returned a healthy 200 after redeploy — the deploy did NOT land"
+          exit 1
+
       - name: Summary
         run: |
           echo "## TradePro redeployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Verified: api container healthy on-box AND \`$HEALTH_URL\` returned 200" >> "$GITHUB_STEP_SUMMARY"
           echo "- Image tag: \`${{ github.event.inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Instance: \`${{ steps.find.outputs.instance_id }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Compose file: shipped from this commit via runner checkout" >> "$GITHUB_STEP_SUMMARY"
