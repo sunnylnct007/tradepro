@@ -334,6 +334,8 @@ export type SwingReplay = {
   trades: SwingTrade[];
   n: number; winPct: number; meanPct: number; medianPct: number;
   bestPct: number; worstPct: number; medianHold: number;
+  /** Trading sessions between the bar this was computed on and now. */
+  sessionsStale: number;
   firesNow: boolean; sigmasBelow: number; vs200: number;
   entry: number; target: number; stop: number; targetPct: number;
   atrPct: number; lastBar: string;
@@ -346,7 +348,30 @@ function pstdev(xs: number[]) {
 const mean_ = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const smaN = (c: number[], i: number, n: number) => mean_(c.slice(i - n + 1, i + 1));
 
+/** The most recent session whose bar can actually be COMPLETE.
+ *
+ * A US session settles at 20:00 UTC. Before that, today's bar is PARTIAL —
+ * the harvest writes "today partial" rows during the day — and a name down 3%
+ * at 11am may close flat. The Python screens have guarded this since 22 Aug;
+ * the scanner did not, so during a session it would have computed the rule on
+ * an unfinished bar and invented signals the backtest never saw.
+ */
+function lastSettledDate(): string {
+  const n = new Date();
+  const d = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+  if (n.getUTCHours() < 20) d.setUTCDate(d.getUTCDate() - 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export function replaySwing(bars: Bar[], p: SwingParams): SwingReplay | null {
+  // Drop any bar dated after the last settled session before computing
+  // anything. ">" not ">=" — a bar dated exactly the last settled session HAS
+  // settled and is the one we want. The screens had that off-by-one for a day
+  // and published yesterday's close as today's signal.
+  const settled = lastSettledDate();
+  while (bars.length && bars[bars.length - 1].ts.slice(0, 10) > settled) bars = bars.slice(0, -1);
+
   const c = bars.map((b) => b.close), h = bars.map((b) => b.high);
   const l = bars.map((b) => b.low), o = bars.map((b) => b.open);
   const ds = bars.map((b) => b.ts.slice(0, 10));
@@ -416,5 +441,12 @@ export function replaySwing(bars: Bar[], p: SwingParams): SwingReplay | null {
     targetPct: 100 * (m20 / c[last] - 1),
     atrPct: (100 * mean_(trs)) / c[last],
     lastBar: ds[last],
+    sessionsStale: (() => {
+      const d0 = new Date(ds[last] + "T00:00:00Z"); let n = 0;
+      for (const t = new Date(d0); t < new Date(); t.setUTCDate(t.getUTCDate() + 1)) {
+        const wd = t.getUTCDay(); if (wd !== 0 && wd !== 6) n++;
+      }
+      return Math.max(0, n - 1);
+    })(),
   };
 }

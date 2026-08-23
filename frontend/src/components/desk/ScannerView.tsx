@@ -155,6 +155,29 @@ export function ScannerView() {
 
       {rows && (
         <>
+          {/* WHAT THIS IS COMPUTED ON. The harvest runs 21:30, so during a
+              session the newest settled bar is yesterday's — a scan at 2pm is
+              a scan of yesterday's close. Saying so is the difference between
+              a stale number and a misleading one. */}
+          {(() => {
+            const st = rows[0]?.sessionsStale ?? 0;
+            const tone = st <= 1 ? TONE.ok : st <= 3 ? TONE.warn : TONE.bad;
+            return (
+              <div style={{ border: `1px solid ${tone}55`, background: `${tone}0e`, borderRadius: 8,
+                            padding: "7px 12px", marginBottom: 10, fontSize: 11, lineHeight: 1.7 }}>
+                <b style={{ color: tone }}>
+                  COMPUTED ON DAILY BARS TO {rows[0]?.lastBar}
+                  {st === 0 ? " (current)" : ` · ${st} trading session${st === 1 ? "" : "s"} old`}
+                </b>
+                <div style={{ color: "var(--text-muted)" }}>
+                  Daily closes only — <b>no live price, no intraday bar</b>. The harvest runs at
+                  21:30, so during a session the newest settled bar is the previous close. A partial
+                  bar for today is discarded before anything is computed, because a name down 3% at
+                  11am may close flat.
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ fontSize: 12, marginBottom: 8, lineHeight: 1.6 }}>
             <b style={{ color: firing.length ? TONE.ok : "var(--text-muted)" }}>
               {firing.length} firing today{firing.length ? `: ${firing.map((r) => r.symbol).join(", ")}` : ""}
