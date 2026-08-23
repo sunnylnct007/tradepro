@@ -1055,8 +1055,41 @@ class BarStore:
         start_utc: datetime,
         end_utc: datetime,
     ) -> int:
+        """Bars we EXPECT to see, counted over the same interval the rows are
+        filtered on.
+
+        The denominator and the numerator disagreed. Rows are selected with
+        ``index < end_utc`` (half-open, see _slice_range), but
+        ``expected_session_dates`` is inclusive of the end DATE. So whenever
+        ``end_utc`` landed on midnight of a trading day, every one of that
+        day's bars was excluded from the numerator while the day was still
+        counted in full in the denominator — a phantom session's worth of bars
+        that can never be filled.
+
+        Measured on AAPL 5m, Mon 2026-08-17 → Fri 2026-08-21: returned 312,
+        expected 390. The 78-bar shortfall is exactly Friday, whose bars all
+        sit at or after Friday midnight and are therefore filtered out.
+
+        That shortfall is not cosmetic: `coverage_complete` is
+        `rows_returned >= rows_expected`, so it flips to False, which demotes
+        the harvest's quality tier from GOLD to SILVER and feeds the data
+        screen. A grade that moves with the request boundary rather than with
+        the data teaches people to ignore the grade — the cry-wolf failure this
+        module has already had to walk back once (see the note on `_tier` in
+        cli/bar_cache_harvest.py, which had every symbol BRONZE while the disk
+        was overwhelmingly IBKR-gold).
+
+        A session contributes bars only if any of its bars can satisfy
+        ``index < end_utc``. Every bar on date ``d`` is at or after midnight on
+        ``d``, so if that midnight is already >= end_utc the whole session is
+        unreachable and must not be counted.
+        """
         sessions = plugin.expected_session_dates(start_utc, end_utc)
-        return sum(plugin.expected_bar_count(resolution, d) for d in sessions)
+        reachable = [
+            d for d in sessions
+            if datetime(d.year, d.month, d.day, tzinfo=timezone.utc) < end_utc
+        ]
+        return sum(plugin.expected_bar_count(resolution, d) for d in reachable)
 
     # ── Telemetry helpers ──────────────────────────────────────────
 
