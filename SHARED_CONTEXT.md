@@ -155,6 +155,21 @@ the bucket is not yet a faithful mirror of canonical.
   memory); no new stores, no local durable files.
 
 ## Update log
+- 2026-08-23 (DATA): **SITE WAS DOWN 07:16–13:25 UTC. Read this before trusting
+  anything dated 23 Aug.** db migration 065 (the IBKR x100 volume fix) rewrites
+  1.6M rows and blew Dapper's 30s default command timeout, so it rolled back on
+  every startup and the API refused to boot for six hours. Consequences for the
+  research lane: (1) `ibkr_price_bars` volumes changed at **13:25:47 UTC**, NOT
+  at the 4064d5c commit — the parquet store changed at commit time, so the two
+  stores disagreed on volume units in between; anything computed off Postgres
+  volumes this morning is in old units. (2) Any API-dependent job that ran in
+  that window got an error page, not data — the refresh log shows it parsed the
+  50x page. Re-run anything from that window. Fixed in b7f2183 (900s migration
+  timeout + nginx no longer disguises a dead backend as a 401 password prompt).
+  Also fixed: the worker heartbeat had not run since 17 Aug (uv resolved by
+  guessing a path that does not exist here), aadc714.
+  OPEN DEFECT, nobody owns it yet: `aws-redeploy` reported SUCCESS throughout
+  the outage — a green deploy is not evidence the API is alive.
 - 2026-08-22 (DATA): file created; data-platform truth + scoreboard as
   relayed by owner from RESEARCH session output.
 - 2026-08-22 night (DATA): legacy cache.py retirement is now blocked only on
