@@ -114,3 +114,56 @@ watch if anything else changes.
 
 **Revised live expectation: about +0.97%/trade**, being +1.06% less the
 ~0.09% entry-timing delay.
+
+---
+
+# The two-split test was WEAKER than claimed. Clean version below — it passes.
+
+Prompted by the data lane finding that store history depth is uneven: first-bar
+dates cluster at FETCH WINDOWS, not inceptions — 2022-01-03 (90 symbols),
+2010-01-04 (73), 2019-07-01 (45), 2021-08-23 (10).
+
+**Consequence I had not accounted for: the two-split's halves are different
+universes.** 106 distinct symbols contributed to the first half, 239 to the
+second. So the "time split" could not separate *the edge persisted* from
+*the universe changed*, and I had been citing it as the strongest evidence
+this result was not curve-fitted.
+
+## The clean test — same symbols, different decades
+
+Restricted to the 74 symbols with history before 2013, all of which traded in
+both eras:
+
+| era | trades | symbols | win% | mean% |
+|---|---|---|---|---|
+| before 2019-01-01 | 841 | 74 | **77.1%** | **+0.91%** |
+| 2019-01-01 onward | 737 | 74 | **75.2%** | **+1.12%** |
+
+**PASS** — the edge is present in both decades on an identical symbol set,
+and slightly stronger in the recent one. This is stronger evidence than the
+confounded split it replaces, not weaker.
+
+## Year by year, with the population that produced it
+
+    2013  110 trades / 59 symbols  +1.70%      2020  129 / 80   +0.00%
+    2016  119 / 62  +1.45%                     2021  240 / 110  +1.42%
+    2017  107 / 58  +1.36%                     2022   88 / 63   -1.07%  <- bear year
+    2018  114 / 65  +1.15%                     2024  272 / 168  +1.79%
+    2019  107 / 62  +1.03%                     2026  184 / 128  +2.31%
+
+**2022 is the only losing year** and it is the bear market — consistent with
+the regime finding that the edge thins when the market breaks. Worth knowing
+that a losing year is a normal outcome for this strategy, not a failure of it.
+
+## Carried into the test as a known limitation
+
+XLC and XLRE hold only ~5 years in the canonical store (from 2021-08-23) where
+others hold ~16 — also a fetch window, not inception. Fine for sector context
+and a 200-SMA; **not fine for any backtest starting before Aug 2021**, which
+will silently omit those sectors. The sector-agreement finding from 23 Aug is
+therefore recent-weighted for the 12 symbols assigned to XLC and must be
+re-measured on filled history before it is acted on.
+
+Re-seeding is deliberately PARKED until the forward test window closes: deeper
+history changes the population, and G4 moves with population size while G5 now
+has 1.1 points of slack.
