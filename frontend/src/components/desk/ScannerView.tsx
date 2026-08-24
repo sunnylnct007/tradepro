@@ -258,7 +258,7 @@ export function ScannerView() {
                 ["worst%", "The worst single trade. Usually near \u22128% (the stop), but worse when price GAPPED through the stop overnight \u2014 a stop is checked on the close and does not survive a gap."],
                 ["hold", "Median sessions from entry to exit. About 7 for this rule; the target is the 20-day average, which drifts down to meet a recovering price."],
                 ["ATR%", "How much the symbol moves on an ordinary day, as a percentage. MU at 5.8% means an \u22128% stop is about 1.4 normal days away; SPY at 0.8% means 10 days away. The same stop means completely different things."],
-                ["Verdict", "Whether this symbol beats the universe average AFTER discounting for how little we know about it. \u201cBETTER\u201d requires the bottom of its bootstrapped range to clear the average \u2014 not merely a higher number, which any lucky run produces. Below 10 trades it says \u201ctoo few\u201d however good the average looks."],
+                ["Record when it fires", "NOT a signal, and the easiest column to misread. Whether this symbol beats the universe average AFTER discounting for how little we know about it — a judgement on its HISTORY. A symbol can read \u201cbeats avg\u201d on a day it is nowhere near triggering; the Today column is the only one that says whether it fires. \u201cBETTER\u201d requires the bottom of its bootstrapped range to clear the average \u2014 not merely a higher number, which any lucky run produces. Below 10 trades it says \u201ctoo few\u201d however good the average looks."],
               ] as const).map(([k, v], i) => (
                 <tr key={k} style={{ borderTop: i ? "1px solid #141b2b" : undefined }}>
                   <td style={{ padding: "5px 12px 5px 0", fontWeight: 700, whiteSpace: "nowrap",
@@ -324,6 +324,13 @@ export function ScannerView() {
             <b style={{ color: firing.length ? TONE.ok : "var(--text-muted)" }}>
               {firing.length} firing today{firing.length ? `: ${firing.map((r) => r.symbol).join(", ")}` : ""}
             </b>
+            {firing.length === 0 && (
+              <span style={{ color: "var(--text-muted)" }}>
+                {" "}— nothing to trade. The rows below are the rule&apos;s TRACK RECORD on each
+                symbol, not signals: &ldquo;beats avg&rdquo; means it has done well <i>when it fires
+                here</i>, and it is not firing.
+              </span>
+            )}
             {" · "}{view.length} of {rows.length} shown ({minTrades}+ trades)
             {" · "}{view.filter((r) => r.meanPct > 0).length} profitable
           </div>
@@ -385,8 +392,13 @@ export function ScannerView() {
                   ))}
                   <th style={th}>median%</th><th style={th}>worst%</th>
                   <th style={th}>hold</th><th style={th}>ATR%</th>
-                  <th style={th} title="Own edge blended toward the universe base rate by sample size — a symbol is only 'better' if its interval clears the average">
-                    Verdict</th>
+                  {/* NOT "Verdict". The owner read BETTER on a day when nothing
+                      was firing and reasonably took it as a call on TODAY. It is
+                      a judgement on the symbol's HISTORY — how this rule has done
+                      here WHEN it fires — and says nothing about whether it fires
+                      now. The Today column is the only one that answers that. */}
+                  <th style={th} title="How this rule has performed ON THIS SYMBOL historically, versus the universe average, discounted for sample size. NOT a signal — see the Today column for that.">
+                    Record when it fires</th>
                 </tr>
               </thead>
               <tbody>
@@ -418,8 +430,8 @@ export function ScannerView() {
                       <td style={{ ...td, fontSize: 12,
                                    color: r.score?.verdict === "better" ? TONE.ok
                                         : r.score?.verdict === "worse" ? TONE.bad : "var(--text-muted)" }}>
-                        {r.score?.verdict === "better" ? "BETTER"
-                          : r.score?.verdict === "worse" ? "worse"
+                        {r.score?.verdict === "better" ? "beats avg"
+                          : r.score?.verdict === "worse" ? "below avg"
                           : r.score?.verdict === "too few trades" ? "too few" : "in line"}
                       </td>
                     </tr>
