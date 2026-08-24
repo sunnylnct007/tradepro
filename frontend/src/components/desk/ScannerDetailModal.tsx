@@ -77,6 +77,10 @@ export function ScannerDetailModal({ row, bars, p, entry, target, setEntry, setT
     return out.reverse();
   }, [bars, p]);
 
+  // Store history is a fetch window, not an inception date — see the header.
+  const firstBar = bars?.length ? bars[0].ts.slice(0, 10) : null;
+  const shortHistory = !!firstBar && firstBar > "2021-01-01";
+
   const e = parseFloat(entry), tg = parseFloat(target);
   const ok = !!bars && e > 0 && tg > e;
   const sc = ok ? barrierScan(bars!, { limitPct: e / row.entry - 1, targetPct: tg / e - 1,
@@ -111,8 +115,18 @@ export function ScannerDetailModal({ row, bars, p, entry, target, setEntry, setT
                 ? `${Math.abs(row.sigmasBelow).toFixed(2)}σ ABOVE its 20-day mean — this rule buys dips`
                 : `${row.sigmasBelow.toFixed(2)}σ below its mean · needs ${p.sigma}σ`}
           </span>
-          <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
-            last settled bar {row.lastBar}
+          {/* HOW MUCH HISTORY produced everything below. The data lane found
+              store depth is uneven by TWO mechanisms — an unmeasured 5-year cap
+              in the Python provider, and old `--from 2010` seed windows — so
+              first-bar dates cluster at FETCH windows, not inceptions. A symbol
+              starting 2022-01-03 contains no 2020 crash and no 2022 bear
+              market, which makes its "beats avg" a different claim from one
+              measured since 2006. Shown, not buried, because this modal exists
+              to make a per-symbol record readable. */}
+          <span style={{ fontSize: 12, marginLeft: "auto",
+                         color: shortHistory ? TONE.warn : "var(--text-muted)" }}>
+            {firstBar ? `history ${firstBar} → ${row.lastBar} · ${bars!.length} sessions` : `last settled bar ${row.lastBar}`}
+            {shortHistory && " · no 2020 crash or 2022 bear in this record"}
           </span>
           <button onClick={onClose} aria-label="close"
                   style={{ background: "transparent", border: "none", color: "var(--text-dim)",
@@ -242,6 +256,12 @@ export function ScannerDetailModal({ row, bars, p, entry, target, setEntry, setT
                 Not &ldquo;how will {row.symbol} do this quarter&rdquo; — it fires about{" "}
                 {(60 * row.n / 4000).toFixed(2)} times in 12 weeks, so the honest question is what a
                 single trade is worth when it does.
+                {shortHistory && (
+                  <><br /><b style={{ color: TONE.warn }}>Read this record knowing its history only
+                    goes back to {firstBar}</b> — it contains no 2020 crash and no 2022 bear market,
+                    the two periods where this rule does worst. Symbols with deeper history are
+                    being judged on a harder sample.</>
+                )}
               </div>
               <table style={{ borderCollapse: "collapse", fontSize: 14 }}>
                 <tbody>

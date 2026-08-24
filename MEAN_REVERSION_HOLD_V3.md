@@ -173,3 +173,56 @@ re-measured on filled history before it is acted on.
 Re-seeding is deliberately PARKED until the forward test window closes: deeper
 history changes the population, and G4 moves with population size while G5 now
 has 1.1 points of slack.
+
+---
+
+# History depth is a FETCH WINDOW, and there are two of them. 24 Aug.
+
+Diagnosed by the data lane (`0cdb7cc`) after I asked why the Scanner and the
+backtests were reading different depths for the same symbol. Recorded here
+because this file is where per-symbol numbers get quoted.
+
+**Mechanism 1 — an unmeasured cap that RE-APPLIES.**
+`bar_cache/providers/ibkr_web_provider.max_history()` returns `365*5` days for
+any resolution not in its measured table, and `"1d"` is not in that table.
+Earliest reachable is therefore 2021-08-25 — which is exactly where the
+2021-08-23 first-bar cluster (11 symbols, XLC and XLRE among them) sits. The
+other entries in that table carry their evidence in the comments (*"worked at
+6 months, failed at 12"*); this one does not. Our own C# path has no such
+limit: `IBKRDailyBackfillService` runs a 15-year backfill and pages backward,
+so IBKR serves that depth every night. Only the Python side declines to ask.
+**A backfill that does not raise `max_history` first will silently truncate to
+five years again.**
+
+**Mechanism 2 — old `--from 2010` seed windows.** SPY, AAPL, MSFT, NVDA, QQQ,
+MU, KLAC, GOOGL and IWM hold 4,185 bars from 2010-01-04 against 5,000 from
+2006-10-05 available — 84%. Not the cap; a stale seed. Raising `max_history`
+alone leaves the mega-caps short.
+
+**Caveat on "available":** several symbols return exactly 5,000, the API's own
+per-request cap. Measured availability is a FLOOR, not the true depth.
+
+## What this does and does not do to the numbers here
+
+For the 2010 group it is a clean truncation — the evidence is computed on less
+data than we hold, not on wrong data.
+
+**For the cap group it is more than that, and I had it wrong first time.** A
+symbol whose local history starts 2022-01-03 contains no 2020 crash and no
+2022 bear market — the single losing year this strategy has. Its per-symbol
+win rate is measured on a materially different regime mix from one starting
+2006, so it is not merely "less data". The data lane made this correction to
+my framing and it is right.
+
+**Consequence, stated so it cannot be quietly forgotten:** any per-symbol
+number — the Scanner's "beats avg" label included — is conditioned on that
+symbol's history depth. The Scanner now prints the first-bar date and flags
+records that begin after 2021 with what they are missing. The UNIVERSE-level
+result above is unaffected: it is 2,310 trades pooled across 244 names, and
+the 74-symbol clean split covers both decades on an identical symbol set.
+
+Re-seeding stays PARKED until the forward-test window closes, for the reason
+already given: deeper history changes the population, G4 moves with population
+size, and G5 now has 1.1 points of slack. Queued for the post-window store
+session, which folds this in with the adj_factor/close convention and the
+XLC-XLRE depth so the store is opened once rather than four times.
