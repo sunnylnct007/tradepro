@@ -341,7 +341,18 @@ def main() -> int:
     if args.json:
         print(json.dumps(art, indent=1))
     else:
-        print(f"swing candidates — {art['as_of_utc'][:19]}Z · scanned {len(syms)} · {len(rows)} candidate(s)\n")
+        # Say WHICH SESSION the signals are computed on, not just when the job
+        # ran. The two differ by design — the rule reads a SETTLED close, so a
+        # midday run on Monday is necessarily working from Friday's bar — and
+        # printing only the run timestamp made that look like stale output
+        # rather than the intended behaviour. It cost a "why is this as of
+        # Friday?" on go-live morning, which is a fair question to ask of a
+        # line that stamps itself with today's date and says nothing else.
+        print(f"swing candidates — signals computed on the "
+              f"{art.get('signal_bar', 'unknown')} CLOSE "
+              f"(settled bars only; entry at the next open)\n"
+              f"  run {art['as_of_utc'][:19]}Z · scanned {len(syms)} · "
+              f"{len(rows)} candidate(s)\n")
         if rows:
             print(f"{'sym':<7}{'tier':<11}{'close':>9}{'target':>9}{'stop':>9}{'upside':>8}{'R:R':>6}{'sigma':>7}{'ATR%':>7}")
             for r in rows:
