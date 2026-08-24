@@ -861,7 +861,27 @@ public static class IntegrationsEndpoints
                 var conid = await ibkr.ResolveConidAsync(symbol, "STK", ct);
                 if (conid is null)
                     return Results.Json(new { symbol = symbol.ToUpperInvariant(), error = "symbol not found at IBKR (secdef/search)" }, statusCode: 404);
+                // IBKR's snapshot endpoint SUBSCRIBES on the first call and only
+                // returns fields on a subsequent one. A cold symbol comes back
+                // with nothing but {conid, conidEx} — measured live on 2026-08-24
+                // at 17:35 UTC, mid-session:
+                //
+                //   call 1 (cold)  -> snapshot keys = [conid, conidEx]
+                //   call 2 (+3s)   -> live=True, last=91.91
+                //
+                // Without this retry the endpoint declares MARKET-DATA SESSION
+                // UNAVAILABLE on the FIRST request for every symbol — which is
+                // every first click a human makes — and sends them off to close
+                // an IBKR portal that was never the problem. SPY looked fine only
+                // because health probes keep it permanently warm, which is
+                // exactly the kind of accident that makes a bug look like a
+                // working feature.
                 var raw = await ibkr.GetSnapshotRawAsync(conid.Value, f, ct);
+                if (IsColdSnapshot(raw))
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(1200), ct);
+                    raw = await ibkr.GetSnapshotRawAsync(conid.Value, f, ct);
+                }
                 if (string.IsNullOrWhiteSpace(raw))
                     return Results.Json(new { symbol = symbol.ToUpperInvariant(), conid, error = "no snapshot (market data unavailable / not subscribed)" }, statusCode: 502);
                 using var doc = System.Text.Json.JsonDocument.Parse(raw);
@@ -1978,6 +1998,40 @@ public static class IntegrationsEndpoints
         }
         return null;
     }
+
+    /// <summary>
+    /// A snapshot IBKR has not warmed up yet: it carries only the contract
+    /// identifiers and no market-data fields at all. IBKR's snapshot endpoint
+    /// subscribes on the first call and serves data on the next, so this is a
+    /// "ask again", NOT an outage — telling the two apart is the difference
+    /// between a working live-price button and one that accuses the user of
+    /// leaving the IBKR portal open every time they click it.
+    /// </summary>
+    private static bool IsColdSnapshot(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return true;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(raw);
+            var el = doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? doc.RootElement.EnumerateArray().FirstOrDefault()
+                : doc.RootElement;
+            if (el.ValueKind != System.Text.Json.JsonValueKind.Object) return true;
+            // Anything beyond the contract identifiers means IBKR answered.
+            foreach (var prop in el.EnumerateObject())
+            {
+                var n = prop.Name;
+                if (n is "conid" or "conidEx" or "server_id" or "_updated" or "6119") continue;
+                return false;
+            }
+            return true;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;   // unparseable is a different problem; let it through
+        }
+    }
+
 }
 
 /// Body for POST /integrations/ig/positions/flatten.
