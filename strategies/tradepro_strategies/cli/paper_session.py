@@ -1736,8 +1736,29 @@ def _push_ibkr_account_state(account_id, base: str, token: str, log) -> None:
     try:
         from ib_insync import IB as _IB
     except Exception as exc:  # noqa: BLE001
-        log.warning("account-state: ib_insync unavailable (%s) — skip", exc)
-        return
+        # "There is no current event loop in thread 'MainThread'" is NOT a
+        # missing package — ib_insync calls asyncio.get_event_loop() while
+        # importing, and on 3.12 that raises once the loop has been consumed.
+        # Anything earlier in the process that used asyncio.run() leaves the
+        # loop set to None, so this import fails for a reason that has nothing
+        # to do with IBKR being reachable.
+        #
+        # It skipped 16 times on 2026-08-24, the Swing go-live day, which meant
+        # the paper clone's NLV, cash and position book never reached the
+        # cockpit — the account renders £0/n.a. and the forward test's P&L is
+        # invisible. A "best-effort" push that silently never happens is worse
+        # than one that fails loudly, because the number it should have
+        # produced is the number the whole 12 weeks is being judged on.
+        try:
+            _aio.set_event_loop(_aio.new_event_loop())
+            from ib_insync import IB as _IB  # noqa: F811 — retry with a loop
+            log.info("account-state: ib_insync imported after installing an "
+                     "event loop (first attempt: %s)", exc)
+        except Exception as exc2:  # noqa: BLE001
+            log.warning("account-state: ib_insync genuinely unavailable "
+                        "(%s / retry %s) — skip. The clone's P&L will read "
+                        "£0/n.a. on the desk until this is fixed.", exc, exc2)
+            return
     _host = _os.environ.get("TRADEPRO_IBKR_HOST", "127.0.0.1")
     _port = int(_os.environ.get("TRADEPRO_IBKR_PORT", "7497"))
     _want = (str(account_id) if account_id else
