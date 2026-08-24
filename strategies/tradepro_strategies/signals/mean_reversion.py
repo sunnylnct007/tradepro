@@ -22,9 +22,17 @@ MEASURED EXPECTATIONS, on 244 names, 2,310 trades:
     entering at the NEXT OPEN          ~72% win    +0.97%/trade   (achievable)
 
 The live strategy can only do the second — you cannot place an order at a
-close you have not seen yet. **~+0.88%/trade is therefore the live baseline,
-not +1.06%**, and the ~0.09% difference is the cost of the delay, not
-slippage. Anything worse than that IS slippage and is what F3 measures.
+close you have not seen yet. **+0.97%/trade is therefore the live baseline,
+not +1.06%**, and the 0.09% difference IS the cost of the delay, already
+deducted. Anything worse than +0.97% is slippage, which is what F3 measures.
+
+Do NOT deduct the delay twice. An earlier draft of this block read "~+0.88%
+is the live baseline" — that was 0.09% taken off a figure it had already been
+taken off. +0.88% was the correct live baseline when the backtest stood at
++0.97% (the 10-session hold); after the hold moved to 20 the backtest is
++1.06% and the live figure is +0.97%. Carrying the old subtrahend forward
+under-states the strategy by a tenth of a percent per trade, which is roughly
+a tenth of the whole edge.
 
 That one-session delay is the DESIGN, not a lag to be engineered away: the
 signal is computed on a SETTLED close and the order goes in at the next open.
