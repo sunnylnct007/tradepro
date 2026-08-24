@@ -63,8 +63,14 @@ is lost, because nothing had run yet.
     entry at the next open, 20-session cap
     ~72% win · +0.97%/trade backtested · median hold 7 sessions · max 20
 
-The live baseline stays roughly 0.09%/trade below the backtest for the
-entry-timing delay, so expect approximately **+0.88%/trade**, not +0.97%.
+The live baseline stays 0.09%/trade below the backtest for the entry-timing
+delay, so expect **+0.97%/trade** against the +1.06% backtest.
+
+This paragraph said "+0.88%, not +0.97%" until 24 Aug — the delay deducted
+from a figure it had already been deducted from. +0.88% was right when the
+backtest stood at +0.97% under the 10-session hold; it became a stale
+subtrahend the moment the hold changed, and it contradicted the graded result
+printed a few lines above it in this same file.
 
 `FORWARD_TEST_GATES_V1.md` gate F6 (>=15 completed trades) is unaffected — the
 signal rate is unchanged at ~7/week; only the exits move.

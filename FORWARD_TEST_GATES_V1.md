@@ -7,8 +7,19 @@ into a pass afterwards.
 ## What is being tested
 
 Swing (mean reversion) on ONE broker, paper, no real money. Evidence behind it:
-`MEAN_REVERSION_GATES_V1.md` + the v2 re-run — 1,270 trades, 66.2% win,
-+0.88%/trade, worst -17.7%, harness at `backtests/studies/mean_reversion_v2.py`.
+`MEAN_REVERSION_GATES_V1.md` + the v2 re-run — **2,310 trades, 72.8% win,
++1.06%/trade backtested, worst -23.9%**, harness at
+`backtests/studies/mean_reversion_v2.py`.
+
+**Live baseline: +0.97%/trade**, being +1.06% less the 0.09% cost of entering
+at the next open rather than the signal close. Do not deduct that delay twice
+— see the note in `signals/mean_reversion.py`.
+
+(This paragraph read "1,270 trades, 66.2% win, +0.88%/trade, worst -17.7%"
+until 24 Aug. Those were the 89-name universe, before the IBKR 100-share-lot
+volume correction restored 155 liquid names, and before the hold moved from 10
+to 20 sessions. Corrected here rather than quietly, because these are the
+figures the test is graded against.)
 
 Nothing in this platform has ever been forward-tested. That is the gap, not
 more backtests.
