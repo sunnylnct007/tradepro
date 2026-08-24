@@ -918,6 +918,7 @@ function MarketDataBanner() {
     // timelessly current. `reason` carries the server's plain-English cause
     // when dark.
     asOf?: string | null; source?: string | null; reason?: string | null;
+    state?: string; previousClose?: string | null;
   } | null>(null);
   const [checking, setChecking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -934,6 +935,22 @@ function MarketDataBanner() {
 
   if (!state && !err) return null;
   const live = state?.live === true;
+
+  // The market being CLOSED is not a fault, and must not wear the fault
+  // styling. Before this, every pre-open load showed the red "market data is
+  // DARK — close the IBKR portal" banner when IBKR was answering perfectly and
+  // the exchange was simply shut. A red alarm that is wrong every morning is
+  // how people learn to ignore the one that is right.
+  if (!live && state?.state === "closed") {
+    return (
+      <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 8 }}>
+        ○ Market closed — no live print
+        {state?.previousClose ? `. Previous close ${state.previousClose}` : ""}
+        {state?.asOf ? ` · checked ${new Date(state.asOf).toLocaleTimeString()}` : ""}
+      </div>
+    );
+  }
+
   if (live) {
     return (
       <div style={{ fontSize: 11, color: TONE.ok, marginBottom: 8 }}>

@@ -892,14 +892,52 @@ public static class IntegrationsEndpoints
                 // unavailable / not subscribed" instead sends the reader after
                 // an entitlement problem that does not exist; that cost a full
                 // trading day once already.
-                var reason = live ? null
-                    : "MARKET-DATA SESSION UNAVAILABLE — the contract RESOLVED at IBKR "
-                    + $"(conid {conid}), so auth and reference data are fine, but no field "
-                    + "carries a price. IBKR allows ONE market-data session per account: "
-                    + "the usual cause is the IBKR portal, TWS, or another client (including "
-                    + "an MCP connector) holding it. Close those and retry. This is NOT an "
-                    + "entitlement problem and NOT an auth problem. No price is returned "
-                    + "rather than a stale one.";
+                // Two ways to have no live price, identical from the outside and
+                // with completely different remedies. Telling them apart is the
+                // whole job — reporting session contention pre-market sends the
+                // reader to close a portal that was never the problem, which is
+                // the same misdirection as the "not subscribed" wording this
+                // replaced. IBKR itself distinguishes them: a "C"-prefixed value
+                // IS the previous close, which means the feed is answering and
+                // the market is simply shut.
+                var lastRead = IbkrQuoteFields.Read(el, "31");
+                var availability = el.TryGetProperty("6509", out var av) ? av.GetString() : null;
+
+                string? state, reason;
+                if (live)
+                {
+                    state = "live"; reason = null;
+                }
+                else if (lastRead.How == IbkrQuoteFields.Marker.PreviousClose)
+                {
+                    state = "closed";
+                    reason = $"NO LIVE PRICE — the market is closed. IBKR is answering "
+                           + $"normally and returned the PREVIOUS CLOSE ({lastRead.Value}), "
+                           + "which it marks with a 'C' prefix. Nothing is wrong: there is no "
+                           + "live print outside the session. This is NOT market-data session "
+                           + "contention and there is no portal to close.";
+                }
+                else if (lastRead.How == IbkrQuoteFields.Marker.Halted)
+                {
+                    state = "halted";
+                    reason = $"NO LIVE PRICE — IBKR reports this instrument HALTED "
+                           + $"(last {lastRead.Value}, 'H' prefixed).";
+                }
+                else
+                {
+                    // The genuine contention signature: contract resolved, and IBKR
+                    // returned NOTHING at all — not even a close.
+                    state = "dark";
+                    reason = "MARKET-DATA SESSION UNAVAILABLE — the contract RESOLVED at IBKR "
+                           + $"(conid {conid}), so auth and reference data are fine, but IBKR "
+                           + "returned no value at all — not even a previous close. IBKR allows "
+                           + "ONE market-data session per account: the usual cause is the IBKR "
+                           + "portal, TWS, or another client (including an MCP connector) "
+                           + "holding it. Close those and retry. This is NOT an entitlement "
+                           + "problem and NOT an auth problem."
+                           + (string.IsNullOrWhiteSpace(availability)
+                              ? "" : $" IBKR availability code: {availability}.");
+                }
 
                 return Results.Ok(new
                 {
@@ -909,7 +947,15 @@ public static class IntegrationsEndpoints
                     asOf = DateTime.UtcNow.ToString("o"),
                     source = "ibkr_snapshot",
                     live,
-                    marketData = new { state = live ? "live" : "dark", reason },
+                    // state: live | closed | halted | dark. "closed" and "dark"
+                    // both mean no live price and mean entirely different things.
+                    marketData = new { state, reason, availability },
+                    // The previous close when that is all IBKR has. Useful, and
+                    // explicitly NOT presented as `quote` — a caller has to ask
+                    // for it by name rather than receive it where it would be
+                    // mistaken for a live print.
+                    previousClose = lastRead.How == IbkrQuoteFields.Marker.PreviousClose
+                        ? lastRead.Value : null,
                     // Named for humans; null when absent rather than "N/A", so a
                     // consumer cannot render the provider's own "I don't have this"
                     // as if it were a number.

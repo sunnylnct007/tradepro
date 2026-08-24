@@ -147,6 +147,7 @@ export const api = {
       marketData?: { state?: string; reason?: string | null };
       quote?: { last?: number | null } | null;
       snapshot?: Record<string, unknown>;
+      previousClose?: number | null;
     }>("/api/integrations/ibkr/quote", { symbol, fields: "31,7283,6509" });
 
     // `live` and the reason come FROM THE SERVER now. This used to re-implement
@@ -164,6 +165,12 @@ export const api = {
 
     return {
       live: snap?.live === true,
+      // live | closed | halted | dark. "closed" and "dark" both mean no live
+      // price and mean entirely different things — the market being shut is
+      // normal and must not be rendered as a fault.
+      state: snap?.marketData?.state ?? (snap?.live === true ? "live" : "dark"),
+      previousClose:
+        snap?.previousClose != null ? String(snap.previousClose) : null,
       last: snap?.quote?.last != null ? String(snap.quote.last) : null,
       // Plain-English cause when dark — names the one-market-data-session
       // contention rather than leaving the reader to chase an entitlement

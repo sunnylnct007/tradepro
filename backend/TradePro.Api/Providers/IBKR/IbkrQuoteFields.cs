@@ -46,6 +46,53 @@ public static class IbkrQuoteFields
     /// Null is deliberate: it forces the caller to render "no price" instead of
     /// a number it cannot stand behind.
     /// </summary>
+    /// <summary>How IBKR qualified a value it did return.</summary>
+    public enum Marker
+    {
+        /// <summary>No usable value at all — absent, or one of IBKR's "no value" tokens.</summary>
+        None,
+        /// <summary>A live print.</summary>
+        Live,
+        /// <summary>"C"-prefixed: this is the PREVIOUS CLOSE, not a live print.</summary>
+        PreviousClose,
+        /// <summary>"H"-prefixed: the instrument is halted.</summary>
+        Halted,
+    }
+
+    /// <summary>
+    /// The value AND how IBKR qualified it, so a caller can tell "the market is
+    /// shut" apart from "somebody else is holding the market-data session".
+    ///
+    /// Those two look identical if you only ask "is there a live price?" — both
+    /// answer no — and they have completely different remedies. Reporting
+    /// session contention pre-market sends the reader to close a portal that was
+    /// never the problem, which is the same class of misdirection as the
+    /// "not subscribed" wording this file replaced.
+    /// </summary>
+    public static (decimal? Value, Marker How) Read(JsonElement snapshot, string fieldId)
+    {
+        if (snapshot.ValueKind != JsonValueKind.Object) return (null, Marker.None);
+        if (!snapshot.TryGetProperty(fieldId, out var prop)) return (null, Marker.None);
+
+        string? raw = prop.ValueKind switch
+        {
+            JsonValueKind.String => prop.GetString(),
+            JsonValueKind.Number => prop.GetRawText(),
+            _ => null,
+        };
+        if (!IsRealValue(raw)) return (null, Marker.None);
+
+        var s = raw!.Trim();
+        var how = Marker.Live;
+        if (s.Length > 0 && (s[0] is 'C' or 'c')) { how = Marker.PreviousClose; s = s[1..]; }
+        else if (s.Length > 0 && (s[0] is 'H' or 'h')) { how = Marker.Halted; s = s[1..]; }
+
+        s = s.TrimStart('D', 'd').Replace(",", "");
+        return decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)
+            ? (v, how)
+            : (null, Marker.None);
+    }
+
     public static decimal? RealOrNull(JsonElement snapshot, string fieldId)
     {
         if (snapshot.ValueKind != JsonValueKind.Object) return null;

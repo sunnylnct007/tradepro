@@ -98,4 +98,60 @@ public class IbkrQuoteFieldsTest
                    || IbkrQuoteFields.RealOrNull(snap, "86") is not null;
         Assert.True(live);
     }
+
+    // ── Telling "the market is shut" apart from "someone took the session" ──
+    //
+    // Both answer "no live price", and they have completely different remedies.
+    // Blaming session contention pre-market sends the reader to close a portal
+    // that was never the problem. Caught live on 24 Aug at 07:20 UTC: SPY came
+    // back "C765.72" — IBKR answering perfectly, market simply closed — while
+    // the endpoint reported MARKET-DATA SESSION UNAVAILABLE.
+
+    [Fact]
+    public void Read_reports_a_C_prefixed_value_as_the_previous_close()
+    {
+        var (v, how) = IbkrQuoteFields.Read(Snap("""{"31":"C765.72"}"""), "31");
+        Assert.Equal(765.72m, v);
+        Assert.Equal(IbkrQuoteFields.Marker.PreviousClose, how);
+    }
+
+    [Fact]
+    public void Read_reports_an_H_prefixed_value_as_halted()
+    {
+        var (v, how) = IbkrQuoteFields.Read(Snap("""{"31":"H12.30"}"""), "31");
+        Assert.Equal(12.30m, v);
+        Assert.Equal(IbkrQuoteFields.Marker.Halted, how);
+    }
+
+    [Fact]
+    public void Read_reports_a_plain_value_as_live()
+    {
+        var (v, how) = IbkrQuoteFields.Read(Snap("""{"31":"227.50"}"""), "31");
+        Assert.Equal(227.50m, v);
+        Assert.Equal(IbkrQuoteFields.Marker.Live, how);
+    }
+
+    [Fact]
+    public void Read_reports_no_value_when_ibkr_returned_nothing_usable()
+    {
+        var (v, how) = IbkrQuoteFields.Read(Snap("""{"31":"N/A"}"""), "31");
+        Assert.Null(v);
+        Assert.Equal(IbkrQuoteFields.Marker.None, how);
+    }
+
+    [Fact]
+    public void Market_closed_and_session_dark_are_distinguishable()
+    {
+        // Market closed: IBKR answers, with a close.
+        var closed = IbkrQuoteFields.Read(Snap("""{"31":"C765.72"}"""), "31");
+        // Session taken: IBKR answers with nothing at all, not even a close.
+        var dark = IbkrQuoteFields.Read(Snap("""{"31":"N/A"}"""), "31");
+
+        Assert.NotEqual(closed.How, dark.How);
+        Assert.Equal(IbkrQuoteFields.Marker.PreviousClose, closed.How);
+        Assert.Equal(IbkrQuoteFields.Marker.None, dark.How);
+        // Neither is a live price.
+        Assert.Null(IbkrQuoteFields.RealOrNull(Snap("""{"31":"C765.72"}"""), "31"));
+        Assert.Null(IbkrQuoteFields.RealOrNull(Snap("""{"31":"N/A"}"""), "31"));
+    }
 }
