@@ -71,3 +71,61 @@ A variant ships only if it passes **every** gate.
 
 If nothing passes, the rule stays as it is and this file is kept with the
 other failures.
+
+---
+
+# RESULT — REJECTED. All four variants fail. The rule stays as it is.
+
+| variant | trades | win% | mean% | worst% | tail% | verdict |
+|---|---|---|---|---|---|---|
+| **A control (the rule)** | 2,501 | 72.9% | +0.96% | -23.5% | 19.8% | — |
+| B naive limit | 7,666 | 73.4% | +1.01% | **-28.1%** | 18.3% | fails R3, R6 |
+| C limit + 6% stop | 7,846 | 69.1% | **+0.82%** | -23.9% | 22.2% | fails R2, R6 |
+| D limit + close confirm | 9,297 | 73.9% | **+0.62%** | **-28.1%** | 22.6% | fails R2, R3, R6 |
+| E limit + trend recheck | 6,748 | **74.9%** | **+1.15%** | **-28.1%** | **15.6%** | fails R3, R6 |
+
+## What the result actually says
+
+**The owner's instinct was right about the opportunity and wrong about the
+cost.** Resting a limit at the level really does find far more trades at a
+better average — variant E beats the control on win rate (74.9% vs 72.9%),
+per-trade return (+1.15% vs +0.96%) AND tail concentration (15.6% vs 19.8%),
+on 2.7x the trades.
+
+**And it still fails, on the one thing that cannot be engineered away.** Every
+limit variant posts a -28.1% worst trade. Filling on a touch means filling into
+names that reach the level and keep going; some of those keep going a long way.
+The close filter is not a delay to be optimised out — it is the thing that
+refuses those trades. You cannot fill into falling knives and never catch one.
+
+Note the -28.1% is IDENTICAL across B, D and E. It is the same trade in all
+three: one fill the close filter would have declined.
+
+## Prediction grading (committed at 4f1d876)
+
+| # | predicted | actual | |
+|---|---|---|---|
+| 1 | B fails R3 | fails R3 at -28.1% | **right** |
+| 2 | C passes R3, fails R2 — a tighter stop cuts winners that were coming back | passes R3 (-23.9%), fails R2 (+0.82%) | **right, and for the stated reason** |
+| 3 | **D is my pick to ship** | **worst variant tested** (+0.62%, still -28.1%) | **wrong** |
+| 4 | R6 is where a survivor dies | all four fail R6 too | right, untested |
+| 5 | ~40% anything ships | nothing shipped | right |
+
+**Prediction 3 was wrong and worth understanding.** The reasoning was that
+bailing on unconfirmed wicks would remove the tail. It did not — the worst
+trade is unchanged at -28.1%, because the trade that produces it DOES close
+below the level; it simply keeps falling afterwards. And exiting the
+unconfirmed fills at the next open threw away winners that would have reverted,
+which is why the mean collapsed to +0.62%. I removed the good half of the wicks
+and kept the bad one.
+
+## Consequence
+
+**No change.** Swing continues to wait for a settled close and buy the next
+open. The forward test is unaffected.
+
+If this is revisited, variant E is the one to build on — it is better than the
+control on three of four measures and fails only on the tail. The honest route
+is not a tighter stop (C proves that costs more than it saves) but a
+POSITION-SIZE reduction on limit fills, so the same -28% trade costs less. That
+is a different study and needs its own gates.
