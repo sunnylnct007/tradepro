@@ -123,20 +123,16 @@ def _yf_session():
     the run just took three hours and published a board sourced 65% from
     Yahoo. A fallback with no time bound is not a fallback, it is a hang.
     """
+    # Built by tradepro_strategies.yahoo_session — ONE owner, because this
+    # file had its own copy that omitted impersonate= and produced 158
+    # YFRateLimitError warnings on 24 Aug alone, a day AFTER the identical bug
+    # was fixed in the bar provider. Two copies of a rule is how the fix failed
+    # to reach the second one.
     global _YF_SESSION
     if _YF_SESSION is not None:
         return _YF_SESSION
-    try:
-        from curl_cffi import requests as _cr
-        _YF_SESSION = _cr.Session(timeout=_YF_TIMEOUT_S)
-    except Exception:  # noqa: BLE001 — no session is better than no chain
-        try:
-            import requests as _rq
-            s = _rq.Session()
-            s.request = _functools.partial(s.request, timeout=_YF_TIMEOUT_S)  # type: ignore[method-assign]
-            _YF_SESSION = s
-        except Exception:  # noqa: BLE001
-            _YF_SESSION = None
+    from ...yahoo_session import yahoo_session as _mk
+    _YF_SESSION = _mk(_YF_TIMEOUT_S)
     return _YF_SESSION
 
 

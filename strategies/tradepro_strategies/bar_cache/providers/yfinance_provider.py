@@ -202,42 +202,13 @@ class YFinanceProvider(Provider):
         cached = getattr(YFinanceProvider, "_YF_SESSION", None)
         if cached is not None:
             return cached
-        timeout = float(os.environ.get("TRADEPRO_YF_TIMEOUT_S", "8"))
-        sess = None
-        try:
-            from curl_cffi import requests as _cr
-            # impersonate= is NOT optional, and its absence is why this project
-            # has spent weeks believing Yahoo had rate-limited this machine.
-            # yfinance's own default session impersonates a browser TLS
-            # fingerprint; handing it a bare curl_cffi Session replaced that
-            # with a plain client, and Yahoo's bot detection answers those with
-            # 429 "Too Many Requests" — indistinguishable, from the outside,
-            # from a genuine throttle we had to wait out. It was never going to
-            # clear, because we were causing it. Measured 2026-08-23, same
-            # process, back to back: no session → 5 rows; Session(timeout=8) →
-            # YFRateLimitError; Session(timeout=8, impersonate="chrome") → 5 rows.
-            # Keep the timeout (a fallback with no time bound is a hang), keep
-            # the impersonation, and never trade one for the other.
-            try:
-                sess = _cr.Session(timeout=timeout, impersonate="chrome")
-            except TypeError:
-                # Older curl_cffi without impersonate=. A session that gets
-                # 429'd on every call is worse than no session, so decline it
-                # and let yfinance use its own (impersonating) default.
-                _log.warning(
-                    "yfinance: installed curl_cffi has no impersonate= support; "
-                    "using yfinance's default session so Yahoo does not 429 us. "
-                    "TRADEPRO_YF_TIMEOUT_S will not apply — upgrade curl_cffi.")
-                sess = None
-        except Exception:  # noqa: BLE001 — no session beats no bars
-            try:
-                import functools
-                import requests as _rq
-                s = _rq.Session()
-                s.request = functools.partial(s.request, timeout=timeout)  # type: ignore[method-assign]
-                sess = s
-            except Exception:  # noqa: BLE001
-                sess = None
+        # Built by tradepro_strategies.yahoo_session — ONE owner. This file and
+        # quant_engine/options/chains.py each had their own copy; the bar one
+        # got the impersonate= fix on 23 Aug and the options one did not, which
+        # cost 158 YFRateLimitError warnings the next day. Same rule, two
+        # places, one updated.
+        from ...yahoo_session import yahoo_session as _mk
+        sess = _mk(float(os.environ.get("TRADEPRO_YF_TIMEOUT_S", "8")))
         YFinanceProvider._YF_SESSION = sess
         return sess
 
