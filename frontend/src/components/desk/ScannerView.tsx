@@ -23,7 +23,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { RuleChart } from "./RuleChart";
-import { scoreSymbol, type SymbolScore } from "../../lib/tradeOdds";
+import { scoreSymbol, barrierScan, sweepTargets, type SymbolScore } from "../../lib/tradeOdds";
 import { replaySwing, todayBarFrom5m, LIVE_PARAMS, type Bar, type SwingParams, type SwingReplay } from "../../lib/tradeOdds";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
@@ -43,6 +43,13 @@ export function ScannerView() {
   const [sort, setSort] = useState<"mean" | "win" | "n" | "sigma">("mean");
   const [open, setOpen] = useState<string | null>(null);
   const [legend, setLegend] = useState(false);
+  // "What if I used MY OWN entry and target?" — folded in from the old Odds
+  // screen. It lived as a separate tab and the owner said twice he could not
+  // tell the two apart. He was right: you never want that calculator in the
+  // abstract, you want it about a symbol you are already looking at. Standing
+  // instruction, repeatedly: one thing that works beats ten that do not.
+  const [myEntry, setMyEntry] = useState<Record<string, string>>({});
+  const [myTarget, setMyTarget] = useState<Record<string, string>>({});
   const [sens, setSens] = useState<Array<{ label: string; v: number; n: number; win: number; mean: number; live: boolean }> | null>(null);
 
   const isLive = useMemo(() =>
@@ -450,6 +457,86 @@ export function ScannerView() {
                                 </div>
                               )}
                             </div>
+                            {/* YOUR OWN ORDER, on the symbol already open. The
+                                rule's plan is above; this answers the different
+                                question — "if I ignore the rule and place my own
+                                limit, how often has THAT worked?" */}
+                            {(() => {
+                              const b = bars.current[r.symbol];
+                              const e = parseFloat(myEntry[r.symbol] ?? "");
+                              const tg = parseFloat(myTarget[r.symbol] ?? "");
+                              const ok = b && e > 0 && tg > e;
+                              const sc = ok ? barrierScan(b, {
+                                limitPct: e / r.entry - 1, targetPct: tg / e - 1,
+                                stopPct: -0.08, fillWindow: 10, tradeWindow: 20 }) : null;
+                              const sw = ok ? sweepTargets(b, {
+                                limitPct: e / r.entry - 1, stopPct: -0.08,
+                                fillWindow: 10, tradeWindow: 20 }) : null;
+                              return (
+                                <div>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
+                                    OR PLACE YOUR OWN ORDER ON {r.symbol}
+                                  </div>
+                                  <div style={{ fontSize: 13, color: "var(--text-muted)",
+                                                margin: "3px 0 6px", lineHeight: 1.6 }}>
+                                    Ignore the rule — pick any entry and target and see how often
+                                    that order has worked here.
+                                  </div>
+                                  <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                                    {([["entry", myEntry, setMyEntry], ["target", myTarget, setMyTarget]] as const)
+                                      .map(([lbl, st_, set_]) => (
+                                        <label key={lbl} style={{ fontSize: 12, color: "var(--text-dim)" }}>
+                                          <div>{lbl}</div>
+                                          <input value={st_[r.symbol] ?? ""} placeholder={r.entry.toFixed(2)}
+                                                 style={{ ...inp, width: 84 }}
+                                                 onChange={(ev) => set_({ ...st_, [r.symbol]: ev.target.value })} />
+                                        </label>
+                                      ))}
+                                  </div>
+                                  {!ok ? (
+                                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                                      Enter a limit and a target above it.
+                                    </div>
+                                  ) : sc && (
+                                    <>
+                                      <div style={{ fontSize: 13, lineHeight: 1.8, fontFamily: "var(--font-mono)" }}>
+                                        P(filled) <b>{Math.round(100 * (sc.pFill ?? 0))}%</b> ·
+                                        P(target | filled) <b>{Math.round(100 * (sc.pTargetGivenFill ?? 0))}%</b> ·
+                                        P(both) <b style={{ color: TONE.ok }}>{Math.round(100 * (sc.pBoth ?? 0))}%</b>
+                                      </div>
+                                      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                                        A limit below today&apos;s price is TWO bets — that it comes back
+                                        to you at all, then that it reaches your target. P(both) is what
+                                        happens to you.
+                                      </div>
+                                      <table style={{ borderCollapse: "collapse", fontSize: 12, marginTop: 5 }}>
+                                        <thead><tr style={{ color: "var(--text-dim)" }}>
+                                          <th style={{ padding: "2px 8px 2px 0", textAlign: "left" }}>target</th>
+                                          <th style={{ padding: "2px 8px", textAlign: "left" }}>hit rate</th>
+                                          <th style={{ padding: "2px 8px", textAlign: "left" }}>expectancy</th>
+                                        </tr></thead>
+                                        <tbody>
+                                          {sw!.slice(0, 6).map((x) => (
+                                            <tr key={x.targetPct}>
+                                              <td style={{ ...td, padding: "2px 8px 2px 0" }}>+{x.targetPct}%</td>
+                                              <td style={{ ...td, padding: "2px 8px" }}>
+                                                {Math.round(100 * (x.pTargetGivenFill ?? 0))}%</td>
+                                              <td style={{ ...td, padding: "2px 8px", fontWeight: 700,
+                                                           color: (x.expectancyPct ?? 0) > 0 ? TONE.ok : TONE.bad }}>
+                                                {x.expectancyPct}%</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                                        Read expectancy, not hit rate. A 90% hit rate on a +1% target
+                                        against an 8% stop loses money.
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {r.score && r.score.n > 0 && (
                               <div>
                                 <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>

@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "odds" | "scanner";
+export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "scanner";
 
 type NavEntry = {
   key: string;
@@ -105,8 +105,6 @@ const NAV: NavEntry[] = [
     title: "Momentum candidates — the SECOND strategy to clear pre-registered gates. Longer hold (~7 weeks), trailing stop, not a bracket order" },
   { key: "scanner",   label: "Scanner",   icon: "🔎", view: "scanner",  tier: "trusted",
     title: "Scanner — OUR rule across all 244 names. Which fire today, how each has performed, and an intraday preview" },
-  { key: "odds",      label: "Odds",      icon: "🎲", view: "odds",      tier: "trusted",
-    title: "Trade odds — YOUR order at any price and target, and how often that has worked. Not the rule's trade" },
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", tier: "trusted",
     title: "Portfolio — your actual positions" },
   { key: "oms",       label: "Orders",    icon: "📋", view: "oms",       tier: "trusted",
