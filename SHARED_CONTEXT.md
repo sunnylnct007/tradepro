@@ -325,3 +325,41 @@ measured once against a stable store. Three inputs moved at once (universe
 definition, cleaned data, intraday depth); measuring twice would produce two
 irreconcilable numbers, which is exactly what the 4-vs-8-bar hold discrepancy
 already is.
+
+
+---
+
+## 2026-08-24 — the IBKR MCP connector TAKES THE MARKET-DATA SESSION
+
+Recorded because it was misdiagnosed once already today.
+
+The health probe reported `degraded — auth VALID but snapshot DARK (SPY served
+no last/IV after warm-up retry) — market-data session contention`. It was
+attributed to the owner being logged into the IBKR portal. He was **not**
+logged in.
+
+The actual cause was almost certainly the **IBKR MCP connector**, used from
+this session minutes earlier to look up SK Hynix and TSMC contract IDs and
+pull a year of KRX price history. That connector authenticates against the
+same account and takes the same single market-data session TradePro needs.
+
+Confirmed by re-running the probe once nothing was holding it:
+`ibkr-health: ok — auth + live snapshot`.
+
+**Operational consequence.** The known contention list was "the owner's portal
+login, or another client". It also includes **any Claude session calling the
+IBKR MCP tools** — which is easy to do accidentally while investigating, and
+which looks identical to a portal login from the probe's side.
+
+**Practical rule:** treat an IBKR MCP call as taking the trading session for
+its duration. During market hours, and especially during the forward-test
+window, prefer the stored bar cache or the Web API (`/api/integrations/ibkr/*`)
+over the MCP connector. The Web API kept serving account state throughout —
+NLV, positions and live marks were all available while the snapshot was dark,
+which is why Swing was unaffected.
+
+**What was NOT affected:** Swing. Signals come from stored daily bars,
+positions from the Web API, and market orders need no quote. Verified end to
+end while the session was dark: position seed succeeded, session completed,
+exit 0. The options desk WOULD have been affected — it needs IV, greeks and
+open interest from exactly that session.
