@@ -58,3 +58,75 @@ Equity curves, £100k start, positions taken as they arise up to a cap:
    anything ships.
 
 If nothing passes, the sizing idea is closed and the file joins the others.
+
+---
+
+# RESULT — REJECTED. And the near-miss is the most instructive part.
+
+Portfolio simulation, £100k, positions held from entry to exit, signals skipped
+when capital is not free.
+
+| variant | size | taken | skipped | return | max DD | ret/DD |
+|---|---|---|---|---|---|---|
+| A control (the rule) | 5.0% | 2,173 | 328 | 132% | -13.3% | 9.9 |
+| B variant E | 5.0% | 5,221 | 1,527 | 2,066% | -17.9% | 115.3 |
+| C variant E half | 2.5% | 6,454 | 294 | 499% | -13.2% | 37.8 |
+| D variant E third | 1.67% | 6,707 | 41 | **256%** | **-9.0%** | **28.3** |
+
+**B fails S2** — more trades at full size deepens the drawdown, as expected.
+**C and D pass S1-S4**, and D looked outstanding: nearly double the control's
+return at two thirds of its drawdown.
+
+## Then S5, and the reason this file matters
+
+D passed the two-split — **until the split was the one actually
+pre-registered.**
+
+The gates specify a TIME split and a SYMBOL split. The first run substituted
+odd/even entry DATES for the symbol cut, because the trade tuples did not carry
+the symbol. Under that substitute, D passed all four cells.
+
+Date parity is a much weaker test: it splits the same symbols across both
+cells, so it cannot detect an effect that lives in a subset of names. With the
+real symbol split:
+
+| cell | D return | control | verdict |
+|---|---|---|---|
+| time 1st half | 63% | 38% | PASS |
+| time 2nd half | 118% | 68% | PASS |
+| symbols A-M | 119% | 76% | PASS |
+| **symbols N-Z** | **64%** | **76%** | **FAIL** |
+
+**D's advantage lives in half the alphabet.** That is the signature of an
+effect concentrated in a subset of names rather than a property of the rule —
+exactly what the symbol split exists to catch, and exactly what date parity
+cannot see.
+
+## Three accounting bugs on the way, all caught by implausible output
+
+1. P&L credited at ENTRY rather than exit — returned 2,384%.
+2. Equity marked INSIDE the settle loop with the position list half-rebuilt —
+   returned a 95% drawdown on the control, which has none.
+3. The substituted split above.
+
+Each was caught because the number was obviously wrong, not because the code
+was reviewed. A portfolio simulation with overlapping positions is fiddly, and
+this one needed three attempts.
+
+## Prediction grading (committed at 6540686)
+
+| # | predicted | actual | |
+|---|---|---|---|
+| 1 | C or D passes S2 | both did | right |
+| 2 | S1 return is where it dies | S1 passed comfortably (256% vs 132%) | **wrong** |
+| 3 | S4 utilisation is a real risk I have not checked | never binding — skips handled it | wrong, and worth noting I flagged an unchecked risk that turned out not to matter |
+| 4 | S3 decides it, ~35% ships | S5 decided it; nothing shipped | half right |
+
+## Consequence
+
+**No change.** Swing keeps the settled-close entry at 5% per position.
+
+The resting-limit family is now closed across two studies. It reliably finds
+more trades at a better average, and it reliably fails to survive being cut by
+symbol — in v1 on the tail, in v2 on where the return comes from. That is
+consistent enough to treat as a property of the idea rather than bad luck.
