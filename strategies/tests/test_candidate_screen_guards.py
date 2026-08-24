@@ -103,3 +103,42 @@ def test_both_screens_agree_on_which_bar_is_today():
     dates = ["2026-08-20", "2026-08-21"]
     assert mom._pick_signal_index(dates, "2026-08-21") == \
            swing._pick_signal_index(dates, "2026-08-21")
+
+
+class TestPhantomWindow:
+    """The phantom check must catch a mis-mapped contract without condemning
+    an ETF for having been young.
+
+    Found live on 24 Aug, day one of the forward test. The data lane
+    backfilled USMV to 2011 and VLUE to 2013 overnight; both were immediately
+    quarantined on phantoms dated 2011-12 and 2013-15 — which is when those
+    ETFs had just launched and genuinely did not trade some days. Real
+    history, not corruption, and dropping a symbol for it is the cry-wolf
+    failure this project has made before.
+    """
+
+    def test_a_recent_wrong_contract_splice_is_caught(self):
+        """The MTUM shape: a block of a different instrument's prices on no
+        volume, sitting in the bars we would actually trade."""
+        closes = [100.0] * 3000 + [6000.0] * 40 + [328.0] * 20
+        vols = [1_000_000] * 3000 + [0] * 40 + [10_000] * 20
+        ok, n = mom.poison_check(closes, vols)
+        assert ok is False and n > 4
+
+    def test_early_illiquidity_is_NOT_corruption(self):
+        """An ETF's first weeks, before anyone traded it. Genuine history."""
+        closes = [50.0] * 80 + [50.0 + i * 0.01 for i in range(3000)]
+        vols = [0] * 80 + [500_000] * 3000
+        ok, n = mom.poison_check(closes, vols)
+        assert ok is True and n == 0
+
+    def test_the_window_is_what_separates_them(self):
+        """Identical phantom counts — one recent, one ancient. Only the recent
+        one is a fault, and the ONLY difference is where it sits."""
+        n_ph = 30
+        recent = [100.0] * 3000 + [100.0] * n_ph
+        recent_v = [1_000_000] * 3000 + [0] * n_ph
+        ancient = [100.0] * n_ph + [100.0 + i * 0.01 for i in range(3000)]
+        ancient_v = [0] * n_ph + [1_000_000] * 3000
+        assert mom.poison_check(recent, recent_v)[0] is False
+        assert mom.poison_check(ancient, ancient_v)[0] is True

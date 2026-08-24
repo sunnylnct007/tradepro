@@ -54,6 +54,13 @@ corruption. Meanwhile the actual corruption is not always extreme in price.
 See PHANTOM_* below for the test that decides."""
 
 MAX_PHANTOM_BARS = 4
+
+PHANTOM_WINDOW = 500
+"""How far back the phantom check looks — about two years.
+
+A wrong-contract series shows up in the bars we would actually trade; an ETF's
+first illiquid months do not. Counting the whole history conflates them and
+throws away good symbols for having been young once."""
 """A PHANTOM bar is an unchanged close on ZERO volume. Count them; more than
 a handful means the series is not this instrument.
 
@@ -207,8 +214,24 @@ def poison_check(closes, volumes=None):
     if not closes:
         return True, 0
     if volumes and len(volumes) == len(closes):
-        phantom = sum(1 for i in range(1, len(closes))
-                      if volumes[i] == 0 and closes[i] == closes[i - 1])
+        # COUNT PHANTOMS IN THE TRADING-RELEVANT WINDOW ONLY.
+        #
+        # The check was calibrated on wrong-contract splices, where the phantom
+        # bars were RECENT — MTUM sat at 6,000 through June 2026. Applied to
+        # deep history it produces false positives: when the data lane
+        # backfilled USMV to 2011 and VLUE to 2013 overnight, both were
+        # quarantined on phantoms dated 2011-12 and 2013-15 respectively —
+        # which is when those ETFs had just launched and genuinely did not
+        # trade some days. That is real history, not corruption, and dropping
+        # a symbol for it is the cry-wolf failure this project has made before.
+        #
+        # A mis-mapped contract shows up in the bars we would actually trade.
+        # Early illiquidity does not. So only the recent window counts, and
+        # older ones are returned as information rather than a verdict.
+        recent = closes[-PHANTOM_WINDOW:]
+        recent_v = volumes[-PHANTOM_WINDOW:]
+        phantom = sum(1 for i in range(1, len(recent))
+                      if recent_v[i] == 0 and recent[i] == recent[i - 1])
         return phantom <= MAX_PHANTOM_BARS, phantom
     recent = closes[-120:] or closes
     med = _st.median(recent)
