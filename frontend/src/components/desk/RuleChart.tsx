@@ -35,9 +35,14 @@ export function RuleChart({ bars, p, trades, height = 150, sessions = 130 }: {
 }) {
   const W = 640, H = height, PAD = 4;
   const c = bars.map((b) => b.close);
-  if (c.length < p.trendWindow + sessions) return null;
+  // Every line needs `trendWindow` bars of run-up before the first plotted
+  // point, so draw as many sessions as the history actually allows rather
+  // than rendering nothing. A short-history symbol gets a short chart, not a
+  // blank panel — a blank panel looks like a bug and says nothing about why.
+  const span_ = Math.min(sessions, c.length - p.trendWindow);
+  if (span_ < 20) return null;
 
-  const start = c.length - sessions;
+  const start = c.length - span_;
   const xs: number[] = [], band: number[] = [], m20: number[] = [], s200: number[] = [];
   for (let i = start; i < c.length; i++) {
     const w = c.slice(i - p.bbWindow + 1, i + 1);
@@ -47,7 +52,7 @@ export function RuleChart({ bars, p, trades, height = 150, sessions = 130 }: {
   }
   const all = [...xs, ...band, ...m20, ...s200];
   const lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 1;
-  const X = (i: number) => PAD + (i * (W - 2 * PAD)) / (sessions - 1);
+  const X = (i: number) => PAD + (i * (W - 2 * PAD)) / (span_ - 1);
   const Y = (v: number) => PAD + (1 - (v - lo) / span) * (H - 2 * PAD);
   const path = (ys: number[]) => ys.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join("");
 
@@ -87,7 +92,7 @@ export function RuleChart({ bars, p, trades, height = 150, sessions = 130 }: {
         <span style={{ color: TONE.warn }}>┄ {p.sigma}σ band (the trigger — price must close below)</span>{"  "}
         <span style={{ color: "#5a6b8c" }}>┄ {p.trendWindow}-day average (below it the rule refuses)</span>
         {marks.length > 0 && <>{"  "}● entries, coloured by outcome — hover for the trade</>}
-        <div>Last {sessions} sessions. Not a price chart — these are the four lines the rule reads.</div>
+        <div>Last {span_} sessions. Not a price chart — these are the four lines the rule reads.</div>
       </div>
     </div>
   );

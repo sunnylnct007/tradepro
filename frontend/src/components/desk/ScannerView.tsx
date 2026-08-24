@@ -22,8 +22,8 @@
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
-import { RuleChart } from "./RuleChart";
-import { scoreSymbol, barrierScan, sweepTargets, type SymbolScore } from "../../lib/tradeOdds";
+import { ScannerDetailModal } from "./ScannerDetailModal";
+import { scoreSymbol, type SymbolScore } from "../../lib/tradeOdds";
 import { replaySwing, todayBarFrom5m, LIVE_PARAMS, type Bar, type SwingParams, type SwingReplay } from "../../lib/tradeOdds";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
@@ -403,14 +403,12 @@ export function ScannerView() {
               </thead>
               <tbody>
                 {view.map((r) => (
-                  <>
-                    <tr key={r.symbol} onClick={() => setOpen(open === r.symbol ? null : r.symbol)}
-                        style={{ borderTop: "1px solid #141b2b", cursor: "pointer",
-                                 background: r.firesNow ? `${TONE.ok}12`
-                                   : open === r.symbol ? "rgba(255,255,255,0.03)" : undefined }}>
+                  <tr key={r.symbol} onClick={() => setOpen(r.symbol)}
+                      style={{ borderTop: "1px solid #141b2b", cursor: "pointer",
+                               background: r.firesNow ? `${TONE.ok}12` : undefined }}>
                       <td style={{ ...td, fontWeight: 700 }}>
                         <span style={{ color: "var(--text-dim)", fontSize: 9, marginRight: 5 }}>
-                          {open === r.symbol ? "▼" : "▶"}</span>{r.symbol}
+                          ⤢</span>{r.symbol}
                       </td>
                       <td style={{ ...td, color: r.firesNow ? TONE.ok : "var(--text-muted)",
                                    fontWeight: r.firesNow ? 700 : 400 }}>
@@ -435,206 +433,6 @@ export function ScannerView() {
                           : r.score?.verdict === "too few trades" ? "too few" : "in line"}
                       </td>
                     </tr>
-                    {open === r.symbol && (
-                      <tr key={r.symbol + "-d"}>
-                        <td colSpan={10} style={{ padding: "10px 14px 14px", background: "rgba(255,255,255,0.02)" }}>
-                          {bars.current[r.symbol] && (
-                            <div style={{ marginBottom: 12 }}>
-                              <RuleChart bars={bars.current[r.symbol]} p={p} trades={r.trades} />
-                            </div>
-                          )}
-                          <div style={{ display: "grid", gap: 16,
-                                        gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))" }}>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
-                                WHERE {r.symbol} IS TODAY · last bar {r.lastBar}
-                              </div>
-                              <div style={{ fontSize: 14, lineHeight: 1.8, marginTop: 4,
-                                            fontFamily: "var(--font-mono)" }}>
-                                close <b>{r.entry.toFixed(2)}</b><br />
-                                {r.sigmasBelow >= 0 ? "below" : "ABOVE"} the 20-day mean by{" "}
-                                <b>{Math.abs(r.sigmasBelow).toFixed(2)}σ</b> (fires at {p.sigma}σ below)<br />
-                                {r.vs200 > 0 ? "above" : "BELOW"} the {p.trendWindow}-day average by{" "}
-                                <b style={{ color: r.vs200 > 0 ? TONE.ok : TONE.bad }}>
-                                  {r.vs200.toFixed(1)}%</b>
-                                {r.vs200 <= 0 && " — this alone blocks the rule"}
-                              </div>
-                              {r.firesNow && (
-                                <div style={{ marginTop: 6, fontSize: 14, fontFamily: "var(--font-mono)",
-                                              border: `1px solid ${TONE.ok}55`, borderRadius: 6, padding: "6px 9px" }}>
-                                  entry <b>{r.entry.toFixed(2)}</b> · target{" "}
-                                  <b style={{ color: TONE.ok }}>{r.target.toFixed(2)}</b>{" "}
-                                  (+{r.targetPct.toFixed(1)}%) · stop{" "}
-                                  <b style={{ color: TONE.bad }}>{r.stop.toFixed(2)}</b>
-                                </div>
-                              )}
-                            </div>
-                            {/* YOUR OWN ORDER, on the symbol already open. The
-                                rule's plan is above; this answers the different
-                                question — "if I ignore the rule and place my own
-                                limit, how often has THAT worked?" */}
-                            {(() => {
-                              const b = bars.current[r.symbol];
-                              const e = parseFloat(myEntry[r.symbol] ?? "");
-                              const tg = parseFloat(myTarget[r.symbol] ?? "");
-                              const ok = b && e > 0 && tg > e;
-                              const sc = ok ? barrierScan(b, {
-                                limitPct: e / r.entry - 1, targetPct: tg / e - 1,
-                                stopPct: -0.08, fillWindow: 10, tradeWindow: 20 }) : null;
-                              const sw = ok ? sweepTargets(b, {
-                                limitPct: e / r.entry - 1, stopPct: -0.08,
-                                fillWindow: 10, tradeWindow: 20 }) : null;
-                              return (
-                                <div>
-                                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
-                                    OR PLACE YOUR OWN ORDER ON {r.symbol}
-                                  </div>
-                                  <div style={{ fontSize: 13, color: "var(--text-muted)",
-                                                margin: "3px 0 6px", lineHeight: 1.6 }}>
-                                    Ignore the rule — pick any entry and target and see how often
-                                    that order has worked here.
-                                  </div>
-                                  <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-                                    {([["entry", myEntry, setMyEntry], ["target", myTarget, setMyTarget]] as const)
-                                      .map(([lbl, st_, set_]) => (
-                                        <label key={lbl} style={{ fontSize: 12, color: "var(--text-dim)" }}>
-                                          <div>{lbl}</div>
-                                          <input value={st_[r.symbol] ?? ""} placeholder={r.entry.toFixed(2)}
-                                                 style={{ ...inp, width: 84 }}
-                                                 onChange={(ev) => set_({ ...st_, [r.symbol]: ev.target.value })} />
-                                        </label>
-                                      ))}
-                                  </div>
-                                  {!ok ? (
-                                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                                      Enter a limit and a target above it.
-                                    </div>
-                                  ) : sc && (
-                                    <>
-                                      <div style={{ fontSize: 13, lineHeight: 1.8, fontFamily: "var(--font-mono)" }}>
-                                        P(filled) <b>{Math.round(100 * (sc.pFill ?? 0))}%</b> ·
-                                        P(target | filled) <b>{Math.round(100 * (sc.pTargetGivenFill ?? 0))}%</b> ·
-                                        P(both) <b style={{ color: TONE.ok }}>{Math.round(100 * (sc.pBoth ?? 0))}%</b>
-                                      </div>
-                                      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
-                                        A limit below today&apos;s price is TWO bets — that it comes back
-                                        to you at all, then that it reaches your target. P(both) is what
-                                        happens to you.
-                                      </div>
-                                      <table style={{ borderCollapse: "collapse", fontSize: 12, marginTop: 5 }}>
-                                        <thead><tr style={{ color: "var(--text-dim)" }}>
-                                          <th style={{ padding: "2px 8px 2px 0", textAlign: "left" }}>target</th>
-                                          <th style={{ padding: "2px 8px", textAlign: "left" }}>hit rate</th>
-                                          <th style={{ padding: "2px 8px", textAlign: "left" }}>expectancy</th>
-                                        </tr></thead>
-                                        <tbody>
-                                          {sw!.slice(0, 6).map((x) => (
-                                            <tr key={x.targetPct}>
-                                              <td style={{ ...td, padding: "2px 8px 2px 0" }}>+{x.targetPct}%</td>
-                                              <td style={{ ...td, padding: "2px 8px" }}>
-                                                {Math.round(100 * (x.pTargetGivenFill ?? 0))}%</td>
-                                              <td style={{ ...td, padding: "2px 8px", fontWeight: 700,
-                                                           color: (x.expectancyPct ?? 0) > 0 ? TONE.ok : TONE.bad }}>
-                                                {x.expectancyPct}%</td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                                        Read expectancy, not hit rate. A 90% hit rate on a +1% target
-                                        against an 8% stop loses money.
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                            {r.score && r.score.n > 0 && (
-                              <div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
-                                  IF {r.symbol} FIRES — what that ONE trade looks like
-                                </div>
-                                <div style={{ fontSize: 13, color: "var(--text-muted)", margin: "3px 0 6px", lineHeight: 1.6 }}>
-                                  Not &ldquo;how will {r.symbol} do this quarter&rdquo; — it fires about{" "}
-                                  {(60 * r.n / 4000).toFixed(2)} times in 12 weeks, so the honest
-                                  question is what a single trade is worth when it does.
-                                </div>
-                                <table style={{ borderCollapse: "collapse", fontSize: 13, width: "100%" }}>
-                                  <tbody>
-                                    <tr>
-                                      <td style={{ ...td, padding: "3px 8px 3px 0", color: "var(--text-dim)" }}>
-                                        {r.symbol}&apos;s own record</td>
-                                      <td style={{ ...td, padding: "3px 8px", fontWeight: 700,
-                                                   color: r.score.ownMean > 0 ? TONE.ok : TONE.bad }}>
-                                        {r.score.ownMean > 0 ? "+" : ""}{r.score.ownMean.toFixed(2)}%</td>
-                                      <td style={{ ...td, padding: "3px 8px", color: "var(--text-muted)" }}>
-                                        90% range {r.score.ownLo.toFixed(2)}% to {r.score.ownHi.toFixed(2)}%
-                                        {" "}on {r.score.n} trades</td>
-                                    </tr>
-                                    <tr>
-                                      <td style={{ ...td, padding: "3px 8px 3px 0", color: "var(--text-dim)" }}>
-                                        universe base rate</td>
-                                      <td style={{ ...td, padding: "3px 8px" }}>
-                                        +{r.score.baseMean.toFixed(2)}%</td>
-                                      <td style={{ ...td, padding: "3px 8px", color: "var(--text-muted)" }}>
-                                        {r.score.baseWin.toFixed(0)}% win across every symbol</td>
-                                    </tr>
-                                    <tr style={{ borderTop: "1px solid #141b2b" }}>
-                                      <td style={{ ...td, padding: "3px 8px 3px 0", color: "var(--text-dim)" }}>
-                                        <b>discounted for sample size</b></td>
-                                      <td style={{ ...td, padding: "3px 8px", fontWeight: 700,
-                                                   color: r.score.shrunkMean > r.score.baseMean ? TONE.ok : "inherit" }}>
-                                        {r.score.shrunkMean > 0 ? "+" : ""}{r.score.shrunkMean.toFixed(2)}%</td>
-                                      <td style={{ ...td, padding: "3px 8px", color: "var(--text-muted)" }}>
-                                        {(100 * r.score.weight).toFixed(0)}% its own record,{" "}
-                                        {(100 * (1 - r.score.weight)).toFixed(0)}% the base rate</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                                <div style={{ fontSize: 13, marginTop: 5, lineHeight: 1.6,
-                                              color: r.score.verdict === "better" ? TONE.ok
-                                                   : r.score.verdict === "worse" ? TONE.bad : "var(--text-muted)" }}>
-                                  {r.score.verdict === "too few trades"
-                                    ? `Only ${r.score.n} trades — too few to call. A bootstrap of a tiny sample gives a falsely narrow range: resample 3 wins and every draw is positive, so the symbol looks proven on no evidence. Its ${r.score.ownMean.toFixed(2)}% is shown, not trusted.`
-                                    : r.score.verdict === "better"
-                                    ? `Genuinely better than average — even the bottom of its range (${r.score.ownLo.toFixed(2)}%) clears the base rate.`
-                                    : r.score.verdict === "worse"
-                                    ? `Worse than average — even the TOP of its range (${r.score.ownHi.toFixed(2)}%) sits below the base rate.`
-                                    : `In line with the universe. Its ${r.score.ownMean.toFixed(2)}% looks better or worse, but ${r.score.n} trades cannot tell it apart from the +${r.score.baseMean.toFixed(2)}% average — the range spans it.`}
-                                </div>
-                              </div>
-                            )}
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-dim)" }}>
-                                LAST {Math.min(8, r.trades.length)} TRADES ON {r.symbol}
-                                {r.n < 8 && <span style={{ color: TONE.warn }}> · only {r.n} ever — too few to mean much</span>}
-                              </div>
-                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 4 }}>
-                                <thead><tr style={{ color: "var(--text-dim)" }}>
-                                  {["signal", "entry", "exit", "why", "bars", "P&L"].map((x) => (
-                                    <th key={x} style={{ padding: "2px 6px", textAlign: "left" }}>{x}</th>))}
-                                </tr></thead>
-                                <tbody>
-                                  {r.trades.slice(-8).reverse().map((t, k) => (
-                                    <tr key={k} style={{ borderTop: "1px solid #141b2b" }}>
-                                      <td style={{ ...td, padding: "2px 6px" }}>{t.signal}</td>
-                                      <td style={{ ...td, padding: "2px 6px" }}>{t.entry.toFixed(2)}</td>
-                                      <td style={{ ...td, padding: "2px 6px" }}>{t.exitPx.toFixed(2)}</td>
-                                      <td style={{ ...td, padding: "2px 6px", color: "var(--text-muted)" }}>{t.why}</td>
-                                      <td style={{ ...td, padding: "2px 6px" }}>{t.bars}</td>
-                                      <td style={{ ...td, padding: "2px 6px", fontWeight: 700,
-                                                   color: t.pct > 0 ? TONE.ok : TONE.bad }}>
-                                        {t.pct > 0 ? "+" : ""}{t.pct.toFixed(2)}%</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </>
                 ))}
               </tbody>
             </table>
@@ -648,6 +446,21 @@ export function ScannerView() {
           </div>
         </>
       )}
+
+      {/* Row detail as a POP-OUT, not an inline expansion — owner asked for the
+          same popup the Data chart uses, with a tab for the numbers behind the
+          chart. Same mechanics as SymbolDetailModal so the two behave alike. */}
+      {open && (() => {
+        const r = (rows ?? []).find((x) => x.symbol === open);
+        return r ? (
+          <ScannerDetailModal
+            row={r} bars={bars.current[r.symbol]} p={p}
+            entry={myEntry[r.symbol] ?? ""} target={myTarget[r.symbol] ?? ""}
+            setEntry={(v) => setMyEntry({ ...myEntry, [r.symbol]: v })}
+            setTarget={(v) => setMyTarget({ ...myTarget, [r.symbol]: v })}
+            onClose={() => setOpen(null)} />
+        ) : null;
+      })()}
     </div>
   );
 }
