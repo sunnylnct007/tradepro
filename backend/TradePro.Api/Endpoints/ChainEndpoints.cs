@@ -96,9 +96,26 @@ public static class ChainEndpoints
             var spotRaw = await ibkr.GetSnapshotRawAsync(underlyingConId, "31", ct);
             if (spotRaw is not null)
                 spot = IBKRResponseParser.ParseSnapshotLast(spotRaw);
-            if (spot is null)
+            // One retry at 1.2s was not enough, and the shortfall was invisible
+            // because the failure reports as "this symbol has no chain".
+            // Measured live on 2026-08-24, mid-session, CVX:
+            //
+            //   chain call 1        -> spot=null, 0 legs, "after warm-up retry"
+            //   chain call 2 (+5s)  -> spot=203.21, 40 legs, no error
+            //
+            // The subscription simply had not warmed inside 1.2s. That single
+            // gap produced 87 "IBKR returned NO strikes for … month SEP26"
+            // warnings in one options-screen run — against CVX, XOM, ABBV, JNJ,
+            // names that obviously HAVE September options. IBKR was reporting
+            // the month fine (AUG26, SEP26, OCT26 …); we were asking before it
+            // was ready and then blaming the exchange for the answer.
+            //
+            // Escalating waits, and only paid when cold: a warm symbol still
+            // returns on the first call with no delay at all.
+            foreach (var waitSeconds in new[] { 1.2, 2.5, 4.0 })
             {
-                await Task.Delay(TimeSpan.FromSeconds(1.2), ct);
+                if (spot is not null) break;
+                await Task.Delay(TimeSpan.FromSeconds(waitSeconds), ct);
                 spotRaw = await ibkr.GetSnapshotRawAsync(underlyingConId, "31", ct);
                 if (spotRaw is not null)
                     spot = IBKRResponseParser.ParseSnapshotLast(spotRaw);
