@@ -86,17 +86,73 @@ uv run python scripts/check_sma200_seam.py
 
 It exits non-zero only if a gate could actually flip.
 
-## Fold in while the store is open
+## Fold in while the store is open — FOUR items, one session
 
-Two other things are parked on the same window, and touching the store twice is
-worse than once:
+Touching the store twice is worse than once, and all four change the trade
+population. G4 moves with population size and G5 currently clears its gate by
+only 1.1 points, so none of this is safe before the forward test closes
+(≈16 Nov 2026).
 
-- **XLC / XLRE hold only 5 years** — truncated at 2021-08-23 by a fetch window,
-  not inception (XLC launched 2018-06, XLRE 2015-10; the legacy cache still has
-  both from those dates). Fine for a 200-SMA, wrong for any long backtest.
-- **History depth is uneven generally** — store first-bar dates cluster at
-  2010-01-04 (93 symbols), 2022-01-03 (90), 2019-07-01 (45), 2021-08-23 (11),
-  2026-05-04 (12). Those are fetch windows, not inceptions.
+**1. Close convention + `adj_factor`** — the body of this document.
 
-Both change the trade population, and G4 moves with population while G5 currently
-clears its gate by only 1.1 points. Neither is safe mid-test.
+**2. The 5-year daily cap — DO THIS FIRST, or 3 and 4 silently undo themselves.**
+
+```
+bar_cache/providers/ibkr_web_provider.max_history()
+  returns 365*5 days for any resolution NOT in its measured table
+  -> and "1d" is not in that table
+```
+
+1825 days, earliest reachable 2021-08-25 — which is exactly where the store's
+2021-08-23 first-bar cluster sits. It is a defect rather than a judgement call
+for two reasons: every neighbouring entry in that table carries its measured
+evidence in the comment ("worked at 6 months, failed at 12") while `365*5` is an
+unmeasured fallback; and `IBKRDailyBackfillService` pages back **15 years** on
+the same broker every night, so IBKR plainly serves the depth — only the Python
+side declines to ask.
+
+**A backfill that does not raise this cap first will re-truncate to five years.**
+
+**3. XLC / XLRE hold only 5 years** — 2021-08-23, the cap above, not inception
+(XLC launched 2018-06, XLRE 2015-10; the legacy cache still holds both from
+those dates). Fine for a 200-SMA, wrong for any long backtest.
+
+**4. Uneven depth generally — TWO mechanisms, and fixing one looks like done.**
+Store first-bar clusters: 2010-01-04 (93 symbols), 2022-01-03 (90), 2019-07-01
+(45), 2021-08-23 (11), 2026-05-04 (12).
+
+- The 2021/2022 clusters are the **cap** (item 2).
+- The 2010-01-04 cluster is an old `--from 2010` **seed window** — a different
+  cause needing a different fix. SPY, AAPL, MSFT, NVDA, QQQ, MU, KLAC, GOOGL and
+  IWM all sit at 4,185 local against 5,000 served, from 2010-01-04 versus
+  2006-10-05. Raise the cap alone and the mega-caps stay short at 2010 while the
+  job reports success.
+
+## Why the cap matters more than "less history" suggests
+
+It does not shorten the sample evenly — it removes the hard part. **2022 is the
+only losing year this strategy has** (−1.07% on 88 trades, research lane). A
+per-symbol record beginning 2022-01-03 contains no 2020 crash and no 2022 bear
+market, so it is not a shorter measurement of the same thing; it is a
+measurement over a different regime mix. The universe-level result is unaffected
+— 2,310 trades pooled across 244 names, and the clean two-split runs an identical
+74-symbol set across both decades — but **per-symbol** numbers, which are the
+ones on screen, needed the caveat and now carry it.
+
+## Sizing the backfill: "available" is a FLOOR
+
+Several symbols return **exactly 5,000** bars from the API, which is the API's
+own cap rather than the instrument's age. Anyone sizing this work off that number
+is sizing off a cap. The true depth at IBKR is greater than both the local and
+the "available" figure.
+
+## Verify before and after
+
+```
+uv run python scripts/check_store_vs_api_history.py --limit 244
+```
+
+Compares first bar and bar count per symbol across the parquet store and the API,
+and exits non-zero on any material shortfall. Run it before the backfill to size
+the work, and after to prove it landed — including on the mega-caps, which are
+the ones a cap-only fix would leave behind.
