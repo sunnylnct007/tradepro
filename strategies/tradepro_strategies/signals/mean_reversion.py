@@ -8,23 +8,37 @@ exists so there is nothing to copy.
 Owner's standing rule, and the reason: never hand-reimplement a strategy —
 port it once and pin it with a parity test.
 
-THE RULE (MEAN_REVERSION_GATES_V1.md, measured in
-backtests/studies/mean_reversion_v2.py):
+THE RULE (MEAN_REVERSION_GATES_V1.md, amended by MEAN_REVERSION_HOLD_V3.md,
+measured in backtests/studies/mean_reversion_v2.py):
 
     entry    close < 2.5 sigma below the 20-day mean, while above the 200-SMA
     target   the 20-day mean, recomputed daily
     stop     -8% from the fill
-    timeout  10 sessions
+    timeout  20 sessions            <- raised from 10 on 23 Aug 2026
 
-MEASURED EXPECTATIONS, on 244 names, 2,251 trades:
+MEASURED EXPECTATIONS, on 244 names, 2,310 trades:
 
-    entering at the signal-bar CLOSE   64.9% win   +0.854%/trade   (backtest)
-    entering at the NEXT OPEN          64.9% win   +0.769%/trade   (achievable)
+    entering at the signal-bar CLOSE   72.8% win   +1.06%/trade   (backtest)
+    entering at the NEXT OPEN          ~72% win    +0.97%/trade   (achievable)
 
 The live strategy can only do the second — you cannot place an order at a
-close you have not seen yet. **+0.77%/trade is therefore the live baseline,
-not +0.85%**, and the 0.085% difference is the cost of the delay, not
+close you have not seen yet. **~+0.88%/trade is therefore the live baseline,
+not +1.06%**, and the ~0.09% difference is the cost of the delay, not
 slippage. Anything worse than that IS slippage and is what F3 measures.
+
+That one-session delay is the DESIGN, not a lag to be engineered away: the
+signal is computed on a SETTLED close and the order goes in at the next open.
+Evaluating the rule against a partial intraday bar would be a different rule
+from the one that was measured, and the forward test would no longer be
+testing anything. The Scanner's "include today's session" toggle previews
+exactly that and is deliberately not what trades.
+
+WHY THIS BLOCK IS WORTH KEEPING HONEST: it said "timeout 10 sessions" and
+quoted the 2,251-trade numbers for a day after the hold changed to 20, in the
+one file that is supposed to BE the rule. The constants below were right the
+whole time — only the prose was stale, which is the harder half of the
+duplicate-knowledge problem: a wrong number in code fails a test, a wrong
+number in a docstring just quietly misinforms whoever reads it next.
 """
 from __future__ import annotations
 

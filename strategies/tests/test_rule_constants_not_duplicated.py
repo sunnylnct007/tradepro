@@ -106,3 +106,40 @@ def test_no_module_redefines_a_swing_rule_constant():
           "the same value today is not safe — that is exactly how MAX_HOLD=10 "
           "outlived the change to 20 and kept the harness grading the old rule."
     )
+
+
+def test_the_rule_docstring_states_the_constants_it_actually_uses():
+    """The prose in the rule module must not contradict the rule.
+
+    On 24 Aug the docstring of signals/mean_reversion.py still read
+    "timeout 10 sessions" and quoted the 2,251-trade expectations, a day after
+    MAX_HOLD became 20 and the study was re-run on 2,310 trades. The constants
+    were right the whole time; only the prose was stale.
+
+    That is the harder half of the duplicate-knowledge problem. A wrong number
+    in code fails a test. A wrong number in a docstring — in the ONE file that
+    is supposed to BE the rule — just quietly misinforms whoever reads it next,
+    and this repo's own history says the next reader may well act on it.
+    """
+    import re
+    from tradepro_strategies.signals import mean_reversion as rule
+
+    doc = rule.__doc__ or ""
+    assert doc.strip(), "the rule module lost its docstring"
+
+    checks = [
+        (r"timeout\s+(\d+)\s+sessions", rule.MAX_HOLD, "MAX_HOLD"),
+        (r"(\d+(?:\.\d+)?)\s*sigma below the", rule.SIGMA, "SIGMA"),
+        (r"the (\d+)-day mean", rule.BB_WINDOW, "BB_WINDOW"),
+        (r"the (\d+)-SMA", rule.TREND_WINDOW, "TREND_WINDOW"),
+    ]
+    for pattern, expected, name in checks:
+        m = re.search(pattern, doc)
+        assert m, f"docstring no longer states {name} in a checkable form (/{pattern}/)"
+        stated = float(m.group(1))
+        assert stated == float(expected), (
+            f"docstring says {name}={stated:g} but the code says {expected}. "
+            f"Update the prose in the same commit as the constant — this exact "
+            f"drift shipped once already."
+        )
+
