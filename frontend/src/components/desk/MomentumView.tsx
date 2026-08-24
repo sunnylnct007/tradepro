@@ -231,7 +231,7 @@ export function MomentumView() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Entry", "Initial stop", "Then trail", "vs 200-SMA", "vs 20-SMA", "ATR%", "off 52w high"].map((x) => (
+                {["Symbol", "Entry", "Now", "Initial stop", "Then trail", "vs 200-SMA", "vs 20-SMA", "ATR%", "off 52w high"].map((x) => (
                   <th key={x} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{x}</th>
                 ))}
               </tr>
@@ -255,6 +255,27 @@ export function MomentumView() {
                     )}
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>{c.entry_hint.toFixed(2)}</td>
+                  {/* LATEST PRICE, from the 5-minute lane. Owner, repeatedly:
+                      "I need latest prices." The screen quoted Friday's 29.71
+                      while HPQ traded at 28.58 — a 3.7% gap between the number
+                      shown and the number you would pay. The SIGNAL still comes
+                      from the settled bar; this is so the plan is not silently
+                      stale. */}
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
+                    {c.latest ? (
+                      <>
+                        <b style={{ color: c.latest.price < c.entry_hint ? TONE.bad : TONE.ok }}>
+                          {c.latest.price.toFixed(2)}
+                        </b>
+                        <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                          {" "}({(100 * (c.latest.price / c.entry_hint - 1)).toFixed(1)}%)
+                        </span>
+                        <div style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                          {c.latest.as_of.slice(11, 16)} UTC
+                        </div>
+                      </>
+                    ) : <span style={{ color: "var(--text-muted)" }}>—</span>}
+                  </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: TONE.bad }}>{c.stop.toFixed(2)}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>{c.trailing_pct.toFixed(0)}% off peak</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: TONE.ok }}>+{c.pct_above_200sma.toFixed(1)}%</td>

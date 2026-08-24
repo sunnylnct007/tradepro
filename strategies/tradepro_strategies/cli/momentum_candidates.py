@@ -150,6 +150,44 @@ def _vol_ratio(df, i):
         return None
 
 
+def latest_price(sym: str) -> dict | None:
+    """The most recent price we hold, from the 5-MINUTE lane.
+
+    Owner, repeatedly: "I need latest prices." The screens showed the settled
+    close and nothing else, so a plan built on Friday's 29.71 stayed on screen
+    while the stock traded at 28.58 — a 3.8% gap between the number displayed
+    and the number you would actually pay.
+
+    The daily harvest runs once at 21:30; the 5m harvest runs every 30 minutes.
+    So this is at most half an hour stale, needs no IBKR quote, and therefore
+    cannot take the single market-data session.
+
+    DISPLAY ONLY. The signal stays on the settled bar because that is what the
+    backtest measured — a name down 3% at 11am may close flat. This exists so
+    the ENTRY you are quoted is not silently out of date.
+    """
+    import glob as _g
+    try:
+        fs = sorted(_g.glob(f"{BASE_DIR}/{sym}/5m/*.parquet"))
+        if not fs:
+            return None
+        import pandas as _pd
+        df = _pd.concat([_pd.read_parquet(f) for f in fs])
+        df = df[~df.index.duplicated(keep="last")]
+        if df.empty:
+            return None
+        day = str(df.index[-1])[:10]
+        rows = df[[str(x)[:10] == day for x in df.index]]
+        if rows.empty:
+            return None
+        return {"price": round(float(rows["close"].iloc[-1]), 2),
+                "as_of": str(rows.index[-1])[:19],
+                "session": day,
+                "high": round(float(rows["high"].max()), 2),
+                "low": round(float(rows["low"].min()), 2)}
+    except Exception:  # noqa: BLE001 — a missing price must never drop a row
+        return None
+
 def sma(c, i, n):
     return sum(c[i - n + 1:i + 1]) / n
 
@@ -367,6 +405,7 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
                                 if atr and c[i] else "unavailable"),
                 },
             },
+            "latest": latest_price(sym),   # display-only; see latest_price()
             "volume_vs_20d": _vol_ratio(df, i),
             "chg_5d_pct": (round(100 * (c[i] / c[i - 5] - 1), 1) if i >= 5 and c[i - 5] else None),
         })
