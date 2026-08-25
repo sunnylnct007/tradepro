@@ -112,6 +112,41 @@ def target_price(closes: list[float], i: int) -> float:
     return sma(closes, i, BB_WINDOW)
 
 
+def reward_risk(closes: list[float], i: int) -> float:
+    """How much upside this signal offers per unit of risk — THE RANKING KEY.
+
+    Upside is the distance to the 20-day target; risk is the fixed -8% stop.
+    Both in percent, which is the unit the position is actually risked in.
+
+    WHY THIS IS THE RANKING RULE, and why it lives here rather than in the
+    strategy. Capping concurrency (MAX_CONCURRENT) means the sleeve must
+    CHOOSE when more signals fire than there are slots, and until 25 Aug 2026
+    it chose alphabetically — whichever symbol the bus reached first. Measured,
+    that costs more than half the edge: per-trade mean falls from +1.10%
+    (take every signal) to +0.52% at a cap of 8.
+
+    Six rules were graded against that control with gates written first
+    (RANKING_GATES_V1.md). Only this one is positive in all four two-split
+    cells (+0.04 / +0.29 / +0.09 / +0.07); it lifts cap-8 mean to +0.68% and
+    cap-15 to +0.82%, and improves the worst trade by 5.5 points.
+
+    **Deepest-sigma loses, and that was the predicted winner.** Sigma is
+    normalised by the symbol's OWN volatility while the stop is absolute, so
+    ranking by sigma ranks in the wrong units — a 3-sigma dip on a quiet name
+    can offer 2% of upside against the same 8% of risk. This function asks the
+    question the position actually faces.
+
+    ONE definition, imported by the live strategy and by anything that ranks.
+    The strategy briefly carried its own copy of these two lines; duplicated
+    definitions are the single most common bug shape in this codebase, and a
+    ranking that disagreed between the screen and the strategy would fail gate
+    F1 in a way that looked like a data problem.
+    """
+    if i < 0 or i >= len(closes) or closes[i] <= 0:
+        return 0.0
+    return (target_price(closes, i) / closes[i] - 1) / STOP_PCT
+
+
 def stop_price(fill_price: float) -> float:
     return fill_price * (1 - STOP_PCT)
 

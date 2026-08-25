@@ -55,9 +55,22 @@ def test_ranking_is_by_reward_risk_and_not_by_sigma():
     mean-reversion rule — which is exactly what I predicted and got wrong —
     this should stop them and send them to RANKING_GATES_V1.md.
     """
-    src = __import__("inspect").getsource(S._ranked_today)
-    assert "reward:risk" in src
-    assert "STOP_PCT" in src, "ranking must be measured against the fixed stop"
+    import inspect
+    from tradepro_strategies.signals.mean_reversion import reward_risk
+
+    # The strategy must DEFER to the shared key, not carry its own copy. It
+    # briefly did carry one, and a ranking that disagreed between the screen
+    # and the strategy would fail gate F1 looking like a data problem.
+    assert "reward_risk(" in inspect.getsource(S._ranked_today)
+    assert "STOP_PCT" in inspect.getsource(reward_risk), \
+        "the key must be measured against the fixed stop, not a relative one"
+
+    # And it must actually rank by upside-per-risk: a deeper dip on the same
+    # 20-day mean must score higher, and a name whose target is barely above
+    # the close must score near zero however dramatic the dip looks.
+    shallow = [100.0] * 19 + [98.0]
+    deep = [100.0] * 19 + [90.0]
+    assert reward_risk(deep, 19) > reward_risk(shallow, 19) > 0
 
 
 def test_ranking_fails_open_not_closed():

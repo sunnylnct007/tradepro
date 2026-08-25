@@ -35,7 +35,7 @@ from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 from ..registry import register_strategy
 from ...signals.mean_reversion import (
     MAX_HOLD, MIN_BARS, STOP_PCT, entry_signal, exit_decision,
-    stop_price, target_price,
+    reward_risk, stop_price, target_price,
 )
 
 _log = logging.getLogger("tradepro.paper.swing")
@@ -290,13 +290,10 @@ class MeanReversionSwingStrategy(Strategy):
                 k = len(closes) - 1
                 if not entry_signal(closes, k):
                     continue
-                # reward:risk — upside to the 20-day target against the fixed
-                # stop. Both in percent, which is the unit the position is
-                # actually risked in.
-                tgt = target_price(closes, k)
-                if closes[k] <= 0:
-                    continue
-                scored.append(((tgt / closes[k] - 1) / STOP_PCT, cand))
+                # ONE definition of the ranking key, in the signals module
+                # beside the rule it ranks. See reward_risk() for why it is
+                # reward:risk and not sigma.
+                scored.append((reward_risk(closes, k), cand))
             ranked = [c for _, c in sorted(scored, reverse=True)]
         except Exception as exc:  # noqa: BLE001
             _log.warning("could not rank today's candidates (%s) — falling back to "
