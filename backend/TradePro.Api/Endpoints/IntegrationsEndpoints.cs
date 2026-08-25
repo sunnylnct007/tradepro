@@ -1452,6 +1452,16 @@ public static class IntegrationsEndpoints
             {
                 enabled = status.Enabled,
                 authenticated = status.Authenticated,
+                // The three flags IBKR actually returns from ssodh/init. Only
+                // `authenticated` was surfaced before, which is why the health
+                // probe could report "auth VALID but snapshot DARK" and get no
+                // further — a 200 means IBKR accepted the request, NOT that this
+                // session won the account's single market-data slot.
+                competing = ibkr.LastCompeting,
+                connected = ibkr.LastConnected,
+                marketDataSessionHeld = ibkr.LastCompeting && ibkr.LastConnected,
+                authStatusAtUtc = ibkr.LastAuthStatusAtUtc,
+                authStatusRaw = ibkr.LastAuthStatusRaw,
                 // HARD kill-switch state (default false): order placement is
                 // disabled unless IBKR:AllowOrders=true. Surfaced so the
                 // read-only guarantee on the live account is visible/auditable.

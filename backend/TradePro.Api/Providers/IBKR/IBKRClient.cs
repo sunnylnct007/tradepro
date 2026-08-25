@@ -279,12 +279,52 @@ public sealed class IBKRClient
             {
                 initReq.Content = JsonContent.Create(new { publish = true, compete = true });
                 using var initResp = await _http.SendAsync(initReq, ct);
+                var initText = await initResp.Content.ReadAsStringAsync(ct);
                 if (!initResp.IsSuccessStatusCode)
                 {
-                    var initText = await initResp.Content.ReadAsStringAsync(ct);
                     _session.RecordFailure();
                     throw new InvalidOperationException(
                         $"IBKR /iserver/auth/ssodh/init failed {(int)initResp.StatusCode}: {initText}");
+                }
+
+                // ASSERT ON THE BODY, NOT THE STATUS CODE.
+                //
+                // ssodh/init returns {authenticated, competing, connected, ...} and a
+                // 200 says only that IBKR accepted the request — NOT that this session
+                // won the competition for the account's single market-data session. We
+                // send compete:true and then never read whether it worked, so a lost
+                // race is indistinguishable from a won one all the way down to a dark
+                // snapshot with no error code attached.
+                //
+                // That ambiguity is the whole reason the health probe can only report
+                // "auth VALID but snapshot DARK — contention or IBKR-side outage": it
+                // has authenticated and nothing else to go on. Recording these three
+                // flags turns that into an answer.
+                try
+                {
+                    using var initDoc = System.Text.Json.JsonDocument.Parse(initText);
+                    var r = initDoc.RootElement;
+                    bool Flag(string n) => r.TryGetProperty(n, out var v)
+                        && v.ValueKind == System.Text.Json.JsonValueKind.True;
+                    LastAuthenticated = Flag("authenticated");
+                    LastCompeting = Flag("competing");
+                    LastConnected = Flag("connected");
+                    LastAuthStatusRaw = initText.Length > 400 ? initText[..400] : initText;
+                    LastAuthStatusAtUtc = DateTime.UtcNow;
+
+                    if (!LastCompeting || !LastConnected)
+                    {
+                        _log.LogWarning(
+                            "IBKR ssodh/init returned authenticated={Auth} competing={Comp} "
+                            + "connected={Conn} — the brokerage session did NOT take the "
+                            + "market-data slot. Live quotes will be dark while historical "
+                            + "bars may still answer. Raw: {Raw}",
+                            LastAuthenticated, LastCompeting, LastConnected, LastAuthStatusRaw);
+                    }
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                    LastAuthStatusRaw = "unparseable: " + (initText.Length > 200 ? initText[..200] : initText);
                 }
             }
 
@@ -714,6 +754,15 @@ public sealed class IBKRClient
     /// Step 2: strikes available for one underlying + expiration month —
     /// GET /iserver/secdef/strikes?conid=U&amp;sectype=OPT&amp;month=MMMYY.
     /// </summary>
+    /// <summary>Flags from the last ssodh/init. `competing` is the one that
+    /// matters: IBKR grants ONE market-data session per account, and a 200 from
+    /// ssodh/init does not mean this session won it.</summary>
+    public bool LastAuthenticated { get; private set; }
+    public bool LastCompeting { get; private set; }
+    public bool LastConnected { get; private set; }
+    public string? LastAuthStatusRaw { get; private set; }
+    public DateTime? LastAuthStatusAtUtc { get; private set; }
+
     public async Task<IBKROptionStrikesResult> GetOptionStrikesAsync(
         long underlyingConId, string month, CancellationToken ct = default)
     {
