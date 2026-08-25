@@ -1459,7 +1459,12 @@ public static class IntegrationsEndpoints
                 // session won the account's single market-data slot.
                 competing = ibkr.LastCompeting,
                 connected = ibkr.LastConnected,
-                marketDataSessionHeld = ibkr.LastCompeting && ibkr.LastConnected,
+                // null until ssodh/init has actually reported. Do NOT collapse
+                // "unknown" into "false" — that is the ambiguity these fields exist
+                // to remove.
+                marketDataSessionHeld = ibkr.LastAuthStatusAtUtc is null
+                    ? (bool?)null
+                    : (ibkr.LastCompeting == true && ibkr.LastConnected == true),
                 authStatusAtUtc = ibkr.LastAuthStatusAtUtc,
                 authStatusRaw = ibkr.LastAuthStatusRaw,
                 // HARD kill-switch state (default false): order placement is

@@ -312,7 +312,7 @@ public sealed class IBKRClient
                     LastAuthStatusRaw = initText.Length > 400 ? initText[..400] : initText;
                     LastAuthStatusAtUtc = DateTime.UtcNow;
 
-                    if (!LastCompeting || !LastConnected)
+                    if (LastCompeting != true || LastConnected != true)
                     {
                         _log.LogWarning(
                             "IBKR ssodh/init returned authenticated={Auth} competing={Comp} "
@@ -757,9 +757,15 @@ public sealed class IBKRClient
     /// <summary>Flags from the last ssodh/init. `competing` is the one that
     /// matters: IBKR grants ONE market-data session per account, and a 200 from
     /// ssodh/init does not mean this session won it.</summary>
-    public bool LastAuthenticated { get; private set; }
-    public bool LastCompeting { get; private set; }
-    public bool LastConnected { get; private set; }
+    // NULLABLE ON PURPOSE. An unmeasured flag that reports `false` is a
+    // confident wrong answer: it reads as "we lost the competition" when it
+    // actually means "ssodh/init has not run since this process started". The
+    // whole point of these fields is to remove ambiguity from "auth VALID but
+    // snapshot DARK" — reporting a default as a measurement would put it back.
+    // null = not yet observed. Check LastAuthStatusAtUtc before believing them.
+    public bool? LastAuthenticated { get; private set; }
+    public bool? LastCompeting { get; private set; }
+    public bool? LastConnected { get; private set; }
     public string? LastAuthStatusRaw { get; private set; }
     public DateTime? LastAuthStatusAtUtc { get; private set; }
 
