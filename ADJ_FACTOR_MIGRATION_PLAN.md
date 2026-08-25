@@ -139,6 +139,58 @@ measurement over a different regime mix. The universe-level result is unaffected
 74-symbol set across both decades — but **per-symbol** numbers, which are the
 ones on screen, needed the caveat and now carry it.
 
+
+## MEASURED 2026-08-25: the factor is DERIVABLE from data we already hold
+
+The research lane suggested pointing `check_store_agrees_with_api.py` at the
+seam, on the grounds that it makes a falsifiable prediction. It does, and the
+prediction held — with a consequence for how this migration is executed.
+
+Close divergence between the parquet store and the API, by the parquet row's
+source (SPY/AAPL/MSFT, 4,184 overlapping dates each):
+
+| source | n | median diff | worst |
+|---|---|---|---|
+| `ibkr_web` | 478 | **0.000%** | 0.000% |
+| `ibkr` | 230 | ~0.00% | 1.5–6.1% |
+| `yfinance` | 3476 | **−8% to −14%** | 16–25% |
+
+Two things follow, and both change the plan:
+
+**1. The API is RAW throughout.** Its closes agree with the parquet store
+EXACTLY (0.000%) on every ibkr_web-sourced row, and differ only on
+yfinance-sourced rows. So Postgres holds one convention — raw — while parquet
+holds a mixture. That removes the ambiguity this document opened with: we no
+longer have to decide which store is which, we measured it.
+
+**2. `adj_factor` does not need re-fetching. It is the RATIO.** For any
+yfinance-sourced row, `parquet_close / api_close` IS the adjustment factor.
+Measured on SPY it runs 0.7463 (2010-01-04) → 0.9832 (recent), rising smoothly
+toward 1.0 as dates approach the present — the shape of a cumulative dividend
+adjustment.
+
+So the backfill becomes, per symbol-date where both stores hold the bar:
+
+```
+adj_factor := parquet_close / api_close     # captured BEFORE overwriting
+close      := api_close                     # raw, matching every other row
+```
+
+No provider call, no re-seed, no rate limit, and no dependence on the 5-year
+cap (item 2) for the rows both stores already have.
+
+**Caveats that must be respected when this runs:**
+
+- The ratio is **not perfectly monotonic** — there is noise in it. Validate the
+  derived series (smooth, or reject outliers) rather than applying it blindly;
+  a spurious factor silently rewrites a price.
+- It only covers dates **both** stores hold. The API caps at ~5,000 bars, so
+  older parquet dates have no counterpart and still need item 2's deeper fetch.
+- `ibkr`-sourced rows show a worst-case 1.5–6.1% divergence that is NOT the
+  dividend seam — median is ~0, so this is a small number of individual bad
+  bars, not a convention difference. Investigate those separately; they look
+  like the same class as the TXN bad write.
+
 ## Sizing the backfill: "available" is a FLOOR
 
 Several symbols return **exactly 5,000** bars from the API, which is the API's
