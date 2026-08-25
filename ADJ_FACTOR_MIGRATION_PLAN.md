@@ -191,6 +191,51 @@ cap (item 2) for the rows both stores already have.
   bars, not a convention difference. Investigate those separately; they look
   like the same class as the TXN bad write.
 
+
+## 7. The `ibkr` SOCKET provider wrote bad closes — 4.6% of its bars
+
+Isolated 2026-08-25 while chasing the 1.5–6.1% residual the seam analysis left
+behind. It is NOT the dividend seam and NOT a date shift (tested: only 27 of 980
+PLTR rows match an adjacent session, which is noise). It is bad values.
+
+22,452 IBKR-family rows compared against the API across 31 symbols:
+
+| disagreement | rows | share |
+|---|---|---|
+| >0.1% | 6,084 | 27.1% — mostly rounding, ignore |
+| **>1.0%** | **1,038** | **4.62%** |
+| >5.0% | 97 | 0.43% |
+| >10% | 31 | 0.14% |
+
+**Every one is `source == "ibkr"` — the socket provider. Zero from `ibkr_web`.**
+24 symbols, concentrated in volatile names: PLTR 164, WDC 152, APP 132, COHR 129,
+LITE 65, TSLA 52. Worst individual: APP 2025-02-12 local 490.75 vs api 380.32.
+
+Medians are ~0.00%, so this is a scatter of individually wrong bars rather than a
+convention difference — the same class as the TXN bad write the research lane
+found, but historical and far more numerous.
+
+The socket provider is largely retired in favour of `ibkr_web` (owner ruling
+9 Aug, OAuth-only), so this is cleanup of a legacy write path rather than an
+ongoing leak. Repair is straightforward: the API holds the correct value for
+every one of these dates, so it is the same overwrite as the `adj_factor` work.
+
+## RUN THE HARNESS BEFORE AND AFTER — a store repair silently re-grades
+
+Research lane, 2026-08-25: their Swing baseline moved from 2,310 trades / +1.06%
+to 2,503 / +1.10% **purely because the store changed underneath the harness**
+(158 de-duplicated partitions, 244 re-sourced August partitions). Direction
+favourable, no gate flipped, so today it is a footnote.
+
+It will not be a footnote for this migration, which is a far larger repair:
+raw/adjusted conversion across 3,476 rows per symbol, plus deeper history, plus
+1,038 corrected closes. Every one of those changes the trades the harness finds.
+
+**So: run the graded harness immediately BEFORE and immediately AFTER, and record
+both numbers in DATA_CHANGE_LOG.** Otherwise the strategy's measured edge changes
+during the repair and nobody can tell whether the data got better or the strategy
+got worse. Attribution has to be designed in; it cannot be recovered afterwards.
+
 ## Sizing the backfill: "available" is a FLOOR
 
 Several symbols return **exactly 5,000** bars from the API, which is the API's
