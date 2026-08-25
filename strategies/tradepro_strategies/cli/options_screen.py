@@ -29,6 +29,34 @@ from ..quant_engine.options.risk import (
 
 log = logging.getLogger("tradepro.options_screen")
 
+# THE WHEEL FAILED ITS BACKTEST. Say so everywhere this screen speaks.
+#
+# Recorded verdict, backtests/studies.json id=wheel_v3, 15 Aug 2026:
+#     "Wheel CSP — 200-SMA primary-trend floor"  ->  FAIL — DO NOT FUND
+#
+# The v3 run added a 200-SMA trend floor specifically to rescue the strategy
+# and did not: G3 came out at 7.61% against v2's 8.25%, and G4 on the full
+# sample was META at -71.4%. Worse, v2's headline "8/9 gates pass" was
+# FLATTERED — the harness never graded G4 on the full sample at all, so the
+# one gate that fails was the one nobody had run.
+#
+# Until 25 Aug 2026 the nightly email carried the v2 label — "8/9 gates pass,
+# G4 open" — ten days after v3 failed. The owner received a mail listing NKE
+# and others with strikes, premiums and annualised yields, under an evidence
+# line that was both out of date AND known to have been wrong when it was
+# current. That is precisely the confident-positive-we-cannot-stand-behind the
+# standing rule forbids.
+#
+# The screen still runs because the DATA is useful — eligibility, chains,
+# liquidity, IV. What it must never again do is read as a recommendation.
+WHEEL_VERDICT = "FAIL — DO NOT FUND"
+WHEEL_EVIDENCE = (
+    "FAILED its backtest (studies.json wheel_v3, 15 Aug 2026: FAIL — DO NOT "
+    "FUND. The 200-SMA trend floor did not rescue it; G4 on the full sample is "
+    "META at -71.4%, and v2's '8/9 pass' was flattered because G4 was never "
+    "graded on the full sample). These rows are ELIGIBILITY, not advice."
+)
+
 # Wheel universe — EVIDENCE-SELECTED from a 2023→2026 wheel backtest (return on
 # capital-at-risk vs the ~4.5%/yr bank rate). The winners are mid-vol QUALITY
 # names (energy / utility / healthcare / staples): they beat the bank ~2× with
@@ -1817,10 +1845,16 @@ def _maybe_send_wheel_email(payload: dict, prev_payload: dict | None) -> bool:
             change.append(f"NEW eligible: {', '.join(gained)}")
         if lost:
             change.append(f"no longer eligible: {', '.join(lost)}")
-        subject = (f"TradePro Wheel — {len(now_elig)} eligible"
+        # The verdict leads. A subject line reading "3 eligible · best NKE"
+        # is indistinguishable from a trade alert, and was being read as one.
+        subject = (f"[NOT FUNDED] TradePro Wheel — {len(now_elig)} eligible"
                    + (f" · best {best}" if best else "")
                    + (f" · {change[0]}" if change else ""))
         text = "\n".join([
+            f"⚠ THE WHEEL {WHEEL_VERDICT}. This is an ELIGIBILITY screen, not a",
+            "  trade list, and nothing below is a recommendation.",
+            f"  {WHEEL_EVIDENCE}",
+            "",
             "Wheel screen update — the eligible set changed.",
             "; ".join(change),
             "",
@@ -1882,7 +1916,7 @@ def _strategy_board(rows: list[dict]) -> dict:
         straddle_note = f"straddle scan unavailable ({e})"
     return {
         "sell_premium": {
-            "evidence": "backtested (WHEEL_BACKTEST_GATES_V2.md — 8/9 gates pass, G4 open)",
+            "evidence": WHEEL_EVIDENCE,
             "standard_eligible": sell_std,
             "short_dated_eligible": sell_short,
         },
