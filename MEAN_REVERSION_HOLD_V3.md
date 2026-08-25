@@ -281,3 +281,56 @@ de-duplicated partitions, and all 244 August daily partitions re-sourced after
 the corrupt ibkr_web writes. The direction is favourable and no gate changes,
 which is the only reason this is a footnote. **Any future re-grade should
 expect 2,503/+1.10%, not the recorded figures.**
+
+---
+
+# The 1,038 bad `ibkr` closes do not change the verdict either. 25 Aug.
+
+The data lane isolated (a883dc0) a scatter of individually wrong closes: 1,038
+rows disagreeing with the API by >1%, 97 by >5%, worst APP 2025-02-12 at a
+local 490.75 against an api 380.32 — 29% wrong. **Every one is
+`source == "ibkr"`, the retired socket path; zero from `ibkr_web`.** Medians
+~0.00%, so this is not a convention seam — it is the TXN class of bad write,
+historical and far more numerous.
+
+This mattered more than the seam. A 29% wrong close inside a 20-day window is
+exactly the shape that manufactures a 2.5σ trigger out of nothing — which is
+what the corrupt TXN bar did on the live screen this morning.
+
+I do not hold the API comparison, so I could not exclude the 1,038 rows
+specifically. Instead I excluded **every `ibkr`-sourced bar** — a strict
+superset: 84,555 of the universe's 571,254 daily bars, touching 409 of 3,636
+entry signals (11.2%, against the seam's 2.9%).
+
+| | baseline | seams excluded | whole `ibkr` provider excluded |
+|---|---|---|---|
+| trades | 2,503 | 2,429 | 2,205 |
+| G1 win | 73.2% | 73.3% | **74.1%** |
+| G2 mean | +1.10% | +1.05% | +1.05% |
+| G3 hold | 7 | 7 | 7 |
+| G4 tail | 17.8% | 17.9% | 18.5% |
+| G5 worst | −23.2% | −23.2% | **−23.2%** |
+
+**All six gates survive deleting the entire provider**, two-split passes in all
+four cells in every run.
+
+**My prediction was half right and is recorded that way.** I said wrong closes
+should have suppressed trades rather than flattered them, and that a
+better-than-baseline result would be the seam mechanism repeating. The win rate
+does rise (73.2% → 74.1%). The mean falls (+1.10% → +1.05%). Mixed, not the
+clean confirmation I set up — and the honest reading is that individually wrong
+values err in both directions, unlike the seam's consistent offset, so they
+have no single coherent effect to predict.
+
+**The finding worth keeping is G5.** The worst trade is −23.2% in all three
+runs — full store, seams removed, an entire provider removed — and does not
+move by a basis point. That was the number I was most worried about: it clears
+its gate by only 1.8 points, and one bad close is exactly what could
+manufacture it. It is now triple-confirmed as a property of the STRATEGY, not
+the data. A −23.2% worst trade is what a −8% stop does when a position gaps
+through it.
+
+**This is a bound, not a vindication.** 83,517 good bars were deleted to remove
+1,038 bad ones, so a failure would not have proved the bad closes caused it.
+The repair is still worth doing. It is not urgent, and it is not a reason to
+pause the forward test.
