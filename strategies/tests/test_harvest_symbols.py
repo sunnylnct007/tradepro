@@ -118,3 +118,32 @@ def test_reproduces_the_live_derivation(universe_of):
     assert got, "harvest set must never be empty against a populated store"
     assert not [s for s in got
                 if "." in s or "=" in s or s.startswith("^") or s.endswith("-USD")]
+
+
+def test_the_store_cannot_silently_widen_the_harvest(tmp_path, universe_of, monkeypatch):
+    """A seed into the store must not redefine the nightly job's scope.
+
+    2026-08-25: a broad seed on 24 Aug took the us_etf tree from 250 dirs to
+    991. Because harvest_symbols unions universe with store, the nightly
+    harvest went from 250 symbols to 955 without anyone choosing that. It ran
+    an hour, served 113 of its first 114 from yfinance rather than IBKR, and
+    died — the daily lane failed two nights running.
+
+    Over the bound, fall back to the universe. It is the definition of what we
+    trade; anything else is nice-to-have and must not be able to take the lane
+    down.
+    """
+    monkeypatch.setenv("TRADEPRO_HARVEST_MAX_EXTRA", "3")
+    universe_of(["AAA", "BBB"])
+    root = _store(tmp_path, ["AAA", "BBB"] + [f"X{i}" for i in range(20)])
+    got = harvest_symbols(root)
+    assert got == ["AAA", "BBB"], f"store widened the harvest unchecked: {len(got)} symbols"
+
+
+def test_a_few_dropped_names_are_still_kept_fresh(tmp_path, universe_of, monkeypatch):
+    """The bound must not defeat the union's purpose for the normal case."""
+    monkeypatch.setenv("TRADEPRO_HARVEST_MAX_EXTRA", "60")
+    universe_of(["AAA", "BBB"])
+    root = _store(tmp_path, ["AAA", "BBB", "DROPPED1", "DROPPED2"])
+    got = harvest_symbols(root)
+    assert got == ["AAA", "BBB", "DROPPED1", "DROPPED2"]

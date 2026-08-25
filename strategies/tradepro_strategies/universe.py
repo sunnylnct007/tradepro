@@ -25,8 +25,11 @@ from __future__ import annotations
 
 import json
 import os
+import logging
 import re
 from pathlib import Path
+
+_log = logging.getLogger("tradepro.universe")
 
 # ── criteria ──────────────────────────────────────────────────────────────
 # Each is a number a person can argue with, which is the point.
@@ -163,6 +166,22 @@ def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
     real symbol was fine. Anything that is not a plausible ticker is dropped here
     rather than handed to a provider to 404 on.
     """
+    # HARD BOUND on how far the store may widen the job. The union exists to
+    # keep recently-dropped names fresh, which is worth a handful of extra
+    # symbols and nothing like a multiple.
+    #
+    # 2026-08-25: a broad seed on 24 Aug took the us_etf tree from 250
+    # directories to 991, and because this function unions universe with store,
+    # the nightly harvest went from 250 symbols to 955 without anyone choosing
+    # that. It ran for an hour, served 113 of its first 114 symbols from
+    # yfinance rather than IBKR, and died. A lane whose scope is set by whatever
+    # happens to be on disk is not a lane anyone controls.
+    #
+    # Over the bound: harvest the UNIVERSE ONLY and say so. The universe is the
+    # definition of what we trade; everything else is nice-to-have and must not
+    # be able to take the lane down.
+    max_extra = int(os.environ.get("TRADEPRO_HARVEST_MAX_EXTRA", "60"))
+
     out: dict[str, None] = {}          # ordered set
 
     for sym in universe_symbols(strict=False):
@@ -170,6 +189,7 @@ def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
         if ok:
             out.setdefault(sym.upper(), None)
 
+    _store_extra: list[str] = []
     if store_dir is not None:
         p = Path(store_dir)
         if p.is_dir():
@@ -186,8 +206,20 @@ def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
                     continue
                 ok, _ = _instrument_ok(sym)
                 if ok:
-                    out.setdefault(sym.upper(), None)
+                    _store_extra.append(sym.upper())
 
+    universe_only = sorted(out)
+    extra = [s for s in _store_extra if s not in out]
+    if len(extra) > max_extra:
+        _log.warning(
+            "harvest scope: store holds %d symbols beyond the %d-name universe "
+            "(limit %d) — harvesting the UNIVERSE ONLY. Something seeded the "
+            "store without widening the universe; raise TRADEPRO_HARVEST_MAX_EXTRA "
+            "deliberately if the wider set really is wanted.",
+            len(extra), len(universe_only), max_extra)
+        return universe_only
+    for s in extra:
+        out.setdefault(s, None)
     return sorted(out)
 
 
