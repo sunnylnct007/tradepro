@@ -369,17 +369,32 @@ class IBKRWebProvider(Provider):
         df = (df.set_index("timestamp")
                 .rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
                 [["open", "high", "low", "close", "volume"]]
-                # IBKR reports historical volume in 100-SHARE LOTS, not shares
-                # (23 Aug 2026). Stored raw, every IBKR-sourced bar was 100x
-                # understated — SPY's 21 Aug bar read 590,483 against a real
-                # ~59,000,000. That is not cosmetic: the tradeable universe is
-                # built on a median-dollar-turnover floor, so the most liquid
-                # names in the market were being EXCLUDED as too thin to fill
-                # against — XOM at "$9.7M/day", JNJ "$8.2M", IBM "$9.3M".
-                # Confirmed by A/B against yfinance rows for the same symbols
-                # (META exactly 100.0x) and by the physical impossibility of
-                # SPY trading 590k shares a day.
-                .assign(volume=lambda d: d["volume"] * _IBKR_VOLUME_LOT_SIZE)
+                # NO lot conversion here. THE BACKEND ALREADY DID IT.
+                #
+                # IBKR reports historical volume in 100-share lots, and on
+                # 23 Aug 2026 I applied the ×100 in two places for one pipeline:
+                # `IBKRResponseParser.ParseHistory` in the C# API, and here. But
+                # this provider does not talk to IBKR — it fetches
+                # `/api/integrations/ibkr/price-history` from our own backend,
+                # which returns bars that have ALREADY been through ParseHistory.
+                # So every row written by this path came out ×100 too high.
+                #
+                # Measured against the endpoint this provider reads, TXN 1d:
+                #     API  /price-history   2,212,121        (correct, shares)
+                #     parquet store       221,212,100        (×100)
+                # and SPY's stored August bars read 5.9 BILLION shares a day
+                # against a real ~59 million — a tenth of all US equity volume
+                # in a single ETF.
+                #
+                # The failure mode is the one this codebase produces most: the
+                # same correction applied at two layers of one pipeline, each
+                # site individually defensible. The lot conversion belongs at
+                # the boundary where raw IBKR JSON is parsed — ParseHistory —
+                # and nowhere else downstream of it.
+                #
+                # Existing rows are NOT repaired here: see DATA_CHANGE_LOG.
+                # Volume feeds the universe's dollar-turnover floor, and the
+                # universe is frozen for the forward test.
                 .sort_index())
         # bar_cache schema REQUIRES adj_factor + source (column_order = open/high/low/
         # close/volume/adj_factor/source). Without BOTH, BarStore rejects the frame

@@ -25,6 +25,37 @@ Any anomaly in a forward test can then be checked against this file first.
 
 ## Entries
 
+### 2026-08-25 — ibkr_web volume was written 100x TOO HIGH (code fixed, data NOT repaired)
+- **What**: the lot→shares ×100 was applied at TWO layers of one pipeline. I added
+  it on 23 Aug to `IBKRResponseParser.ParseHistory` (C# — correct, that is where
+  raw IBKR JSON lands) AND to `bar_cache/providers/ibkr_web_provider` (wrong —
+  that provider reads `/api/integrations/ibkr/price-history` from our own
+  backend, whose bars are already converted). Every row it wrote came out ×100.
+- **Measured** against the endpoint the provider actually reads:
+  `TXN 1d` API `2,212,121` vs parquet `221,212,100`. SPY's August bars stored
+  **5.9 BILLION** shares/day against a real ~59 million.
+- **Scope is PATCHY, not global — do not assume a uniform factor.** SPY median
+  daily volume by month shows the mixture:
+  - `ibkr`-sourced months (2025-05/08/10/12, 2026-01/02): 4.5–6.9bn — 100x high
+  - `ibkr_web` months 2025-06/07/09/11 and 2026-03→07: 75–180M — roughly right
+  - `2026-08`: 6.2bn — 100x high, and NEW, because that partition was re-sourced
+    on 24/25 Aug through the now-doubling path
+- **Code fixed** (this commit): the conversion happens only at ParseHistory.
+  Verified — the provider now returns TXN 2,212,121, matching the API.
+  Guarded by `tests/test_volume_lot_conversion_happens_once.py`.
+- **Data NOT repaired, deliberately.** Volume feeds the universe's
+  dollar-turnover floor and `build_universe` reads the parquet store, so a
+  repair moves the universe mid-forward-test. Queued for the post-window store
+  session (see ADJ_FACTOR_MIGRATION_PLAN.md) — now FIVE items, one session.
+- **Does it affect the running test? No.** Swing reads `close`; it does not read
+  volume. The universe is frozen at 244 and is not rebuilt during the window.
+- **UNRESOLVED, and it needs the audit not a guess**: I could not produce a
+  trustworthy universe-impact number. Two attempts gave different answers
+  because the inflation is patchy by month AND source, and a 60-day median lands
+  in different vintages for different symbols. Whether the 89→244 expansion was
+  partly an artefact is an OPEN QUESTION, to be answered by the post-window
+  audit rather than by inference. Nobody should quote a figure for it before then.
+
 ### 2026-08-23 — DELIBERATELY NOT CHANGED before the forward test: the adjusted/raw close seam
 This is a **known condition carried into the test on purpose**, recorded here so
 that "did the data change?" has an answer during the 12 weeks.
