@@ -48,6 +48,14 @@ log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
 # US listings only (owner call 21 Aug 2026): foreign (dot-suffixed) listings fail
 # IBKR every run — Yahoo tickers, no off-platform entitlement — and only ever
 # produced bronze yfinance rows. That exclusion lives in `_instrument_ok`.
+# cd BEFORE the first `uv run`, not after. `uv run` resolves the project from
+# the CURRENT working directory, and launchd starts this script from `/` — so
+# when the harvest-symbol query below moved above the old `cd`, the very first
+# SCHEDULED run after that refactor died on ModuleNotFoundError while the
+# hand-run that "verified" it passed, because a hand-run starts in the project
+# directory. One night of bars lost. Keep every `uv run` below this line.
+cd "$PROJECT_DIR" || { echo "FATAL: cannot cd to $PROJECT_DIR"; exit 1; }
+
 SYMS=$("$UV" run python -c "
 from tradepro_strategies.universe import harvest_symbols
 print(','.join(harvest_symbols('$CACHE_DIR')))
@@ -62,8 +70,6 @@ N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)
 # without re-harvesting decades every night.
 FROM=$(date -u -v-10d +%F 2>/dev/null || date -u -d '10 days ago' +%F)
 TO=$(date -u +%F)
-
-cd "$PROJECT_DIR" || exit 1
 
 # Telemetry to EC2 only if reachable (it auto-stops overnight) — bars still land
 # locally regardless, which is what the strategies read.

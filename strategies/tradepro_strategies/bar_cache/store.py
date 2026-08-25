@@ -65,6 +65,7 @@ from .hashing import (
 from .manifest import Manifest
 from .preferences import PreferencesLoader
 from .providers import get_provider
+from .quality import _GOLDEN_BAR_SOURCES
 from .telemetry import FetchEvent, NullSink, TelemetrySink
 
 
@@ -757,6 +758,13 @@ class BarStore:
                     existing.index = existing.index.tz_convert("UTC")
                 fresh = df[~df.index.isin(existing.index)]
                 df = pd.concat([existing, fresh], axis=0).sort_index()
+                # …and then collapse to ONE ROW PER SESSION. `isin` above keys
+                # on the exact instant, which is the right key intraday and the
+                # WRONG one at 1d: providers disagree about what time stamps a
+                # daily bar (ibkr_web 13:30 UTC, yfinance 04:00 UTC), so the
+                # same session sails through as "new". See _dedupe_sessions.
+                df, _ = _dedupe_sessions(
+                    df, resolution, label=partition_path.name)
 
         # Safety net: never overwrite non-empty cached data with an empty
         # frame. _fetch_and_write should have caught this already (empty
@@ -764,9 +772,20 @@ class BarStore:
         existing_rows = 0
         if partition_path.exists():
             try:
-                existing_rows = len(pq.read_table(partition_path))
+                _cached = pq.read_table(partition_path).to_pandas()
+                if "timestamp" in _cached.columns:
+                    _cached = _cached.set_index("timestamp")
+                # Count SESSIONS, not rows. A partition already holding a
+                # duplicated session would otherwise make the de-duplicating
+                # write below look like a shrink, and the guard would refuse
+                # it — leaving the corruption permanent, which is precisely
+                # how the wrong-contract poison became immortal in August.
+                existing_rows = len(_dedupe_sessions(_cached, resolution)[0])
             except Exception:  # noqa: BLE001
-                existing_rows = 0
+                try:
+                    existing_rows = len(pq.read_table(partition_path))
+                except Exception:  # noqa: BLE001
+                    existing_rows = 0
 
         if df.empty and existing_rows > 0:
             _log.warning(
@@ -1263,6 +1282,82 @@ class BarStore:
 
 
 # ── Module helpers ─────────────────────────────────────────────────
+
+
+def _is_daily_or_coarser(resolution: str) -> bool:
+    """True for 1d and anything longer. Intraday resolutions are excluded
+    because two bars an hour apart are two genuine bars there."""
+    r = (resolution or "").strip().lower()
+    return r.endswith(("d", "day", "w", "wk", "week", "mo", "month", "y", "year"))
+
+
+def _dedupe_sessions(
+    df: pd.DataFrame, resolution: str, *, label: str = "",
+) -> tuple[pd.DataFrame, int]:
+    """One SESSION, one row — for daily-and-coarser data only.
+
+    THE BUG THIS FIXES (25 Aug 2026, 103 symbols corrupted in one night).
+    The delta merge de-duplicated on the exact TIMESTAMP:
+
+        fresh = df[~df.index.isin(existing.index)]
+
+    and providers do not agree on what instant stamps a daily bar. ibkr_web
+    stamps the US cash open, 13:30 UTC. yfinance stamps 04:00 UTC. So the SAME
+    session arrives with two different instants, `isin` correctly reports it as
+    new, and the partition ends up holding 2026-08-24 twice with two different
+    closes (TXN: 256.59 from ibkr_web, 258.94 from yfinance).
+
+    The comment above the merge promised that "a golden ibkr_web row is never
+    downgraded by a fallback answer for the same timestamp". The promise was
+    real; the KEY was wrong, so at 1d it silently did not hold.
+
+    What it cost: every 20-day mean and standard deviation computed over an
+    affected window had 21 bars in it, one of them a phantom with a different
+    close. That is not a rounding difference — it moved TXN from 2.53σ to
+    under the 2.5σ trigger, so the Swing screen published a candidate at 00:15
+    and withdrew it at 02:17 having been given no new information.
+
+    Resolution: keep ONE row per UTC calendar date, preferring a golden
+    (IBKR) source over a fallback, and preferring the row already cached when
+    provenance ties — which is the prefer-existing policy the merge always
+    intended. Dropping is logged at WARNING, never silently.
+    """
+    if df.empty or not _is_daily_or_coarser(resolution):
+        return df, 0
+    idx = df.index
+    if getattr(idx, "tz", None) is None:
+        idx = idx.tz_localize("UTC")
+    else:
+        idx = idx.tz_convert("UTC")
+    key = idx.normalize()
+    if not key.has_duplicates:
+        return df, 0
+
+    if "source" in df.columns:
+        fallback = ~df["source"].astype(str).isin(list(_GOLDEN_BAR_SOURCES))
+    else:
+        fallback = pd.Series(True, index=df.index)
+    tmp = df.assign(
+        _k=key,
+        _g=fallback.to_numpy().astype(int),   # 0 = golden, sorts first
+        _p=range(len(df)),                    # 0 = already cached, sorts first
+    )
+    kept = (tmp.sort_values(["_k", "_g", "_p"], kind="stable")
+               .drop_duplicates("_k", keep="first")
+               .sort_values("_p", kind="stable")
+               .drop(columns=["_k", "_g", "_p"]))
+    dropped = len(df) - len(kept)
+    if dropped:
+        dupe_days = sorted({str(d.date()) for d in key[key.duplicated(keep=False)]})
+        _log.warning(
+            "bar_cache: %s held %d row(s) for %d already-present session(s) "
+            "%s — keeping the golden-source row per session and dropping the "
+            "rest. Two providers stamp a daily bar at different instants; "
+            "this is that, not new data.",
+            label or "partition", dropped, len(dupe_days),
+            ", ".join(dupe_days[:6]) + ("…" if len(dupe_days) > 6 else ""),
+        )
+    return kept.sort_index(), dropped
 
 
 def _ensure_utc(ts: datetime) -> datetime:

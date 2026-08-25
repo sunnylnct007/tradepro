@@ -80,11 +80,17 @@ heartbeat_loop() {
   done
 }
 
+# cd BEFORE forking the heartbeat. `uv run` resolves the project from the
+# CURRENT working directory, and a forked child keeps the cwd it had AT FORK
+# TIME — a later `cd` in the parent never reaches it. launchd starts this from
+# `/`, so the heartbeat was one environment change away from silent
+# ModuleNotFoundError. The same drift killed the nightly bar harvest on
+# 24 Aug 2026; fixing it there and not here would just leave the next one.
+cd "$PROJECT_DIR" || exit 1
+
 heartbeat_loop &
 HB_PID=$!
 trap 'kill $HB_PID 2>/dev/null || true' EXIT
-
-cd "$PROJECT_DIR" || exit 1
 log "worker started (pid=$$, hb_pid=$HB_PID, project=$PROJECT_DIR)"
 
 while true; do
