@@ -198,6 +198,15 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     const cs = series?.candles ?? [];
     const vol = (c: Candle) => (Number.isFinite(c.volume) ? Number(c.volume) : 0);
 
+    // WITHHOLD across a volume-units change rather than compute over one.
+    // RVOL divides a bar by the same minute on PRIOR SESSIONS (intraday) or by
+    // a trailing 20-session mean (daily) — both compare ACROSS the seam, and a
+    // ratio only cancels a UNIFORM error. With inflated bars on one side it
+    // reads ~0.01: a 99% volume collapse on every symbol at once, the morning
+    // after a units fix that was entirely correct. An empty map renders no
+    // RVOL, which reads as "not available"; a plausible wrong number does not.
+    if (volumeScaleBreak(cs) > 0) return m;
+
     if (resolution !== "1d") {
       // INTRADAY: compare each bar to the SAME TIME OF DAY on prior sessions,
       // never to a trailing average (corrected 22 Aug 2026 — the first version
@@ -1370,6 +1379,39 @@ function adxPoints(candles: Candle[], n = 14): { time: UTCTimestamp; value: numb
   return out;
 }
 
+
+/** Index of a VOLUME UNITS DISCONTINUITY in the series, or -1.
+ *
+ *  Bars written before and after a units fix are on different scales, and every
+ *  volume figure derived by COMPARING bars across that seam is then nonsense —
+ *  while looking entirely plausible. The IBKR lot->shares conversion was applied
+ *  twice for one pipeline (parquet stored SPY at 5.9bn shares/day against a real
+ *  ~59m); once the boundary fix lands, correct bars sit beside inflated ones.
+ *
+ *  A ratio only cancels a UNIFORM error. RVOL compares a bar to the same minute
+ *  on PRIOR SESSIONS, and OBV accumulates across the whole series — so both
+ *  read a ~99% collapse the morning after a fix that was entirely correct.
+ *  Absolute volume shows an obvious step and needs no help; the derived figures
+ *  are the dangerous ones, because nobody questions a plausible number.
+ *
+ *  Detection is the largest ADJACENT step, not a half-vs-half median. The
+ *  research lane's first detector split the window in half and reported
+ *  everything clean, because only four of twenty bars preceded the change and
+ *  both halves landed on the inflated side.
+ */
+function volumeScaleBreak(candles: Candle[]): number {
+  const MIN_STEP = 20;   // a units error is ~100x; real volume never steps this far
+  let worst = -1, worstRatio = 1;
+  for (let i = 1; i < candles.length; i++) {
+    const a = Number(candles[i - 1].volume) || 0;
+    const b = Number(candles[i].volume) || 0;
+    if (a <= 0 || b <= 0) continue;
+    const r = a > b ? a / b : b / a;
+    if (r > worstRatio) { worstRatio = r; worst = i; }
+  }
+  return worstRatio >= MIN_STEP ? worst : -1;
+}
+
 /** On-Balance Volume — cumulative signed volume. Orthogonal to price, which
  *  is the point: it answers "is anyone actually behind this move". MU rallied
  *  +30.8% off the 29 Jul low while OBV sat at 71% of its own peak and topped
@@ -1377,7 +1419,12 @@ function adxPoints(candles: Candle[], n = 14): { time: UTCTimestamp; value: numb
 function obvPoints(candles: Candle[]): { time: UTCTimestamp; value: number }[] {
   const out: { time: UTCTimestamp; value: number }[] = [];
   let obv = 0;
-  for (let i = 1; i < candles.length; i++) {
+  // Accumulating across a units change produces one enormous artificial step
+  // and every reading after it is offset by it. Plot only the segment after
+  // the break — a shorter honest series beats a long wrong one.
+  const brk = volumeScaleBreak(candles);
+  const from = brk > 0 ? brk : 1;
+  for (let i = from; i < candles.length; i++) {
     const v = Number.isFinite(candles[i].volume) ? Number(candles[i].volume) : 0;
     if (candles[i].close > candles[i - 1].close) obv += v;
     else if (candles[i].close < candles[i - 1].close) obv -= v;
