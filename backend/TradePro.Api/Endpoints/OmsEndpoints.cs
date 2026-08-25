@@ -473,7 +473,11 @@ public static class OmsEndpoints
                     StrategyId: null,
                     PlacedBy: "HUMAN");
                 var order = await oms.EnqueueAsync(intent, "oms-sync");
-                await oms.RecordFillAsync(order.Id, adj.Qty, adj.Price, 0m, "USD", $"reconcile-{order.Id:N}", "oms-sync");
+                // Position-derived adjustment: the broker tells us the QUANTITY drifted,
+                // not what it drifted at, so a zero price here is expected rather than a
+                // broken read. Explicit, so the guard in RecordFillAsync stays meaningful.
+                await oms.RecordFillAsync(order.Id, adj.Qty, adj.Price, 0m, "USD", $"reconcile-{order.Id:N}", "oms-sync",
+                    allowZeroPrice: true);
                 adjustments.Add(new { symbol = adj.Symbol, side = adj.Side, delta = adj.TargetQty - adj.FromOmsQty, targetQty = adj.TargetQty, fromOmsQty = adj.FromOmsQty });
             }
 
@@ -539,7 +543,8 @@ public static class OmsEndpoints
                     PlacedBy: "HUMAN");
                 var order = await oms.EnqueueAsync(intent, "oms-purge");
                 await oms.RecordFillAsync(
-                    order.Id, qty, price, 0m, "USD", $"purge-{order.Id:N}", "oms-purge");
+                    order.Id, qty, price, 0m, "USD", $"purge-{order.Id:N}", "oms-purge",
+                    allowZeroPrice: true);   // closing an orphan we never had a price for
                 purged.Add(new { broker = p.Broker, symbol = p.Symbol, closedQty = p.Quantity, side });
             }
             return Results.Ok(new { confirmed = true, purged = purged.Count, positions = purged });

@@ -776,10 +776,30 @@ public sealed class PostgresOmsService : IOmsService
     public async Task<OmsOrder> RecordFillAsync(
         Guid orderId, decimal qty, decimal price, decimal fee, string currency,
         string? brokerFillId, string actor,
-        FillSnapshot? snapshot = null)
+        FillSnapshot? snapshot = null,
+        bool allowZeroPrice = false)
     {
         if (qty <= 0)
             throw new ArgumentException("fill qty must be > 0", nameof(qty));
+
+        // A FILL AT PRICE ZERO IS NOT A FILL (25 Aug 2026).
+        //
+        // Six IBKR_PAPER orders were recorded FILLED at avgFillPrice 0 between
+        // 29 July and 20 August. Nothing rejected them, so the OMS reported a
+        // filled book, the desk showed positions, and forward-test gates F2
+        // (every fill reconciles), F3 (entry slippage vs the reference) and F4
+        // (stop fills at min(stop, open)) all became uncomputable — you cannot
+        // measure slippage against zero. A zero that reconciles is worse than
+        // an error, because an error gets investigated.
+        //
+        // Admin paths that legitimately synthesise a position adjustment with
+        // no known price pass allowZeroPrice: true and say so at the call site.
+        if (price <= 0m && !allowZeroPrice)
+            throw new ArgumentException(
+                $"refusing to record a fill at price {price} for order {orderId} " +
+                $"(actor '{actor}', brokerFillId '{brokerFillId}'). A fill with no price " +
+                "cannot be reconciled or graded — fix the broker read instead.",
+                nameof(price));
 
         await using var conn = await _db.OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();

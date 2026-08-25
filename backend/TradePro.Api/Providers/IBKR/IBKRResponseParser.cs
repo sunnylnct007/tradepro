@@ -327,7 +327,10 @@ public static class IBKRResponseParser
                 Price: Dec(it, "price") ?? 0m,
                 TradeTime: Str(it, "trade_time") ?? StrLoose(it, "trade_time_r"),
                 ExecId: Str(it, "execution_id") ?? Str(it, "exec_id"),
-                Account: Str(it, "account") ?? Str(it, "acctNumber")));
+                Account: Str(it, "account") ?? Str(it, "acctNumber"),
+                // IBKR has been seen to carry this under three names depending
+                // on endpoint version; take whichever is present.
+                OrderId: Str(it, "order_ref") ?? StrLoose(it, "orderId") ?? StrLoose(it, "ibOrderId")));
         }
         return list;
     }
@@ -632,7 +635,12 @@ public sealed record IBKRTrade(
     decimal Price,
     string? TradeTime,
     string? ExecId,
-    string? Account);
+    string? Account,
+    // The BROKER ORDER ID this execution belongs to. IBKR returns it on
+    // /iserver/account/trades and the parser was dropping it, which is why the
+    // OMS could never attach a real fill price to an order: executions carry
+    // the price, the orders blotter carries the id, and nothing joined them.
+    string? OrderId = null);
 
 public sealed record IBKRTradesResult(
     IReadOnlyList<IBKRTrade> Trades,

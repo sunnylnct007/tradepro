@@ -1086,6 +1086,33 @@ public static class IntegrationsEndpoints
             foreach (var bo in res.Orders)
                 if (!string.IsNullOrWhiteSpace(bo.OrderId)) byId[bo.OrderId!] = bo;
 
+            // EXECUTIONS ARE THE SOURCE OF THE PRICE (25 Aug 2026).
+            //
+            // The orders blotter has been returning ZERO rows for this account
+            // since at least 29 July. Every open OMS order was therefore
+            // reported "no-broker-match (aged out of blotter)" — including a
+            // probe order placed seventy minutes earlier — while the response
+            // carried appliedCount:7 and read like success. The consequence:
+            // six orders recorded FILLED at a price of ZERO and nine stuck in
+            // SUBMITTED for weeks, which makes forward-test gates F2, F3 and
+            // F4 uncomputable.
+            //
+            // /iserver/account/trades DOES return data — the ledger path has
+            // been using it all along ("recorded 2 IBKR_PAPER execution(s)").
+            // Executions carry the actual FILL PRICE, and IBKR returns the
+            // owning order id on them; the parser was simply dropping it. So
+            // reconcile from executions FIRST and fall back to the blotter.
+            var execs = await ibkr.GetTradesAsync(ct);
+            var fillsByOrder = new Dictionary<string, (decimal Qty, decimal Notional, string? ExecId)>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var tr in execs.Trades)
+            {
+                if (string.IsNullOrWhiteSpace(tr.OrderId) || tr.Size <= 0m || tr.Price <= 0m) continue;
+                fillsByOrder.TryGetValue(tr.OrderId!, out var acc);
+                fillsByOrder[tr.OrderId!] =
+                    (acc.Qty + tr.Size, acc.Notional + (tr.Size * tr.Price), tr.ExecId ?? acc.ExecId);
+            }
+
             var open = (await oms.ListAsync(new[] { "SUBMITTED", "WORKING", "PARTIALLY_FILLED" }, 500))
                 .Where(o => (o.Broker is "IBKR_PAPER" or "IBKR_LIVE") && !string.IsNullOrWhiteSpace(o.BrokerOrderId))
                 .ToList();
@@ -1093,9 +1120,32 @@ public static class IntegrationsEndpoints
             var applied = new List<object>();
             foreach (var o in open)
             {
+                // Executions first — they carry a real price.
+                if (fillsByOrder.TryGetValue(o.BrokerOrderId!, out var xf) && xf.Qty > 0m)
+                {
+                    var px = xf.Notional / xf.Qty;
+                    var delta = xf.Qty - o.FilledQty;
+                    if (delta > 0m && px > 0m)
+                    {
+                        await oms.RecordFillAsync(o.Id, delta, px, 0m, "USD",
+                            xf.ExecId ?? $"exec:{o.BrokerOrderId}", "broker:executions");
+                        applied.Add(new { o.Symbol, o.BrokerOrderId,
+                                          action = "FILLED from executions", qty = delta, price = px });
+                        continue;
+                    }
+                }
                 if (!byId.TryGetValue(o.BrokerOrderId!, out var bo))
                 {
-                    applied.Add(new { o.Symbol, o.BrokerOrderId, action = "no-broker-match (aged out of blotter)" });
+                    // An EMPTY blotter is a different fact from an order too
+                    // old to appear in a populated one, and reporting them
+                    // identically is exactly what hid this for four weeks.
+                    applied.Add(new {
+                        o.Symbol, o.BrokerOrderId,
+                        action = res.Orders.Count == 0
+                            ? "UNRESOLVED — broker returned an EMPTY order blotter and no execution "
+                              + "matches this order id; the OMS cannot confirm this order either way"
+                            : "no-broker-match (aged out of blotter)",
+                    });
                     continue;
                 }
                 var status = (bo.Status ?? "").ToLowerInvariant();
@@ -1129,11 +1179,31 @@ public static class IntegrationsEndpoints
                     applied.Add(new { o.Symbol, o.BrokerOrderId, action = $"reconcile error: {ex.Message}" });
                 }
             }
+            // appliedCount USED TO READ LIKE SUCCESS while nothing was
+            // confirmed: seven orders "applied", every one of them the
+            // no-match branch, against an empty blotter. Report what actually
+            // happened — confirmed vs unresolved — and say plainly when BOTH
+            // broker reads came back empty, because that is a broker-side
+            // outage and not a quiet day.
+            var confirmed = applied.Count(a =>
+                a.GetType().GetProperty("action")?.GetValue(a) as string is string s2
+                && (s2.StartsWith("FILLED") || s2.StartsWith("CANCELLED")));
+            var blind = res.Orders.Count == 0 && fillsByOrder.Count == 0;
+            if (blind && open.Count > 0)
+                log.LogError(
+                    "IBKR reconcile is BLIND — the orders blotter returned 0 rows AND no executions "
+                    + "carried an order id, with {Open} OMS order(s) open. No fill can be confirmed, "
+                    + "so none of them can be graded. This is a broker READ failure, not an absence "
+                    + "of trading.", open.Count);
             return Results.Ok(new
             {
                 brokerOrders = res.Orders.Count,
+                brokerExecutions = execs.Trades.Count,
+                executionsWithOrderId = fillsByOrder.Count,
                 omsOpen = open.Count,
-                appliedCount = applied.Count,
+                confirmed,
+                unresolved = applied.Count - confirmed,
+                blind,
                 applied,
             });
         })

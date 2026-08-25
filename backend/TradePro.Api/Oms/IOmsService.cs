@@ -74,7 +74,8 @@ public interface IOmsService
         string currency,
         string? brokerFillId,
         string actor,
-        FillSnapshot? snapshot = null);
+        FillSnapshot? snapshot = null,
+        bool allowZeroPrice = false);
 
     /// <summary>Backfill the execution price on an ALREADY-FILLED order whose
     /// avg_fill_price is missing/zero (T212 aged the order out before the
