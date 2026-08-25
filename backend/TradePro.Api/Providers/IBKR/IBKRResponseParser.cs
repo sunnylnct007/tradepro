@@ -323,8 +323,21 @@ public static class IBKRResponseParser
             list.Add(new IBKRTrade(
                 Symbol: Str(it, "symbol") ?? Str(it, "ticker"),
                 Side: Str(it, "side"),
-                Size: Dec(it, "size") ?? Dec(it, "quantity") ?? 0m,
-                Price: Dec(it, "price") ?? 0m,
+                // DecLoose, NOT Dec — and this one line is why every IBKR fill
+                // was recorded at price ZERO. IBKR returns execution price and
+                // size as JSON STRINGS ("58.42"), and Dec() accepts only
+                // JsonValueKind.Number, so it returned null and the `?? 0m`
+                // turned a real fill into a zero. Six orders were recorded
+                // FILLED at 0 between 29 July and 20 August because of it, and
+                // forward-test gates F2/F3/F4 became uncomputable — you cannot
+                // measure slippage against zero.
+                //
+                // The codebase already knew IBKR does this: DecLoose was written
+                // for exactly this reason ("encodes quote/greek values as
+                // strings on some gateway versions") and sits thirty lines
+                // above. ParseTrades simply never used it.
+                Size: DecLoose(it, "size") ?? DecLoose(it, "quantity") ?? 0m,
+                Price: DecLoose(it, "price") ?? DecLoose(it, "avgPrice") ?? 0m,
                 TradeTime: Str(it, "trade_time") ?? StrLoose(it, "trade_time_r"),
                 ExecId: Str(it, "execution_id") ?? Str(it, "exec_id"),
                 Account: Str(it, "account") ?? Str(it, "acctNumber"),

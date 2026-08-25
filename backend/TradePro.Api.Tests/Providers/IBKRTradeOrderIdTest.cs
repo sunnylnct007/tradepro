@@ -70,3 +70,41 @@ public class IBKRTradeOrderIdTest
         Assert.Equal(0m, t.Price);
     }
 }
+
+/// <summary>
+/// IBKR sends execution price and size as STRINGS. Parsing them with a
+/// number-only reader turned every real fill into a fill at price zero.
+/// </summary>
+public class IBKRTradeStringPriceTest
+{
+    [Fact]
+    public void A_string_price_is_read_as_a_number_not_dropped_to_zero()
+    {
+        // The exact shape IBKR returned for a live probe order on 25 Aug 2026.
+        var json = """
+        [{"symbol":"KO","side":"B","size":"1","price":"58.42",
+          "trade_time":"20260825-16:25:00","exec_id":"00025b45.6a945749.01.01"}]
+        """;
+        var t = Assert.Single(IBKRResponseParser.ParseTrades(json));
+        Assert.Equal(58.42m, t.Price);
+        Assert.Equal(1m, t.Size);
+    }
+
+    [Fact]
+    public void A_numeric_price_still_works()
+    {
+        var json = """[{"symbol":"KO","side":"B","size":1,"price":58.42}]""";
+        var t = Assert.Single(IBKRResponseParser.ParseTrades(json));
+        Assert.Equal(58.42m, t.Price);
+    }
+
+    [Fact]
+    public void A_halted_market_marker_on_the_price_string_is_stripped()
+    {
+        // IBKR prefixes 'C' or 'H' onto string values around halts. Left in,
+        // decimal.TryParse fails and the fill silently becomes zero again.
+        var json = """[{"symbol":"KO","side":"B","size":"1","price":"C58.42"}]""";
+        var t = Assert.Single(IBKRResponseParser.ParseTrades(json));
+        Assert.Equal(58.42m, t.Price);
+    }
+}
