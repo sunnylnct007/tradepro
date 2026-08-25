@@ -25,6 +25,48 @@ Any anomaly in a forward test can then be checked against this file first.
 
 ## Entries
 
+### 2026-08-25 — SCHEDULED: tonight's harvest creates a volume UNITS BOUNDARY
+Recorded BEFORE it happens, which is the point of this file.
+
+- **What will change**: the ibkr_web provider no longer re-applies the lot→shares
+  ×100 (6c22ebd). So from **tonight's 20:30 UTC harvest onward**, newly written
+  ibkr_web volume is CORRECT, sitting beside historical rows that are 100× too
+  high. Prices are unaffected — volume only.
+- **Why it is not being avoided**: the alternative is knowingly continuing to
+  write wrong data to keep it uniformly wrong. The repair of the historical rows
+  is queued post-window because it moves the universe; the *provider* fix is not,
+  because every night it is deferred writes another day of bad bars.
+- **What is guarded already**, built yesterday in anticipation of exactly this:
+  - `volume_vs_20d` withheld across a units change, both screens (research lane, 526ee32)
+  - chart RVOL withheld, OBV truncated at the break (1a73cdb)
+  - QuoteView absolute volume withheld; PriceHistoryChart strip annotated (6b84069)
+  - shared detector `frontend/src/lib/volumeUnits.ts`
+  - VWAP deliberately NOT guarded — volume cancels within a session, so a uniform
+    error has no effect and a boundary between sessions cannot reach it
+- **What is NOT guarded**: anything reading raw stored volume that we have not
+  found. The 5m lane is inflated on the same basis and will cross the same
+  boundary. If a volume-derived number looks wrong from 26 Aug, check whether its
+  window spans tonight before assuming the market did something.
+- **The forward test is unaffected**: Swing reads `close`; the universe is frozen
+  at 244 and is not rebuilt during the window.
+
+### 2026-08-25 — the daily harvest lane failed twice, and the second is UNEXPLAINED
+- **24 Aug 20:30**: `ModuleNotFoundError` — a `uv run` above its `cd`, launchd's
+  cwd. Research lane's, fixed same morning.
+- **25 Aug 06:19**: started 955 symbols, wrote 114, stopped mid-line at 07:23,
+  exited 1. Empty `.err`, no traceback despite stderr redirected to the log, no
+  summary line. Disk 529GB free, no OOM/jetsam events, and the 5m lane ran
+  cleanly through the same period (`lastexit=0`). **Cause not established.**
+- **Contributing**: a broad seed on 24 Aug 21:35 took the us_etf tree from 250
+  directories to 991, and `harvest_symbols()` unions universe with store, so the
+  job silently quadrupled. Now bounded (fb6a014) — tonight runs 244 again.
+- **Consequence for the data**: no daily bars were harvested by the scheduled job
+  on either night. The 244 universe symbols are nonetheless current through
+  24 Aug, because the 21:35 seed covered them. Verified: 0 missing, 0 stale.
+- **Open**: the exit-1 mechanism. The scope bound makes tonight a smaller and
+  therefore different test, so a clean run tonight will NOT prove the cause was
+  scope.
+
 ### 2026-08-25 — ibkr_web volume was written 100x TOO HIGH (code fixed, data NOT repaired)
 - **What**: the lot→shares ×100 was applied at TWO layers of one pipeline. I added
   it on 23 Aug to `IBKRResponseParser.ParseHistory` (C# — correct, that is where
