@@ -18,6 +18,7 @@ exploratory runs are NOT gate runs and are labeled as such).
 """
 from __future__ import annotations
 
+import os
 import argparse
 import datetime as dt
 import sys
@@ -195,6 +196,17 @@ def run_window(window: str, start: str, end: str | None, eff_start: str,
                 t_flags, t_undef = _trend_series(closes, idx, V3_TREND_SMA_DAYS)
                 trend_undef[sym] = t_undef
                 kwargs.update(trend_ok_by_day=t_flags, trend_modelled=True)
+
+        # V4 — a stop on the ASSIGNED SHARES. Applied OUTSIDE the v2/v3
+        # branches on purpose: it is orthogonal to the entry filters, and the
+        # first version of this sat inside `if v2:` where the default run never
+        # reached it — every stop level then returned byte-identical results,
+        # which looked like "the stop does nothing" rather than "the stop never
+        # ran". Off unless asked for, so the default remains the control.
+        # Gates and prediction: WHEEL_BACKTEST_GATES_V4.md.
+        _stop = float(os.environ.get("TRADEPRO_WHEEL_ASSIGNED_STOP_PCT", "0") or 0)
+        if _stop > 0:
+            kwargs["assigned_stop_pct"] = _stop
         res = simulate_wheel(
             w_dates, w_closes, otm_pct=OTM_PCT, dte=DTE, contracts=1,
             start_capital=SLICE_USD, warmup=WARMUP,

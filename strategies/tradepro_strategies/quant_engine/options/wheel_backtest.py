@@ -119,6 +119,17 @@ def simulate_wheel(
     trend_ok_by_day: list[bool] | None = None,
     trend_modelled: bool = False,
     idle_cash_rate: float = 0.0,        # annual rate accrued daily on the CASH balance.
+    # V4 (25 Aug 2026) — a STOP on the ASSIGNED SHARES.
+    #
+    # The state machine had no exit from shares except being called away, so an
+    # assigned position held through any decline indefinitely. META fell 71% and
+    # the wheel held every point of it; that is why G4 (worst single-symbol
+    # drawdown <= 40%) failed on the full window, and why v3's entry-side trend
+    # floor could not reach it — by the time you own the shares, the entry
+    # filter is already behind you.
+    #
+    # 0.0 = OFF, which reproduces v3 exactly and is the control.
+    assigned_stop_pct: float = 0.0,
     # 0.0 = v1 behaviour (idle cash scores zero — understates low-utilisation
     # configs: money a premium floor keeps undeployed isn't dead, it earns ~rf;
     # and real CSP collateral itself sits in cash/money-market earning interest).
@@ -134,6 +145,7 @@ def simulate_wheel(
 
     cash = start_capital
     shares = 0
+    n_share_stops = 0
     cost_basis = 0.0
     mode = "flat"               # flat | short_put | covered_call
     opt_strike = 0.0
@@ -270,6 +282,22 @@ def simulate_wheel(
                         trades.append(WheelTrade(iso, "SELL_PUT", strike, round(prem, 2), spot,
                                                  f"Δ~ otm {otm_pct:.0%}, dte {dte}, iv {sigma:.0%}"))
         elif mode == "shares_pending":
+            # STOP FIRST. Checked on the CLOSE, like every other stop in this
+            # codebase, so a gap can go straight through it — the fill is the
+            # close we can actually see, not the trigger price.
+            if assigned_stop_pct > 0.0 and cost_basis > 0 and spot <= cost_basis * (1 - assigned_stop_pct):
+                loss_pct = 100.0 * (spot / cost_basis - 1.0)
+                cash += shares * spot
+                trades.append(WheelTrade(iso, "STOP_SHARES", round(spot, 2), 0.0, spot,
+                                         f"assigned stock stopped at {loss_pct:.1f}% vs cost "
+                                         f"{cost_basis:.2f} (limit -{assigned_stop_pct:.0%})"))
+                shares = 0
+                cost_basis = 0.0
+                n_share_stops += 1
+                mode = "flat"
+                equity_curve.append(cash)
+                state_by_day.append(mode)
+                continue
             strike = round(max(cost_basis, spot * (1 + otm_pct)))
             exp_i = expiry_index(i)
             hold_days = max((dates[exp_i] - dates[i]).days, 1)
