@@ -44,7 +44,7 @@ import json
 import logging
 import os
 
-from ..universe import universe_symbols, poison_check
+from ..universe import universe_symbols, poison_check, volume_ratio
 
 log = logging.getLogger("tradepro.momentum_candidates")
 
@@ -139,15 +139,20 @@ def _load(sym: str):
 
 
 def _vol_ratio(df, i):
-    """Entry-bar volume against the mean of the prior 20 bars, or None."""
-    if "volume" not in getattr(df, "columns", []) or i < 20:
-        return None
+    """Entry-bar volume against its own 20-session average, or None + a reason.
+
+    Was a second implementation of the same three lines the swing screen had.
+    Both now defer to `universe.volume_ratio`, which additionally refuses to
+    publish a ratio computed across a units change in the stored series — the
+    two screens disagreeing about that would be the same duplicate-definition
+    drift that has cost this codebase most of its bugs.
+    """
+    if "volume" not in getattr(df, "columns", []):
+        return None, "no volume recorded"
     try:
-        v = df["volume"].tolist()
-        av = sum(v[i - 20:i]) / 20
-        return round(v[i] / av, 2) if av else None
+        return volume_ratio(df["volume"].tolist(), i)
     except Exception:  # noqa: BLE001 — context only, never worth failing a row
-        return None
+        return None, "volume unreadable"
 
 
 def latest_price(sym: str) -> dict | None:
@@ -306,6 +311,9 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
         trs = [max(h[j] - l[j], abs(h[j] - c[j - 1]), abs(l[j] - c[j - 1])) for j in range(i - 13, i + 1)]
         atr = sum(trs) / 14
         hi52 = max(h[max(0, i - 251):i + 1])
+        # CONTEXT only — withheld, not guessed, across a units change. See
+        # universe.volume_ratio.
+        _vol, _vol_why = _vol_ratio(df, i)
         out.append({
             "symbol": sym, "bar": dates[i],
             "close": round(c[i], 2), "entry_hint": round(c[i], 2),
@@ -406,7 +414,8 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
                 },
             },
             "latest": latest_price(sym),   # display-only; see latest_price()
-            "volume_vs_20d": _vol_ratio(df, i),
+            "volume_vs_20d": _vol,
+            "volume_vs_20d_unavailable": _vol_why,
             "chg_5d_pct": (round(100 * (c[i] / c[i - 5] - 1), 1) if i >= 5 and c[i - 5] else None),
         })
     out.sort(key=lambda r: -(r["pct_above_200sma"] or 0))

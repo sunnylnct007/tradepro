@@ -667,7 +667,7 @@ export const api = {
           entry_hint: number; target: number; stop: number; target_pct: number;
           reward_risk: number | null; sigma_below: number; atr_pct: number;
           pct_above_200sma: number; off_52w_high_pct: number | null;
-          volume_vs_20d: number | null; max_hold_sessions: number;
+          volume_vs_20d: number | null; volume_vs_20d_unavailable?: string | null; max_hold_sessions: number;
         }>;
       };
     }>("/api/today-setups/swing/latest"),
@@ -688,7 +688,7 @@ export const api = {
         quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
         candidates: Array<{
           symbol: string; bar: string; close: number; entry_hint: number;
-          volume_vs_20d?: number | null; chg_5d_pct?: number | null;
+          volume_vs_20d?: number | null; volume_vs_20d_unavailable?: string | null; chg_5d_pct?: number | null;
           latest?: { price: number; as_of: string; session: string; high: number; low: number } | null;
           stop: number; trailing_pct: number; pct_above_200sma: number;
           pct_above_20sma: number; atr_pct: number | null;

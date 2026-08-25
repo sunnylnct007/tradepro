@@ -66,14 +66,33 @@ function RowDetail({ c }: { c: Cand }) {
                             borderRadius: 6, fontSize: 12, lineHeight: 1.6 }}>
                 <b style={{ color: "var(--text-dim)" }}>CONTEXT — not part of the rule</b>
                 <div style={{ marginTop: 2 }}>
+                  {/* A withheld ratio SAYS WHY. The stored volume series is x100
+                      in some months and not others (IBKR reports 100-share lots
+                      and the conversion landed twice in one pipeline), and a
+                      ratio spanning that change is arithmetic on two different
+                      units. Publishing "0.01x" would read as a 99% volume
+                      collapse on every symbol at once. A dash with no
+                      explanation is barely better — it looks like missing data
+                      rather than known-bad data. */}
                   Entry-bar volume{" "}
-                  <b style={{ color: (c.volume_vs_20d ?? 1) < 0.7 ? TONE.warn : "inherit" }}>
-                    {c.volume_vs_20d != null ? `${c.volume_vs_20d}x` : "—"}
-                  </b>{" "}
+                  {c.volume_vs_20d != null ? (
+                    <b style={{ color: c.volume_vs_20d < 0.7 ? TONE.warn : "inherit" }}>
+                      {c.volume_vs_20d}x
+                    </b>
+                  ) : (
+                    <b style={{ color: TONE.warn }} title={c.volume_vs_20d_unavailable ?? undefined}>
+                      withheld
+                    </b>
+                  )}{" "}
                   its 20-day average · price {c.chg_5d_pct != null ? `${c.chg_5d_pct > 0 ? "+" : ""}${c.chg_5d_pct}%` : "—"} over 5 sessions
                   {c.chg_5d_pct != null && Math.abs(c.chg_5d_pct) <= 1 &&
                     " — flat, so the average rose to meet the price rather than the price falling to it"}
                 </div>
+                {c.volume_vs_20d == null && c.volume_vs_20d_unavailable && (
+                  <div style={{ color: TONE.warn, marginTop: 3 }}>
+                    Volume ratio withheld: {c.volume_vs_20d_unavailable}
+                  </div>
+                )}
                 <div style={{ color: "var(--text-muted)", marginTop: 3 }}>
                   Low volume LOOKS like a warning and we tested it as one — momentum v3 gated on
                   entry volume and was <b>REJECTED</b>. The apparent edge exists only in the second
@@ -184,6 +203,21 @@ export function MomentumView() {
     <div style={{ padding: "8px 4px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Momentum candidates</h2>
+        {/* REFRESH. Owner: "why no rerun button on swing". There was nothing
+            to press because the scan ran twice a day — so during a session the
+            screen showed a scan from hours earlier. The job now runs every 30
+            minutes (matching the 5m harvest that feeds the "Now" price), and
+            this re-fetches the published result. It does NOT re-run the scan:
+            that happens on the Mac, and the SIGNAL cannot change intraday
+            anyway because it is computed on a settled bar. What DOES change is
+            the latest price. */}
+        <button onClick={load}
+                title="Re-fetch the published scan. The scan itself re-runs every 30 minutes; the signal is fixed on the settled close, but the Now price moves."
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)",
+                         borderRadius: 6, padding: "3px 9px", color: "inherit",
+                         cursor: "pointer", fontSize: 13 }}>
+          ↻ Refresh
+        </button>
         <span style={{ fontSize: 14, color: "var(--text-muted)" }}>
           signal bar {a.signal_bar} · {a.count} candidate{a.count === 1 ? "" : "s"} · refreshed {ago}m ago
         </span>

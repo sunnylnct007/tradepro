@@ -46,6 +46,21 @@ export function SwingView() {
     <div style={{ padding: "8px 4px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Swing candidates</h2>
+        {/* REFRESH. Owner: "why no rerun button on swing". There was nothing
+            to press because the scan ran twice a day — so during a session the
+            screen showed a scan from hours earlier. The job now runs every 30
+            minutes (matching the 5m harvest that feeds the "Now" price), and
+            this re-fetches the published result. It does NOT re-run the scan:
+            that happens on the Mac, and the SIGNAL cannot change intraday
+            anyway because it is computed on a settled bar. What DOES change is
+            the latest price. */}
+        <button onClick={load}
+                title="Re-fetch the published scan. The scan itself re-runs every 30 minutes; the signal is fixed on the settled close, but the Now price moves."
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)",
+                         borderRadius: 6, padding: "3px 9px", color: "inherit",
+                         cursor: "pointer", fontSize: 13 }}>
+          ↻ Refresh
+        </button>
         <span style={{ fontSize: 14, color: "var(--text-muted)" }}>
           signal bar {a.signal_bar} · rebuilt {ago}m ago · {a.count} candidate{a.count === 1 ? "" : "s"}
         </span>

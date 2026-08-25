@@ -51,7 +51,7 @@ import json
 import logging
 import os
 
-from ..universe import universe_symbols, poison_check
+from ..universe import universe_symbols, poison_check, volume_ratio
 
 log = logging.getLogger("tradepro.swing_candidates")
 
@@ -256,6 +256,10 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
         stop = c[i] * (1 - STOP_PCT)
         rr = ((target - c[i]) / (c[i] - stop)) if c[i] > stop else None
         tier = "core" if sym in CORE or sym in ETFS else ("high-beta" if atr_pct >= 4 else "standard")
+        # volume_vs_20d is CONTEXT, and it is WITHHELD rather than guessed when
+        # the stored volume series changes units mid-window. See
+        # universe.volume_ratio for why a ratio is not immune to that.
+        _vol, _vol_why = volume_ratio(v, i)
         out.append({
             "latest": latest_price(sym),   # display-only; see latest_price()
             "symbol": sym,
@@ -271,8 +275,8 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
             "atr_pct": round(atr_pct, 2),
             "pct_above_200sma": round(100 * (c[i] / sma200 - 1), 1),
             "off_52w_high_pct": round(100 * (hi52 - c[i]) / hi52, 1) if hi52 else None,
-            "volume_vs_20d": (round(v[i] / (sum(v[i-19:i+1]) / 20), 2)
-                              if sum(v[i-19:i+1]) > 0 else None),
+            "volume_vs_20d": _vol,
+            "volume_vs_20d_unavailable": _vol_why,
             "max_hold_sessions": MAX_HOLD,
         })
     # Best reward:risk first — the number that decides whether a bracket is worth placing.

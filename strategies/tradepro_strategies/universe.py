@@ -200,6 +200,76 @@ def exclusion_reason(symbol: str) -> str | None:
     return None
 
 
+# The step change that makes a volume RATIO meaningless. A 20x jump between
+# one half of a 20-session window and the other is not a busy fortnight; it is
+# a units change. Real volume surges are large but they do not move a 10-day
+# median by two orders of magnitude.
+VOLUME_UNIT_STEP = 20.0
+
+
+def volume_ratio(volumes, i, window=20):
+    """Entry-bar volume against its own recent average — or None, with a reason.
+
+    ONE implementation, imported by both screens. The ratio itself is trivial;
+    what is not trivial is knowing when NOT to publish it.
+
+    A ratio is immune to a uniform units error — multiply every bar by 100 and
+    it cancels. It is NOT immune to a units error that starts partway through
+    the window, and that is exactly what we have. IBKR reports 100-share lots,
+    the conversion was applied at two points in one pipeline, and the resulting
+    x100 inflation is patchy by month and by source vintage (data lane,
+    6c22ebd). The 2026-08 partition is inflated; 2026-07 is not.
+
+    Right now the window sits mostly inside the inflated month, so the ratio
+    reads 0.95-1.41 — plausible, and wrong by about 17%. The damage arrives
+    the other way round: the first CORRECT bar landing in a window that still
+    holds inflated ones reads 0.011, and renders on the momentum screen as a
+    99% volume collapse on every symbol at once.
+
+    So: detect the discontinuity and return None. A field that says nothing is
+    worth more than a field that says something false with two decimal places,
+    and this one is labelled CONTEXT — nothing trades on it, so there is no
+    cost to withholding it and a real cost to publishing a fiction.
+
+    Returns (ratio, reason). reason is None when the ratio is trustworthy.
+    """
+    if not volumes or i < window or i >= len(volumes):
+        return None, "not enough history"
+    w = [x for x in volumes[i - window + 1:i + 1] if x is not None]
+    if len(w) < window or sum(w) <= 0:
+        return None, "no volume recorded"
+
+    # Find the STEP, do not assume where it is. Comparing the median of the
+    # first half against the second half is the obvious test and it fails on
+    # the real case: the units change on 2026-08-03, only four of the twenty
+    # bars precede it, and both half-medians land on the inflated side. So
+    # locate the largest adjacent jump, split the window there, and compare
+    # the two sides. A units change persists; a busy day does not.
+    def _med(xs):
+        xs = sorted(xs)
+        return xs[len(xs) // 2]
+
+    cut, jump = 0, 1.0
+    for k in range(1, len(w)):
+        a, b = w[k - 1], w[k]
+        if a > 0 and b > 0:
+            r = max(a / b, b / a)
+            if r > jump:
+                cut, jump = k, r
+    if jump >= VOLUME_UNIT_STEP and cut >= 3 and len(w) - cut >= 3:
+        lo, hi = _med(w[:cut]), _med(w[cut:])
+        if lo > 0 and hi > 0:
+            step = max(hi / lo, lo / hi)
+            if step >= VOLUME_UNIT_STEP:
+                return None, (
+                    f"volume units change {step:.0f}x inside the {window}-session "
+                    "window — the stored series is not on one scale, so a ratio "
+                    "over it would be arithmetic on two different units"
+                )
+    avg = sum(w) / window
+    return (round(w[-1] / avg, 2), None) if avg > 0 else (None, "no volume recorded")
+
+
 def poison_check(closes, volumes=None):
     """Is this series really this instrument? Returns (ok, phantom_bar_count).
 

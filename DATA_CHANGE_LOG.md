@@ -181,3 +181,29 @@ that "did the data change?" has an answer during the 12 weeks.
   disagreed on TXN and the strategy's Yahoo bar was the correct one. Changing a
   strategy's signal data source mid-window changes what the forward test
   measures, so it is flagged rather than flipped.
+
+### 2026-08-25 — my 24 Aug re-source inflated stored volume 100x for August
+- **What**: the force re-source that fixed the corrupt daily CLOSES also ran
+  the volume through the double-conversion path the data lane diagnosed
+  (6c22ebd): IBKR reports 100-share lots, and the conversion is applied both
+  in `IBKRResponseParser.ParseHistory` and again in `ibkr_web_provider`, which
+  reads our own already-converted API. Stored SPY August volume reads ~6.2bn
+  shares/day against a real ~59m.
+- **Symbols / range**: all 244 universe names, 2026-08 daily partition. The
+  inflation is PATCHY across the store by month and source vintage, so a flat
+  `/100` repair is NOT correct — see the data lane's month table.
+- **Not repaired**: `build_universe` reads the parquet store, so repairing
+  volume moves the universe mid-forward-test. Queued for the post-window audit.
+- **Does not touch the running test**: mean reversion reads closes only, the
+  universe is frozen at 244, and `poison_check` keys on volume being ZERO,
+  which no scale factor changes.
+- **Does touch what the screens PUBLISH**: `volume_vs_20d` is a ratio, and a
+  ratio only cancels a UNIFORM error. The 20-session window currently spans
+  2026-07-28 (correct) to 2026-08-24 (inflated). It reads 0.95–1.41 today —
+  plausible, biased ~17% high. Once correct bars arrive it reads 0.011, which
+  renders as a 99% volume collapse on every symbol at once.
+- **Fix**: `universe.volume_ratio()` — ONE implementation, imported by both
+  screens (each previously had its own copy), which locates the largest
+  adjacent step in the window, splits there, and withholds the ratio when the
+  two sides differ by >=20x. The desk shows "withheld" with the reason rather
+  than a dash. Commit: see below.
