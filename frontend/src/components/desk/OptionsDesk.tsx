@@ -922,9 +922,33 @@ function MarketDataBanner() {
   } | null>(null);
   const [checking, setChecking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Whether TradePro has deliberately stood down from the IBKR session.
+  // The pause/resume controls already existed on the Harvest screen — but that
+  // is not where anyone LEARNS the data is dark. You find out here, so the
+  // action belongs here too; a control on a different screen from its symptom
+  // is a control people do not find when they need it.
+  const [paused, setPaused] = useState<boolean | null>(null);
+  const [pausing, setPausing] = useState(false);
+
+  const refreshPaused = useCallback(() => {
+    api.ibkrHarvesterStatus()
+      .then((h) => setPaused(!!(h as { paused?: boolean })?.paused))
+      .catch(() => setPaused(null));
+  }, []);
+
+  const togglePause = useCallback(async () => {
+    setPausing(true);
+    try {
+      if (paused) await api.ibkrResume();
+      else await api.ibkrPause("portal login");
+      refreshPaused();
+    } catch (e) { setErr(String((e as Error)?.message || e)); }
+    finally { setPausing(false); }
+  }, [paused, refreshPaused]);
 
   const check = useCallback(() => {
     setChecking(true);
+    refreshPaused();
     api.ibkrMarketDataCheck("SPY")
       .then((r) => { setState(r); setErr(null); })
       .catch((e) => setErr(String((e as Error)?.message || e)))
@@ -941,6 +965,28 @@ function MarketDataBanner() {
   // DARK — close the IBKR portal" banner when IBKR was answering perfectly and
   // the exchange was simply shut. A red alarm that is wrong every morning is
   // how people learn to ignore the one that is right.
+  if (paused) {
+    return (
+      <div style={{
+        border: `1px solid ${TONE.warn}`, background: `${TONE.warn}14`, borderRadius: 8,
+        padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "var(--text)",
+      }}>
+        <div style={{ fontWeight: 700, color: TONE.warn, marginBottom: 4 }}>
+          ⏸ TradePro is PAUSED — the IBKR session is yours
+        </div>
+        <div style={{ color: "var(--text-dim)", lineHeight: 1.5 }}>
+          All IBKR calls are stopped so you can use the portal. Bars are not being
+          harvested while this is on, and the fallback will quietly fill gaps from
+          Yahoo — so resume when you are done rather than leaving it.
+        </div>
+        <button onClick={togglePause} disabled={pausing}
+          style={{ ...btnStyle(!pausing, TONE.ok), marginTop: 8 }}>
+          {pausing ? "…" : "Resume TradePro"}
+        </button>
+      </div>
+    );
+  }
+
   if (!live && state?.state === "closed") {
     return (
       <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 8 }}>
@@ -979,10 +1025,23 @@ function MarketDataBanner() {
         <b> carried</b> quote from an earlier moment.
         {err ? <> <span style={{ color: TONE.bad }}>Probe error: {err}</span></> : null}
       </div>
-      <button onClick={check} disabled={checking}
-        style={{ ...btnStyle(!checking, TONE.ok), marginTop: 8 }}>
-        {checking ? "Checking…" : "Recheck market data"}
-      </button>
+      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        <button onClick={check} disabled={checking}
+          style={btnStyle(!checking, TONE.ok)}>
+          {checking ? "Checking…" : "Recheck market data"}
+        </button>
+        {/* IBKR grants ONE market-data session per account. If the portal has
+            it, the honest fix is to stand down rather than compete — an
+            auto-recompete loop would evict the owner from their own portal
+            every time a batch job ran. */}
+        <button onClick={togglePause} disabled={pausing}
+          style={btnStyle(!pausing, paused ? TONE.ok : TONE.warn)}
+          title={paused
+            ? "Take the IBKR market-data session back for TradePro."
+            : "Release the IBKR session so you can use the portal. TradePro stops all IBKR calls until you resume."}>
+          {pausing ? "…" : paused ? "Resume TradePro (take session back)" : "Pause TradePro (free the portal)"}
+        </button>
+      </div>
     </div>
   );
 }
