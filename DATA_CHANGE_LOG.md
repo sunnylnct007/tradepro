@@ -97,3 +97,56 @@ that "did the data change?" has an answer during the 12 weeks.
 - **What**: `us_equity` tree retired, LSE ETFs moved to `uk_equity`, futures /
   crypto / foreign quarantined. Bar-cache directory listing went 286 → 250.
 - **Commits**: 8acdc49, 31975c1.
+
+### 2026-08-25 — 142 symbols held 24 Aug TWICE, and one of the copies was corrupt
+- **What**: the scheduled daily harvest died on 24 Aug (a `uv run` that had
+  drifted above its `cd`; launchd's cwd made it ModuleNotFoundError). With no
+  fresh daily bars, every lane fell through to yfinance and hit 247 rate-limit
+  errors between 02:00 and 05:00 UTC. The bar-cache delta merge keys on the
+  exact timestamp, and yfinance stamps a daily bar at 04:00 UTC where ibkr_web
+  stamps 13:30 UTC — so the same session was stored twice, with two closes.
+- **Symbols / range**: 142 symbols on 2026-08-24, plus an older vintage of the
+  same mechanism (12 symbols across 2021-08-23 → 2021-08-30, the IBKR
+  five-year-cap boundary week, and strays on 2026-08-12/13/14 and 2023-06).
+- **Repair**: `cli/dedupe_bar_sessions.py --apply` — 158 partitions, 232 rows
+  dropped, one row per session, golden source preferred. Store scans clean.
+- **Prevention**: `bar_cache/store.py::_dedupe_sessions` keys the daily merge on
+  the calendar session; the shrink guard now counts sessions, not rows.
+- **Commit**: 1ea2428.
+
+### 2026-08-25 — the stored ibkr_web daily bar for 24 Aug was WRONG on ~244 names
+- **What**: found while checking why a Swing candidate appeared and vanished.
+  TXN's stored bar read close 256.59 / low 256.19 against a true 258.94 /
+  255.18 — a low ABOVE its own intraday low, which is impossible. IBKR's own
+  API confirmed the true values independently. A forced re-source from the same
+  provider returned the correct bar, so it was a bad WRITE, not a provider
+  limit.
+- **Why it mattered**: the error was 0.95%, and it was the whole difference
+  between a 2.53σ Swing signal (fires) and 2.32σ (does not). The screen
+  published a trade that did not exist. Corrupt data produced a FALSE POSITIVE
+  on the screen; only the strategy's independent data path disagreed.
+- **Symbols / range**: all 244 universe names, 2026-08 daily partition,
+  re-sourced with `--force-refresh --ibkr-only`.
+- **Prevention**: `cli/check_daily_vs_intraday.py` — every daily bar must
+  contain its own RTH session, checked against the 5m lane we already hold.
+  3,726 bars now check clean; 1 residual (D, 24 Aug, high only, closes match).
+- **Commit**: 0e73317.
+
+### 2026-08-25 — the live Swing strategy was trading 170 of its 244 names
+- **What**: `_BUS_SYMBOL_CAP = 170` in `cli/paper_session.py`, sized when the
+  universe was "large_50 ∪ high_beta ≈ 163". The universe became a committed
+  244-name definition and the cap stopped covering it. The strategy started
+  with 244 symbols, fetched bars for the first 170, and never evaluated the
+  other 74 for entry — while the screen scanned all 244.
+- **Affects**: the forward test from its first day. F1 ("live candidates match
+  the committed harness") was comparing a 244-name screen to a 170-name
+  strategy, and the ~7 signals/week rate assumed 244.
+- **Fix**: cap now defaults to 400 (env-overridable) and any truncation logs at
+  ERROR naming the dropped symbols. A coverage loss must never be silent.
+- **NOT changed, needs an owner call**: the daily bars the strategy computes its
+  signal from come from YAHOO (`profiles.py`, the `ibkr` broker branch uses
+  `_yfinance_bus`; IBKR is used only for order routing). The screen and the
+  entire backtest evidence base use IBKR bars from the store. Today those two
+  disagreed on TXN and the strategy's Yahoo bar was the correct one. Changing a
+  strategy's signal data source mid-window changes what the forward test
+  measures, so it is flagged rather than flipped.

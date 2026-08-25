@@ -2062,8 +2062,32 @@ def main(argv: list[str] | None = None) -> int:
     # after the first cold fetch each day the 15-min reruns hit cache; cold
     # fetches degrade gracefully (a 429-dropped symbol just refills next run).
     # The ~500-symbol intraday scan is still guarded by MAX_INTRADAY_SYMBOLS.
-    _BUS_SYMBOL_CAP = 170
-    bus_symbols = symbols if len(symbols) <= _BUS_SYMBOL_CAP else symbols[:_BUS_SYMBOL_CAP]
+    #
+    # 25 Aug 2026 — THIS CAP WAS SILENTLY DROPPING 74 OF SWING'S 244 NAMES.
+    # The comment above sized it for "large_50 ∪ high_beta ≈ 163, + GLD", which
+    # was the universe when it was written. The universe is now a committed
+    # 244-name definition, and 170 stopped covering it the day that landed.
+    # The strategy was started with 244 symbols, fetched bars for the first 170,
+    # and never evaluated the remaining 74 for entry — while the published
+    # screen scanned all 244. A silent 30% coverage gap in a forward test whose
+    # F1 gate is "live candidates match the committed harness".
+    #
+    # Two changes. The cap now defaults to the SIZE OF THE UNIVERSE WE TRADE
+    # rather than a literal that goes stale the next time the universe moves.
+    # And truncation is no longer silent: dropping names from the bus is a
+    # coverage loss, so it says which ones and how many.
+    _BUS_SYMBOL_CAP = int(os.environ.get("TRADEPRO_BUS_SYMBOL_CAP", "400"))
+    bus_symbols = symbols
+    if len(symbols) > _BUS_SYMBOL_CAP:
+        dropped = symbols[_BUS_SYMBOL_CAP:]
+        bus_symbols = symbols[:_BUS_SYMBOL_CAP]
+        log.error(
+            "BUS CAP: %d symbol(s) will get NO BARS this session and so will "
+            "never be evaluated for entry — %s%s. The universe is %d names and "
+            "the cap is %d. This is a coverage loss, not a filter.",
+            len(dropped), ", ".join(dropped[:15]),
+            "…" if len(dropped) > 15 else "", len(symbols), _BUS_SYMBOL_CAP,
+        )
 
     if len(broker_list) > 1:
         bus, router = build_multi_broker_session(
