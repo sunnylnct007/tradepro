@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.tradepro.stay-awake</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies/scripts/stay-awake.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/skumar/.tradepro/logs/stay-awake.out</string>
+  <key>StandardErrorPath</key><string>/Users/skumar/.tradepro/logs/stay-awake.err</string>
+</dict>
+</plist>
