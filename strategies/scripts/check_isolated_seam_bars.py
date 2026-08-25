@@ -74,10 +74,37 @@ def main() -> int:
         mad = r.rolling(60).apply(lambda x: np.median(np.abs(x - np.median(x))), raw=True) * 1.4826
         z = (r / mad).abs()
         rev = r.shift(-1) / -r
+        src = df["source"]
         for t in z.index[(z > args.z) & (rev.between(0.9, 1.6))]:
             k = df.index.get_loc(t)
             if k == 0 or k + 1 >= len(df):
                 continue
+
+            # A SEAM REQUIRES A SOURCE BOUNDARY. If the bar and both neighbours
+            # came from the same provider there is no convention change
+            # available to produce a spike, whatever the statistics say.
+            #
+            # This gate is not an extra signal, it is the discriminator. Without
+            # it the statistical test flagged 28 COVID-crash bars — 2020-03-12,
+            # 03-13 and 03-16 across SPY, VOO, IVV, DIA, VTI and 17 others,
+            # every bar in that week yfinance-sourced with no ibkr row near it.
+            #
+            # The reversal test was supposed to exclude them and could not: I
+            # claimed a genuine crash reverses by LESS than it fell, which is
+            # true of a single-day shock in a calm regime and FALSE in a
+            # volatility cluster. VOO fell 9.67% and rebounded 9.34% — a 0.97
+            # reversal, inside the band — and the bounce itself was flagged as
+            # well as the fall. A statistical test encodes a model of normal;
+            # March 2020 was outside it. The boundary check has no model.
+            #
+            # Consequence had it not been caught: applying the manifest would
+            # have deleted the COVID crash for 22 symbols. March 2020 is one of
+            # only two regime stresses in the record, so removing it makes every
+            # strategy graded on this store look BETTER than it is — the
+            # direction nobody audits, because a good number invites no scrutiny.
+            if src.iloc[k] == src.iloc[k - 1] == src.iloc[k + 1]:
+                continue
+
             neighbours = (c.iloc[k - 1] + c.iloc[k + 1]) / 2
             nxt = df.index[k + 1]
             hits.append({
@@ -88,6 +115,8 @@ def main() -> int:
                 "move_pct": round(float(r[t]) * 100, 2),
                 "robust_z": round(float(z[t]), 1),
                 "month_end": bool(nxt.month != t.month),
+                "source_prev": str(src.iloc[k - 1]),
+                "source_next": str(src.iloc[k + 1]),
             })
 
     print(f"isolated seam bars across {len(syms)} universe symbols: {len(hits)}")

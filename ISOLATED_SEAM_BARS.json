@@ -1,41 +1,8 @@
 {
  "generated_utc": "2026-08-25",
- "count": 71,
+ "count": 43,
  "note": "adjusted closes isolated in a raw series; fixed by the adj_factor migration, NOT a separate phantom class",
  "rows": [
-  {
-   "symbol": "SPY",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 245.4904,
-   "raw_neighbours": 222.3925,
-   "implied_factor": 1.1039,
-   "move_pct": 8.55,
-   "robust_z": 10.8,
-   "month_end": false
-  },
-  {
-   "symbol": "VOO",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 206.7215,
-   "raw_neighbours": 227.4456,
-   "implied_factor": 0.9089,
-   "move_pct": -9.67,
-   "robust_z": 11.8,
-   "month_end": false
-  },
-  {
-   "symbol": "VOO",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 226.0354,
-   "raw_neighbours": 203.1115,
-   "implied_factor": 1.1129,
-   "move_pct": 9.34,
-   "robust_z": 11.4,
-   "month_end": false
-  },
   {
    "symbol": "VOO",
    "date": "2021-08-31",
@@ -45,7 +12,9 @@
    "implied_factor": 0.9303,
    "move_pct": -7.0,
    "robust_z": 13.1,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VOO",
@@ -56,73 +25,9 @@
    "implied_factor": 0.9232,
    "move_pct": -7.72,
    "robust_z": 10.5,
-   "month_end": true
-  },
-  {
-   "symbol": "IVV",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 226.1735,
-   "raw_neighbours": 248.4765,
-   "implied_factor": 0.9102,
-   "move_pct": -9.62,
-   "robust_z": 11.6,
-   "month_end": false
-  },
-  {
-   "symbol": "IVV",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 246.6959,
-   "raw_neighbours": 222.1581,
-   "implied_factor": 1.1105,
-   "move_pct": 9.07,
-   "robust_z": 11.0,
-   "month_end": false
-  },
-  {
-   "symbol": "DIA",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 189.174,
-   "raw_neighbours": 208.6746,
-   "implied_factor": 0.9066,
-   "move_pct": -10.06,
-   "robust_z": 12.4,
-   "month_end": false
-  },
-  {
-   "symbol": "DIA",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 207.0113,
-   "raw_neighbours": 184.8841,
-   "implied_factor": 1.1197,
-   "move_pct": 9.43,
-   "robust_z": 11.2,
-   "month_end": false
-  },
-  {
-   "symbol": "VTI",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 113.3954,
-   "raw_neighbours": 124.663,
-   "implied_factor": 0.9096,
-   "move_pct": -9.72,
-   "robust_z": 11.2,
-   "month_end": false
-  },
-  {
-   "symbol": "VTI",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 123.7165,
-   "raw_neighbours": 111.516,
-   "implied_factor": 1.1094,
-   "move_pct": 9.1,
-   "robust_z": 10.5,
-   "month_end": false
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -133,7 +38,9 @@
    "implied_factor": 0.7575,
    "move_pct": -24.32,
    "robust_z": 119.6,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -144,7 +51,9 @@
    "implied_factor": 0.7589,
    "move_pct": -24.19,
    "robust_z": 102.3,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -155,7 +64,9 @@
    "implied_factor": 0.7635,
    "move_pct": -23.93,
    "robust_z": 83.0,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -166,7 +77,9 @@
    "implied_factor": 0.7692,
    "move_pct": -23.11,
    "robust_z": 73.1,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -177,7 +90,9 @@
    "implied_factor": 0.769,
    "move_pct": -23.08,
    "robust_z": 78.6,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -188,7 +103,9 @@
    "implied_factor": 0.7746,
    "move_pct": -22.76,
    "robust_z": 58.3,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -199,7 +116,9 @@
    "implied_factor": 0.7749,
    "move_pct": -22.81,
    "robust_z": 42.2,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -210,7 +129,9 @@
    "implied_factor": 0.7804,
    "move_pct": -22.58,
    "robust_z": 22.7,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "HYG",
@@ -221,84 +142,9 @@
    "implied_factor": 0.7817,
    "move_pct": -21.65,
    "robust_z": 22.6,
-   "month_end": true
-  },
-  {
-   "symbol": "XLF",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 18.0541,
-   "raw_neighbours": 20.3364,
-   "implied_factor": 0.8878,
-   "move_pct": -10.81,
-   "robust_z": 10.3,
-   "month_end": false
-  },
-  {
-   "symbol": "XLF",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 20.4294,
-   "raw_neighbours": 17.8414,
-   "implied_factor": 1.1451,
-   "move_pct": 13.16,
-   "robust_z": 12.0,
-   "month_end": false
-  },
-  {
-   "symbol": "T",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 15.2126,
-   "raw_neighbours": 16.7494,
-   "implied_factor": 0.9082,
-   "move_pct": -9.24,
-   "robust_z": 11.1,
-   "month_end": false
-  },
-  {
-   "symbol": "MS",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 25.6601,
-   "raw_neighbours": 30.475,
-   "implied_factor": 0.842,
-   "move_pct": -15.08,
-   "robust_z": 10.2,
-   "month_end": false
-  },
-  {
-   "symbol": "XLP",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 43.941,
-   "raw_neighbours": 48.0892,
-   "implied_factor": 0.9137,
-   "move_pct": -9.4,
-   "robust_z": 13.9,
-   "month_end": false
-  },
-  {
-   "symbol": "XLU",
-   "date": "2020-03-16",
-   "source": "yfinance",
-   "stored": 20.9081,
-   "raw_neighbours": 23.585,
-   "implied_factor": 0.8865,
-   "move_pct": -11.36,
-   "robust_z": 16.8,
-   "month_end": false
-  },
-  {
-   "symbol": "SCHD",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 12.5396,
-   "raw_neighbours": 11.4095,
-   "implied_factor": 1.099,
-   "move_pct": 8.79,
-   "robust_z": 11.3,
-   "month_end": false
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -309,7 +155,9 @@
    "implied_factor": 0.8388,
    "move_pct": -16.28,
    "robust_z": 25.2,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -320,7 +168,9 @@
    "implied_factor": 0.8312,
    "move_pct": -16.96,
    "robust_z": 20.4,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -331,7 +181,9 @@
    "implied_factor": 0.8362,
    "move_pct": -17.45,
    "robust_z": 24.2,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -342,7 +194,9 @@
    "implied_factor": 0.8507,
    "move_pct": -14.87,
    "robust_z": 20.4,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -353,7 +207,9 @@
    "implied_factor": 0.8505,
    "move_pct": -14.39,
    "robust_z": 21.1,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -364,7 +220,9 @@
    "implied_factor": 0.8558,
    "move_pct": -15.37,
    "robust_z": 13.5,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -375,7 +233,9 @@
    "implied_factor": 0.8485,
    "move_pct": -15.49,
    "robust_z": 13.0,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -386,7 +246,9 @@
    "implied_factor": 0.8562,
    "move_pct": -15.01,
    "robust_z": 12.6,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "SCHD",
@@ -397,51 +259,9 @@
    "implied_factor": 0.8594,
    "move_pct": -13.87,
    "robust_z": 10.5,
-   "month_end": true
-  },
-  {
-   "symbol": "WFC",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 26.3154,
-   "raw_neighbours": 22.8737,
-   "implied_factor": 1.1505,
-   "move_pct": 13.57,
-   "robust_z": 10.8,
-   "month_end": false
-  },
-  {
-   "symbol": "PEP",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 94.8521,
-   "raw_neighbours": 105.7568,
-   "implied_factor": 0.8969,
-   "move_pct": -11.11,
-   "robust_z": 12.8,
-   "month_end": false
-  },
-  {
-   "symbol": "PEP",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 104.811,
-   "raw_neighbours": 93.927,
-   "implied_factor": 1.1159,
-   "move_pct": 10.5,
-   "robust_z": 12.2,
-   "month_end": false
-  },
-  {
-   "symbol": "PEP",
-   "date": "2020-03-16",
-   "source": "yfinance",
-   "stored": 93.0018,
-   "raw_neighbours": 104.9221,
-   "implied_factor": 0.8864,
-   "move_pct": -11.27,
-   "robust_z": 13.1,
-   "month_end": false
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VXUS",
@@ -452,7 +272,9 @@
    "implied_factor": 0.8528,
    "move_pct": -14.2,
    "robust_z": 22.0,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VXUS",
@@ -463,7 +285,9 @@
    "implied_factor": 0.8582,
    "move_pct": -14.1,
    "robust_z": 16.6,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VXUS",
@@ -474,7 +298,9 @@
    "implied_factor": 0.8589,
    "move_pct": -14.6,
    "robust_z": 19.2,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VXUS",
@@ -485,7 +311,9 @@
    "implied_factor": 0.8694,
    "move_pct": -12.85,
    "robust_z": 14.8,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VXUS",
@@ -496,7 +324,9 @@
    "implied_factor": 0.8773,
    "move_pct": -11.05,
    "robust_z": 12.7,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VXUS",
@@ -507,62 +337,9 @@
    "implied_factor": 0.8625,
    "move_pct": -13.97,
    "robust_z": 10.6,
-   "month_end": true
-  },
-  {
-   "symbol": "D",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 54.379,
-   "raw_neighbours": 59.9534,
-   "implied_factor": 0.907,
-   "move_pct": -9.68,
-   "robust_z": 10.2,
-   "month_end": false
-  },
-  {
-   "symbol": "D",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 59.7018,
-   "raw_neighbours": 53.3648,
-   "implied_factor": 1.1187,
-   "move_pct": 9.79,
-   "robust_z": 10.3,
-   "month_end": false
-  },
-  {
-   "symbol": "D",
-   "date": "2020-03-16",
-   "source": "yfinance",
-   "stored": 52.3506,
-   "raw_neighbours": 60.5368,
-   "implied_factor": 0.8648,
-   "move_pct": -12.31,
-   "robust_z": 12.7,
-   "month_end": false
-  },
-  {
-   "symbol": "USB",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 23.9516,
-   "raw_neighbours": 27.7743,
-   "implied_factor": 0.8624,
-   "move_pct": -12.7,
-   "robust_z": 10.3,
-   "month_end": false
-  },
-  {
-   "symbol": "DUK",
-   "date": "2020-03-16",
-   "source": "yfinance",
-   "stored": 59.3493,
-   "raw_neighbours": 66.5606,
-   "implied_factor": 0.8917,
-   "move_pct": -10.71,
-   "robust_z": 11.2,
-   "month_end": false
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "XLRE",
@@ -573,7 +350,9 @@
    "implied_factor": 0.8412,
    "move_pct": -14.9,
    "robust_z": 18.0,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "XLRE",
@@ -584,7 +363,9 @@
    "implied_factor": 0.8394,
    "move_pct": -16.28,
    "robust_z": 17.4,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "XLRE",
@@ -595,7 +376,9 @@
    "implied_factor": 0.8473,
    "move_pct": -16.7,
    "robust_z": 18.2,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "XLRE",
@@ -606,7 +389,9 @@
    "implied_factor": 0.8629,
    "move_pct": -14.01,
    "robust_z": 13.9,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "XLRE",
@@ -617,7 +402,9 @@
    "implied_factor": 0.8657,
    "move_pct": -13.24,
    "robust_z": 14.6,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "XLRE",
@@ -628,7 +415,9 @@
    "implied_factor": 0.8514,
    "move_pct": -15.68,
    "robust_z": 12.7,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "XLRE",
@@ -639,29 +428,9 @@
    "implied_factor": 0.8498,
    "move_pct": -14.66,
    "robust_z": 10.3,
-   "month_end": true
-  },
-  {
-   "symbol": "QUAL",
-   "date": "2020-03-12",
-   "source": "yfinance",
-   "stored": 71.5772,
-   "raw_neighbours": 78.5179,
-   "implied_factor": 0.9116,
-   "move_pct": -9.37,
-   "robust_z": 12.0,
-   "month_end": false
-  },
-  {
-   "symbol": "QUAL",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 78.0625,
-   "raw_neighbours": 70.8459,
-   "implied_factor": 1.1019,
-   "move_pct": 9.06,
-   "robust_z": 11.6,
-   "month_end": false
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "QUAL",
@@ -672,7 +441,9 @@
    "implied_factor": 0.9407,
    "move_pct": -6.08,
    "robust_z": 10.1,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "QUAL",
@@ -683,18 +454,9 @@
    "implied_factor": 0.9356,
    "move_pct": -6.49,
    "robust_z": 10.1,
-   "month_end": true
-  },
-  {
-   "symbol": "USMV",
-   "date": "2020-03-13",
-   "source": "yfinance",
-   "stored": 51.5785,
-   "raw_neighbours": 47.3692,
-   "implied_factor": 1.0889,
-   "move_pct": 6.66,
-   "robust_z": 10.0,
-   "month_end": false
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "USMV",
@@ -705,7 +467,9 @@
    "implied_factor": 0.9194,
    "move_pct": -7.94,
    "robust_z": 17.5,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "USMV",
@@ -716,7 +480,9 @@
    "implied_factor": 0.918,
    "move_pct": -8.41,
    "robust_z": 14.1,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "USMV",
@@ -727,7 +493,9 @@
    "implied_factor": 0.9304,
    "move_pct": -7.3,
    "robust_z": 12.6,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VLUE",
@@ -738,7 +506,9 @@
    "implied_factor": 0.8787,
    "move_pct": -12.37,
    "robust_z": 14.0,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VLUE",
@@ -749,7 +519,9 @@
    "implied_factor": 0.871,
    "move_pct": -13.21,
    "robust_z": 11.7,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VLUE",
@@ -760,7 +532,9 @@
    "implied_factor": 0.8736,
    "move_pct": -13.97,
    "robust_z": 17.5,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VLUE",
@@ -771,7 +545,9 @@
    "implied_factor": 0.881,
    "move_pct": -11.29,
    "robust_z": 11.9,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   },
   {
    "symbol": "VLUE",
@@ -782,7 +558,9 @@
    "implied_factor": 0.8913,
    "move_pct": -10.18,
    "robust_z": 10.2,
-   "month_end": true
+   "month_end": true,
+   "source_prev": "ibkr_web",
+   "source_next": "ibkr_web"
   }
  ]
 }
