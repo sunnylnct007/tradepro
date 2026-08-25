@@ -195,3 +195,70 @@ at the NEXT OPEN was measured separately:
 delay, not slippage, and F3 measures only what happens beyond it. The overnight
 gap at entry runs +0.13% median — a dip buyer is buying after a fall, so the
 open tends to gap UP against you.
+
+---
+
+# AMENDMENT, 25 Aug 2026 — the sleeve had NO POSITION LIMIT. Window restarts.
+
+Found while answering the owner's question "what I need is a proper system that
+can tell me what to get into and what not to."
+
+**This document modelled ~84 trades over twelve weeks at 5% of capital each and
+never once asked how many were open SIMULTANEOUSLY.** Neither did the strategy.
+Measured over 16 years (`backtests/studies/portfolio_capacity_v1.py`):
+
+    SWING   2,503 trades   median 7 concurrent   p95 28   MAX 62
+
+At 5% each that is 35% of capital at the median, **140% at the 95th percentile
+and 310% at the peak**. The strategy had no cap, the router has no cap, and
+this document set none. A quiet fortnight followed by a broad selloff — which
+is precisely when a mean-reversion rule fires most — would have tried to open
+tens of positions on an account that cannot fund them.
+
+The expected-outcome table above (median +4.2%, 5th percentile −5.0%, 21%
+chance of a losing quarter) is therefore **not a description of what this
+strategy would have done**. It priced 84 sequential trades; the strategy would
+have attempted an unbounded overlapping book.
+
+## The fix
+
+* `MAX_CONCURRENT = 12`, chosen from the flat part of the measured curve
+  (account return is 81–91% for any cap between 6 and 28) rather than tuned.
+  12 × 5% commits at most 60% of capital.
+* **Position size stays at 5%**, deliberately, so the expected-outcome table
+  above remains the thing the result is graded against.
+* Signals beyond the cap are DECLINED AND LOGGED as `skip-full` — a real signal
+  refused for capital, not a rejected setup. Those are different facts and the
+  decision log now distinguishes them.
+
+## And a second defect the cap exposed
+
+Once the sleeve can be full it must CHOOSE, and it was choosing alphabetically
+— the order the bus reaches symbols in. Measured, that costs more than half the
+edge: per-trade mean falls from +1.10% (take everything) to **+0.52%** at cap 8
+under first-come-first-served.
+
+Six ranking rules were tested against that control with gates written first
+(`RANKING_GATES_V1.md`, b8b82f2). **Only reward:risk is positive in all four
+two-split cells** (+0.04 / +0.29 / +0.09 / +0.07), lifting cap-8 mean to
++0.68% and cap-15 to +0.82%, and it also improves the worst trade by 5.5
+points. Deepest-sigma — which I predicted would win — is negative in three
+cells and loses to the alphabetical control outright at cap 15.
+
+## Window restart
+
+**START moves from 2026-08-24 to 2026-08-26.** The test had run two sessions
+and produced ZERO trades, so nothing is lost, and the alternative is spending
+twelve weeks measuring a strategy that could not have been funded.
+
+    START:  2026-08-26
+    END:    2026-11-18   (START + 84 days)
+
+Under this document's own rule this is the correct call: "F1, F2 or F5 failing
+= a platform defect. Fix it, restart the window." An unbounded position count
+is a platform defect — it would have been discovered as an account that could
+not fund its own signals, in week three, with real trades in the record.
+
+**What is NOT changed:** the entry rule, the exit rule, the stop, the timeout,
+the universe, the position size, and every gate threshold. The amendment adds
+a bound and a selection rule to a strategy that had neither.

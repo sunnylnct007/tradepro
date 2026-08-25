@@ -56,6 +56,23 @@ class MeanReversionSwingStrategy(Strategy):
     #: Fraction of configured capital committed to a single position.
     DEFAULT_POSITION_PCT = 0.05
 
+    #: Most positions this sleeve may hold at once.
+    #
+    # UNTIL 25 AUG 2026 THERE WAS NO CAP AT ALL. Measured over 16 years, Swing
+    # asks for a median of 7 concurrent positions, 28 at the 95th percentile
+    # and a maximum of 62 (backtests/studies/portfolio_capacity_v1.py). At the
+    # 5% per position the forward simulation assumed, the p95 state is 140% of
+    # capital and the peak is 310%. Nothing in the strategy, the router or the
+    # gates document ever bounded it — the forward test modelled ~84 trades
+    # over twelve weeks and never asked how many were open simultaneously.
+    #
+    # 12 is chosen from the flat part of the curve, not tuned: account return
+    # is 81-91% anywhere between caps of 6 and 28, so the answer does not
+    # depend on picking this number correctly. 12 x 5% commits at most 60% of
+    # capital, which keeps the 5% position size the forward simulation was
+    # built on rather than re-basing the expectations mid-window.
+    MAX_CONCURRENT = 12
+
     def __init__(self, *a, **kw) -> None:
         super().__init__(*a, **kw)
         self._entry_bar: dict[str, str] = {}      # symbol -> session date of fill
@@ -160,6 +177,44 @@ class MeanReversionSwingStrategy(Strategy):
         if not entry_signal(closes, i):
             return []
 
+        # ── how many slots are free? ──────────────────────────────────────
+        open_now = len(self._entry_bar) + len(getattr(self, "_in_flight_symbols", ()) or ())
+        free = self.MAX_CONCURRENT - open_now
+        if free <= 0:
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp, action="skip-full",
+                reason=(f"holding {open_now} of {self.MAX_CONCURRENT} slots — the sleeve is "
+                        f"full. This is a real signal being declined for capital, not a "
+                        f"rejected setup."))
+            return []
+
+        # ── and is this one good enough to spend a slot on? ───────────────
+        #
+        # WHY THIS EXISTS. Capping concurrency means the strategy must CHOOSE,
+        # and until now it chose by whichever symbol the bus reached first —
+        # alphabetical. Measured, that costs more than half the edge: per-trade
+        # mean falls +1.10% (take everything) to +0.52% (cap 8, first-come).
+        #
+        # Six ranking rules were tested against the alphabetical control with
+        # gates written first (RANKING_GATES_V1.md, b8b82f2). Only reward:risk
+        # — the distance to the 20-day target against the fixed -8% stop —
+        # is positive in ALL FOUR two-split cells. Deepest-sigma, lowest-ATR,
+        # furthest-above-200 and own-record all fail the split; two of them
+        # looked good on the full sample and collapsed on being split.
+        #
+        # Sigma loses to reward:risk because it is normalised by the symbol's
+        # own volatility while the stop is absolute: 3 sigma on a quiet name
+        # can be 2% of upside against the same 8% of risk. Reward:risk asks the
+        # question the position actually faces.
+        rank = self._ranked_today(bar)
+        if rank is not None and sym not in rank[:free]:
+            place = rank.index(sym) + 1 if sym in rank else len(rank)
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp, action="skip-rank",
+                reason=(f"ranks {place} of {len(rank)} firing today by reward:risk, and only "
+                        f"{free} slot(s) are free. A better signal has the slot."))
+            return []
+
         qty = self._size(bar.close)
         if qty < 1:
             self.log_decision(symbol=sym, bar_ts=bar.timestamp, action="skip-size",
@@ -202,6 +257,59 @@ class MeanReversionSwingStrategy(Strategy):
                           f"stop={stop_price(closes[i]):.2f}")]
 
     # ── helpers ───────────────────────────────────────────────────────────
+    def _ranked_today(self, bar: Bar) -> list[str] | None:
+        """Every symbol firing today, best reward:risk first.
+
+        Ranking needs to see the whole day's competition, and `on_bar` only
+        ever sees one symbol — so the day's candidate list is built ONCE and
+        persisted. It has to persist rather than sit in memory: the paper
+        daemon restarts on a */15 schedule, and an in-memory list would be
+        rebuilt several times a session and could rank differently each time.
+        That is exactly the failure that made the Ichimoku sleeve churn.
+
+        Returns None on any failure, and the caller then falls back to taking
+        the signal. FAIL OPEN is deliberate here: the cap already bounds the
+        risk, so the worst case of a missing ranking is the old alphabetical
+        behaviour, whereas failing closed would silently stop trading.
+        """
+        day = self._day(bar.timestamp)
+        key = f"ranked:{day}"
+        try:
+            cached = self.recall(key, None)
+            if cached:
+                return list(cached)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from ...universe import universe_symbols
+            scored: list[tuple[float, str]] = []
+            for cand in universe_symbols():
+                closes, _ = self._history(cand, bar)
+                if not closes:
+                    continue
+                k = len(closes) - 1
+                if not entry_signal(closes, k):
+                    continue
+                # reward:risk — upside to the 20-day target against the fixed
+                # stop. Both in percent, which is the unit the position is
+                # actually risked in.
+                tgt = target_price(closes, k)
+                if closes[k] <= 0:
+                    continue
+                scored.append(((tgt / closes[k] - 1) / STOP_PCT, cand))
+            ranked = [c for _, c in sorted(scored, reverse=True)]
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("could not rank today's candidates (%s) — falling back to "
+                         "first-come, which is what ran before 25 Aug", str(exc)[:120])
+            return None
+        try:
+            self.remember(key, ranked)
+        except Exception:  # noqa: BLE001
+            _log.warning("could not persist today's ranking; it will be rebuilt")
+        _log.info("ranked %d firing candidate(s) for %s by reward:risk: %s",
+                  len(ranked), day, ", ".join(ranked[:10]) or "none")
+        return ranked
+
     def _history(self, sym: str, bar: Bar):
         """Settled daily closes from the canonical store. Never the live bus —
         the backtest ran on settled bars, so the live signal must too."""
