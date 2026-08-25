@@ -40,6 +40,7 @@ import type { Candle, CandleSeries, Watchlist } from "../../api/types";
 import { CandleIchimokuChart } from "./CandleIchimokuChart";
 import { chartSymbolFor } from "../../util/brokerSymbols";
 import { fmtMoney, fmtNum, fmtPct, signColour } from "./deskFormat";
+import { absoluteVolumeCaveat } from "../../lib/volumeUnits";
 
 const MOBILE_BREAKPOINT = 760;
 const SEP = "#1b2233";
@@ -625,6 +626,13 @@ function DetailRail({ instrument, tf }: { instrument: Instrument | null; tf: str
   }
 
   const stats = deriveStats(series?.candles ?? []);
+  // Absolute volume is not something we can stand behind until the store's
+  // lot-conversion double-count is repaired. See lib/volumeUnits.
+  const volumeCaveat = "the stored volume series is on an unverified scale "
+    + "(the IBKR lot conversion ran twice) — it reads about 100x high for some "
+    + "months and resolutions, and a single figure has nothing to check it "
+    + "against. Restored when the store is repaired after the forward test."
+    + (absoluteVolumeCaveat(series?.candles ?? []) ? " This window also changes units partway through." : "");
   const ccy = instrument.held?.ccy ?? null;
   const noData = !loading && (series?.candles.length ?? 0) === 0;
 
@@ -659,7 +667,23 @@ function DetailRail({ instrument, tf }: { instrument: Instrument | null; tf: str
             <Stat label="Day low" value={fmtMoney(stats.dayLow, ccy)} />
             <Stat label="52w high" value={fmtMoney(stats.high52w, ccy)} />
             <Stat label="52w low" value={fmtMoney(stats.low52w, ccy)} />
-            <Stat label="Volume" value={stats.volume != null ? fmtNum(stats.volume, 0) : "n/a"} />
+            {/* ABSOLUTE volume, withheld. A ratio can be sanity-checked against
+                its own window; a single number cannot — there is nothing in
+                "6,247,757,850" to tell a reader that SPY does about 59 million
+                shares a day. The stored series is 100x high in some months and
+                at every resolution (the lot conversion ran twice, data lane
+                6c22ebd), and a one-day intraday window is uniformly wrong with
+                no seam to detect, so the scale-break test can only ever return
+                "definitely broken", never "definitely fine".
+
+                So this says nothing rather than something confident and wrong.
+                It comes back when the store is repaired after the forward-test
+                window. The chart's RVOL and OBV, and the screens' volume ratio,
+                are guarded separately — this was the one surface showing volume
+                raw. */}
+            <Stat label="Volume"
+                  value={volumeCaveat ? "withheld" : (stats.volume != null ? fmtNum(stats.volume, 0) : "n/a")}
+                  title={volumeCaveat ?? undefined} />
             {stats.asOf && (
               <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 6 }}>
                 As of {stats.asOf} · daily bars · no live bid/ask feed (omitted, not faked)
@@ -721,9 +745,9 @@ function marketValue(h: Held): string {
 // Small shared bits
 // ---------------------------------------------------------------------------
 
-function Stat({ label, value, colour }: { label: string; value: string; colour?: string }) {
+function Stat({ label, value, colour, title }: { label: string; value: string; colour?: string; title?: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "3px 0", fontSize: 12 }}>
+    <div title={title} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "3px 0", fontSize: 12 }}>
       <span style={{ color: "var(--text-muted)" }}>{label}</span>
       <span style={{ fontFamily: "monospace", color: colour ?? "var(--text)" }}>{value}</span>
     </div>

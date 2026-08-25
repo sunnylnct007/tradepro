@@ -18,6 +18,7 @@ import {
 import { api } from "../api/client";
 import { config } from "../config";
 import type { Candle, CandleSeries, CorporateActionMarker, EarningsMarker, InsiderTrade } from "../api/types";
+import { volumeScaleBreak } from "../lib/volumeUnits";
 
 /**
  * Inline price history chart for a single symbol — used on the
@@ -241,6 +242,8 @@ export function PriceHistoryChart({
   }
 
   const { data, high52w, low52w, high52wDate, low52wDate, last, peak, peakDate, support, resistance } = computed;
+  // Does the volume series change units inside the window being drawn?
+  const volumeBreak = volumeScaleBreak(data as { volume?: number | null }[]);
   const tone = last >= (high52w + low52w) / 2 ? "var(--up)" : "var(--neutral)";
   const lastDate = data[data.length - 1].t;
   // Range zones: bottom 35% = "dip" (green tint), middle 30% = neutral,
@@ -523,12 +526,27 @@ export function PriceHistoryChart({
               color: "white",
               fontSize: 12,
             }}
-            formatter={(v: number) => v.toLocaleString()}
+            formatter={(v: number) => `${v.toLocaleString()} (units unverified)`}
             labelStyle={{ color: "#9ba1ad" }}
           />
           <Bar dataKey="volume" name="Volume" fill="#9b6eff" fillOpacity={0.5} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
+      {/* The bars' SHAPE survives a uniform units error, because the Y axis is
+          hidden and only relative height is read. It does NOT survive a units
+          change INSIDE the window: a 100x step flattens every earlier bar to
+          nothing, and the strip then reads as "no volume before August" — which
+          is worse than a wrong number, because it looks like information.
+          The tooltip is caveated regardless, since an absolute figure has
+          nothing to check it against. See lib/volumeUnits. */}
+      {volumeBreak > 0 && (
+        <div style={{ marginTop: 4, fontSize: 10, color: "#E6A817", lineHeight: 1.5 }}>
+          Volume strip: the stored series changes units partway through this window
+          (the IBKR lot conversion ran twice), so bars before that point are
+          flattened to near-zero and are NOT low-volume sessions. Relative heights
+          are only comparable within each side of the step.
+        </div>
+      )}
       <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>
         Price line uses split-adjusted close so 4:1 / 2:1 splits don't render as
         fake crashes. SMA(200) is the same line the engine uses for the trend

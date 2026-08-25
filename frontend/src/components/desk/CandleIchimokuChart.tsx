@@ -56,6 +56,7 @@ import { config } from "../../config";
 import { fmtEntryDate } from "./deskFormat";
 import { atrBrickSize, renkoBricks } from "./renko";
 import type { Candle, CandleSeries } from "../../api/types";
+import { volumeScaleBreak } from "../../lib/volumeUnits";
 
 /** Timeframe pill → visible window in calendar days. Matches QuoteView's pills. */
 const WINDOW_DAYS: Record<string, number> = {
@@ -1380,37 +1381,6 @@ function adxPoints(candles: Candle[], n = 14): { time: UTCTimestamp; value: numb
 }
 
 
-/** Index of a VOLUME UNITS DISCONTINUITY in the series, or -1.
- *
- *  Bars written before and after a units fix are on different scales, and every
- *  volume figure derived by COMPARING bars across that seam is then nonsense —
- *  while looking entirely plausible. The IBKR lot->shares conversion was applied
- *  twice for one pipeline (parquet stored SPY at 5.9bn shares/day against a real
- *  ~59m); once the boundary fix lands, correct bars sit beside inflated ones.
- *
- *  A ratio only cancels a UNIFORM error. RVOL compares a bar to the same minute
- *  on PRIOR SESSIONS, and OBV accumulates across the whole series — so both
- *  read a ~99% collapse the morning after a fix that was entirely correct.
- *  Absolute volume shows an obvious step and needs no help; the derived figures
- *  are the dangerous ones, because nobody questions a plausible number.
- *
- *  Detection is the largest ADJACENT step, not a half-vs-half median. The
- *  research lane's first detector split the window in half and reported
- *  everything clean, because only four of twenty bars preceded the change and
- *  both halves landed on the inflated side.
- */
-function volumeScaleBreak(candles: Candle[]): number {
-  const MIN_STEP = 20;   // a units error is ~100x; real volume never steps this far
-  let worst = -1, worstRatio = 1;
-  for (let i = 1; i < candles.length; i++) {
-    const a = Number(candles[i - 1].volume) || 0;
-    const b = Number(candles[i].volume) || 0;
-    if (a <= 0 || b <= 0) continue;
-    const r = a > b ? a / b : b / a;
-    if (r > worstRatio) { worstRatio = r; worst = i; }
-  }
-  return worstRatio >= MIN_STEP ? worst : -1;
-}
 
 /** On-Balance Volume — cumulative signed volume. Orthogonal to price, which
  *  is the point: it answers "is anyone actually behind this move". MU rallied
