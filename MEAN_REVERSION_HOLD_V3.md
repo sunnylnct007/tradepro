@@ -226,3 +226,58 @@ already given: deeper history changes the population, G4 moves with population
 size, and G5 now has 1.1 points of slack. Queued for the post-window store
 session, which folds this in with the adj_factor/close convention and the
 XLC-XLRE depth so the store is opened once rather than four times.
+
+---
+
+# The adjusted/raw close seam does NOT change the verdict. Measured, 25 Aug.
+
+The data lane measured (12a14c5) that the parquet store mixes close
+conventions: yfinance-sourced rows are ADJUSTED and sit 8-14% below the raw API
+close, while ibkr_web rows agree with it to 0.000%.
+
+Price is what this rule reads, so that had to be checked rather than assumed.
+
+**The exposure is real.** 160 of the 244 universe symbols carry a >=5% one-day
+close jump coinciding with a change of source — 893 such steps. HYG, a bond
+ETF, shows 19 of them with 18 sign flips, alternating at month-partition
+boundaries. A bond ETF does not move 30% in a day; that is a convention
+flip-flop, not price.
+
+**The reach into the graded result is much smaller: 104 of 3,636 entry signals,
+2.9%**, because the seams sit on month boundaries and only some 20-day windows
+straddle one that also stepped.
+
+Re-graded with every seam-contaminated signal excluded
+(`backtests/studies/mean_reversion_seam_v1.py`, pre-registered prediction in
+its docstring):
+
+| | with seams | seams excluded |
+|---|---|---|
+| trades | 2,503 | 2,429 |
+| G1 win | 73.2% | 73.3% |
+| G2 mean | +1.10% | +1.05% |
+| G3 hold | 7 | 7 |
+| G4 tail | 17.8% | 17.9% |
+| G5 worst | -23.2% | -23.2% |
+
+**All six gates hold, and the two-split passes in all four cells both ways.**
+
+I predicted in advance that if anything moved it would be G4 or G5, the
+extreme-value gates, since a 21.6% artificial step is the shape that
+manufactures an outlier and G5's margin is only 1.8 points. **Those two moved
+least** — G4 by 0.1 of a point, G5 not at all. The worst trade is -23.2% in
+both runs, so that figure is not a convention artefact, which was the specific
+thing worth ruling out.
+
+What the seams actually did is duller: flattered the mean by about five basis
+points a trade. Worth removing when the store is repaired; not worth alarm, and
+not a reason to stop the forward test.
+
+## Footnote: the baseline moved this morning, and not because of the rule
+
+Today's run is **2,503 trades / 73.2% / +1.10%** where this document records
+2,310 / 72.8% / +1.06%. The store moved underneath the harness: 158
+de-duplicated partitions, and all 244 August daily partitions re-sourced after
+the corrupt ibkr_web writes. The direction is favourable and no gate changes,
+which is the only reason this is a footnote. **Any future re-grade should
+expect 2,503/+1.10%, not the recorded figures.**
