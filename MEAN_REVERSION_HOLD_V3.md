@@ -334,3 +334,82 @@ through it.
 1,038 bad ones, so a failure would not have proved the bad closes caused it.
 The repair is still worth doing. It is not urgent, and it is not a reason to
 pause the forward test.
+
+
+---
+
+# CORRECTION: G5's -23.2% was a DATA ARTEFACT. The real worst trade is -17.7%.
+
+Written 25 Aug 2026, correcting my own study from earlier the same day.
+
+I claimed the -23.2% worst trade was "triple-confirmed as a property of the
+STRATEGY rather than the data" because it held across three runs. **That was
+wrong, and the error was in my filter, not the data.**
+
+`mean_reversion_seam_v1` excluded signals whose **20-day SIGNAL WINDOW**
+contained a convention seam. It never examined the **HOLDING PERIOD** — where
+the exit happens, and therefore where a phantom bar decides what a trade is
+worth. I filtered the half of the trade that produces the signal and ignored
+the half that produces the result.
+
+The worst trade in the whole backtest is HYG, signal 2021-11-26. HYG is a bond
+ETF that moved +/-0.5% a day all that month:
+
+    2021-11-26   85.47   ibkr_web   <- signal
+    2021-11-29   86.00   ibkr_web
+    2021-11-30   65.42   yfinance   -23.9%   <- one bar
+    2021-12-01   85.37   ibkr_web   +30.5%
+
+One yfinance bar at 65.42 between ibkr_web bars at 86.00 and 85.37. The -8%
+stop is "gapped through" by the phantom and fills at min(stop, open) = -23.2%.
+It sits at i+4 — inside the holding period, outside the signal window — so my
+filter passed it through every time. **Three confirmations of the same blind
+spot are not three confirmations.**
+
+My falsification test was blind too. `mean_reversion_corrected_v1` said "if a
+corrected close changes the worst trade, -23.2% was an artefact". It did not
+change — because the data lane's manifest covers `source == "ibkr"` rows and
+HYG's phantom is a `yfinance` row. I designed the right test and pointed it at
+a dataset that could not contain the fault.
+
+## Re-graded with the whole trade path filtered
+
+| | baseline | signal window only | **whole path** |
+|---|---|---|---|
+| trades | 2,503 | 2,429 | 2,385 |
+| G1 win | 73.2% | 73.3% | 74.0% |
+| G2 mean | +1.10% | +1.05% | +1.13% |
+| G3 hold | 7 | 7 | 7 |
+| G4 tail | 17.8% | 17.9% | **16.0%** |
+| G5 worst | -23.2% | -23.2% | **-17.7%** |
+
+All six still PASS, two-split passes in all four cells.
+
+**G5's true margin is 7.3 points, not 1.8.** Every warning in this document
+that "G5 is now a gate to watch, the margin is only 1.1 points" was sized off a
+fabricated number and should be read as withdrawn. The strategy is SAFER than
+reported.
+
+The real worst trade is **-17.7%, HOOD on 2024-08-02** — a genuine selloff in a
+volatile name, and the same figure this rule recorded on the 89-name universe
+before the hold change. The clean tail is consistent across two independent
+universes.
+
+## What survives
+
+The mean and the win rate do not move under ANY of the four filters. The
+central claim — that the edge is real and not a data artefact — holds
+throughout. Only the TAIL was contaminated, and the tail is one gate.
+
+## The invariant this needed
+
+Not "check more carefully" — I checked three times, and each check asked the
+same question, because that is where my model of the rule lives. The reusable
+form is:
+
+> **A trade result must be explainable by bars that are themselves consistent.**
+> Not "is the signal clean" but "is every bar this trade TOUCHED clean" —
+> entry, exit, and everything in between.
+
+Checkable without knowing what is wrong with the data, which is the property
+that makes it worth having.
