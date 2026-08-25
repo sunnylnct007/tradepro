@@ -413,3 +413,42 @@ form is:
 
 Checkable without knowing what is wrong with the data, which is the property
 that makes it worth having.
+
+---
+
+# G5 revised a THIRD time: -21.3% on fully corrected data. 25 Aug, final.
+
+Both manifests, all four OHLC fields. Neither manifest alone is enough:
+correcting only the `ibkr` rows leaves G5 at -23.2% (the worst trade is HYG, a
+*yfinance* seam); correcting only the seams gives -17.7% (BROS is still masked
+by a bad `ibkr` low). Each hides the other's worst case.
+
+| | trades | win | mean | G4 | G5 |
+|---|---|---|---|---|---|
+| as stored | 2,503 | 73.2% | +1.10% | 17.8% | −23.2% |
+| + ibkr only | 2,517 | 73.2% | +1.11% | 18.1% | −23.2% |
+| + seam only | 2,508 | 73.2% | +1.08% | 17.5% | −17.7% |
+| **both** | **2,522** | **73.2%** | **+1.09%** | **17.9%** | **−21.3%** |
+
+**The store was FLATTERING the tail.** BROS, signal 2024-07-24, entry 36.96,
+stop 34.00:
+
+    2024-08-07   stored low 28.80   API low 37.50   <- stop hit on a FALSE low
+    2024-08-08   stored low 26.96   API low 26.96   <- the real collapse
+
+The stored low on 7 Aug sits 23% below the truth and stopped the trade out a
+day EARLY at a better price, before the genuine fall on the 8th.
+
+**All six gates still pass, but G5's margin is 3.7 points, not the 7.3 stated
+earlier today.** That figure is withdrawn. Three revisions, all corrections to
+the measurement rather than changes to the strategy:
+
+    -23.2%  raw store             — a phantom HYG bar, artefact
+    -17.7%  whole-path exclusion  — real, but on a partial correction
+    -21.3%  both manifests, OHLC  — current best measurement
+
+Honest summary: a −8% stop on this universe produces roughly a **−21% worst
+case** once the data is right.
+
+**Coverage limit, carried with the number:** 79 of 244 symbols have no API
+coverage, so this is a measurement over the covered set, not the universe.
