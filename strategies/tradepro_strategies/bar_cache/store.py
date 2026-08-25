@@ -634,15 +634,48 @@ class BarStore:
                     from pathlib import Path as _P
                     _qdir = _P.home() / ".tradepro" / "quarantine"
                     _qdir.mkdir(parents=True, exist_ok=True)
-                    _qname = (f"reject_{canonical}_{partition}_{provider_name}_"
+
+                    # REPORT A REPEAT REJECTION ONCE PER DAY, NOT ONCE PER RUN.
+                    #
+                    # The rejection itself is correct and must keep happening —
+                    # a bad frame must never reach disk. What was wrong is the
+                    # VOLUME: on 2026-08-25 this produced 356 warn-level run-log
+                    # entries from just 25 distinct symbol-months, the same
+                    # frames re-fetched and re-rejected up to 28 times each,
+                    # because a permanently-bad upstream frame is retried on
+                    # every harvest run.
+                    #
+                    # The cost is not disk (3.6MB) — it is that the owner opened
+                    # the board and saw fourteen warnings about garbage being
+                    # correctly refused, with ONE genuine degraded buried among
+                    # them (IBKR market data dark, account-wide, mid-session).
+                    # A guard that reports correct behaviour at the same volume
+                    # and severity as a real fault trains people to stop reading
+                    # the board, which costs more than the fault did.
+                    #
+                    # Not suppressed permanently: yfinance can and does fix its
+                    # own history, so the frame is re-attempted and re-reported
+                    # each day. Only the repetition within a day is collapsed.
+                    _key = f"{canonical}_{partition}_{provider_name}"
+                    _today = datetime.now(timezone.utc).strftime('%Y%m%d')
+                    _already = any(f.name.startswith(f"reject_{_key}_{_today}")
+                                   for f in _qdir.glob(f"reject_{_key}_*.parquet"))
+
+                    _qname = (f"reject_{_key}_"
                               f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.parquet")
-                    df.to_parquet(_qdir / _qname)
-                    from ..run_log import log_run
-                    log_run("bar-cache", "frame-quarantined", "warn",
-                            broker=provider_name, symbol=canonical,
-                            error=(f"{canonical} {partition}: {provider_name} frame "
-                                   f"REJECTED by validation ({str(exc)[:120]}) — "
-                                   f"preserved as quarantine/{_qname}"))
+                    if not _already:
+                        df.to_parquet(_qdir / _qname)
+                        from ..run_log import log_run
+                        log_run("bar-cache", "frame-quarantined", "warn",
+                                broker=provider_name, symbol=canonical,
+                                error=(f"{canonical} {partition}: {provider_name} frame "
+                                       f"REJECTED by validation ({str(exc)[:120]}) — "
+                                       f"preserved as quarantine/{_qname}"))
+                    else:
+                        _log.info(
+                            "bar_cache: %s %s rejected again by %s (already reported "
+                            "today; frame preserved from the first rejection)",
+                            canonical, partition, provider_name)
                 except Exception:  # noqa: BLE001 — quarantine must never break the chain walk
                     _log.debug("quarantine write failed (non-fatal)", exc_info=True)
                 continue
