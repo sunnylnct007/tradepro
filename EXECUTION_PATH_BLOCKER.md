@@ -72,3 +72,52 @@ churn produced enough T212 fills to make the book look alive.
 
 Until step 2 passes, the forward test cannot begin — not because the strategy
 is not ready, but because the instrument that measures it reads zero.
+
+---
+
+# ROOT CAUSE, found by probe. 25 Aug, same day.
+
+Placed ONE probe order through the exact path Swing uses — `POST /api/oms/orders`
+then `/approve`, IBKR_PAPER, 1 share of KO, market order, during market hours.
+
+**Placement WORKS.** The order came back `SUBMITTED` with a real broker order
+id, `1904007755`. So the earlier theory — that placement fails to record an id
+— was wrong for this path.
+
+**The blotter read returns NOTHING.** Seventy minutes later, with the order
+still `SUBMITTED` and `filledQty 0`, triggering the reconciler gives:
+
+    {"brokerOrders": 0, "omsOpen": 7, "appliedCount": 7,
+     "applied": [{"symbol":"KO_US_EQ","brokerOrderId":"1904007755",
+                  "action":"no-broker-match (aged out of blotter)"}, ...]}
+
+**`brokerOrders: 0`.** IBKR returns an empty order list, so EVERY open OMS
+order — including one placed seventy minutes earlier — is classified
+"aged out of blotter". That label is itself wrong: it assumes a populated
+blotter and an old order, and says nothing useful when the list is empty.
+
+## So the chain is
+
+1. The order is placed and IBKR returns an order id. **Works.**
+2. The reconciler reads IBKR's order blotter. **Returns zero rows.**
+3. With nothing to match, no fill is ever recorded.
+4. Orders sit in SUBMITTED indefinitely — six of them since 7 and 20 August —
+   or are force-marked FILLED at price 0 by another path.
+
+That is the complete explanation for six fills at zero and for the nine
+never-resolved orders. It is a single broken READ, not a broken write.
+
+## What to fix, in order
+
+1. **Make the blotter read work.** Same shape as the position-seeding fix on
+   24 Aug: that path was moved off the retired gateway onto the Web API and
+   started returning real data. The ORDERS read was not moved with it.
+2. **Fix the label.** "aged out of blotter" must not be emitted when the
+   blotter is EMPTY — an empty broker response is a different fact from an
+   order too old to appear, and reporting them identically is what let this
+   sit unnoticed while `appliedCount: 7` read like success.
+3. **Refuse to record a fill at price 0.** Whatever path is force-filling at
+   zero must fail loud instead. A zero that reconciles is worse than an error.
+
+Until (1) passes and one round trip shows a non-zero fill price, the forward
+test cannot measure anything it was designed to measure.
