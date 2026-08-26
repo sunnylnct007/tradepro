@@ -397,3 +397,42 @@ provider order, so it wants the store session, not the middle of a forward test.
 execution path, having grepped only Python. There is one, in .NET. If you are
 tracing execution, look at `PostgresOmsService.cs` and `IBKRClient.cs` — the
 Python side only *pushes* to the OMS.
+
+## 2026-08-26 — WHEEL SCREEN: 0 eligible was OUR BUG, not missing data
+
+The desk showed "none eligible" with 67 of 82 rows blocked on *"IV-Rank
+unavailable — cannot confirm the vega edge"* — while the SAME ROWS displayed a
+vega edge (NVDA 1.21, SLV 1.21, XLF 1.46, TLT 1.07). Both cannot be true.
+
+Cause was ordering in `cli/options_screen.py`:
+
+```
+1384  ctx = MarketContext(iv_hv_ratio = ... if ivr.available else None)
+1405  evaluate(cand, ctx, ...)                  <- GATE RAN HERE (saw None)
+1426  iv_solved = solve_iv_and_crosscheck(...)  <- solve succeeded HERE
+1436  ivr = replace(ivr, available=True, iv_hv_ratio=1.21)  -> the DISPLAY
+```
+
+The 15 Aug "solve IV, don't just fetch it" work was correct all along; it just
+ran after its only consumer. Fixed in 998fee7 — solve moved above `ctx`, exactly
+one solve site.
+
+**Measured before/after on the same three symbols:** 0 eligible → **2 of 3**
+(SLV best, CSP $57.5, 26.6% annualised; XLF 10%/yr). NVDA now blocks on a REAL
+reason — notional £15,354 over the £10,000 per-position limit.
+
+**No thresholds moved.** A thin bridge still blocks (AMZN 0.61 < 0.95 is a
+genuine rejection) and truly absent vega data still blocks. IV-Rank remains
+legitimately `n/a` — the accumulated window is 12d against a 60d minimum, so
+the BRIDGE is carrying the gate exactly as designed. It was simply unreachable.
+
+**For the research lane:** any wheel/options result computed before 998fee7 was
+graded with the vega gate hard-blocked on ~80% of rows. Re-run anything that
+depended on wheel eligibility.
+
+**Method note worth keeping.** 752 tests passed throughout. The solve, the gate
+and MarketContext were each correct in isolation; only their ORDER was wrong,
+and nothing asserted a relationship between them. The guard added is therefore
+two-part — semantic (a populated ratio never yields "unavailable") and
+source-order — and the ordering guard was VERIFIED to fail against the pre-fix
+file before being trusted.
