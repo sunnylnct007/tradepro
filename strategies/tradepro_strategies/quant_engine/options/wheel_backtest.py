@@ -224,8 +224,13 @@ def simulate_wheel(
                 realised_pnl -= cost
                 costs_paid += buyback * mult * premium_haircut_pct + commission_per_leg
                 captured = 1.0 - (buyback / opt_entry_gross)
+                # WheelTrade is (date, action, strike, premium, SPOT, note) —
+                # six fields. Passing five put the note into `spot` and left
+                # `note` empty, which silently broke the trade log the holding
+                # -period measurement reads. Uppercase action to match the
+                # SELL_PUT / PUT_EXPIRED convention the other rows use.
                 trades.append(WheelTrade(
-                    dates[i].isoformat(), "close_put", opt_strike, buyback,
+                    dates[i].isoformat(), "CLOSED_PUT", opt_strike, buyback, spot,
                     f"bought back at {captured:.0%} of premium captured "
                     f"({opt_expiry_idx - i} sessions early)"))
                 # "flat", NOT "cash". The idle state in this simulator is

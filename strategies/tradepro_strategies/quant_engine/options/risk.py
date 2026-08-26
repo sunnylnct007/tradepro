@@ -101,7 +101,11 @@ class OptionsRiskConfig:
     # When enabled the yield gate is tested against the MANAGED annualised
     # return instead of the hold-to-expiry one.
     manage_at_pct: float = 0.0
-    manage_dte_frac: float = 0.5
+    # MEASURED, not assumed. 641 managed closes simulated across 10 wheel names
+    # (2019-2026, 5% OTM, 30 DTE, close at 60% of premium) held a median of
+    # 16 of 30 sessions. The 0.50 originally written here was a guess and
+    # happened to be close; this is the number the harness produced.
+    manage_dte_frac: float = 0.53
     # Liquidity gates (§6.1 filter 1, §9.2)
     oi_min: int = 250          # per-strike OI floor. 1,000 was index-level and
     #   rejected every single-name equity strike (KO/F/INTC near-month strikes
