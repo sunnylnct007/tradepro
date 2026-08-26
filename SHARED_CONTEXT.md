@@ -363,3 +363,37 @@ positions from the Web API, and market orders need no quote. Verified end to
 end while the session was dark: position seed succeeded, session completed,
 exit 0. The options desk WOULD have been affected — it needs IV, greeks and
 open interest from exactly that session.
+
+## 2026-08-26 — ibkr-gateway RETIRED (data/platform lane)
+
+Owner's call: "we dont need ibkr-gateway as we have webapi working." Verified
+and done. `com.tradepro.ibkr-gateway` is `bootout`ed and its plist moved to
+`~/Library/LaunchAgents/retired/` (reversible).
+
+Why it cost nothing:
+- **Nothing was listening on port 7500.** TWS/IB Gateway (the desktop app it
+  talks to) was not running. The daemon sat in a reconnect loop — 50,331
+  refusal lines since 25 Aug alone.
+- **Last order it ever placed: 6 July**, seven weeks ago. Outbox spans
+  18 Jun → 6 Jul, 149 outcomes, inbox empty — nothing stranded.
+- **Reads** were already 100% Web API: the swing log says `position seed: via
+  IBKR WEB API (no gateway)` on every cycle.
+- **Writes** go via the OMS confirmed path by default — `T212OrderRouter →
+  POST /api/oms/orders → ApproveAsync → PlaceMarketOrderConfirmedAsync`
+  (IBKRClient.cs:1014). Verified live today: the daemon logs "orders route via
+  the OMS push path" and `/api/oms/orders` returns 200.
+
+**Bonus — this closes a data leak.** All 7,037 bad historical closes are
+`source == "ibkr"` (this socket provider); **zero** from `ibkr_web`. The
+corrupting write path is now gone, so the repair in ADJ_FACTOR_MIGRATION_PLAN
+§7 is cleanup of a fixed population rather than an ongoing leak.
+
+**Still owed:** `bar_cache/providers/ibkr_provider.py` (the socket bar provider)
+is still in the provider chain and can no longer connect. It should be dropped
+from the chain rather than left to fail and fall through — but that changes
+provider order, so it wants the store session, not the middle of a forward test.
+
+**A correction worth carrying:** I first concluded there was no Web API
+execution path, having grepped only Python. There is one, in .NET. If you are
+tracing execution, look at `PostgresOmsService.cs` and `IBKRClient.cs` — the
+Python side only *pushes* to the OMS.
