@@ -81,14 +81,26 @@ if [[ "$*" != *"--from"* ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Default to the FULL tracked universe when the caller gave no explicit
-# --symbols (this used to silently fall back to the harvester's small
-# built-in _DEFAULT_SYMBOLS list — 12 mega-caps — so 1m/5m coverage was a
-# fraction of what 1d gets). Same derivation as bar-cache-harvest-daily.sh:
-# every dir already tracked under the asset's cache, filtered to ticker-
-# shaped uppercase names and excluding the asset-class dir name itself (the
-# 2026-08-08 phantom "US_ETF" incident — a stray nested dir got `ls`-derived
-# into a fake symbol every provider correctly 404'd on).
+# What to harvest = tradepro_strategies.universe.harvest_symbols(), the ONE
+# definition of it, shared with bar-cache-harvest-daily.sh.
+#
+# This block used to `ls` the cache directory and re-implement the exclusions in
+# grep. The comment here even claimed it was the "same derivation as
+# bar-cache-harvest-daily.sh" — and on 2026-08-25 that stopped being true, when
+# the daily lane moved to harvest_symbols() and this one did not. The two
+# definitions then drifted exactly as the duplicate-definition failure mode
+# predicts: the daily lane ran a bounded 244 symbols while this lane ran 955,
+# because `ls` sees every directory a one-off seed ever created and nothing
+# bounded it.
+#
+# What that cost, visible in the run log: "bar-cache-harvest 5m 955 sym →
+# 0G/849S/106B/0M". Zero GOLD. 955 symbols could not finish inside the lane's
+# 60-minute deadline, so the sweep never reached its own completion line.
+#
+# harvest_symbols() carries the guards that used to live here as grep: the
+# ticker-shape and self-name checks (the 2026-08-08 phantom "US_ETF" incident),
+# the US-listings-only rule (owner call 21 Aug), the -USD crypto exclusion, and
+# TRADEPRO_HARVEST_MAX_EXTRA, which is the bound the `ls` form never had.
 # ---------------------------------------------------------------------------
 SYMBOL_ARGS=()
 if [[ "$*" != *"--symbols"* ]]; then
@@ -97,28 +109,21 @@ if [[ "$*" != *"--symbols"* ]]; then
         ASSET=$(printf '%s\n' "$@" | grep -A1 -- '^--asset$' | tail -1)
     fi
     CACHE_DIR="$HOME/.tradepro/bar_cache/$ASSET"
-    # US listings only (owner call 21 Aug 2026). Foreign listings (0700.HK,
-    # 7203.T, AIR.PA, SAP.DE …) fail IBKR on EVERY run: we send them as Yahoo
-    # tickers (broker_ticker_map never consulted), and off-platform (API)
-    # market data for those exchanges needs paid entitlements we don't hold.
-    # Each one burned a full provider-chain walk + retries per sweep for a
-    # guaranteed zero. Foreign = contains a dot; US tickers use dashes (BRK-B).
-    # Set TRADEPRO_HARVEST_INCLUDE_FOREIGN=1 to re-include them once symbol
-    # harmonization (ISIN + currency guard) and entitlements are in place.
-    FOREIGN_FILTER='\.'
-    [[ "${TRADEPRO_HARVEST_INCLUDE_FOREIGN:-0}" == "1" ]] && FOREIGN_FILTER='^$'
-    # -USD$ = crypto pairs (BTC-USD …): with us_etf now the single canonical
-    # tree (22 Aug 2026), stray crypto dirs must never enter the IBKR
-    # harvest universe — they'd fail the chain on every sweep forever.
-    SYMS=$(ls "$CACHE_DIR" 2>/dev/null | grep -v -i "^$ASSET$" \
-        | grep -E '^[A-Z0-9.-]+$' | grep -Ev "$FOREIGN_FILTER" | grep -Ev -- '-USD$' \
-        | tr '\n' ',' | sed 's/,$//')
+    # `uv run` resolves its project from the CURRENT directory and launchd
+    # starts this script from `/`, so this must run after the cd above.
+    SYMS=$(cd "$PROJECT_DIR" && "${UV:-uv}" run python -c "
+from tradepro_strategies.universe import harvest_symbols
+print(','.join(harvest_symbols('$CACHE_DIR')))
+" 2>>"${LOG:-/dev/null}")
     if [[ -n "$SYMS" ]]; then
         N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)
         SYMBOL_ARGS=(--symbols "$SYMS")
-        log "no --symbols given → defaulting to full tracked $ASSET universe ($N symbols)"
+        log "no --symbols given → harvest_symbols() returned $N symbols for $ASSET"
     else
-        log "no --symbols given and $CACHE_DIR is empty → falling back to harvester default list"
+        # Fail LOUD rather than silently falling back to the harvester's
+        # 12-mega-cap built-in list, which would look like a working sweep.
+        log "FATAL: harvest_symbols() returned nothing (universe file missing, or $CACHE_DIR gone)"
+        exit 1
     fi
 fi
 
