@@ -410,10 +410,13 @@ class IBKRRouter(OrderRouter):
                 log.error(
                     "IBKR ORDER NOT PLACED · sid=%s %s %s qty=%s intent=%s — the "
                     "intent is STILL in the inbox after %.0fs, so nothing drained "
-                    "it. The ibkr-gateway daemon was retired on 2026-08-26 and "
-                    "there is no Web API execution path yet, so this order did "
-                    "NOT reach IBKR and no fill will ever arrive. Signals are "
-                    "still being recorded; EXECUTION is dead.",
+                    "it and this order did NOT reach IBKR. You are on the LEGACY "
+                    "gateway-inbox path, which only runs with "
+                    "TRADEPRO_IBKR_ORDERS_VIA_OMS=0; the ibkr-gateway daemon that "
+                    "drained it was retired on 2026-08-26. Unset that variable to "
+                    "get the default OMS path (T212OrderRouter → /api/oms/orders → "
+                    "PlaceMarketOrderConfirmedAsync), which places over the Web API "
+                    "and returns a real broker order id.",
                     order.strategy_id, action, order.symbol, order.quantity,
                     iid[:8], 12.0)
                 return

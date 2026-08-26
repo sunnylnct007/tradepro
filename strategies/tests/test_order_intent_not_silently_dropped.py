@@ -12,12 +12,18 @@ will get to it — which nothing verified. The assumption had been false since
 logging 50,331 refusals) and became permanently false on 2026-08-26 when the
 daemon was retired in favour of the Web API.
 
-Why it mattered more than "one wrong log line": the Swing forward test runs on
-DUP656969, and `_live_orders_enabled` returns True unconditionally for any DU
-paper account. So the test was ARMED. Its first entry signal would have written
-an intent into a dead inbox, logged the reassuring line, and moved on — and a
-12-week forward test whose entire purpose is measuring real fills would have
-recorded zero, discovered at week 12.
+SCOPE — corrected after checking the .NET side. This inbox path is the LEGACY
+escape hatch, reached only with `TRADEPRO_IBKR_ORDERS_VIA_OMS=0`, which no
+plist sets. The live default (profiles.py) is the OMS confirmed path:
+T212OrderRouter → /api/oms/orders → ApproveAsync →
+IBKRClient.PlaceMarketOrderConfirmedAsync, which places over the Web API and
+returns a real broker order id. So the Swing forward test was never at risk,
+and retiring the gateway cost no capability.
+
+The guard still earns its place: `_live_orders_enabled` returns True
+unconditionally for any DU paper account, so anything that lands on this path —
+an escape hatch set for debugging and forgotten, an older profile — is armed to
+place, and the one thing it must never do is report a dropped order as away.
 
 The signal that separates the two cases is exact rather than heuristic:
 `_drain_orders` unlinks an intent the instant it claims one, on every path
