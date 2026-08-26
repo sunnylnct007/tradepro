@@ -130,11 +130,22 @@ def _next_confirmed_earnings(symbol: str) -> "tuple[datetime.date | None, bool]"
         if not data or not _store_is_authoritative(data.get("store")):
             return None, False
         today = _d.date.today()
+        # `>= today`, NOT `> today` (26 Aug 2026). A report dated TODAY is the
+        # single most dangerous day in the window, and the strict comparison
+        # dropped it from `future` — so the function returned (None, True),
+        # which the caller reads as an AUTHORITATIVE "no earnings upcoming".
+        # Caught live: NVDA's store held exactly one event, 2026-08-26, and the
+        # screen offered a 37-DTE cash-secured put across it while reporting no
+        # earnings in the window. US large-caps overwhelmingly report after the
+        # close, so today's event is still entirely ahead of the position.
+        # Including a name that already reported this morning merely costs one
+        # skipped trade; excluding one that reports tonight sells premium
+        # straight into the event this gate exists to avoid.
         future = sorted(
             _d.date.fromisoformat(str(ev["report_date"])[:10])
             for ev in data.get("events") or []
             if ev.get("report_date")
-            and _d.date.fromisoformat(str(ev["report_date"])[:10]) > today)
+            and _d.date.fromisoformat(str(ev["report_date"])[:10]) >= today)
         return (future[0] if future else None), True
     except Exception:  # noqa: BLE001 — no store answer = no confirmed date
         return None, False
@@ -1431,7 +1442,12 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     )
     cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
-    decision = evaluate(cand, ctx, portfolio or PortfolioState(), cfg)
+    # capital_gates=False — the SCREEN answers "is this a good trade?", not
+    # "does it fit today's balance?" (owner ruling; see risk.py). The capital
+    # checks still run and still surface, as warnings carrying the numbers
+    # needed to size or fund it. The autonomous paper-wheel keeps the default.
+    decision = evaluate(cand, ctx, portfolio or PortfolioState(), cfg,
+                        capital_gates=False)
     # Same-underlying duplicate: the book already carries this name. Not a
     # hard block (rolling/adding is a legitimate choice) but the screen must
     # SAY it — the owner's concentration question starts here.
