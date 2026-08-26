@@ -42,7 +42,7 @@ CAPITAL_PHRASES = ("per-position limit", "assignment buffer breached",
 
 def _sound_ctx(**kw):
     """Clears every merit gate: liquid, fair premium, no earnings."""
-    base = dict(regime=Regime.GREEN, falling_knife=False,
+    base = dict(regime=Regime.GREEN, falling_knife=False, pct_off_52w_high=25.0,
                 open_interest=5000, bid_ask_spread_usd=0.05,
                 premium_mid_usd=2.50, earnings_in_expiry_window=False,
                 data_fresh=True, iv_rank=None, iv_hv_ratio=1.25,

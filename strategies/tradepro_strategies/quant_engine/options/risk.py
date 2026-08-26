@@ -96,6 +96,14 @@ class OptionsRiskConfig:
     min_premium_usd: float = 0.20
     min_ann_yield_pct: float = 8.0
 
+    # Don't sell puts into a name at its own high (owner rule, 26 Aug 2026).
+    # The underlying must trade at least this far BELOW its 52-week high. 5%
+    # is deliberately modest: it removes the "at the high" case the rule is
+    # about (XLF 0.2%, SPY 1.8%, IWM 2.2% on 26 Aug) without pretending to
+    # know where a pullback becomes attractive — that is a judgement, so it is
+    # a knob. TRADEPRO_WHEEL_MIN_PCT_OFF_HIGH=0 disables the gate entirely.
+    min_pct_off_52w_high: float = 5.0
+
     # Managed close: take profit at `manage_at_pct` of max premium after roughly
     # `manage_dte_frac` of the DTE has elapsed. 0.0 = disabled (hold to expiry).
     # When enabled the yield gate is tested against the MANAGED annualised
@@ -195,6 +203,8 @@ class OptionsRiskConfig:
             # hard 1.0 veto rejects nearly everything in an IV-crush tape;
             # keep the default but let the operator run it looser/tighter.
             iv_hv_min=_f("TRADEPRO_WHEEL_IV_HV_MIN", d.iv_hv_min),
+            min_pct_off_52w_high=_f("TRADEPRO_WHEEL_MIN_PCT_OFF_HIGH",
+                                    d.min_pct_off_52w_high),
             iv_rank_min=_f("TRADEPRO_WHEEL_IV_RANK_MIN", d.iv_rank_min),
         )
 
@@ -217,6 +227,15 @@ class MarketContext:
     could-not-verify → BLOCK (no false positives)."""
     regime: Regime | None = None
     falling_knife: bool | None = None      # §8 detector result
+    # How far BELOW its own 52-week high the underlying trades, in percent.
+    # 0 = sitting at the high. Owner rule, 26 Aug 2026: "there is no point
+    # selling a put in stock which is high already as it will do mean
+    # reversion" — a short put is short downside precisely when there is most
+    # room to give back. The regime gate pulls the OTHER way (GREEN means in or
+    # above the Ichimoku cloud, which selects for strength), so without this
+    # the screen systematically surfaced names at their highs: of the 4 eligible
+    # on 26 Aug, XLF sat 0.2% off its high, IWM 2.2%, SPY 1.8%.
+    pct_off_52w_high: float | None = None
     iv_rank: float | None = None           # %, from accumulated IV history (only set when window honest)
     iv_hv_ratio: float | None = None       # IV ÷ HV30 — bridge vega gate while the rank window accumulates
     iv_rank_window_days: int | None = None # depth of the IV dataset behind iv_rank/bridge (for honest reasons)
@@ -316,6 +335,29 @@ def evaluate(
     if ctx.falling_knife is True and s in WHEEL_ENTRY_STRUCTURES:
         checked.append("falling_knife")
         blocks.append(f"{candidate.symbol} in FALLING-KNIFE state — short-put / wheel entry blocked (high IV ≠ invitation).")
+
+    # ── Extension: don't sell puts into a name at its high (owner, 26 Aug) ─
+    # The bookend to falling-knife. That gate rejects names that have fallen
+    # too far; this one rejects names that have not fallen at all. Together
+    # they define the band a wheel entry should live in — enough pullback that
+    # the strike sits somewhere you would genuinely accept the shares, without
+    # catching something in free-fall.
+    #
+    # It exists because the regime gate leans the other way: GREEN means in or
+    # above the Ichimoku cloud, which selects for strength. On 26 Aug that put
+    # XLF (0.2% off its high), IWM (2.2%) and SPY (1.8%) among only four
+    # eligible names — the exact case the owner ruled out.
+    if s in WHEEL_ENTRY_STRUCTURES and cfg.min_pct_off_52w_high > 0:
+        checked.append("extension_vs_52w_high")
+        if ctx.pct_off_52w_high is None:
+            blocks.append(
+                "Distance from the 52-week high unavailable — cannot confirm "
+                "the underlying isn't extended.")
+        elif ctx.pct_off_52w_high < cfg.min_pct_off_52w_high:
+            blocks.append(
+                f"{candidate.symbol} is {ctx.pct_off_52w_high:.1f}% off its 52-week "
+                f"high (need ≥ {cfg.min_pct_off_52w_high:.0f}%) — too extended to "
+                f"sell downside into; mean reversion works against a short put here.")
 
     # ── Short-premium vega edge (§4, §5.3) ───────────────────────────────
     # Two-tier: IV-Rank when our accumulated IV dataset is deep enough to be

@@ -499,6 +499,33 @@ def hv_gap_diagnostics(closes: list[float], *, window: int = 30) -> dict | None:
     }
 
 
+def _pct_off_52w_high(closes: list[float], sessions: int = 252) -> float | None:
+    """How far below its own 52-week high the underlying trades, in percent.
+
+    Owner rule, 26 Aug 2026: "there is no point selling a put in stock which is
+    high already as it will do mean reversion." Verified against the API the
+    same day — the store and the API agree exactly (SLV 41.8% off, QCOM 35.5%,
+    XLF 0.2%, SPY 1.8%, IWM 2.2%), so this is not an artefact of the
+    raw/adjusted close seam.
+
+    Returns None rather than a guess when there is too little history to know —
+    the risk engine blocks on that, because "I cannot tell how extended this is"
+    must not read as "not extended".
+    """
+    if not closes:
+        return None
+    window = [c for c in closes[-sessions:] if c and c > 0]
+    # A 52-week measure needs most of a year. A name with two months of history
+    # has a "high" that means nothing, and would pass a distance test trivially.
+    if len(window) < 120:
+        return None
+    high = max(window)
+    last = window[-1]
+    if high <= 0:
+        return None
+    return (high - last) / high * 100.0
+
+
 def _hv30_from_closes(closes: list[float], window: int = 30) -> float | None:
     """Annualised 30d realised vol from OUR OWN cached closes — the honest
     denominator for the IV/HV bridge when the broker serves no HV."""
@@ -892,7 +919,8 @@ def _short_tier_cfg(cfg: "OptionsRiskConfig") -> "OptionsRiskConfig":
 
 
 def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
-                         earnings_date, nav_gbp, iv_vol_pctile, portfolio=None) -> dict:
+                         earnings_date, nav_gbp, iv_vol_pctile, portfolio=None,
+                         closes: list[float] | None = None) -> dict:
     """TIER_SHORT candidate (SPEC §1) — earnings-avoidance only, never
     yield-chasing. Called ONLY when the standard band conflicts with a
     CONFIRMED earnings date. Picks the latest weekly expiry inside
@@ -956,6 +984,7 @@ def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
     ctx = MarketContext(
         regime=Regime(regime) if regime else None,
         falling_knife=falling_knife,
+        pct_off_52w_high=_pct_off_52w_high(closes or []),
         iv_rank=ivr.iv_rank if ivr.available else None,
         iv_hv_ratio=ivr.iv_hv_ratio if ivr.available else None,
         iv_rank_window_days=ivr.days if ivr.available else None,
@@ -1424,6 +1453,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     ctx = MarketContext(
         regime=Regime(regime) if regime else None,
         falling_knife=falling_knife,
+        pct_off_52w_high=_pct_off_52w_high(closes),
         iv_rank=ivr.iv_rank if ivr.available else None,
         iv_hv_ratio=ivr.iv_hv_ratio if ivr.available else None,
         iv_rank_window_days=ivr.days if ivr.available else None,
@@ -1626,7 +1656,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             try:
                 short_tier = _evaluate_short_tier(
                     sym, cfg, ivr, regime, falling_knife, ref_close,
-                    _e_date, nav_gbp, iv_vol_pctile, portfolio)
+                    _e_date, nav_gbp, iv_vol_pctile, portfolio, closes)
             except Exception as e:  # noqa: BLE001 — short tier must never kill the row
                 log.warning("%s: short-tier evaluation failed: %s", sym, e)
                 short_tier = {"status": "error", "detail": str(e)[:200]}

@@ -14,7 +14,7 @@ from tradepro_strategies.quant_engine.options.risk import (
 
 def _short_ctx(**kw):
     base = dict(
-        regime=Regime("GREEN"), falling_knife=False,
+        regime=Regime("GREEN"), falling_knife=False, pct_off_52w_high=25.0,
         iv_rank=None, iv_hv_ratio=1.2, iv_rank_window_days=5,
         open_interest=800, bid_ask_spread_usd=0.20, premium_mid_usd=2.90,
         earnings_in_expiry_window=False, data_fresh=True, quotes_delayed=False)

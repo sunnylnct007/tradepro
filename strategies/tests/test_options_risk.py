@@ -24,7 +24,7 @@ def _good_csp() -> TradeCandidate:
 
 def _good_ctx() -> MarketContext:
     return MarketContext(
-        regime=Regime.GREEN, falling_knife=False, iv_rank=45.0,
+        regime=Regime.GREEN, falling_knife=False, pct_off_52w_high=25.0, iv_rank=45.0,
         open_interest=5000, bid_ask_spread_usd=0.05,
         # Premium is now a REQUIRED short-premium input (the 2026-08-09
         # "not paying much" floor): $0.55 on the $55 KO strike over 35d
