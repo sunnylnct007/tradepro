@@ -66,7 +66,8 @@ log = logging.getLogger("tradepro.swing_candidates")
 # Third duplicated constant found today, after poison_check (three near-copies)
 # and the backtest harness's own MAX_HOLD. There is one definition now.
 from ..signals.mean_reversion import (SIGMA, BB_WINDOW, STOP_PCT,  # noqa: E402
-                                      MAX_HOLD)
+                                      MAX_HOLD, MIN_BARS, TREND_WINDOW,
+                                      entry_signal, stop_price, target_price)
 MAX_DAY_MOVE = 0.25
 BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
@@ -237,23 +238,39 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
             continue
         if c[i-1] <= 0 or abs(c[i] / c[i-1] - 1) > MAX_DAY_MOVE:
             continue
-        if len(c) < 210:
+        if len(c) < MIN_BARS:
             continue
-        sma200 = sum(c[i-199:i+1]) / 200
+        # CALL THE RULE. Do not restate it.
+        #
+        # This block used to re-implement the entry test inline — recomputing
+        # the 20-day mean, the standard deviation and the band, and hardcoding
+        # `sum(c[i-199:i+1]) / 200` for the trend floor instead of importing
+        # TREND_WINDOW. Same numbers as the rule module today, and two places
+        # to change tomorrow.
+        #
+        # It also hid from the duplicate-constant test, which scans for named
+        # assignments (`TREND_WINDOW = 200`) and cannot see a 200 buried in a
+        # slice. That is the standing lesson in this repo restated once more:
+        # grep the VALUE, not the name — and better still, leave no value to
+        # grep for.
+        #
+        # It matters because forward-test gate F1 compares what this screen
+        # publishes against what the graded harness produces. If the screen has
+        # its own copy of the rule, F1 measures how carefully the copy was made.
+        if not entry_signal(c, i):
+            continue
+        sma200 = sum(c[i - TREND_WINDOW + 1:i + 1]) / TREND_WINDOW
         w = c[i-BB_WINDOW+1:i+1]
         mean20 = sum(w) / BB_WINDOW
         sd = (sum((x - mean20) ** 2 for x in w) / BB_WINDOW) ** 0.5
         if sd <= 0 or sma200 <= 0:
             continue
-        lower = mean20 - SIGMA * sd
-        if not (c[i] > sma200 and c[i] < lower):
-            continue
         trs = [max(h[j]-l[j], abs(h[j]-c[j-1]), abs(l[j]-c[j-1])) for j in range(i-13, i+1)]
         atr = sum(trs) / 14
         atr_pct = 100 * atr / c[i] if c[i] else 0
         hi52 = max(h[max(0, i-251):i+1])
-        target = mean20
-        stop = c[i] * (1 - STOP_PCT)
+        target = target_price(c, i)     # the rule's target, not a local copy
+        stop = stop_price(c[i])         # the rule's stop, not a local copy
         rr = ((target - c[i]) / (c[i] - stop)) if c[i] > stop else None
         tier = "core" if sym in CORE or sym in ETFS else ("high-beta" if atr_pct >= 4 else "standard")
         # volume_vs_20d is CONTEXT, and it is WITHHELD rather than guessed when
