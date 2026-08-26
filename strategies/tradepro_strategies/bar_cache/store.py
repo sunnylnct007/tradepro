@@ -1370,15 +1370,43 @@ def _dedupe_sessions(
         fallback = ~df["source"].astype(str).isin(list(_GOLDEN_BAR_SOURCES))
     else:
         fallback = pd.Series(True, index=df.index)
+    # VOLUME BREAKS THE TIE BEFORE ARRIVAL ORDER DOES.
+    #
+    # Same session, same provider is a tie on provenance, and prefer-existing
+    # then keeps whichever row was cached FIRST. During a live session that is
+    # the PARTIAL bar: any 1d fetch made before 20:00 UTC captures the day
+    # so far, and the settled bar fetched after the close could never replace
+    # it. Measured 2026-08-26 on the 25 Aug session, 10 of 10 symbols wrong:
+    #
+    #     NVDA  stored 211.05 vs true 213.05  (0.94%)   volume 55% of true
+    #     MSFT  stored 488.70 vs true 491.71  (0.61%)   volume 45%
+    #     SPY   stored 765.09 vs true 765.91  (0.11%)   volume 39%
+    #
+    # A partial close is not a rounding difference: 0.95% is the whole gap
+    # between a 2.53-sigma Swing signal and a 2.32-sigma one, so the screen was
+    # computing entries on a price the market never closed at.
+    #
+    # The discriminator needs no fetch-time metadata, which is why it is this
+    # one: for the same session, the more complete bar has MORE VOLUME. A
+    # partial day cannot have traded more than the full day it is part of.
+    # Prefer-existing still applies when volume ties, so a genuine re-fetch of
+    # identical data changes nothing.
+    if "volume" in df.columns:
+        _vol = pd.to_numeric(df["volume"], errors="coerce").fillna(-1)
+        _v = (-_vol).to_numpy()               # higher volume sorts first
+    else:
+        _v = pd.Series(0, index=df.index).to_numpy()
+
     tmp = df.assign(
         _k=key,
         _g=fallback.to_numpy().astype(int),   # 0 = golden, sorts first
+        _v=_v,                                # more volume = more complete
         _p=range(len(df)),                    # 0 = already cached, sorts first
     )
-    kept = (tmp.sort_values(["_k", "_g", "_p"], kind="stable")
+    kept = (tmp.sort_values(["_k", "_g", "_v", "_p"], kind="stable")
                .drop_duplicates("_k", keep="first")
                .sort_values("_p", kind="stable")
-               .drop(columns=["_k", "_g", "_p"]))
+               .drop(columns=["_k", "_g", "_v", "_p"]))
     dropped = len(df) - len(kept)
     if dropped:
         dupe_days = sorted({str(d.date()) for d in key[key.duplicated(keep=False)]})
