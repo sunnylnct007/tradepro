@@ -95,6 +95,13 @@ class OptionsRiskConfig:
     # meaningfully beats the ~4.5% bank rate the capital could earn instead.
     min_premium_usd: float = 0.20
     min_ann_yield_pct: float = 8.0
+
+    # Managed close: take profit at `manage_at_pct` of max premium after roughly
+    # `manage_dte_frac` of the DTE has elapsed. 0.0 = disabled (hold to expiry).
+    # When enabled the yield gate is tested against the MANAGED annualised
+    # return instead of the hold-to-expiry one.
+    manage_at_pct: float = 0.0
+    manage_dte_frac: float = 0.5
     # Liquidity gates (§6.1 filter 1, §9.2)
     oi_min: int = 250          # per-strike OI floor. 1,000 was index-level and
     #   rejected every single-name equity strike (KO/F/INTC near-month strikes
@@ -153,6 +160,31 @@ class OptionsRiskConfig:
             max_deploy_gbp=_f("TRADEPRO_WHEEL_MAX_DEPLOY_GBP", d.max_deploy_gbp),
             per_position_gbp=_f("TRADEPRO_WHEEL_PER_POSITION_GBP", d.per_position_gbp),
             max_positions=_i("TRADEPRO_WHEEL_MAX_POSITIONS", d.max_positions),
+            # DELTA BAND — configurable because it encodes WHICH TRADE we screen
+            # for, not a safety limit. The 0.20-0.35 default is a
+            # sell-near-the-money, hold-to-expiry wheel. An operator selling
+            # FURTHER out of the money and closing early sits at 0.10-0.15, and
+            # was being rejected by a band that describes a different strategy.
+            #
+            # Lowering delta_min REDUCES per-trade risk: further OTM is a lower
+            # assignment probability, not a higher one. Aggregate exposure stays
+            # bounded by max_positions / per_position_gbp / max_deploy_gbp, which
+            # are unchanged.
+            delta_min=_f("TRADEPRO_WHEEL_DELTA_MIN", d.delta_min),
+            delta_max=_f("TRADEPRO_WHEEL_DELTA_MAX", d.delta_max),
+            # MANAGED-CLOSE yield. The floor annualises premium over the FULL
+            # DTE, which is only correct if the put is held to expiry. Closing at
+            # 60% of max premium partway through frees the collateral to be
+            # redeployed, so the realised annualised return is materially higher
+            # than the number the floor tests. That is a measurement bug, not a
+            # strategy disagreement: trades were being rejected for failing a
+            # test they were never going to sit.
+            #
+            # 0 = off (hold-to-expiry, unchanged default). Set the capture
+            # fraction to model the managed trade; the holding fraction is an
+            # ASSUMPTION and is stated wherever the number is shown.
+            manage_at_pct=_f("TRADEPRO_WHEEL_MANAGE_AT_PCT", d.manage_at_pct),
+            manage_dte_frac=_f("TRADEPRO_WHEEL_MANAGE_DTE_FRAC", d.manage_dte_frac),
             min_premium_usd=_f("TRADEPRO_WHEEL_MIN_PREMIUM_USD", d.min_premium_usd),
             min_ann_yield_pct=_f("TRADEPRO_WHEEL_MIN_ANN_YIELD_PCT", d.min_ann_yield_pct),
             # Bridge vega threshold — external review (9 Aug) fairly noted a
@@ -360,6 +392,14 @@ def evaluate(
                     and candidate.dte is not None and candidate.dte > 0):
                 checked.append("annualised_yield")
                 ann = ctx.premium_mid_usd / candidate.strike * (365.0 / candidate.dte) * 100.0
+                # MANAGED CLOSE: if the operator takes profit at a fraction of
+                # max premium partway through, the collateral is freed early and
+                # the realised annualised return is higher than the
+                # hold-to-expiry figure. Test the gate against what the trade
+                # would actually earn, not against a holding period nobody
+                # intends to sit. Off by default (manage_at_pct = 0).
+                if cfg.manage_at_pct > 0 and cfg.manage_dte_frac > 0:
+                    ann = ann * (cfg.manage_at_pct / cfg.manage_dte_frac)
                 if ann < cfg.min_ann_yield_pct:
                     blocks.append(
                         f"Annualised yield {ann:.1f}% < {cfg.min_ann_yield_pct:.1f}% — "
