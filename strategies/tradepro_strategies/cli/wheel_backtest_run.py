@@ -29,7 +29,7 @@ from collections import defaultdict
 SLICE_USD = 25_000.0
 HAIRCUT = 0.05
 COMMISSION = 1.50
-OTM_PCT = 0.05
+OTM_PCT = float(os.environ.get("TRADEPRO_WHEEL_OTM_PCT", "0.05"))
 DTE = 30
 WARMUP = 60
 # v2 additions (WHEEL_BACKTEST_GATES_V2.md, committed cb51600 before any run)
@@ -207,6 +207,12 @@ def run_window(window: str, start: str, end: str | None, eff_start: str,
         _stop = float(os.environ.get("TRADEPRO_WHEEL_ASSIGNED_STOP_PCT", "0") or 0)
         if _stop > 0:
             kwargs["assigned_stop_pct"] = _stop
+        # Managed close: the owner takes profit at ~60% of premium rather than
+        # holding to expiry. Off unless asked for, so every existing result
+        # stays comparable.
+        _mc = float(os.environ.get("TRADEPRO_WHEEL_MANAGE_AT_PCT", "0") or 0)
+        if _mc > 0:
+            kwargs["manage_at_pct"] = _mc
         res = simulate_wheel(
             w_dates, w_closes, otm_pct=OTM_PCT, dte=DTE, contracts=1,
             start_capital=SLICE_USD, warmup=WARMUP,

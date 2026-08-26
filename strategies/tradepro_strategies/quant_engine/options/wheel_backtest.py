@@ -73,6 +73,7 @@ class WheelResult:
     # a name below its own 200-SMA. Answers G4's failure mechanism directly:
     # the wheel's structural risk is being ASSIGNED INTO A DECLINER, and a
     # name under its primary trend is the definition of one.
+    n_managed_closes: int = 0        # short puts bought back early at a profit target
     n_blocked_trend: int = 0         # spot below the primary-trend SMA at entry
     trend_modelled: bool = False     # was the floor active for this window
 
@@ -103,6 +104,9 @@ def simulate_wheel(
     premium_haircut_pct: float = 0.0,   # spread cost: fraction of each premium lost (0.05 = 5%)
     commission_per_leg: float = 0.0,    # $ per contract per SOLD leg (puts + calls)
     # ── v2 modelled live gates (all OFF by default ⇒ v1 reproducible) ──
+    manage_at_pct: float = 0.0,         # close a short put once this FRACTION of the
+                                        # premium has been captured (0.60 = buy back at
+                                        # 40% of the credit). 0.0 = hold to expiry.
     min_premium_usd: float = 0.0,       # per-share floor, BOTH legs (live: 0.20)
     min_ann_yield_pct: float = 0.0,     # annualised-on-collateral floor (live: 8.0)
     regime_by_day: list[str] | None = None,   # 'GREEN'/'YELLOW'/'ORANGE'/'RED' per bar
@@ -150,6 +154,8 @@ def simulate_wheel(
     mode = "flat"               # flat | short_put | covered_call
     opt_strike = 0.0
     opt_expiry_idx = -1
+    opt_entry_gross = 0.0       # per-share credit at entry, for the managed-close target
+    n_managed_closes = 0
     premium_income = 0.0
     realised_pnl = 0.0
     costs_paid = 0.0
@@ -191,6 +197,48 @@ def simulate_wheel(
         iso = dates[i].isoformat()
 
         # ── settle an expiring option ────────────────────────────────
+        # ── MANAGED CLOSE: take profit before expiry ────────────────────────
+        #
+        # The harness held every put to expiry or assignment. That is not how
+        # this wheel is actually traded: the owner closes once ~60% of the
+        # premium has been captured, which frees the collateral to be
+        # redeployed and skips the final stretch where gamma risk is highest.
+        #
+        # It changes BOTH sides of the ledger, which is why modelling it
+        # matters rather than adjusting the yield afterwards:
+        #   - return: more cycles per year on the same capital
+        #   - risk:   fewer puts carried into the window where they get assigned
+        #
+        # Priced with the same pricer as the equity mark, so the buyback cost is
+        # consistent with the liability already being carried. The haircut is
+        # applied AGAINST us on the way out (we pay the spread both ways) and a
+        # commission is charged for the closing leg — a managed close is two
+        # transactions, not one, and pretending otherwise would flatter it.
+        if (manage_at_pct > 0.0 and mode == "short_put"
+                and i < opt_expiry_idx and opt_entry_gross > 0):
+            t_rem_mc = max(opt_expiry_idx - i, 1) / 252.0
+            buyback = pricer.price(spot, opt_strike, t_rem_mc, sigma, "put")
+            if buyback <= opt_entry_gross * (1.0 - manage_at_pct):
+                cost = buyback * mult * (1.0 + premium_haircut_pct) + commission_per_leg
+                cash -= cost
+                realised_pnl -= cost
+                costs_paid += buyback * mult * premium_haircut_pct + commission_per_leg
+                captured = 1.0 - (buyback / opt_entry_gross)
+                trades.append(WheelTrade(
+                    dates[i].isoformat(), "close_put", opt_strike, buyback,
+                    f"bought back at {captured:.0%} of premium captured "
+                    f"({opt_expiry_idx - i} sessions early)"))
+                # "flat", NOT "cash". The idle state in this simulator is
+                # "flat"; "cash" is not a state it recognises, so setting it
+                # parked the machine permanently — one managed close, then 707
+                # idle days and no further trades, while utilisation counted
+                # every one of them as in-position. The A/B that produced
+                # looked plausible (fewer puts, lower return) and was measuring
+                # a jammed state machine.
+                mode = "flat"
+                opt_strike, opt_expiry_idx, opt_entry_gross = 0.0, -1, 0.0
+                n_managed_closes += 1
+
         if mode in ("short_put", "covered_call") and i >= opt_expiry_idx:
             if mode == "short_put":
                 if spot < opt_strike:                      # assigned
@@ -272,6 +320,7 @@ def simulate_wheel(
                         cash += net
                         premium_income += net
                         opt_strike, opt_expiry_idx = strike, exp_i
+                        opt_entry_gross = prem      # per-share credit BEFORE haircut
                         mode = "short_put"
                         n_puts += 1
                         # G5 self-check: independent of the gate above, assert
@@ -354,6 +403,7 @@ def simulate_wheel(
         end=dates[-1].isoformat(), contracts=contracts, start_capital=start_capital,
         final_equity=final_equity, total_return_pct=total_ret, cagr_pct=cagr,
         premium_income=premium_income, realised_pnl=realised_pnl, max_drawdown_pct=max_dd,
+        n_managed_closes=n_managed_closes,
         n_puts_sold=n_puts, n_assignments=n_assign, n_calls_sold=n_calls, n_call_aways=n_aways,
         days=days, buy_hold_return_pct=bh_ret, bank_return_pct=bank_ret, trades=trades,
         curve_dates=[d.isoformat() for d in dates[post]],
