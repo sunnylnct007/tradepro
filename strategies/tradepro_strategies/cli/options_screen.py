@@ -1853,21 +1853,33 @@ def _maybe_send_wheel_email(payload: dict, prev_payload: dict | None) -> bool:
         gained = sorted(now_elig - prev_elig)
         lost = sorted(prev_elig - now_elig)
         best = payload.get("best_symbol")
+        # Round for humans. These come off the payload as raw floats, and the
+        # email went out reading "$1.4649999999999999 premium · Δ0.27276537288931413"
+        # (26 Aug 2026) — binary-float noise printed to a person deciding
+        # whether to sell a put. `_n` formats to `places` and leaves anything
+        # non-numeric (None, "n/a") exactly as it was, so a missing value still
+        # reads as missing rather than as 0.00.
+        def _n(v, places=2):
+            try:
+                return f"{float(v):.{places}f}"
+            except (TypeError, ValueError):
+                return v
+
         lines = []
         for c in payload.get("candidates") or []:
             if c["symbol"] in now_elig:
                 star = "⭐ " if c["symbol"] == best else "   "
                 lines.append(
-                    f"{star}{c['symbol']}: ${c.get('suggested_strike')} put · "
-                    f"${c.get('suggested_premium')} premium ({c.get('premium_source')}) · "
-                    f"{c.get('annualized_yield_pct')}%/yr · Δ{c.get('suggested_delta')} · "
+                    f"{star}{c['symbol']}: ${_n(c.get('suggested_strike'))} put · "
+                    f"${_n(c.get('suggested_premium'))} premium ({c.get('premium_source')}) · "
+                    f"{_n(c.get('annualized_yield_pct'), 1)}%/yr · Δ{_n(c.get('suggested_delta'))} · "
                     f"OI {c.get('open_interest')} · {c.get('dte')}d · regime {c.get('regime')}")
             st = c.get("short_tier") or {}
             if st.get("eligible"):
                 lines.append(
-                    f"   {c['symbol']} [SHORT-DATED]: ${st.get('suggested_strike')} put "
-                    f"{st.get('expiry')} · ${st.get('suggested_premium')} premium · "
-                    f"{st.get('annualized_yield_pct')}%/yr · Δ{st.get('suggested_delta')} · "
+                    f"   {c['symbol']} [SHORT-DATED]: ${_n(st.get('suggested_strike'))} put "
+                    f"{st.get('expiry')} · ${_n(st.get('suggested_premium'))} premium · "
+                    f"{_n(st.get('annualized_yield_pct'), 1)}%/yr · Δ{_n(st.get('suggested_delta'))} · "
                     f"OI {st.get('open_interest')} · {st.get('reason')}")
         dh = payload.get("data_health") or {}
         change = []
