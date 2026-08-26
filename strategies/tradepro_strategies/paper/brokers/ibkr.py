@@ -362,7 +362,11 @@ class IBKRRouter(OrderRouter):
 
         import hashlib
         import uuid as _uuid
-        from ...ibkr_gateway import read_order_result, submit_order_intent
+        from ...ibkr_gateway import (
+            intent_undrained,
+            read_order_result,
+            submit_order_intent,
+        )
 
         # Deterministic intent_id from (strategy, symbol, side, qty, bar_ts) so a
         # 15-min rerun of the same approval can't double-place — the gateway
@@ -399,6 +403,20 @@ class IBKRRouter(OrderRouter):
                 break
             await asyncio.sleep(0.5)
         if result is None:
+            # "No result" has TWO causes and they are opposites. Claiming the
+            # benign one without checking is how a forward test records zero
+            # fills for twelve weeks and nobody notices until the end.
+            if intent_undrained(iid):
+                log.error(
+                    "IBKR ORDER NOT PLACED · sid=%s %s %s qty=%s intent=%s — the "
+                    "intent is STILL in the inbox after %.0fs, so nothing drained "
+                    "it. The ibkr-gateway daemon was retired on 2026-08-26 and "
+                    "there is no Web API execution path yet, so this order did "
+                    "NOT reach IBKR and no fill will ever arrive. Signals are "
+                    "still being recorded; EXECUTION is dead.",
+                    order.strategy_id, action, order.symbol, order.quantity,
+                    iid[:8], 12.0)
+                return
             log.info("IBKR→gateway · %s %s: no result yet — gateway will place; "
                      "fill reconciles from the book", action, order.symbol)
             return

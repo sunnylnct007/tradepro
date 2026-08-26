@@ -217,6 +217,28 @@ def submit_order_intent(intent: dict) -> str:
     return iid
 
 
+def intent_undrained(intent_id: str) -> bool:
+    """DESK side: is the intent STILL sitting in the inbox, unclaimed?
+
+    The distinction this answers is the difference between "placed, the result
+    is still coming" and "nothing is running that could ever place it". The
+    desk cannot tell those apart from the absence of a result alone, and it
+    used to assume the first — logging "gateway will place" at INFO and
+    returning as though the order were away.
+
+    That assumption became permanently false on 2026-08-26 when the gateway
+    daemon was retired (owner: "we dont need ibkr-gateway as we have webapi
+    working"). It had in fact been false since 2026-07-06 — the last order it
+    ever placed — because nothing was listening on port 7500 and the daemon sat
+    in a reconnect loop.
+
+    The signal is exact: `_drain_orders` unlinks an intent the instant it picks
+    it up, on every path including rejection. So a file that still exists after
+    the desk's poll window was never claimed by anyone.
+    """
+    return (ORDER_INBOX / f"{intent_id}.json").exists()
+
+
 def read_order_result(intent_id: str) -> dict | None:
     """DESK side: the gateway's outcome for an intent, or None if not placed yet."""
     f = ORDER_OUTBOX / f"{intent_id}.json"
