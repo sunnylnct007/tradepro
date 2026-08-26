@@ -25,6 +25,33 @@ Any anomaly in a forward test can then be checked against this file first.
 
 ## Entries
 
+### 2026-08-26 — REPAIRED: the 25 Aug session was a PARTIAL bar on every symbol
+- **What was wrong**: every 2026-08-25 daily bar in the store was the day SO FAR,
+  not the settled session. Closes off by up to 0.94% (NVDA 211.05 stored vs
+  213.05 true), volume 29–55% of actual.
+- **Mechanism**: `_dedupe_sessions` keeps one row per session, preferring a
+  golden source then the ALREADY-CACHED row on a tie. Both rows were
+  `ibkr_web`, so the partial bar written during the session beat the settled
+  bar the harvest fetched at 20:44. Introduced by the session-keyed merge that
+  landed the same day, which is why the damage is exactly one session.
+- **Scope, measured before repairing**: 30/30 symbols wrong on 2026-08-25;
+  **0/30 wrong on every prior session** (14, 17, 18, 19, 20, 21, 24 Aug all
+  clean). One day, not weeks.
+- **Who read it**: Swing's screen ran 08:18 on those closes. The wheel screen
+  reads the same bars via `fetch_daily_bars_with_provenance`. So did
+  market_state and the digest.
+- **Repair**: `--force-refresh` over 2026-08-22 → 2026-08-25, all 244 universe
+  symbols. 244 complete, 244 GOLD, 0 failures. **Verified against the API
+  afterwards rather than trusting the run's own summary**: 10/10 sampled
+  symbols now match to 0.000% on close and 100% on volume.
+- **Prevention**: volume now breaks the tie before arrival order (95460cc) — for
+  one session the more complete bar has more volume, since a partial day cannot
+  have traded more than the full day it belongs to. Provenance still outranks
+  volume; prefer-existing still applies on a volume tie.
+- **Note for anyone reading a harvest summary**: last night's run reported
+  "244 complete, 243 GOLD, 0 partial" on bars that were ALL partial. "Complete"
+  means every requested session returned a row, not that the row is finished.
+
 ### 2026-08-25 — SCHEDULED: tonight's harvest creates a volume UNITS BOUNDARY
 Recorded BEFORE it happens, which is the point of this file.
 
