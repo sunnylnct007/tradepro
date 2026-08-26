@@ -54,7 +54,18 @@ class MeanReversionSwingStrategy(Strategy):
     """
 
     #: Fraction of configured capital committed to a single position.
-    DEFAULT_POSITION_PCT = 0.05
+    #
+    # 2.5%, not 5%, and the reason is the CAP below rather than risk appetite.
+    # 30 slots at 5% would ask for 150% of the paper account and the broker
+    # would simply reject the surplus — silently turning a position limit into
+    # a rejection log. 30 x 2.5% commits at most 75%.
+    #
+    # Position SIZE does not affect what this window measures. The forward test
+    # grades execution fidelity and PER-TRADE economics; P&L is explicitly
+    # recorded and NOT graded at this sample size. Halving the size halves the
+    # P&L and changes nothing about win rate, mean return per trade, slippage
+    # or whether fills reconcile.
+    DEFAULT_POSITION_PCT = 0.025
 
     #: Most positions this sleeve may hold at once.
     #
@@ -66,12 +77,30 @@ class MeanReversionSwingStrategy(Strategy):
     # gates document ever bounded it — the forward test modelled ~84 trades
     # over twelve weeks and never asked how many were open simultaneously.
     #
-    # 12 is chosen from the flat part of the curve, not tuned: account return
-    # is 81-91% anywhere between caps of 6 and 28, so the answer does not
-    # depend on picking this number correctly. 12 x 5% commits at most 60% of
-    # capital, which keeps the 5% position size the forward simulation was
-    # built on rather than re-basing the expectations mid-window.
-    MAX_CONCURRENT = 12
+    # RAISED 12 -> 30 on 26 Aug 2026, before the window opened, because 12 was
+    # answering the wrong question for a PAPER test.
+    #
+    # 12 was chosen from the flat part of the account-return curve — the right
+    # criterion for real capital, where a cap trades return against
+    # concentration. This sleeve is on a paper account and its job is to
+    # GATHER EVIDENCE, not to compound. Measured over 16 years:
+    #
+    #     cap   refused   mean/trade
+    #      12     33.8%      +0.75%
+    #      20     16.3%      +0.97%
+    #      30      5.0%      +1.07%
+    #      62      0.0%      +1.11%
+    #
+    # A cap of 12 THROWS AWAY A THIRD OF THE OBSERVATIONS — 95 of the last 275
+    # signals. At ~7 signals/week, twelve weeks yields ~84 signals, and a cap of
+    # 12 would leave roughly 55 completed trades: short of the 70-80 needed to
+    # distinguish a 65% win rate from a coin flip. **The window could have
+    # closed without being able to answer its own question.**
+    #
+    # 30 refuses 5% and captures essentially the whole signal stream. It sits
+    # just above the measured 95th-percentile concurrency of 28, so it binds
+    # only in the tail rather than routinely.
+    MAX_CONCURRENT = 30
 
     def __init__(self, *a, **kw) -> None:
         super().__init__(*a, **kw)

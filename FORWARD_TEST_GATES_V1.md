@@ -262,3 +262,59 @@ not fund its own signals, in week three, with real trades in the record.
 **What is NOT changed:** the entry rule, the exit rule, the stop, the timeout,
 the universe, the position size, and every gate threshold. The amendment adds
 a bound and a selection rule to a strategy that had neither.
+
+---
+
+# AMENDMENT, 26 Aug — the cap was answering the wrong question. 12 → 30.
+
+Owner: *"the autonomous Swing sleeve is in paper trading so can have more
+candidates."* He is right, and the measurement is decisive.
+
+A cap of 12 was chosen from the flat part of the account-return curve. That is
+the correct criterion for **real capital**, where a cap trades return against
+concentration. It is the wrong criterion for a **paper sleeve whose entire job
+is to gather observations.**
+
+Measured over 16 years, ranked by reward:risk:
+
+| cap | signals refused | mean/trade |
+|---|---|---|
+| **12** | **33.8%** | +0.75% |
+| 20 | 16.3% | +0.97% |
+| **30** | **5.0%** | +1.07% |
+| 62 (uncapped) | 0.0% | +1.11% |
+
+**A cap of 12 discards a third of the observations** — 95 of the last 275
+signals.
+
+And it threatens the window's own purpose. At ~7 signals/week, twelve weeks
+produces about 84 signals. A cap of 12 leaves roughly **55 completed trades**,
+against the **70–80** this document states are needed to distinguish a 65% win
+rate from a coin flip. **The window could have closed unable to answer the
+question it was opened to answer.**
+
+## What changes
+
+* `MAX_CONCURRENT` 12 → **30**. Just above the measured 95th-percentile
+  concurrency of 28, so it binds in the tail rather than routinely, and
+  captures 95% of the signal stream.
+* `DEFAULT_POSITION_PCT` 5% → **2.5%**. Forced by the cap, not by risk
+  appetite: 30 slots at 5% asks for 150% of the paper account, and the broker
+  would reject the surplus — silently turning a position limit into a rejection
+  log. 30 × 2.5% commits at most 75%.
+
+## What this does NOT change
+
+**Nothing that is graded.** Every gate in this document measures execution
+fidelity (F1, F2, F5) or per-trade economics (F3, F4). Position size affects
+neither: halving it halves the P&L and leaves win rate, mean return per trade,
+slippage and fill reconciliation untouched.
+
+**The expected-outcome table above is now a P&L forecast at 5%, and the sleeve
+runs at 2.5%.** That table was never a gate — this document states explicitly
+that "P&L is RECORDED BUT NOT GRADED" at this sample size. Read it as shape,
+and halve the magnitudes.
+
+The trade count goes the right way: ~80 completed trades instead of ~55, which
+is the difference between a window that can answer its question and one that
+cannot.

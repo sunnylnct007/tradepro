@@ -21,7 +21,7 @@ def test_the_sleeve_has_a_cap_at_all():
     capital, and nothing in the strategy, the router or the gates document
     ever noticed."""
     assert isinstance(S.MAX_CONCURRENT, int)
-    assert 0 < S.MAX_CONCURRENT <= 28
+    assert 0 < S.MAX_CONCURRENT <= 62      # 62 = measured peak concurrency
 
 
 def test_the_cap_and_the_position_size_cannot_exceed_capital():
@@ -30,19 +30,22 @@ def test_the_cap_and_the_position_size_cannot_exceed_capital():
     assert S.MAX_CONCURRENT * S.DEFAULT_POSITION_PCT <= 1.0
 
 
-def test_the_cap_sits_on_the_flat_part_of_the_measured_curve():
-    """portfolio_capacity_v1: account return is 81-91% for caps between 6 and
-    28 and collapses to 44% at 62. Being inside that band is the whole reason
-    the number is defensible without being tuned."""
-    assert 6 <= S.MAX_CONCURRENT <= 28
+def test_the_cap_is_wide_enough_to_gather_the_evidence():
+    """A PAPER sleeve's job is observations, not compounding.
+
+    Measured: a cap of 12 refuses 33.8% of signals — 95 of the last 275. At
+    ~7 signals/week that leaves ~55 completed trades in twelve weeks, short of
+    the 70-80 needed to tell a 65% win rate from a coin flip. The window would
+    have closed unable to answer its own question. A cap of 30 refuses 5%."""
+    assert S.MAX_CONCURRENT >= 25
 
 
-def test_position_size_still_matches_what_the_forward_simulation_modelled():
-    """FORWARD_TEST_GATES_V1's expected-outcome table — median +4.2%, 5th
-    percentile -5.0%, 21% chance of a losing quarter — is built on 5% per
-    trade. Changing the size mid-window would invalidate the table the result
-    is graded against, so the cap was chosen to leave it alone."""
-    assert S.DEFAULT_POSITION_PCT == 0.05
+def test_the_cap_and_the_size_cannot_ask_for_more_than_the_account_has():
+    """30 slots at the old 5% would ask for 150% of the account, and the broker
+    would reject the surplus — silently turning a position limit into a
+    rejection log. Size follows the cap, not the other way round."""
+    assert S.MAX_CONCURRENT * S.DEFAULT_POSITION_PCT <= 1.0
+    assert S.DEFAULT_POSITION_PCT > 0
 
 
 def test_ranking_is_by_reward_risk_and_not_by_sigma():
