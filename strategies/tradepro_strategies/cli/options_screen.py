@@ -1381,6 +1381,35 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # lookup and BLOCK when it can't be verified.
     earnings_in_window = False if sym in _ETF_UNDERLYINGS else _earnings_in_window(sym, dte)
 
+    # ── IV: SOLVE it, don't just fetch it (15 Aug 2026) ────────────────
+    # The vega gate used to depend entirely on IBKR's IV field, so a dark
+    # field blocked the row outright — 47-82 of 82 symbols on 14 Aug, while
+    # bid/ask were fine. IV is a solve from the mid; only the price is
+    # irreducibly a market fact. Cross-checked against the broker when both
+    # exist, so agreement raises confidence and disagreement is DETECTED.
+    #
+    # THIS MUST STAY ABOVE `ctx`. It used to sit ~40 lines BELOW, after
+    # `evaluate()` had already run (26 Aug 2026). The solve worked, so the row
+    # displayed a real "Vega edge 1.21 IV/HV" — while MarketContext had been
+    # frozen earlier with iv_hv_ratio=None, sending the gate down its
+    # both-are-None branch and blocking with "IV-Rank unavailable — cannot
+    # confirm the vega edge". The screen was computing the number, printing
+    # it, and then declaring it unknowable: 67 of 82 rows, every row on the
+    # desk, for as long as the solve has existed. Two orderings of the same
+    # value, and the gate read the stale one.
+    iv_solved = solve_iv_and_crosscheck(
+        premium=premium, spot=ref_close, strike=strike, dte=dte,
+        broker_iv=(ivr.iv if ivr.available else None), pricer=pricer, kind="put")
+    if iv_solved["iv"] and (not ivr.available or ivr.iv is None):
+        # Rebuild the vega read on the solved IV + our own realised vol, so a
+        # dark broker field no longer means "unknowable".
+        from dataclasses import replace as _dc_iv
+        _hv = ivr.hv30 if (ivr.available and ivr.hv30) else _hv30_from_closes(closes)
+        ivr = _dc_iv(
+            ivr, available=True, iv=iv_solved["iv"], hv30=_hv,
+            iv_hv_ratio=(round(iv_solved["iv"] / _hv, 3) if (_hv and _hv > 0) else None),
+            reason=f"IV solved from the mid ({iv_solved['source']})")
+
     ctx = MarketContext(
         regime=Regime(regime) if regime else None,
         falling_knife=falling_knife,
@@ -1417,24 +1446,9 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # yearly range is positive edge on very little money — and typically
     # exactly when the name sits near its highs. Rank-based passes are
     # exempt (a real 52w IV-rank already IS the absolute measure).
-    # ── IV: SOLVE it, don't just fetch it (15 Aug 2026) ────────────────
-    # The vega gate used to depend entirely on IBKR's IV field, so a dark
-    # field blocked the row outright — 47-82 of 82 symbols on 14 Aug, while
-    # bid/ask were fine. IV is a solve from the mid; only the price is
-    # irreducibly a market fact. Cross-checked against the broker when both
-    # exist, so agreement raises confidence and disagreement is DETECTED.
-    iv_solved = solve_iv_and_crosscheck(
-        premium=premium, spot=ref_close, strike=strike, dte=dte,
-        broker_iv=(ivr.iv if ivr.available else None), pricer=pricer, kind="put")
-    if iv_solved["iv"] and (not ivr.available or ivr.iv is None):
-        # Rebuild the vega read on the solved IV + our own realised vol, so a
-        # dark broker field no longer means "unknowable".
-        from dataclasses import replace as _dc_iv
-        _hv = ivr.hv30 if (ivr.available and ivr.hv30) else _hv30_from_closes(closes)
-        ivr = _dc_iv(
-            ivr, available=True, iv=iv_solved["iv"], hv30=_hv,
-            iv_hv_ratio=(round(iv_solved["iv"] / _hv, 3) if (_hv and _hv > 0) else None),
-            reason=f"IV solved from the mid ({iv_solved['source']})")
+    # (The IV solve that used to sit here now runs ABOVE `ctx` — it has to,
+    # or the gate evaluates before the value it needs exists. See the note
+    # there. `ivr` and `iv_solved` are already rebuilt by this point.)
 
     iv_vol_pctile = (vol_regime_percentile(closes, ivr.iv)
                      if (ivr.available and ivr.iv) else None)
