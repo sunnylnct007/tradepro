@@ -431,35 +431,41 @@ def evaluate(
     # was "I can put in capital if needed" — which is exactly the decision a
     # screener must leave open rather than pre-empt.
     #
-    # With capital_gates=False the same checks still RUN and still report, as
-    # warnings carrying the number the owner needs to size or fund the trade.
+    # With capital_gates=False these checks still RUN (so `checked` stays an
+    # honest audit of what was evaluated) but say NOTHING. They were briefly
+    # emitted as warnings and the owner's verdict was "it's more of a noise" —
+    # correct, because the row ALREADY carries the same fact in a better form:
+    # the Size fit column shows notional as a percentage of NAV (NVDA 12.9%,
+    # SLV 3.8%). "Notional £22,835 > per-position limit £10,000" is that same
+    # number restated as prose, on a screen whose job is trade quality.
+    #
     # The autonomous paper-wheel keeps the default True: it spends real
-    # collateral without asking, so for it these are hard limits.
-    _cap = blocks if capital_gates else warnings
+    # collateral without asking, so for it these stay hard blocks.
     eff_per_pos = cfg.per_position_gbp * size_factor
     checked.append("per_position_limit")
     if candidate.notional_gbp is None:
-        # NOT capital-conditional: an unknown notional means the sizing
-        # question cannot even be asked, which is a data failure, not a
-        # funding choice.
+        # NOT capital-conditional, and NOT suppressed: an unknown notional
+        # means the sizing question cannot even be asked, and Size fit has
+        # nothing to show either. That is a data failure, not a funding choice.
         blocks.append("Trade notional unavailable — cannot check per-position / deployment limits.")
-    else:
+    elif capital_gates:
         if size_factor == 0.0 and tier < 3:
             pass  # shouldn't happen; tiers 3/4 already blocked above
         if candidate.notional_gbp > eff_per_pos and eff_per_pos > 0:
-            _cap.append(
+            blocks.append(
                 f"Notional £{candidate.notional_gbp:.0f} > per-position limit £{eff_per_pos:.0f}"
-                + (" (halved by drawdown brake 2)" if size_factor == 0.5 else "")
-                + ("." if capital_gates else " — sizing/funding decision, not a trade-quality one."))
+                + (" (halved by drawdown brake 2)" if size_factor == 0.5 else "") + ".")
         checked.append("deployment_limit")
         if portfolio.deployed_gbp + candidate.notional_gbp > cfg.max_deploy_gbp:
-            _cap.append(
+            blocks.append(
                 f"Deployed £{portfolio.deployed_gbp:.0f} + £{candidate.notional_gbp:.0f} "
                 f"> max £{cfg.max_deploy_gbp:.0f} (assignment buffer breached).")
+    else:
+        checked.append("deployment_limit")
 
     checked.append("max_positions")
-    if portfolio.open_positions >= cfg.max_positions:
-        _cap.append(f"Open positions {portfolio.open_positions} ≥ max {cfg.max_positions}.")
+    if portfolio.open_positions >= cfg.max_positions and capital_gates:
+        blocks.append(f"Open positions {portfolio.open_positions} ≥ max {cfg.max_positions}.")
 
     return RiskDecision(
         allowed=len(blocks) == 0,
