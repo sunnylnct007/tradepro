@@ -1204,6 +1204,16 @@ public static class IntegrationsEndpoints
                 confirmed,
                 unresolved = applied.Count - confirmed,
                 blind,
+                // WHY the reads were empty. Both client methods catch their own
+                // exceptions and return an EMPTY result carrying the message, so
+                // without these fields a THROWN read and a genuinely empty account
+                // are the same response -- zero rows, no error. That ambiguity is
+                // what made "the blotter is empty" look like a fact for weeks. An
+                // httpStatus of 0 means the call never completed at all.
+                ordersError = res.Error,
+                ordersHttpStatus = res.HttpStatus,
+                executionsError = execs.Error,
+                executionsHttpStatus = execs.HttpStatus,
                 applied,
             });
         })
