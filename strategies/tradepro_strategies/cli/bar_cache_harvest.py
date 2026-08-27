@@ -300,6 +300,13 @@ def main() -> int:
     # Track quality tier counts: gold=ibkr complete, silver=ibkr partial,
     # bronze=yfinance/ig, missing=all failed
     quality_counts: dict[str, int] = {"gold": 0, "silver": 0, "bronze": 0, "missing": 0}
+    # Who actually served, and why the golden source didn't (27 Aug 2026).
+    # A run can report "0 failed" while serving 97% of its symbols from the
+    # fallback — that is what happened on 27 Aug (237/244 yfinance) and nothing
+    # in the output said so.
+    from collections import Counter as _Counter
+    _source_counts: _Counter = _Counter()
+    _demotion_counts: _Counter = _Counter()
     # Per-symbol health records → POSTed to the cockpit's data-trust DB after the
     # run so the Harvest/Data-Health screen renders the real coverage (bridges
     # the local-cache → EC2 gap). Best-effort; never blocks the harvest.
@@ -397,11 +404,36 @@ def main() -> int:
                 partial_count += 1
                 mark = "~"
 
+            # WHY the golden source was not used (27 Aug 2026). This line used
+            # to print `source=yfinance_ok` and stop, which is how a run served
+            # 237 of 244 symbols from Yahoo with no recorded reason. IBKR is the
+            # golden source and Yahoo a VISIBLE fallback — "visible" has to mean
+            # the demotion states its cause, or a silent all-Yahoo night looks
+            # identical to a healthy one.
+            #
+            # The reason was never lost, only discarded: `provider_chain_tried`
+            # already holds entries like `ibkr_web_rate_limited` /
+            # `ibkr_web_out_of_range` from the chain walk. Print them whenever
+            # something other than the chain's FIRST provider ends up serving.
+            _demoted = ""
+            _chain = list(getattr(result, "provider_chain_tried", None) or [])
+            _primary = (chain or [None])[0]
+            if _primary and result.provider_used and not str(
+                    result.provider_used).startswith(str(_primary)):
+                _why = [c for c in _chain
+                        if str(c).startswith(f"{_primary}_")] or [
+                    c for c in _chain if not str(c).startswith("delta:")]
+                if _why:
+                    _demoted = f"  ← {_primary} declined: {', '.join(_why[:3])}"
+                    for _w in _why[:1]:
+                        _demotion_counts[str(_w)] += 1
+            _source_counts[str(result.provider_used or "unknown")] += 1
+
             print(
                 f"  {mark} {symbol:<8s} "
                 f"{result.rows_returned:6d}/{result.rows_expected:<6d} bars  "
                 f"{tier_icon} {tier:<8s}  "
-                f"source={result.provider_used}"
+                f"source={result.provider_used}{_demoted}"
             )
             # Report the TRUE history depth (earliest bar across ALL partitions),
             # NOT just this fetch's trailing window — otherwise the Data Health
@@ -547,6 +579,28 @@ def main() -> int:
         f"🥉 {quality_counts['bronze']} BRONZE  "
         f"✗ {quality_counts['missing']} MISSING"
     )
+    # WHO SERVED. Quality tiers describe coverage, not provenance, so a run
+    # entirely on the fallback still prints a respectable-looking tier mix —
+    # 27 Aug read "0 failed / 237 BRONZE" while IBKR had served 4 of 244 and
+    # said nothing about why. IBKR is the golden source; a night where it
+    # served almost nothing is an incident, and must read as one.
+    if _source_counts:
+        _total = sum(_source_counts.values())
+        _parts = ", ".join(f"{k} {v}" for k, v in _source_counts.most_common())
+        print(f"Sources: {_parts}")
+        _primary = (chain or [None])[0]
+        _prim_n = sum(v for k, v in _source_counts.items()
+                      if _primary and k.startswith(str(_primary)))
+        _share = (_prim_n / _total * 100.0) if _total else 0.0
+        if _primary and _share < 50.0:
+            print(f"  ⚠ GOLDEN SOURCE DEGRADED — {_primary} served {_prim_n}/{_total} "
+                  f"({_share:.0f}%); the rest came from fallbacks.")
+            if _demotion_counts:
+                for _reason, _n in _demotion_counts.most_common(4):
+                    print(f"      {_n:>4} × {_reason}")
+            else:
+                print("      no reason recorded by the chain walk — investigate "
+                      "the provider directly; it may be failing before it reports.")
     if _skipped_fetches:
         print(f"  ⚡ circuit breaker skipped {_skipped_fetches} doomed fetch(es) "
               f"— cached data served instead; next run retries normally")
