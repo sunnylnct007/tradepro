@@ -53,6 +53,36 @@ DEFAULT_PACE_S = 20.0
 MAX_PACE_S = 300.0
 
 
+# The capture is only MEANINGFUL after the options close. Yahoo clears
+# openInterest/bid/ask for the new session during pre-market, so a run at
+# 09:54 UTC returns chains with every liquidity field null — which is exactly
+# what happened on 27 Aug 2026: the 22:15 slot was missed (the Mac's battery
+# died overnight), launchd caught the job up on the next maintenance wake, and
+# the catch-up wrote a snapshot with OI dark on 70 of 81 symbols. The screen
+# then blocked 42 rows on "Open interest < 250" and reported 0 eligible, which
+# reads as "the market is illiquid" rather than "we captured at the wrong hour".
+#
+# A missed night is honest; a dark snapshot presented as a capture is not.
+CAPTURE_OPEN_ET = 16.5    # 16:30 ET — 15 min after the 16:15 options close
+CAPTURE_SHUT_ET = 4.0     # 04:00 ET — before pre-market repopulates the chain
+
+# Floor for "did this run actually collect liquidity data". Well below the
+# healthy rate (24 Aug: 82/82) and well above a dark run (27 Aug: 11/81), so it
+# separates the two without flagging an ordinary patchy night.
+MIN_OI_COVERAGE = 0.50
+
+
+def _in_capture_window(now=None) -> tuple[bool, str]:
+    """Is NOW inside the post-close window where Yahoo serves real OI?"""
+    from datetime import datetime as _dtm
+    from zoneinfo import ZoneInfo
+    et = (now or _dtm.now(ZoneInfo("America/New_York"))).astimezone(
+        ZoneInfo("America/New_York"))
+    hr = et.hour + et.minute / 60.0
+    ok = hr >= CAPTURE_OPEN_ET or hr < CAPTURE_SHUT_ET
+    return ok, f"{et:%Y-%m-%d %H:%M} ET"
+
+
 def _post_rows(rows: list[dict]) -> int:
     """Batch-upsert captured legs. Best-effort: a push failure must not lose the
     rest of the run."""
@@ -128,8 +158,21 @@ def main() -> int:
     ap.add_argument("--pace", type=float, default=DEFAULT_PACE_S,
                     help=f"seconds between symbols (default {DEFAULT_PACE_S})")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--force", action="store_true",
+                    help="capture even outside the post-close window (writes a "
+                         "snapshot Yahoo has not populated yet — diagnostics only)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    in_window, et_now = _in_capture_window()
+    if not in_window and not args.force:
+        print(f"REFUSED: {et_now} is outside the post-close capture window "
+              f"({CAPTURE_OPEN_ET:.0f}:30 ET \u2192 {CAPTURE_SHUT_ET:.0f}:00 ET). "
+              "Yahoo has not published this session's open interest yet, so a run now "
+              "would upsert a snapshot with every liquidity field null and the wheel "
+              "screen would read it as illiquidity. Skipping; the next scheduled slot "
+              "will capture properly. Override with --force.", flush=True)
+        return 2
 
     if args.symbols:
         syms = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -141,6 +184,7 @@ def main() -> int:
 
     pace = args.pace
     total_rows = upserted = ok = rate_limited = failed = 0
+    sym_with_oi = sym_with_ba = 0
     print(f"option-chain capture — {len(syms)} symbols, ~{args.dte} DTE, rights={args.rights}, "
           f"pace {pace:.0f}s  [{date.today()}]", flush=True)
 
@@ -177,11 +221,26 @@ def main() -> int:
         ok += 1
         withoi = sum(1 for r in rows if r.get("openInterest"))
         withba = sum(1 for r in rows if r.get("bid") and r.get("ask"))
+        sym_with_oi += 1 if withoi else 0
+        sym_with_ba += 1 if withba else 0
         print(f"  ✓ {sym:<6} {len(rows):3d} legs (OI {withoi}, bid/ask {withba}) → upserted {n}",
               flush=True)
 
     print(f"\nDone: {ok} captured, {rate_limited} rate-limited, {failed} failed / {len(syms)}")
     print(f"      {total_rows} legs shaped, {upserted} upserted; final pace {pace:.0f}s")
+    print(f"      liquidity coverage: OI on {sym_with_oi}/{ok} captured symbols, "
+          f"bid/ask on {sym_with_ba}/{ok}")
+
+    # A run that collected no liquidity data is a FAILED run, not a quiet one.
+    # Without this it exits 0, the wrapper logs rc=0, and the only visible
+    # symptom is the wheel board blaming the market for our own empty capture.
+    if ok and (sym_with_oi / ok) < MIN_OI_COVERAGE:
+        print(f"\nFAILED: open interest present on only {sym_with_oi}/{ok} symbols "
+              f"({sym_with_oi / ok:.0%} < {MIN_OI_COVERAGE:.0%}). This snapshot cannot "
+              "support the wheel screen's liquidity gate. Treat the board's OI "
+              "rejections as UNKNOWN, not as illiquidity, until a healthy capture lands.",
+              flush=True)
+        return 1
     return 0
 
 
