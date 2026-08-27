@@ -1467,6 +1467,11 @@ public static class IntegrationsEndpoints
                     : (ibkr.LastCompeting == true && ibkr.LastConnected == true),
                 authStatusAtUtc = ibkr.LastAuthStatusAtUtc,
                 authStatusRaw = ibkr.LastAuthStatusRaw,
+                // null = never attempted, false = the /iserver order and
+                // execution reads are answering for NO account and will
+                // return [] no matter how many orders are working.
+                accountSelected = ibkr.LastAccountSelectOk,
+                accountSelectRaw = ibkr.LastAccountSelectRaw,
                 // HARD kill-switch state (default false): order placement is
                 // disabled unless IBKR:AllowOrders=true. Surfaced so the
                 // read-only guarantee on the live account is visible/auditable.

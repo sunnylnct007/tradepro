@@ -345,9 +345,69 @@ public sealed class IBKRClient
                 }
             }
 
+            // ── 7. SELECT the account for this brokerage session ──
+            //
+            // POST /iserver/account {acctId}. Without it the session has no
+            // ACTIVE account, and the two /iserver reads that do not name one
+            // in their path -- /iserver/account/orders and
+            // /iserver/account/trades -- answer for nothing and return [].
+            //
+            // That is precisely the split observed on 27 Aug 2026. Placement
+            // (POST /iserver/account/{accountId}/orders) and positions
+            // (GET /portfolio/{accountId}/positions/0) name the account in the
+            // URL, and both worked -- a probe BUY came back with broker order
+            // id 1069512750 and the paper account's KO holding went 1 -> 2, so
+            // the order genuinely executed. The blotter and executions reads
+            // are the only two that rely on the session's implicit selection,
+            // and they are the only two that returned zero rows. The OMS could
+            // therefore never confirm a fill: 57 orders, six recorded at price
+            // ZERO, nine stuck in SUBMITTED since July.
+            //
+            // Not fatal. A failure here leaves the account unselected, which is
+            // the state we have been in all along -- placement and positions
+            // keep working. But it is recorded and surfaced so it can never
+            // again look like an empty blotter, which reads as "no orders"
+            // rather than "wrong question".
+            if (!string.IsNullOrWhiteSpace(_options.AccountId))
+            {
+                try
+                {
+                    // BuildAuthed (not SendWithAuthAsync) — we are INSIDE session
+                    // establishment and holding _session.Lock; the auth-ensuring
+                    // wrapper would re-enter it and deadlock.
+                    using var selReq = BuildAuthed(HttpMethod.Post, "v1/api/iserver/account");
+                    selReq.Content = new StringContent(
+                        System.Text.Json.JsonSerializer.Serialize(
+                            new { acctId = _options.AccountId }),
+                        System.Text.Encoding.UTF8, "application/json");
+                    using var selResp = await _http.SendAsync(selReq, ct);
+                    var selText = await selResp.Content.ReadAsStringAsync(ct);
+                    LastAccountSelectOk = selResp.IsSuccessStatusCode;
+                    LastAccountSelectRaw = selText.Length > 300 ? selText[..300] : selText;
+                    if (selResp.IsSuccessStatusCode)
+                        _log.LogInformation(
+                            "IBKR brokerage session bound to account {Acct}: {Body}",
+                            _options.AccountId, LastAccountSelectRaw);
+                    else
+                        _log.LogError(
+                            "IBKR account selection FAILED {Code} for {Acct}: {Body}. "
+                            + "/iserver/account/orders and /trades will return EMPTY, so the "
+                            + "OMS cannot confirm any fill.",
+                            (int)selResp.StatusCode, _options.AccountId, LastAccountSelectRaw);
+                }
+                catch (Exception ex)
+                {
+                    LastAccountSelectOk = false;
+                    LastAccountSelectRaw = ex.Message;
+                    _log.LogError(ex,
+                        "IBKR account selection threw for {Acct} — order/execution reads "
+                        + "will return EMPTY", _options.AccountId);
+                }
+            }
+
             _session.MarkIserverReady();
-            _log.LogInformation("IBKR session established ({Label}, account {Acct})",
-                _options.BrokerLabel, _options.AccountId);
+            _log.LogInformation("IBKR session established ({Label}, account {Acct}, accountSelected={Sel})",
+                _options.BrokerLabel, _options.AccountId, LastAccountSelectOk);
         }
         finally
         {
@@ -767,6 +827,12 @@ public sealed class IBKRClient
     public bool? LastCompeting { get; private set; }
     public bool? LastConnected { get; private set; }
     public string? LastAuthStatusRaw { get; private set; }
+
+    /// <summary>Did POST /iserver/account bind this session to our account?
+    /// null = not yet attempted. When false, /iserver/account/orders and
+    /// /iserver/account/trades answer for no account and return [].</summary>
+    public bool? LastAccountSelectOk { get; private set; }
+    public string? LastAccountSelectRaw { get; private set; }
     public DateTime? LastAuthStatusAtUtc { get; private set; }
 
     public async Task<IBKROptionStrikesResult> GetOptionStrikesAsync(
