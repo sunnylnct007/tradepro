@@ -202,9 +202,15 @@ def _load(sym: str):
     return df if len(df) >= 220 and "open" in df.columns else None
 
 
-def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
+def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
+    """Returns (candidates, quarantined, near_misses).
+
+    `near_misses` is what makes a zero-candidate day READABLE — see the
+    near-miss block below.
+    """
     out: list[dict] = []
     quarantined: list[dict] = []
+    near: list[dict] = []
     for sym in symbols:
         df = _load(sym)
         if df is None:
@@ -258,6 +264,38 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
         # publishes against what the graded harness produces. If the screen has
         # its own copy of the rule, F1 measures how carefully the copy was made.
         if not entry_signal(c, i):
+            # NEAR-MISS: record HOW FAR OFF, and WHICH half of the rule failed.
+            #
+            # "none today — the screen is selective" was true and unfalsifiable.
+            # It reads identically whether the scan evaluated 244 symbols and
+            # found nothing, or crashed after three, or was pointed at an empty
+            # universe. The owner's words on 27 Aug: "there is nothing in
+            # tradepro currently telling me a proper signal i shd trade on" —
+            # and from outside there was no way to tell working from broken.
+            #
+            # Two distances, because the rule has two halves and they fail for
+            # opposite reasons: `z` is how many sigma below the 20-day mean the
+            # close sits (needs < -SIGMA), and `above_trend` is the 200-SMA
+            # floor. A name deep below its band but UNDER the 200-SMA is not
+            # nearly-a-signal — it is a falling knife the trend filter is
+            # deliberately refusing, which is a different thing to report.
+            _w = c[i-BB_WINDOW+1:i+1]
+            if len(_w) == BB_WINDOW:
+                _m = sum(_w) / BB_WINDOW
+                _sd = (sum((x - _m) ** 2 for x in _w) / BB_WINDOW) ** 0.5
+                if _sd > 0:
+                    _s200 = sum(c[i - TREND_WINDOW + 1:i + 1]) / TREND_WINDOW
+                    near.append({
+                        "symbol": sym,
+                        "bar": dates[i],
+                        "close": round(c[i], 2),
+                        "sigma_from_mean": round((c[i] - _m) / _sd, 2),
+                        "sigma_needed": -SIGMA,
+                        "above_trend": bool(c[i] > _s200),
+                        "blocked_by": ("trend filter (below the 200-SMA)"
+                                       if c[i] <= _s200 else
+                                       "not stretched enough below the 20-day mean"),
+                    })
             continue
         sma200 = sum(c[i - TREND_WINDOW + 1:i + 1]) / TREND_WINDOW
         w = c[i-BB_WINDOW+1:i+1]
@@ -298,11 +336,14 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
         })
     # Best reward:risk first — the number that decides whether a bracket is worth placing.
     out.sort(key=lambda r: -(r["reward_risk"] or 0))
-    return out, quarantined
+    near.sort(key=lambda r: r["sigma_from_mean"])
+    return out, quarantined, near
 
 
 def build_artifact(rows: list[dict], universe: str,
-                   quarantined: list[dict] | None = None) -> dict:
+                   quarantined: list[dict] | None = None,
+                   near: list[dict] | None = None,
+                   evaluated: int | None = None) -> dict:
     return {
         "kind": "swing_candidates",
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
@@ -311,6 +352,13 @@ def build_artifact(rows: list[dict], universe: str,
         # this, so the screen rendered an undefined signal bar and a dated
         # archive had nothing to key on.
         "signal_bar": rows[0]["bar"] if rows else _last_completed_session(),
+        # WHY THERE IS NO TRADE. A zero-candidate day must be readable as a
+        # measurement, not as silence — "none today" alone cannot be told apart
+        # from a crashed scan or an empty universe. `evaluated` proves the scan
+        # ran and over how many names; `near_misses` shows how far off the
+        # closest ones were and which half of the rule stopped them.
+        "evaluated": evaluated,
+        "near_misses": (near or [])[:10],
         "settled_bar_only": True,
         "rule": {
             "entry": f"close < {SIGMA} sigma below the {BB_WINDOW}-day mean, while above the 200-SMA",
@@ -395,8 +443,9 @@ def main() -> int:
     syms = ([s.strip().upper() for s in args.symbols.split(",") if s.strip()]
             if args.symbols else
             universe_symbols())
-    rows, quarantined = scan(syms)
-    art = build_artifact(rows, args.universe, quarantined)
+    rows, quarantined, near = scan(syms)
+    art = build_artifact(rows, args.universe, quarantined,
+                         near=near, evaluated=len(syms))
 
     if args.json:
         print(json.dumps(art, indent=1))
@@ -424,7 +473,17 @@ def main() -> int:
             for q in quarantined:
                 print(f"   {q['symbol']:<7} {q['detail']}")
         if not rows:
-            print("none today — the screen is selective (~7 signals/week across the universe)")
+            print(f"none today — {len(syms)} symbol(s) evaluated; the screen is "
+                  f"selective (~7 signals/week across the universe)")
+            if near:
+                blocked = sum(1 for n in near if not n["above_trend"])
+                print(f"\nCLOSEST TO FIRING — entry needs sigma < {-SIGMA}:")
+                print(f"  {'sym':<7}{'sigma':>8}{'close':>10}   why not")
+                for n in near[:8]:
+                    print(f"  {n['symbol']:<7}{n['sigma_from_mean']:>8.2f}"
+                          f"{n['close']:>10.2f}   {n['blocked_by']}")
+                print(f"\n  {blocked} of the {len(near)} evaluated sit BELOW their 200-SMA — "
+                      f"the trend filter is refusing them on purpose (falling knives).")
 
     if args.push:
         try:
