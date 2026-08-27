@@ -341,9 +341,22 @@ public static class IBKRResponseParser
                 TradeTime: Str(it, "trade_time") ?? StrLoose(it, "trade_time_r"),
                 ExecId: Str(it, "execution_id") ?? Str(it, "exec_id"),
                 Account: Str(it, "account") ?? Str(it, "acctNumber"),
-                // IBKR has been seen to carry this under three names depending
-                // on endpoint version; take whichever is present.
-                OrderId: Str(it, "order_ref") ?? StrLoose(it, "orderId") ?? StrLoose(it, "ibOrderId")));
+                // The owning order id. `order_id` FIRST, because that is what
+                // /iserver/account/trades actually sends -- verified against a
+                // live payload on 27 Aug 2026:
+                //
+                //   {"execution_id":"00025b45.6a96ea93.01.01","order_id":1069512750,
+                //    "price":"89.36","size":1.0,"side":"B","account":"DUP656969"}
+                //
+                // The three names below were guessed from other endpoints and
+                // none of them appear here, so every execution parsed with a
+                // NULL order id and reconcile dropped it -- executionsWithOrderId
+                // was 0 even once the blotter read was fixed and the execution
+                // was sitting right there. Second time today a real payload
+                // disagreed with an assumed field name; the price bug above was
+                // the first. StrLoose because IBKR sends it as a NUMBER.
+                OrderId: StrLoose(it, "order_id") ?? Str(it, "order_ref")
+                         ?? StrLoose(it, "orderId") ?? StrLoose(it, "ibOrderId")));
         }
         return list;
     }
