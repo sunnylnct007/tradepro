@@ -462,6 +462,26 @@ public sealed class IBKRClient
         finally { _session.Clear(); }
     }
 
+    /// <summary>IBKR answers the first /iserver blotter read with an empty,
+    /// UNPRIMED snapshot and expects the caller to ask again.</summary>
+    private const int SnapshotPrimeAttempts = 4;
+    private static readonly TimeSpan SnapshotPrimeDelay = TimeSpan.FromMilliseconds(600);
+
+    /// <summary>True when the payload declares itself a REAL snapshot
+    /// ("snapshot":true). Absent flag counts as primed — only an explicit
+    /// false means "ask again".</summary>
+    private static bool IsPrimedSnapshot(string text)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return true;
+            if (!doc.RootElement.TryGetProperty("snapshot", out var snap)) return true;
+            return snap.ValueKind != System.Text.Json.JsonValueKind.False;
+        }
+        catch { return true; }
+    }
+
     private HttpRequestMessage BuildAuthed(HttpMethod method, string path)
     {
         var req = new HttpRequestMessage(method, path);
@@ -1222,11 +1242,44 @@ public sealed class IBKRClient
             return new IBKROrdersResult(Array.Empty<IBKRLiveOrder>(), "IBKR disabled", 0);
         try
         {
-            using var resp = await SendWithAuthAsync(HttpMethod.Get, "v1/api/iserver/account/orders", null, ct);
-            var text = await resp.Content.ReadAsStringAsync(ct);
-            if (!resp.IsSuccessStatusCode)
-                return new IBKROrdersResult(Array.Empty<IBKRLiveOrder>(), text, (int)resp.StatusCode);
-            return new IBKROrdersResult(IBKRResponseParser.ParseLiveOrders(text), null, (int)resp.StatusCode);
+            // IBKR PRIMES this endpoint. The first call after a session becomes
+            // ready returns {"orders":[],"snapshot":false} -- an EMPTY, UNPRIMED
+            // snapshot -- and the caller must ask again to get the real blotter.
+            // The flag is in the payload; we simply never read it.
+            //
+            // Reconcile called ONCE, every time, and therefore read an empty
+            // blotter every time. That is the whole of the "orders read is
+            // broken" story: 57 orders, six fills recorded at price ZERO, nine
+            // stuck in SUBMITTED since July, and forward-test gates F2/F3/F4
+            // uncomputable -- from a documented two-call handshake done once.
+            //
+            // Proven 27 Aug 2026: call 1 -> {"orders":[],"snapshot":false};
+            // call 2 -> orderId 1069512750, status Filled, avgPrice 89.36.
+            for (var attempt = 1; ; attempt++)
+            {
+                using var resp = await SendWithAuthAsync(
+                    HttpMethod.Get, "v1/api/iserver/account/orders", null, ct);
+                var text = await resp.Content.ReadAsStringAsync(ct);
+                if (!resp.IsSuccessStatusCode)
+                    return new IBKROrdersResult(
+                        Array.Empty<IBKRLiveOrder>(), text, (int)resp.StatusCode);
+
+                var primed = IsPrimedSnapshot(text);
+                var parsed = IBKRResponseParser.ParseLiveOrders(text);
+                if (primed || parsed.Count > 0 || attempt >= SnapshotPrimeAttempts)
+                {
+                    if (!primed && parsed.Count == 0)
+                        _log.LogWarning(
+                            "IBKR order blotter still UNPRIMED after {N} attempts — "
+                            + "reporting empty, but this is not evidence of no orders",
+                            attempt);
+                    return new IBKROrdersResult(parsed, null, (int)resp.StatusCode);
+                }
+                _log.LogInformation(
+                    "IBKR order blotter unprimed (snapshot:false) — re-asking {N}/{Max}",
+                    attempt, SnapshotPrimeAttempts);
+                await Task.Delay(SnapshotPrimeDelay, ct);
+            }
         }
         catch (Exception ex)
         {
@@ -1247,17 +1300,32 @@ public sealed class IBKRClient
             return new IBKRTradesResult(Array.Empty<IBKRTrade>(), "IBKR disabled", 0);
         try
         {
-            using var resp = await SendWithAuthAsync(HttpMethod.Get, "v1/api/iserver/account/trades", null, ct);
-            var text = await resp.Content.ReadAsStringAsync(ct);
-            if (!resp.IsSuccessStatusCode)
-                return new IBKRTradesResult(Array.Empty<IBKRTrade>(), text, (int)resp.StatusCode);
-            var all = IBKRResponseParser.ParseTrades(text);
+            // Primed the same way as the order blotter, but the executions
+            // payload is a BARE ARRAY with no snapshot flag -- so an unprimed
+            // read and a genuinely quiet day are both []. Re-ask a bounded
+            // number of times and take the first non-empty answer; a real quiet
+            // day costs a couple of extra reads and still returns [].
+            string text = "[]";
+            HttpStatusCode code = HttpStatusCode.OK;
+            IReadOnlyList<IBKRTrade> all = Array.Empty<IBKRTrade>();
+            for (var attempt = 1; attempt <= SnapshotPrimeAttempts; attempt++)
+            {
+                using var resp = await SendWithAuthAsync(
+                    HttpMethod.Get, "v1/api/iserver/account/trades", null, ct);
+                text = await resp.Content.ReadAsStringAsync(ct);
+                code = resp.StatusCode;
+                if (!resp.IsSuccessStatusCode)
+                    return new IBKRTradesResult(Array.Empty<IBKRTrade>(), text, (int)code);
+                all = IBKRResponseParser.ParseTrades(text);
+                if (all.Count > 0) break;
+                if (attempt < SnapshotPrimeAttempts) await Task.Delay(SnapshotPrimeDelay, ct);
+            }
             var acct = _options.AccountId;
             var mine = string.IsNullOrWhiteSpace(acct)
                 ? all
                 : all.Where(t => string.IsNullOrWhiteSpace(t.Account)
                                  || string.Equals(t.Account, acct, StringComparison.OrdinalIgnoreCase)).ToList();
-            return new IBKRTradesResult(mine, null, (int)resp.StatusCode);
+            return new IBKRTradesResult(mine, null, (int)code);
         }
         catch (Exception ex)
         {
