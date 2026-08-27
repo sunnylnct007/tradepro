@@ -75,3 +75,68 @@ immediately rather than as a risk-management option.
 version of this rule we can find, and the way to make the strategy better is
 not to keep adjusting it — it is to get live evidence, which is what the
 forward test is for.
+
+---
+
+# RESULT — neither passes all five. Both predictions held.
+
+| variant | trades | win% | mean/trade | worst | TOTAL | two-split |
+|---|---|---|---|---|---|---|
+| **LIVE 2.50σ** | 2,504 | 73.2% | +1.11% | −23.2% | 2,774% | — |
+| C1 2.25σ | 3,918 | 72.4% | +1.00% | −23.2% | **3,916%** | −0.04 / −0.19 / −0.20 / −0.02 |
+| C2 regime | 2,253 | **74.3%** | **+1.22%** | −23.2% | 2,748% | **+0.19 / +0.03 / +0.21 / +0.01** |
+| C1+C2 | 3,555 | 73.1% | +1.03% | −23.2% | 3,679% | +0.07 / −0.22 / −0.09 / −0.05 |
+
+Verified the extra trades are reachable: at a cap of 30, only **14 of 3,918**
+signals are refused at 2.25σ. C1's total is real, not arithmetic on trades the
+sleeve could never make.
+
+## C1 — loosening to 2.25σ: FAILS S1
+
+Mean falls +1.11% → +1.00%, and the two-split is **negative in all four cells**.
+That is not noise — the average really is lower. It gains 41% total return by
+taking 56% more trades that are each slightly worse.
+
+**It is not a better edge. It is more of a slightly weaker one.** That may still
+be worth having, but it is a different claim from "the strategy improved", and
+S1 exists to keep those apart.
+
+## C2 — the regime filter: FAILS S5, and it is the near miss
+
+**Positive in all four two-split cells** — the only candidate all week to
+manage that, on the test that killed momentum v3, the intraday dip study, both
+resting-limit studies and four of five ranking rules.
+
+It improves the mean (+1.22% vs +1.11%), the win rate (74.3% vs 73.2%) and
+leaves the worst trade untouched. It fails S5 by **0.9%** — total 2,748%
+against 2,774% over sixteen years.
+
+So it delivers **the same total return from 251 fewer trades**, with a higher
+win rate. Less capital deployed, less time exposed, fewer commissions.
+
+**I am not moving S5.** I wrote it before the run precisely to stop "improved
+the average by taking fewer trades" being sold as an improvement, and C2 is
+that shape even though it is the benign version of it. Changing the gate after
+seeing the number is the thing this whole protocol exists to prevent.
+
+## What I said in advance, and what it means now
+
+> *"If both fail, the answer is that 2.5σ with no regime filter is the best
+> version of this rule we can find, and the way to make the strategy better is
+> not to keep adjusting it — it is to get live evidence."*
+
+Both failed. **The live rule stays at 2.5σ, unfiltered.**
+
+## The one thing genuinely on the table
+
+C2 is not an edge improvement — it is a **risk decision**, and that belongs to
+the owner rather than to a gate:
+
+* same total return, 10% fewer trades, higher win rate
+* it stands aside in exactly the regime that produced 2022, the only losing
+  year in the record
+
+If the owner wants lower exposure for the same return, C2 is defensible and
+survives the split test. It should be adopted as a stated risk preference and
+pre-registered as such — never as "the backtest said it was better", because
+the backtest says it earns slightly less in total.
