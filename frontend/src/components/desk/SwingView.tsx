@@ -127,11 +127,56 @@ export function SwingView() {
       )}
 
       {a.count === 0 ? (
+        /* An empty list used to ASSERT "the screen working, not the screen
+           broken" and show nothing to back it up. That reads the same whether
+           the scan covered the universe and found nothing or died after three
+           symbols, which is why the owner could not tell working from broken.
+           Show the measurement instead: how many names were evaluated, how far
+           off the closest were, and which half of the rule stopped them. */
         <div style={{ padding: 16, border: "1px dashed var(--border)", borderRadius: 8,
                       color: "var(--text-dim)", fontSize: 15 }}>
-          <b>No candidates right now.</b> The screen is deliberately selective — roughly 1–2 signals
-          a day across the defined universe. An empty list is the screen working, not the screen broken:
-          it fires only on a 2.5σ dip in a name still above its 200-day average.
+          <b>No candidates right now.</b>{" "}
+          {typeof a.evaluated === "number"
+            ? <>The rule was evaluated against <b>{a.evaluated}</b> symbols on the {a.signal_bar} close
+               and none cleared it.</>
+            : <>The screen is deliberately selective — roughly 1–2 signals a day.</>}{" "}
+          It fires only on a 2.5σ dip in a name still above its 200-day average.
+
+          {a.near_misses && a.near_misses.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
+                Closest to firing — entry needs σ below −2.5
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", color: "var(--text-muted)" }}>
+                      {["Symbol", "σ from mean", "Close", "Why not"].map((x) => (
+                        <th key={x} style={{ padding: "5px 8px", fontWeight: 600, whiteSpace: "nowrap" }}>{x}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {a.near_misses.slice(0, 8).map((n) => (
+                      <tr key={n.symbol} style={{ borderTop: "1px solid #141b2b" }}>
+                        <td style={{ padding: "5px 8px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{n.symbol}</td>
+                        <td style={{ padding: "5px 8px", fontFamily: "var(--font-mono)",
+                                     color: n.above_trend ? TONE.warn : TONE.dim }}>
+                          {n.sigma_from_mean.toFixed(2)}
+                        </td>
+                        <td style={{ padding: "5px 8px", fontFamily: "var(--font-mono)" }}>{n.close.toFixed(2)}</td>
+                        <td style={{ padding: "5px 8px", color: "var(--text-muted)" }}>{n.blocked_by}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-muted)" }}>
+                Names below their 200-SMA are refused on purpose — a deep dip in a downtrend is a
+                falling knife, not a discount. Only the amber rows are genuinely near a signal.
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>

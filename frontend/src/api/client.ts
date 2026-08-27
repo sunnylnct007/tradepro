@@ -660,6 +660,16 @@ export const api = {
           drawdown_over_15: { trades: number; win_pct: number; mean_pct: number };
         };
         limits: string[];
+        // Why there is no trade. `evaluated` proves the scan ran and over how
+        // many names; `near_misses` shows how far off the closest were and
+        // which half of the rule stopped them. A zero-candidate day has to be
+        // readable as a measurement, not as an assertion that all is well.
+        evaluated?: number | null;
+        near_misses?: Array<{
+          symbol: string; bar: string; close: number;
+          sigma_from_mean: number; sigma_needed: number;
+          above_trend: boolean; blocked_by: string;
+        }>;
         quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
         candidates: Array<{
           symbol: string; tier: string; bar: string; close: number;
