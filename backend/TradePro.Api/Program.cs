@@ -303,6 +303,12 @@ builder.Services.AddTransient<TradePro.Api.Oms.IBrokerPositionSource, TradePro.A
 builder.Services.AddTransient<TradePro.Api.Oms.IBrokerPositionSource, TradePro.Api.Oms.IBKRPositionSource>();
 builder.Services.AddSingleton<TradePro.Api.Oms.GoldenSourceReconciler>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TradePro.Api.Oms.GoldenSourceReconciler>());
+// IBKR FILL reconcile — a SEPARATE loop from the position reconcile above.
+// That one reads positions and never touches orders or executions, which is
+// why the fill-recording path had no scheduled caller at all until 27 Aug 2026
+// and only ever ran when a human POSTed the endpoint.
+builder.Services.AddScoped<TradePro.Api.Oms.IBKRFillReconciler>();
+builder.Services.AddHostedService<TradePro.Api.Oms.IBKRFillReconcileService>();
 builder.Services.AddSingleton<IIntradayLeaderboardStore, PostgresIntradayLeaderboardStore>();
 // Phase 6 — event-sourced orders + fills + domain events. Pending-orders
 // queue becomes a *projection* of this log; risk decisions and fills
