@@ -32,8 +32,9 @@ Integrity rules:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -80,6 +81,10 @@ _NYSE_HOLIDAYS = frozenset({
     date(2026, 11, 26),
     date(2026, 12, 25),
 })
+
+# Exchange timezone. ZoneInfo, not a fixed offset — 16:00 ET is 20:00 UTC
+# in EDT and 21:00 UTC in EST.
+_ET_TZ = ZoneInfo("America/New_York")
 
 # Half-day session ends (1pm ET close). Lists are small and known.
 _NYSE_HALF_DAYS = frozenset({
@@ -159,6 +164,29 @@ class UsEtfPlugin(AssetClassPlugin):
                 out.append(cur)
             cur = cur + timedelta(days=1)
         return out
+
+    def session_close_utc(self, session_date: date) -> datetime | None:
+        """When this session's bars are final — 16:00 ET, or 13:00 ET on a
+        half-day. Returns an aware UTC datetime.
+
+        Added 27 Aug 2026 for the delta-fetch clamp. The store was asking IBKR
+        for a one-day window covering TODAY at 08:26 UTC, hours before the US
+        open. IBKR correctly answered "no bars in range", the chain classified
+        that correct answer as a parse failure, and Yahoo wrote the partition —
+        237 of 244 symbols in a single run.
+
+        It lives HERE, next to `_NYSE_HALF_DAYS` and `expected_bar_count`,
+        because this is already where session shape is defined. The one other
+        place that knows the close is `paper/market_hours.py`, which imports
+        FROM this module — so putting it there and reaching back up would
+        invert the dependency and give the codebase a second, drifting answer
+        to "when does the session end". ET is resolved through ZoneInfo rather
+        than a fixed UTC offset: 16:00 ET is 20:00 UTC in summer and 21:00 UTC
+        in winter, and a hardcoded 20:00 would be wrong for ~4 months a year.
+        """
+        close = time(13, 0) if session_date in _NYSE_HALF_DAYS else time(16, 0)
+        et = datetime.combine(session_date, close, tzinfo=_ET_TZ)
+        return et.astimezone(timezone.utc)
 
     def expected_bar_count(self, resolution: str, session_date: date) -> int:
         is_half = session_date in _NYSE_HALF_DAYS

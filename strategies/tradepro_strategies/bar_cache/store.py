@@ -40,7 +40,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import date as _date_cls
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -364,6 +364,7 @@ class BarStore:
                 # full partition window when there is nothing cached to
                 # preserve (cache miss) or on force_refresh (re-source).
                 fetch_window: tuple[datetime, datetime] | None = None
+                _unsettled_only = False
                 if delta_from is not None and not force_refresh:
                     _ds = max(
                         partition_start,
@@ -371,12 +372,49 @@ class BarStore:
                                  delta_from.day, tzinfo=timezone.utc),
                     )
                     _de = min(partition_end, end_utc)
-                    if _ds < _de:
+
+                    # DON'T ASK FOR A BAR THAT CANNOT EXIST YET (27 Aug 2026).
+                    #
+                    # The daily harvest runs at 08:26 UTC — five hours before
+                    # the US open. The only absent session was TODAY, so delta
+                    # mode asked ibkr_web for [2026-08-27, 2026-08-27]. IBKR
+                    # answered correctly ("21 bars returned, none within
+                    # range"), the chain walk classified that correct answer as
+                    # `ibkr_web_parse`, fell through, and yfinance wrote the
+                    # whole partition. 237 of 244 symbols in one run, every
+                    # morning, silently — and each one lays an adjusted-close
+                    # row beside the raw IBKR history, widening the very seam
+                    # ADJ_FACTOR_MIGRATION_PLAN exists to close.
+                    #
+                    # This is the same asymmetry `_sum_expected_bar_count`
+                    # already fixed at the other end: that one stopped COUNTING
+                    # sessions whose bars cannot be reached, while this one kept
+                    # REQUESTING them. One half of the store knew today's bar
+                    # does not exist yet; the other half asked for it anyway.
+                    _last_settled = self._last_settled_session(
+                        plugin, _ds, _de, now_utc=datetime.now(timezone.utc))
+                    if _last_settled is not None:
+                        _cap = min(_de, _last_settled)
+                        if _cap <= _ds:
+                            # Every session in the delta window is still open.
+                            # There is nothing to fetch — serve cache and say
+                            # so, rather than provoking a failure and a
+                            # fallback write.
+                            _unsettled_only = True
+                            chain_log.append("delta_unsettled_skip")
+                        else:
+                            _de = _cap
+
+                    if not _unsettled_only and _ds < _de:
                         fetch_window = (_ds, _de)
                         chain_log.append(
                             f"delta:{_ds.date().isoformat()}"
                             f"→{_de.date().isoformat()}"
                         )
+                if _unsettled_only:
+                    # Skip the chain walk entirely for this partition.
+                    need_fetch = False
+            if need_fetch:
                 try:
                     self._fetch_and_write(
                         plugin=plugin,
@@ -1099,6 +1137,57 @@ class BarStore:
         else:
             end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
         return start, end
+
+    @staticmethod
+    def _last_settled_session(
+        plugin: AssetClassPlugin,
+        start_utc: datetime,
+        end_utc: datetime,
+        now_utc: datetime,
+    ) -> datetime | None:
+        """End of the last session in [start, end) whose bars are final.
+
+        Returns the instant just after that session's close, so a caller can
+        use it as an exclusive upper bound. None means "cannot tell" — either
+        the plugin does not model a close (24h venues) or there are no sessions
+        in range — and the caller must then leave the window alone rather than
+        guess.
+
+        The settled test is the plugin's `session_close_utc`, NOT a hardcoded
+        20:00. 16:00 ET is 20:00 UTC in summer and 21:00 UTC in winter, and
+        half-days close at 13:00 ET — all of which the plugin already knows
+        because it needs them for `expected_bar_count`.
+        """
+        # REACHABILITY, the same rule `_sum_expected_bar_count` applies at the
+        # other end. `expected_session_dates` is inclusive of the end DATE
+        # while fetch windows are half-open, so without this filter a session
+        # sitting exactly on the exclusive bound would be considered — the
+        # precise off-by-one that produced phantom sessions in the expected
+        # count. One rule, both halves.
+        sessions = [
+            d for d in plugin.expected_session_dates(start_utc, end_utc)
+            if datetime(d.year, d.month, d.day, tzinfo=timezone.utc) < end_utc
+        ]
+        # Return the bound as MIDNIGHT AFTER the last settled session, not the
+        # close instant. The caller uses it as an exclusive upper bound against
+        # bar timestamps, and a provider may stamp a daily bar AT the close —
+        # capping at 20:00 would then drop the very bar the session settled.
+        # Midnight-after excludes unsettled days without truncating settled
+        # ones, and keeps the bound on the same day boundary the rest of the
+        # windowing uses.
+        settled: datetime | None = None
+        for d in sessions:
+            close = plugin.session_close_utc(d)
+            if close is None:
+                return None          # class does not model a close — don't clamp
+            if close <= now_utc:
+                settled = datetime(d.year, d.month, d.day,
+                                   tzinfo=timezone.utc) + timedelta(days=1)
+        if settled is None:
+            # Sessions exist but none has closed yet. Signal that by returning
+            # the start of the window: every candidate session is unsettled.
+            return start_utc if sessions else None
+        return settled
 
     @staticmethod
     def _sum_expected_bar_count(

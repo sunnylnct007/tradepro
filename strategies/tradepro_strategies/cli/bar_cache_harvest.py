@@ -306,6 +306,7 @@ def main() -> int:
     # in the output said so.
     from collections import Counter as _Counter
     _source_counts: _Counter = _Counter()
+    _cache_served = 0
     _demotion_counts: _Counter = _Counter()
     # Per-symbol health records → POSTed to the cockpit's data-trust DB after the
     # run so the Harvest/Data-Health screen renders the real coverage (bridges
@@ -415,19 +416,32 @@ def main() -> int:
             # already holds entries like `ibkr_web_rate_limited` /
             # `ibkr_web_out_of_range` from the chain walk. Print them whenever
             # something other than the chain's FIRST provider ends up serving.
+            # A CACHE hit is not a demotion. Serving cache means the store had
+            # nothing new to fetch, which is the CORRECT outcome — most of all
+            # after the delta-unsettled clamp, where declining to ask for a bar
+            # that cannot exist yet is the whole point. Counting it as "the
+            # golden source was degraded" would fire this warning on every
+            # healthy run, and a warning that fires when nothing is wrong is
+            # how the previous quality signal in this file had to be walked
+            # back (see the `_tier` note below). Only a real FALLBACK PROVIDER
+            # writing bars is a demotion.
+            _used = str(result.provider_used or "unknown")
+            _from_cache = _used.startswith(("cache", "bar_cache"))
             _demoted = ""
             _chain = list(getattr(result, "provider_chain_tried", None) or [])
             _primary = (chain or [None])[0]
-            if _primary and result.provider_used and not str(
-                    result.provider_used).startswith(str(_primary)):
-                _why = [c for c in _chain
-                        if str(c).startswith(f"{_primary}_")] or [
-                    c for c in _chain if not str(c).startswith("delta:")]
+            if (_primary and not _from_cache
+                    and not _used.startswith(str(_primary))):
+                _why = [c for c in _chain if str(c).startswith(f"{_primary}_")]
                 if _why:
                     _demoted = f"  ← {_primary} declined: {', '.join(_why[:3])}"
-                    for _w in _why[:1]:
-                        _demotion_counts[str(_w)] += 1
-            _source_counts[str(result.provider_used or "unknown")] += 1
+                    _demotion_counts[str(_why[0])] += 1
+                else:
+                    _demoted = f"  ← {_primary} did not serve (no reason recorded)"
+                    _demotion_counts[f"{_primary}_no_reason"] += 1
+            _source_counts[_used] += 1
+            if _from_cache:
+                _cache_served += 1
 
             print(
                 f"  {mark} {symbol:<8s} "
@@ -591,10 +605,15 @@ def main() -> int:
         _primary = (chain or [None])[0]
         _prim_n = sum(v for k, v in _source_counts.items()
                       if _primary and k.startswith(str(_primary)))
-        _share = (_prim_n / _total * 100.0) if _total else 0.0
-        if _primary and _share < 50.0:
-            print(f"  ⚠ GOLDEN SOURCE DEGRADED — {_primary} served {_prim_n}/{_total} "
-                  f"({_share:.0f}%); the rest came from fallbacks.")
+        # Judge the share against symbols that actually needed a FETCH. Cache
+        # hits did not exercise the chain, so counting them as a golden-source
+        # miss would flag every healthy incremental run.
+        _fetched = _total - _cache_served
+        _share = (_prim_n / _fetched * 100.0) if _fetched else 100.0
+        if _primary and _fetched and _share < 50.0:
+            print(f"  ⚠ GOLDEN SOURCE DEGRADED — {_primary} served {_prim_n}/{_fetched} "
+                  f"({_share:.0f}%) of the symbols that needed fetching; "
+                  f"the rest came from FALLBACK providers.")
             if _demotion_counts:
                 for _reason, _n in _demotion_counts.most_common(4):
                     print(f"      {_n:>4} × {_reason}")

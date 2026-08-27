@@ -66,6 +66,18 @@ class AssetClassPlugin(ABC):
         390 for US equity 1m on a full session, 78 on a half-day.
         The store sums across sessions to get the total expected."""
 
+    def session_close_utc(self, session_date: date) -> "datetime | None":
+        """When this session's bars become final, as an aware UTC datetime.
+
+        NOT abstract, and the default is None meaning "this class does not
+        model a close" — a 24h venue like crypto has none, and a plugin that
+        simply hasn't implemented it must not have a close invented for it. The
+        store treats None as "cannot tell", and declines to clamp rather than
+        guessing; being unable to prove a session has settled should never
+        silently become a claim that it has.
+        """
+        return None
+
     @abstractmethod
     def validate_frame(self, df: pd.DataFrame) -> None:
         """Raise ``ProviderParseError``-shaped errors if the dataframe
