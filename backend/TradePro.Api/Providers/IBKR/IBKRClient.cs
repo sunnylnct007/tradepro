@@ -759,6 +759,68 @@ public sealed class IBKRClient
         catch { return null; }
     }
 
+    /// <summary>
+    /// RAW body of one of the two fill-visibility reads, for diagnosis only.
+    /// Allowlisted paths, GET only, no mutation.
+    ///
+    /// Exists because three separate investigations this month have stalled at
+    /// the same wall: the parsed result is empty and there is no way to tell
+    /// whether IBKR returned an empty array, returned a shape the parser drops,
+    /// or was answering for the wrong account. Row counts cannot distinguish
+    /// those, and each has a completely different fix.
+    /// </summary>
+    public async Task<(int HttpStatus, string? Body, string? Error)> GetFillReadRawAsync(
+        string which, CancellationToken ct = default)
+    {
+        var path = which switch
+        {
+            "orders" => "v1/api/iserver/account/orders",
+            "trades" => "v1/api/iserver/account/trades",
+            "accounts" => "v1/api/iserver/accounts",
+            _ => null,
+        };
+        if (path is null) return (0, null, $"unknown read '{which}'");
+        if (!_options.IsEnabled) return (0, null, "IBKR disabled");
+        try
+        {
+            using var resp = await SendWithAuthAsync(HttpMethod.Get, path, null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            return ((int)resp.StatusCode, text.Length > 4000 ? text[..4000] : text, null);
+        }
+        catch (Exception ex) { return (0, null, ex.Message); }
+    }
+
+    /// <summary>Bind this brokerage session to our account on demand —
+    /// POST /iserver/account {acctId}. Session establishment does this too, but
+    /// a session cached from before that code existed never ran it, and the
+    /// cache outlives a deploy only in the sense that establishment is skipped
+    /// while it is still valid. Callable so the binding can be applied and
+    /// VERIFIED without waiting for a token to age out.</summary>
+    public async Task<(int HttpStatus, string? Body, string? Error)> SelectAccountAsync(
+        CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled) return (0, null, "IBKR disabled");
+        if (string.IsNullOrWhiteSpace(_options.AccountId)) return (0, null, "no account id configured");
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Post, "v1/api/iserver/account",
+                new { acctId = _options.AccountId }, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            LastAccountSelectOk = resp.IsSuccessStatusCode;
+            LastAccountSelectRaw = text.Length > 300 ? text[..300] : text;
+            _log.LogInformation("IBKR account bind (on demand) {Code}: {Body}",
+                (int)resp.StatusCode, LastAccountSelectRaw);
+            return ((int)resp.StatusCode, text.Length > 1000 ? text[..1000] : text, null);
+        }
+        catch (Exception ex)
+        {
+            LastAccountSelectOk = false;
+            LastAccountSelectRaw = ex.Message;
+            return (0, null, ex.Message);
+        }
+    }
+
     // ─── Option chain (read-only, G3 — TRADEPRO_SPEC_V2.md) ─────────
     //
     // IBKR's documented 3-call option-chain flow: secdef/search (underlying
@@ -831,6 +893,9 @@ public sealed class IBKRClient
     /// <summary>Did POST /iserver/account bind this session to our account?
     /// null = not yet attempted. When false, /iserver/account/orders and
     /// /iserver/account/trades answer for no account and return [].</summary>
+    /// <summary>The account this client is configured to act on (mode-resolved).</summary>
+    public string? ConfiguredAccountId => _options.AccountId;
+
     public bool? LastAccountSelectOk { get; private set; }
     public string? LastAccountSelectRaw { get; private set; }
     public DateTime? LastAuthStatusAtUtc { get; private set; }

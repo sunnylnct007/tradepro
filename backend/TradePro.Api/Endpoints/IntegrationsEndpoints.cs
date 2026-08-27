@@ -1063,6 +1063,51 @@ public static class IntegrationsEndpoints
         })
         .WithName("CancelIBKROrder");
 
+        // GET /api/integrations/ibkr/diagnose-fills — WHY is the OMS blind?
+        //
+        // Row counts cannot separate the three causes of an empty read: IBKR
+        // genuinely has nothing, IBKR returned a shape the parser drops, or the
+        // session is answering for the wrong account. Each needs a different
+        // fix, and three investigations this month have stalled here. Returns
+        // the RAW bodies alongside the parsed counts so the three are
+        // distinguishable in one call. Read-only; allowlisted paths.
+        app.MapGet("/integrations/ibkr/diagnose-fills", async (
+            IBKRClient ibkr, CancellationToken ct) =>
+        {
+            var accounts = await ibkr.GetFillReadRawAsync("accounts", ct);
+            var orders = await ibkr.GetFillReadRawAsync("orders", ct);
+            var trades = await ibkr.GetFillReadRawAsync("trades", ct);
+            var parsedOrders = await ibkr.GetLiveOrdersAsync(ct);
+            var parsedTrades = await ibkr.GetTradesAsync(ct);
+            return Results.Ok(new
+            {
+                accountIdConfigured = ibkr.ConfiguredAccountId,
+                accountSelected = ibkr.LastAccountSelectOk,
+                accountSelectRaw = ibkr.LastAccountSelectRaw,
+                accountsHttpStatus = accounts.HttpStatus,
+                accountsBody = accounts.Body,
+                ordersHttpStatus = orders.HttpStatus,
+                ordersBody = orders.Body,
+                ordersParsedCount = parsedOrders.Orders.Count,
+                tradesHttpStatus = trades.HttpStatus,
+                tradesBody = trades.Body,
+                tradesParsedCount = parsedTrades.Trades.Count,
+            });
+        })
+        .WithName("DiagnoseIBKRFills");
+
+        // POST /api/integrations/ibkr/bind-account — apply the account binding
+        // to the CURRENT session without waiting for the cached token to age
+        // out. Session establishment binds too, but a session established
+        // before that code shipped skips it for the whole token lifetime.
+        app.MapPost("/integrations/ibkr/bind-account", async (
+            IBKRClient ibkr, CancellationToken ct) =>
+        {
+            var r = await ibkr.SelectAccountAsync(ct);
+            return Results.Ok(new { httpStatus = r.HttpStatus, body = r.Body, error = r.Error });
+        })
+        .WithName("BindIBKRAccount");
+
         // POST /api/integrations/ibkr/reconcile-oms — BROKER IS GOLDEN SOURCE.
         // Fetch the broker's live order blotter and sync the OMS to match: a
         // broker-Filled order → RecordFillAsync (OMS→FILLED), a broker-Cancelled
