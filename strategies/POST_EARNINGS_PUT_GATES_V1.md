@@ -108,3 +108,86 @@ the drop threshold until something passes.
 Clearing these gates licenses a PAPER FORWARD TEST and a candidate surface. It
 does not license funding. The existing wheel verdict (v3: DO NOT FUND) stands
 independently of this study.
+
+---
+
+# RESULT — 28 Aug 2026. FAILED V0 and G5. Recorded the same day it ran.
+
+```
+post-earnings (GRADED)   n=284    win 87.0%  mean(w) +1.19%  median +1.82%  p5  -5.48%
+null: non-earnings       n=40450  win 83.6%  mean(w) -0.06%  median +0.69%  p5  -7.61%
+post-drop vol (G6 ref)   n=284    win 86.3%  mean(w) +1.00%  median +1.67%  p5  -6.32%
+half 1 (2020-2022)       n=85     win 82.4%  mean(w) +0.75%  median +1.55%  p5 -13.69%
+half 2 (2023-2026)       n=199    win 88.9%  mean(w) +1.37%  median +1.92%  p5  -5.21%
+
+V0  FAIL  events >= 300                       284
+G1  PASS  win rate >= 80%                     87.0%
+G2  PASS  mean/trade (size-wtd, net) > +0.75% +1.19%
+G3  PASS  beats null by >= 0.5pt              +1.25pt
+G4  PASS  p5 >= -8%                           -5.48%
+G5  FAIL  both halves pass G1 and G2          h1 82%/+0.75%  h2 89%/+1.37%
+G6  PASS  survives IV crush                   +1.19%
+```
+
+## The prediction was wrong, in the strategy's favour
+
+**G3 was named as the likely failure and it passed clearly.** The concern was
+that the exploratory +0.44% baseline sampled sessions indiscriminately while
+the earnings set concentrates in volatile names and volatile weeks, so a
+like-for-like null would close the gap. It did not: run on the SAME symbols
+with the SAME vol-scaled sizing and report weeks excluded, the null returns
+**-0.06%** against the strategy's **+1.19%**.
+
+That is the single most informative number here. Selling puts indiscriminately
+in this universe earns nothing once costs are paid. The earnings trigger is
+doing real work — it is not decoration, which is what G3 existed to test.
+
+## Why it still FAILED, and why neither failure should be waived
+
+**V0 (284 vs 300).** A near miss, and the temptation is to call it close
+enough. It is not: the threshold was fixed before the run precisely so it could
+not be adjusted afterwards. The honest fix is more events — a lower drop
+threshold would change the strategy, not the sample.
+
+**G5 is the substantive failure.** Half 1 returns +0.75% against half 2's
++1.37%, and the gate requires strictly greater than 0.75%. Reading only the
+means understates it; the tails differ far more:
+
+    half 1 (2020-2022)   p5 -13.69%
+    half 2 (2023-2026)   p5  -5.21%
+
+Half 1 contains the 2022 bear market. The strategy is directionally BULLISH
+(short a put is long delta, ~+0.25 per contract, +1.0 once assigned), and it
+behaved like one: it still made money in the harder window, but with a tail
+2.6x worse. G4 passes on the pooled sample ONLY because the calmer half
+dominates by count, 199 to 85.
+
+That is the regime dependence this repo has been burned by before, showing up
+INSIDE the one regime we can see rather than between two.
+
+## Verdict
+
+**Do not fund. A paper forward test is defensible; funding is not.**
+
+Five of seven gates pass and G3 — the one that decides whether the idea has any
+edge at all — passes convincingly. The strategy is real. What it has not shown
+is that the edge is stable across conditions, and the one window resembling a
+downturn is exactly where the tail widened.
+
+The pooled p5 of -5.48% is the number most likely to mislead an owner reading
+only the headline. In a 2022-like window the honest figure is **-13.69%**, and
+vol-scaled sizing did NOT prevent that — everything is volatile together in a
+drawdown, so scaling by each symbol's own vol scales nothing relative to the
+market.
+
+## What would change the verdict
+
+1. **More events** — clears V0 and narrows every interval. Options: extend
+   earnings history before Oct 2020 (needs a source yfinance cannot give), or
+   accept a longer forward test.
+2. **A tail rule for half-1 conditions.** The failure is concentrated, not
+   diffuse. A market-level filter (index below its 200-SMA, or VIX above a
+   threshold) is the natural candidate — and must be PRE-REGISTERED and tested
+   as its own study, never tuned on this sample until G5 passes.
+3. **Paper-forward it now**, at small size, and let live events accumulate
+   against these same gates.

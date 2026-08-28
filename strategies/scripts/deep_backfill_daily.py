@@ -75,8 +75,26 @@ def main() -> int:
     log.info("deep backfill: %d symbols, %s -> %s (skipping current month %s)",
              len(syms), start.date(), end.date(), this_month)
 
-    deepened = unchanged = failed = 0
-    for n, sym in enumerate(syms, 1):
+    # SKIP WHAT IS ALREADY DEEP ENOUGH, BEFORE FETCHING.
+    #
+    # The per-partition write already declines to shrink a partition, but that
+    # is checked AFTER the network call — so a full sweep paid for 244 symbols
+    # to deepen the ~100 that needed it. Measured 28 Aug: at ~220s/symbol under
+    # IBKR pacing that is hours of requests for nothing, competing with the
+    # live daemons for the single session.
+    target = f"{start.year:04d}-{start.month:02d}"
+    todo = []
+    for s in syms:
+        parts = sorted((base / args.asset / s / "1d").glob("*.parquet"))
+        if not (parts and parts[0].stem <= target):
+            todo.append(s)
+    log.info("%d of %d symbols already reach %s — fetching the remaining %d",
+             len(syms) - len(todo), len(syms), target, len(todo))
+
+    deepened = failed = 0
+    truncated: list[str] = []
+    unchanged = len(syms) - len(todo)
+    for n, sym in enumerate(todo, 1):
         t0 = time.time()
         try:
             df, meta = prov.fetch(sym, args.asset, "1d", start, end)
@@ -120,11 +138,27 @@ def main() -> int:
             deepened += 1
         else:
             unchanged += 1
-        log.info("%-6s %5d bars  earliest %s  chunks=%s  +%d partitions  %.0fs  [%d/%d]",
+        # SAY WHEN HISTORY WAS TRUNCATED. `_fetch_chunked` tolerates dead
+        # slices by design — right for intraday, where old slices legitimately
+        # hold nothing, and dangerous here: ANET came back with 205 bars from
+        # 2025-11 (1 of 8 chunks) and reported success. Partial depth that
+        # looks complete would bias the study toward whichever symbols happened
+        # to fetch cleanly, which is the exact flaw this backfill exists to fix.
+        cf = meta.get("chunks_failed") or 0
+        flag = f"  !! {cf} CHUNK(S) FAILED — history TRUNCATED" if cf else ""
+        log.info("%-6s %5d bars  earliest %s  chunks=%s  +%d partitions  %.0fs  [%d/%d]%s",
                  sym, len(df), str(df.index.min())[:10], meta.get("chunks", "-"),
-                 wrote, time.time() - t0, n, len(syms))
+                 wrote, time.time() - t0, n, len(todo), flag)
+        if cf:
+            truncated.append(sym)
 
     log.info("DONE: %d deepened, %d already deep, %d failed", deepened, unchanged, failed)
+    if truncated:
+        log.warning("TRUNCATED (partial chunk failure) for %d symbol(s): %s",
+                    len(truncated), ", ".join(truncated[:20]))
+        log.warning("  Their depth is NOT what was asked for. Any study must "
+                    "either re-run these or exclude them, or it silently "
+                    "samples a biased subset.")
     return 0 if deepened or unchanged else 1
 
 
