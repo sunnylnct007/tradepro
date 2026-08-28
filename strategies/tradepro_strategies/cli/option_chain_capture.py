@@ -71,6 +71,18 @@ CAPTURE_SHUT_ET = 4.0     # 04:00 ET — before pre-market repopulates the chain
 # separates the two without flagging an ordinary patchy night.
 MIN_OI_COVERAGE = 0.50
 
+# Hard wall-clock ceiling for one capture run. At 20s pace x 82 symbols the job
+# takes ~27 minutes, so this is generous by an order of magnitude and only ever
+# fires on a systemic stall.
+#
+# It fired for real on 27 Aug 2026: the run started at its 22:15 slot and was
+# still fetching at 20:38 the FOLLOWING evening -- 22 hours, straight through
+# the trading day, stamping capture_date with the date it started and heading
+# for a collision with the next night's run. The per-call timeout (the root
+# cause, fixed in yahoo_session) is the real repair; this is the backstop, so
+# that whatever hangs next cannot eat a whole day unnoticed.
+MAX_RUN_S = float(os.environ.get("TRADEPRO_CAPTURE_MAX_RUN_S", 3 * 3600))
+
 
 def _in_capture_window(now=None) -> tuple[bool, str]:
     """Is NOW inside the post-close window where Yahoo serves real OI?"""
@@ -183,12 +195,22 @@ def main() -> int:
         syms = syms[: args.limit]
 
     pace = args.pace
+    started = time.monotonic()
+    stopped_early = False
     total_rows = upserted = ok = rate_limited = failed = 0
     sym_with_oi = sym_with_ba = 0
     print(f"option-chain capture — {len(syms)} symbols, ~{args.dte} DTE, rights={args.rights}, "
           f"pace {pace:.0f}s  [{date.today()}]", flush=True)
 
     for i, sym in enumerate(syms):
+        elapsed = time.monotonic() - started
+        if elapsed > MAX_RUN_S:
+            stopped_early = True
+            print(f"\nDEADLINE: {elapsed/3600:.1f}h elapsed (cap {MAX_RUN_S/3600:.1f}h) — "
+                  f"stopping with {len(syms) - i} symbol(s) uncaptured. A run this slow is "
+                  "a stall, not a slow network; the snapshot is partial and dated today.",
+                  flush=True)
+            break
         if i:
             time.sleep(pace)
         try:
@@ -226,7 +248,9 @@ def main() -> int:
         print(f"  ✓ {sym:<6} {len(rows):3d} legs (OI {withoi}, bid/ask {withba}) → upserted {n}",
               flush=True)
 
-    print(f"\nDone: {ok} captured, {rate_limited} rate-limited, {failed} failed / {len(syms)}")
+    print(f"\nDone: {ok} captured, {rate_limited} rate-limited, {failed} failed / {len(syms)}"
+          + (" [STOPPED AT DEADLINE]" if stopped_early else ""))
+    print(f"      wall clock: {(time.monotonic() - started) / 60:.0f} min")
     print(f"      {total_rows} legs shaped, {upserted} upserted; final pace {pace:.0f}s")
     print(f"      liquidity coverage: OI on {sym_with_oi}/{ok} captured symbols, "
           f"bid/ask on {sym_with_ba}/{ok}")
@@ -234,6 +258,8 @@ def main() -> int:
     # A run that collected no liquidity data is a FAILED run, not a quiet one.
     # Without this it exits 0, the wrapper logs rc=0, and the only visible
     # symptom is the wheel board blaming the market for our own empty capture.
+    if stopped_early:
+        return 1
     if ok and (sym_with_oi / ok) < MIN_OI_COVERAGE:
         print(f"\nFAILED: open interest present on only {sym_with_oi}/{ok} symbols "
               f"({sym_with_oi / ok:.0%} < {MIN_OI_COVERAGE:.0%}). This snapshot cannot "

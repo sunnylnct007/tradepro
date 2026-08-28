@@ -44,6 +44,38 @@ _SESSION: object | None = None
 _BUILT = False
 
 
+
+def _force_timeout(session, timeout: float) -> None:
+    """Make OUR timeout win over the one yfinance passes per request.
+
+    `Session(timeout=...)` is only a DEFAULT. yfinance sends an explicit
+    `timeout=` on its own calls, which silently overrides it — so the session
+    looked bounded at 8s while single calls blocked for a quarter of an hour:
+
+        curl: (28) Connection timed out after 1029433 milliseconds
+        curl: (28) Operation timed out after 943726 milliseconds
+
+    That is what turned the 27 Aug nightly option capture into a TWENTY-TWO
+    HOUR run. Scheduled at 22:15, it was still fetching at 20:38 the next
+    evening — straight through the trading day, stamping capture_date with the
+    date it STARTED, and on course to collide with the following night's run.
+    The post-close window guard could not help: it checks at start, and the
+    start was legitimate.
+
+    functools.partial cannot do this — yfinance passing `timeout=` too would
+    raise "got multiple values for keyword argument". The kwarg has to be
+    overwritten, not pre-bound.
+    """
+    _orig = session.request
+
+    @functools.wraps(_orig)
+    def _request(*args, **kwargs):
+        kwargs["timeout"] = timeout
+        return _orig(*args, **kwargs)
+
+    session.request = _request  # type: ignore[method-assign]
+
+
 def yahoo_session(timeout_s: float | None = None):
     """A yfinance-safe session: real timeout AND browser impersonation.
 
@@ -64,6 +96,7 @@ def yahoo_session(timeout_s: float | None = None):
         from curl_cffi import requests as _cr
         try:
             session = _cr.Session(timeout=timeout, impersonate="chrome")
+            _force_timeout(session, timeout)
         except TypeError:
             _log.warning(
                 "yfinance: installed curl_cffi has no impersonate= support; "
@@ -76,7 +109,7 @@ def yahoo_session(timeout_s: float | None = None):
             s = _rq.Session()
             # plain requests carries no TLS fingerprint worth spoofing; the
             # timeout is the only thing this buys us.
-            s.request = functools.partial(s.request, timeout=timeout)  # type: ignore[method-assign]
+            _force_timeout(s, timeout)
             session = s
         except Exception:  # noqa: BLE001
             session = None
