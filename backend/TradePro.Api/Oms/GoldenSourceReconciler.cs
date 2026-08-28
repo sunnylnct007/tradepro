@@ -149,10 +149,21 @@ public sealed class GoldenSourceReconciler : BackgroundService
             catch (Exception ex) when (ex is not OperationCanceledException)
             { _log.LogDebug(ex, "reconcile {Broker}: price lookup threw for {Sym}", src.BrokerLabel, o.Symbol); }
 
+            // allowZeroPrice: this is a POSITION-derived settle, not a claimed
+            // execution price. The broker holds none, so the order is closed for
+            // bookkeeping and the missing price is counted as `unconfirmed` and
+            // pushed to the drift list below — visible, never silent.
+            //
+            // The RecordFillAsync guard (a fill at price 0 is not a fill) exists
+            // to stop a BROKER-READ failure being recorded as a real fill. It
+            // must not fire here, and when it did it threw on every tick and
+            // killed IBKR_PAPER position reconciliation entirely — 29 failures
+            // in 30 minutes, found in the API log on 28 Aug 2026.
             await oms.RecordFillAsync(
                 o.Id, qty: o.Qty, price: price, fee: 0m, currency: "USD",
                 brokerFillId: $"assumed_via_position_reconcile:{o.BrokerOrderId}",
-                actor: $"reconciler:{src.BrokerLabel}");
+                actor: $"reconciler:{src.BrokerLabel}",
+                allowZeroPrice: true);
             settled++;
             if (price == 0m)
             {
@@ -206,10 +217,15 @@ public sealed class GoldenSourceReconciler : BackgroundService
                     StrategyId: pos.StrategyId == "(unattributed)" ? null : pos.StrategyId,
                     PlacedBy: "STRATEGY_AUTO");
                 var order = await oms.EnqueueAsync(intent, $"reconciler:{src.BrokerLabel}");
+                // allowZeroPrice: an explicit offset-to-zero because the broker
+                // holds none. There is no execution and therefore no price to
+                // fabricate — the comment above has said so since this was
+                // written. Surfaced on the drift list as "price unconfirmed".
                 await oms.RecordFillAsync(
                     order.Id, qty, price: 0m, fee: 0m, currency: "USD",
                     brokerFillId: "standing_reconcile_broker_flat",
-                    actor: $"reconciler:{src.BrokerLabel}");
+                    actor: $"reconciler:{src.BrokerLabel}",
+                    allowZeroPrice: true);
                 flattened++;
                 drift.Add($"{pos.Symbol} standing OMS={pos.Quantity}→0 auto-cleared (broker holds none; price unconfirmed)");
                 _log.LogInformation(
