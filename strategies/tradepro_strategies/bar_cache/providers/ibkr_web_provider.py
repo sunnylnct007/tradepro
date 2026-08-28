@@ -53,6 +53,17 @@ _CHUNK_DAYS_BY_RES: dict[str, int] = {
     "5m": 14,    # ~78/session  → 10 sessions ≈ 780 bars
     "15m": 45,   # ~26/session
     "30m": 90,   # ~13/session
+    # 1d added 28 Aug 2026. Daily was NOT chunked, and the 1000-bar response
+    # cap therefore bound every daily request: asking for 5, 10, 15, 20 or 25
+    # years of AAPL all returned the SAME 998 bars back to 2022-09-06. The
+    # store's history was capped at ~4 years by a limit nobody had connected
+    # to daily bars, and `max_history`'s unmeasured `365*5` fallback got the
+    # blame. ~250 sessions/year, so 1000 calendar days ≈ 690 sessions — a
+    # comfortable margin under the cap.
+    #
+    # This does not touch the nightly harvest, which asks for ~10 days and so
+    # never trips the chunking threshold. It only engages on deep backfills.
+    "1d": 1000,
 }
 
 
@@ -194,7 +205,20 @@ class IBKRWebProvider(Provider):
             return timedelta(0)
         if resolution in self._MAX_HISTORY_DAYS:
             return timedelta(days=self._MAX_HISTORY_DAYS[resolution])
-        return timedelta(days=365 * 5)   # daily and anything longer
+        # Daily. The old `365*5` here was an UNMEASURED fallback — every other
+        # entry in _MAX_HISTORY_DAYS carries its evidence ("worked at 24
+        # months, failed at 36") while this one carried none, and the store
+        # clips the fetch window to it (store.py `max_hist`). It was also
+        # blamed for a cap it did not cause: the real limiter was the 1000-bar
+        # response ceiling, because daily requests were never chunked.
+        #
+        # With chunking in place the depth is IBKR's, not ours. 30 years is a
+        # ceiling rather than a claim — the walk simply stops returning bars at
+        # a symbol's inception, and `_fetch_chunked` tolerates empty slices by
+        # design. It must not be tightened back to a guess: doing so silently
+        # truncates every backfill, which is how the store ended up with a
+        # 2021-2022 first-bar cluster across most of the universe.
+        return timedelta(days=365 * 30)
 
     def _resolve_base(self) -> tuple[str, str | None]:
         if self._base:
@@ -231,7 +255,12 @@ class IBKRWebProvider(Provider):
         # per-request cap (`_call_yfinance_chunked`): ask for short spans and
         # stitch. Not a workaround — a request-size limit is a property of the
         # API and belongs in the adapter.
-        if resolution in _INTRADAY_RES:
+        # Chunk whenever the ASK exceeds what one response can carry — that is
+        # a property of the request-size limit, not of intraday. Daily was
+        # excluded here, so a deep backfill made ONE request and silently got
+        # the most recent 1000 bars (28 Aug 2026: 5y/10y/25y asks for AAPL all
+        # returned the same 998 bars from 2022-09-06).
+        if resolution in _CHUNK_DAYS_BY_RES or resolution in _INTRADAY_RES:
             span = (end - start)
             if span > timedelta(days=_CHUNK_DAYS_BY_RES.get(resolution, _INTRADAY_CHUNK_DAYS)):
                 return self._fetch_chunked(canonical, asset_class, resolution, start, end)
