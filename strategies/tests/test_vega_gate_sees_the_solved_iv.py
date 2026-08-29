@@ -68,7 +68,7 @@ def _decide(**ctx_kw):
 
 
 def _blocks(decision):
-    return list(getattr(decision, "blocks", []) or [])
+    return list(decision.all_blocks or [])
 
 
 def test_a_populated_bridge_ratio_is_never_reported_unavailable():

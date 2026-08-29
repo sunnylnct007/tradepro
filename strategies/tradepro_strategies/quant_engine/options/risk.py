@@ -266,6 +266,34 @@ class RiskDecision:
     brake_tier: int               # 0 normal · 1 alert · 2 reduce-50% · 3 no-new · 4 circuit
     size_factor: float            # multiplier on max size (1.0 / 0.5 / 0)
     checked: list[str]            # gates that ran (audit)
+    # WHY A ROW IS DARK vs WHY IT IS A BAD TRADE (29 Aug 2026).
+    #
+    # These are different facts and the board conflated them: on 28 Aug, 44 of
+    # 82 wheel rows were blocked by "Pricing carried from the last priced
+    # screen" or "Bid-ask spread unavailable" — data conditions — and rendered
+    # identically to a name rejected on merit. Half the screen looked like a
+    # market verdict when it was a feed outage.
+    #
+    # `data_blocks` still counts against `allowed`: a trade whose inputs cannot
+    # be verified must not be offered. What changes is that a caller can now
+    # tell "this setup is sound, we just cannot price it" from "this is not a
+    # trade", and say so.
+    data_blocks: list[str] = field(default_factory=list)
+
+    @property
+    def all_blocks(self) -> list[str]:
+        """Every reason this is not tradeable, merit and data together.
+
+        Callers that only care THAT it is blocked should read this; callers
+        rendering a board should read `blocks` and `data_blocks` separately, so
+        a feed outage does not masquerade as a market verdict.
+        """
+        return list(self.blocks) + list(self.data_blocks)
+
+    @property
+    def merit_ok(self) -> bool:
+        """True when nothing about the TRADE fails — only its data is missing."""
+        return not self.blocks and bool(self.data_blocks)
 
 
 def brake_tier_for(loss_gbp: float, cfg: OptionsRiskConfig) -> tuple[int, float]:
@@ -294,6 +322,7 @@ def evaluate(
     a pass. No-trade (allowed=False) is a valid, logged outcome."""
     cfg = cfg or OptionsRiskConfig()
     blocks: list[str] = []
+    data_blocks: list[str] = []
     warnings: list[str] = []
     checked: list[str] = []
     s = candidate.structure
@@ -317,11 +346,11 @@ def evaluate(
     # ── Data availability — NO FALSE POSITIVES: can't verify → block ─────
     checked.append("data_available")
     if not ctx.data_fresh:
-        blocks.append("Required market data (greeks/IV/OI/bid-ask) stale or invalid — cannot verify.")
+        data_blocks.append("Required market data (greeks/IV/OI/bid-ask) stale or invalid — cannot verify.")
     if ctx.regime is None:
-        blocks.append("Regime could not be determined — cannot gate the structure.")
+        data_blocks.append("Regime could not be determined — cannot gate the structure.")
     if ctx.falling_knife is None:
-        blocks.append("Falling-knife status unavailable — cannot clear short-premium entry.")
+        data_blocks.append("Falling-knife status unavailable — cannot clear short-premium entry.")
 
     # ── Regime gate (§7) ─────────────────────────────────────────────────
     if ctx.regime is not None:
@@ -350,7 +379,7 @@ def evaluate(
     if s in WHEEL_ENTRY_STRUCTURES and cfg.min_pct_off_52w_high > 0:
         checked.append("extension_vs_52w_high")
         if ctx.pct_off_52w_high is None:
-            blocks.append(
+            data_blocks.append(
                 "Distance from the 52-week high unavailable — cannot confirm "
                 "the underlying isn't extended.")
         elif ctx.pct_off_52w_high < cfg.min_pct_off_52w_high:
@@ -382,25 +411,25 @@ def evaluate(
                 warnings.append(
                     f"Vega edge via IV/HV bridge {ctx.iv_hv_ratio:.2f} ≥ {cfg.iv_hv_min:.2f}{_win} — provisional until rank window matures.")
         else:
-            blocks.append("IV-Rank unavailable — cannot confirm the vega edge for selling premium.")
+            data_blocks.append("IV-Rank unavailable — cannot confirm the vega edge for selling premium.")
 
     # ── Greek entry gates (§9.2) ─────────────────────────────────────────
     checked.append("delta")
     if candidate.abs_delta is None:
-        blocks.append("Delta unavailable — cannot select strike within the assignment-probability band.")
+        data_blocks.append("Delta unavailable — cannot select strike within the assignment-probability band.")
     elif not (cfg.delta_min <= candidate.abs_delta <= cfg.delta_max):
         blocks.append(f"|delta| {candidate.abs_delta:.2f} outside {cfg.delta_min:.2f}–{cfg.delta_max:.2f}.")
 
     checked.append("dte")
     if candidate.dte is None:
-        blocks.append("DTE unavailable.")
+        data_blocks.append("DTE unavailable.")
     elif not (cfg.dte_min <= candidate.dte <= cfg.dte_max):
         blocks.append(f"DTE {candidate.dte} outside {cfg.dte_min}–{cfg.dte_max} days.")
 
     # ── Liquidity gates (§6.1, §9.2) ─────────────────────────────────────
     checked.append("liquidity")
     if ctx.open_interest is None:
-        blocks.append("Open interest unavailable — cannot confirm fillable liquidity.")
+        data_blocks.append("Open interest unavailable — cannot confirm fillable liquidity.")
     elif ctx.open_interest < cfg.oi_min:
         blocks.append(f"Open interest {ctx.open_interest} < {cfg.oi_min} — illiquid, bad fills.")
     # Premium-relative spread cap: the absolute $0.10 floor only fits sub-$1
@@ -410,7 +439,7 @@ def evaluate(
     if ctx.premium_mid_usd is not None and ctx.premium_mid_usd > 0:
         _spread_allowed = max(cfg.spread_max_usd, cfg.spread_max_pct_of_mid * ctx.premium_mid_usd)
     if ctx.bid_ask_spread_usd is None:
-        blocks.append("Bid-ask spread unavailable.")
+        data_blocks.append("Bid-ask spread unavailable.")
     elif ctx.bid_ask_spread_usd > _spread_allowed:
         _msg = f"Bid-ask ${ctx.bid_ask_spread_usd:.2f} > ${_spread_allowed:.2f} — spread too wide"
         if ctx.quotes_delayed:
@@ -430,7 +459,7 @@ def evaluate(
     if s in SHORT_PREMIUM_STRUCTURES:
         checked.append("premium_floor")
         if ctx.premium_mid_usd is None:
-            blocks.append("Premium (mid) unavailable — cannot verify the trade pays enough to be worth the collateral.")
+            data_blocks.append("Premium (mid) unavailable — cannot verify the trade pays enough to be worth the collateral.")
         else:
             if ctx.premium_mid_usd < cfg.min_premium_usd:
                 blocks.append(
@@ -457,7 +486,7 @@ def evaluate(
     if s in SHORT_PREMIUM_STRUCTURES:
         checked.append("earnings_blackout")
         if ctx.earnings_in_expiry_window is None:
-            blocks.append("Earnings calendar unavailable — cannot clear the event blackout.")
+            data_blocks.append("Earnings calendar unavailable — cannot clear the event blackout.")
         elif ctx.earnings_in_expiry_window:
             blocks.append("Earnings fall within the expiry window — IV-crush + gap risk; no new short premium.")
     # Ex-div only matters for short calls (early-assignment risk) — warn, don't block
@@ -489,7 +518,7 @@ def evaluate(
         # NOT capital-conditional, and NOT suppressed: an unknown notional
         # means the sizing question cannot even be asked, and Size fit has
         # nothing to show either. That is a data failure, not a funding choice.
-        blocks.append("Trade notional unavailable — cannot check per-position / deployment limits.")
+        data_blocks.append("Trade notional unavailable — cannot check per-position / deployment limits.")
     elif capital_gates:
         if size_factor == 0.0 and tier < 3:
             pass  # shouldn't happen; tiers 3/4 already blocked above
@@ -510,8 +539,10 @@ def evaluate(
         blocks.append(f"Open positions {portfolio.open_positions} ≥ max {cfg.max_positions}.")
 
     return RiskDecision(
-        allowed=len(blocks) == 0,
+        # data_blocks still count: an unverifiable input must never be traded.
+        allowed=len(blocks) == 0 and len(data_blocks) == 0,
         blocks=blocks,
+        data_blocks=data_blocks,
         warnings=warnings,
         brake_tier=tier,
         size_factor=size_factor,

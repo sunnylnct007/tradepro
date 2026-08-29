@@ -74,7 +74,7 @@ def test_names_at_their_high_are_blocked(pct_off, symbol):
     d = evaluate(_put(symbol), _ctx(pct_off), PortfolioState(),
                  OptionsRiskConfig(), capital_gates=False)
     assert not d.allowed
-    assert any(EXTENDED in b for b in d.blocks), d.blocks
+    assert any(EXTENDED in b for b in d.all_blocks), d.all_blocks
 
 
 def test_a_name_well_off_its_high_still_passes():
@@ -95,7 +95,7 @@ def test_unknown_extension_blocks_rather_than_passing():
     — the module's no-false-positives rule."""
     d = _decide(None)
     assert not d.allowed
-    assert any("52-week high unavailable" in b for b in d.blocks), d.blocks
+    assert any("52-week high unavailable" in b for b in d.all_blocks), d.all_blocks
 
 
 def test_the_gate_can_be_disabled_entirely():
@@ -112,7 +112,7 @@ def test_it_does_not_touch_structures_that_are_not_wheel_entries():
         TradeCandidate(symbol="XLF", structure=Structure.PROTECTIVE_PUT,
                        abs_delta=0.28, dte=37, strike=57.0, notional_gbp=4500.0),
         _ctx(0.2), PortfolioState(), OptionsRiskConfig(), capital_gates=False)
-    assert not [b for b in d.blocks if EXTENDED in b], d.blocks
+    assert not [b for b in d.all_blocks if EXTENDED in b], d.all_blocks
 
 
 def test_it_complements_falling_knife_rather_than_duplicating_it():

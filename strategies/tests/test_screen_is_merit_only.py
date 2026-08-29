@@ -66,7 +66,7 @@ def test_screen_allows_a_sound_trade_that_exceeds_the_capital_limit():
     """THE ruling. IWM was a good trade the owner could choose to fund."""
     d = evaluate(_oversized_candidate(), _sound_ctx(), _book(),
                  OptionsRiskConfig(), capital_gates=False)
-    assert d.allowed, f"a sound trade was rejected on capital: {d.blocks}"
+    assert d.allowed, f"a sound trade was rejected on capital: {d.all_blocks}"
 
 
 def test_screen_emits_no_capital_noise_anywhere():
@@ -74,7 +74,7 @@ def test_screen_emits_no_capital_noise_anywhere():
     either. Size fit already shows notional as a % of NAV."""
     d = evaluate(_oversized_candidate(), _sound_ctx(), _book(),
                  OptionsRiskConfig(), capital_gates=False)
-    leaked = [m for m in (list(d.blocks) + list(d.warnings))
+    leaked = [m for m in (list(d.all_blocks) + list(d.warnings))
               if any(p in m for p in CAPITAL_PHRASES)]
     assert not leaked, f"capital text leaked onto the screen: {leaked}"
 
@@ -84,7 +84,7 @@ def test_the_autonomous_wheel_still_hard_blocks_on_capital():
     d = evaluate(_oversized_candidate(), _sound_ctx(), _book(),
                  OptionsRiskConfig(), capital_gates=True)
     assert not d.allowed
-    assert any("per-position limit" in b for b in d.blocks), d.blocks
+    assert any("per-position limit" in b for b in d.all_blocks), d.all_blocks
 
 
 def test_capital_gates_default_to_on():
@@ -120,7 +120,7 @@ def test_an_unknown_notional_still_blocks_even_on_the_screen():
                        abs_delta=0.28, dte=37, strike=200.0, notional_gbp=None),
         _sound_ctx(), _book(), OptionsRiskConfig(), capital_gates=False)
     assert not d.allowed
-    assert any("notional unavailable" in b.lower() for b in d.blocks), d.blocks
+    assert any("notional unavailable" in b.lower() for b in d.all_blocks), d.all_blocks
 
 
 def test_the_capital_checks_still_appear_in_the_audit_trail():

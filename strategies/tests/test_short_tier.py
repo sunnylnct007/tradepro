@@ -59,7 +59,7 @@ def test_mrvl_worked_example_is_admissible():
                           abs_delta=0.28, dte=9, strike=200.0,
                           notional_gbp=round(200 * 100 / 1.27))
     d = evaluate(cand, _short_ctx(), PortfolioState(), _cfg())
-    assert d.allowed, d.blocks
+    assert d.allowed, d.all_blocks
     # yield sanity: 2.90/200 * 365/9 = 58.8%/yr — comfortably over the 25 floor
     assert (2.90 / 200) * (365 / 9) * 100 > 25
 

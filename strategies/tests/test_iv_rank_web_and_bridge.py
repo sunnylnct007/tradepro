@@ -146,18 +146,18 @@ class TestVegaGateTwoTier:
         d = evaluate(_cand(), _ctx(iv_rank=None, iv_hv_ratio=0.85,
                                    iv_rank_window_days=12), PortfolioState())
         assert d.allowed is False
-        assert any("IV/HV 0.85" in b for b in d.blocks)
+        assert any("IV/HV 0.85" in b for b in d.all_blocks)
 
     def test_neither_metric_still_blocks(self):
         d = evaluate(_cand(), _ctx(iv_rank=None, iv_hv_ratio=None), PortfolioState())
         assert d.allowed is False
-        assert any("IV-Rank unavailable" in b for b in d.blocks)
+        assert any("IV-Rank unavailable" in b for b in d.all_blocks)
 
     def test_rank_present_ignores_bridge(self):
         # A poor rank must block even if the bridge ratio looks rich.
         d = evaluate(_cand(), _ctx(iv_rank=10.0, iv_hv_ratio=2.0), PortfolioState())
         assert d.allowed is False
-        assert any("IV-Rank 10%" in b for b in d.blocks)
+        assert any("IV-Rank 10%" in b for b in d.all_blocks)
 
 
 class TestPremiumFloor:
@@ -167,18 +167,18 @@ class TestPremiumFloor:
     def test_missing_premium_blocks(self):
         d = evaluate(_cand(), _ctx(iv_rank=45.0, premium_mid_usd=None), PortfolioState())
         assert d.allowed is False
-        assert any("Premium (mid) unavailable" in b for b in d.blocks)
+        assert any("Premium (mid) unavailable" in b for b in d.all_blocks)
 
     def test_penny_premium_blocks(self):
         d = evaluate(_cand(), _ctx(iv_rank=45.0, premium_mid_usd=0.10), PortfolioState())
         assert d.allowed is False
-        assert any("pennies" in b for b in d.blocks)
+        assert any("pennies" in b for b in d.all_blocks)
 
     def test_thin_annualised_yield_blocks(self):
         # $0.40 on a $100 strike over 35d ≈ 4.2%/yr — under the bank-beating floor.
         d = evaluate(_cand(), _ctx(iv_rank=45.0, premium_mid_usd=0.40), PortfolioState())
         assert d.allowed is False
-        assert any("Annualised yield 4.2%" in b for b in d.blocks)
+        assert any("Annualised yield 4.2%" in b for b in d.all_blocks)
 
     def test_rich_premium_passes(self):
         # $1.50 on $100 over 35d ≈ 15.6%/yr — clears both floors.

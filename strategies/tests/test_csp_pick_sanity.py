@@ -56,12 +56,12 @@ class TestOiNoneHonesty:
 
     def test_oi_none_blocks_as_unavailable_not_illiquid(self):
         d = evaluate(self._cand(), self._ctx(None), PortfolioState())
-        assert any("unavailable" in b and "interest" in b.lower() for b in d.blocks)
-        assert not any("illiquid" in b for b in d.blocks)
+        assert any("unavailable" in b and "interest" in b.lower() for b in d.all_blocks)
+        assert not any("illiquid" in b for b in d.all_blocks)
 
     def test_real_zero_oi_still_blocks_as_illiquid(self):
         d = evaluate(self._cand(), self._ctx(0), PortfolioState())
-        assert any("illiquid" in b for b in d.blocks)
+        assert any("illiquid" in b for b in d.all_blocks)
 
     def test_g3_leg_without_oi_stays_none(self):
         from types import SimpleNamespace

@@ -1019,7 +1019,13 @@ def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
         "spread_usd": spread, "annualized_yield_pct": ann_yield,
         "notional_gbp": notional_gbp,
         "eligible": decision.allowed,
-        "blocks": decision.blocks, "warnings": decision.warnings,
+        # blocks = market verdicts. data_blocks = "we could not verify this".
+        # Rendered identically, 44 of 82 rows on 28 Aug looked like the market
+        # rejecting them when the chain was simply dark. See
+        # tests/test_dark_data_is_not_a_market_verdict.py.
+        "blocks": decision.blocks, "data_blocks": decision.data_blocks,
+        "merit_ok": decision.merit_ok,
+        "warnings": decision.warnings,
     }
 
 
@@ -1698,6 +1704,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "forward_basis": forward_basis,
         "eligible": decision.allowed,
         "blocks": decision.blocks,
+        "data_blocks": decision.data_blocks,
+        "merit_ok": decision.merit_ok,
         "warnings": decision.warnings,
         "suggested_strike": strike,
         "suggested_delta": delta,

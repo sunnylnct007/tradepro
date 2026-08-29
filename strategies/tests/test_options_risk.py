@@ -40,8 +40,8 @@ def _flat() -> PortfolioState:
 
 def test_happy_path_allows():
     d = evaluate(_good_csp(), _good_ctx(), _flat())
-    assert d.allowed, d.blocks
-    assert d.blocks == []
+    assert d.allowed, d.all_blocks
+    assert d.all_blocks == []
     assert d.brake_tier == 0 and d.size_factor == 1.0
 
 
@@ -49,56 +49,56 @@ def test_regime_blocks_csp_in_red():
     ctx = MarketContext(**{**_good_ctx().__dict__, "regime": Regime.RED})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("not permitted in RED" in b for b in d.blocks)
+    assert any("not permitted in RED" in b for b in d.all_blocks)
 
 
 def test_falling_knife_blocks_wheel_entry():
     ctx = MarketContext(**{**_good_ctx().__dict__, "falling_knife": True})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("FALLING-KNIFE" in b for b in d.blocks)
+    assert any("FALLING-KNIFE" in b for b in d.all_blocks)
 
 
 def test_low_iv_rank_blocks_short_premium():
     ctx = MarketContext(**{**_good_ctx().__dict__, "iv_rank": 20.0})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("IV-Rank" in b for b in d.blocks)
+    assert any("IV-Rank" in b for b in d.all_blocks)
 
 
 def test_delta_out_of_band_blocks():
     cand = TradeCandidate(**{**_good_csp().__dict__, "abs_delta": 0.45})
     d = evaluate(cand, _good_ctx(), _flat())
     assert not d.allowed
-    assert any("delta" in b.lower() for b in d.blocks)
+    assert any("delta" in b.lower() for b in d.all_blocks)
 
 
 def test_dte_out_of_band_blocks():
     cand = TradeCandidate(**{**_good_csp().__dict__, "dte": 7})
     d = evaluate(cand, _good_ctx(), _flat())
     assert not d.allowed
-    assert any("DTE" in b for b in d.blocks)
+    assert any("DTE" in b for b in d.all_blocks)
 
 
 def test_illiquid_blocks():
     ctx = MarketContext(**{**_good_ctx().__dict__, "open_interest": 100})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("Open interest" in b for b in d.blocks)
+    assert any("Open interest" in b for b in d.all_blocks)
 
 
 def test_wide_spread_blocks():
     ctx = MarketContext(**{**_good_ctx().__dict__, "bid_ask_spread_usd": 0.40})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("Bid-ask" in b for b in d.blocks)
+    assert any("Bid-ask" in b for b in d.all_blocks)
 
 
 def test_earnings_in_window_blocks():
     ctx = MarketContext(**{**_good_ctx().__dict__, "earnings_in_expiry_window": True})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("Earnings" in b for b in d.blocks)
+    assert any("Earnings" in b for b in d.all_blocks)
 
 
 def test_per_position_limit_blocks():
@@ -106,7 +106,7 @@ def test_per_position_limit_blocks():
     cand = TradeCandidate(**{**_good_csp().__dict__, "notional_gbp": 11000.0})
     d = evaluate(cand, _good_ctx(), _flat())
     assert not d.allowed
-    assert any("per-position" in b for b in d.blocks)
+    assert any("per-position" in b for b in d.all_blocks)
 
 
 def test_deployment_limit_blocks():
@@ -114,14 +114,14 @@ def test_deployment_limit_blocks():
     pf = PortfolioState(deployed_gbp=8000.0, open_positions=1, cumulative_realised_loss_gbp=0.0)
     d = evaluate(_good_csp(), _good_ctx(), pf)
     assert not d.allowed
-    assert any("max £10000" in b or "max £10,000" in b or "> max" in b for b in d.blocks)
+    assert any("max £10000" in b or "max £10,000" in b or "> max" in b for b in d.all_blocks)
 
 
 def test_max_positions_blocks():
     pf = PortfolioState(deployed_gbp=0.0, open_positions=2, cumulative_realised_loss_gbp=0.0)
     d = evaluate(_good_csp(), _good_ctx(), pf)
     assert not d.allowed
-    assert any("Open positions" in b for b in d.blocks)
+    assert any("Open positions" in b for b in d.all_blocks)
 
 
 # ── NO FALSE POSITIVES: missing required input must BLOCK ────────────────
@@ -129,35 +129,35 @@ def test_missing_regime_blocks():
     ctx = MarketContext(**{**_good_ctx().__dict__, "regime": None})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("Regime could not be determined" in b for b in d.blocks)
+    assert any("Regime could not be determined" in b for b in d.all_blocks)
 
 
 def test_missing_falling_knife_blocks():
     ctx = MarketContext(**{**_good_ctx().__dict__, "falling_knife": None})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("Falling-knife status unavailable" in b for b in d.blocks)
+    assert any("Falling-knife status unavailable" in b for b in d.all_blocks)
 
 
 def test_missing_iv_rank_blocks():
     ctx = MarketContext(**{**_good_ctx().__dict__, "iv_rank": None})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("IV-Rank unavailable" in b for b in d.blocks)
+    assert any("IV-Rank unavailable" in b for b in d.all_blocks)
 
 
 def test_stale_data_blocks():
     ctx = MarketContext(**{**_good_ctx().__dict__, "data_fresh": False})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("stale or invalid" in b for b in d.blocks)
+    assert any("stale or invalid" in b for b in d.all_blocks)
 
 
 def test_missing_earnings_calendar_blocks():
     ctx = MarketContext(**{**_good_ctx().__dict__, "earnings_in_expiry_window": None})
     d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("Earnings calendar unavailable" in b for b in d.blocks)
+    assert any("Earnings calendar unavailable" in b for b in d.all_blocks)
 
 
 # ── Drawdown brakes ─────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ def test_circuit_breaker_blocks_everything():
     d = evaluate(_good_csp(), _good_ctx(), pf)
     assert not d.allowed
     assert d.brake_tier == 4
-    assert any("CIRCUIT BREAKER" in b for b in d.blocks)
+    assert any("CIRCUIT BREAKER" in b for b in d.all_blocks)
 
 
 def test_brake3_no_new_positions():
@@ -183,7 +183,7 @@ def test_brake3_no_new_positions():
     d = evaluate(_good_csp(), _good_ctx(), pf)
     assert not d.allowed
     assert d.brake_tier == 3
-    assert any("no new positions" in b for b in d.blocks)
+    assert any("no new positions" in b for b in d.all_blocks)
 
 
 def test_brake2_halves_per_position_limit():
@@ -194,7 +194,7 @@ def test_brake2_halves_per_position_limit():
     d = evaluate(cand, _good_ctx(), pf)
     assert d.brake_tier == 2 and d.size_factor == 0.5
     assert not d.allowed
-    assert any("halved by drawdown brake 2" in b for b in d.blocks)
+    assert any("halved by drawdown brake 2" in b for b in d.all_blocks)
 
 
 def test_no_trade_is_clean_outcome_not_exception():
@@ -202,7 +202,7 @@ def test_no_trade_is_clean_outcome_not_exception():
     ctx = MarketContext(**{**_good_ctx().__dict__, "iv_rank": 5.0})
     d = evaluate(_good_csp(), ctx, _flat())
     assert d.allowed is False
-    assert isinstance(d.blocks, list) and len(d.blocks) >= 1
+    assert isinstance(d.all_blocks, list) and len(d.all_blocks) >= 1
     assert "iv_rank" in d.checked
 
 
@@ -225,7 +225,7 @@ def test_relative_spread_allows_fair_market_on_pricier_premium():
     ctx = MarketContext(**{**_good_ctx().__dict__,
                            "bid_ask_spread_usd": 0.25, "premium_mid_usd": 2.00})
     d = evaluate(_good_csp(), ctx, _flat())
-    assert not any("spread too wide" in b for b in d.blocks), d.blocks
+    assert not any("spread too wide" in b for b in d.all_blocks), d.all_blocks
 
 
 def test_relative_spread_still_blocks_genuinely_wide():
@@ -233,7 +233,7 @@ def test_relative_spread_still_blocks_genuinely_wide():
     ctx = MarketContext(**{**_good_ctx().__dict__,
                            "bid_ask_spread_usd": 0.90, "premium_mid_usd": 2.00})
     d = evaluate(_good_csp(), ctx, _flat())
-    assert any("spread too wide" in b for b in d.blocks)
+    assert any("spread too wide" in b for b in d.all_blocks)
 
 
 def test_absolute_cap_still_applies_without_mid():
@@ -241,4 +241,4 @@ def test_absolute_cap_still_applies_without_mid():
     ctx = MarketContext(**{**_good_ctx().__dict__,
                            "bid_ask_spread_usd": 0.25, "premium_mid_usd": None})
     d = evaluate(_good_csp(), ctx, _flat())
-    assert any("spread too wide" in b for b in d.blocks)
+    assert any("spread too wide" in b for b in d.all_blocks)

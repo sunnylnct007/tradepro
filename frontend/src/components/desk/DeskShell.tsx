@@ -98,15 +98,40 @@ type NavEntry = {
 // quote, simulate, risk, news, layouts. The components and routes still exist
 // and are reachable via "More" — this is a decluttered cockpit, not a code
 // deletion, so anything that later clears a gate can come straight back.
+// CUT 29 Aug 2026 — the owner, repeatedly and from the start: "tradepro shd be
+// slimmer and accurate. i dont need tons of screens or functions that i cannot
+// trust", "i am happy if there is only 1 screen that is fullprrof", "we have
+// been bityen by the width again and again".
+//
+// Removed from the desk, with the reason each earned it:
+//
+//   options (wheel)    Its strategy FAILED its pre-registered gates (v3: DO NOT
+//                      FUND). Zero eligible for weeks, and on 28 Aug 44 of 82
+//                      rows were blocked by a dark chain rather than by any
+//                      market verdict. A screen that cannot produce a trade is
+//                      not a screen.
+//
+//   scanner            A 466-line TypeScript REIMPLEMENTATION of the Swing rule
+//                      — 2.5 sigma, the 200-day average, all of it — pulling
+//                      244 x 6000 bars into the browser to recompute what
+//                      Python already computed. A second source of truth for
+//                      the one strategy we trust, in a second language. Its
+//                      unique contribution (the fragility check) was a one-off
+//                      research question and has been answered.
+//
+//   post-earnings-puts Passed 8 gates, but on 229 trades in ONE regime with a
+//                      verdict of paper-forward, NOT FUNDED. Sitting beside
+//                      Swing implied a parity it has not earned. It comes back
+//                      when its forward test produces live evidence, exactly as
+//                      Swing had to.
+//
+// The screens themselves still exist and still run — this removes them from the
+// DESK, which is the surface that has to be trustworthy. Nothing was deleted.
 const NAV: NavEntry[] = [
   { key: "swing",     label: "Swing",     icon: "🎣", view: "swing",     tier: "trusted",
     title: "Swing candidates — the only screen built on a strategy that cleared pre-registered gates" },
-  { key: "post-earnings-puts", label: "Post-ER Puts", icon: "📉", view: "post-earnings-puts", tier: "trusted",
-    title: "Post-earnings cash-secured puts — sell the put AFTER the report, on a name that dropped on it. Passed 8 pre-registered gates; PAPER FORWARD TEST, not funded" },
   { key: "momentum",  label: "Momentum",  icon: "🚀", view: "momentum",  tier: "trusted",
     title: "Momentum candidates — the SECOND strategy to clear pre-registered gates. Longer hold (~7 weeks), trailing stop, not a bracket order" },
-  { key: "scanner",   label: "Scanner",   icon: "🔎", view: "scanner",  tier: "trusted",
-    title: "Scanner — OUR rule across all 244 names. Which fire today, how each has performed, and an intraday preview" },
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", tier: "trusted",
     title: "Portfolio — your actual positions" },
   { key: "oms",       label: "Orders",    icon: "📋", view: "oms",       tier: "trusted",
@@ -115,8 +140,6 @@ const NAV: NavEntry[] = [
     title: "Research — pre-registered studies; gates committed to git BEFORE each run" },
   { key: "harvest",   label: "Data",      icon: "🛢", view: "harvest",   tier: "trusted",
     title: "Data health — is the data there, and since when" },
-  { key: "options",   label: "Options",   icon: "🎯", view: "options",   tier: "blocked",
-    title: "Options Desk — BLOCKED on the IBKR market-data session (the portal or another client holds it). Prices show as carried until it returns." },
 ];
 
 // Escape hatch out of the standalone /desk shell into the full app (rendered
