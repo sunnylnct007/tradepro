@@ -50,19 +50,62 @@ log = logging.getLogger("tradepro.post_earnings_puts")
 STORE = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
 
-def _bars(sym: str):
-    import pandas as pd
-    parts = sorted(glob.glob(f"{STORE}/{sym}/1d/*.parquet"))
-    if not parts:
+_STORE_SINGLETON = None
+
+
+def _store():
+    """The shared BarStore, built once.
+
+    READ THROUGH THE STORE, NOT THE FILESYSTEM (fixed 29 Aug 2026).
+
+    This function used to `glob.glob()` the local bar-cache directory. That
+    bypassed `BarStore._ensure_local`, which downloads a partition from the
+    shared S3 bucket on a local miss — so the screen could only ever see what
+    happened to be on THIS disk, and would silently under-read anywhere else or
+    after a local prune. It also invented a Mac-only dependency that the S3
+    mirror exists precisely to remove: the owner's words, "we moved the data
+    harvesting to s3 ... ensure we not messing up the data harvesting and usage
+    again".
+
+    `skip_fetch=True` is the important half: read local, fall through to S3, and
+    NEVER call a provider. A screen must not be able to trigger network fetches
+    — that is the harvest's job, and it is how a screen ends up competing for
+    the single IBKR market-data session.
+    """
+    global _STORE_SINGLETON
+    if _STORE_SINGLETON is None:
+        from pathlib import Path
+        from ..bar_cache.asset_classes import UsEtfPlugin  # noqa: F401 — registers
+        from ..bar_cache.store import BarStore
+        _STORE_SINGLETON = BarStore(
+            base_dir=Path(os.path.expanduser("~/.tradepro/bar_cache")))
+    return _STORE_SINGLETON
+
+
+def _bars(sym: str, sessions: int = 320):
+    """Closes + dates for the last `sessions` sessions, via the store.
+
+    320 covers the 200-session average with headroom. An earlier version read
+    the last 4 MONTHLY partitions — about 84 sessions — so every symbol failed
+    the 200-session length check and the screen reported "0 recent reporters"
+    and a CLOSED market gate on data it actually held.
+    """
+    import datetime as _d
+    end = _d.datetime.now(_d.UTC)
+    start = end - _d.timedelta(days=int(sessions * 1.5))   # sessions -> calendar
+    try:
+        frame = _store().get(
+            canonical=sym, asset_class="us_etf", resolution="1d",
+            start=start, end=end,
+            allow_partial=True,      # gaps are normal; the screen tolerates them
+            skip_fetch=True,         # local + S3 only, never a provider call
+            fetched_by="post_earnings_puts",
+        )
+    except Exception:  # noqa: BLE001 — one unreadable symbol must not kill the screen
         return None, None
-    # Enough partitions to cover a 200-SESSION average. Partitions are MONTHLY
-    # and a month holds ~21 sessions, so 200 sessions needs ~10 months. This
-    # read 4 and every symbol then failed the `len(c) < TREND_WINDOW + 5`
-    # check, so the screen reported "0 recent reporters" and a CLOSED market
-    # gate on data it actually held. 15 gives a full year plus headroom.
-    df = pd.concat([pd.read_parquet(p) for p in parts[-15:]])
-    idx = pd.to_datetime(df["ts"] if "ts" in df.columns else df.index, utc=True)
-    df = df.assign(_i=idx).drop_duplicates("_i").set_index("_i").sort_index()
+    df = frame.df
+    if df is None or df.empty:
+        return None, None
     return ([float(x) for x in df["close"].tolist()],
             [str(x)[:10] for x in df.index])
 
