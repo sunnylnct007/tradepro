@@ -515,9 +515,9 @@
    "gatesCommit": "c256115",
    "question": "Owner's live Indian strategy: does a fixed-width intraday short strangle, entered only on low-VIX days and closed EOD, make money?",
    "prediction": "G5 is the risk \u2014 the early half contains 2008 and the taper tantrum.",
-   "headline": "18y: LOSES. mean -2,469/trade on low-VIX days; -20.5M total across all days",
-   "verdict": "FAIL \u2014 loses in BOTH halves",
-   "why": "An earlier 2-year run (2024-26) showed +1,464/trade and did NOT generalise: 2008-2016 mean -3,298, 2017-2026 mean -1,670 \u2014 losing even at a 72.4% win rate, which is the clearest demonstration that win rate is not evidence for premium selling. Two things changed: the VIX quartile moved from a whole-sample boundary (lookahead) to a TRAILING one, and the sample gained 2008-2016. CAVEAT NOT YET TESTED: strikes were held at a fixed +/-0.87%, which at 2008-era volatility is near-the-money \u2014 a far riskier trade than the owner would place. Volatility-scaled strikes are the next test and may change the verdict.",
+   "headline": "SUPERSEDED \u2014 the -2,469/trade figure was a MODELLING ERROR, not a result",
+   "verdict": "WITHDRAWN \u2014 see short_strangle_india_v2",
+   "why": "Two errors in MY model, both mine, both material. (1) BANKNIFTY options were priced at India VIX, which measures NIFTY; BANKNIFTY realises ~1.35x that, so the premium was under-collected by ~35%. (2) Strikes were held at a fixed +/-0.87%, which is near-the-money at 2009-era volatility \u2014 a far riskier trade than is actually placed. Corrected, the same 17 years turn positive. The original verdict contradicted the owner's live P&L and the live P&L was right.",
    "gates": [
     {
      "id": "V0",
@@ -548,6 +548,26 @@
      "test": "both halves pass",
      "result": "both LOSE",
      "pass": false
+    }
+   ]
+  },
+  {
+   "id": "short_strangle_india_v2",
+   "date": "2026-08-29",
+   "title": "Intraday short strangle \u2014 BANKNIFTY-scaled IV, vol-scaled strikes",
+   "gatesFile": "SHORT_STRANGLE_GATES_V1.md",
+   "gatesCommit": "c256115",
+   "question": "With the two modelling errors corrected, does the owner's live Indian strategy hold up over 17 years?",
+   "prediction": "(post-hoc correction of v1, not an independent pre-registration \u2014 treat accordingly)",
+   "headline": "17y: +93/trade overall. 2017-26 +595 (90.6% win). 2009-16 -427 (81.7%). Last 2 months +1,582 (95.3%).",
+   "verdict": "REGIME-DEPENDENT \u2014 works now, lost 2009-2016",
+   "why": "The corrected model REPRODUCES the owner's live results: 95.3% win and +1,582/trade over the last two months, matching his reported '>90%' and two months of real profit. It is profitable across 2017-2026 and marginally positive over the full 17 years. The risk is not that it does not work \u2014 it is that it STOPPED working in 2009-2016, the high-vol post-GFC era, losing 427/trade there. So the live edge is real and the exposure is to a volatility-regime change, not to the strategy being wrong. UNTESTED and material: the intraday profit target and the strangle->straddle conversion, neither of which this model can reach and both of which the owner actually uses.",
+   "gates": [
+    {
+     "id": "note",
+     "test": "post-hoc correction, gates not re-registered",
+     "result": "treat as exploratory",
+     "pass": null
     }
    ]
   }
