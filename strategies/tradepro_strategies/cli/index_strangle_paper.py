@@ -352,6 +352,25 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
     return subj, (text, "".join(H))
 
 
+# SHADOW RECORDING — record the days we STAND ASIDE, marked as such.
+#
+# Measured 29 Aug 2026: over the last 12 months the US gate (VIX<=14) fired on
+# 1.2% of sessions — once in the last 168 — and India's on 42%. So a month of
+# observation yields ~9 Indian records and approximately zero US ones. That is
+# not a sample, and the predictable response in four weeks is to nudge the
+# thresholds up so the record has something in it. That is the same failure
+# mode as tuning a gate until a backtest passes.
+#
+# So every session is recorded, with `would_trade` marking whether the gate
+# opened. The stand-aside rows are not noise — they are the ONLY way to test
+# whether the threshold is set right, because they answer the question the
+# live rows cannot: what did we miss by refusing?
+#
+# It also means the threshold can be re-evaluated later at ANY level without
+# waiting for new data, because the strikes and outcomes were recorded for
+# every day regardless of the gate.
+
+
 def _load_ledger() -> list:
     if os.path.exists(LEDGER):
         try:
@@ -380,7 +399,10 @@ def main() -> int:
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
 
     rows = [decide(m) for m in MARKETS]
+    for r in rows:
+        r["would_trade"] = r.get("status") == "CANDIDATE"
     if not args.no_record:
+        # BOTH kinds. See the shadow-recording note above.
         record([r for r in rows if r.get("status") in ("CANDIDATE", "stand aside")])
 
     if args.json:
