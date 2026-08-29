@@ -21,6 +21,7 @@ type Coverage = Awaited<ReturnType<typeof api.ibkrBarCoverage>>;
 type QRow = Quality["symbols"][number];
 type Harvester = Awaited<ReturnType<typeof api.ibkrHarvesterStatus>>;
 type Readiness = Awaited<ReturnType<typeof api.dataReadiness>>;
+type Fundamentals = Awaited<ReturnType<typeof api.fundamentals>>;
 
 /**
  * DataReadinessBanner — the FIRST thing on this screen, because the question a
@@ -228,6 +229,11 @@ export function HarvestView() {
   // table, which would read as "all your daily data vanished".
   const [availableRes, setAvailableRes] = useState<string[]>([]);
   const [quality, setQuality] = useState<Quality | null>(null);
+  // CURRENT fundamentals per symbol. Owner, 29 Aug 2026: "this figure shd be
+  // visible on our data harvesting screen as well" — this screen already lists
+  // every symbol we hold data for, and could not say whether any of them makes
+  // money. Own catch: a fundamentals hiccup must never blank the health table.
+  const [fund, setFund] = useState<Fundamentals | null>(null);
   const [harvester, setHarvester] = useState<Harvester | null>(null);
   const [harvesterErr, setHarvesterErr] = useState<string | null>(null);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
@@ -282,6 +288,9 @@ export function HarvestView() {
       api.barCacheQuality()
         .then((r) => { if (live) setQuality(r); })
         .catch(() => { if (live) setQuality(null); });
+      api.fundamentals()
+        .then((r) => { if (live) setFund(r); })
+        .catch(() => { if (live) setFund(null); });
       // NEW C# IBKRBarHarvester (IBKR-primary → ibkr_price_bars). Own catch so a
       // harvester hiccup never blanks the legacy bar-cache table.
       api.ibkrHarvesterStatus()
@@ -299,6 +308,11 @@ export function HarvestView() {
   }, []);
 
   // canonical → decision-grade quality, for the per-row badge.
+  // symbol -> current fundamentals, built once rather than scanned per row.
+  const fmap = useMemo(
+    () => new Map((fund?.fundamentals || []).map((f) => [f.symbol, f])),
+    [fund],
+  );
   const qmap = useMemo(() => {
     const m = new Map<string, QRow>();
     for (const s of quality?.symbols || []) m.set(s.canonical, s);
@@ -502,6 +516,12 @@ export function HarvestView() {
               <th style={TH}>Last fetch</th>
               <th style={TH}>Provider</th>
               <th style={TH_R}>Violations</th>
+              {/* FUNDAMENTALS. A CURRENT snapshot, never a backtest input —
+                  today's P/E on a past date is look-ahead. A dash means the
+                  store has no figure, which for an ETF is the truth and for a
+                  single name means the harvest has not reached it. */}
+              <th style={TH_R} title="Trailing P/E — CURRENT snapshot from the last fundamentals harvest, not a point-in-time figure. Blank for ETFs, which have none by construction.">P/E</th>
+              <th style={TH_R} title="Return on equity, current snapshot. Negative means the company is losing money on its equity base.">ROE</th>
             </tr>
           </thead>
           <tbody>
@@ -564,6 +584,27 @@ export function HarvestView() {
                   <td style={{ ...TD_R, color: r.manifest_violations_last_30d > 0 ? "var(--down)" : "var(--text-dim)" }}>
                     {r.manifest_violations_last_30d || 0}
                   </td>
+                  {(() => {
+                    // A dash is a real answer here, not a gap in the UI: ETFs
+                    // have no P/E by construction. Loss-making names show a
+                    // negative ROE in the down colour, because "-55%" scanned
+                    // past in grey is how an unprofitable company ends up on a
+                    // shortlist next to a profitable one.
+                    const f = fmap.get(r.canonical);
+                    const pe = f?.trailingpe;
+                    const roe = f?.returnonequity;
+                    return (
+                      <>
+                        <td style={{ ...TD_R, color: "var(--text-dim)" }}>
+                          {pe == null ? "—" : pe.toFixed(1)}
+                        </td>
+                        <td style={{ ...TD_R, color: roe == null ? "var(--text-dim)"
+                              : roe < 0 ? "var(--down)" : "var(--text-dim)" }}>
+                          {roe == null ? "—" : `${(roe * 100).toFixed(1)}%`}
+                        </td>
+                      </>
+                    );
+                  })()}
                 </tr>
               );
             })}

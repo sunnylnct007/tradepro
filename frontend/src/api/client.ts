@@ -1738,6 +1738,37 @@ export const api = {
   // Per-symbol data-QUALITY score: "is this symbol's data good enough to
   // decide on TODAY?" Rolls bar_cache_health into one honest verdict so the
   // Data-Health dashboard shows good-for-today / pending-N-days at a glance.
+  /** CURRENT fundamentals per symbol (migration 067).
+   *
+   * Owner, 29 Aug 2026: "this figure shd be visible on our data harvesting
+   * screen as well". A snapshot for a HUMAN deciding today — never a backtest
+   * input, because today's P/E on a past date is look-ahead.
+   *
+   * One call for the whole store rather than per-symbol lookups behind a table
+   * of 244 rows. `lastHarvestUtc` lets the screen distinguish "not harvested
+   * yet" from "this company has no P/E", which for an ETF is the truth. */
+  fundamentals: () =>
+    get<{
+      count: number;
+      lastHarvestUtc: string | null;
+      note: string;
+      fundamentals: {
+        symbol: string;
+        as_of: string;
+        source: string | null;
+        trailingpe: number | null;
+        forwardpe: number | null;
+        pricetobook: number | null;
+        returnonequity: number | null;
+        profitmargin: number | null;
+        debttoequity: number | null;
+        trailingeps: number | null;
+        forwardeps: number | null;
+        marketcap: number | null;
+        annualeps: string | null;
+      }[];
+    }>("/fundamentals"),
+
   barCacheQuality: (params?: { assetClass?: string; staleAfterDays?: number }) => {
     const qp: Record<string, string | undefined> = {};
     if (params?.assetClass) qp.asset_class = params.assetClass;
