@@ -66,3 +66,49 @@ rather than trusting local state.
 Three jobs, a few hundred invocations a month, seconds each. Comfortably inside
 the Lambda free tier; ECR storage for one image is pennies. The reason to do it
 is reliability, not cost.
+
+---
+
+# PROVISIONED — 29 Aug 2026
+
+Account 108703420282, eu-west-2. Verified by a real invoke, not by the console
+saying it exists.
+
+| resource | value |
+|---|---|
+| ECR | `108703420282.dkr.ecr.eu-west-2.amazonaws.com/tradepro-jobs` (keeps last 5 images) |
+| image | arm64 (Graviton), 290MB compressed |
+| function | `tradepro-jobs` — 1024MB, 300s, arm64 |
+| role | `tradepro-jobs-lambda-role` — Logs, S3 read on the bar-cache bucket, and `secretsmanager:GetSecretValue` on `tradepro/email-*` ONLY |
+| secret | `tradepro/email` — the local creds file uploaded verbatim, so there is one schema and nothing to drift |
+
+## Schedules (UTC; BST is UTC+1)
+
+    tradepro-strangle-paper-india   cron(0 3 ? * MON-FRI *)        04:00 BST, before the Indian open
+    tradepro-strangle-paper-us      cron(0 13 ? * MON-FRI *)       14:00 BST, before the US open
+    tradepro-strangle-alert-india   cron(0/15 4-9 ? * MON-FRI *)   Indian session
+    tradepro-strangle-alert-us      cron(0/15 14-19 ? * MON-FRI *) US session
+    tradepro-post-earnings-puts     cron(45 20 ? * MON-FRI *)      21:45 BST, after the US close
+
+## Two things that bit, recorded so they do not bite again
+
+**Lambda rejects OCI manifests.** `docker build` under buildx emits an OCI
+manifest LIST by default and `CreateFunction` fails with "image manifest,
+config or layer media type ... is not supported". The fix is
+`--provenance=false --sbom=false`, which yields
+`application/vnd.docker.distribution.manifest.v2+json`.
+
+**`put-targets` shorthand cannot carry JSON.** `Input={"job":"..."}` fails
+parameter validation; the target must be passed as a file.
+
+## Deliberately NOT done
+
+The local launchd jobs are STILL RUNNING. Both paths execute for a few days and
+their outputs get compared before anything is unloaded. Cutting over blind is
+how you discover in a week that the 04:00 Indian job never fired.
+
+## Still owed
+
+The UI trigger: desk -> API -> `lambda:InvokeFunction`. The handler already
+accepts `{"job": "..."}` from any caller, so this is an API endpoint and a
+button, not new Lambda work.

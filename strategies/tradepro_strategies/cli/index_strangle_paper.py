@@ -187,10 +187,26 @@ def decide(market: str) -> dict:
 
 
 def _email_cfg() -> dict:
-    """SMTP settings from the SAME place every other TradePro email reads.
-    Not a second config — one file, one set of env fallbacks."""
+    """SMTP settings from the SAME place every other TradePro email reads,
+    with one addition for Lambda.
+
+    Order: local creds file (the Mac), then Secrets Manager (Lambda, where
+    there is no home directory), then env vars. The secret holds exactly the
+    same JSON shape as the file, so there is ONE schema and no translation
+    layer to drift — the file is uploaded to the secret verbatim.
+    """
     from .email_digest import CRED_PATH
     data = json.loads(CRED_PATH.read_text()) if CRED_PATH.is_file() else {}
+    if not data and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        try:
+            import boto3
+            sm = boto3.client("secretsmanager",
+                              region_name=os.environ.get("AWS_REGION", "eu-west-2"))
+            data = json.loads(sm.get_secret_value(
+                SecretId=os.environ.get("TRADEPRO_EMAIL_SECRET", "tradepro/email")
+            )["SecretString"])
+        except Exception as exc:  # noqa: BLE001 — fall through to env vars
+            log.warning("secrets manager read failed: %s", str(exc)[:120])
     return {
         "smtp_host": data.get("smtp_host") or os.environ.get("TRADEPRO_SMTP_HOST"),
         "smtp_port": int(data.get("smtp_port") or os.environ.get("TRADEPRO_SMTP_PORT") or 465),
