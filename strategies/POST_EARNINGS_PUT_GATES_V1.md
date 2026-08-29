@@ -191,3 +191,68 @@ market.
    as its own study, never tuned on this sample until G5 passes.
 3. **Paper-forward it now**, at small size, and let live events accumulate
    against these same gates.
+
+---
+
+# V2 — MARKET-REGIME FILTER. Gates fixed BEFORE the run (29 Aug 2026).
+
+Owner: *"but dont we shd also base it off SPY or overall index"* — after the
+year-by-year breakdown showed the damage is 2022, not COVID:
+
+    2020 (COVID)   n=9   100.0% win  +2.39%  worst  +0.74%   <- BEST year
+    2022 (rates)   n=50   70.0% win  -0.01%  worst -54.05%   <- the whole problem
+
+V1 failed G5 because the strategy has no defence in a sustained downtrend. It
+is directionally bullish and behaved like it. 2022 was identifiable in real
+time — SPY was below its 200-day average for most of it — so the question is
+whether a market-level gate removes that damage without gutting the rest.
+
+## The filter, and why THIS one
+
+**Enter only when SPY closes above its own 200-day SMA on the entry date.**
+
+Chosen because it is the trend test ALREADY used by the Swing strategy and its
+screen. It is not a parameter search: no threshold was tried and discarded, and
+none will be. If SPY-above-200SMA does not fix G5, the honest answer is that
+this strategy needs a different defence, NOT that 150 or 250 days works better.
+
+One filter, one run, recorded whatever it says.
+
+## Gates — V2 must clear V1's bar AND the two it failed
+
+| # | Test | Pass |
+|---|------|------|
+| **W0** | Events surviving the filter | ≥ 200 |
+| **W1** | Win rate | ≥ 80% |
+| **W2** | Mean/trade, size-weighted, net | > +0.75% |
+| **W3** | Beats the SAME-FILTERED null by ≥ 0.5pt | true |
+| **W4** | p5 | ≥ −8% |
+| **W5** | **Both halves pass W1 and W2** — the gate V1 failed | true |
+| **W6** | **2022 alone is not a losing year** — mean > 0 | true |
+| **W7** | **Retains ≥ 60% of V1's events** — must not "work" by trading almost never | true |
+
+**W7 exists because the filter could pass every other gate by refusing nearly
+every trade.** A strategy that fires four times a year and never in a downturn
+is not a fixed strategy; it is a different, much smaller one, and the honest
+description would be "we stopped trading" rather than "we solved the tail".
+
+**W6 targets the actual failure.** Pooled improvement is not enough — 2022 is
+the year that broke V1 and it has to stop being a losing year on its own.
+
+**W3 re-runs the null WITH the filter.** Otherwise a pass could just mean "the
+market went up after 2022", which would be true of any long position and would
+tell us nothing about the earnings trigger.
+
+## Prediction — recorded before the run
+
+**W6 passes and W7 is the risk.** SPY was below its 200-SMA for roughly half of
+2022, so the filter should remove much of the damage — but earnings drops
+CLUSTER in bad markets, so the events it removes are disproportionately the
+2022 ones, and the retention test is where I expect trouble.
+
+**W4 I expect to pass comfortably**, since the −22% p5 of 2022 is what dragged
+the pooled figure.
+
+If W7 fails, the correct conclusion is that the edge and the risk are the same
+phenomenon and cannot be separated by a market filter. That would be a real
+finding, not a failure to be tuned away.
