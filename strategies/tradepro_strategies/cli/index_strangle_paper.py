@@ -103,6 +103,21 @@ STRIKE_MULT = 1.5           # strikes at N x the implied DAILY move
 DTE_SET = {"weekly": 7, "monthly": 21}
 LEDGER = os.path.expanduser("~/.tradepro/research/index_strangle_paper.json")
 
+# Strike GRID and risk-free rate per market. Two bugs this fixes, both real:
+#
+# 1. STRIKES WERE CENTRED ON SPOT, NOT THE FORWARD. Index options price off the
+#    forward, and with Indian rates ~6.5% the 21-day BANKNIFTY forward sits
+#    ~215 points above spot. Centring on spot therefore pushed the put further
+#    out than the call — measured on the 29 Aug record: 1,025 points to the put
+#    against 575 to the call, nearly 2:1. That is unintentional upside risk and
+#    it is free to remove.
+# 2. THE STRIKES WERE NOT TRADEABLE. "56,697.84 PUT" does not exist; BANKNIFTY
+#    lists on a 100-point grid. Printing an unlistable strike in an email that
+#    asks someone to place a trade is the kind of detail that destroys trust in
+#    everything around it.
+RATE = {"US": 0.045, "INDIA": 0.065}
+STRIKE_GRID = {"US": 1.0, "INDIA": 100.0}
+
 MARKETS = {
     "US": {"index": "SPY", "vol": "^VIX", "lot": 100,
            "note": "SPY has next-day expiries; premiums from a captured chain when present"},
@@ -159,6 +174,14 @@ def decide(market: str) -> dict:
     iv = v / 100.0 * (INDIA_VOL_SCALE if market == "INDIA" else 1.0)
     daily = iv / math.sqrt(252)
     width = STRIKE_MULT * daily
+    rate = RATE[market]
+    grid = STRIKE_GRID[market]
+
+    def _strikes(dte: int) -> tuple[float, float]:
+        """Put and call, centred on the FORWARD and snapped to the listed grid."""
+        fwd = spot * math.exp(rate * dte / 365.0)
+        return (round(fwd * (1 - width) / grid) * grid,
+                round(fwd * (1 + width) / grid) * grid)
     out.update({
         "as_of": today, "spot": round(spot, 2),
         "vol_index": round(v, 2), "vol_q1_trailing": round(q1, 2),
@@ -168,13 +191,21 @@ def decide(market: str) -> dict:
         "iv_source": ("vol index" if market == "US"
                       else f"India VIX x {INDIA_VOL_SCALE} (BANKNIFTY realises more)"),
         "expected_daily_move_pct": round(100 * daily, 2),
-        "strike_rule": f"{STRIKE_MULT}x the expected daily move",
-        "call_strike": round(spot * (1 + width), 2),
-        "put_strike": round(spot * (1 - width), 2),
+        "strike_rule": f"{STRIKE_MULT}x the expected daily move, centred on the forward",
         "width_pct": round(100 * width, 2),
         "lot": cfg["lot"],
         "expiries": DTE_SET,
+        # One pair of strikes PER EXPIRY — the forward differs, so 7d and 21d
+        # do not share strikes. Treating them as one pair is what produced the
+        # lopsided monthly.
+        "legs": {name: {"dte": dte,
+                        "put_strike": _strikes(dte)[0],
+                        "call_strike": _strikes(dte)[1],
+                        "forward": round(spot * math.exp(rate * dte / 365.0), 2)}
+                 for name, dte in DTE_SET.items()},
     })
+    _wk = out["legs"]["weekly"]
+    out["put_strike"], out["call_strike"] = _wk["put_strike"], _wk["call_strike"]
     if v <= thr:
         out["status"] = "CANDIDATE"
         out["reason"] = (f"{cfg['vol']} {v:.2f} is at or below the {thr:.1f} "
@@ -239,11 +270,11 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
             T += [f"{r['market']}: NO DATA - {r['reason']}", ""]
             continue
         if r["status"] == "CANDIDATE":
-            T += [f"{r['market']}: TRADE",
-                  f"  SELL {r['put_strike']:,} PUT + {r['call_strike']:,} CALL  x{r['lot']}",
-                  f"  weekly ~{r['expiries']['weekly']}d and monthly ~{r['expiries']['monthly']}d,"
-                  f" both CLOSED SAME DAY",
-                  f"  spot {r['spot']:,} · {r['index']} · strikes +/-{r['width_pct']}%",
+            T += [f"{r['market']}: TRADE   (spot {r['spot']:,} · {r['index']})"]
+            for n, l in sorted(r["legs"].items(), key=lambda kv: kv[1]["dte"]):
+                T.append(f"  {n:<8} ~{l['dte']:>2}d   SELL {l['put_strike']:,.0f} PUT"
+                         f" + {l['call_strike']:,.0f} CALL   x{r['lot']}")
+            T += ["  both CLOSED SAME DAY · strikes centred on the FORWARD, on the listed grid",
                   f"  {r['reason']}", ""]
         else:
             T += [f"{r['market']}: STAND ASIDE", f"  {r['reason']}", ""]
@@ -276,20 +307,27 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
         if is_c:
             H.append(f'<div style="background:#f2faf6;border-radius:8px;padding:14px;margin:12px 0">'
                      f'<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;'
-                     f'color:{OK};font-weight:700;padding-bottom:6px">Sell</div>'
-                     f'<div style="font-size:20px;font-weight:700;font-variant-numeric:tabular-nums">'
-                     f'{r["put_strike"]:,} PUT<br>{r["call_strike"]:,} CALL</div>'
-                     f'<div style="color:{MUT};font-size:13px;padding-top:6px">'
-                     f'x{r["lot"]} · ±{r["width_pct"]}% · both expiries recorded, '
-                     f'<b>closed same day</b></div></div>')
+                     f'color:{OK};font-weight:700;padding-bottom:8px">Sell · x{r["lot"]} · '
+                     f'close same day</div>')
+            for n, l in sorted(r["legs"].items(), key=lambda kv: kv[1]["dte"]):
+                H.append(f'<div style="padding:6px 0">'
+                         f'<span style="font-size:12px;color:{MUT};text-transform:uppercase;'
+                         f'letter-spacing:.06em">{n} · ~{l["dte"]}d</span><br>'
+                         f'<span style="font-size:19px;font-weight:700;'
+                         f'font-variant-numeric:tabular-nums">'
+                         f'{l["put_strike"]:,.0f} PUT &nbsp;+&nbsp; {l["call_strike"]:,.0f} CALL'
+                         f'</span></div>')
+            H.append(f'<div style="color:{MUT};font-size:12px;padding-top:6px">'
+                     f'centred on the forward ({r["legs"]["weekly"]["forward"]:,.0f} / '
+                     f'{r["legs"]["monthly"]["forward"]:,.0f}), snapped to the listed grid'
+                     f'</div></div>')
             H.append('<table style="width:100%;border-collapse:collapse;font-size:13px">'
                      + "".join(
                          f'<tr><td style="padding:3px 0;color:{MUT}">{k}</td>'
                          f'<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums">'
                          f'{v}</td></tr>'
-                         for k, v in (("weekly", f"~{r['expiries']['weekly']}d"),
-                                      ("monthly", f"~{r['expiries']['monthly']}d"),
-                                      ("expected daily move", f"{r['expected_daily_move_pct']}%"),
+                         for k, v in (("expected daily move", f"{r['expected_daily_move_pct']}%"),
+                                      ("strike width", f"±{r['width_pct']}%"),
                                       ("IV used", f"{r['iv_used']}%")))
                      + "</table>")
         else:
