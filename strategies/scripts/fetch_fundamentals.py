@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Per-symbol FUNDAMENTALS for the quality-on-earnings-drop study.
+
+Owner, 29 Aug 2026: "when i say fundamentally its the earning ratio, p/e ratio
+etc published free by yahoo or even can be in ibkr". Correct, and my "no
+fundamentals feed" was about what is LOADED, not what is available.
+
+WHAT THIS STORES, and the limit on each -- stated here so nothing built on this
+file can quietly overstate itself:
+
+  * `info`      CURRENT snapshot (trailingPE, forwardPE, priceToBook, ROE,
+                margins, debtToEquity). Useful for the name-context screen.
+                USELESS for a backtest: stamping today's P/E on a 2023 event is
+                look-ahead bias and would manufacture an edge from nothing.
+
+  * `annual_eps`  Diluted EPS by fiscal year, ~5 years deep. THIS is what a
+                point-in-time P/E is built from: price on the day over the most
+                recently REPORTED EPS as of that day.
+
+  * `quarterly_eps`  ~5 quarters. Too shallow to backtest on its own; kept
+                because it dates the most recent report precisely.
+
+THE HARD LIMIT: 5 annual points reaches back to roughly 2021, and the earnings
+CALENDAR only reaches late 2020. Any study on this covers ~2022-2026 -- a single
+post-COVID bull regime. A pass there is weak evidence; a FAILURE is strong,
+because the conditions are as favourable as they get.
+
+Resumable: re-running fetches only symbols not already held.
+    uv run python scripts/fetch_fundamentals.py [--limit N] [--refresh]
+"""
+from __future__ import annotations
+import argparse, json, logging, os, sys, time
+
+OUT = os.path.expanduser("~/.tradepro/research/fundamentals.json")
+log = logging.getLogger("fundamentals")
+KEYS = ["trailingPE","forwardPE","priceToBook","returnOnEquity","debtToEquity",
+        "profitMargins","trailingEps","forwardEps","enterpriseToEbitda","marketCap"]
+
+
+def _eps_series(df) -> dict:
+    """{period -> diluted EPS}. Basic EPS is the fallback; None when neither."""
+    if df is None or getattr(df, "empty", True):
+        return {}
+    for row in ("Diluted EPS", "Basic EPS"):
+        if row in df.index:
+            out = {}
+            for c in df.columns:
+                try:
+                    v = df.loc[row, c]
+                    out[str(c)[:10]] = None if v != v else float(v)   # NaN -> None
+                except Exception:
+                    continue
+            return out
+    return {}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--refresh", action="store_true")
+    args = ap.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+
+    import warnings; warnings.filterwarnings("ignore")
+    from tradepro_strategies.universe import universe_symbols
+    from tradepro_strategies.yahoo_session import yahoo_session
+    import yfinance as yf
+
+    syms = list(universe_symbols())
+    if args.limit:
+        syms = syms[: args.limit]
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    have = {}
+    if os.path.exists(OUT) and not args.refresh:
+        try: have = json.load(open(OUT))
+        except Exception: have = {}
+    todo = [s for s in syms if s not in have]
+    log.info("fundamentals: %d symbols, %d held, %d to fetch", len(syms), len(syms)-len(todo), len(todo))
+
+    sess = yahoo_session()
+    ok = thin = 0
+    for n, sym in enumerate(todo, 1):
+        rec = {"info": {}, "annual_eps": {}, "quarterly_eps": {}}
+        try:
+            t = yf.Ticker(sym, session=sess)
+            info = t.info or {}
+            rec["info"] = {k: info.get(k) for k in KEYS}
+            rec["annual_eps"] = _eps_series(t.income_stmt)
+            rec["quarterly_eps"] = _eps_series(t.quarterly_income_stmt)
+            if rec["annual_eps"]: ok += 1
+            else: thin += 1
+        except Exception as exc:  # noqa: BLE001 — one dead symbol must not stop the sweep
+            log.warning("%s: %s", sym, str(exc)[:90])
+            thin += 1
+        have[sym] = rec
+        if n % 20 == 0:
+            json.dump(have, open(OUT, "w"))
+            log.info("  %d/%d  with annual EPS=%d  thin=%d", n, len(todo), ok, thin)
+        time.sleep(0.6)                      # be a good citizen; the session is shared
+
+    json.dump(have, open(OUT, "w"))
+    withe = sum(1 for v in have.values() if v.get("annual_eps"))
+    withpe = sum(1 for v in have.values() if (v.get("info") or {}).get("trailingPE"))
+    log.info("DONE: %d symbols · %d with annual EPS · %d with a current P/E -> %s",
+             len(have), withe, withpe, OUT)
+    return 0 if withe else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
