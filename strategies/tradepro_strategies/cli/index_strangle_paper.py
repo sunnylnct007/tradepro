@@ -228,6 +228,77 @@ STRIKE_GRID = {m: c["grid"] for m, c in MARKETS.items()}
 INDIA_VOL_SCALE = MARKETS["BANKNIFTY"]["vol_scale"]
 
 
+# WHAT ONE CONTRACT ACTUALLY RISKS. Owner, 29 Aug 2026: "whats the possible
+# gain and losses on these. can we also email and display that as well".
+#
+# Percent-of-collateral is the right unit for COMPARING markets and the wrong
+# one for deciding whether to place a trade. "+0.05% mean" reads as nothing;
+# "Rs4,234 typical, Rs439,376 if the gate fails" is the same fact in a unit that
+# can be acted on. Both are now shown.
+#
+# TWO CAPITAL BASES, because they give very different answers and quoting only
+# one is how a short-premium product gets mis-sold:
+#
+#   COLLATERAL  = put strike x lot. What a fully cash-secured position ties up.
+#                 Conservative, and what every % figure in the evidence is
+#                 measured against.
+#   MARGIN      = what a broker actually asks for an index strangle (SPAN), very
+#                 roughly 12% of collateral. This is the number that decides
+#                 whether an account survives, and it AMPLIFIES BOTH DIRECTIONS
+#                 by ~8x. A -0.73% day is -6.1% of margin. A gate failure on
+#                 NIFTY is -96.7% of margin - nearly the whole deposit.
+#
+# The amplification is the point. On margin the typical trade earns ~0.3% and a
+# single leaked crash day costs 39-97%, so roughly 100-330 winning trades pay
+# for one gate failure. That ratio is the strategy, stated plainly.
+MARGIN_PCT = 0.12          # SPAN ESTIMATE ONLY - the broker's number governs
+
+
+def economics(row: dict, ev_entry: dict | None) -> dict | None:
+    """Money, per ONE weekly contract, at today's levels.
+
+    The credit is Black-Scholes and therefore MODELLED - it is labelled as such
+    everywhere it is shown, because this file's whole discipline is that a
+    modelled premium is never allowed to pass as a traded one. The loss figures
+    are NOT modelled: they are the strategy's own realised history, scaled to
+    this contract.
+    """
+    leg = (row.get("legs") or {}).get("weekly")
+    if not leg or not ev_entry:
+        return None
+    from ..quant_engine.options.black_scholes import BlackScholesPricer
+    p = BlackScholesPricer()
+    spot, iv, lot = row["spot"], row["iv_used"] / 100.0, row["lot"]
+    credit = (p.price(spot, leg["call_strike"], 7 / 365, iv, "call")
+              + p.price(spot, leg["put_strike"], 7 / 365, iv, "put")) * lot
+    coll = leg["put_strike"] * lot
+    margin = MARGIN_PCT * coll
+    h, st = ev_entry["historical"], (ev_entry.get("stress") or {})
+    fail_pct = st.get("worst_ungated_pct")
+
+    def _m(pct):
+        return None if pct is None else pct / 100.0 * coll
+    return {
+        "collateral": round(coll),
+        "margin_estimate": round(margin),
+        "credit_modelled": round(credit),
+        "typical_gain": round(_m(h["mean_pct"])),
+        "best_day": round(_m(h["best_pct"])),
+        "worst_day": round(_m(h["worst_pct"])),
+        "gate_failure": None if fail_pct is None else round(_m(fail_pct)),
+        # On margin — the numbers that decide whether the account survives.
+        "typical_gain_on_margin_pct": round(h["mean_pct"] / MARGIN_PCT, 2),
+        "worst_day_on_margin_pct": round(h["worst_pct"] / MARGIN_PCT, 1),
+        "gate_failure_on_margin_pct": (None if fail_pct is None
+                                       else round(fail_pct / MARGIN_PCT, 1)),
+        # How many typical winners pay for one gate failure. The single most
+        # honest summary of a premium-selling strategy.
+        "winners_per_gate_failure": (None if not fail_pct or not h["mean_pct"]
+                                     else round(abs(fail_pct) / h["mean_pct"])),
+        "margin_pct_assumed": MARGIN_PCT,
+    }
+
+
 def strike_pair(spot: float, width: float, dte: int, rate: float,
                 grid: float) -> tuple[float, float, float]:
     """(put, call, forward), centred on the FORWARD and snapped to the grid.
@@ -482,6 +553,14 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
             for n, l in sorted(r["legs"].items(), key=lambda kv: kv[1]["dte"]):
                 T.append(f"      {n:<8} ~{l['dte']:>2}d  SELL {l['put_strike']:,.0f} PUT"
                          f"  +  {l['call_strike']:,.0f} CALL   x{r['lot']}")
+            e = r.get("economics")
+            if e:
+                c = r["ccy"]
+                T.append(f"      one weekly contract: collect ~{c}{e['credit_modelled']:,} "
+                         f"(modelled) · margin ~{c}{e['margin_estimate']:,}")
+                T.append(f"      typical {c}{e['typical_gain']:+,} · worst day "
+                         f"{c}{e['worst_day']:+,} · if the gate fails "
+                         f"{c}{e['gate_failure']:+,}")
         T.append("")
     if aside:
         T += ["-" * 62, f"STOOD ASIDE ({len(aside)})", ""]
@@ -503,6 +582,38 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
           "   you from.",
           "5. Only ONE position per family. SPX, XSP and SPY are the same trade at",
           "   three sizes; taking all three is one bet at triple weight.", ""]
+
+    money = [r for r in rows if r.get("economics")]
+    if money:
+        T += ["=" * 62, "WHAT ONE CONTRACT RISKS", "=" * 62, "",
+              "  Per ONE weekly contract at today's levels. The credit is",
+              "  MODELLED; the loss figures are this strategy's real history",
+              f"  scaled to the contract. Margin is a SPAN estimate at "
+              f"{int(100 * MARGIN_PCT)}% of",
+              "  collateral - your broker's number governs.", "",
+              f"  {'market':<11}{'margin':>13}{'collect':>11}{'typical':>10}"
+              f"{'worst day':>12}{'gate fails':>13}", "  " + "-" * 70]
+        for r in money:
+            e, c = r["economics"], r["ccy"]
+            T.append(f"  {r['market']:<11}{c + format(e['margin_estimate'], ',') :>13}"
+                     f"{c + format(e['credit_modelled'], ',') :>11}"
+                     f"{c + format(e['typical_gain'], '+,') :>10}"
+                     f"{c + format(e['worst_day'], '+,') :>12}"
+                     f"{c + format(e['gate_failure'], '+,') :>13}")
+        T += ["", "  THE SAME NUMBERS AS % OF MARGIN - what decides whether an",
+              "  account survives. Margin amplifies BOTH directions ~8x:", "",
+              f"  {'market':<11}{'typical':>10}{'worst day':>12}{'gate fails':>13}"
+              f"{'winners to repay':>18}", "  " + "-" * 64]
+        for r in money:
+            e = r["economics"]
+            T.append(f"  {r['market']:<11}{e['typical_gain_on_margin_pct']:>9.2f}%"
+                     f"{e['worst_day_on_margin_pct']:>11.1f}%"
+                     f"{e['gate_failure_on_margin_pct']:>12.1f}%"
+                     f"{e['winners_per_gate_failure']:>15,} trades")
+        T += ["", "  Read the last column first. One leaked crash day costs what",
+              "  hundreds of ordinary winning trades earn. That is the shape of",
+              "  every premium-selling strategy and it is why the gate, not the",
+              "  win rate, is the thing to watch.", ""]
 
     if ev:
         T += ["=" * 62, "THE EVIDENCE", "=" * 62, "",
@@ -632,6 +743,24 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
                          f'font-family:{MONO};padding-top:3px">'
                          f'{l["put_strike"]:,.0f} PUT &nbsp;+&nbsp; '
                          f'{l["call_strike"]:,.0f} CALL</div></div>')
+            e = r.get("economics")
+            if e:
+                c = r["ccy"]
+                H.append(f'<table role="presentation" cellpadding="0" cellspacing="0" '
+                         f'border="0" style="width:100%;border-collapse:collapse;'
+                         f'margin-bottom:6px">'
+                         + "".join(
+                             f'<tr style="background:{BG}"><td style="padding:2px 0;'
+                             f'font-size:12px;color:{MUT}">{k}</td>'
+                             f'<td style="padding:2px 0;text-align:right;font-size:12.5px;'
+                             f'font-family:{MONO};color:{col};font-weight:600">{v}</td></tr>'
+                             for k, v, col in (
+                                 ("collect (modelled)", f"{c}{e['credit_modelled']:,}", OK),
+                                 ("margin needed (est)", f"{c}{e['margin_estimate']:,}", D),
+                                 ("typical outcome", f"{c}{e['typical_gain']:+,}", OK),
+                                 ("worst day so far", f"{c}{e['worst_day']:+,}", BAD),
+                                 ("if the gate fails", f"{c}{e['gate_failure']:+,}", BAD)))
+                         + "</table>")
             H.append(f'<div style="font-size:12px;color:{MUT}">±{r["width_pct"]}% wide · '
                      f'{r["vol_index"]} vs {r["vol_threshold"]:.0f} gate · close same day'
                      f'</div></div>')
@@ -693,6 +822,53 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
                  f'<div style="font-size:12.5px;color:{MUT};padding:3px 0 0 20px;'
                  f'line-height:1.5">{bd}</div></div>')
     H.append("</td></tr>")
+
+    if money:
+        H.append(_sec("What one contract risks",
+                      f"Per ONE weekly contract at today's levels. The credit is "
+                      f"modelled; the losses are this strategy's real history "
+                      f"scaled to the contract. Margin is a SPAN estimate at "
+                      f"{int(100 * MARGIN_PCT)}% of collateral — your broker's "
+                      f"number governs."))
+        H.append(f'<tr><td style="padding:0 22px;background:{BG}">'
+                 f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+                 f'style="width:100%;border-collapse:collapse">')
+        H.append(_row(("market", "margin", "collect", "typical", "worst day",
+                       "gate fails"), head=True, mono=False))
+        for r in money:
+            e, c = r["economics"], r["ccy"]
+            H.append(_row((f'<b>{r["market"]}</b>', f"{c}{e['margin_estimate']:,}",
+                           f"{c}{e['credit_modelled']:,}",
+                           f'<span style="color:{OK}">{c}{e["typical_gain"]:+,}</span>',
+                           f'<span style="color:{BAD}">{c}{e["worst_day"]:+,}</span>',
+                           f'<span style="color:{BAD};font-weight:700">'
+                           f'{c}{e["gate_failure"]:+,}</span>')))
+        H.append("</table>")
+        H.append(f'<div style="font-size:12px;color:{MUT};padding:11px 0 6px 0">'
+                 f'<b style="color:{D}">The same numbers as % of margin</b> — what '
+                 f'decides whether an account survives. Margin amplifies both '
+                 f'directions about eightfold.</div>')
+        H.append(f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+                 f'style="width:100%;border-collapse:collapse">')
+        H.append(_row(("market", "typical", "worst day", "gate fails",
+                       "winners to repay"), head=True, mono=False))
+        for r in money:
+            e = r["economics"]
+            H.append(_row((f'<b>{r["market"]}</b>',
+                           f'<span style="color:{OK}">'
+                           f'{e["typical_gain_on_margin_pct"]:+.2f}%</span>',
+                           f'<span style="color:{BAD}">'
+                           f'{e["worst_day_on_margin_pct"]:.1f}%</span>',
+                           f'<span style="color:{BAD};font-weight:700">'
+                           f'{e["gate_failure_on_margin_pct"]:.1f}%</span>',
+                           f'{e["winners_per_gate_failure"]:,}')))
+        H.append("</table>")
+        H.append(f'<div style="background:#fef2f2;border-radius:10px;padding:13px 15px;'
+                 f'margin-top:12px;font-size:12.5px;color:#7f1d1d;line-height:1.55">'
+                 f'<b>Read the last column first.</b> One leaked crash day costs what '
+                 f'hundreds of ordinary winning trades earn. That is the shape of every '
+                 f'premium-selling strategy, and it is why the gate — not the win rate — '
+                 f'is the thing to watch.</div></td></tr>')
 
     if ev:
         # ---- evidence: sample size and period BEFORE any performance number ----
@@ -841,8 +1017,16 @@ def main() -> int:
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
 
     rows = [decide(m) for m in MARKETS]
+    ev = _evidence()
     for r in rows:
         r["would_trade"] = r.get("status") == "CANDIDATE"
+        # Money is attached to EVERY row, stand-aside included. The stand-aside
+        # rows are what make the threshold testable later, and they are worth
+        # far more with the economics of the trade we declined recorded beside
+        # them.
+        econ = economics(r, ev.get(r.get("market")))
+        if econ:
+            r["economics"] = econ
     if not args.no_record:
         # BOTH kinds. See the shadow-recording note above.
         record([r for r in rows if r.get("status") in ("CANDIDATE", "stand aside")])
@@ -869,6 +1053,18 @@ def main() -> int:
             for name, dte in sorted(r["expiries"].items(), key=lambda kv: kv[1]):
                 print(f"      · {name:<8} ~{dte}d to expiry — recorded separately, "
                       f"closed same day")
+        e = r.get("economics")
+        if e:
+            c = r["ccy"]
+            print(f"    ONE WEEKLY CONTRACT  collect ~{c}{e['credit_modelled']:,} "
+                  f"(modelled) on ~{c}{e['margin_estimate']:,} margin")
+            print(f"      typical {c}{e['typical_gain']:+,} "
+                  f"({e['typical_gain_on_margin_pct']:+.2f}% of margin)  ·  "
+                  f"worst day {c}{e['worst_day']:+,} "
+                  f"({e['worst_day_on_margin_pct']:.1f}%)")
+            print(f"      if the gate FAILS {c}{e['gate_failure']:+,} "
+                  f"({e['gate_failure_on_margin_pct']:.1f}% of margin) — "
+                  f"{e['winners_per_gate_failure']:,} winners to repay")
         print()
     if args.email:
         # Fail-soft: an email problem must never lose the decision, which is

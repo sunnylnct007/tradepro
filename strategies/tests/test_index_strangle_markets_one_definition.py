@@ -210,3 +210,39 @@ def test_one_step_looser_would_have_leaked():
         assert looser[0]["leaks"], (
             f"{m}: {looser[0]['threshold']} is also clean — chosen "
             f"{rule['chosen']} is not the largest clean gate")
+
+
+def test_economics_never_shows_a_gain_without_its_loss():
+    """Money figures are the most persuasive thing in the email and the easiest
+    to mis-sell. Any row quoting a credit or a typical gain MUST also carry the
+    worst day and the gate-failure loss."""
+    ev = P._evidence()
+    for m in P.MARKETS:
+        row = {"market": m, "spot": 1000.0, "iv_used": 12.0, "lot": P.MARKETS[m]["lot"],
+               "ccy": P.MARKETS[m]["ccy"],
+               "legs": {"weekly": {"dte": 7, "put_strike": 990.0,
+                                   "call_strike": 1010.0, "forward": 1001.0}}}
+        e = P.economics(row, ev.get(m))
+        assert e is not None, m
+        for k in ("credit_modelled", "typical_gain", "worst_day", "gate_failure",
+                  "margin_estimate", "winners_per_gate_failure"):
+            assert e.get(k) is not None, f"{m} missing {k}"
+        assert e["worst_day"] < 0 and e["gate_failure"] < 0, m
+        assert e["gate_failure"] < e["worst_day"], m
+        # The whole point: a gate failure must cost many winners, and the email
+        # says so. If this ratio ever came back near 1 the strategy would be
+        # something else entirely and the copy would be wrong.
+        assert e["winners_per_gate_failure"] > 10, m
+
+
+def test_margin_basis_is_labelled_as_an_estimate():
+    """Quoting a broker margin as fact invites someone to size a position on it."""
+    src = open(P.__file__).read()
+    assert "MARGIN_PCT" in src
+    assert "ESTIMATE" in src or "estimate" in src
+    ev = P._evidence()
+    row = {"market": "GOLD", "spot": 400.0, "iv_used": 12.0, "lot": 100, "ccy": "$",
+           "legs": {"weekly": {"dte": 7, "put_strike": 390.0,
+                               "call_strike": 410.0, "forward": 400.3}}}
+    e = P.economics(row, ev.get("GOLD"))
+    assert e["margin_pct_assumed"] == P.MARGIN_PCT
