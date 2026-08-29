@@ -217,50 +217,101 @@ def _email_cfg() -> dict:
     }
 
 
-def _email_body(rows: list[dict]) -> tuple[str, str]:
+def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
+    """Subject, and (plain-text, HTML) bodies.
+
+    The first version was one <pre> block — everything in the same weight, the
+    actual trade buried among caveats. Owner: "can we do proper formatting".
+    So the HTML is built to be SCANNED on a phone: the trade first at size,
+    the reasoning under it, the limits last and quiet. The plain-text part is
+    kept as a real fallback, not an afterthought, because some clients will
+    only ever render that.
+    """
     live = [r for r in rows if r.get("status") == "CANDIDATE"]
-    aside = [r for r in rows if r.get("status") == "stand aside"]
     subj = ("[PAPER] index strangle — "
             + (", ".join(r["market"] for r in live) + " CANDIDATE" if live
-               else "stand aside both markets"))
-    L = ["INDEX SHORT STRANGLE — PAPER RECORD.  Nothing is placed.",
-         "This is a record for evaluation, not advice. You execute or you don't.", ""]
+               else "stand aside, both markets"))
+
+    # ---- plain text (fallback) ----
+    T = ["INDEX SHORT STRANGLE - PAPER RECORD (nothing is placed)", ""]
     for r in rows:
-        L.append(f"{r['market']}  ({r['index']})")
         if r.get("status") == "no_data":
-            L += [f"   NO DATA — {r['reason']}", ""]
+            T += [f"{r['market']}: NO DATA - {r['reason']}", ""]
             continue
-        L.append(f"   {'>>> CANDIDATE' if r['status']=='CANDIDATE' else '--- stand aside'}: {r['reason']}")
-        L.append(f"   spot {r['spot']:,}   ·   IV used {r['iv_used']}%  ({r['iv_source']})")
-        L.append(f"   expected daily move {r['expected_daily_move_pct']}%   ·   "
-                 f"strikes {r['strike_rule']} = ±{r['width_pct']}%")
         if r["status"] == "CANDIDATE":
-            L.append(f"   SELL  {r['put_strike']:,} PUT   +   {r['call_strike']:,} CALL   x{r['lot']}")
-            for name, dte in sorted(r["expiries"].items(), key=lambda kv: kv[1]):
-                L.append(f"      · {name} (~{dte}d) — recorded separately, CLOSE SAME DAY")
-        L.append(f"   threshold {r['vol_threshold']} — adjust with {r['threshold_env']}")
-        L.append("")
-    L += ["WHAT THIS IS AND IS NOT",
-          "  · Strikes come from the index and its volatility index only — no option",
-          "    chain — so a dark options feed cannot stop this producing a decision.",
-          "  · Premiums are NOT quoted. India has no free NSE chain; US chains are",
-          "    captured end-of-day. The credit gets filled in from a captured chain or",
-          "    by you, so a modelled number is never mistaken for a traded one.",
-          "  · Weekly and monthly are recorded side by side. A one-day hold captures one",
-          "    day of theta whatever the expiry, so monthly ties up far more capital for",
-          "    a similar return — the record is there to settle that on real prices.",
-          "",
-          "EVIDENCE, and its limits",
-          "  · Modelled on 403 low-volatility BANKNIFTY sessions: ~85% win at every",
-          "    expiry, so win rate decides nothing.",
-          "  · It LOST through 2009-2016. The absolute volatility threshold is what",
-          "    would have kept you out — 3 trades in 8 years.",
-          "  · The intraday profit target and the strangle->straddle conversion are NOT",
-          "    modelled. Both are things you actually do; neither is measurable here.",
-          "  · NOT FUNDED. This is a month of observation, not a recommendation."]
-    text = "\n".join(L)
-    html = "<pre style=\"font-family:monospace;font-size:13px\">" + text.replace("<", "&lt;") + "</pre>"
-    return subj, (text, html)
+            T += [f"{r['market']}: TRADE",
+                  f"  SELL {r['put_strike']:,} PUT + {r['call_strike']:,} CALL  x{r['lot']}",
+                  f"  weekly ~{r['expiries']['weekly']}d and monthly ~{r['expiries']['monthly']}d,"
+                  f" both CLOSED SAME DAY",
+                  f"  spot {r['spot']:,} · {r['index']} · strikes +/-{r['width_pct']}%",
+                  f"  {r['reason']}", ""]
+        else:
+            T += [f"{r['market']}: STAND ASIDE", f"  {r['reason']}", ""]
+    T += ["Premiums are not quoted - the credit is filled in from a captured",
+          "chain or by you, so a modelled number is never mistaken for a traded one.",
+          "NOT FUNDED. A month of observation, not a recommendation."]
+    text = "\n".join(T)
+
+    # ---- html ----
+    D = "#0f1729"; MUT = "#5b6779"; LINE = "#e3e8ef"
+    OK = "#0f8a5f"; OFF = "#8b95a5"; WARN = "#b26a00"
+    H = [f'<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;'
+         f'max-width:600px;margin:0 auto;color:{D};font-size:15px;line-height:1.5">']
+    H.append(f'<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;'
+             f'color:{MUT};padding-bottom:4px">Index short strangle · paper record</div>')
+
+    for r in rows:
+        if r.get("status") == "no_data":
+            H.append(f'<div style="border:1px solid {LINE};border-radius:10px;padding:14px;'
+                     f'margin:12px 0"><b>{r["market"]}</b><br>'
+                     f'<span style="color:{WARN}">No data — {r["reason"]}</span></div>')
+            continue
+        is_c = r["status"] == "CANDIDATE"
+        accent = OK if is_c else OFF
+        H.append(f'<div style="border:1px solid {LINE};border-left:4px solid {accent};'
+                 f'border-radius:10px;padding:16px;margin:14px 0">')
+        H.append(f'<div style="display:block"><span style="font-size:17px;font-weight:700">'
+                 f'{r["market"]}</span> <span style="color:{MUT};font-size:13px">'
+                 f'{r["index"]} · {r["spot"]:,}</span></div>')
+        if is_c:
+            H.append(f'<div style="background:#f2faf6;border-radius:8px;padding:14px;margin:12px 0">'
+                     f'<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;'
+                     f'color:{OK};font-weight:700;padding-bottom:6px">Sell</div>'
+                     f'<div style="font-size:20px;font-weight:700;font-variant-numeric:tabular-nums">'
+                     f'{r["put_strike"]:,} PUT<br>{r["call_strike"]:,} CALL</div>'
+                     f'<div style="color:{MUT};font-size:13px;padding-top:6px">'
+                     f'x{r["lot"]} · ±{r["width_pct"]}% · both expiries recorded, '
+                     f'<b>closed same day</b></div></div>')
+            H.append('<table style="width:100%;border-collapse:collapse;font-size:13px">'
+                     + "".join(
+                         f'<tr><td style="padding:3px 0;color:{MUT}">{k}</td>'
+                         f'<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums">'
+                         f'{v}</td></tr>'
+                         for k, v in (("weekly", f"~{r['expiries']['weekly']}d"),
+                                      ("monthly", f"~{r['expiries']['monthly']}d"),
+                                      ("expected daily move", f"{r['expected_daily_move_pct']}%"),
+                                      ("IV used", f"{r['iv_used']}%")))
+                     + "</table>")
+        else:
+            H.append(f'<div style="color:{OFF};font-weight:600;padding:8px 0">Stand aside</div>')
+        H.append(f'<div style="color:{MUT};font-size:12.5px;padding-top:8px;'
+                 f'border-top:1px solid {LINE};margin-top:10px">{r["reason"]}</div>')
+        H.append("</div>")
+
+    H.append(f'<div style="color:{MUT};font-size:12.5px;line-height:1.6;padding-top:8px">'
+             f'<b style="color:{D}">Premiums are not quoted.</b> The credit is filled in from a '
+             f'captured chain or by you, so a modelled number is never mistaken for a traded one.'
+             f'<br><br>'
+             f'<b style="color:{D}">Limits.</b> ~85% win at every expiry, so win rate decides '
+             f'nothing. It LOST through 2009–2016; the volatility threshold is what would have '
+             f'kept you out — 3 trades in 8 years. The intraday profit target and the '
+             f'strangle→straddle conversion are not modelled, and both are things you actually do.'
+             f'</div>')
+    H.append(f'<div style="margin-top:14px;padding:10px 12px;background:#fff7ed;'
+             f'border-radius:8px;color:{WARN};font-size:13px;font-weight:600">'
+             f'NOT FUNDED — a month of observation, not a recommendation. '
+             f'Nothing is placed by TradePro.</div></div>')
+    return subj, (text, "".join(H))
 
 
 def _load_ledger() -> list:
