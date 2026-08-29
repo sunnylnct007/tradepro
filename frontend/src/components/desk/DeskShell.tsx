@@ -140,6 +140,21 @@ const NAV: NavEntry[] = [
     title: "Research — pre-registered studies; gates committed to git BEFORE each run" },
   { key: "harvest",   label: "Data",      icon: "🛢", view: "harvest",   tier: "trusted",
     title: "Data health — is the data there, and since when" },
+  // ADDED 29 Aug 2026 at the owner's request. UNPROVEN, deliberately, and it
+  // stays that way until a forward test produces live evidence — the same bar
+  // Swing had to clear.
+  //
+  // It passed 8/8 pre-registered gates, but the study named its own weak pass:
+  // W6 ("2022 must not lose") passed on NINE events, because the market filter
+  // removed 41 of 2022's 50 drops. Earnings history starts Oct 2020, so both
+  // halves of the split sit in ONE regime. The recorded verdict was
+  // "paper-forward at small size — NOT FUNDING".
+  //
+  // It was reachable only by typing the URL, which is its own reliability
+  // problem: the owner asked where the candidates were and the honest answer
+  // was "nowhere you can click".
+  { key: "puts", label: "Puts", icon: "🅿", view: "post-earnings-puts", tier: "unproven",
+    title: "Post-earnings puts — passed 8/8 gates with a NAMED weak pass (W6 on nine events). No forward-test evidence yet; not funded." },
 ];
 
 // Escape hatch out of the standalone /desk shell into the full app (rendered
