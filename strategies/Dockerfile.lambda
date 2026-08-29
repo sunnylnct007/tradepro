@@ -1,0 +1,26 @@
+# Container-image Lambda for TradePro's light scheduled jobs.
+#
+# A container rather than a zip + layer: pandas, numpy, pyarrow and yfinance
+# comfortably exceed Lambda's 250MB unzipped layer limit, and the repo already
+# builds and pushes images to ECR for the API — so this reuses a pipeline that
+# exists rather than introducing a second packaging story.
+FROM public.ecr.aws/lambda/python:3.12
+
+# Dependencies first so a code change does not re-resolve the whole tree.
+COPY pyproject.toml ${LAMBDA_TASK_ROOT}/
+RUN python -m pip install --no-cache-dir --upgrade pip && \
+    python -m pip install --no-cache-dir \
+        "pandas>=2.0" "numpy>=1.26" "pyarrow>=15" "yfinance>=0.2.40" \
+        "requests>=2.31" "curl_cffi>=0.6" "boto3>=1.34" "python-dateutil>=2.9"
+
+COPY tradepro_strategies ${LAMBDA_TASK_ROOT}/tradepro_strategies
+COPY lambda_handler.py   ${LAMBDA_TASK_ROOT}/
+
+# Lambda's filesystem is read-only except /tmp, and the package writes caches
+# and a ledger under ~/.tradepro. Repointing HOME here means the code needs no
+# Lambda-specific branches.
+ENV HOME=/tmp \
+    PYTHONUNBUFFERED=1 \
+    MPLCONFIGDIR=/tmp/.mpl
+
+CMD ["lambda_handler.handler"]
