@@ -144,8 +144,16 @@ export function SwingView() {
 
           {a.near_misses && a.near_misses.length > 0 && (
             <div style={{ marginTop: 14 }}>
+              {/* Two DIFFERENT reasons, and calling both "closest to firing" was
+                  wrong: BC at -2.67 and NEE at -2.61 have ALREADY cleared the
+                  2.5σ test. Telling the reader they "need σ below −2.5" about a
+                  name that is at −2.67 is a screen contradicting itself. They
+                  are not close to firing — they fired on σ and were refused on
+                  trend. Split, and each group labelled for its own reason. */}
               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
-                Closest to firing — entry needs σ below −2.5
+                {a.near_misses.some((n) => n.sigma_from_mean <= n.sigma_needed && !n.above_trend)
+                  ? "Refused, and how far off the rest are"
+                  : "Closest to firing — entry needs σ below −2.5"}
               </div>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -165,15 +173,23 @@ export function SwingView() {
                           {n.sigma_from_mean.toFixed(2)}
                         </td>
                         <td style={{ padding: "5px 8px", fontFamily: "var(--font-mono)" }}>{n.close.toFixed(2)}</td>
-                        <td style={{ padding: "5px 8px", color: "var(--text-muted)" }}>{n.blocked_by}</td>
+                        <td style={{ padding: "5px 8px", color: "var(--text-muted)" }}>
+                          {n.sigma_from_mean <= n.sigma_needed && !n.above_trend
+                            ? "σ MET — refused on trend (below its 200-SMA)"
+                            : n.blocked_by}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-muted)" }}>
-                Names below their 200-SMA are refused on purpose — a deep dip in a downtrend is a
-                falling knife, not a discount. Only the amber rows are genuinely near a signal.
+                Names below their 200-SMA are refused by the rule. Measured 29 Aug, that filter is
+                NEUTRAL, not protective: refused signals earned +1.06%/trade against the rule&rsquo;s
+                +1.10% on 3,134 trades, and in the Feb–Apr 2020 crash they did <i>better</i>
+                (−4.56% vs −7.85%). The filter stays because REMOVING it passes only 1 of 4
+                two-split cells — not because a dip below the 200-day is worthless. It is a
+                lower win rate (62% vs 72%) for the same mean: higher variance, not junk.
               </div>
             </div>
           )}
