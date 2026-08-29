@@ -37,6 +37,7 @@ import statistics as st
 
 BASE = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 EARN_PATH = os.path.expanduser("~/.tradepro/research/earnings_history.json")
+FUND_PATH = os.path.expanduser("~/.tradepro/research/fundamentals.json")
 
 
 def _load(sym: str):
@@ -205,8 +206,54 @@ def describe(sym: str, spy) -> None:
             if gap <= 10:
                 print(f"    ⚠ reports in {gap}d — a hold opened now runs into the print.")
 
-    print("\n  NOT KNOWN HERE: fundamentals (no feed), sector (no feed),")
-    print("  analyst revisions, guidance. This is price + earnings dates only.")
+    # ── FUNDAMENTALS (current snapshot) ──────────────────────────────────
+    #
+    # Owner, 29 Aug: "for fundamental we just need latest data. can understand u
+    # want this for running backtest." Exactly right, and it corrected my
+    # priority. A CURRENT P/E is useless for a backtest -- stamping today's
+    # figure on a 2023 event is look-ahead -- but it is precisely what a human
+    # deciding TODAY needs, and this screen exists for the human.
+    #
+    # Shown as numbers, never scored. No composite, no grade, no "quality:
+    # GOOD". A score invites itself to be trusted and this tool does not have
+    # the evidence to earn that.
+    try:
+        fnd = json.load(open(FUND_PATH)).get(sym) or {}
+    except Exception:
+        fnd = {}
+    info = fnd.get("info") or {}
+    ann = {k: v for k, v in (fnd.get("annual_eps") or {}).items() if v is not None}
+    print("\n  FUNDAMENTALS (snapshot, fetched with the last harvest)")
+    if not info or all(info.get(k) is None for k in
+                       ("trailingPE", "forwardPE", "priceToBook", "returnOnEquity")):
+        print("    none held — ETFs carry none by construction; a single name")
+        print("    missing here means the harvest has not reached it.")
+    else:
+        def _f(k, fmt="{:.2f}", pct=False):
+            v = info.get(k)
+            if v is None:
+                return "n/a"
+            try:
+                return fmt.format(v * 100 if pct else v) + ("%" if pct else "")
+            except Exception:
+                return str(v)
+        print(f"    P/E  trailing {_f('trailingPE'):<9} forward {_f('forwardPE'):<9}"
+              f" P/B {_f('priceToBook')}")
+        print(f"    ROE  {_f('returnOnEquity', '{:.1f}', True):<14}"
+              f"margin {_f('profitMargins', '{:.1f}', True):<12}"
+              f"debt/eq {_f('debtToEquity')}")
+        if len(ann) >= 2:
+            ks = sorted(ann)
+            trend = " → ".join(f"{k[:4]} {ann[k]:.2f}" for k in ks[-4:])
+            print(f"    EPS  {trend}")
+            if ann[ks[-1]] > ann[ks[-2]]:
+                print("         latest reported year GREW on the prior one")
+            else:
+                print("         latest reported year FELL against the prior one")
+
+    print("\n  NOT KNOWN HERE: sector (no feed), analyst revisions, guidance,")
+    print("  and the fundamentals above are a CURRENT snapshot — they describe the")
+    print("  company today, not what was known on any past date.")
 
 
 def main() -> int:

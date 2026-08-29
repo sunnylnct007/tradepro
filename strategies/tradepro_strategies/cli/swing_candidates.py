@@ -80,6 +80,25 @@ BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 # Deliberately a file rather than a constant: the list is the owner's, and
 # editing it must not need a code change.
 WATCHLIST_PATH = os.path.expanduser("~/.tradepro/watchlist.txt")
+FUND_PATH = os.path.expanduser("~/.tradepro/research/fundamentals.json")
+
+
+def _fundamentals() -> dict:
+    """Current P/E etc, for triage on the watch list.
+
+    Owner, 29 Aug: "if i have to decide for trades for next week I will look at
+    the fundamentals of that company." So the watch list carries them inline --
+    scanning twenty names and then opening twenty separate screens is how a
+    useful number goes unread.
+
+    CURRENT snapshot, not point-in-time. Fine for a decision today; it is NOT
+    evidence about any past date and nothing here is backtested on it.
+    """
+    try:
+        import json as _json
+        return _json.load(open(FUND_PATH))
+    except Exception:
+        return {}
 
 
 def watchlist() -> list[str]:
@@ -530,10 +549,23 @@ def main() -> int:
                   "Your judgement, not the rule's.")
             if ok:
                 print(f"\n  above the 200-SMA ({len(ok)}):")
-                print(f"    {'sym':<7}{'sigma':>8}{'close':>10}   {'further to fall':>16}")
+                _F = _fundamentals()
+                print(f"    {'sym':<7}{'sigma':>8}{'close':>10}{'to fall':>10}"
+                      f"{'P/E':>8}{'fwd P/E':>9}{'ROE':>7}")
                 for n in ok[:12]:
+                    inf = (_F.get(n["symbol"]) or {}).get("info") or {}
+                    def _s(k, mult=1.0, suf=""):
+                        v = inf.get(k)
+                        try:
+                            return f"{v*mult:.1f}{suf}" if v is not None else "-"
+                        except Exception:
+                            return "-"
                     print(f"    {n['symbol']:<7}{n['sigma_from_mean']:>8.2f}"
-                          f"{n['close']:>10.2f}   {abs(-SIGMA - n['sigma_from_mean']):>14.2f}σ")
+                          f"{n['close']:>10.2f}{abs(-SIGMA - n['sigma_from_mean']):>9.2f}σ"
+                          f"{_s('trailingPE'):>8}{_s('forwardPE'):>9}"
+                          f"{_s('returnOnEquity', 100, '%'):>7}")
+                print("    P/E and ROE are a CURRENT snapshot — your judgement, not the rule's,")
+                print("    and nothing in the backtest used them.")
             if knives:
                 print(f"\n  BELOW the 200-SMA ({len(knives)}) — the trend filter refuses "
                       "these on purpose; in a crash the rule wins 8% of the time:")
