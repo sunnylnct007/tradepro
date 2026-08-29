@@ -281,11 +281,33 @@ class MeanReversionSwingStrategy(Strategy):
                       quantity=qty, type=OrderType.MARKET,
                       risk_target_price=round(target_price(closes, i), 4),
                       risk_stop_price=round(stop_price(closes[i]), 4),
+                      # Structured, not just inside the tag — the tag is an
+                      # audit line for humans and cannot be relied on by a study.
+                      signal_ref_price=round(closes[i], 4),
+                      signal_bar=self._bar_date(i),
                       tag=f"swing entry 2.5sigma ref={closes[i]:.4f} "
                           f"tgt={target_price(closes,i):.2f} "
                           f"stop={stop_price(closes[i]):.2f}")]
 
     # ── helpers ───────────────────────────────────────────────────────────
+    def _bar_date(self, i: int) -> str | None:
+        """ISO date of the settled bar the signal was computed on.
+
+        Kept beside the signal rather than derived later: the order reaches the
+        broker on the NEXT session, so anything reconstructing this from the
+        order timestamp is off by one bar on every trade — and by three over a
+        weekend.
+        """
+        d = getattr(self, "_dates", None)
+        if not d or not (0 <= i < len(d)):
+            # Loud, because a silently-absent signal_bar is exactly the shape of
+            # gap that made this whole exercise necessary: the column would be
+            # NULL on every row and read as "this strategy records no setup".
+            _log.warning("%s: no session dates available — signal_bar will be NULL",
+                         self.strategy_id)
+            return None
+        return str(d[i])[:10]
+
     def _ranked_today(self, bar: Bar) -> list[str] | None:
         """Every symbol firing today, best reward:risk first.
 
@@ -338,7 +360,14 @@ class MeanReversionSwingStrategy(Strategy):
 
     def _history(self, sym: str, bar: Bar):
         """Settled daily closes from the canonical store. Never the live bus —
-        the backtest ran on settled bars, so the live signal must too."""
+        the backtest ran on settled bars, so the live signal must too.
+
+        Returns (closes, err) and stashes the matching SESSION DATES on
+        `self._dates` for the symbol just fetched. The dates are needed to stamp
+        signal_bar on the order; deriving that from the order timestamp instead
+        would be wrong by one session on every trade (the rule signals on a
+        settled close and enters at the NEXT open) and by three over a weekend.
+        """
         try:
             from ...ibkr_bars import fetch_daily_bars
             end = bar.timestamp
@@ -346,11 +375,14 @@ class MeanReversionSwingStrategy(Strategy):
                                   fetched_by="paper.swing")
             if df is None or df.empty:
                 return None, "bar store returned nothing"
-            closes = [float(x) for x in df["close"].dropna().tolist()]
+            sub = df["close"].dropna()
+            closes = [float(x) for x in sub.tolist()]
+            self._dates = [str(x)[:10] for x in sub.index]
             if len(closes) < MIN_BARS:
                 return None, f"{len(closes)} bars, need {MIN_BARS}"
             return closes, None
         except Exception as exc:  # noqa: BLE001
+            self._dates = None
             return None, f"history fetch failed: {str(exc)[:120]}"
 
     def _bars_held(self, sym: str, today: str) -> int:

@@ -195,12 +195,16 @@ public sealed class PostgresOmsService : IOmsService
             INSERT INTO oms_orders (
                 client_order_id, broker, strategy_id, symbol, side, qty,
                 order_type, limit_price, stop_price, time_in_force,
-                placed_by, state
+                placed_by, state,
+                signal_bar, signal_ref_price, signal_target_price,
+                signal_stop_price, signal_meta
             )
             VALUES (
                 @ClientOrderId, @Broker, @StrategyId, @Symbol, @Side, @Qty,
                 @OrderType, @LimitPrice, @StopPrice, @TimeInForce,
-                @PlacedBy, 'PENDING_APPROVAL'
+                @PlacedBy, 'PENDING_APPROVAL',
+                @SignalBar, @SignalRefPrice, @SignalTargetPrice,
+                @SignalStopPrice, CAST(@SignalMeta AS jsonb)
             )
             RETURNING id;",
             new
@@ -209,6 +213,12 @@ public sealed class PostgresOmsService : IOmsService
                 intent.Broker, intent.StrategyId, intent.Symbol, intent.Side,
                 intent.Qty, intent.OrderType, intent.LimitPrice, intent.StopPrice,
                 intent.TimeInForce, intent.PlacedBy,
+                // Carried verbatim from the intent. Null stays null -- "no
+                // signal recorded" must remain distinguishable from "recorded
+                // as zero" (migration 066).
+                SignalBar = intent.SignalBar?.ToDateTime(TimeOnly.MinValue),
+                intent.SignalRefPrice, intent.SignalTargetPrice,
+                intent.SignalStopPrice, intent.SignalMeta,
             }, transaction: tx);
 
         await InsertEventAsync(conn, tx, orderId,
@@ -270,8 +280,27 @@ public sealed class PostgresOmsService : IOmsService
                 avg_fill_price  AS AvgFillPrice,
                 cancelled_reason AS CancelledReason,
                 created_at_utc  AS CreatedAtUtc,
-                last_state_change_at_utc AS LastStateChangeAtUtc
-            FROM oms_orders
+                last_state_change_at_utc AS LastStateChangeAtUtc,
+                -- Classify the LATEST fill's origin so a bookkeeping close can
+                -- never be mistaken for a trade. The prefixes are written by
+                -- GoldenSourceReconciler and the purge endpoint.
+                (SELECT CASE
+                          WHEN f.broker_fill_id LIKE 'standing_reconcile%'
+                            OR f.broker_fill_id LIKE 'assumed_via_position_reconcile%'
+                               THEN 'position-reconcile'
+                          WHEN f.broker_fill_id LIKE 'purge-%' THEN 'purge'
+                          ELSE 'broker'
+                        END
+                   FROM oms_fills f
+                  WHERE f.order_id = o.id
+                  ORDER BY f.id DESC
+                  LIMIT 1)   AS FillOrigin,
+                signal_bar          AS SignalBar,
+                signal_ref_price    AS SignalRefPrice,
+                signal_target_price AS SignalTargetPrice,
+                signal_stop_price   AS SignalStopPrice,
+                signal_meta::text   AS SignalMeta
+            FROM oms_orders o
             {whereSql}
             ORDER BY created_at_utc DESC
             LIMIT {limit};";

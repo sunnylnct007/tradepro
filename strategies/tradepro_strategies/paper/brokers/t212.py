@@ -420,6 +420,32 @@ class T212OrderRouter(OrderRouter):
             "PlacedBy": "STRATEGY_AUTO",
             "TimeInForce": "DAY",
         }
+        # WHAT THE SIGNAL SAID, carried to the OMS (migration 066).
+        #
+        # The order record held only what we DID -- symbol, side, qty, fill.
+        # Nothing about what we INTENDED, so entry slippage (forward-test F3)
+        # and screen-vs-fill agreement (F1) were both unanswerable from the
+        # table, and the paper sleeve produced a P&L log rather than a backtest
+        # input. The strategy has carried these numbers on the Order all along;
+        # the router simply dropped them on the floor.
+        #
+        # Only sent when present. A missing key leaves the column NULL, and NULL
+        # means "no setup recorded" -- which must stay distinguishable from a
+        # setup recorded as zero.
+        for key, val in (
+            ("SignalBar", getattr(order, "signal_bar", None)),
+            ("SignalRefPrice", getattr(order, "signal_ref_price", None)),
+            ("SignalTargetPrice", getattr(order, "risk_target_price", None)),
+            ("SignalStopPrice", getattr(order, "risk_stop_price", None)),
+        ):
+            if val is not None:
+                intent[key] = val
+        if getattr(order, "tag", None):
+            import json as _json
+            intent["SignalMeta"] = _json.dumps({
+                "tag": order.tag,
+                "confidence": getattr(order, "confidence", None),
+            })
         url = f"{api_base.rstrip('/')}/api/oms/orders"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:

@@ -22,7 +22,28 @@ public sealed record OmsOrder(
     decimal? AvgFillPrice,
     string? CancelledReason,
     DateTime CreatedAtUtc,
-    DateTime LastStateChangeAtUtc
+    DateTime LastStateChangeAtUtc,
+
+    /// <summary>WHERE the fill came from — "broker" for a real execution,
+    /// "position-reconcile" or "purge" for a BOOKKEEPING close that carries no
+    /// execution price, null when nothing has filled.
+    ///
+    /// Added 29 Aug 2026 because the owner wants this table as backtest input.
+    /// Eight FILLED orders sat in it at price 0 -- position-reconcile closes
+    /// written when the broker showed flat, which is correct behaviour -- and
+    /// nothing on the order row distinguished them from real fills. Any study
+    /// built on this would have swallowed them silently. The marker existed on
+    /// oms_fills.broker_fill_id all along; it was simply never surfaced.</summary>
+    string? FillOrigin = null,
+
+    /// <summary>What the SIGNAL said, carried from the intent (migration 066).
+    /// Entry slippage is measured against SignalRefPrice, never against the
+    /// fill. Null throughout means no setup was recorded for this order.</summary>
+    DateOnly? SignalBar = null,
+    decimal? SignalRefPrice = null,
+    decimal? SignalTargetPrice = null,
+    decimal? SignalStopPrice = null,
+    string? SignalMeta = null
 );
 
 /// <summary>One row of the oms_order_events table — the audit trail
@@ -52,7 +73,16 @@ public sealed record OrderIntent(
     decimal? LimitPrice = null,
     decimal? StopPrice = null,
     string TimeInForce = "DAY",
-    string PlacedBy = "STRATEGY_AUTO"
+    string PlacedBy = "STRATEGY_AUTO",
+
+    // WHAT THE SIGNAL SAID. All optional -- a hand-placed or reconciler order
+    // leaves them null, and null means "no signal recorded", NOT "signal was
+    // zero". Migration 066.
+    DateOnly? SignalBar = null,
+    decimal? SignalRefPrice = null,
+    decimal? SignalTargetPrice = null,
+    decimal? SignalStopPrice = null,
+    string? SignalMeta = null
 );
 
 /// <summary>Lifecycle values. Mirror the SQL CHECK constraint;

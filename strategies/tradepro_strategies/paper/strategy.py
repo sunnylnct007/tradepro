@@ -113,6 +113,19 @@ class Order:
     risk_stop_price: float | None = None
     risk_target_price: float | None = None
     confidence: float | None = None
+    # ── WHAT THE SIGNAL SAW (migration 066) ───────────────────────────
+    # signal_ref_price: the close the decision was computed against.
+    # Entry slippage is measured against THIS, never against the fill.
+    # It already existed inside the audit `tag` as text ("ref=91.2400"),
+    # which is unparseable at scale and silently lost the moment anyone
+    # reworded the tag. A number a study needs must be a field.
+    #
+    # signal_bar: the SETTLED session the signal was computed on. It is
+    # NOT the order date -- the rule signals on a settled close and
+    # enters at the next open, so the two differ by design and a study
+    # that assumes otherwise is off by a day on every trade.
+    signal_ref_price: float | None = None
+    signal_bar: str | None = None          # ISO date, e.g. "2026-08-28"
     # ── Routing hints (optional; consumed by the live router / OMS) ──
     # broker_label: stamps which broker the order is targeted at. The
     # backend OMS pivots on this string ("IG_DEMO" / "IG_LIVE" /
