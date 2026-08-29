@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-08-29T21:52:29+00:00",
+ "generated_utc": "2026-08-29T22:01:51+00:00",
  "dte": 7,
  "results": [
   {
@@ -51,6 +51,365 @@
     "n_worst": 25,
     "gated_worst_pct": -0.837,
     "ungated_sessions": 9232
+   },
+   "threshold_rule": {
+    "status": "ok",
+    "chosen": 14.0,
+    "configured": 14.0,
+    "matches_config": true,
+    "windows": [
+     "GFC",
+     "COVID",
+     "2022 bear",
+     "Apr 2025"
+    ],
+    "grid": [
+     {
+      "threshold": 10.5,
+      "sessions": 158,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.0,
+      "sessions": 272,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.5,
+      "sessions": 505,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.0,
+      "sessions": 808,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.5,
+      "sessions": 1202,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.0,
+      "sessions": 1590,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.5,
+      "sessions": 1988,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.0,
+      "sessions": 2318,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.5,
+      "sessions": 2621,
+      "leaks": {
+       "COVID": 1
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 2958,
+      "leaks": {
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 15.5,
+      "sessions": 3266,
+      "leaks": {
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 16.0,
+      "sessions": 3598,
+      "leaks": {
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 16.5,
+      "sessions": 3963,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 17.0,
+      "sessions": 4283,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 3,
+       "2022 bear": 2
+      }
+     },
+     {
+      "threshold": 17.5,
+      "sessions": 4566,
+      "leaks": {
+       "GFC": 3,
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 2
+      }
+     },
+     {
+      "threshold": 18.0,
+      "sessions": 4846,
+      "leaks": {
+       "GFC": 8,
+       "COVID": 4,
+       "2022 bear": 3,
+       "Apr 2025": 3
+      }
+     },
+     {
+      "threshold": 18.5,
+      "sessions": 5081,
+      "leaks": {
+       "GFC": 12,
+       "COVID": 4,
+       "2022 bear": 4,
+       "Apr 2025": 6
+      }
+     },
+     {
+      "threshold": 19.0,
+      "sessions": 5332,
+      "leaks": {
+       "GFC": 17,
+       "COVID": 4,
+       "2022 bear": 7,
+       "Apr 2025": 8
+      }
+     },
+     {
+      "threshold": 19.5,
+      "sessions": 5578,
+      "leaks": {
+       "GFC": 21,
+       "COVID": 4,
+       "2022 bear": 10,
+       "Apr 2025": 9
+      }
+     },
+     {
+      "threshold": 20.0,
+      "sessions": 5808,
+      "leaks": {
+       "GFC": 30,
+       "COVID": 4,
+       "2022 bear": 21,
+       "Apr 2025": 11
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 6020,
+      "leaks": {
+       "GFC": 42,
+       "COVID": 4,
+       "2022 bear": 24,
+       "Apr 2025": 11
+      }
+     },
+     {
+      "threshold": 21.0,
+      "sessions": 6249,
+      "leaks": {
+       "GFC": 51,
+       "COVID": 4,
+       "2022 bear": 27,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 21.5,
+      "sessions": 6468,
+      "leaks": {
+       "GFC": 62,
+       "COVID": 4,
+       "2022 bear": 35,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 22.0,
+      "sessions": 6664,
+      "leaks": {
+       "GFC": 67,
+       "COVID": 4,
+       "2022 bear": 42,
+       "Apr 2025": 17
+      }
+     },
+     {
+      "threshold": 22.5,
+      "sessions": 6842,
+      "leaks": {
+       "GFC": 74,
+       "COVID": 4,
+       "2022 bear": 46,
+       "Apr 2025": 19
+      }
+     },
+     {
+      "threshold": 23.0,
+      "sessions": 7027,
+      "leaks": {
+       "GFC": 85,
+       "COVID": 4,
+       "2022 bear": 54,
+       "Apr 2025": 20
+      }
+     },
+     {
+      "threshold": 23.5,
+      "sessions": 7179,
+      "leaks": {
+       "GFC": 101,
+       "COVID": 4,
+       "2022 bear": 59,
+       "Apr 2025": 20
+      }
+     },
+     {
+      "threshold": 24.0,
+      "sessions": 7324,
+      "leaks": {
+       "GFC": 110,
+       "COVID": 4,
+       "2022 bear": 70,
+       "Apr 2025": 22
+      }
+     },
+     {
+      "threshold": 24.5,
+      "sessions": 7492,
+      "leaks": {
+       "GFC": 120,
+       "COVID": 4,
+       "2022 bear": 78,
+       "Apr 2025": 23
+      }
+     },
+     {
+      "threshold": 25.0,
+      "sessions": 7634,
+      "leaks": {
+       "GFC": 124,
+       "COVID": 4,
+       "2022 bear": 84,
+       "Apr 2025": 27
+      }
+     },
+     {
+      "threshold": 25.5,
+      "sessions": 7752,
+      "leaks": {
+       "GFC": 132,
+       "COVID": 5,
+       "2022 bear": 88,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 26.0,
+      "sessions": 7873,
+      "leaks": {
+       "GFC": 147,
+       "COVID": 5,
+       "2022 bear": 99,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 26.5,
+      "sessions": 7982,
+      "leaks": {
+       "GFC": 154,
+       "COVID": 5,
+       "2022 bear": 110,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 27.0,
+      "sessions": 8047,
+      "leaks": {
+       "GFC": 156,
+       "COVID": 5,
+       "2022 bear": 116,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 27.5,
+      "sessions": 8134,
+      "leaks": {
+       "GFC": 162,
+       "COVID": 5,
+       "2022 bear": 127,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 28.0,
+      "sessions": 8225,
+      "leaks": {
+       "GFC": 169,
+       "COVID": 7,
+       "2022 bear": 133,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 28.5,
+      "sessions": 8303,
+      "leaks": {
+       "GFC": 177,
+       "COVID": 7,
+       "2022 bear": 141,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 29.0,
+      "sessions": 8378,
+      "leaks": {
+       "GFC": 181,
+       "COVID": 7,
+       "2022 bear": 147,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 29.5,
+      "sessions": 8437,
+      "leaks": {
+       "GFC": 186,
+       "COVID": 7,
+       "2022 bear": 153,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 30.0,
+      "sessions": 8498,
+      "leaks": {
+       "GFC": 190,
+       "COVID": 7,
+       "2022 bear": 161,
+       "Apr 2025": 31
+      }
+     }
+    ]
    }
   },
   {
@@ -102,6 +461,365 @@
     "n_worst": 25,
     "gated_worst_pct": -0.837,
     "ungated_sessions": 9232
+   },
+   "threshold_rule": {
+    "status": "ok",
+    "chosen": 14.0,
+    "configured": 14.0,
+    "matches_config": true,
+    "windows": [
+     "GFC",
+     "COVID",
+     "2022 bear",
+     "Apr 2025"
+    ],
+    "grid": [
+     {
+      "threshold": 10.5,
+      "sessions": 158,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.0,
+      "sessions": 272,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.5,
+      "sessions": 505,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.0,
+      "sessions": 808,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.5,
+      "sessions": 1202,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.0,
+      "sessions": 1590,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.5,
+      "sessions": 1988,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.0,
+      "sessions": 2318,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.5,
+      "sessions": 2621,
+      "leaks": {
+       "COVID": 1
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 2958,
+      "leaks": {
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 15.5,
+      "sessions": 3266,
+      "leaks": {
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 16.0,
+      "sessions": 3598,
+      "leaks": {
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 16.5,
+      "sessions": 3963,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 17.0,
+      "sessions": 4283,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 3,
+       "2022 bear": 2
+      }
+     },
+     {
+      "threshold": 17.5,
+      "sessions": 4566,
+      "leaks": {
+       "GFC": 3,
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 2
+      }
+     },
+     {
+      "threshold": 18.0,
+      "sessions": 4846,
+      "leaks": {
+       "GFC": 8,
+       "COVID": 4,
+       "2022 bear": 3,
+       "Apr 2025": 3
+      }
+     },
+     {
+      "threshold": 18.5,
+      "sessions": 5081,
+      "leaks": {
+       "GFC": 12,
+       "COVID": 4,
+       "2022 bear": 4,
+       "Apr 2025": 6
+      }
+     },
+     {
+      "threshold": 19.0,
+      "sessions": 5332,
+      "leaks": {
+       "GFC": 17,
+       "COVID": 4,
+       "2022 bear": 7,
+       "Apr 2025": 8
+      }
+     },
+     {
+      "threshold": 19.5,
+      "sessions": 5578,
+      "leaks": {
+       "GFC": 21,
+       "COVID": 4,
+       "2022 bear": 10,
+       "Apr 2025": 9
+      }
+     },
+     {
+      "threshold": 20.0,
+      "sessions": 5808,
+      "leaks": {
+       "GFC": 30,
+       "COVID": 4,
+       "2022 bear": 21,
+       "Apr 2025": 11
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 6020,
+      "leaks": {
+       "GFC": 42,
+       "COVID": 4,
+       "2022 bear": 24,
+       "Apr 2025": 11
+      }
+     },
+     {
+      "threshold": 21.0,
+      "sessions": 6249,
+      "leaks": {
+       "GFC": 51,
+       "COVID": 4,
+       "2022 bear": 27,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 21.5,
+      "sessions": 6468,
+      "leaks": {
+       "GFC": 62,
+       "COVID": 4,
+       "2022 bear": 35,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 22.0,
+      "sessions": 6664,
+      "leaks": {
+       "GFC": 67,
+       "COVID": 4,
+       "2022 bear": 42,
+       "Apr 2025": 17
+      }
+     },
+     {
+      "threshold": 22.5,
+      "sessions": 6842,
+      "leaks": {
+       "GFC": 74,
+       "COVID": 4,
+       "2022 bear": 46,
+       "Apr 2025": 19
+      }
+     },
+     {
+      "threshold": 23.0,
+      "sessions": 7027,
+      "leaks": {
+       "GFC": 85,
+       "COVID": 4,
+       "2022 bear": 54,
+       "Apr 2025": 20
+      }
+     },
+     {
+      "threshold": 23.5,
+      "sessions": 7179,
+      "leaks": {
+       "GFC": 101,
+       "COVID": 4,
+       "2022 bear": 59,
+       "Apr 2025": 20
+      }
+     },
+     {
+      "threshold": 24.0,
+      "sessions": 7324,
+      "leaks": {
+       "GFC": 110,
+       "COVID": 4,
+       "2022 bear": 70,
+       "Apr 2025": 22
+      }
+     },
+     {
+      "threshold": 24.5,
+      "sessions": 7492,
+      "leaks": {
+       "GFC": 120,
+       "COVID": 4,
+       "2022 bear": 78,
+       "Apr 2025": 23
+      }
+     },
+     {
+      "threshold": 25.0,
+      "sessions": 7634,
+      "leaks": {
+       "GFC": 124,
+       "COVID": 4,
+       "2022 bear": 84,
+       "Apr 2025": 27
+      }
+     },
+     {
+      "threshold": 25.5,
+      "sessions": 7752,
+      "leaks": {
+       "GFC": 132,
+       "COVID": 5,
+       "2022 bear": 88,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 26.0,
+      "sessions": 7873,
+      "leaks": {
+       "GFC": 147,
+       "COVID": 5,
+       "2022 bear": 99,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 26.5,
+      "sessions": 7982,
+      "leaks": {
+       "GFC": 154,
+       "COVID": 5,
+       "2022 bear": 110,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 27.0,
+      "sessions": 8047,
+      "leaks": {
+       "GFC": 156,
+       "COVID": 5,
+       "2022 bear": 116,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 27.5,
+      "sessions": 8134,
+      "leaks": {
+       "GFC": 162,
+       "COVID": 5,
+       "2022 bear": 127,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 28.0,
+      "sessions": 8225,
+      "leaks": {
+       "GFC": 169,
+       "COVID": 7,
+       "2022 bear": 133,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 28.5,
+      "sessions": 8303,
+      "leaks": {
+       "GFC": 177,
+       "COVID": 7,
+       "2022 bear": 141,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 29.0,
+      "sessions": 8378,
+      "leaks": {
+       "GFC": 181,
+       "COVID": 7,
+       "2022 bear": 147,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 29.5,
+      "sessions": 8437,
+      "leaks": {
+       "GFC": 186,
+       "COVID": 7,
+       "2022 bear": 153,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 30.0,
+      "sessions": 8498,
+      "leaks": {
+       "GFC": 190,
+       "COVID": 7,
+       "2022 bear": 161,
+       "Apr 2025": 31
+      }
+     }
+    ]
    }
   },
   {
@@ -153,6 +871,365 @@
     "n_worst": 25,
     "gated_worst_pct": -0.804,
     "ungated_sessions": 8453
+   },
+   "threshold_rule": {
+    "status": "ok",
+    "chosen": 14.0,
+    "configured": 14.0,
+    "matches_config": true,
+    "windows": [
+     "GFC",
+     "COVID",
+     "2022 bear",
+     "Apr 2025"
+    ],
+    "grid": [
+     {
+      "threshold": 10.5,
+      "sessions": 158,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.0,
+      "sessions": 272,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.5,
+      "sessions": 501,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.0,
+      "sessions": 793,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.5,
+      "sessions": 1173,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.0,
+      "sessions": 1540,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.5,
+      "sessions": 1918,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.0,
+      "sessions": 2219,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.5,
+      "sessions": 2504,
+      "leaks": {
+       "COVID": 1
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 2807,
+      "leaks": {
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 15.5,
+      "sessions": 3078,
+      "leaks": {
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 16.0,
+      "sessions": 3364,
+      "leaks": {
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 16.5,
+      "sessions": 3675,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 17.0,
+      "sessions": 3938,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 3,
+       "2022 bear": 2
+      }
+     },
+     {
+      "threshold": 17.5,
+      "sessions": 4169,
+      "leaks": {
+       "GFC": 3,
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 2
+      }
+     },
+     {
+      "threshold": 18.0,
+      "sessions": 4398,
+      "leaks": {
+       "GFC": 8,
+       "COVID": 4,
+       "2022 bear": 3,
+       "Apr 2025": 3
+      }
+     },
+     {
+      "threshold": 18.5,
+      "sessions": 4605,
+      "leaks": {
+       "GFC": 12,
+       "COVID": 4,
+       "2022 bear": 4,
+       "Apr 2025": 6
+      }
+     },
+     {
+      "threshold": 19.0,
+      "sessions": 4834,
+      "leaks": {
+       "GFC": 17,
+       "COVID": 4,
+       "2022 bear": 7,
+       "Apr 2025": 8
+      }
+     },
+     {
+      "threshold": 19.5,
+      "sessions": 5065,
+      "leaks": {
+       "GFC": 21,
+       "COVID": 4,
+       "2022 bear": 10,
+       "Apr 2025": 9
+      }
+     },
+     {
+      "threshold": 20.0,
+      "sessions": 5270,
+      "leaks": {
+       "GFC": 30,
+       "COVID": 4,
+       "2022 bear": 21,
+       "Apr 2025": 11
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 5456,
+      "leaks": {
+       "GFC": 42,
+       "COVID": 4,
+       "2022 bear": 24,
+       "Apr 2025": 11
+      }
+     },
+     {
+      "threshold": 21.0,
+      "sessions": 5669,
+      "leaks": {
+       "GFC": 51,
+       "COVID": 4,
+       "2022 bear": 27,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 21.5,
+      "sessions": 5865,
+      "leaks": {
+       "GFC": 62,
+       "COVID": 4,
+       "2022 bear": 35,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 22.0,
+      "sessions": 6052,
+      "leaks": {
+       "GFC": 67,
+       "COVID": 4,
+       "2022 bear": 42,
+       "Apr 2025": 17
+      }
+     },
+     {
+      "threshold": 22.5,
+      "sessions": 6215,
+      "leaks": {
+       "GFC": 74,
+       "COVID": 4,
+       "2022 bear": 46,
+       "Apr 2025": 19
+      }
+     },
+     {
+      "threshold": 23.0,
+      "sessions": 6382,
+      "leaks": {
+       "GFC": 85,
+       "COVID": 4,
+       "2022 bear": 54,
+       "Apr 2025": 20
+      }
+     },
+     {
+      "threshold": 23.5,
+      "sessions": 6525,
+      "leaks": {
+       "GFC": 101,
+       "COVID": 4,
+       "2022 bear": 59,
+       "Apr 2025": 20
+      }
+     },
+     {
+      "threshold": 24.0,
+      "sessions": 6657,
+      "leaks": {
+       "GFC": 110,
+       "COVID": 4,
+       "2022 bear": 70,
+       "Apr 2025": 22
+      }
+     },
+     {
+      "threshold": 24.5,
+      "sessions": 6813,
+      "leaks": {
+       "GFC": 120,
+       "COVID": 4,
+       "2022 bear": 78,
+       "Apr 2025": 23
+      }
+     },
+     {
+      "threshold": 25.0,
+      "sessions": 6946,
+      "leaks": {
+       "GFC": 124,
+       "COVID": 4,
+       "2022 bear": 84,
+       "Apr 2025": 27
+      }
+     },
+     {
+      "threshold": 25.5,
+      "sessions": 7060,
+      "leaks": {
+       "GFC": 132,
+       "COVID": 5,
+       "2022 bear": 88,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 26.0,
+      "sessions": 7177,
+      "leaks": {
+       "GFC": 147,
+       "COVID": 5,
+       "2022 bear": 99,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 26.5,
+      "sessions": 7281,
+      "leaks": {
+       "GFC": 154,
+       "COVID": 5,
+       "2022 bear": 110,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 27.0,
+      "sessions": 7343,
+      "leaks": {
+       "GFC": 156,
+       "COVID": 5,
+       "2022 bear": 116,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 27.5,
+      "sessions": 7423,
+      "leaks": {
+       "GFC": 162,
+       "COVID": 5,
+       "2022 bear": 127,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 28.0,
+      "sessions": 7506,
+      "leaks": {
+       "GFC": 169,
+       "COVID": 7,
+       "2022 bear": 133,
+       "Apr 2025": 29
+      }
+     },
+     {
+      "threshold": 28.5,
+      "sessions": 7577,
+      "leaks": {
+       "GFC": 177,
+       "COVID": 7,
+       "2022 bear": 141,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 29.0,
+      "sessions": 7643,
+      "leaks": {
+       "GFC": 181,
+       "COVID": 7,
+       "2022 bear": 147,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 29.5,
+      "sessions": 7696,
+      "leaks": {
+       "GFC": 186,
+       "COVID": 7,
+       "2022 bear": 153,
+       "Apr 2025": 30
+      }
+     },
+     {
+      "threshold": 30.0,
+      "sessions": 7750,
+      "leaks": {
+       "GFC": 190,
+       "COVID": 7,
+       "2022 bear": 161,
+       "Apr 2025": 31
+      }
+     }
+    ]
    }
   },
   {
@@ -160,36 +1237,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 2015,
-    "first": "2004-11-24",
-    "last": "2025-12-26",
-    "trades_per_year": 95.6,
-    "win_pct": 81.3,
-    "mean_pct": 0.0402,
-    "median_pct": 0.0775,
-    "p5_pct": -0.183,
+    "n_trades": 2213,
+    "first": "2004-11-15",
+    "last": "2025-12-29",
+    "trades_per_year": 104.8,
+    "win_pct": 80.8,
+    "mean_pct": 0.0397,
+    "median_pct": 0.0778,
+    "p5_pct": -0.186,
     "worst_pct": -1.083,
     "best_pct": 0.169,
-    "stdev_pct": 0.1075,
-    "return_risk_ratio": 3.65
+    "stdev_pct": 0.1094,
+    "return_risk_ratio": 3.71
    },
    "mc_blocked": {
-    "median_total_pct": 2.077,
-    "p5_total_pct": 0.586,
-    "p95_total_pct": 3.199,
-    "prob_losing_year_pct": 1.4,
-    "median_max_drawdown_pct": -0.442,
-    "p95_max_drawdown_pct": -1.152,
-    "worst_path_pct": -1.814
+    "median_total_pct": 2.06,
+    "p5_total_pct": 0.547,
+    "p95_total_pct": 3.182,
+    "prob_losing_year_pct": 1.6,
+    "median_max_drawdown_pct": -0.443,
+    "p95_max_drawdown_pct": -1.169,
+    "worst_path_pct": -2.017
    },
    "mc_iid": {
-    "median_total_pct": 2.074,
-    "p5_total_pct": 0.684,
-    "p95_total_pct": 3.146,
-    "prob_losing_year_pct": 1.0,
-    "median_max_drawdown_pct": -0.439,
-    "p95_max_drawdown_pct": -1.083,
-    "worst_path_pct": -1.491
+    "median_total_pct": 2.038,
+    "p5_total_pct": 0.596,
+    "p95_total_pct": 3.128,
+    "prob_losing_year_pct": 1.2,
+    "median_max_drawdown_pct": -0.465,
+    "p95_max_drawdown_pct": -1.087,
+    "worst_path_pct": -2.191
    },
    "mc_config": {
     "paths": 20000,
@@ -204,6 +1281,299 @@
     "n_worst": 25,
     "gated_worst_pct": -1.083,
     "ungated_sessions": 6438
+   },
+   "threshold_rule": {
+    "status": "ok",
+    "chosen": 18.5,
+    "configured": 18.5,
+    "matches_config": true,
+    "windows": [
+     "GFC",
+     "COVID",
+     "2022 bear",
+     "Apr 2025"
+    ],
+    "grid": [
+     {
+      "threshold": 13.0,
+      "sessions": 126,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.5,
+      "sessions": 192,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.0,
+      "sessions": 312,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.5,
+      "sessions": 483,
+      "leaks": {}
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 653,
+      "leaks": {}
+     },
+     {
+      "threshold": 15.5,
+      "sessions": 863,
+      "leaks": {}
+     },
+     {
+      "threshold": 16.0,
+      "sessions": 1068,
+      "leaks": {}
+     },
+     {
+      "threshold": 16.5,
+      "sessions": 1292,
+      "leaks": {}
+     },
+     {
+      "threshold": 17.0,
+      "sessions": 1529,
+      "leaks": {}
+     },
+     {
+      "threshold": 17.5,
+      "sessions": 1790,
+      "leaks": {}
+     },
+     {
+      "threshold": 18.0,
+      "sessions": 2015,
+      "leaks": {}
+     },
+     {
+      "threshold": 18.5,
+      "sessions": 2213,
+      "leaks": {}
+     },
+     {
+      "threshold": 19.0,
+      "sessions": 2425,
+      "leaks": {
+       "COVID": 1
+      }
+     },
+     {
+      "threshold": 19.5,
+      "sessions": 2625,
+      "leaks": {
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 20.0,
+      "sessions": 2818,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 3007,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 21.0,
+      "sessions": 3160,
+      "leaks": {
+       "GFC": 3,
+       "COVID": 3,
+       "Apr 2025": 1
+      }
+     },
+     {
+      "threshold": 21.5,
+      "sessions": 3319,
+      "leaks": {
+       "GFC": 9,
+       "COVID": 3,
+       "2022 bear": 1,
+       "Apr 2025": 2
+      }
+     },
+     {
+      "threshold": 22.0,
+      "sessions": 3470,
+      "leaks": {
+       "GFC": 10,
+       "COVID": 3,
+       "2022 bear": 1,
+       "Apr 2025": 3
+      }
+     },
+     {
+      "threshold": 22.5,
+      "sessions": 3611,
+      "leaks": {
+       "GFC": 15,
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 7
+      }
+     },
+     {
+      "threshold": 23.0,
+      "sessions": 3732,
+      "leaks": {
+       "GFC": 22,
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 9
+      }
+     },
+     {
+      "threshold": 23.5,
+      "sessions": 3862,
+      "leaks": {
+       "GFC": 29,
+       "COVID": 4,
+       "2022 bear": 3,
+       "Apr 2025": 10
+      }
+     },
+     {
+      "threshold": 24.0,
+      "sessions": 3974,
+      "leaks": {
+       "GFC": 37,
+       "COVID": 4,
+       "2022 bear": 3,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 24.5,
+      "sessions": 4076,
+      "leaks": {
+       "GFC": 48,
+       "COVID": 4,
+       "2022 bear": 4,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 25.0,
+      "sessions": 4196,
+      "leaks": {
+       "GFC": 54,
+       "COVID": 4,
+       "2022 bear": 5,
+       "Apr 2025": 13
+      }
+     },
+     {
+      "threshold": 25.5,
+      "sessions": 4295,
+      "leaks": {
+       "GFC": 59,
+       "COVID": 4,
+       "2022 bear": 7,
+       "Apr 2025": 17
+      }
+     },
+     {
+      "threshold": 26.0,
+      "sessions": 4404,
+      "leaks": {
+       "GFC": 68,
+       "COVID": 4,
+       "2022 bear": 17,
+       "Apr 2025": 20
+      }
+     },
+     {
+      "threshold": 26.5,
+      "sessions": 4499,
+      "leaks": {
+       "GFC": 77,
+       "COVID": 4,
+       "2022 bear": 20,
+       "Apr 2025": 21
+      }
+     },
+     {
+      "threshold": 27.0,
+      "sessions": 4609,
+      "leaks": {
+       "GFC": 93,
+       "COVID": 4,
+       "2022 bear": 25,
+       "Apr 2025": 22
+      }
+     },
+     {
+      "threshold": 27.5,
+      "sessions": 4693,
+      "leaks": {
+       "GFC": 105,
+       "COVID": 4,
+       "2022 bear": 30,
+       "Apr 2025": 23
+      }
+     },
+     {
+      "threshold": 28.0,
+      "sessions": 4788,
+      "leaks": {
+       "GFC": 115,
+       "COVID": 4,
+       "2022 bear": 37,
+       "Apr 2025": 26
+      }
+     },
+     {
+      "threshold": 28.5,
+      "sessions": 4858,
+      "leaks": {
+       "GFC": 127,
+       "COVID": 4,
+       "2022 bear": 44,
+       "Apr 2025": 27
+      }
+     },
+     {
+      "threshold": 29.0,
+      "sessions": 4927,
+      "leaks": {
+       "GFC": 136,
+       "COVID": 4,
+       "2022 bear": 50,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 29.5,
+      "sessions": 5009,
+      "leaks": {
+       "GFC": 147,
+       "COVID": 5,
+       "2022 bear": 58,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 30.0,
+      "sessions": 5068,
+      "leaks": {
+       "GFC": 160,
+       "COVID": 5,
+       "2022 bear": 66,
+       "Apr 2025": 29
+      }
+     }
+    ]
    }
   },
   {
@@ -211,36 +1581,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 2015,
-    "first": "2004-11-24",
-    "last": "2025-12-26",
-    "trades_per_year": 95.6,
-    "win_pct": 81.0,
-    "mean_pct": 0.0424,
-    "median_pct": 0.0778,
-    "p5_pct": -0.187,
+    "n_trades": 2213,
+    "first": "2004-11-15",
+    "last": "2025-12-29",
+    "trades_per_year": 104.8,
+    "win_pct": 80.3,
+    "mean_pct": 0.0408,
+    "median_pct": 0.0774,
+    "p5_pct": -0.192,
     "worst_pct": -1.012,
     "best_pct": 0.385,
-    "stdev_pct": 0.1192,
-    "return_risk_ratio": 3.48
+    "stdev_pct": 0.1236,
+    "return_risk_ratio": 3.38
    },
    "mc_blocked": {
-    "median_total_pct": 2.171,
-    "p5_total_pct": 0.665,
-    "p95_total_pct": 3.35,
-    "prob_losing_year_pct": 1.1,
-    "median_max_drawdown_pct": -0.48,
-    "p95_max_drawdown_pct": -1.18,
-    "worst_path_pct": -1.822
+    "median_total_pct": 2.107,
+    "p5_total_pct": 0.493,
+    "p95_total_pct": 3.323,
+    "prob_losing_year_pct": 1.8,
+    "median_max_drawdown_pct": -0.529,
+    "p95_max_drawdown_pct": -1.27,
+    "worst_path_pct": -3.074
    },
    "mc_iid": {
-    "median_total_pct": 2.178,
-    "p5_total_pct": 0.669,
-    "p95_total_pct": 3.408,
-    "prob_losing_year_pct": 1.1,
-    "median_max_drawdown_pct": -0.499,
-    "p95_max_drawdown_pct": -1.119,
-    "worst_path_pct": -2.549
+    "median_total_pct": 2.088,
+    "p5_total_pct": 0.503,
+    "p95_total_pct": 3.354,
+    "prob_losing_year_pct": 1.7,
+    "median_max_drawdown_pct": -0.53,
+    "p95_max_drawdown_pct": -1.21,
+    "worst_path_pct": -2.498
    },
    "mc_config": {
     "paths": 20000,
@@ -255,6 +1625,299 @@
     "n_worst": 25,
     "gated_worst_pct": -1.012,
     "ungated_sessions": 6438
+   },
+   "threshold_rule": {
+    "status": "ok",
+    "chosen": 18.5,
+    "configured": 18.5,
+    "matches_config": true,
+    "windows": [
+     "GFC",
+     "COVID",
+     "2022 bear",
+     "Apr 2025"
+    ],
+    "grid": [
+     {
+      "threshold": 13.0,
+      "sessions": 126,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.5,
+      "sessions": 192,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.0,
+      "sessions": 312,
+      "leaks": {}
+     },
+     {
+      "threshold": 14.5,
+      "sessions": 483,
+      "leaks": {}
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 653,
+      "leaks": {}
+     },
+     {
+      "threshold": 15.5,
+      "sessions": 863,
+      "leaks": {}
+     },
+     {
+      "threshold": 16.0,
+      "sessions": 1068,
+      "leaks": {}
+     },
+     {
+      "threshold": 16.5,
+      "sessions": 1292,
+      "leaks": {}
+     },
+     {
+      "threshold": 17.0,
+      "sessions": 1529,
+      "leaks": {}
+     },
+     {
+      "threshold": 17.5,
+      "sessions": 1790,
+      "leaks": {}
+     },
+     {
+      "threshold": 18.0,
+      "sessions": 2015,
+      "leaks": {}
+     },
+     {
+      "threshold": 18.5,
+      "sessions": 2213,
+      "leaks": {}
+     },
+     {
+      "threshold": 19.0,
+      "sessions": 2425,
+      "leaks": {
+       "COVID": 1
+      }
+     },
+     {
+      "threshold": 19.5,
+      "sessions": 2625,
+      "leaks": {
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 20.0,
+      "sessions": 2818,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 2
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 3007,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 21.0,
+      "sessions": 3160,
+      "leaks": {
+       "GFC": 3,
+       "COVID": 3,
+       "Apr 2025": 1
+      }
+     },
+     {
+      "threshold": 21.5,
+      "sessions": 3319,
+      "leaks": {
+       "GFC": 9,
+       "COVID": 3,
+       "2022 bear": 1,
+       "Apr 2025": 2
+      }
+     },
+     {
+      "threshold": 22.0,
+      "sessions": 3470,
+      "leaks": {
+       "GFC": 10,
+       "COVID": 3,
+       "2022 bear": 1,
+       "Apr 2025": 3
+      }
+     },
+     {
+      "threshold": 22.5,
+      "sessions": 3611,
+      "leaks": {
+       "GFC": 15,
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 7
+      }
+     },
+     {
+      "threshold": 23.0,
+      "sessions": 3732,
+      "leaks": {
+       "GFC": 22,
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 9
+      }
+     },
+     {
+      "threshold": 23.5,
+      "sessions": 3862,
+      "leaks": {
+       "GFC": 29,
+       "COVID": 4,
+       "2022 bear": 3,
+       "Apr 2025": 10
+      }
+     },
+     {
+      "threshold": 24.0,
+      "sessions": 3974,
+      "leaks": {
+       "GFC": 37,
+       "COVID": 4,
+       "2022 bear": 3,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 24.5,
+      "sessions": 4076,
+      "leaks": {
+       "GFC": 48,
+       "COVID": 4,
+       "2022 bear": 4,
+       "Apr 2025": 12
+      }
+     },
+     {
+      "threshold": 25.0,
+      "sessions": 4196,
+      "leaks": {
+       "GFC": 54,
+       "COVID": 4,
+       "2022 bear": 5,
+       "Apr 2025": 13
+      }
+     },
+     {
+      "threshold": 25.5,
+      "sessions": 4295,
+      "leaks": {
+       "GFC": 59,
+       "COVID": 4,
+       "2022 bear": 7,
+       "Apr 2025": 17
+      }
+     },
+     {
+      "threshold": 26.0,
+      "sessions": 4404,
+      "leaks": {
+       "GFC": 68,
+       "COVID": 4,
+       "2022 bear": 17,
+       "Apr 2025": 20
+      }
+     },
+     {
+      "threshold": 26.5,
+      "sessions": 4499,
+      "leaks": {
+       "GFC": 77,
+       "COVID": 4,
+       "2022 bear": 20,
+       "Apr 2025": 21
+      }
+     },
+     {
+      "threshold": 27.0,
+      "sessions": 4609,
+      "leaks": {
+       "GFC": 93,
+       "COVID": 4,
+       "2022 bear": 25,
+       "Apr 2025": 22
+      }
+     },
+     {
+      "threshold": 27.5,
+      "sessions": 4693,
+      "leaks": {
+       "GFC": 105,
+       "COVID": 4,
+       "2022 bear": 30,
+       "Apr 2025": 23
+      }
+     },
+     {
+      "threshold": 28.0,
+      "sessions": 4788,
+      "leaks": {
+       "GFC": 115,
+       "COVID": 4,
+       "2022 bear": 37,
+       "Apr 2025": 26
+      }
+     },
+     {
+      "threshold": 28.5,
+      "sessions": 4858,
+      "leaks": {
+       "GFC": 127,
+       "COVID": 4,
+       "2022 bear": 44,
+       "Apr 2025": 27
+      }
+     },
+     {
+      "threshold": 29.0,
+      "sessions": 4927,
+      "leaks": {
+       "GFC": 136,
+       "COVID": 4,
+       "2022 bear": 50,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 29.5,
+      "sessions": 5009,
+      "leaks": {
+       "GFC": 147,
+       "COVID": 5,
+       "2022 bear": 58,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 30.0,
+      "sessions": 5068,
+      "leaks": {
+       "GFC": 160,
+       "COVID": 5,
+       "2022 bear": 66,
+       "Apr 2025": 29
+      }
+     }
+    ]
    }
   },
   {
@@ -262,36 +1925,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 404,
-    "first": "2014-09-19",
+    "n_trades": 549,
+    "first": "2014-09-12",
     "last": "2026-08-28",
-    "trades_per_year": 33.8,
-    "win_pct": 84.9,
-    "mean_pct": 0.0517,
-    "median_pct": 0.0788,
-    "p5_pct": -0.066,
+    "trades_per_year": 45.9,
+    "win_pct": 84.0,
+    "mean_pct": 0.0497,
+    "median_pct": 0.0811,
+    "p5_pct": -0.085,
     "worst_pct": -1.046,
-    "best_pct": 0.108,
-    "stdev_pct": 0.0831,
-    "return_risk_ratio": 3.61
+    "best_pct": 0.113,
+    "stdev_pct": 0.0951,
+    "return_risk_ratio": 3.54
    },
    "mc_blocked": {
-    "median_total_pct": 2.681,
-    "p5_total_pct": 1.417,
-    "p95_total_pct": 3.422,
-    "prob_losing_year_pct": 0.1,
-    "median_max_drawdown_pct": -0.21,
-    "p95_max_drawdown_pct": -1.052,
-    "worst_path_pct": -2.161
+    "median_total_pct": 2.634,
+    "p5_total_pct": 1.059,
+    "p95_total_pct": 3.463,
+    "prob_losing_year_pct": 0.6,
+    "median_max_drawdown_pct": -0.244,
+    "p95_max_drawdown_pct": -1.297,
+    "worst_path_pct": -2.065
    },
    "mc_iid": {
-    "median_total_pct": 2.674,
-    "p5_total_pct": 1.459,
-    "p95_total_pct": 3.379,
-    "prob_losing_year_pct": 0.1,
-    "median_max_drawdown_pct": -0.21,
-    "p95_max_drawdown_pct": -1.05,
-    "worst_path_pct": -1.416
+    "median_total_pct": 2.586,
+    "p5_total_pct": 1.261,
+    "p95_total_pct": 3.411,
+    "prob_losing_year_pct": 0.2,
+    "median_max_drawdown_pct": -0.266,
+    "p95_max_drawdown_pct": -1.06,
+    "worst_path_pct": -1.132
    },
    "mc_config": {
     "paths": 20000,
@@ -306,6 +1969,361 @@
     "n_worst": 25,
     "gated_worst_pct": -1.046,
     "ungated_sessions": 4530
+   },
+   "threshold_rule": {
+    "status": "ok",
+    "chosen": 12.5,
+    "configured": 12.5,
+    "matches_config": true,
+    "windows": [
+     "GFC",
+     "COVID",
+     "2022 bear",
+     "Apr 2025"
+    ],
+    "grid": [
+     {
+      "threshold": 11.0,
+      "sessions": 120,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.5,
+      "sessions": 253,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.0,
+      "sessions": 404,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.5,
+      "sessions": 549,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.0,
+      "sessions": 700,
+      "leaks": {
+       "Apr 2025": 3
+      }
+     },
+     {
+      "threshold": 13.5,
+      "sessions": 892,
+      "leaks": {
+       "Apr 2025": 8
+      }
+     },
+     {
+      "threshold": 14.0,
+      "sessions": 1110,
+      "leaks": {
+       "COVID": 1,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 14.5,
+      "sessions": 1330,
+      "leaks": {
+       "COVID": 3,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 1518,
+      "leaks": {
+       "COVID": 4,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 15.5,
+      "sessions": 1703,
+      "leaks": {
+       "COVID": 4,
+       "Apr 2025": 16
+      }
+     },
+     {
+      "threshold": 16.0,
+      "sessions": 1898,
+      "leaks": {
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 19
+      }
+     },
+     {
+      "threshold": 16.5,
+      "sessions": 2084,
+      "leaks": {
+       "COVID": 4,
+       "2022 bear": 4,
+       "Apr 2025": 21
+      }
+     },
+     {
+      "threshold": 17.0,
+      "sessions": 2261,
+      "leaks": {
+       "COVID": 6,
+       "2022 bear": 13,
+       "Apr 2025": 23
+      }
+     },
+     {
+      "threshold": 17.5,
+      "sessions": 2416,
+      "leaks": {
+       "COVID": 6,
+       "2022 bear": 26,
+       "Apr 2025": 26
+      }
+     },
+     {
+      "threshold": 18.0,
+      "sessions": 2552,
+      "leaks": {
+       "COVID": 7,
+       "2022 bear": 45,
+       "Apr 2025": 26
+      }
+     },
+     {
+      "threshold": 18.5,
+      "sessions": 2690,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 65,
+       "Apr 2025": 31
+      }
+     },
+     {
+      "threshold": 19.0,
+      "sessions": 2815,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 80,
+       "Apr 2025": 32
+      }
+     },
+     {
+      "threshold": 19.5,
+      "sessions": 2924,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 95,
+       "Apr 2025": 33
+      }
+     },
+     {
+      "threshold": 20.0,
+      "sessions": 3028,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 114,
+       "Apr 2025": 33
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 3137,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 125,
+       "Apr 2025": 35
+      }
+     },
+     {
+      "threshold": 21.0,
+      "sessions": 3244,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 137,
+       "Apr 2025": 35
+      }
+     },
+     {
+      "threshold": 21.5,
+      "sessions": 3332,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 150,
+       "Apr 2025": 37
+      }
+     },
+     {
+      "threshold": 22.0,
+      "sessions": 3399,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 157,
+       "Apr 2025": 38
+      }
+     },
+     {
+      "threshold": 22.5,
+      "sessions": 3465,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 166,
+       "Apr 2025": 38
+      }
+     },
+     {
+      "threshold": 23.0,
+      "sessions": 3531,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 176,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 23.5,
+      "sessions": 3587,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 10,
+       "2022 bear": 180,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 24.0,
+      "sessions": 3628,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 10,
+       "2022 bear": 181,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 24.5,
+      "sessions": 3684,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 11,
+       "2022 bear": 184,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 25.0,
+      "sessions": 3740,
+      "leaks": {
+       "GFC": 4,
+       "COVID": 12,
+       "2022 bear": 189,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 25.5,
+      "sessions": 3786,
+      "leaks": {
+       "GFC": 6,
+       "COVID": 13,
+       "2022 bear": 191,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 26.0,
+      "sessions": 3823,
+      "leaks": {
+       "GFC": 7,
+       "COVID": 14,
+       "2022 bear": 194,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 26.5,
+      "sessions": 3861,
+      "leaks": {
+       "GFC": 9,
+       "COVID": 14,
+       "2022 bear": 194,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 27.0,
+      "sessions": 3907,
+      "leaks": {
+       "GFC": 10,
+       "COVID": 14,
+       "2022 bear": 197,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 27.5,
+      "sessions": 3934,
+      "leaks": {
+       "GFC": 13,
+       "COVID": 14,
+       "2022 bear": 198,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 28.0,
+      "sessions": 3962,
+      "leaks": {
+       "GFC": 17,
+       "COVID": 14,
+       "2022 bear": 199,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 28.5,
+      "sessions": 3988,
+      "leaks": {
+       "GFC": 21,
+       "COVID": 14,
+       "2022 bear": 200,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 29.0,
+      "sessions": 4019,
+      "leaks": {
+       "GFC": 24,
+       "COVID": 14,
+       "2022 bear": 202,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 29.5,
+      "sessions": 4043,
+      "leaks": {
+       "GFC": 29,
+       "COVID": 14,
+       "2022 bear": 204,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 30.0,
+      "sessions": 4064,
+      "leaks": {
+       "GFC": 31,
+       "COVID": 14,
+       "2022 bear": 204,
+       "Apr 2025": 39
+      }
+     }
+    ]
    }
   },
   {
@@ -313,36 +2331,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 404,
-    "first": "2014-09-19",
+    "n_trades": 549,
+    "first": "2014-09-12",
     "last": "2026-08-28",
-    "trades_per_year": 33.8,
-    "win_pct": 82.2,
-    "mean_pct": 0.0333,
-    "median_pct": 0.0539,
+    "trades_per_year": 45.9,
+    "win_pct": 83.1,
+    "mean_pct": 0.0344,
+    "median_pct": 0.0564,
     "p5_pct": -0.059,
-    "worst_pct": -0.289,
-    "best_pct": 0.084,
-    "stdev_pct": 0.0539,
-    "return_risk_ratio": 3.59
+    "worst_pct": -0.734,
+    "best_pct": 0.086,
+    "stdev_pct": 0.067,
+    "return_risk_ratio": 3.47
    },
    "mc_blocked": {
-    "median_total_pct": 1.7,
-    "p5_total_pct": 0.904,
-    "p95_total_pct": 2.308,
-    "prob_losing_year_pct": 0.1,
-    "median_max_drawdown_pct": -0.176,
-    "p95_max_drawdown_pct": -0.492,
-    "worst_path_pct": -0.52
+    "median_total_pct": 1.799,
+    "p5_total_pct": 0.643,
+    "p95_total_pct": 2.491,
+    "prob_losing_year_pct": 0.9,
+    "median_max_drawdown_pct": -0.193,
+    "p95_max_drawdown_pct": -0.953,
+    "worst_path_pct": -2.328
    },
    "mc_iid": {
-    "median_total_pct": 1.687,
-    "p5_total_pct": 0.979,
-    "p95_total_pct": 2.251,
-    "prob_losing_year_pct": 0.0,
-    "median_max_drawdown_pct": -0.186,
-    "p95_max_drawdown_pct": -0.405,
-    "worst_path_pct": -0.355
+    "median_total_pct": 1.778,
+    "p5_total_pct": 0.859,
+    "p95_total_pct": 2.39,
+    "prob_losing_year_pct": 0.3,
+    "median_max_drawdown_pct": -0.232,
+    "p95_max_drawdown_pct": -0.734,
+    "worst_path_pct": -1.101
    },
    "mc_config": {
     "paths": 20000,
@@ -355,8 +2373,363 @@
     "worst_ungated_date": "2009-05-18",
     "mean_of_worst_n_pct": -2.395,
     "n_worst": 25,
-    "gated_worst_pct": -0.289,
+    "gated_worst_pct": -0.734,
     "ungated_sessions": 4514
+   },
+   "threshold_rule": {
+    "status": "ok",
+    "chosen": 12.5,
+    "configured": 12.5,
+    "matches_config": true,
+    "windows": [
+     "GFC",
+     "COVID",
+     "2022 bear",
+     "Apr 2025"
+    ],
+    "grid": [
+     {
+      "threshold": 11.0,
+      "sessions": 120,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.5,
+      "sessions": 253,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.0,
+      "sessions": 404,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.5,
+      "sessions": 549,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.0,
+      "sessions": 700,
+      "leaks": {
+       "Apr 2025": 3
+      }
+     },
+     {
+      "threshold": 13.5,
+      "sessions": 891,
+      "leaks": {
+       "Apr 2025": 8
+      }
+     },
+     {
+      "threshold": 14.0,
+      "sessions": 1107,
+      "leaks": {
+       "COVID": 1,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 14.5,
+      "sessions": 1326,
+      "leaks": {
+       "COVID": 3,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 1513,
+      "leaks": {
+       "COVID": 4,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 15.5,
+      "sessions": 1696,
+      "leaks": {
+       "COVID": 4,
+       "Apr 2025": 16
+      }
+     },
+     {
+      "threshold": 16.0,
+      "sessions": 1889,
+      "leaks": {
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 19
+      }
+     },
+     {
+      "threshold": 16.5,
+      "sessions": 2074,
+      "leaks": {
+       "COVID": 4,
+       "2022 bear": 4,
+       "Apr 2025": 21
+      }
+     },
+     {
+      "threshold": 17.0,
+      "sessions": 2250,
+      "leaks": {
+       "COVID": 6,
+       "2022 bear": 13,
+       "Apr 2025": 23
+      }
+     },
+     {
+      "threshold": 17.5,
+      "sessions": 2405,
+      "leaks": {
+       "COVID": 6,
+       "2022 bear": 26,
+       "Apr 2025": 26
+      }
+     },
+     {
+      "threshold": 18.0,
+      "sessions": 2541,
+      "leaks": {
+       "COVID": 7,
+       "2022 bear": 45,
+       "Apr 2025": 26
+      }
+     },
+     {
+      "threshold": 18.5,
+      "sessions": 2679,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 65,
+       "Apr 2025": 31
+      }
+     },
+     {
+      "threshold": 19.0,
+      "sessions": 2804,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 80,
+       "Apr 2025": 32
+      }
+     },
+     {
+      "threshold": 19.5,
+      "sessions": 2913,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 95,
+       "Apr 2025": 33
+      }
+     },
+     {
+      "threshold": 20.0,
+      "sessions": 3016,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 114,
+       "Apr 2025": 33
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 3125,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 125,
+       "Apr 2025": 35
+      }
+     },
+     {
+      "threshold": 21.0,
+      "sessions": 3232,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 137,
+       "Apr 2025": 35
+      }
+     },
+     {
+      "threshold": 21.5,
+      "sessions": 3320,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 150,
+       "Apr 2025": 37
+      }
+     },
+     {
+      "threshold": 22.0,
+      "sessions": 3387,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 157,
+       "Apr 2025": 38
+      }
+     },
+     {
+      "threshold": 22.5,
+      "sessions": 3453,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 166,
+       "Apr 2025": 38
+      }
+     },
+     {
+      "threshold": 23.0,
+      "sessions": 3519,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 176,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 23.5,
+      "sessions": 3575,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 10,
+       "2022 bear": 180,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 24.0,
+      "sessions": 3615,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 10,
+       "2022 bear": 181,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 24.5,
+      "sessions": 3671,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 11,
+       "2022 bear": 184,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 25.0,
+      "sessions": 3727,
+      "leaks": {
+       "GFC": 4,
+       "COVID": 12,
+       "2022 bear": 189,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 25.5,
+      "sessions": 3773,
+      "leaks": {
+       "GFC": 6,
+       "COVID": 13,
+       "2022 bear": 191,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 26.0,
+      "sessions": 3810,
+      "leaks": {
+       "GFC": 7,
+       "COVID": 14,
+       "2022 bear": 194,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 26.5,
+      "sessions": 3848,
+      "leaks": {
+       "GFC": 9,
+       "COVID": 14,
+       "2022 bear": 194,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 27.0,
+      "sessions": 3893,
+      "leaks": {
+       "GFC": 10,
+       "COVID": 14,
+       "2022 bear": 197,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 27.5,
+      "sessions": 3920,
+      "leaks": {
+       "GFC": 13,
+       "COVID": 14,
+       "2022 bear": 198,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 28.0,
+      "sessions": 3946,
+      "leaks": {
+       "GFC": 17,
+       "COVID": 14,
+       "2022 bear": 199,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 28.5,
+      "sessions": 3972,
+      "leaks": {
+       "GFC": 21,
+       "COVID": 14,
+       "2022 bear": 200,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 29.0,
+      "sessions": 4003,
+      "leaks": {
+       "GFC": 24,
+       "COVID": 14,
+       "2022 bear": 202,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 29.5,
+      "sessions": 4027,
+      "leaks": {
+       "GFC": 29,
+       "COVID": 14,
+       "2022 bear": 204,
+       "Apr 2025": 39
+      }
+     },
+     {
+      "threshold": 30.0,
+      "sessions": 4048,
+      "leaks": {
+       "GFC": 31,
+       "COVID": 14,
+       "2022 bear": 204,
+       "Apr 2025": 39
+      }
+     }
+    ]
    }
   },
   {
@@ -364,36 +2737,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 1658,
-    "first": "2010-11-26",
-    "last": "2025-08-27",
-    "trades_per_year": 112.4,
-    "win_pct": 88.8,
-    "mean_pct": 0.0521,
-    "median_pct": 0.071,
-    "p5_pct": -0.064,
-    "worst_pct": -0.654,
-    "best_pct": 0.122,
-    "stdev_pct": 0.0665,
-    "return_risk_ratio": 8.3
+    "n_trades": 716,
+    "first": "2012-11-29",
+    "last": "2024-03-26",
+    "trades_per_year": 63.2,
+    "win_pct": 88.7,
+    "mean_pct": 0.0459,
+    "median_pct": 0.0631,
+    "p5_pct": -0.054,
+    "worst_pct": -0.405,
+    "best_pct": 0.101,
+    "stdev_pct": 0.0542,
+    "return_risk_ratio": 6.73
    },
    "mc_blocked": {
-    "median_total_pct": 2.645,
-    "p5_total_pct": 1.754,
-    "p95_total_pct": 3.354,
+    "median_total_pct": 2.315,
+    "p5_total_pct": 1.639,
+    "p95_total_pct": 2.849,
     "prob_losing_year_pct": 0.0,
-    "median_max_drawdown_pct": -0.213,
-    "p95_max_drawdown_pct": -0.646,
-    "worst_path_pct": 0.502
+    "median_max_drawdown_pct": -0.173,
+    "p95_max_drawdown_pct": -0.405,
+    "worst_path_pct": 0.567
    },
    "mc_iid": {
-    "median_total_pct": 2.654,
-    "p5_total_pct": 1.762,
-    "p95_total_pct": 3.302,
+    "median_total_pct": 2.326,
+    "p5_total_pct": 1.596,
+    "p95_total_pct": 2.856,
     "prob_losing_year_pct": 0.0,
-    "median_max_drawdown_pct": -0.211,
-    "p95_max_drawdown_pct": -0.598,
-    "worst_path_pct": 0.182
+    "median_max_drawdown_pct": -0.173,
+    "p95_max_drawdown_pct": -0.408,
+    "worst_path_pct": 0.284
    },
    "mc_config": {
     "paths": 20000,
@@ -406,8 +2779,370 @@
     "worst_ungated_date": "2008-09-17",
     "mean_of_worst_n_pct": -1.147,
     "n_worst": 25,
-    "gated_worst_pct": -0.654,
+    "gated_worst_pct": -0.405,
     "ungated_sessions": 4589
+   },
+   "threshold_rule": {
+    "status": "ok",
+    "chosen": 13.0,
+    "configured": 13.0,
+    "matches_config": true,
+    "windows": [
+     "GFC",
+     "COVID",
+     "2022 bear",
+     "Apr 2025"
+    ],
+    "grid": [
+     {
+      "threshold": 10.5,
+      "sessions": 107,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.0,
+      "sessions": 205,
+      "leaks": {}
+     },
+     {
+      "threshold": 11.5,
+      "sessions": 347,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.0,
+      "sessions": 474,
+      "leaks": {}
+     },
+     {
+      "threshold": 12.5,
+      "sessions": 615,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.0,
+      "sessions": 716,
+      "leaks": {}
+     },
+     {
+      "threshold": 13.5,
+      "sessions": 819,
+      "leaks": {
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 14.0,
+      "sessions": 920,
+      "leaks": {
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 14.5,
+      "sessions": 1027,
+      "leaks": {
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 1185,
+      "leaks": {
+       "COVID": 3,
+       "2022 bear": 1
+      }
+     },
+     {
+      "threshold": 15.5,
+      "sessions": 1418,
+      "leaks": {
+       "COVID": 3,
+       "2022 bear": 16,
+       "Apr 2025": 2
+      }
+     },
+     {
+      "threshold": 16.0,
+      "sessions": 1658,
+      "leaks": {
+       "COVID": 4,
+       "2022 bear": 31,
+       "Apr 2025": 4
+      }
+     },
+     {
+      "threshold": 16.5,
+      "sessions": 1896,
+      "leaks": {
+       "COVID": 5,
+       "2022 bear": 45,
+       "Apr 2025": 7
+      }
+     },
+     {
+      "threshold": 17.0,
+      "sessions": 2124,
+      "leaks": {
+       "COVID": 5,
+       "2022 bear": 60,
+       "Apr 2025": 8
+      }
+     },
+     {
+      "threshold": 17.5,
+      "sessions": 2321,
+      "leaks": {
+       "COVID": 5,
+       "2022 bear": 69,
+       "Apr 2025": 8
+      }
+     },
+     {
+      "threshold": 18.0,
+      "sessions": 2522,
+      "leaks": {
+       "COVID": 6,
+       "2022 bear": 83,
+       "Apr 2025": 13
+      }
+     },
+     {
+      "threshold": 18.5,
+      "sessions": 2704,
+      "leaks": {
+       "COVID": 8,
+       "2022 bear": 105,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 19.0,
+      "sessions": 2851,
+      "leaks": {
+       "COVID": 10,
+       "2022 bear": 119,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 19.5,
+      "sessions": 3003,
+      "leaks": {
+       "COVID": 10,
+       "2022 bear": 143,
+       "Apr 2025": 14
+      }
+     },
+     {
+      "threshold": 20.0,
+      "sessions": 3135,
+      "leaks": {
+       "COVID": 10,
+       "2022 bear": 161,
+       "Apr 2025": 16
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 3277,
+      "leaks": {
+       "COVID": 10,
+       "2022 bear": 176,
+       "Apr 2025": 16
+      }
+     },
+     {
+      "threshold": 21.0,
+      "sessions": 3371,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 10,
+       "2022 bear": 182,
+       "Apr 2025": 17
+      }
+     },
+     {
+      "threshold": 21.5,
+      "sessions": 3470,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 11,
+       "2022 bear": 187,
+       "Apr 2025": 19
+      }
+     },
+     {
+      "threshold": 22.0,
+      "sessions": 3564,
+      "leaks": {
+       "GFC": 5,
+       "COVID": 11,
+       "2022 bear": 193,
+       "Apr 2025": 24
+      }
+     },
+     {
+      "threshold": 22.5,
+      "sessions": 3642,
+      "leaks": {
+       "GFC": 9,
+       "COVID": 13,
+       "2022 bear": 194,
+       "Apr 2025": 26
+      }
+     },
+     {
+      "threshold": 23.0,
+      "sessions": 3711,
+      "leaks": {
+       "GFC": 18,
+       "COVID": 13,
+       "2022 bear": 197,
+       "Apr 2025": 28
+      }
+     },
+     {
+      "threshold": 23.5,
+      "sessions": 3776,
+      "leaks": {
+       "GFC": 20,
+       "COVID": 13,
+       "2022 bear": 199,
+       "Apr 2025": 31
+      }
+     },
+     {
+      "threshold": 24.0,
+      "sessions": 3848,
+      "leaks": {
+       "GFC": 24,
+       "COVID": 14,
+       "2022 bear": 200,
+       "Apr 2025": 33
+      }
+     },
+     {
+      "threshold": 24.5,
+      "sessions": 3906,
+      "leaks": {
+       "GFC": 28,
+       "COVID": 17,
+       "2022 bear": 202,
+       "Apr 2025": 34
+      }
+     },
+     {
+      "threshold": 25.0,
+      "sessions": 3974,
+      "leaks": {
+       "GFC": 36,
+       "COVID": 17,
+       "2022 bear": 204,
+       "Apr 2025": 37
+      }
+     },
+     {
+      "threshold": 25.5,
+      "sessions": 4023,
+      "leaks": {
+       "GFC": 44,
+       "COVID": 18,
+       "2022 bear": 204,
+       "Apr 2025": 38
+      }
+     },
+     {
+      "threshold": 26.0,
+      "sessions": 4063,
+      "leaks": {
+       "GFC": 50,
+       "COVID": 18,
+       "2022 bear": 204,
+       "Apr 2025": 38
+      }
+     },
+     {
+      "threshold": 26.5,
+      "sessions": 4105,
+      "leaks": {
+       "GFC": 59,
+       "COVID": 18,
+       "2022 bear": 206,
+       "Apr 2025": 38
+      }
+     },
+     {
+      "threshold": 27.0,
+      "sessions": 4152,
+      "leaks": {
+       "GFC": 73,
+       "COVID": 21,
+       "2022 bear": 206,
+       "Apr 2025": 40
+      }
+     },
+     {
+      "threshold": 27.5,
+      "sessions": 4191,
+      "leaks": {
+       "GFC": 84,
+       "COVID": 22,
+       "2022 bear": 206,
+       "Apr 2025": 40
+      }
+     },
+     {
+      "threshold": 28.0,
+      "sessions": 4221,
+      "leaks": {
+       "GFC": 91,
+       "COVID": 24,
+       "2022 bear": 206,
+       "Apr 2025": 40
+      }
+     },
+     {
+      "threshold": 28.5,
+      "sessions": 4249,
+      "leaks": {
+       "GFC": 98,
+       "COVID": 26,
+       "2022 bear": 207,
+       "Apr 2025": 43
+      }
+     },
+     {
+      "threshold": 29.0,
+      "sessions": 4273,
+      "leaks": {
+       "GFC": 106,
+       "COVID": 27,
+       "2022 bear": 207,
+       "Apr 2025": 43
+      }
+     },
+     {
+      "threshold": 29.5,
+      "sessions": 4287,
+      "leaks": {
+       "GFC": 110,
+       "COVID": 29,
+       "2022 bear": 207,
+       "Apr 2025": 43
+      }
+     },
+     {
+      "threshold": 30.0,
+      "sessions": 4309,
+      "leaks": {
+       "GFC": 117,
+       "COVID": 30,
+       "2022 bear": 208,
+       "Apr 2025": 43
+      }
+     }
+    ]
    }
   }
  ]

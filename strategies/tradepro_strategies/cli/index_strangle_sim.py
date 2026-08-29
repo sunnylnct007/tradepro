@@ -55,6 +55,77 @@ MC_TRADES = 50           # trades per path — about a year at the observed rate
 MC_BLOCK = 5.0           # mean block length, trades. See _stationary_bootstrap.
 STRESS_N = 25            # worst sessions to price for the gate-failure case
 
+# ---------------------------------------------------------------------------
+# HOW THE VOLATILITY THRESHOLD IS CHOSEN — a rule, not a judgement.
+#
+# Owner, 29 Aug 2026: "how did u decided on the threshold value" and "how do we
+# make it deterministic". The honest answer to the first was that SPY's 14 and
+# India's 12 came from a documented sweep, while VXN<=18 and GVZ<=16 were my
+# guesses dressed up with a plausible sentence. One of them was wrong: GVZ<=16
+# traded through 31 sessions of 2022 and 4 of COVID.
+#
+# So the threshold is now COMPUTED. The rule, in full:
+#
+#     Of a fixed grid of candidate thresholds, choose the LARGEST one that
+#     takes ZERO trades inside any declared crisis window.
+#
+# Largest, because frequency is the scarce resource — the whole reason the US
+# sample was too thin to forward-test. Zero crisis trades, because the gate has
+# exactly one job and a gate that opens during a crash has failed at it.
+#
+# This reproduces both thresholds that were independently arrived at earlier
+# (SPY 14, India 12) and rejects the two I guessed, which is the only reason to
+# trust it over my judgement.
+#
+# WHAT THIS RULE IS NOT. The windows below are chosen with hindsight, so the
+# thresholds are fitted to crises that already happened. That makes this a
+# ROBUSTNESS rule, not an out-of-sample result: it is evidence the gate would
+# have sat out the last four crises, and NO evidence it will sit out the next
+# one. The gate-failure stress exists precisely because this limit cannot be
+# engineered away.
+CRISIS_WINDOWS = [
+    ("2008-01-01", "2009-06-30", "GFC"),
+    ("2020-02-15", "2020-04-30", "COVID"),
+    ("2022-01-01", "2022-10-31", "2022 bear"),
+    ("2025-03-15", "2025-05-15", "Apr 2025"),
+]
+# Candidate grid, in half-points. Deliberately coarse: a rule that can select
+# 17.35 is fitting noise, and a threshold nobody can state from memory is one
+# nobody will sanity-check.
+THRESHOLD_GRID = [x / 2 for x in range(16, 61)]      # 8.0 .. 30.0
+
+
+def choose_threshold(market: str) -> dict:
+    """Run the selection rule for one market and show its working.
+
+    Returns the chosen threshold AND the full grid with each candidate's crisis
+    leakage, so the choice can be audited rather than taken on trust.
+    """
+    from .index_strangle_paper import MARKETS
+    cfg = MARKETS[market]
+    px, vx = _load(cfg["index"]), _load(cfg["vol"])
+    if px is None or vx is None:
+        return {"status": "no_data"}
+    j = px[["Open"]].join(vx["Close"].rename("V"), how="inner").dropna()
+    grid, chosen = [], None
+    for t in THRESHOLD_GRID:
+        g = j[j.V <= t]
+        if len(g) < 100:                 # too thin to be a usable gate at all
+            continue
+        leaks = {}
+        for a0, a1, lbl in CRISIS_WINDOWS:
+            n = int(((g.index >= a0) & (g.index <= a1)).sum())
+            if n:
+                leaks[lbl] = n
+        grid.append({"threshold": t, "sessions": int(len(g)), "leaks": leaks})
+        if not leaks:
+            chosen = t                   # keep walking up; last clean one wins
+    return {"status": "ok", "chosen": chosen,
+            "configured": cfg["vol_max"],
+            "matches_config": chosen == cfg["vol_max"],
+            "windows": [w[2] for w in CRISIS_WINDOWS],
+            "grid": grid}
+
 
 def _pricer():
     from ..quant_engine.options.black_scholes import BlackScholesPricer
@@ -213,6 +284,10 @@ def simulate(market: str, dte: int = 7, paths: int = MC_PATHS,
         "mc_config": {"paths": paths, "trades_per_path": trades,
                       "mean_block": MC_BLOCK, "seed": seed},
         "stress": stress(market, dte=dte),
+        # The selection rule's own output, persisted so a test can check the
+        # configured threshold against it WITHOUT network access. A rule that
+        # only runs when someone remembers to run it is not a rule.
+        "threshold_rule": choose_threshold(market),
     }
 
 

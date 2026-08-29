@@ -155,3 +155,58 @@ def test_rejected_markets_stay_rejected():
     banned = {"^RUT", "^DJI", "^NSEMDCP50", "IWM", "DIA"}
     used = {c["index"] for c in P.MARKETS.values()}
     assert not (used & banned), f"re-added a rejected market: {used & banned}"
+
+
+def test_thresholds_are_the_rules_output_not_a_judgement():
+    """Every `vol_max` must equal what `choose_threshold` returns.
+
+    The thresholds used to be a mix: SPY's 14 and India's 12 came from a
+    documented sweep, while VXN<=18 and GVZ<=16 were picked and justified
+    afterwards. One of the guesses was wrong — GVZ<=16 traded through 31
+    sessions of the 2022 bear and 4 of COVID, which is a gate failing at the one
+    job it has.
+
+    The rule ("largest threshold on a half-point grid admitting ZERO trades in
+    any declared crisis window") independently reproduces SPY's 14, which is why
+    it is trusted over judgement. This test is what stops the next person -
+    including me - nudging a threshold up because the sample felt thin.
+
+    Checked against the COMMITTED evidence file, so it needs no network.
+    """
+    ev = P._evidence()
+    assert ev, "evidence file missing"
+    for m, e in ev.items():
+        rule = e.get("threshold_rule") or {}
+        assert rule.get("status") == "ok", f"{m}: rule never ran"
+        assert rule["chosen"] is not None, f"{m}: rule found no clean threshold"
+        assert P.MARKETS[m]["vol_max"] == rule["chosen"], (
+            f"{m}: configured {P.MARKETS[m]['vol_max']} but the rule says "
+            f"{rule['chosen']} — change the rule or the windows, not the number")
+
+
+def test_chosen_threshold_admits_no_crisis_trades():
+    """The property the rule exists to guarantee, asserted directly against the
+    persisted working rather than trusting the rule's own summary."""
+    for m, e in P._evidence().items():
+        rule = e["threshold_rule"]
+        row = next((g for g in rule["grid"]
+                    if g["threshold"] == rule["chosen"]), None)
+        assert row is not None, m
+        assert row["leaks"] == {}, f"{m}: chosen gate leaks {row['leaks']}"
+
+
+def test_one_step_looser_would_have_leaked():
+    """The chosen threshold must be the LARGEST clean one.
+
+    Without this, the rule silently degenerates into 'any clean threshold', and
+    the frequency it is meant to maximise - the scarce resource that made the US
+    sample too thin to forward-test - gets given away for nothing.
+    """
+    for m, e in P._evidence().items():
+        rule = e["threshold_rule"]
+        looser = [g for g in rule["grid"] if g["threshold"] > rule["chosen"]]
+        if not looser:
+            continue
+        assert looser[0]["leaks"], (
+            f"{m}: {looser[0]['threshold']} is also clean — chosen "
+            f"{rule['chosen']} is not the largest clean gate")

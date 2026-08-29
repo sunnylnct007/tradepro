@@ -122,28 +122,43 @@ LEDGER = os.path.expanduser("~/.tradepro/research/index_strangle_paper.json")
 # different numbers. Going from 2 markets to 8 across four dicts would have made
 # that near-certain, so they are merged. Add a market by adding ONE row.
 #
-# WHY THESE EIGHT, and how each threshold was picked. Measured 29 Aug 2026 on
-# the full history of each pair, same construction, % of collateral:
+# WHY THESE EIGHT. Measured 29 Aug 2026 on the full history of each pair, same
+# construction, % of collateral. NIFTY MIDCAP is excluded on evidence: worst win
+# rate (75.5%), worst tail (-1.54%), a third of the return. RUSSELL (^RUT) and
+# DOW (^DJI) are excluded for a harder reason — ^RVX returns ZERO bars and ^VXD
+# returns one, so there is no volatility gate for them at all. Inventing one
+# from realised vol is the modelling error that produced three wrong tables on
+# 29 Aug, so they stay out until real data exists.
 #
-#   market      vol gate    n     win%   mean%    p5%    worst%
-#   GLD         GVZ<=16   1,658   88.8   0.0521  -0.064  -0.65
-#   BANKNIFTY   VIX<=12     404   84.9   0.0517  -0.066  -1.05
-#   SPY         VIX<=14   2,219   83.3   0.0405  -0.105  -0.80
-#   QQQ         VXN<=18   2,015   81.0   0.0422  -0.184  -1.01
-#   SPX         VIX<=14   2,318   82.4   0.0370  -0.101  -0.84
-#   NDX         VXN<=18   2,015   81.3   0.0402  -0.183  -1.08
-#   NIFTY       VIX<=12     404   82.2   0.0333  -0.059  -0.29
-#   (MIDCAP     VIX<=12     404   75.5   0.0160  -0.223  -1.54  -- REJECTED)
+# EVERY `vol_max` BELOW IS COMPUTED, NOT CHOSEN. See `choose_threshold` in
+# index_strangle_sim: of a half-point grid, take the LARGEST threshold that
+# admits ZERO trades inside any declared crisis window (GFC, COVID, the 2022
+# bear, April 2025). `test_thresholds_are_the_rules_output` fails if any value
+# here drifts from what the rule returns.
 #
-# NIFTY MIDCAP is excluded: worst win rate, worst tail, a third of the return.
-# RUSSELL (^RUT) and DOW (^DJI) are excluded for a harder reason — ^RVX returns
-# ZERO bars and ^VXD returns one, so there is no volatility gate for them at
-# all. Inventing one from realised vol is exactly the modelling error that
-# produced three wrong tables on 29 Aug, so they stay out until real data exists.
+# This exists because the owner asked "how did u decided on the threshold value"
+# and the honest answer was: two of them were evidenced and two were my guess.
+# SPY's 14 and India's 12 came from a documented sweep; VXN<=18 and GVZ<=16 I
+# picked and justified afterwards. Running the rule caught that GVZ<=16 traded
+# through 31 sessions of the 2022 bear and 4 of COVID — a gate that opens in a
+# crash has failed at the one job it has. It is now 13.0.
 #
-# THE GATE IS PER-VOL-INDEX, NOT PER-MARKET. VXN sits structurally ~4 points
-# above VIX for the same market calm, so VXN<=18 is as selective on Nasdaq as
-# VIX<=14 is on the S&P. Copying 14 across would have silenced Nasdaq entirely.
+# The rule independently reproduces SPY's 14, which is the only reason to
+# trust it over judgement. It moved four values:
+#
+#   market       was    now   why
+#   GOLD        16.0   13.0   16 leaked COVID:4, 2022:31, Apr25:4
+#   NDX/QQQ     18.0   18.5   18.5 is still clean; 19.0 leaks COVID
+#   BANK/NIFTY  12.0   12.5   12.5 is still clean; 13.0 leaks Apr25
+#
+# A CORRECTION TO AN EARLIER CLAIM IN THIS FILE: it said VXN<=18 was "as
+# selective on Nasdaq as VIX<=14 is on the S&P". It is not. VIX<=14 is the 25th
+# percentile of VIX; VXN<=18 is the 31st; GVZ<=16 was the 36th. What IS true and
+# measured: VXN sits a median +3.5 points above VIX (+3.3 in the low-vol regime
+# the gate operates in), so a per-market threshold is genuinely required —
+# copying 14 across would silence Nasdaq entirely. The offset was real; the
+# equal-selectivity claim was not, and percentile-matching is not the rule
+# anyway. Crisis leakage is.
 #
 # `family` GROUPS THE SAME BET. SPX, XSP and SPY are one trade at three contract
 # sizes, not three opportunities — and the email must say so, because eight rows
@@ -169,13 +184,13 @@ MARKETS = {
             "note": "measured edge is within noise of SPX (83.3% vs 82.4%), so the "
                     "choice is settlement and size, not return"},
     # ---- Nasdaq 100 ----
-    "NDX": {"index": "^NDX", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 18.0,
+    "NDX": {"index": "^NDX", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 18.5,
             "rate": 0.045, "grid": 25.0, "lot": 100, "divisor": 1.0,
             "family": "Nasdaq 100", "ccy": "$",
             "product": "cash-settled index option · European",
             "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
                     "(p5 -0.183 vs -0.101) — the same rule, more risk per unit"},
-    "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 18.0,
+    "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 18.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
             "family": "Nasdaq 100", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
@@ -183,20 +198,20 @@ MARKETS = {
                     "reachable gate — this is what fixes the thin US sample"},
     # ---- India ----
     "BANKNIFTY": {"index": "^NSEBANK", "vol": "^INDIAVIX", "vol_scale": 1.35,
-                  "vol_max": 12.0, "rate": 0.065, "grid": 100.0, "lot": 150,
+                  "vol_max": 12.5, "rate": 0.065, "grid": 100.0, "lot": 150,
                   "divisor": 1.0, "family": "India banks", "ccy": "Rs",
                   "product": "cash-settled index option · European",
                   "note": "India VIX measures NIFTY and BANKNIFTY realises ~1.35x "
                           "that, so the input is SCALED — a proxy, not its own index"},
     "NIFTY": {"index": "^NSEI", "vol": "^INDIAVIX", "vol_scale": 1.0,
-              "vol_max": 12.0, "rate": 0.065, "grid": 50.0, "lot": 75,
+              "vol_max": 12.5, "rate": 0.065, "grid": 50.0, "lot": 75,
               "divisor": 1.0, "family": "India broad", "ccy": "Rs",
               "product": "cash-settled index option · European",
               "note": "India VIX measures NIFTY directly, so no 1.35 scaling is "
                       "needed. Worst day -0.29% vs BANKNIFTY's -1.05% — 3.5x safer "
                       "tail for about two-thirds the return"},
     # ---- Gold: the only genuinely uncorrelated leg here ----
-    "GOLD": {"index": "GLD", "vol": "^GVZ", "vol_scale": 1.0, "vol_max": 16.0,
+    "GOLD": {"index": "GLD", "vol": "^GVZ", "vol_scale": 1.0, "vol_max": 13.0,
              "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
              "family": "Gold", "ccy": "$",
              "product": "ETF option · American · CAN be assigned early",
