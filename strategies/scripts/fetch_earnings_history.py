@@ -30,7 +30,22 @@ import sys
 import time
 
 OUT = os.path.expanduser("~/.tradepro/research/earnings_history.json")
+ARTIFACT_NAME = "earnings_history.json"
 log = logging.getLogger("earnings_history")
+
+
+
+def save_artifact(obj) -> None:
+    """Write locally AND mirror to S3.
+
+    Owner, 29 Aug: "data harvesting is key and i keep on repeating ... we shd
+    start storing in our cheap s3 so we can leverage". Everything harvested this
+    week lived only on this laptop -- the one whose battery died twice -- which
+    also breaks the standing PG+S3 policy. Fail-safe: a dead mirror leaves the
+    local file intact and SAYS so rather than reporting success.
+    """
+    from tradepro_strategies.research_store import save
+    save(ARTIFACT_NAME, obj)
 
 
 def main() -> int:
@@ -76,11 +91,11 @@ def main() -> int:
             have[sym] = []
             fail += 1
         if n % 25 == 0:
-            json.dump(have, open(OUT, "w"))       # checkpoint; this run is long
+            save_artifact(have)       # checkpoint; this run is long
             log.info("  %d/%d  ok=%d empty=%d", n, len(todo), ok, fail)
         time.sleep(0.4)                            # be a good citizen
 
-    json.dump(have, open(OUT, "w"))
+    save_artifact(have)
     tot = sum(len(v) for v in have.values())
     covered = sum(1 for v in have.values() if v)
     log.info("DONE: %d symbols, %d with dates, %d events total -> %s",

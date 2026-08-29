@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse, json, logging, os, sys, time
 
 OUT = os.path.expanduser("~/.tradepro/research/fundamentals.json")
+ARTIFACT_NAME = "fundamentals.json"
 log = logging.getLogger("fundamentals")
 KEYS = ["trailingPE","forwardPE","priceToBook","returnOnEquity","debtToEquity",
         "profitMargins","trailingEps","forwardEps","enterpriseToEbitda","marketCap"]
@@ -52,6 +53,20 @@ def _eps_series(df) -> dict:
                     continue
             return out
     return {}
+
+
+
+def save_artifact(obj) -> None:
+    """Write locally AND mirror to S3.
+
+    Owner, 29 Aug: "data harvesting is key and i keep on repeating ... we shd
+    start storing in our cheap s3 so we can leverage". Everything harvested this
+    week lived only on this laptop -- the one whose battery died twice -- which
+    also breaks the standing PG+S3 policy. Fail-safe: a dead mirror leaves the
+    local file intact and SAYS so rather than reporting success.
+    """
+    from tradepro_strategies.research_store import save
+    save(ARTIFACT_NAME, obj)
 
 
 def main() -> int:
@@ -94,11 +109,11 @@ def main() -> int:
             thin += 1
         have[sym] = rec
         if n % 20 == 0:
-            json.dump(have, open(OUT, "w"))
+            save_artifact(have)
             log.info("  %d/%d  with annual EPS=%d  thin=%d", n, len(todo), ok, thin)
         time.sleep(0.6)                      # be a good citizen; the session is shared
 
-    json.dump(have, open(OUT, "w"))
+    save_artifact(have)
     withe = sum(1 for v in have.values() if v.get("annual_eps"))
     withpe = sum(1 for v in have.values() if (v.get("info") or {}).get("trailingPE"))
     log.info("DONE: %d symbols · %d with annual EPS · %d with a current P/E -> %s",
