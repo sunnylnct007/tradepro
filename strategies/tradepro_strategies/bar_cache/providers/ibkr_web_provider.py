@@ -165,7 +165,34 @@ class IBKRWebProvider(Provider):
 
     # Process-wide budget of auth-cooldown waits (see the 60s-cooldown note in
     # fetch) — class-level so one harvest run can't stall on every symbol.
+    #
+    # CONFIGURABLE since 29 Aug 2026. The hardcoded 3 is right for a nightly
+    # harvest, which makes ONE request per symbol: three transient cooldowns in
+    # a run means auth is genuinely broken and failing loud is correct.
+    #
+    # It is badly wrong for a BACKFILL. A chunked 3-year 5m fetch makes hundreds
+    # of requests, so the budget drains on the first blip and every request
+    # afterwards fast-fails and silently serves cache. Measured that day: a
+    # SPY/QQQ backfill returned "4,978 / 58,518 bars ... source=cache" and
+    # reported 0 failed. IBKR was fine — a direct fetch of the same windows
+    # moments later returned every bar. Owner, on seeing it: "i am not using
+    # ibkr currently and it shd connct and download", "we just have to retry
+    # with force".
     _cooldown_waits = 0
+
+    @staticmethod
+    def _cooldown_budget() -> int:
+        import os as _os
+        try:
+            return max(0, int(_os.environ.get("TRADEPRO_IBKR_COOLDOWN_WAITS", "3")))
+        except ValueError:
+            return 3
+
+    @classmethod
+    def reset_cooldown_budget(cls) -> None:
+        """Long-running callers (a backfill loop) call this between symbols so
+        one symbol's blips do not condemn the rest of the run."""
+        cls._cooldown_waits = 0
 
     def __init__(
         self,
@@ -313,13 +340,24 @@ class IBKRWebProvider(Provider):
             # Wait it out ONCE per event, bounded to 3 events per process so a
             # persistently-broken auth still fails loud instead of stalling
             # the whole harvest.
-            if ("backing off" in str(reason) and "cooldown" in str(reason)
-                    and IBKRWebProvider._cooldown_waits < 3):
+            _budget = IBKRWebProvider._cooldown_budget()
+            _in_cooldown = ("backing off" in str(reason) and "cooldown" in str(reason))
+            if _in_cooldown and IBKRWebProvider._cooldown_waits >= _budget:
+                # SAY SO. Exhausting the budget used to be silent: every later
+                # request fast-failed, the store served cache, and the run
+                # reported "0 failed" on a fraction of the bars.
+                _log.error(
+                    "%s: IBKR auth cooldown and the wait budget is EXHAUSTED "
+                    "(%d/%d used). Every remaining request will fast-fail and "
+                    "serve CACHE — the run will look successful on partial data. "
+                    "Raise TRADEPRO_IBKR_COOLDOWN_WAITS for a backfill.",
+                    canonical, IBKRWebProvider._cooldown_waits, _budget)
+            if _in_cooldown and IBKRWebProvider._cooldown_waits < _budget:
                 IBKRWebProvider._cooldown_waits += 1
                 _log.warning(
                     "%s: backend IBKR auth in cooldown — waiting 65s for re-auth "
-                    "(wait %d/3 this run) instead of falling through to yfinance",
-                    canonical, IBKRWebProvider._cooldown_waits)
+                    "(wait %d/%d this run) instead of falling through to yfinance",
+                    canonical, IBKRWebProvider._cooldown_waits, _budget)
                 import time as _time
                 _time.sleep(65)
                 try:
