@@ -6,6 +6,7 @@ log their own aggregate gaps, but between runs the feed's state was
 invisible — dark windows could only be reconstructed by forensics. This
 probe writes ONE run_log row per 15 minutes:
 
+    closed    — market shut; auth valid, feed not exercised, nothing proven
     ok        — auth valid, a live quote snapshot served (field 31 + 7283),
                 AND the fill-read path answers PRIMED
     degraded  — auth valid but the snapshot is DARK (the market-data-session
@@ -92,10 +93,38 @@ def main() -> int:
             status = "ok"
             detail = "auth + live snapshot"
         else:
-            status = "degraded"
-            detail = detail or (
-                "auth VALID but snapshot DARK (SPY served no last/IV after warm-up "
-                "retry) — market-data session contention or IBKR-side outage")
+            # "THE MARKET IS SHUT" IS NOT "SOMEONE TOOK THE SESSION" (29 Aug 2026).
+            #
+            # This reported `degraded — snapshot DARK ... session contention` twelve
+            # times on a SATURDAY. SPY has no live print at the weekend; IBKR was
+            # answering correctly and there was nothing to contend for. Twelve false
+            # alarms a day is how the run log stops being read, and an unread run
+            # log is how the two-month fill blindness survived.
+            #
+            # The same confusion was fixed on the quote ENDPOINT on 24 Aug
+            # (28c25e3) and never reached this probe — a fix that does not
+            # propagate is barely a fix. Reuses market_hours.is_open() rather
+            # than adding a fourth copy of "is the market open" to this repo.
+            open_now = None
+            try:
+                from ..paper import market_hours
+                import datetime as _dt
+                open_now = market_hours.is_open("us_equity", _dt.datetime.now(_dt.UTC))
+            except Exception as exc:  # noqa: BLE001
+                print(f"market-hours check unavailable: {str(exc)[:110]}", file=sys.stderr)
+
+            if open_now is False:
+                # Not "ok" — nothing was proven about the feed. A separate state,
+                # so the timeline can tell "we did not look" from "we looked and
+                # it was fine", which matters when reconstructing an outage.
+                status = "closed"
+                detail = ("market CLOSED — no live print expected. Auth valid; the feed "
+                          "was not exercised. This is not session contention.")
+            else:
+                status = "degraded"
+                detail = detail or (
+                    "auth VALID but snapshot DARK (SPY served no last/IV after warm-up "
+                    "retry) — market-data session contention or IBKR-side outage")
 
     # ── FILL-READ CANARY ──────────────────────────────────────────────
     # Read-only. Asserts the blotter answers PRIMED ("snapshot":true), which is
@@ -135,7 +164,9 @@ def main() -> int:
         print(f"run_log write failed: {exc}", file=sys.stderr)
 
     print(f"ibkr-health: {status} — {detail}")
-    return 0 if status == "ok" else 1
+    # "closed" is not a failure — exiting non-zero on every weekend tick would
+    # just move the false alarm from the run log to launchd.
+    return 0 if status in ("ok", "closed") else 1
 
 
 if __name__ == "__main__":
