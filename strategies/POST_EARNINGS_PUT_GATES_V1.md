@@ -256,3 +256,66 @@ the pooled figure.
 If W7 fails, the correct conclusion is that the edge and the risk are the same
 phenomenon and cannot be separated by a market filter. That would be a real
 finding, not a failure to be tuned away.
+
+## V2 RESULT — 29 Aug 2026. ALL EIGHT GATES PASS.
+
+```
+V1 unfiltered        n=284    win 87.0%  mean +1.19%  p5 -5.48%  worst -54.05%
+V2 SPY>200SMA        n=229    win 89.5%  mean +1.29%  p5 -4.72%  worst -23.40%
+V2 null (filtered)   n=32617  win 83.1%  mean -0.15%  p5 -7.35%
+V2 half1 2020-22     n=44     win 95.5%  mean +1.43%  p5 +0.00%  worst  -2.54%
+V2 half2 2023-26     n=185    win 88.1%  mean +1.26%  p5 -5.21%  worst -23.40%
+V2 2022 only         n=9      win 77.8%  mean +0.94%  p5 -2.54%  worst  -2.54%
+
+W0 PASS events >= 200                 229
+W1 PASS win >= 80%                    89.5%
+W2 PASS mean > +0.75%                 +1.29%
+W3 PASS beats filtered null >= 0.5pt  +1.44pt
+W4 PASS p5 >= -8%                     -4.72%
+W5 PASS both halves pass W1+W2        h1 95%/+1.43% · h2 88%/+1.26%
+W6 PASS 2022 mean > 0                 +0.94% (n=9)
+W7 PASS retains >= 60% of V1 events   81%
+```
+
+**The prediction was wrong again, in the strategy's favour.** W7 was named as
+the risk — the fear that earnings drops cluster in bad markets, so the filter
+would survive by refusing to trade. It retained **81%** of events, well clear
+of the 60% floor. The filter is selective, not prohibitive.
+
+Everything V1 failed is now fixed by the mechanism it was aimed at: the worst
+single trade improves from **-54.05% to -23.40%**, and half 1 goes from
++0.75%/p5 -13.69% to **+1.43%/p5 +0.00%** — in that window, after filtering,
+the 5th-percentile trade did not lose at all.
+
+### THE WEAKNESS IN THIS PASS, stated plainly
+
+**W6 passed on nine events.** 2022 had 50 qualifying earnings drops; the filter
+removed 41 of them. So "2022 is no longer a losing year" rests on the nine
+trades that happened while SPY was above its 200-SMA during a bear market.
+
+That is a thin basis, and the gate as written (`mean > 0`, no minimum count)
+was too weak to catch it. It is recorded here rather than fixed retroactively:
+adding a sample floor to W6 after seeing the result would be moving the
+goalposts, which is the same offence as waiving a gate.
+
+What the result honestly supports: **the filter removes most of the exposure to
+a sustained downtrend, and the trades it still permits in such a window were
+fine.** What it does NOT establish is how the strategy performs across a FULL
+bear market, because the filter's answer there is largely "do not trade" — and
+that is only tested against one bear market, on 9 surviving events.
+
+**The worst trade is still -23.40%.** Vol-scaled sizing plus the market filter
+reduce the tail; they do not remove it.
+
+### Verdict
+
+**Paper-forward test, at small size, with the SPY filter live.** Not funding.
+
+V2 passes its pre-registered gates honestly and beats a filtered null by
+1.44 points, which means the earnings trigger — not the market direction —
+is carrying the edge. That is a real result and better than anything the wheel
+work has produced.
+
+Funding waits on live events accumulating against these gates, and specifically
+on W6 being re-tested with a real sample the next time SPY spends months below
+its 200-SMA.
