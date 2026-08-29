@@ -1,0 +1,157 @@
+"""The eight-market expansion must not reintroduce the repo's dominant bug.
+
+Going from 2 markets to 8 is exactly the moment a config splits into several
+dicts that quietly disagree. These tests pin the properties that make that
+impossible to do silently, plus the two claims the daily email makes about
+itself: that its evidence covers every market it can print, and that it always
+carries the number that would talk a reader OUT of the trade.
+"""
+from __future__ import annotations
+
+import json
+import os
+
+import pytest
+
+from tradepro_strategies.cli import index_strangle_paper as P
+
+
+def test_per_market_values_have_exactly_one_definition():
+    """VIX_MAX/RATE/STRIKE_GRID must DERIVE from MARKETS, never restate it.
+
+    Before this, a market's threshold lived in both MARKETS and VIX_MAX. Nothing
+    raises when two such dicts disagree — the screen simply gates on one number
+    while the email explains a different one, which is the failure shape that has
+    cost this repo more time than any other.
+    """
+    for m, cfg in P.MARKETS.items():
+        assert P.VIX_MAX[m] == cfg["vol_max"], m
+        assert P.RATE[m] == cfg["rate"], m
+        assert P.STRIKE_GRID[m] == cfg["grid"], m
+    assert set(P.VIX_MAX) == set(P.MARKETS)
+
+
+def test_every_market_row_is_complete():
+    """A market missing a key fails at render time, inside a Lambda, at 04:00."""
+    required = {"index", "vol", "vol_scale", "vol_max", "rate", "grid",
+                "lot", "family", "ccy", "product", "note"}
+    for m, cfg in P.MARKETS.items():
+        assert required <= set(cfg), f"{m} missing {required - set(cfg)}"
+        assert cfg["vol_scale"] > 0 and cfg["grid"] > 0 and cfg["lot"] > 0, m
+
+
+def test_markets_sharing_an_underlying_share_a_family():
+    """SPX/XSP/SPY are one bet at three sizes; the email groups on `family` to
+    say so. If a new market is added with the wrong family, the email would
+    present correlated positions as independent ones — the specific mistake that
+    kills a premium-selling account."""
+    by_index: dict[str, set[str]] = {}
+    for m, cfg in P.MARKETS.items():
+        by_index.setdefault(cfg["index"], set()).add(cfg["family"])
+    for index, fams in by_index.items():
+        assert len(fams) == 1, f"{index} spans families {fams}"
+    # And the S&P trio must actually be grouped, since that is the case the
+    # grouping exists for.
+    assert len({P.MARKETS[m]["family"] for m in ("SPX", "XSP", "SPY")}) == 1
+
+
+def test_simulator_prices_the_strikes_the_email_prints():
+    """One source of truth for the strike rule.
+
+    The simulator must IMPORT strike_pair rather than recompute it. When a
+    backtest and a live screen each own their own copy of the entry rule they
+    drift, and the published evidence stops describing the traded thing — which
+    is exactly the harness-vs-screen mismatch already sitting in the Swing
+    numbers.
+    """
+    src = open(os.path.join(os.path.dirname(P.__file__),
+                            "index_strangle_sim.py")).read()
+    assert "strike_pair" in src and "from .index_strangle_paper import" in src
+    # And it must not have grown its own copy of the forward maths.
+    assert "math.exp(rate" not in src, "simulator recomputes the forward itself"
+
+
+def test_strikes_are_on_the_listed_grid_and_straddle_the_forward():
+    for m, cfg in P.MARKETS.items():
+        put, call, fwd = P.strike_pair(1000.0, 0.02, 7, cfg["rate"], cfg["grid"])
+        assert put < fwd < call, m
+        for k in (put, call):
+            assert abs(k / cfg["grid"] - round(k / cfg["grid"])) < 1e-9, (m, k)
+
+
+def test_evidence_file_covers_every_market():
+    """The email quotes committed simulation output. A market present in the
+    screen but absent from the evidence renders a position with no numbers
+    behind it — the exact 'trust me' row this email exists to avoid."""
+    ev = P._evidence()
+    assert ev, "evidence file missing or unreadable"
+    missing = set(P.MARKETS) - set(ev)
+    assert not missing, f"no simulation evidence for {sorted(missing)}"
+
+
+def test_evidence_carries_the_gate_failure_stress():
+    """Win rate without the cost of the losses is a mis-sold product."""
+    for m, e in P._evidence().items():
+        s = e.get("stress") or {}
+        assert s.get("worst_ungated_pct") is not None, m
+        # The stress must be genuinely worse than anything the gate allowed,
+        # else it is not measuring gate failure at all.
+        assert s["worst_ungated_pct"] < e["historical"]["worst_pct"], m
+
+
+@pytest.mark.parametrize("part", [
+    "What would make this wrong",     # the honest section must exist
+    "How to read this",               # the reading guide
+    "not a worst case",               # the Monte Carlo caveat, stated inline
+    "no bid-ask spread charged",      # the modelled-price admission
+    "NOT FUNDED",
+])
+def test_email_always_carries_its_own_caveats(part, monkeypatch):
+    """These are load-bearing. An email that shows an 88% win rate and drops the
+    section explaining what the other 12% costs is a different product from the
+    one this code was reviewed as."""
+    rows = [{"market": "GOLD", "index": "GLD", "status": "stand aside",
+             "reason": "test", "spot": 400.0, "family": "Gold", "ccy": "$",
+             "product": "ETF option", "vol_index": 25.0, "vol_threshold": 16.0,
+             "width_pct": 2.4, "iv_used": 25.0, "expected_daily_move_pct": 1.6,
+             "lot": 100, "legs": {}}]
+    _subj, (text, html) = P._email_body(rows)
+    assert part in text or part in html
+
+
+def test_stand_aside_days_are_never_silently_dropped():
+    """A stand-aside row is evidence about the threshold. Hiding it turns the
+    email into a highlight reel and makes the gate untestable."""
+    rows = [{"market": "GOLD", "index": "GLD", "status": "stand aside",
+             "reason": "GVZ 25.17 above the 16.0 gate", "spot": 400.0,
+             "family": "Gold", "ccy": "$", "product": "ETF option",
+             "vol_index": 25.0, "vol_threshold": 16.0, "width_pct": 2.4,
+             "iv_used": 25.0, "expected_daily_move_pct": 1.6, "lot": 100,
+             "legs": {}}]
+    subj, (text, html) = P._email_body(rows)
+    assert "GOLD" in text and "GOLD" in html
+    assert "above the 16.0 gate" in text
+    assert "0 of 1" in subj
+
+
+def test_monte_carlo_block_bootstrap_beats_iid_on_drawdown():
+    """The blocked bootstrap must be the reported one because it is the more
+    pessimistic model of drawdown for a strategy whose losses cluster. If this
+    ever inverts across the board, the block length has stopped doing anything
+    and the headline drawdown is understated."""
+    ev = P._evidence()
+    worse_or_equal = sum(1 for e in ev.values()
+                         if e["mc_blocked"]["p95_max_drawdown_pct"]
+                         <= e["mc_iid"]["p95_max_drawdown_pct"] + 1e-9)
+    assert worse_or_equal >= len(ev) // 2, (
+        "clustering no longer deepens the simulated drawdown anywhere — "
+        "check MC_BLOCK")
+
+
+def test_rejected_markets_stay_rejected():
+    """Russell and Dow have NO usable volatility index (^RVX returns zero bars,
+    ^VXD one). NIFTY MIDCAP was measured and lost. Re-adding any of them needs
+    new data, not a new opinion — this test is the tripwire."""
+    banned = {"^RUT", "^DJI", "^NSEMDCP50", "IWM", "DIA"}
+    used = {c["index"] for c in P.MARKETS.values()}
+    assert not (used & banned), f"re-added a rejected market: {used & banned}"

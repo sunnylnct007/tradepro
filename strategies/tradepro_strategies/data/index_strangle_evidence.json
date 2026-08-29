@@ -1,0 +1,414 @@
+{
+ "generated_utc": "2026-08-29T21:52:29+00:00",
+ "dte": 7,
+ "results": [
+  {
+   "market": "SPX",
+   "status": "ok",
+   "dte": 7,
+   "historical": {
+    "n_trades": 2318,
+    "first": "1991-11-13",
+    "last": "2025-12-26",
+    "trades_per_year": 67.9,
+    "win_pct": 82.4,
+    "mean_pct": 0.037,
+    "median_pct": 0.0632,
+    "p5_pct": -0.101,
+    "worst_pct": -0.837,
+    "best_pct": 0.129,
+    "stdev_pct": 0.0746,
+    "return_risk_ratio": 4.09
+   },
+   "mc_blocked": {
+    "median_total_pct": 1.893,
+    "p5_total_pct": 0.867,
+    "p95_total_pct": 2.694,
+    "prob_losing_year_pct": 0.2,
+    "median_max_drawdown_pct": -0.277,
+    "p95_max_drawdown_pct": -0.637,
+    "worst_path_pct": -0.897
+   },
+   "mc_iid": {
+    "median_total_pct": 1.892,
+    "p5_total_pct": 0.924,
+    "p95_total_pct": 2.644,
+    "prob_losing_year_pct": 0.2,
+    "median_max_drawdown_pct": -0.273,
+    "p95_max_drawdown_pct": -0.702,
+    "worst_path_pct": -0.512
+   },
+   "mc_config": {
+    "paths": 20000,
+    "trades_per_path": 50,
+    "mean_block": 5.0,
+    "seed": 7
+   },
+   "stress": {
+    "worst_ungated_pct": -5.703,
+    "worst_ungated_date": "2025-04-09",
+    "mean_of_worst_n_pct": -2.172,
+    "n_worst": 25,
+    "gated_worst_pct": -0.837,
+    "ungated_sessions": 9232
+   }
+  },
+  {
+   "market": "XSP",
+   "status": "ok",
+   "dte": 7,
+   "historical": {
+    "n_trades": 2318,
+    "first": "1991-11-13",
+    "last": "2025-12-26",
+    "trades_per_year": 67.9,
+    "win_pct": 80.8,
+    "mean_pct": 0.0357,
+    "median_pct": 0.0626,
+    "p5_pct": -0.131,
+    "worst_pct": -0.837,
+    "best_pct": 0.264,
+    "stdev_pct": 0.0884,
+    "return_risk_ratio": 3.33
+   },
+   "mc_blocked": {
+    "median_total_pct": 1.841,
+    "p5_total_pct": 0.636,
+    "p95_total_pct": 2.773,
+    "prob_losing_year_pct": 0.8,
+    "median_max_drawdown_pct": -0.366,
+    "p95_max_drawdown_pct": -0.837,
+    "worst_path_pct": -1.975
+   },
+   "mc_iid": {
+    "median_total_pct": 1.826,
+    "p5_total_pct": 0.669,
+    "p95_total_pct": 2.735,
+    "prob_losing_year_pct": 0.7,
+    "median_max_drawdown_pct": -0.356,
+    "p95_max_drawdown_pct": -0.837,
+    "worst_path_pct": -0.968
+   },
+   "mc_config": {
+    "paths": 20000,
+    "trades_per_path": 50,
+    "mean_block": 5.0,
+    "seed": 7
+   },
+   "stress": {
+    "worst_ungated_pct": -5.632,
+    "worst_ungated_date": "2025-04-09",
+    "mean_of_worst_n_pct": -2.204,
+    "n_worst": 25,
+    "gated_worst_pct": -0.837,
+    "ungated_sessions": 9232
+   }
+  },
+  {
+   "market": "SPY",
+   "status": "ok",
+   "dte": 7,
+   "historical": {
+    "n_trades": 2219,
+    "first": "1993-01-29",
+    "last": "2025-12-26",
+    "trades_per_year": 67.4,
+    "win_pct": 82.1,
+    "mean_pct": 0.0402,
+    "median_pct": 0.0632,
+    "p5_pct": -0.119,
+    "worst_pct": -0.804,
+    "best_pct": 0.346,
+    "stdev_pct": 0.0942,
+    "return_risk_ratio": 3.5
+   },
+   "mc_blocked": {
+    "median_total_pct": 2.074,
+    "p5_total_pct": 0.718,
+    "p95_total_pct": 3.061,
+    "prob_losing_year_pct": 0.8,
+    "median_max_drawdown_pct": -0.377,
+    "p95_max_drawdown_pct": -0.946,
+    "worst_path_pct": -1.493
+   },
+   "mc_iid": {
+    "median_total_pct": 2.039,
+    "p5_total_pct": 0.844,
+    "p95_total_pct": 3.022,
+    "prob_losing_year_pct": 0.4,
+    "median_max_drawdown_pct": -0.358,
+    "p95_max_drawdown_pct": -0.827,
+    "worst_path_pct": -1.351
+   },
+   "mc_config": {
+    "paths": 20000,
+    "trades_per_path": 50,
+    "mean_block": 5.0,
+    "seed": 7
+   },
+   "stress": {
+    "worst_ungated_pct": -6.949,
+    "worst_ungated_date": "2025-04-09",
+    "mean_of_worst_n_pct": -2.105,
+    "n_worst": 25,
+    "gated_worst_pct": -0.804,
+    "ungated_sessions": 8453
+   }
+  },
+  {
+   "market": "NDX",
+   "status": "ok",
+   "dte": 7,
+   "historical": {
+    "n_trades": 2015,
+    "first": "2004-11-24",
+    "last": "2025-12-26",
+    "trades_per_year": 95.6,
+    "win_pct": 81.3,
+    "mean_pct": 0.0402,
+    "median_pct": 0.0775,
+    "p5_pct": -0.183,
+    "worst_pct": -1.083,
+    "best_pct": 0.169,
+    "stdev_pct": 0.1075,
+    "return_risk_ratio": 3.65
+   },
+   "mc_blocked": {
+    "median_total_pct": 2.077,
+    "p5_total_pct": 0.586,
+    "p95_total_pct": 3.199,
+    "prob_losing_year_pct": 1.4,
+    "median_max_drawdown_pct": -0.442,
+    "p95_max_drawdown_pct": -1.152,
+    "worst_path_pct": -1.814
+   },
+   "mc_iid": {
+    "median_total_pct": 2.074,
+    "p5_total_pct": 0.684,
+    "p95_total_pct": 3.146,
+    "prob_losing_year_pct": 1.0,
+    "median_max_drawdown_pct": -0.439,
+    "p95_max_drawdown_pct": -1.083,
+    "worst_path_pct": -1.491
+   },
+   "mc_config": {
+    "paths": 20000,
+    "trades_per_path": 50,
+    "mean_block": 5.0,
+    "seed": 7
+   },
+   "stress": {
+    "worst_ungated_pct": -7.397,
+    "worst_ungated_date": "2025-04-09",
+    "mean_of_worst_n_pct": -1.995,
+    "n_worst": 25,
+    "gated_worst_pct": -1.083,
+    "ungated_sessions": 6438
+   }
+  },
+  {
+   "market": "QQQ",
+   "status": "ok",
+   "dte": 7,
+   "historical": {
+    "n_trades": 2015,
+    "first": "2004-11-24",
+    "last": "2025-12-26",
+    "trades_per_year": 95.6,
+    "win_pct": 81.0,
+    "mean_pct": 0.0424,
+    "median_pct": 0.0778,
+    "p5_pct": -0.187,
+    "worst_pct": -1.012,
+    "best_pct": 0.385,
+    "stdev_pct": 0.1192,
+    "return_risk_ratio": 3.48
+   },
+   "mc_blocked": {
+    "median_total_pct": 2.171,
+    "p5_total_pct": 0.665,
+    "p95_total_pct": 3.35,
+    "prob_losing_year_pct": 1.1,
+    "median_max_drawdown_pct": -0.48,
+    "p95_max_drawdown_pct": -1.18,
+    "worst_path_pct": -1.822
+   },
+   "mc_iid": {
+    "median_total_pct": 2.178,
+    "p5_total_pct": 0.669,
+    "p95_total_pct": 3.408,
+    "prob_losing_year_pct": 1.1,
+    "median_max_drawdown_pct": -0.499,
+    "p95_max_drawdown_pct": -1.119,
+    "worst_path_pct": -2.549
+   },
+   "mc_config": {
+    "paths": 20000,
+    "trades_per_path": 50,
+    "mean_block": 5.0,
+    "seed": 7
+   },
+   "stress": {
+    "worst_ungated_pct": -7.719,
+    "worst_ungated_date": "2025-04-09",
+    "mean_of_worst_n_pct": -1.931,
+    "n_worst": 25,
+    "gated_worst_pct": -1.012,
+    "ungated_sessions": 6438
+   }
+  },
+  {
+   "market": "BANKNIFTY",
+   "status": "ok",
+   "dte": 7,
+   "historical": {
+    "n_trades": 404,
+    "first": "2014-09-19",
+    "last": "2026-08-28",
+    "trades_per_year": 33.8,
+    "win_pct": 84.9,
+    "mean_pct": 0.0517,
+    "median_pct": 0.0788,
+    "p5_pct": -0.066,
+    "worst_pct": -1.046,
+    "best_pct": 0.108,
+    "stdev_pct": 0.0831,
+    "return_risk_ratio": 3.61
+   },
+   "mc_blocked": {
+    "median_total_pct": 2.681,
+    "p5_total_pct": 1.417,
+    "p95_total_pct": 3.422,
+    "prob_losing_year_pct": 0.1,
+    "median_max_drawdown_pct": -0.21,
+    "p95_max_drawdown_pct": -1.052,
+    "worst_path_pct": -2.161
+   },
+   "mc_iid": {
+    "median_total_pct": 2.674,
+    "p5_total_pct": 1.459,
+    "p95_total_pct": 3.379,
+    "prob_losing_year_pct": 0.1,
+    "median_max_drawdown_pct": -0.21,
+    "p95_max_drawdown_pct": -1.05,
+    "worst_path_pct": -1.416
+   },
+   "mc_config": {
+    "paths": 20000,
+    "trades_per_path": 50,
+    "mean_block": 5.0,
+    "seed": 7
+   },
+   "stress": {
+    "worst_ungated_pct": -5.157,
+    "worst_ungated_date": "2019-09-20",
+    "mean_of_worst_n_pct": -2.481,
+    "n_worst": 25,
+    "gated_worst_pct": -1.046,
+    "ungated_sessions": 4530
+   }
+  },
+  {
+   "market": "NIFTY",
+   "status": "ok",
+   "dte": 7,
+   "historical": {
+    "n_trades": 404,
+    "first": "2014-09-19",
+    "last": "2026-08-28",
+    "trades_per_year": 33.8,
+    "win_pct": 82.2,
+    "mean_pct": 0.0333,
+    "median_pct": 0.0539,
+    "p5_pct": -0.059,
+    "worst_pct": -0.289,
+    "best_pct": 0.084,
+    "stdev_pct": 0.0539,
+    "return_risk_ratio": 3.59
+   },
+   "mc_blocked": {
+    "median_total_pct": 1.7,
+    "p5_total_pct": 0.904,
+    "p95_total_pct": 2.308,
+    "prob_losing_year_pct": 0.1,
+    "median_max_drawdown_pct": -0.176,
+    "p95_max_drawdown_pct": -0.492,
+    "worst_path_pct": -0.52
+   },
+   "mc_iid": {
+    "median_total_pct": 1.687,
+    "p5_total_pct": 0.979,
+    "p95_total_pct": 2.251,
+    "prob_losing_year_pct": 0.0,
+    "median_max_drawdown_pct": -0.186,
+    "p95_max_drawdown_pct": -0.405,
+    "worst_path_pct": -0.355
+   },
+   "mc_config": {
+    "paths": 20000,
+    "trades_per_path": 50,
+    "mean_block": 5.0,
+    "seed": 7
+   },
+   "stress": {
+    "worst_ungated_pct": -11.603,
+    "worst_ungated_date": "2009-05-18",
+    "mean_of_worst_n_pct": -2.395,
+    "n_worst": 25,
+    "gated_worst_pct": -0.289,
+    "ungated_sessions": 4514
+   }
+  },
+  {
+   "market": "GOLD",
+   "status": "ok",
+   "dte": 7,
+   "historical": {
+    "n_trades": 1658,
+    "first": "2010-11-26",
+    "last": "2025-08-27",
+    "trades_per_year": 112.4,
+    "win_pct": 88.8,
+    "mean_pct": 0.0521,
+    "median_pct": 0.071,
+    "p5_pct": -0.064,
+    "worst_pct": -0.654,
+    "best_pct": 0.122,
+    "stdev_pct": 0.0665,
+    "return_risk_ratio": 8.3
+   },
+   "mc_blocked": {
+    "median_total_pct": 2.645,
+    "p5_total_pct": 1.754,
+    "p95_total_pct": 3.354,
+    "prob_losing_year_pct": 0.0,
+    "median_max_drawdown_pct": -0.213,
+    "p95_max_drawdown_pct": -0.646,
+    "worst_path_pct": 0.502
+   },
+   "mc_iid": {
+    "median_total_pct": 2.654,
+    "p5_total_pct": 1.762,
+    "p95_total_pct": 3.302,
+    "prob_losing_year_pct": 0.0,
+    "median_max_drawdown_pct": -0.211,
+    "p95_max_drawdown_pct": -0.598,
+    "worst_path_pct": 0.182
+   },
+   "mc_config": {
+    "paths": 20000,
+    "trades_per_path": 50,
+    "mean_block": 5.0,
+    "seed": 7
+   },
+   "stress": {
+    "worst_ungated_pct": -4.671,
+    "worst_ungated_date": "2008-09-17",
+    "mean_of_worst_n_pct": -1.147,
+    "n_worst": 25,
+    "gated_worst_pct": -0.654,
+    "ungated_sessions": 4589
+   }
+  }
+ ]
+}
