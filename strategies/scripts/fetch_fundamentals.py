@@ -69,6 +69,57 @@ def save_artifact(obj) -> None:
     save(ARTIFACT_NAME, obj)
 
 
+
+def push_to_api(have: dict) -> None:
+    """Send the snapshot to /api/fundamentals so the DESK can see it.
+
+    Owner, 29 Aug: "this figure shd be visible on our data harvesting screen as
+    well". A JSON file on one laptop is invisible to every screen, so the
+    harvest store and the thing a human reads were never the same data.
+
+    Best-effort: a dead API leaves the local + S3 copies intact and says so.
+    Silent success on a failed push is the shape this project keeps paying for.
+    """
+    rows = []
+    for sym, rec in have.items():
+        info = rec.get("info") or {}
+        ann = {k: v for k, v in (rec.get("annual_eps") or {}).items() if v is not None}
+        if not info and not ann:
+            continue
+        def g(k):
+            v = info.get(k)
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+        rows.append({
+            "symbol": sym, "source": "yfinance",
+            "trailingPe": g("trailingPE"), "forwardPe": g("forwardPE"),
+            "priceToBook": g("priceToBook"), "returnOnEquity": g("returnOnEquity"),
+            "profitMargin": g("profitMargins"), "debtToEquity": g("debtToEquity"),
+            "trailingEps": g("trailingEps"), "forwardEps": g("forwardEps"),
+            "marketCap": g("marketCap"),
+            "annualEps": json.dumps(ann) if ann else None,
+        })
+    if not rows:
+        log.warning("nothing to push")
+        return
+    try:
+        import requests
+        from tradepro_strategies.cli.push_to_api import load_credentials
+        base, token = load_credentials()
+        r = requests.post(f"{base.rstrip('/')}/api/fundamentals", json=rows,
+                          headers={"Authorization": f"Bearer {token}"}, timeout=120)
+        if r.status_code == 200:
+            log.info("pushed %d row(s) to the desk: %s", len(rows), r.text[:120])
+        else:
+            log.error("push FAILED %s: %s — the desk will show STALE fundamentals",
+                      r.status_code, r.text[:200])
+    except Exception as exc:  # noqa: BLE001 — never lose the harvest over a push
+        log.error("push FAILED (%s) — local + S3 copies are intact, desk is stale",
+                  str(exc)[:140])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0)
@@ -118,6 +169,7 @@ def main() -> int:
     withpe = sum(1 for v in have.values() if (v.get("info") or {}).get("trailingPE"))
     log.info("DONE: %d symbols · %d with annual EPS · %d with a current P/E -> %s",
              len(have), withe, withpe, OUT)
+    push_to_api(have)
     return 0 if withe else 1
 
 

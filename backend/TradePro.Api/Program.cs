@@ -368,6 +368,7 @@ api.MapSimulationEndpoints();
 api.MapSignalEndpoints();
 api.MapWatchlistEndpoints();
 api.MapCompareEndpoints();
+api.MapFundamentalsEndpoints();
 api.MapWorkerHealthEndpoints();
 api.MapStrategyHealthEndpoints();
 api.MapSettingsEndpoints();
