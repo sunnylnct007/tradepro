@@ -25,7 +25,8 @@ cheaply and it cannot be backfilled.
 
 WHAT IT DOES
 
-    morning   decide (VIX in its TRAILING bottom quartile?), pick strikes,
+    morning   decide (is the vol index at or below its ABSOLUTE threshold?),
+              pick strikes at 1.5x the expected daily move,
               record the strangle we would have sold, with the credit
     evening   mark it against the close and record the outcome
 
@@ -51,7 +52,32 @@ import statistics as _st
 log = logging.getLogger("tradepro.index_strangle_paper")
 
 # One definition of the rule, shared by both markets.
-VIX_LOOKBACK = 250          # sessions in the trailing quartile window
+#
+# ABSOLUTE volatility threshold, not a trailing percentile (owner, 29 Aug:
+# "when placing in paper we can use absolute for now", and "shd be adjustable").
+#
+# WHY ABSOLUTE. A trailing bottom-quartile fires ~25% of days in EVERY era by
+# construction, so through 2009-2016 it sold strangles at a median India VIX of
+# 16.7 and called that "low volatility". It wasn't — and that era is exactly
+# where the modelled strategy lost (-427/trade). The owner never traded that
+# way: "placed only when volatility is less" is an absolute judgement about the
+# number on the screen, not a percentile.
+#
+# Measured with the absolute rule instead (BANKNIFTY, 17 years):
+#     India VIX <= 12   2009-16: n=3 mean +481  |  2017-26: n=400 mean +856
+#                       ALL: n=403 mean +853, total +343,645
+# It simply STOPS TRADING when the regime turns, which is what the rule is for.
+#
+# SPY, same construction, % of collateral:
+#     VIX <= 12   24 trades/yr  worst -0.31%   0 trades in 2008-09
+#     VIX <= 14   66 trades/yr  worst -1.05%   0 trades in 2008-09
+#     VIX <= 16  100 trades/yr  worst -1.05%   0 trades in 2008-09
+#     VIX <= 18  131 trades/yr  worst -1.05%   8 trades in 2008-09  <- GFC leaks
+# The mean barely moves across thresholds; the TAIL does. 14 is the default
+# because it sits out the GFC entirely and triples the frequency of 12, while
+# 18 starts trading into a crash.
+VIX_MAX = {"US": 14.0, "INDIA": 12.0}
+VIX_LOOKBACK = 250          # sessions, still reported as CONTEXT alongside
 STRIKE_MULT = 1.5           # strikes at N x the implied DAILY move
 DTE = 1                     # sold against the nearest expiry
 LEDGER = os.path.expanduser("~/.tradepro/research/index_strangle_paper.json")
@@ -103,7 +129,10 @@ def decide(market: str) -> dict:
     # quartile would leak the future into the filter, which is the easiest way
     # to fake this entire result.
     hist = sorted(vols[-(VIX_LOOKBACK + 1):-1])
-    q1 = hist[len(hist) // 4]
+    q1 = hist[len(hist) // 4]           # context only — no longer the gate
+    import os as _os
+    thr = float(_os.environ.get(f"TRADEPRO_STRANGLE_VIX_MAX_{market}",
+                                VIX_MAX[market]))
     spot = float(px.loc[today, "Close"])
 
     iv = v / 100.0 * (INDIA_VOL_SCALE if market == "INDIA" else 1.0)
@@ -112,6 +141,8 @@ def decide(market: str) -> dict:
     out.update({
         "as_of": today, "spot": round(spot, 2),
         "vol_index": round(v, 2), "vol_q1_trailing": round(q1, 2),
+        "vol_threshold": thr,
+        "threshold_env": f"TRADEPRO_STRANGLE_VIX_MAX_{market}",
         "iv_used": round(100 * iv, 2),
         "iv_source": ("vol index" if market == "US"
                       else f"India VIX x {INDIA_VOL_SCALE} (BANKNIFTY realises more)"),
@@ -122,14 +153,14 @@ def decide(market: str) -> dict:
         "width_pct": round(100 * width, 2),
         "lot": cfg["lot"], "dte": DTE,
     })
-    if v <= q1:
+    if v <= thr:
         out["status"] = "CANDIDATE"
-        out["reason"] = (f"{cfg['vol']} {v:.2f} is at or below its trailing "
-                         f"25th percentile ({q1:.2f})")
+        out["reason"] = (f"{cfg['vol']} {v:.2f} is at or below the {thr:.1f} "
+                         f"threshold (trailing 25th pctile is {q1:.2f}, for context)")
     else:
         out["status"] = "stand aside"
-        out["reason"] = (f"{cfg['vol']} {v:.2f} is ABOVE its trailing 25th "
-                         f"percentile ({q1:.2f}) — not a low-volatility day")
+        out["reason"] = (f"{cfg['vol']} {v:.2f} is ABOVE the {thr:.1f} threshold "
+                         f"— not a low-volatility day (trailing 25th pctile {q1:.2f})")
     return out
 
 
