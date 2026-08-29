@@ -79,3 +79,45 @@ export async function getIdToken(): Promise<string | null> {
   const user = authInstance?.currentUser;
   return user ? await user.getIdToken() : null;
 }
+
+/**
+ * Request an on-demand screen run.
+ *
+ * Writes a `jobs` doc with status="pending", which `tradepro-worker` on the
+ * Mac already watches. The screen MUST run there — it reads the local bar
+ * store, which the API box does not have — and this collection is how the UI
+ * has always reached that host, so the trigger reuses it rather than
+ * introducing a second mechanism.
+ *
+ * Firestore is imported dynamically: this app previously loaded Firebase for
+ * AUTH only, and pulling the Firestore SDK into the main bundle for one button
+ * would cost every page load. Returns the job id so the caller can poll it.
+ */
+export async function requestScreenRun(screen: string): Promise<string | null> {
+  const app = getFirebaseApp();
+  if (!app) return null;
+  const { getFirestore, collection, addDoc, serverTimestamp } =
+    await import("firebase/firestore");
+  const ref = await addDoc(collection(getFirestore(app), "jobs"), {
+    kind: "screen",
+    status: "pending",
+    request: { screen },
+    requested_at: serverTimestamp(),
+    requested_by: "desk-ui",
+  });
+  return ref.id;
+}
+
+/** Watch one job doc until it leaves "pending"/"running". Returns unsubscribe. */
+export async function watchJob(
+  jobId: string,
+  cb: (status: string, data: Record<string, unknown>) => void,
+): Promise<() => void> {
+  const app = getFirebaseApp();
+  if (!app) return () => {};
+  const { getFirestore, doc, onSnapshot } = await import("firebase/firestore");
+  return onSnapshot(doc(getFirestore(app), "jobs", jobId), (snap) => {
+    const d = (snap.data() || {}) as Record<string, unknown>;
+    cb(String(d.status ?? "unknown"), d);
+  });
+}

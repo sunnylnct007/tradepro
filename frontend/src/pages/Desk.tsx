@@ -31,6 +31,7 @@ import { useSearchParams } from "react-router-dom";
 import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { ResearchView } from "../components/desk/ResearchView";
 import { SwingView } from "../components/desk/SwingView";
+import { PostEarningsPutsView } from "../components/desk/PostEarningsPutsView";
 import { MomentumView } from "../components/desk/MomentumView";
 import { ScannerView } from "../components/desk/ScannerView";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
@@ -74,7 +75,7 @@ function useWide(): boolean {
   return wide;
 }
 
-const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options", "daily-screener", "research", "swing"];
+const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options", "daily-screener", "research", "swing", "post-earnings-puts"];
 
 export function Desk() {
   const wide = useWide();
@@ -216,6 +217,7 @@ export function Desk() {
       {view === "harvest"    && <HarvestView />}
       {view === "research"   && <ResearchView />}
       {view === "swing"      && <SwingView />}
+      {view === "post-earnings-puts" && <PostEarningsPutsView />}
       {view === "momentum"   && <MomentumView />}
       {view === "scanner"    && <ScannerView />}
       {view === "options"    && <OptionsDesk />}

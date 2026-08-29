@@ -641,6 +641,12 @@ export const api = {
   /** Swing candidates — the mean-reversion bracket-order list.
    *  Reuses the today_setups_results store (universe="swing"); the artifact
    *  shape is different from the older setups scanner, hence its own method. */
+  /** The post-earnings put screen's published artifact. Raw JSONB from the
+   *  ingest endpoint, so new fields flow through without a backend change. */
+  postEarningsPuts: () =>
+    get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(
+      "/api/today-setups/post_earnings_puts/latest"),
+
   swingCandidates: () =>
     get<{
       universe: string; label: string; asOfUtc: string;
