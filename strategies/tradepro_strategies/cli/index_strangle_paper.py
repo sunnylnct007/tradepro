@@ -143,13 +143,31 @@ LEDGER = os.path.expanduser("~/.tradepro/research/index_strangle_paper.json")
 # through 31 sessions of the 2022 bear and 4 of COVID — a gate that opens in a
 # crash has failed at the one job it has. It is now 13.0.
 #
-# The rule independently reproduces SPY's 14, which is the only reason to
-# trust it over judgement. It moved four values:
+# On same-day data the rule reproduced SPY's hand-picked 14 exactly, which is
+# what earned it trust. It then survived a much harder test: see the lag note.
 #
-#   market       was    now   why
-#   GOLD        16.0   13.0   16 leaked COVID:4, 2022:31, Apr25:4
-#   NDX/QQQ     18.0   18.5   18.5 is still clean; 19.0 leaks COVID
-#   BANK/NIFTY  12.0   12.5   12.5 is still clean; 13.0 leaks Apr25
+# THE VOLATILITY INDEX IS LAGGED ONE SESSION, and this was a REAL BUG until
+# 29 Aug 2026. The trade is entered at the OPEN, so the only vol reading
+# available is the PREVIOUS close — but the backtest gated on the SAME day's
+# close, letting the filter see the very move it exists to avoid. It silently
+# excluded exactly the days that would have hurt. Found by the owner asking what
+# "if the gate fails" meant in the email.
+#
+# The cost of the correction, measured across five markets: mean return falls
+# 10-17%, and SPY's worst day goes -0.80% -> -1.89%. It also TIGHTENED every
+# gate, because a less-informed filter must be more conservative to stay clean:
+#
+#   market        same-day   lagged (live)   why the looser one leaks
+#   SPX/XSP/SPY      14.0        13.5        14.0 leaks COVID
+#   NDX/QQQ          18.5        17.5        18.0 leaks COVID
+#   GOLD             13.0        11.5        12.0 leaks COVID
+#   BANKNIFTY/NIFTY  12.5        12.5        unchanged — India was already right
+#
+# The lagged figures are the ONLY ones quoted anywhere, because the live screen
+# reads the last COMPLETED close (both jobs run pre-open) and so behaves like
+# the lagged backtest. Publishing the same-day numbers would have described a
+# filter nobody can actually run — the same harness-vs-screen mismatch already
+# sitting in the Swing evidence.
 #
 # A CORRECTION TO AN EARLIER CLAIM IN THIS FILE: it said VXN<=18 was "as
 # selective on Nasdaq as VIX<=14 is on the S&P". It is not. VIX<=14 is the 25th
@@ -165,32 +183,32 @@ LEDGER = os.path.expanduser("~/.tradepro/research/index_strangle_paper.json")
 # that look independent invite eight positions on what is really two risks.
 MARKETS = {
     # ---- S&P 500: one underlying, three contract sizes ----
-    "SPX": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 14.0,
+    "SPX": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
             "rate": 0.045, "grid": 5.0, "lot": 100, "divisor": 1.0,
             "family": "S&P 500", "ccy": "$",
             "product": "cash-settled index option · European · no early assignment",
             "note": "VIX is computed FROM SPX options, so the volatility input is "
                     "the underlying's own, not a proxy"},
-    "XSP": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 14.0,
+    "XSP": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 10.0,
             "family": "S&P 500", "ccy": "$",
             "product": "Mini-SPX · exactly 1/10 of SPX · cash-settled, European",
             "note": "the same trade as SPX at a tenth of the size — this is the "
                     "'smaller index' product; SPX itself is 10x SPY, not smaller"},
-    "SPY": {"index": "SPY", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 14.0,
+    "SPY": {"index": "SPY", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
             "family": "S&P 500", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
             "note": "measured edge is within noise of SPX (83.3% vs 82.4%), so the "
                     "choice is settlement and size, not return"},
     # ---- Nasdaq 100 ----
-    "NDX": {"index": "^NDX", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 18.5,
+    "NDX": {"index": "^NDX", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
             "rate": 0.045, "grid": 25.0, "lot": 100, "divisor": 1.0,
             "family": "Nasdaq 100", "ccy": "$",
             "product": "cash-settled index option · European",
             "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
                     "(p5 -0.183 vs -0.101) — the same rule, more risk per unit"},
-    "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 18.5,
+    "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
             "family": "Nasdaq 100", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
@@ -211,7 +229,7 @@ MARKETS = {
                       "needed. Worst day -0.29% vs BANKNIFTY's -1.05% — 3.5x safer "
                       "tail for about two-thirds the return"},
     # ---- Gold: the only genuinely uncorrelated leg here ----
-    "GOLD": {"index": "GLD", "vol": "^GVZ", "vol_scale": 1.0, "vol_max": 13.0,
+    "GOLD": {"index": "GLD", "vol": "^GVZ", "vol_scale": 1.0, "vol_max": 11.5,
              "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
              "family": "Gold", "ccy": "$",
              "product": "ETF option · American · CAN be assigned early",

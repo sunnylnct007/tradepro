@@ -246,3 +246,39 @@ def test_margin_basis_is_labelled_as_an_estimate():
                                "call_strike": 410.0, "forward": 400.3}}}
     e = P.economics(row, ev.get("GOLD"))
     assert e["margin_pct_assumed"] == P.MARGIN_PCT
+
+
+def test_the_gate_never_sees_the_day_it_trades():
+    """No lookahead in the volatility filter.
+
+    The trade is entered at the OPEN, so the gate may only use the PREVIOUS
+    session's vol close. Until 29 Aug 2026 the backtest gated on the same day's
+    close — letting the filter see the very move it exists to avoid, and
+    silently excluding the days that would have hurt. Mean return fell 10-17%
+    when corrected and SPY's worst day went -0.80% -> -1.89%.
+
+    This asserts on the source because the property lives in how the series is
+    built, and a numeric check would need the network.
+    """
+    src = open(os.path.join(os.path.dirname(P.__file__),
+                            "index_strangle_sim.py")).read()
+    assert src.count('j["V"] = j["V"].shift(1)') >= 2, (
+        "the one-session lag is missing from trade_returns or choose_threshold "
+        "— the gate would be using information it cannot have at entry")
+
+
+def test_published_worst_days_are_the_lagged_ones():
+    """A sanity floor on the evidence file.
+
+    With the lag applied, the S&P family's worst day is around -2%. If the
+    evidence is ever regenerated WITHOUT the lag those worst days collapse back
+    to about -0.8%, which reads as a much safer strategy than the one being
+    traded. This catches that regression at the number, not the source.
+    """
+    ev = P._evidence()
+    for m in ("SPX", "SPY", "XSP"):
+        if m not in ev:
+            continue
+        assert ev[m]["historical"]["worst_pct"] < -1.0, (
+            f"{m} worst day is {ev[m]['historical']['worst_pct']}% — that is the "
+            f"same-day-gated figure; the evidence was regenerated without the lag")

@@ -107,6 +107,11 @@ def choose_threshold(market: str) -> dict:
     if px is None or vx is None:
         return {"status": "no_data"}
     j = px[["Open"]].join(vx["Close"].rename("V"), how="inner").dropna()
+    # Same one-session lag as trade_returns — the threshold must be selected on
+    # the information the gate will actually have, or the chosen value describes
+    # a filter nobody can run.
+    j["V"] = j["V"].shift(1)
+    j = j.dropna()
     grid, chosen = [], None
     for t in THRESHOLD_GRID:
         g = j[j.V <= t]
@@ -157,6 +162,19 @@ def trade_returns(market: str, dte: int = 7, gated: bool = True):
         return None
     j = px[["Open", "Close"]].join(vx["Close"].rename("V"), how="inner").dropna()
     j = j.astype(float)
+    # LAG THE VOLATILITY INDEX BY ONE SESSION. The trade is entered at the OPEN,
+    # so the only vol reading available is the PREVIOUS close. Gating on the same
+    # day's close - which this did until 29 Aug 2026 - lets the filter see the
+    # very move it is supposed to be avoiding, and quietly excludes exactly the
+    # days that would have hurt.
+    #
+    # It is not a small effect. Measured across five markets: mean return falls
+    # 10-17%, and SPY's worst day goes -0.80% -> -1.89%, more than double. The
+    # live screen reads the last COMPLETED close (both jobs run pre-open), so the
+    # lagged figures are the ones that describe the traded thing. This is the
+    # same harness-vs-screen mismatch already sitting in the Swing numbers.
+    j["V"] = j["V"].shift(1)
+    j = j.dropna()
     div = cfg.get("divisor", 1.0)
     j = j[j.Open > 0]
     if gated:

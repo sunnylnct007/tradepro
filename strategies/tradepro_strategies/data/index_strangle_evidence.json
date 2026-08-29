@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-08-29T22:01:51+00:00",
+ "generated_utc": "2026-08-29T22:21:56+00:00",
  "dte": 7,
  "results": [
   {
@@ -7,36 +7,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 2318,
-    "first": "1991-11-13",
+    "n_trades": 1988,
+    "first": "1992-06-30",
     "last": "2025-12-26",
-    "trades_per_year": 67.9,
-    "win_pct": 82.4,
-    "mean_pct": 0.037,
-    "median_pct": 0.0632,
-    "p5_pct": -0.101,
-    "worst_pct": -0.837,
-    "best_pct": 0.129,
-    "stdev_pct": 0.0746,
-    "return_risk_ratio": 4.09
+    "trades_per_year": 59.4,
+    "win_pct": 81.8,
+    "mean_pct": 0.0309,
+    "median_pct": 0.0625,
+    "p5_pct": -0.131,
+    "worst_pct": -1.996,
+    "best_pct": 0.122,
+    "stdev_pct": 0.0981,
+    "return_risk_ratio": 2.43
    },
    "mc_blocked": {
-    "median_total_pct": 1.893,
-    "p5_total_pct": 0.867,
-    "p95_total_pct": 2.694,
-    "prob_losing_year_pct": 0.2,
-    "median_max_drawdown_pct": -0.277,
-    "p95_max_drawdown_pct": -0.637,
-    "worst_path_pct": -0.897
+    "median_total_pct": 1.631,
+    "p5_total_pct": 0.261,
+    "p95_total_pct": 2.535,
+    "prob_losing_year_pct": 3.3,
+    "median_max_drawdown_pct": -0.357,
+    "p95_max_drawdown_pct": -1.093,
+    "worst_path_pct": -3.323
    },
    "mc_iid": {
-    "median_total_pct": 1.892,
-    "p5_total_pct": 0.924,
-    "p95_total_pct": 2.644,
-    "prob_losing_year_pct": 0.2,
-    "median_max_drawdown_pct": -0.273,
-    "p95_max_drawdown_pct": -0.702,
-    "worst_path_pct": -0.512
+    "median_total_pct": 1.626,
+    "p5_total_pct": 0.271,
+    "p95_total_pct": 2.483,
+    "prob_losing_year_pct": 3.1,
+    "median_max_drawdown_pct": -0.363,
+    "p95_max_drawdown_pct": -1.054,
+    "worst_path_pct": -3.302
    },
    "mc_config": {
     "paths": 20000,
@@ -45,17 +45,17 @@
     "seed": 7
    },
    "stress": {
-    "worst_ungated_pct": -5.703,
-    "worst_ungated_date": "2025-04-09",
-    "mean_of_worst_n_pct": -2.172,
+    "worst_ungated_pct": -4.145,
+    "worst_ungated_date": "2008-09-29",
+    "mean_of_worst_n_pct": -2.299,
     "n_worst": 25,
-    "gated_worst_pct": -0.837,
-    "ungated_sessions": 9232
+    "gated_worst_pct": -1.996,
+    "ungated_sessions": 9231
    },
    "threshold_rule": {
     "status": "ok",
-    "chosen": 14.0,
-    "configured": 14.0,
+    "chosen": 13.5,
+    "configured": 13.5,
     "matches_config": true,
     "windows": [
      "GFC",
@@ -102,309 +102,311 @@
      {
       "threshold": 14.0,
       "sessions": 2318,
-      "leaks": {}
-     },
-     {
-      "threshold": 14.5,
-      "sessions": 2621,
       "leaks": {
        "COVID": 1
       }
      },
      {
-      "threshold": 15.0,
-      "sessions": 2958,
+      "threshold": 14.5,
+      "sessions": 2620,
       "leaks": {
        "COVID": 2
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 2957,
+      "leaks": {
+       "COVID": 3
       }
      },
      {
       "threshold": 15.5,
-      "sessions": 3266,
+      "sessions": 3265,
       "leaks": {
-       "COVID": 2
+       "COVID": 3
       }
      },
      {
       "threshold": 16.0,
-      "sessions": 3598,
+      "sessions": 3597,
       "leaks": {
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 16.5,
-      "sessions": 3963,
+      "sessions": 3962,
       "leaks": {
        "GFC": 2,
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 17.0,
-      "sessions": 4283,
+      "sessions": 4282,
       "leaks": {
        "GFC": 2,
-       "COVID": 3,
+       "COVID": 4,
        "2022 bear": 2
       }
      },
      {
       "threshold": 17.5,
-      "sessions": 4566,
+      "sessions": 4565,
       "leaks": {
        "GFC": 3,
-       "COVID": 4,
-       "2022 bear": 2,
+       "COVID": 5,
+       "2022 bear": 3,
        "Apr 2025": 2
       }
      },
      {
       "threshold": 18.0,
-      "sessions": 4846,
+      "sessions": 4845,
       "leaks": {
        "GFC": 8,
-       "COVID": 4,
-       "2022 bear": 3,
-       "Apr 2025": 3
+       "COVID": 5,
+       "2022 bear": 4,
+       "Apr 2025": 2
       }
      },
      {
       "threshold": 18.5,
-      "sessions": 5081,
+      "sessions": 5080,
       "leaks": {
        "GFC": 12,
-       "COVID": 4,
-       "2022 bear": 4,
-       "Apr 2025": 6
+       "COVID": 5,
+       "2022 bear": 5,
+       "Apr 2025": 5
       }
      },
      {
       "threshold": 19.0,
-      "sessions": 5332,
+      "sessions": 5331,
       "leaks": {
        "GFC": 17,
-       "COVID": 4,
-       "2022 bear": 7,
-       "Apr 2025": 8
+       "COVID": 5,
+       "2022 bear": 8,
+       "Apr 2025": 7
       }
      },
      {
       "threshold": 19.5,
-      "sessions": 5578,
+      "sessions": 5577,
       "leaks": {
        "GFC": 21,
-       "COVID": 4,
-       "2022 bear": 10,
-       "Apr 2025": 9
+       "COVID": 5,
+       "2022 bear": 11,
+       "Apr 2025": 8
       }
      },
      {
       "threshold": 20.0,
-      "sessions": 5808,
+      "sessions": 5807,
       "leaks": {
        "GFC": 30,
-       "COVID": 4,
-       "2022 bear": 21,
-       "Apr 2025": 11
+       "COVID": 5,
+       "2022 bear": 22,
+       "Apr 2025": 10
       }
      },
      {
       "threshold": 20.5,
-      "sessions": 6020,
+      "sessions": 6019,
       "leaks": {
        "GFC": 42,
-       "COVID": 4,
-       "2022 bear": 24,
-       "Apr 2025": 11
+       "COVID": 5,
+       "2022 bear": 25,
+       "Apr 2025": 10
       }
      },
      {
       "threshold": 21.0,
-      "sessions": 6249,
+      "sessions": 6248,
       "leaks": {
        "GFC": 51,
-       "COVID": 4,
-       "2022 bear": 27,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 28,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 21.5,
-      "sessions": 6468,
+      "sessions": 6467,
       "leaks": {
        "GFC": 62,
-       "COVID": 4,
-       "2022 bear": 35,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 36,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 22.0,
-      "sessions": 6664,
+      "sessions": 6663,
       "leaks": {
        "GFC": 67,
-       "COVID": 4,
-       "2022 bear": 42,
+       "COVID": 5,
+       "2022 bear": 43,
        "Apr 2025": 17
       }
      },
      {
       "threshold": 22.5,
-      "sessions": 6842,
+      "sessions": 6841,
       "leaks": {
-       "GFC": 74,
-       "COVID": 4,
-       "2022 bear": 46,
+       "GFC": 75,
+       "COVID": 5,
+       "2022 bear": 47,
        "Apr 2025": 19
       }
      },
      {
       "threshold": 23.0,
-      "sessions": 7027,
+      "sessions": 7026,
       "leaks": {
-       "GFC": 85,
-       "COVID": 4,
-       "2022 bear": 54,
+       "GFC": 86,
+       "COVID": 5,
+       "2022 bear": 55,
        "Apr 2025": 20
       }
      },
      {
       "threshold": 23.5,
-      "sessions": 7179,
+      "sessions": 7178,
       "leaks": {
-       "GFC": 101,
-       "COVID": 4,
-       "2022 bear": 59,
+       "GFC": 102,
+       "COVID": 5,
+       "2022 bear": 60,
        "Apr 2025": 20
       }
      },
      {
       "threshold": 24.0,
-      "sessions": 7324,
+      "sessions": 7323,
       "leaks": {
-       "GFC": 110,
-       "COVID": 4,
-       "2022 bear": 70,
+       "GFC": 111,
+       "COVID": 5,
+       "2022 bear": 71,
        "Apr 2025": 22
       }
      },
      {
       "threshold": 24.5,
-      "sessions": 7492,
+      "sessions": 7491,
       "leaks": {
-       "GFC": 120,
-       "COVID": 4,
-       "2022 bear": 78,
+       "GFC": 121,
+       "COVID": 5,
+       "2022 bear": 79,
        "Apr 2025": 23
       }
      },
      {
       "threshold": 25.0,
-      "sessions": 7634,
+      "sessions": 7633,
       "leaks": {
-       "GFC": 124,
-       "COVID": 4,
-       "2022 bear": 84,
+       "GFC": 125,
+       "COVID": 5,
+       "2022 bear": 85,
        "Apr 2025": 27
       }
      },
      {
       "threshold": 25.5,
-      "sessions": 7752,
+      "sessions": 7751,
       "leaks": {
-       "GFC": 132,
-       "COVID": 5,
-       "2022 bear": 88,
+       "GFC": 133,
+       "COVID": 6,
+       "2022 bear": 89,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 26.0,
-      "sessions": 7873,
+      "sessions": 7872,
       "leaks": {
-       "GFC": 147,
-       "COVID": 5,
+       "GFC": 148,
+       "COVID": 6,
        "2022 bear": 99,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 26.5,
-      "sessions": 7982,
+      "sessions": 7981,
       "leaks": {
        "GFC": 154,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 110,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 27.0,
-      "sessions": 8047,
+      "sessions": 8046,
       "leaks": {
        "GFC": 156,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 116,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 27.5,
-      "sessions": 8134,
+      "sessions": 8133,
       "leaks": {
        "GFC": 162,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 127,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 28.0,
-      "sessions": 8225,
+      "sessions": 8224,
       "leaks": {
        "GFC": 169,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 133,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 28.5,
-      "sessions": 8303,
+      "sessions": 8302,
       "leaks": {
        "GFC": 177,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 141,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 29.0,
-      "sessions": 8378,
+      "sessions": 8377,
       "leaks": {
        "GFC": 181,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 147,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 29.5,
-      "sessions": 8437,
+      "sessions": 8436,
       "leaks": {
        "GFC": 186,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 153,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 30.0,
-      "sessions": 8498,
+      "sessions": 8497,
       "leaks": {
        "GFC": 190,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 161,
        "Apr 2025": 31
       }
@@ -417,36 +419,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 2318,
-    "first": "1991-11-13",
+    "n_trades": 1988,
+    "first": "1992-06-30",
     "last": "2025-12-26",
-    "trades_per_year": 67.9,
-    "win_pct": 80.8,
-    "mean_pct": 0.0357,
-    "median_pct": 0.0626,
-    "p5_pct": -0.131,
-    "worst_pct": -0.837,
-    "best_pct": 0.264,
-    "stdev_pct": 0.0884,
-    "return_risk_ratio": 3.33
+    "trades_per_year": 59.4,
+    "win_pct": 79.8,
+    "mean_pct": 0.0286,
+    "median_pct": 0.0614,
+    "p5_pct": -0.155,
+    "worst_pct": -2.302,
+    "best_pct": 0.322,
+    "stdev_pct": 0.1212,
+    "return_risk_ratio": 1.82
    },
    "mc_blocked": {
-    "median_total_pct": 1.841,
-    "p5_total_pct": 0.636,
-    "p95_total_pct": 2.773,
-    "prob_losing_year_pct": 0.8,
-    "median_max_drawdown_pct": -0.366,
-    "p95_max_drawdown_pct": -0.837,
-    "worst_path_pct": -1.975
+    "median_total_pct": 1.562,
+    "p5_total_pct": -0.184,
+    "p95_total_pct": 2.602,
+    "prob_losing_year_pct": 6.3,
+    "median_max_drawdown_pct": -0.447,
+    "p95_max_drawdown_pct": -1.689,
+    "worst_path_pct": -4.075
    },
    "mc_iid": {
-    "median_total_pct": 1.826,
-    "p5_total_pct": 0.669,
-    "p95_total_pct": 2.735,
-    "prob_losing_year_pct": 0.7,
-    "median_max_drawdown_pct": -0.356,
-    "p95_max_drawdown_pct": -0.837,
-    "worst_path_pct": -0.968
+    "median_total_pct": 1.538,
+    "p5_total_pct": -0.172,
+    "p95_total_pct": 2.579,
+    "prob_losing_year_pct": 6.3,
+    "median_max_drawdown_pct": -0.46,
+    "p95_max_drawdown_pct": -1.577,
+    "worst_path_pct": -4.827
    },
    "mc_config": {
     "paths": 20000,
@@ -455,17 +457,17 @@
     "seed": 7
    },
    "stress": {
-    "worst_ungated_pct": -5.632,
-    "worst_ungated_date": "2025-04-09",
-    "mean_of_worst_n_pct": -2.204,
+    "worst_ungated_pct": -4.145,
+    "worst_ungated_date": "2008-09-29",
+    "mean_of_worst_n_pct": -2.325,
     "n_worst": 25,
-    "gated_worst_pct": -0.837,
-    "ungated_sessions": 9232
+    "gated_worst_pct": -2.302,
+    "ungated_sessions": 9231
    },
    "threshold_rule": {
     "status": "ok",
-    "chosen": 14.0,
-    "configured": 14.0,
+    "chosen": 13.5,
+    "configured": 13.5,
     "matches_config": true,
     "windows": [
      "GFC",
@@ -512,309 +514,311 @@
      {
       "threshold": 14.0,
       "sessions": 2318,
-      "leaks": {}
-     },
-     {
-      "threshold": 14.5,
-      "sessions": 2621,
       "leaks": {
        "COVID": 1
       }
      },
      {
-      "threshold": 15.0,
-      "sessions": 2958,
+      "threshold": 14.5,
+      "sessions": 2620,
       "leaks": {
        "COVID": 2
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 2957,
+      "leaks": {
+       "COVID": 3
       }
      },
      {
       "threshold": 15.5,
-      "sessions": 3266,
+      "sessions": 3265,
       "leaks": {
-       "COVID": 2
+       "COVID": 3
       }
      },
      {
       "threshold": 16.0,
-      "sessions": 3598,
+      "sessions": 3597,
       "leaks": {
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 16.5,
-      "sessions": 3963,
+      "sessions": 3962,
       "leaks": {
        "GFC": 2,
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 17.0,
-      "sessions": 4283,
+      "sessions": 4282,
       "leaks": {
        "GFC": 2,
-       "COVID": 3,
+       "COVID": 4,
        "2022 bear": 2
       }
      },
      {
       "threshold": 17.5,
-      "sessions": 4566,
+      "sessions": 4565,
       "leaks": {
        "GFC": 3,
-       "COVID": 4,
-       "2022 bear": 2,
+       "COVID": 5,
+       "2022 bear": 3,
        "Apr 2025": 2
       }
      },
      {
       "threshold": 18.0,
-      "sessions": 4846,
+      "sessions": 4845,
       "leaks": {
        "GFC": 8,
-       "COVID": 4,
-       "2022 bear": 3,
-       "Apr 2025": 3
+       "COVID": 5,
+       "2022 bear": 4,
+       "Apr 2025": 2
       }
      },
      {
       "threshold": 18.5,
-      "sessions": 5081,
+      "sessions": 5080,
       "leaks": {
        "GFC": 12,
-       "COVID": 4,
-       "2022 bear": 4,
-       "Apr 2025": 6
+       "COVID": 5,
+       "2022 bear": 5,
+       "Apr 2025": 5
       }
      },
      {
       "threshold": 19.0,
-      "sessions": 5332,
+      "sessions": 5331,
       "leaks": {
        "GFC": 17,
-       "COVID": 4,
-       "2022 bear": 7,
-       "Apr 2025": 8
+       "COVID": 5,
+       "2022 bear": 8,
+       "Apr 2025": 7
       }
      },
      {
       "threshold": 19.5,
-      "sessions": 5578,
+      "sessions": 5577,
       "leaks": {
        "GFC": 21,
-       "COVID": 4,
-       "2022 bear": 10,
-       "Apr 2025": 9
+       "COVID": 5,
+       "2022 bear": 11,
+       "Apr 2025": 8
       }
      },
      {
       "threshold": 20.0,
-      "sessions": 5808,
+      "sessions": 5807,
       "leaks": {
        "GFC": 30,
-       "COVID": 4,
-       "2022 bear": 21,
-       "Apr 2025": 11
+       "COVID": 5,
+       "2022 bear": 22,
+       "Apr 2025": 10
       }
      },
      {
       "threshold": 20.5,
-      "sessions": 6020,
+      "sessions": 6019,
       "leaks": {
        "GFC": 42,
-       "COVID": 4,
-       "2022 bear": 24,
-       "Apr 2025": 11
+       "COVID": 5,
+       "2022 bear": 25,
+       "Apr 2025": 10
       }
      },
      {
       "threshold": 21.0,
-      "sessions": 6249,
+      "sessions": 6248,
       "leaks": {
        "GFC": 51,
-       "COVID": 4,
-       "2022 bear": 27,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 28,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 21.5,
-      "sessions": 6468,
+      "sessions": 6467,
       "leaks": {
        "GFC": 62,
-       "COVID": 4,
-       "2022 bear": 35,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 36,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 22.0,
-      "sessions": 6664,
+      "sessions": 6663,
       "leaks": {
        "GFC": 67,
-       "COVID": 4,
-       "2022 bear": 42,
+       "COVID": 5,
+       "2022 bear": 43,
        "Apr 2025": 17
       }
      },
      {
       "threshold": 22.5,
-      "sessions": 6842,
+      "sessions": 6841,
       "leaks": {
-       "GFC": 74,
-       "COVID": 4,
-       "2022 bear": 46,
+       "GFC": 75,
+       "COVID": 5,
+       "2022 bear": 47,
        "Apr 2025": 19
       }
      },
      {
       "threshold": 23.0,
-      "sessions": 7027,
+      "sessions": 7026,
       "leaks": {
-       "GFC": 85,
-       "COVID": 4,
-       "2022 bear": 54,
+       "GFC": 86,
+       "COVID": 5,
+       "2022 bear": 55,
        "Apr 2025": 20
       }
      },
      {
       "threshold": 23.5,
-      "sessions": 7179,
+      "sessions": 7178,
       "leaks": {
-       "GFC": 101,
-       "COVID": 4,
-       "2022 bear": 59,
+       "GFC": 102,
+       "COVID": 5,
+       "2022 bear": 60,
        "Apr 2025": 20
       }
      },
      {
       "threshold": 24.0,
-      "sessions": 7324,
+      "sessions": 7323,
       "leaks": {
-       "GFC": 110,
-       "COVID": 4,
-       "2022 bear": 70,
+       "GFC": 111,
+       "COVID": 5,
+       "2022 bear": 71,
        "Apr 2025": 22
       }
      },
      {
       "threshold": 24.5,
-      "sessions": 7492,
+      "sessions": 7491,
       "leaks": {
-       "GFC": 120,
-       "COVID": 4,
-       "2022 bear": 78,
+       "GFC": 121,
+       "COVID": 5,
+       "2022 bear": 79,
        "Apr 2025": 23
       }
      },
      {
       "threshold": 25.0,
-      "sessions": 7634,
+      "sessions": 7633,
       "leaks": {
-       "GFC": 124,
-       "COVID": 4,
-       "2022 bear": 84,
+       "GFC": 125,
+       "COVID": 5,
+       "2022 bear": 85,
        "Apr 2025": 27
       }
      },
      {
       "threshold": 25.5,
-      "sessions": 7752,
+      "sessions": 7751,
       "leaks": {
-       "GFC": 132,
-       "COVID": 5,
-       "2022 bear": 88,
+       "GFC": 133,
+       "COVID": 6,
+       "2022 bear": 89,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 26.0,
-      "sessions": 7873,
+      "sessions": 7872,
       "leaks": {
-       "GFC": 147,
-       "COVID": 5,
+       "GFC": 148,
+       "COVID": 6,
        "2022 bear": 99,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 26.5,
-      "sessions": 7982,
+      "sessions": 7981,
       "leaks": {
        "GFC": 154,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 110,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 27.0,
-      "sessions": 8047,
+      "sessions": 8046,
       "leaks": {
        "GFC": 156,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 116,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 27.5,
-      "sessions": 8134,
+      "sessions": 8133,
       "leaks": {
        "GFC": 162,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 127,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 28.0,
-      "sessions": 8225,
+      "sessions": 8224,
       "leaks": {
        "GFC": 169,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 133,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 28.5,
-      "sessions": 8303,
+      "sessions": 8302,
       "leaks": {
        "GFC": 177,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 141,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 29.0,
-      "sessions": 8378,
+      "sessions": 8377,
       "leaks": {
        "GFC": 181,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 147,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 29.5,
-      "sessions": 8437,
+      "sessions": 8436,
       "leaks": {
        "GFC": 186,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 153,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 30.0,
-      "sessions": 8498,
+      "sessions": 8497,
       "leaks": {
        "GFC": 190,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 161,
        "Apr 2025": 31
       }
@@ -827,36 +831,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 2219,
-    "first": "1993-01-29",
+    "n_trades": 1918,
+    "first": "1993-02-01",
     "last": "2025-12-26",
-    "trades_per_year": 67.4,
-    "win_pct": 82.1,
-    "mean_pct": 0.0402,
-    "median_pct": 0.0632,
-    "p5_pct": -0.119,
-    "worst_pct": -0.804,
-    "best_pct": 0.346,
-    "stdev_pct": 0.0942,
-    "return_risk_ratio": 3.5
+    "trades_per_year": 58.3,
+    "win_pct": 80.6,
+    "mean_pct": 0.0331,
+    "median_pct": 0.0616,
+    "p5_pct": -0.16,
+    "worst_pct": -1.892,
+    "best_pct": 0.369,
+    "stdev_pct": 0.1191,
+    "return_risk_ratio": 2.12
    },
    "mc_blocked": {
-    "median_total_pct": 2.074,
-    "p5_total_pct": 0.718,
-    "p95_total_pct": 3.061,
-    "prob_losing_year_pct": 0.8,
-    "median_max_drawdown_pct": -0.377,
-    "p95_max_drawdown_pct": -0.946,
-    "worst_path_pct": -1.493
+    "median_total_pct": 1.765,
+    "p5_total_pct": 0.099,
+    "p95_total_pct": 2.833,
+    "prob_losing_year_pct": 4.3,
+    "median_max_drawdown_pct": -0.46,
+    "p95_max_drawdown_pct": -1.61,
+    "worst_path_pct": -4.392
    },
    "mc_iid": {
-    "median_total_pct": 2.039,
-    "p5_total_pct": 0.844,
-    "p95_total_pct": 3.022,
-    "prob_losing_year_pct": 0.4,
-    "median_max_drawdown_pct": -0.358,
-    "p95_max_drawdown_pct": -0.827,
-    "worst_path_pct": -1.351
+    "median_total_pct": 1.748,
+    "p5_total_pct": 0.112,
+    "p95_total_pct": 2.851,
+    "prob_losing_year_pct": 4.2,
+    "median_max_drawdown_pct": -0.458,
+    "p95_max_drawdown_pct": -1.61,
+    "worst_path_pct": -6.069
    },
    "mc_config": {
     "paths": 20000,
@@ -865,17 +869,17 @@
     "seed": 7
    },
    "stress": {
-    "worst_ungated_pct": -6.949,
-    "worst_ungated_date": "2025-04-09",
-    "mean_of_worst_n_pct": -2.105,
+    "worst_ungated_pct": -5.311,
+    "worst_ungated_date": "1997-10-28",
+    "mean_of_worst_n_pct": -2.158,
     "n_worst": 25,
-    "gated_worst_pct": -0.804,
-    "ungated_sessions": 8453
+    "gated_worst_pct": -1.892,
+    "ungated_sessions": 8452
    },
    "threshold_rule": {
     "status": "ok",
-    "chosen": 14.0,
-    "configured": 14.0,
+    "chosen": 13.5,
+    "configured": 13.5,
     "matches_config": true,
     "windows": [
      "GFC",
@@ -922,309 +926,311 @@
      {
       "threshold": 14.0,
       "sessions": 2219,
-      "leaks": {}
-     },
-     {
-      "threshold": 14.5,
-      "sessions": 2504,
       "leaks": {
        "COVID": 1
       }
      },
      {
-      "threshold": 15.0,
-      "sessions": 2807,
+      "threshold": 14.5,
+      "sessions": 2503,
       "leaks": {
        "COVID": 2
+      }
+     },
+     {
+      "threshold": 15.0,
+      "sessions": 2806,
+      "leaks": {
+       "COVID": 3
       }
      },
      {
       "threshold": 15.5,
-      "sessions": 3078,
+      "sessions": 3077,
       "leaks": {
-       "COVID": 2
+       "COVID": 3
       }
      },
      {
       "threshold": 16.0,
-      "sessions": 3364,
+      "sessions": 3363,
       "leaks": {
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 16.5,
-      "sessions": 3675,
+      "sessions": 3674,
       "leaks": {
        "GFC": 2,
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 17.0,
-      "sessions": 3938,
+      "sessions": 3937,
       "leaks": {
        "GFC": 2,
-       "COVID": 3,
+       "COVID": 4,
        "2022 bear": 2
       }
      },
      {
       "threshold": 17.5,
-      "sessions": 4169,
+      "sessions": 4168,
       "leaks": {
        "GFC": 3,
-       "COVID": 4,
-       "2022 bear": 2,
+       "COVID": 5,
+       "2022 bear": 3,
        "Apr 2025": 2
       }
      },
      {
       "threshold": 18.0,
-      "sessions": 4398,
+      "sessions": 4397,
       "leaks": {
        "GFC": 8,
-       "COVID": 4,
-       "2022 bear": 3,
-       "Apr 2025": 3
+       "COVID": 5,
+       "2022 bear": 4,
+       "Apr 2025": 2
       }
      },
      {
       "threshold": 18.5,
-      "sessions": 4605,
+      "sessions": 4604,
       "leaks": {
        "GFC": 12,
-       "COVID": 4,
-       "2022 bear": 4,
-       "Apr 2025": 6
+       "COVID": 5,
+       "2022 bear": 5,
+       "Apr 2025": 5
       }
      },
      {
       "threshold": 19.0,
-      "sessions": 4834,
+      "sessions": 4833,
       "leaks": {
        "GFC": 17,
-       "COVID": 4,
-       "2022 bear": 7,
-       "Apr 2025": 8
+       "COVID": 5,
+       "2022 bear": 8,
+       "Apr 2025": 7
       }
      },
      {
       "threshold": 19.5,
-      "sessions": 5065,
+      "sessions": 5064,
       "leaks": {
        "GFC": 21,
-       "COVID": 4,
-       "2022 bear": 10,
-       "Apr 2025": 9
+       "COVID": 5,
+       "2022 bear": 11,
+       "Apr 2025": 8
       }
      },
      {
       "threshold": 20.0,
-      "sessions": 5270,
+      "sessions": 5269,
       "leaks": {
        "GFC": 30,
-       "COVID": 4,
-       "2022 bear": 21,
-       "Apr 2025": 11
+       "COVID": 5,
+       "2022 bear": 22,
+       "Apr 2025": 10
       }
      },
      {
       "threshold": 20.5,
-      "sessions": 5456,
+      "sessions": 5455,
       "leaks": {
        "GFC": 42,
-       "COVID": 4,
-       "2022 bear": 24,
-       "Apr 2025": 11
+       "COVID": 5,
+       "2022 bear": 25,
+       "Apr 2025": 10
       }
      },
      {
       "threshold": 21.0,
-      "sessions": 5669,
+      "sessions": 5668,
       "leaks": {
        "GFC": 51,
-       "COVID": 4,
-       "2022 bear": 27,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 28,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 21.5,
-      "sessions": 5865,
+      "sessions": 5864,
       "leaks": {
        "GFC": 62,
-       "COVID": 4,
-       "2022 bear": 35,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 36,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 22.0,
-      "sessions": 6052,
+      "sessions": 6051,
       "leaks": {
        "GFC": 67,
-       "COVID": 4,
-       "2022 bear": 42,
+       "COVID": 5,
+       "2022 bear": 43,
        "Apr 2025": 17
       }
      },
      {
       "threshold": 22.5,
-      "sessions": 6215,
+      "sessions": 6214,
       "leaks": {
-       "GFC": 74,
-       "COVID": 4,
-       "2022 bear": 46,
+       "GFC": 75,
+       "COVID": 5,
+       "2022 bear": 47,
        "Apr 2025": 19
       }
      },
      {
       "threshold": 23.0,
-      "sessions": 6382,
+      "sessions": 6381,
       "leaks": {
-       "GFC": 85,
-       "COVID": 4,
-       "2022 bear": 54,
+       "GFC": 86,
+       "COVID": 5,
+       "2022 bear": 55,
        "Apr 2025": 20
       }
      },
      {
       "threshold": 23.5,
-      "sessions": 6525,
+      "sessions": 6524,
       "leaks": {
-       "GFC": 101,
-       "COVID": 4,
-       "2022 bear": 59,
+       "GFC": 102,
+       "COVID": 5,
+       "2022 bear": 60,
        "Apr 2025": 20
       }
      },
      {
       "threshold": 24.0,
-      "sessions": 6657,
+      "sessions": 6656,
       "leaks": {
-       "GFC": 110,
-       "COVID": 4,
-       "2022 bear": 70,
+       "GFC": 111,
+       "COVID": 5,
+       "2022 bear": 71,
        "Apr 2025": 22
       }
      },
      {
       "threshold": 24.5,
-      "sessions": 6813,
+      "sessions": 6812,
       "leaks": {
-       "GFC": 120,
-       "COVID": 4,
-       "2022 bear": 78,
+       "GFC": 121,
+       "COVID": 5,
+       "2022 bear": 79,
        "Apr 2025": 23
       }
      },
      {
       "threshold": 25.0,
-      "sessions": 6946,
+      "sessions": 6945,
       "leaks": {
-       "GFC": 124,
-       "COVID": 4,
-       "2022 bear": 84,
+       "GFC": 125,
+       "COVID": 5,
+       "2022 bear": 85,
        "Apr 2025": 27
       }
      },
      {
       "threshold": 25.5,
-      "sessions": 7060,
+      "sessions": 7059,
       "leaks": {
-       "GFC": 132,
-       "COVID": 5,
-       "2022 bear": 88,
+       "GFC": 133,
+       "COVID": 6,
+       "2022 bear": 89,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 26.0,
-      "sessions": 7177,
+      "sessions": 7176,
       "leaks": {
-       "GFC": 147,
-       "COVID": 5,
+       "GFC": 148,
+       "COVID": 6,
        "2022 bear": 99,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 26.5,
-      "sessions": 7281,
+      "sessions": 7280,
       "leaks": {
        "GFC": 154,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 110,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 27.0,
-      "sessions": 7343,
+      "sessions": 7342,
       "leaks": {
        "GFC": 156,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 116,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 27.5,
-      "sessions": 7423,
+      "sessions": 7422,
       "leaks": {
        "GFC": 162,
-       "COVID": 5,
+       "COVID": 6,
        "2022 bear": 127,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 28.0,
-      "sessions": 7506,
+      "sessions": 7505,
       "leaks": {
        "GFC": 169,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 133,
        "Apr 2025": 29
       }
      },
      {
       "threshold": 28.5,
-      "sessions": 7577,
+      "sessions": 7576,
       "leaks": {
        "GFC": 177,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 141,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 29.0,
-      "sessions": 7643,
+      "sessions": 7642,
       "leaks": {
        "GFC": 181,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 147,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 29.5,
-      "sessions": 7696,
+      "sessions": 7695,
       "leaks": {
        "GFC": 186,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 153,
        "Apr 2025": 30
       }
      },
      {
       "threshold": 30.0,
-      "sessions": 7750,
+      "sessions": 7749,
       "leaks": {
        "GFC": 190,
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 161,
        "Apr 2025": 31
       }
@@ -1237,36 +1243,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 2213,
-    "first": "2004-11-15",
+    "n_trades": 1790,
+    "first": "2004-12-22",
     "last": "2025-12-29",
-    "trades_per_year": 104.8,
-    "win_pct": 80.8,
-    "mean_pct": 0.0397,
-    "median_pct": 0.0778,
-    "p5_pct": -0.186,
-    "worst_pct": -1.083,
-    "best_pct": 0.169,
-    "stdev_pct": 0.1094,
-    "return_risk_ratio": 3.71
+    "trades_per_year": 85.2,
+    "win_pct": 79.7,
+    "mean_pct": 0.0326,
+    "median_pct": 0.076,
+    "p5_pct": -0.214,
+    "worst_pct": -1.256,
+    "best_pct": 0.167,
+    "stdev_pct": 0.1239,
+    "return_risk_ratio": 2.43
    },
    "mc_blocked": {
-    "median_total_pct": 2.06,
-    "p5_total_pct": 0.547,
-    "p95_total_pct": 3.182,
-    "prob_losing_year_pct": 1.6,
-    "median_max_drawdown_pct": -0.443,
-    "p95_max_drawdown_pct": -1.169,
-    "worst_path_pct": -2.017
+    "median_total_pct": 1.72,
+    "p5_total_pct": -0.054,
+    "p95_total_pct": 2.973,
+    "prob_losing_year_pct": 5.5,
+    "median_max_drawdown_pct": -0.556,
+    "p95_max_drawdown_pct": -1.451,
+    "worst_path_pct": -3.834
    },
    "mc_iid": {
-    "median_total_pct": 2.038,
-    "p5_total_pct": 0.596,
-    "p95_total_pct": 3.128,
-    "prob_losing_year_pct": 1.2,
-    "median_max_drawdown_pct": -0.465,
-    "p95_max_drawdown_pct": -1.087,
-    "worst_path_pct": -2.191
+    "median_total_pct": 1.71,
+    "p5_total_pct": 0.035,
+    "p95_total_pct": 2.92,
+    "prob_losing_year_pct": 4.7,
+    "median_max_drawdown_pct": -0.547,
+    "p95_max_drawdown_pct": -1.402,
+    "worst_path_pct": -2.903
    },
    "mc_config": {
     "paths": 20000,
@@ -1275,17 +1281,17 @@
     "seed": 7
    },
    "stress": {
-    "worst_ungated_pct": -7.397,
+    "worst_ungated_pct": -6.87,
     "worst_ungated_date": "2025-04-09",
-    "mean_of_worst_n_pct": -1.995,
+    "mean_of_worst_n_pct": -2.031,
     "n_worst": 25,
-    "gated_worst_pct": -1.083,
-    "ungated_sessions": 6438
+    "gated_worst_pct": -1.256,
+    "ungated_sessions": 6437
    },
    "threshold_rule": {
     "status": "ok",
-    "chosen": 18.5,
-    "configured": 18.5,
+    "chosen": 17.5,
+    "configured": 17.5,
     "matches_config": true,
     "windows": [
      "GFC",
@@ -1347,229 +1353,233 @@
      {
       "threshold": 18.0,
       "sessions": 2015,
-      "leaks": {}
+      "leaks": {
+       "COVID": 1
+      }
      },
      {
       "threshold": 18.5,
       "sessions": 2213,
-      "leaks": {}
+      "leaks": {
+       "COVID": 1
+      }
      },
      {
       "threshold": 19.0,
       "sessions": 2425,
       "leaks": {
-       "COVID": 1
+       "COVID": 2
       }
      },
      {
       "threshold": 19.5,
       "sessions": 2625,
       "leaks": {
-       "COVID": 2
-      }
-     },
-     {
-      "threshold": 20.0,
-      "sessions": 2818,
-      "leaks": {
-       "GFC": 1,
-       "COVID": 2
-      }
-     },
-     {
-      "threshold": 20.5,
-      "sessions": 3007,
-      "leaks": {
-       "GFC": 2,
        "COVID": 3
       }
      },
      {
+      "threshold": 20.0,
+      "sessions": 2817,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 3006,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 4
+      }
+     },
+     {
       "threshold": 21.0,
-      "sessions": 3160,
+      "sessions": 3159,
       "leaks": {
        "GFC": 3,
-       "COVID": 3,
+       "COVID": 4,
        "Apr 2025": 1
       }
      },
      {
       "threshold": 21.5,
-      "sessions": 3319,
+      "sessions": 3318,
       "leaks": {
        "GFC": 9,
-       "COVID": 3,
-       "2022 bear": 1,
+       "COVID": 4,
+       "2022 bear": 2,
        "Apr 2025": 2
       }
      },
      {
       "threshold": 22.0,
-      "sessions": 3470,
+      "sessions": 3469,
       "leaks": {
        "GFC": 10,
-       "COVID": 3,
-       "2022 bear": 1,
-       "Apr 2025": 3
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 2
       }
      },
      {
       "threshold": 22.5,
-      "sessions": 3611,
+      "sessions": 3610,
       "leaks": {
        "GFC": 15,
-       "COVID": 4,
-       "2022 bear": 2,
-       "Apr 2025": 7
+       "COVID": 5,
+       "2022 bear": 3,
+       "Apr 2025": 6
       }
      },
      {
       "threshold": 23.0,
-      "sessions": 3732,
+      "sessions": 3731,
       "leaks": {
        "GFC": 22,
-       "COVID": 4,
-       "2022 bear": 2,
-       "Apr 2025": 9
+       "COVID": 5,
+       "2022 bear": 3,
+       "Apr 2025": 8
       }
      },
      {
       "threshold": 23.5,
-      "sessions": 3862,
+      "sessions": 3861,
       "leaks": {
        "GFC": 29,
-       "COVID": 4,
-       "2022 bear": 3,
-       "Apr 2025": 10
+       "COVID": 5,
+       "2022 bear": 4,
+       "Apr 2025": 9
       }
      },
      {
       "threshold": 24.0,
-      "sessions": 3974,
+      "sessions": 3973,
       "leaks": {
        "GFC": 37,
-       "COVID": 4,
-       "2022 bear": 3,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 4,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 24.5,
-      "sessions": 4076,
+      "sessions": 4075,
       "leaks": {
        "GFC": 48,
-       "COVID": 4,
-       "2022 bear": 4,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 5,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 25.0,
-      "sessions": 4196,
+      "sessions": 4195,
       "leaks": {
        "GFC": 54,
-       "COVID": 4,
-       "2022 bear": 5,
-       "Apr 2025": 13
+       "COVID": 5,
+       "2022 bear": 6,
+       "Apr 2025": 12
       }
      },
      {
       "threshold": 25.5,
-      "sessions": 4295,
+      "sessions": 4294,
       "leaks": {
        "GFC": 59,
-       "COVID": 4,
-       "2022 bear": 7,
-       "Apr 2025": 17
+       "COVID": 5,
+       "2022 bear": 8,
+       "Apr 2025": 16
       }
      },
      {
       "threshold": 26.0,
-      "sessions": 4404,
+      "sessions": 4403,
       "leaks": {
-       "GFC": 68,
-       "COVID": 4,
-       "2022 bear": 17,
+       "GFC": 69,
+       "COVID": 5,
+       "2022 bear": 18,
        "Apr 2025": 20
       }
      },
      {
       "threshold": 26.5,
-      "sessions": 4499,
+      "sessions": 4498,
       "leaks": {
-       "GFC": 77,
-       "COVID": 4,
-       "2022 bear": 20,
+       "GFC": 78,
+       "COVID": 5,
+       "2022 bear": 21,
        "Apr 2025": 21
       }
      },
      {
       "threshold": 27.0,
-      "sessions": 4609,
+      "sessions": 4608,
       "leaks": {
        "GFC": 93,
-       "COVID": 4,
-       "2022 bear": 25,
+       "COVID": 5,
+       "2022 bear": 26,
        "Apr 2025": 22
       }
      },
      {
       "threshold": 27.5,
-      "sessions": 4693,
+      "sessions": 4692,
       "leaks": {
        "GFC": 105,
-       "COVID": 4,
-       "2022 bear": 30,
+       "COVID": 5,
+       "2022 bear": 31,
        "Apr 2025": 23
       }
      },
      {
       "threshold": 28.0,
-      "sessions": 4788,
+      "sessions": 4787,
       "leaks": {
        "GFC": 115,
-       "COVID": 4,
-       "2022 bear": 37,
+       "COVID": 5,
+       "2022 bear": 38,
        "Apr 2025": 26
       }
      },
      {
       "threshold": 28.5,
-      "sessions": 4858,
+      "sessions": 4857,
       "leaks": {
        "GFC": 127,
-       "COVID": 4,
-       "2022 bear": 44,
+       "COVID": 5,
+       "2022 bear": 45,
        "Apr 2025": 27
       }
      },
      {
       "threshold": 29.0,
-      "sessions": 4927,
+      "sessions": 4926,
       "leaks": {
        "GFC": 136,
-       "COVID": 4,
-       "2022 bear": 50,
+       "COVID": 5,
+       "2022 bear": 51,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 29.5,
-      "sessions": 5009,
+      "sessions": 5008,
       "leaks": {
        "GFC": 147,
-       "COVID": 5,
-       "2022 bear": 58,
+       "COVID": 6,
+       "2022 bear": 59,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 30.0,
-      "sessions": 5068,
+      "sessions": 5067,
       "leaks": {
        "GFC": 160,
-       "COVID": 5,
-       "2022 bear": 66,
+       "COVID": 6,
+       "2022 bear": 67,
        "Apr 2025": 29
       }
      }
@@ -1581,36 +1591,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 2213,
-    "first": "2004-11-15",
+    "n_trades": 1790,
+    "first": "2004-12-22",
     "last": "2025-12-29",
-    "trades_per_year": 104.8,
-    "win_pct": 80.3,
-    "mean_pct": 0.0408,
-    "median_pct": 0.0774,
-    "p5_pct": -0.192,
-    "worst_pct": -1.012,
-    "best_pct": 0.385,
-    "stdev_pct": 0.1236,
-    "return_risk_ratio": 3.38
+    "trades_per_year": 85.2,
+    "win_pct": 80.6,
+    "mean_pct": 0.036,
+    "median_pct": 0.0762,
+    "p5_pct": -0.22,
+    "worst_pct": -1.448,
+    "best_pct": 0.372,
+    "stdev_pct": 0.1403,
+    "return_risk_ratio": 2.37
    },
    "mc_blocked": {
-    "median_total_pct": 2.107,
-    "p5_total_pct": 0.493,
-    "p95_total_pct": 3.323,
-    "prob_losing_year_pct": 1.8,
-    "median_max_drawdown_pct": -0.529,
-    "p95_max_drawdown_pct": -1.27,
-    "worst_path_pct": -3.074
+    "median_total_pct": 1.908,
+    "p5_total_pct": 0.015,
+    "p95_total_pct": 3.206,
+    "prob_losing_year_pct": 4.9,
+    "median_max_drawdown_pct": -0.612,
+    "p95_max_drawdown_pct": -1.617,
+    "worst_path_pct": -4.039
    },
    "mc_iid": {
-    "median_total_pct": 2.088,
-    "p5_total_pct": 0.503,
-    "p95_total_pct": 3.354,
-    "prob_losing_year_pct": 1.7,
-    "median_max_drawdown_pct": -0.53,
-    "p95_max_drawdown_pct": -1.21,
-    "worst_path_pct": -2.498
+    "median_total_pct": 1.892,
+    "p5_total_pct": 0.005,
+    "p95_total_pct": 3.261,
+    "prob_losing_year_pct": 5.0,
+    "median_max_drawdown_pct": -0.6,
+    "p95_max_drawdown_pct": -1.586,
+    "worst_path_pct": -3.064
    },
    "mc_config": {
     "paths": 20000,
@@ -1619,17 +1629,17 @@
     "seed": 7
    },
    "stress": {
-    "worst_ungated_pct": -7.719,
+    "worst_ungated_pct": -7.166,
     "worst_ungated_date": "2025-04-09",
-    "mean_of_worst_n_pct": -1.931,
+    "mean_of_worst_n_pct": -1.903,
     "n_worst": 25,
-    "gated_worst_pct": -1.012,
-    "ungated_sessions": 6438
+    "gated_worst_pct": -1.448,
+    "ungated_sessions": 6437
    },
    "threshold_rule": {
     "status": "ok",
-    "chosen": 18.5,
-    "configured": 18.5,
+    "chosen": 17.5,
+    "configured": 17.5,
     "matches_config": true,
     "windows": [
      "GFC",
@@ -1691,229 +1701,233 @@
      {
       "threshold": 18.0,
       "sessions": 2015,
-      "leaks": {}
+      "leaks": {
+       "COVID": 1
+      }
      },
      {
       "threshold": 18.5,
       "sessions": 2213,
-      "leaks": {}
+      "leaks": {
+       "COVID": 1
+      }
      },
      {
       "threshold": 19.0,
       "sessions": 2425,
       "leaks": {
-       "COVID": 1
+       "COVID": 2
       }
      },
      {
       "threshold": 19.5,
       "sessions": 2625,
       "leaks": {
-       "COVID": 2
-      }
-     },
-     {
-      "threshold": 20.0,
-      "sessions": 2818,
-      "leaks": {
-       "GFC": 1,
-       "COVID": 2
-      }
-     },
-     {
-      "threshold": 20.5,
-      "sessions": 3007,
-      "leaks": {
-       "GFC": 2,
        "COVID": 3
       }
      },
      {
+      "threshold": 20.0,
+      "sessions": 2817,
+      "leaks": {
+       "GFC": 1,
+       "COVID": 3
+      }
+     },
+     {
+      "threshold": 20.5,
+      "sessions": 3006,
+      "leaks": {
+       "GFC": 2,
+       "COVID": 4
+      }
+     },
+     {
       "threshold": 21.0,
-      "sessions": 3160,
+      "sessions": 3159,
       "leaks": {
        "GFC": 3,
-       "COVID": 3,
+       "COVID": 4,
        "Apr 2025": 1
       }
      },
      {
       "threshold": 21.5,
-      "sessions": 3319,
+      "sessions": 3318,
       "leaks": {
        "GFC": 9,
-       "COVID": 3,
-       "2022 bear": 1,
+       "COVID": 4,
+       "2022 bear": 2,
        "Apr 2025": 2
       }
      },
      {
       "threshold": 22.0,
-      "sessions": 3470,
+      "sessions": 3469,
       "leaks": {
        "GFC": 10,
-       "COVID": 3,
-       "2022 bear": 1,
-       "Apr 2025": 3
+       "COVID": 4,
+       "2022 bear": 2,
+       "Apr 2025": 2
       }
      },
      {
       "threshold": 22.5,
-      "sessions": 3611,
+      "sessions": 3610,
       "leaks": {
        "GFC": 15,
-       "COVID": 4,
-       "2022 bear": 2,
-       "Apr 2025": 7
+       "COVID": 5,
+       "2022 bear": 3,
+       "Apr 2025": 6
       }
      },
      {
       "threshold": 23.0,
-      "sessions": 3732,
+      "sessions": 3731,
       "leaks": {
        "GFC": 22,
-       "COVID": 4,
-       "2022 bear": 2,
-       "Apr 2025": 9
+       "COVID": 5,
+       "2022 bear": 3,
+       "Apr 2025": 8
       }
      },
      {
       "threshold": 23.5,
-      "sessions": 3862,
+      "sessions": 3861,
       "leaks": {
        "GFC": 29,
-       "COVID": 4,
-       "2022 bear": 3,
-       "Apr 2025": 10
+       "COVID": 5,
+       "2022 bear": 4,
+       "Apr 2025": 9
       }
      },
      {
       "threshold": 24.0,
-      "sessions": 3974,
+      "sessions": 3973,
       "leaks": {
        "GFC": 37,
-       "COVID": 4,
-       "2022 bear": 3,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 4,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 24.5,
-      "sessions": 4076,
+      "sessions": 4075,
       "leaks": {
        "GFC": 48,
-       "COVID": 4,
-       "2022 bear": 4,
-       "Apr 2025": 12
+       "COVID": 5,
+       "2022 bear": 5,
+       "Apr 2025": 11
       }
      },
      {
       "threshold": 25.0,
-      "sessions": 4196,
+      "sessions": 4195,
       "leaks": {
        "GFC": 54,
-       "COVID": 4,
-       "2022 bear": 5,
-       "Apr 2025": 13
+       "COVID": 5,
+       "2022 bear": 6,
+       "Apr 2025": 12
       }
      },
      {
       "threshold": 25.5,
-      "sessions": 4295,
+      "sessions": 4294,
       "leaks": {
        "GFC": 59,
-       "COVID": 4,
-       "2022 bear": 7,
-       "Apr 2025": 17
+       "COVID": 5,
+       "2022 bear": 8,
+       "Apr 2025": 16
       }
      },
      {
       "threshold": 26.0,
-      "sessions": 4404,
+      "sessions": 4403,
       "leaks": {
-       "GFC": 68,
-       "COVID": 4,
-       "2022 bear": 17,
+       "GFC": 69,
+       "COVID": 5,
+       "2022 bear": 18,
        "Apr 2025": 20
       }
      },
      {
       "threshold": 26.5,
-      "sessions": 4499,
+      "sessions": 4498,
       "leaks": {
-       "GFC": 77,
-       "COVID": 4,
-       "2022 bear": 20,
+       "GFC": 78,
+       "COVID": 5,
+       "2022 bear": 21,
        "Apr 2025": 21
       }
      },
      {
       "threshold": 27.0,
-      "sessions": 4609,
+      "sessions": 4608,
       "leaks": {
        "GFC": 93,
-       "COVID": 4,
-       "2022 bear": 25,
+       "COVID": 5,
+       "2022 bear": 26,
        "Apr 2025": 22
       }
      },
      {
       "threshold": 27.5,
-      "sessions": 4693,
+      "sessions": 4692,
       "leaks": {
        "GFC": 105,
-       "COVID": 4,
-       "2022 bear": 30,
+       "COVID": 5,
+       "2022 bear": 31,
        "Apr 2025": 23
       }
      },
      {
       "threshold": 28.0,
-      "sessions": 4788,
+      "sessions": 4787,
       "leaks": {
        "GFC": 115,
-       "COVID": 4,
-       "2022 bear": 37,
+       "COVID": 5,
+       "2022 bear": 38,
        "Apr 2025": 26
       }
      },
      {
       "threshold": 28.5,
-      "sessions": 4858,
+      "sessions": 4857,
       "leaks": {
        "GFC": 127,
-       "COVID": 4,
-       "2022 bear": 44,
+       "COVID": 5,
+       "2022 bear": 45,
        "Apr 2025": 27
       }
      },
      {
       "threshold": 29.0,
-      "sessions": 4927,
+      "sessions": 4926,
       "leaks": {
        "GFC": 136,
-       "COVID": 4,
-       "2022 bear": 50,
+       "COVID": 5,
+       "2022 bear": 51,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 29.5,
-      "sessions": 5009,
+      "sessions": 5008,
       "leaks": {
        "GFC": 147,
-       "COVID": 5,
-       "2022 bear": 58,
+       "COVID": 6,
+       "2022 bear": 59,
        "Apr 2025": 28
       }
      },
      {
       "threshold": 30.0,
-      "sessions": 5068,
+      "sessions": 5067,
       "leaks": {
        "GFC": 160,
-       "COVID": 5,
-       "2022 bear": 66,
+       "COVID": 6,
+       "2022 bear": 67,
        "Apr 2025": 29
       }
      }
@@ -1925,36 +1939,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 549,
-    "first": "2014-09-12",
+    "n_trades": 548,
+    "first": "2014-09-15",
     "last": "2026-08-28",
     "trades_per_year": 45.9,
-    "win_pct": 84.0,
-    "mean_pct": 0.0497,
-    "median_pct": 0.0811,
-    "p5_pct": -0.085,
-    "worst_pct": -1.046,
+    "win_pct": 82.7,
+    "mean_pct": 0.0447,
+    "median_pct": 0.0795,
+    "p5_pct": -0.112,
+    "worst_pct": -0.966,
     "best_pct": 0.113,
-    "stdev_pct": 0.0951,
-    "return_risk_ratio": 3.54
+    "stdev_pct": 0.1009,
+    "return_risk_ratio": 3.0
    },
    "mc_blocked": {
-    "median_total_pct": 2.634,
-    "p5_total_pct": 1.059,
-    "p95_total_pct": 3.463,
-    "prob_losing_year_pct": 0.6,
-    "median_max_drawdown_pct": -0.244,
-    "p95_max_drawdown_pct": -1.297,
-    "worst_path_pct": -2.065
+    "median_total_pct": 2.331,
+    "p5_total_pct": 0.877,
+    "p95_total_pct": 3.273,
+    "prob_losing_year_pct": 0.7,
+    "median_max_drawdown_pct": -0.388,
+    "p95_max_drawdown_pct": -1.019,
+    "worst_path_pct": -2.041
    },
    "mc_iid": {
-    "median_total_pct": 2.586,
-    "p5_total_pct": 1.261,
-    "p95_total_pct": 3.411,
-    "prob_losing_year_pct": 0.2,
-    "median_max_drawdown_pct": -0.266,
-    "p95_max_drawdown_pct": -1.06,
-    "worst_path_pct": -1.132
+    "median_total_pct": 2.323,
+    "p5_total_pct": 0.944,
+    "p95_total_pct": 3.253,
+    "prob_losing_year_pct": 0.5,
+    "median_max_drawdown_pct": -0.337,
+    "p95_max_drawdown_pct": -1.058,
+    "worst_path_pct": -1.213
    },
    "mc_config": {
     "paths": 20000,
@@ -1963,12 +1977,12 @@
     "seed": 7
    },
    "stress": {
-    "worst_ungated_pct": -5.157,
+    "worst_ungated_pct": -5.14,
     "worst_ungated_date": "2019-09-20",
-    "mean_of_worst_n_pct": -2.481,
+    "mean_of_worst_n_pct": -2.57,
     "n_worst": 25,
-    "gated_worst_pct": -1.046,
-    "ungated_sessions": 4530
+    "gated_worst_pct": -0.966,
+    "ungated_sessions": 4529
    },
    "threshold_rule": {
     "status": "ok",
@@ -1984,341 +1998,341 @@
     "grid": [
      {
       "threshold": 11.0,
-      "sessions": 120,
+      "sessions": 119,
       "leaks": {}
      },
      {
       "threshold": 11.5,
-      "sessions": 253,
+      "sessions": 252,
       "leaks": {}
      },
      {
       "threshold": 12.0,
-      "sessions": 404,
+      "sessions": 403,
       "leaks": {}
      },
      {
       "threshold": 12.5,
-      "sessions": 549,
+      "sessions": 548,
       "leaks": {}
      },
      {
       "threshold": 13.0,
-      "sessions": 700,
+      "sessions": 699,
       "leaks": {
        "Apr 2025": 3
       }
      },
      {
       "threshold": 13.5,
-      "sessions": 892,
+      "sessions": 891,
       "leaks": {
-       "Apr 2025": 8
+       "Apr 2025": 9
       }
      },
      {
       "threshold": 14.0,
-      "sessions": 1110,
+      "sessions": 1109,
       "leaks": {
-       "COVID": 1,
-       "Apr 2025": 14
+       "COVID": 2,
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 14.5,
-      "sessions": 1330,
+      "sessions": 1329,
       "leaks": {
-       "COVID": 3,
-       "Apr 2025": 14
+       "COVID": 4,
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 15.0,
-      "sessions": 1518,
+      "sessions": 1517,
       "leaks": {
-       "COVID": 4,
-       "Apr 2025": 14
+       "COVID": 5,
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 15.5,
-      "sessions": 1703,
+      "sessions": 1702,
       "leaks": {
-       "COVID": 4,
-       "Apr 2025": 16
+       "COVID": 5,
+       "Apr 2025": 17
       }
      },
      {
       "threshold": 16.0,
-      "sessions": 1898,
+      "sessions": 1897,
       "leaks": {
-       "COVID": 4,
-       "2022 bear": 2,
-       "Apr 2025": 19
+       "COVID": 5,
+       "2022 bear": 1,
+       "Apr 2025": 20
       }
      },
      {
       "threshold": 16.5,
-      "sessions": 2084,
+      "sessions": 2083,
       "leaks": {
-       "COVID": 4,
+       "COVID": 5,
        "2022 bear": 4,
-       "Apr 2025": 21
+       "Apr 2025": 22
       }
      },
      {
       "threshold": 17.0,
-      "sessions": 2261,
+      "sessions": 2260,
       "leaks": {
-       "COVID": 6,
+       "COVID": 7,
        "2022 bear": 13,
        "Apr 2025": 23
       }
      },
      {
       "threshold": 17.5,
-      "sessions": 2416,
+      "sessions": 2415,
       "leaks": {
-       "COVID": 6,
+       "COVID": 7,
        "2022 bear": 26,
        "Apr 2025": 26
       }
      },
      {
       "threshold": 18.0,
-      "sessions": 2552,
+      "sessions": 2551,
       "leaks": {
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 45,
        "Apr 2025": 26
       }
      },
      {
       "threshold": 18.5,
-      "sessions": 2690,
+      "sessions": 2689,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 65,
        "Apr 2025": 31
       }
      },
      {
       "threshold": 19.0,
-      "sessions": 2815,
+      "sessions": 2814,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 80,
        "Apr 2025": 32
       }
      },
      {
       "threshold": 19.5,
-      "sessions": 2924,
+      "sessions": 2923,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 95,
        "Apr 2025": 33
       }
      },
      {
       "threshold": 20.0,
-      "sessions": 3028,
+      "sessions": 3027,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 114,
        "Apr 2025": 33
       }
      },
      {
       "threshold": 20.5,
-      "sessions": 3137,
+      "sessions": 3136,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 125,
        "Apr 2025": 35
       }
      },
      {
       "threshold": 21.0,
-      "sessions": 3244,
+      "sessions": 3243,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 137,
        "Apr 2025": 35
       }
      },
      {
       "threshold": 21.5,
-      "sessions": 3332,
+      "sessions": 3331,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 150,
        "Apr 2025": 37
       }
      },
      {
       "threshold": 22.0,
-      "sessions": 3399,
+      "sessions": 3398,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 157,
        "Apr 2025": 38
       }
      },
      {
       "threshold": 22.5,
-      "sessions": 3465,
+      "sessions": 3464,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 166,
        "Apr 2025": 38
       }
      },
      {
       "threshold": 23.0,
-      "sessions": 3531,
+      "sessions": 3530,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 176,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 23.5,
-      "sessions": 3587,
+      "sessions": 3586,
       "leaks": {
        "GFC": 1,
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 180,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 24.0,
-      "sessions": 3628,
+      "sessions": 3627,
       "leaks": {
        "GFC": 1,
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 181,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 24.5,
-      "sessions": 3684,
+      "sessions": 3683,
       "leaks": {
        "GFC": 2,
-       "COVID": 11,
+       "COVID": 12,
        "2022 bear": 184,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 25.0,
-      "sessions": 3740,
+      "sessions": 3739,
       "leaks": {
        "GFC": 4,
-       "COVID": 12,
+       "COVID": 13,
        "2022 bear": 189,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 25.5,
-      "sessions": 3786,
+      "sessions": 3785,
       "leaks": {
        "GFC": 6,
-       "COVID": 13,
+       "COVID": 14,
        "2022 bear": 191,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 26.0,
-      "sessions": 3823,
+      "sessions": 3822,
       "leaks": {
        "GFC": 7,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 194,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 26.5,
-      "sessions": 3861,
+      "sessions": 3860,
       "leaks": {
        "GFC": 9,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 194,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 27.0,
-      "sessions": 3907,
+      "sessions": 3906,
       "leaks": {
        "GFC": 10,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 197,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 27.5,
-      "sessions": 3934,
+      "sessions": 3933,
       "leaks": {
        "GFC": 13,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 198,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 28.0,
-      "sessions": 3962,
+      "sessions": 3961,
       "leaks": {
        "GFC": 17,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 199,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 28.5,
-      "sessions": 3988,
+      "sessions": 3987,
       "leaks": {
        "GFC": 21,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 200,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 29.0,
-      "sessions": 4019,
+      "sessions": 4018,
       "leaks": {
        "GFC": 24,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 202,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 29.5,
-      "sessions": 4043,
+      "sessions": 4042,
       "leaks": {
        "GFC": 29,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 204,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 30.0,
-      "sessions": 4064,
+      "sessions": 4063,
       "leaks": {
        "GFC": 31,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 204,
        "Apr 2025": 39
       }
@@ -2331,36 +2345,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 549,
-    "first": "2014-09-12",
+    "n_trades": 548,
+    "first": "2014-09-15",
     "last": "2026-08-28",
     "trades_per_year": 45.9,
-    "win_pct": 83.1,
-    "mean_pct": 0.0344,
-    "median_pct": 0.0564,
-    "p5_pct": -0.059,
-    "worst_pct": -0.734,
-    "best_pct": 0.086,
-    "stdev_pct": 0.067,
-    "return_risk_ratio": 3.47
+    "win_pct": 80.3,
+    "mean_pct": 0.0286,
+    "median_pct": 0.0546,
+    "p5_pct": -0.087,
+    "worst_pct": -0.484,
+    "best_pct": 0.09,
+    "stdev_pct": 0.0711,
+    "return_risk_ratio": 2.72
    },
    "mc_blocked": {
-    "median_total_pct": 1.799,
-    "p5_total_pct": 0.643,
-    "p95_total_pct": 2.491,
-    "prob_losing_year_pct": 0.9,
-    "median_max_drawdown_pct": -0.193,
-    "p95_max_drawdown_pct": -0.953,
-    "worst_path_pct": -2.328
+    "median_total_pct": 1.474,
+    "p5_total_pct": 0.476,
+    "p95_total_pct": 2.227,
+    "prob_losing_year_pct": 1.0,
+    "median_max_drawdown_pct": -0.34,
+    "p95_max_drawdown_pct": -0.692,
+    "worst_path_pct": -2.052
    },
    "mc_iid": {
-    "median_total_pct": 1.778,
-    "p5_total_pct": 0.859,
-    "p95_total_pct": 2.39,
-    "prob_losing_year_pct": 0.3,
-    "median_max_drawdown_pct": -0.232,
-    "p95_max_drawdown_pct": -0.734,
-    "worst_path_pct": -1.101
+    "median_total_pct": 1.469,
+    "p5_total_pct": 0.533,
+    "p95_total_pct": 2.179,
+    "prob_losing_year_pct": 0.7,
+    "median_max_drawdown_pct": -0.29,
+    "p95_max_drawdown_pct": -0.676,
+    "worst_path_pct": -1.06
    },
    "mc_config": {
     "paths": 20000,
@@ -2371,10 +2385,10 @@
    "stress": {
     "worst_ungated_pct": -11.603,
     "worst_ungated_date": "2009-05-18",
-    "mean_of_worst_n_pct": -2.395,
+    "mean_of_worst_n_pct": -2.493,
     "n_worst": 25,
-    "gated_worst_pct": -0.734,
-    "ungated_sessions": 4514
+    "gated_worst_pct": -0.484,
+    "ungated_sessions": 4513
    },
    "threshold_rule": {
     "status": "ok",
@@ -2390,341 +2404,341 @@
     "grid": [
      {
       "threshold": 11.0,
-      "sessions": 120,
+      "sessions": 119,
       "leaks": {}
      },
      {
       "threshold": 11.5,
-      "sessions": 253,
+      "sessions": 252,
       "leaks": {}
      },
      {
       "threshold": 12.0,
-      "sessions": 404,
+      "sessions": 403,
       "leaks": {}
      },
      {
       "threshold": 12.5,
-      "sessions": 549,
+      "sessions": 548,
       "leaks": {}
      },
      {
       "threshold": 13.0,
-      "sessions": 700,
+      "sessions": 699,
       "leaks": {
        "Apr 2025": 3
       }
      },
      {
       "threshold": 13.5,
-      "sessions": 891,
+      "sessions": 890,
       "leaks": {
-       "Apr 2025": 8
+       "Apr 2025": 9
       }
      },
      {
       "threshold": 14.0,
-      "sessions": 1107,
+      "sessions": 1106,
       "leaks": {
-       "COVID": 1,
-       "Apr 2025": 14
+       "COVID": 2,
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 14.5,
-      "sessions": 1326,
+      "sessions": 1325,
       "leaks": {
-       "COVID": 3,
-       "Apr 2025": 14
+       "COVID": 4,
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 15.0,
-      "sessions": 1513,
+      "sessions": 1512,
       "leaks": {
-       "COVID": 4,
-       "Apr 2025": 14
+       "COVID": 5,
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 15.5,
-      "sessions": 1696,
+      "sessions": 1695,
       "leaks": {
-       "COVID": 4,
-       "Apr 2025": 16
+       "COVID": 5,
+       "Apr 2025": 17
       }
      },
      {
       "threshold": 16.0,
-      "sessions": 1889,
+      "sessions": 1888,
       "leaks": {
-       "COVID": 4,
-       "2022 bear": 2,
-       "Apr 2025": 19
+       "COVID": 5,
+       "2022 bear": 1,
+       "Apr 2025": 20
       }
      },
      {
       "threshold": 16.5,
-      "sessions": 2074,
+      "sessions": 2073,
       "leaks": {
-       "COVID": 4,
+       "COVID": 5,
        "2022 bear": 4,
-       "Apr 2025": 21
+       "Apr 2025": 22
       }
      },
      {
       "threshold": 17.0,
-      "sessions": 2250,
+      "sessions": 2249,
       "leaks": {
-       "COVID": 6,
+       "COVID": 7,
        "2022 bear": 13,
        "Apr 2025": 23
       }
      },
      {
       "threshold": 17.5,
-      "sessions": 2405,
+      "sessions": 2404,
       "leaks": {
-       "COVID": 6,
+       "COVID": 7,
        "2022 bear": 26,
        "Apr 2025": 26
       }
      },
      {
       "threshold": 18.0,
-      "sessions": 2541,
+      "sessions": 2540,
       "leaks": {
-       "COVID": 7,
+       "COVID": 8,
        "2022 bear": 45,
        "Apr 2025": 26
       }
      },
      {
       "threshold": 18.5,
-      "sessions": 2679,
+      "sessions": 2678,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 65,
        "Apr 2025": 31
       }
      },
      {
       "threshold": 19.0,
-      "sessions": 2804,
+      "sessions": 2803,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 80,
        "Apr 2025": 32
       }
      },
      {
       "threshold": 19.5,
-      "sessions": 2913,
+      "sessions": 2912,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 95,
        "Apr 2025": 33
       }
      },
      {
       "threshold": 20.0,
-      "sessions": 3016,
+      "sessions": 3015,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 114,
        "Apr 2025": 33
       }
      },
      {
       "threshold": 20.5,
-      "sessions": 3125,
+      "sessions": 3124,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 125,
        "Apr 2025": 35
       }
      },
      {
       "threshold": 21.0,
-      "sessions": 3232,
+      "sessions": 3231,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 137,
        "Apr 2025": 35
       }
      },
      {
       "threshold": 21.5,
-      "sessions": 3320,
+      "sessions": 3319,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 150,
        "Apr 2025": 37
       }
      },
      {
       "threshold": 22.0,
-      "sessions": 3387,
+      "sessions": 3386,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 157,
        "Apr 2025": 38
       }
      },
      {
       "threshold": 22.5,
-      "sessions": 3453,
+      "sessions": 3452,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 166,
        "Apr 2025": 38
       }
      },
      {
       "threshold": 23.0,
-      "sessions": 3519,
+      "sessions": 3518,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 176,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 23.5,
-      "sessions": 3575,
+      "sessions": 3574,
       "leaks": {
        "GFC": 1,
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 180,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 24.0,
-      "sessions": 3615,
+      "sessions": 3614,
       "leaks": {
        "GFC": 1,
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 181,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 24.5,
-      "sessions": 3671,
+      "sessions": 3670,
       "leaks": {
        "GFC": 2,
-       "COVID": 11,
+       "COVID": 12,
        "2022 bear": 184,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 25.0,
-      "sessions": 3727,
+      "sessions": 3726,
       "leaks": {
        "GFC": 4,
-       "COVID": 12,
+       "COVID": 13,
        "2022 bear": 189,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 25.5,
-      "sessions": 3773,
+      "sessions": 3772,
       "leaks": {
        "GFC": 6,
-       "COVID": 13,
+       "COVID": 14,
        "2022 bear": 191,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 26.0,
-      "sessions": 3810,
+      "sessions": 3809,
       "leaks": {
        "GFC": 7,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 194,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 26.5,
-      "sessions": 3848,
+      "sessions": 3847,
       "leaks": {
        "GFC": 9,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 194,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 27.0,
-      "sessions": 3893,
+      "sessions": 3892,
       "leaks": {
        "GFC": 10,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 197,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 27.5,
-      "sessions": 3920,
+      "sessions": 3919,
       "leaks": {
        "GFC": 13,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 198,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 28.0,
-      "sessions": 3946,
+      "sessions": 3945,
       "leaks": {
        "GFC": 17,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 199,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 28.5,
-      "sessions": 3972,
+      "sessions": 3971,
       "leaks": {
        "GFC": 21,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 200,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 29.0,
-      "sessions": 4003,
+      "sessions": 4002,
       "leaks": {
        "GFC": 24,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 202,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 29.5,
-      "sessions": 4027,
+      "sessions": 4026,
       "leaks": {
        "GFC": 29,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 204,
        "Apr 2025": 39
       }
      },
      {
       "threshold": 30.0,
-      "sessions": 4048,
+      "sessions": 4047,
       "leaks": {
        "GFC": 31,
-       "COVID": 14,
+       "COVID": 15,
        "2022 bear": 204,
        "Apr 2025": 39
       }
@@ -2737,36 +2751,36 @@
    "status": "ok",
    "dte": 7,
    "historical": {
-    "n_trades": 716,
-    "first": "2012-11-29",
-    "last": "2024-03-26",
-    "trades_per_year": 63.2,
-    "win_pct": 88.7,
-    "mean_pct": 0.0459,
-    "median_pct": 0.0631,
-    "p5_pct": -0.054,
-    "worst_pct": -0.405,
-    "best_pct": 0.101,
-    "stdev_pct": 0.0542,
-    "return_risk_ratio": 6.73
+    "n_trades": 347,
+    "first": "2017-03-14",
+    "last": "2024-03-01",
+    "trades_per_year": 49.8,
+    "win_pct": 88.8,
+    "mean_pct": 0.0435,
+    "median_pct": 0.0601,
+    "p5_pct": -0.049,
+    "worst_pct": -0.441,
+    "best_pct": 0.085,
+    "stdev_pct": 0.0527,
+    "return_risk_ratio": 5.82
    },
    "mc_blocked": {
-    "median_total_pct": 2.315,
-    "p5_total_pct": 1.639,
-    "p95_total_pct": 2.849,
+    "median_total_pct": 2.212,
+    "p5_total_pct": 1.435,
+    "p95_total_pct": 2.784,
     "prob_losing_year_pct": 0.0,
-    "median_max_drawdown_pct": -0.173,
-    "p95_max_drawdown_pct": -0.405,
-    "worst_path_pct": 0.567
+    "median_max_drawdown_pct": -0.176,
+    "p95_max_drawdown_pct": -0.441,
+    "worst_path_pct": 0.007
    },
    "mc_iid": {
-    "median_total_pct": 2.326,
-    "p5_total_pct": 1.596,
-    "p95_total_pct": 2.856,
+    "median_total_pct": 2.215,
+    "p5_total_pct": 1.512,
+    "p95_total_pct": 2.716,
     "prob_losing_year_pct": 0.0,
-    "median_max_drawdown_pct": -0.173,
-    "p95_max_drawdown_pct": -0.408,
-    "worst_path_pct": 0.284
+    "median_max_drawdown_pct": -0.159,
+    "p95_max_drawdown_pct": -0.449,
+    "worst_path_pct": -0.122
    },
    "mc_config": {
     "paths": 20000,
@@ -2775,17 +2789,17 @@
     "seed": 7
    },
    "stress": {
-    "worst_ungated_pct": -4.671,
+    "worst_ungated_pct": -6.058,
     "worst_ungated_date": "2008-09-17",
-    "mean_of_worst_n_pct": -1.147,
+    "mean_of_worst_n_pct": -1.3,
     "n_worst": 25,
-    "gated_worst_pct": -0.405,
-    "ungated_sessions": 4589
+    "gated_worst_pct": -0.441,
+    "ungated_sessions": 4588
    },
    "threshold_rule": {
     "status": "ok",
-    "chosen": 13.0,
-    "configured": 13.0,
+    "chosen": 11.5,
+    "configured": 11.5,
     "matches_config": true,
     "windows": [
      "GFC",
@@ -2812,53 +2826,59 @@
      {
       "threshold": 12.0,
       "sessions": 474,
-      "leaks": {}
+      "leaks": {
+       "COVID": 1
+      }
      },
      {
       "threshold": 12.5,
       "sessions": 615,
-      "leaks": {}
+      "leaks": {
+       "COVID": 1
+      }
      },
      {
       "threshold": 13.0,
       "sessions": 716,
-      "leaks": {}
+      "leaks": {
+       "COVID": 1
+      }
      },
      {
       "threshold": 13.5,
       "sessions": 819,
       "leaks": {
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 14.0,
       "sessions": 920,
       "leaks": {
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 14.5,
       "sessions": 1027,
       "leaks": {
-       "COVID": 3
+       "COVID": 4
       }
      },
      {
       "threshold": 15.0,
       "sessions": 1185,
       "leaks": {
-       "COVID": 3,
-       "2022 bear": 1
+       "COVID": 4,
+       "2022 bear": 2
       }
      },
      {
       "threshold": 15.5,
       "sessions": 1418,
       "leaks": {
-       "COVID": 3,
-       "2022 bear": 16,
+       "COVID": 4,
+       "2022 bear": 17,
        "Apr 2025": 2
       }
      },
@@ -2866,8 +2886,8 @@
       "threshold": 16.0,
       "sessions": 1658,
       "leaks": {
-       "COVID": 4,
-       "2022 bear": 31,
+       "COVID": 5,
+       "2022 bear": 32,
        "Apr 2025": 4
       }
      },
@@ -2875,8 +2895,8 @@
       "threshold": 16.5,
       "sessions": 1896,
       "leaks": {
-       "COVID": 5,
-       "2022 bear": 45,
+       "COVID": 6,
+       "2022 bear": 46,
        "Apr 2025": 7
       }
      },
@@ -2884,8 +2904,8 @@
       "threshold": 17.0,
       "sessions": 2124,
       "leaks": {
-       "COVID": 5,
-       "2022 bear": 60,
+       "COVID": 6,
+       "2022 bear": 61,
        "Apr 2025": 8
       }
      },
@@ -2893,91 +2913,89 @@
       "threshold": 17.5,
       "sessions": 2321,
       "leaks": {
-       "COVID": 5,
-       "2022 bear": 69,
-       "Apr 2025": 8
+       "COVID": 6,
+       "2022 bear": 70,
+       "Apr 2025": 9
       }
      },
      {
       "threshold": 18.0,
       "sessions": 2522,
       "leaks": {
-       "COVID": 6,
-       "2022 bear": 83,
-       "Apr 2025": 13
+       "COVID": 7,
+       "2022 bear": 84,
+       "Apr 2025": 14
       }
      },
      {
       "threshold": 18.5,
       "sessions": 2704,
       "leaks": {
-       "COVID": 8,
+       "COVID": 9,
        "2022 bear": 105,
-       "Apr 2025": 14
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 19.0,
       "sessions": 2851,
       "leaks": {
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 119,
-       "Apr 2025": 14
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 19.5,
       "sessions": 3003,
       "leaks": {
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 143,
-       "Apr 2025": 14
+       "Apr 2025": 15
       }
      },
      {
       "threshold": 20.0,
       "sessions": 3135,
       "leaks": {
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 161,
-       "Apr 2025": 16
+       "Apr 2025": 17
       }
      },
      {
       "threshold": 20.5,
       "sessions": 3277,
       "leaks": {
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 176,
-       "Apr 2025": 16
+       "Apr 2025": 17
       }
      },
      {
       "threshold": 21.0,
       "sessions": 3371,
       "leaks": {
-       "GFC": 1,
-       "COVID": 10,
+       "COVID": 11,
        "2022 bear": 182,
-       "Apr 2025": 17
+       "Apr 2025": 18
       }
      },
      {
       "threshold": 21.5,
       "sessions": 3470,
       "leaks": {
-       "GFC": 1,
-       "COVID": 11,
+       "COVID": 12,
        "2022 bear": 187,
-       "Apr 2025": 19
+       "Apr 2025": 20
       }
      },
      {
       "threshold": 22.0,
       "sessions": 3564,
       "leaks": {
-       "GFC": 5,
-       "COVID": 11,
+       "GFC": 4,
+       "COVID": 12,
        "2022 bear": 193,
        "Apr 2025": 24
       }
@@ -2986,8 +3004,8 @@
       "threshold": 22.5,
       "sessions": 3642,
       "leaks": {
-       "GFC": 9,
-       "COVID": 13,
+       "GFC": 8,
+       "COVID": 14,
        "2022 bear": 194,
        "Apr 2025": 26
       }
@@ -2996,8 +3014,8 @@
       "threshold": 23.0,
       "sessions": 3711,
       "leaks": {
-       "GFC": 18,
-       "COVID": 13,
+       "GFC": 17,
+       "COVID": 14,
        "2022 bear": 197,
        "Apr 2025": 28
       }
@@ -3006,8 +3024,8 @@
       "threshold": 23.5,
       "sessions": 3776,
       "leaks": {
-       "GFC": 20,
-       "COVID": 13,
+       "GFC": 19,
+       "COVID": 14,
        "2022 bear": 199,
        "Apr 2025": 31
       }
@@ -3016,8 +3034,8 @@
       "threshold": 24.0,
       "sessions": 3848,
       "leaks": {
-       "GFC": 24,
-       "COVID": 14,
+       "GFC": 23,
+       "COVID": 15,
        "2022 bear": 200,
        "Apr 2025": 33
       }
@@ -3026,7 +3044,7 @@
       "threshold": 24.5,
       "sessions": 3906,
       "leaks": {
-       "GFC": 28,
+       "GFC": 27,
        "COVID": 17,
        "2022 bear": 202,
        "Apr 2025": 34
@@ -3036,7 +3054,7 @@
       "threshold": 25.0,
       "sessions": 3974,
       "leaks": {
-       "GFC": 36,
+       "GFC": 35,
        "COVID": 17,
        "2022 bear": 204,
        "Apr 2025": 37
@@ -3044,9 +3062,9 @@
      },
      {
       "threshold": 25.5,
-      "sessions": 4023,
+      "sessions": 4022,
       "leaks": {
-       "GFC": 44,
+       "GFC": 43,
        "COVID": 18,
        "2022 bear": 204,
        "Apr 2025": 38
@@ -3054,9 +3072,9 @@
      },
      {
       "threshold": 26.0,
-      "sessions": 4063,
+      "sessions": 4062,
       "leaks": {
-       "GFC": 50,
+       "GFC": 49,
        "COVID": 18,
        "2022 bear": 204,
        "Apr 2025": 38
@@ -3064,9 +3082,9 @@
      },
      {
       "threshold": 26.5,
-      "sessions": 4105,
+      "sessions": 4104,
       "leaks": {
-       "GFC": 59,
+       "GFC": 58,
        "COVID": 18,
        "2022 bear": 206,
        "Apr 2025": 38
@@ -3074,9 +3092,9 @@
      },
      {
       "threshold": 27.0,
-      "sessions": 4152,
+      "sessions": 4151,
       "leaks": {
-       "GFC": 73,
+       "GFC": 72,
        "COVID": 21,
        "2022 bear": 206,
        "Apr 2025": 40
@@ -3084,9 +3102,9 @@
      },
      {
       "threshold": 27.5,
-      "sessions": 4191,
+      "sessions": 4190,
       "leaks": {
-       "GFC": 84,
+       "GFC": 83,
        "COVID": 22,
        "2022 bear": 206,
        "Apr 2025": 40
@@ -3094,9 +3112,9 @@
      },
      {
       "threshold": 28.0,
-      "sessions": 4221,
+      "sessions": 4220,
       "leaks": {
-       "GFC": 91,
+       "GFC": 90,
        "COVID": 24,
        "2022 bear": 206,
        "Apr 2025": 40
@@ -3104,9 +3122,9 @@
      },
      {
       "threshold": 28.5,
-      "sessions": 4249,
+      "sessions": 4248,
       "leaks": {
-       "GFC": 98,
+       "GFC": 97,
        "COVID": 26,
        "2022 bear": 207,
        "Apr 2025": 43
@@ -3114,9 +3132,9 @@
      },
      {
       "threshold": 29.0,
-      "sessions": 4273,
+      "sessions": 4272,
       "leaks": {
-       "GFC": 106,
+       "GFC": 105,
        "COVID": 27,
        "2022 bear": 207,
        "Apr 2025": 43
@@ -3124,9 +3142,9 @@
      },
      {
       "threshold": 29.5,
-      "sessions": 4287,
+      "sessions": 4286,
       "leaks": {
-       "GFC": 110,
+       "GFC": 109,
        "COVID": 29,
        "2022 bear": 207,
        "Apr 2025": 43
@@ -3134,9 +3152,9 @@
      },
      {
       "threshold": 30.0,
-      "sessions": 4309,
+      "sessions": 4308,
       "leaks": {
-       "GFC": 117,
+       "GFC": 116,
        "COVID": 30,
        "2022 bear": 208,
        "Apr 2025": 43
