@@ -261,6 +261,23 @@ def main() -> int:
     _gw = os.environ.get("TRADEPRO_USE_LOCAL_GATEWAY", "0").strip().lower() in ("1", "true", "yes", "on")
     if args.ibkr_only:
         chain = ["ibkr_web"] + (["ibkr"] if _gw else [])
+        # --ibkr-only ALREADY says "do not fall back". So WAIT OUT auth
+        # cooldowns rather than fast-failing into cache — the default budget of
+        # 3 waits is sized for the nightly harvest (one request per symbol) and
+        # drains instantly on a backfill making hundreds of chunked requests.
+        # That is what returned "SPY 4978/58518 bars ... 0 failed" on 29 Aug:
+        # 8% of the data, reported green, while IBKR was perfectly healthy.
+        #
+        # Owner, twice, and it is a standing rule rather than a preference:
+        # "we just have to retry with force" and "we do not need super fast
+        # response". Correctness over speed when the golden source is the
+        # explicit ask. An explicit env var still wins, so this raises the
+        # floor without taking the choice away.
+        _want = os.environ.get("TRADEPRO_IBKR_COOLDOWN_WAITS")
+        if _want is None:
+            os.environ["TRADEPRO_IBKR_COOLDOWN_WAITS"] = "40"
+            print("  --ibkr-only: waiting out auth cooldowns (budget 40) rather "
+                  "than serving cache — set TRADEPRO_IBKR_COOLDOWN_WAITS to override")
     elif args.no_ibkr:
         chain = ["yfinance"]
     else:
