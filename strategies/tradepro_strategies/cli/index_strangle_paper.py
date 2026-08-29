@@ -186,6 +186,67 @@ def decide(market: str) -> dict:
     return out
 
 
+def _email_cfg() -> dict:
+    """SMTP settings from the SAME place every other TradePro email reads.
+    Not a second config — one file, one set of env fallbacks."""
+    from .email_digest import CRED_PATH
+    data = json.loads(CRED_PATH.read_text()) if CRED_PATH.is_file() else {}
+    return {
+        "smtp_host": data.get("smtp_host") or os.environ.get("TRADEPRO_SMTP_HOST"),
+        "smtp_port": int(data.get("smtp_port") or os.environ.get("TRADEPRO_SMTP_PORT") or 465),
+        "smtp_user": data.get("smtp_user") or os.environ.get("TRADEPRO_SMTP_USER"),
+        "smtp_password": data.get("smtp_password") or os.environ.get("TRADEPRO_SMTP_PASSWORD"),
+        "from": data.get("from") or os.environ.get("TRADEPRO_EMAIL_FROM"),
+        "to": [t for t in (data.get("to") or [os.environ.get("TRADEPRO_EMAIL_TO")]) if t],
+    }
+
+
+def _email_body(rows: list[dict]) -> tuple[str, str]:
+    live = [r for r in rows if r.get("status") == "CANDIDATE"]
+    aside = [r for r in rows if r.get("status") == "stand aside"]
+    subj = ("[PAPER] index strangle — "
+            + (", ".join(r["market"] for r in live) + " CANDIDATE" if live
+               else "stand aside both markets"))
+    L = ["INDEX SHORT STRANGLE — PAPER RECORD.  Nothing is placed.",
+         "This is a record for evaluation, not advice. You execute or you don't.", ""]
+    for r in rows:
+        L.append(f"{r['market']}  ({r['index']})")
+        if r.get("status") == "no_data":
+            L += [f"   NO DATA — {r['reason']}", ""]
+            continue
+        L.append(f"   {'>>> CANDIDATE' if r['status']=='CANDIDATE' else '--- stand aside'}: {r['reason']}")
+        L.append(f"   spot {r['spot']:,}   ·   IV used {r['iv_used']}%  ({r['iv_source']})")
+        L.append(f"   expected daily move {r['expected_daily_move_pct']}%   ·   "
+                 f"strikes {r['strike_rule']} = ±{r['width_pct']}%")
+        if r["status"] == "CANDIDATE":
+            L.append(f"   SELL  {r['put_strike']:,} PUT   +   {r['call_strike']:,} CALL   x{r['lot']}")
+            for name, dte in sorted(r["expiries"].items(), key=lambda kv: kv[1]):
+                L.append(f"      · {name} (~{dte}d) — recorded separately, CLOSE SAME DAY")
+        L.append(f"   threshold {r['vol_threshold']} — adjust with {r['threshold_env']}")
+        L.append("")
+    L += ["WHAT THIS IS AND IS NOT",
+          "  · Strikes come from the index and its volatility index only — no option",
+          "    chain — so a dark options feed cannot stop this producing a decision.",
+          "  · Premiums are NOT quoted. India has no free NSE chain; US chains are",
+          "    captured end-of-day. The credit gets filled in from a captured chain or",
+          "    by you, so a modelled number is never mistaken for a traded one.",
+          "  · Weekly and monthly are recorded side by side. A one-day hold captures one",
+          "    day of theta whatever the expiry, so monthly ties up far more capital for",
+          "    a similar return — the record is there to settle that on real prices.",
+          "",
+          "EVIDENCE, and its limits",
+          "  · Modelled on 403 low-volatility BANKNIFTY sessions: ~85% win at every",
+          "    expiry, so win rate decides nothing.",
+          "  · It LOST through 2009-2016. The absolute volatility threshold is what",
+          "    would have kept you out — 3 trades in 8 years.",
+          "  · The intraday profit target and the strangle->straddle conversion are NOT",
+          "    modelled. Both are things you actually do; neither is measurable here.",
+          "  · NOT FUNDED. This is a month of observation, not a recommendation."]
+    text = "\n".join(L)
+    html = "<pre style=\"font-family:monospace;font-size:13px\">" + text.replace("<", "&lt;") + "</pre>"
+    return subj, (text, html)
+
+
 def _load_ledger() -> list:
     if os.path.exists(LEDGER):
         try:
@@ -209,6 +270,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="tradepro-index-strangle-paper")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--no-record", action="store_true")
+    ap.add_argument("--email", action="store_true", help="send the daily candidate email")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
 
@@ -239,6 +301,20 @@ def main() -> int:
                 print(f"      · {name:<8} ~{dte}d to expiry — recorded separately, "
                       f"closed same day")
         print()
+    if args.email:
+        # Fail-soft: an email problem must never lose the decision, which is
+        # already recorded and printed by this point.
+        try:
+            from types import SimpleNamespace
+            from .email_digest import send_email
+            subj, (text, html) = _email_body(rows)
+            send_email(SimpleNamespace(subject=subj, text_body=text,
+                                       html_body=html, pdf_bytes=None), _email_cfg())
+            print(f"  email sent: {subj}")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("email failed (non-fatal): %s", exc)
+            print(f"  email FAILED (non-fatal): {str(exc)[:120]}")
+
     print("  Premiums are NOT shown: India has no free NSE chain and US chains are")
     print("  captured end-of-day. The record stores the STRIKES; the credit is filled")
     print("  in from the captured chain, or by you, so a modelled number is never")
