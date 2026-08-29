@@ -46,6 +46,12 @@ public sealed class IBKRBarHarvester : BackgroundService
     // Symbols whose deep history has been pulled once. Backfill runs once per
     // symbol (spread across sweeps), then steady-state forward harvesting.
     private readonly HashSet<string> _backfilled = new();
+    private bool _backfillSeeded;
+
+    /// <summary>How many bars a symbol needs before it counts as backfilled.
+    /// A handful of rows from a failed pull is not history; 200 is roughly a
+    /// year of daily sessions and comfortably more than any partial write.</summary>
+    private const int MinBarsToCountAsBackfilled = 200;
 
     private readonly IBKRPauseState _pause;
 
@@ -182,6 +188,49 @@ public sealed class IBKRBarHarvester : BackgroundService
         // trading session at once.
         int backfillBudget = Math.Max(0, _options.MaxBackfillPerSweep);
         await using var conn = await db.OpenConnectionAsync(ct);
+
+        // SEED FROM THE DATABASE, once per process.
+        //
+        // _backfilled is an in-memory set that starts EMPTY on every restart, so
+        // it recorded what THIS process had pulled -- not what the store holds.
+        // The status panel then rendered "0 of 169 symbols have history in
+        // ibkr_price_bars" against a store containing 728,189 daily bars and
+        // 2,145,037 minute bars going back to 2006.
+        //
+        // The counter was not wrong about what it measured; the LABEL described
+        // the database while the number described process memory. On the one
+        // screen whose job is to answer "is my data there?", it said no.
+        //
+        // Seeding also stops the harvester re-running a deep BackfillPeriod pull
+        // for symbols that already have years of history after every restart --
+        // wasted requests against the single shared IBKR session.
+        if (!_backfillSeeded)
+        {
+            try
+            {
+                var have = await conn.QueryAsync<string>(@"
+                    SELECT symbol FROM ibkr_price_bars
+                    WHERE resolution = @res
+                    GROUP BY symbol
+                    HAVING COUNT(*) >= @minBars;",
+                    new { res, minBars = MinBarsToCountAsBackfilled });
+                foreach (var sym in have) _backfilled.Add(sym);
+                _backfillSeeded = true;
+                _status.BackfilledSymbols = _backfilled.Count;
+                _log.LogInformation(
+                    "IBKRBarHarvester: seeded {N} symbol(s) already holding >= {Min} {Res} bars",
+                    _backfilled.Count, MinBarsToCountAsBackfilled, res);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: an unseeded run merely re-backfills, which is
+                // wasteful but correct. Loud, because a silent failure here
+                // reinstates the false "0 of N" report.
+                _log.LogError(ex,
+                    "IBKRBarHarvester: backfill seed FAILED — the status panel will "
+                    + "under-report symbols with history until the next tick");
+            }
+        }
 
         foreach (var symbol in _options.Symbols)
         {
