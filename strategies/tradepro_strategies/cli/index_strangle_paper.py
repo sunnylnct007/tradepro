@@ -79,7 +79,28 @@ log = logging.getLogger("tradepro.index_strangle_paper")
 VIX_MAX = {"US": 14.0, "INDIA": 12.0}
 VIX_LOOKBACK = 250          # sessions, still reported as CONTEXT alongside
 STRIKE_MULT = 1.5           # strikes at N x the implied DAILY move
-DTE = 1                     # sold against the nearest expiry
+
+# EXPIRIES RECORDED SIDE BY SIDE. The owner sells MONTHLY and closes the same
+# day; he raised weekly himself ("we could even try with weekly one") and ruled
+# out the shortest ("we will rarely sell with 1 DTE"). So both are recorded and
+# neither is assumed — a month of real premiums decides it, not my model.
+#
+# Measured on 403 low-VIX BANKNIFTY sessions, strikes at +/-0.87%, closed same
+# day. Note that a one-day hold captures ONE DAY of theta whatever the expiry,
+# so the return barely changes while the capital at risk changes enormously:
+#
+#   DTE  avg credit   mean P&L   win%      worst   worst as % of credit
+#     1      6,868      3,071   84.4%   -60,271        -878%   <- excluded
+#     2     17,641      5,796   85.4%   -55,517        -315%
+#     7     59,397      3,792   85.1%   -42,089         -71%
+#    21    128,575      2,318   84.4%   -31,423         -24%
+#
+# Weekly roughly doubles monthly's return for about 1.5x the worst day, and is
+# the shortest expiry where one bad session still costs LESS than the premium
+# collected. 1 DTE costs 8.8x it — no profit target survives a gap like that.
+# Win rate is ~85% at every expiry and so decides nothing, which is the same
+# lesson as everywhere else in this work.
+DTE_SET = {"weekly": 7, "monthly": 21}
 LEDGER = os.path.expanduser("~/.tradepro/research/index_strangle_paper.json")
 
 MARKETS = {
@@ -151,7 +172,8 @@ def decide(market: str) -> dict:
         "call_strike": round(spot * (1 + width), 2),
         "put_strike": round(spot * (1 - width), 2),
         "width_pct": round(100 * width, 2),
-        "lot": cfg["lot"], "dte": DTE,
+        "lot": cfg["lot"],
+        "expiries": DTE_SET,
     })
     if v <= thr:
         out["status"] = "CANDIDATE"
@@ -212,7 +234,10 @@ def main() -> int:
               f"strikes at {r['strike_rule']} = ±{r['width_pct']}%")
         if r["status"] == "CANDIDATE":
             print(f"    SELL  {r['put_strike']} PUT   +  {r['call_strike']} CALL   "
-                  f"x{r['lot']}  ({r['dte']} DTE)")
+                  f"x{r['lot']}")
+            for name, dte in sorted(r["expiries"].items(), key=lambda kv: kv[1]):
+                print(f"      · {name:<8} ~{dte}d to expiry — recorded separately, "
+                      f"closed same day")
         print()
     print("  Premiums are NOT shown: India has no free NSE chain and US chains are")
     print("  captured end-of-day. The record stores the STRIKES; the credit is filled")
