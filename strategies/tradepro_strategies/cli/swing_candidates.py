@@ -68,6 +68,11 @@ log = logging.getLogger("tradepro.swing_candidates")
 from ..signals.mean_reversion import (SIGMA, BB_WINDOW, STOP_PCT,  # noqa: E402
                                       MAX_HOLD, MIN_BARS, TREND_WINDOW,
                                       entry_signal, stop_price, target_price)
+# ONE definition of the measured win rate. The footer used to carry its own
+# hardcoded copy ("35% of these lose") which disagreed with this number in the
+# same payload.
+EVIDENCE_WIN_PCT = 72.8
+
 MAX_DAY_MOVE = 0.25
 BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
@@ -425,7 +430,7 @@ def build_artifact(rows: list[dict], universe: str,
             "gates_file": "MEAN_REVERSION_GATES_V1.md",
             "gates_commit": "6c9f330",
             "harness": "backtests/studies/mean_reversion_v2.py",
-            "trades": 2310, "win_rate_pct": 72.8, "mean_per_trade_pct": 1.06,
+            "trades": 2310, "win_rate_pct": EVIDENCE_WIN_PCT, "mean_per_trade_pct": 1.06,
             "median_per_trade_pct": 1.78,
             "worst_trade_pct": -23.9, "median_hold_sessions": 7,
             "note": ("ALL SIX gates pass, including G4 (top-1% tail 18.2% of net vs the "
@@ -460,11 +465,25 @@ def build_artifact(rows: list[dict], universe: str,
             "Ordinary pullbacks of 5-15% are its best conditions (+1.30%).",
             "Recent results flatter it. The last months show far higher win rates while the S&P "
             "rose 19% with a 9% maximum drawdown — that is the regime, not the edge.",
-            "35% of these lose. The edge is the average across many, never any single row.",
+            # DERIVED, not typed. This read "35% of these lose" — a hardcoded
+            # duplicate of a win rate that already sits three lines above as
+            # evidence.win_rate_pct = 72.8, i.e. 27% lose. A reviewer caught the
+            # footer contradicting itself and the evidence block in the same
+            # artifact. Same duplicate-constant shape this file has now hit for
+            # the fourth time (poison_check, MAX_HOLD, the inline /200 trend
+            # window, and now the win rate). One number, one source.
+            f"{100 - EVIDENCE_WIN_PCT:.0f}% of these lose. The edge is the average "
+            "across many, never any single row.",
             "Settled bars only — the signal is computed on a closed session, so it cannot "
             "chase an intraday move.",
-            "Symbols with a suspect price series are DROPPED and named below, never silently "
-            "included.",
+            # Only claim a list when there IS one. This said "named below" on
+            # every run, including the ones that named nothing — a footer that
+            # promises evidence and shows none teaches you to stop reading it.
+            ("Symbols with a suspect price series are DROPPED and named below, never "
+             "silently included."
+             if quarantined else
+             "Symbols with a suspect price series are DROPPED, never silently included — "
+             "none were dropped today."),
         ],
         "quarantined": quarantined or [],
         "count": len(rows),
