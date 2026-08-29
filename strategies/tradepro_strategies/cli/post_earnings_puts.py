@@ -169,6 +169,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="tradepro-post-earnings-puts")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--api-base", default=None)
+    ap.add_argument("--push", action="store_true",
+                    help="POST the artifact to /api/ingest/today-setups")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING,
                         format="%(asctime)s %(levelname)s %(message)s")
@@ -238,6 +240,26 @@ def main() -> int:
                 print(f"  {r['symbol']:<7}{r['report_date']:<12}{mv}   {r['why_not']}")
 
     print(f"\n  [{art['evidence']['verdict']}]")
+
+    if args.push:
+        # Fail-soft: a push problem must never lose the scan. The numbers are
+        # already on screen by this point.
+        try:
+            import requests
+            from .push_to_api import load_credentials
+            b, tok = load_credentials()
+            if not b:
+                log.warning("no API base — not pushed")
+                return 0
+            r = requests.post(
+                f"{b.rstrip('/')}/api/ingest/today-setups",
+                json={"universe": "post_earnings_puts", "label": "latest",
+                      "artifact": art},
+                headers={"Authorization": f"Bearer {tok}"} if tok else {},
+                timeout=30)
+            print(f"  push -> HTTP {r.status_code}")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("push failed: %s", exc)
     return 0
 
 

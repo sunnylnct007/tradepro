@@ -94,6 +94,47 @@ def _run_backtest_job(req: dict, logger: RunLogger) -> dict:
     return {"stats": result.stats, "trade_count": len(result.trades)}
 
 
+def _run_screen_job(name: str, run_id_logger) -> dict:
+    """Run a screen in-process and push its artifact.
+
+    In-process, not a subprocess: the worker already has the environment and
+    credentials, and a subprocess would need its own `uv run` resolution —
+    which is exactly what broke the worker heartbeat for six days when a
+    hardcoded `uv` path stopped existing.
+    """
+    if name != "post_earnings_puts":
+        raise ValueError(f"unknown screen: {name!r}")
+    from .post_earnings_puts import scan
+    from .push_to_api import load_credentials
+    import datetime as _d
+    import requests as _rq
+
+    base, tok = load_credentials()
+    cands, near, market = scan(base)
+    art = {
+        "kind": "post_earnings_puts",
+        "as_of_utc": _d.datetime.now(_d.UTC).isoformat(),
+        "market": market, "evaluated": len(cands) + len(near),
+        "candidates": cands, "near_misses": near[:10],
+        "triggered_by": "ui",
+    }
+    pushed = None
+    if base:
+        try:
+            r = _rq.post(f"{base.rstrip('/')}/api/ingest/today-setups",
+                         json={"universe": "post_earnings_puts",
+                               "label": "latest", "artifact": art},
+                         headers={"Authorization": f"Bearer {tok}"} if tok else {},
+                         timeout=30)
+            pushed = r.status_code
+        except Exception as exc:  # noqa: BLE001 — a push failure must not lose the scan
+            run_id_logger.emit("screen.push_failed", screen=name, error=str(exc)[:200])
+    run_id_logger.emit("screen.done", screen=name,
+                       candidates=len(cands), pushed=pushed)
+    return {"candidates": len(cands), "artifact": "today-setups/post_earnings_puts",
+            "pushed_http": pushed}
+
+
 def _execute(db, job_id: str, doc: dict) -> None:
     from firebase_admin import firestore as _fs
 
@@ -113,6 +154,36 @@ def _execute(db, job_id: str, doc: dict) -> None:
     try:
         kind = doc.get("kind", "backtest")
         run_id_logger.emit("job.start", job_id=job_id, kind=kind, request=doc.get("request"))
+
+        # RUN A SCREEN ON DEMAND (29 Aug 2026, owner: "ensure this can be
+        # triggerd from UI as well").
+        #
+        # The screen runs HERE, on the Mac, because it reads the local bar
+        # store — the API box cannot run it. This `jobs` collection is already
+        # how the UI reaches this host, so the trigger reuses it rather than
+        # adding a second mechanism. `kind` was already the dispatch point; it
+        # simply only ever had one value.
+        #
+        # Unlike /api/screener/run this has NO market-hours guard, and must
+        # not grow one: the post-earnings screen reads settled bars and an
+        # earnings date, so it is equally valid at 3am on a Sunday. Gating it
+        # on RTH would be copying a constraint from a screen that needs a live
+        # IV feed to one that does not.
+        if kind == "screen":
+            name = (doc.get("request") or {}).get("screen", "post_earnings_puts")
+            result = _run_screen_job(name, run_id_logger)
+            ref.update({
+                "status": "complete",
+                "ended_at": _fs.SERVER_TIMESTAMP,
+                "screen": name,
+                "candidates": result.get("candidates", 0),
+                "artifact": result.get("artifact"),
+            })
+            run_id_logger.emit("job.complete", job_id=job_id, kind=kind,
+                               screen=name, candidates=result.get("candidates"))
+            print(f"[{job_id}] running → complete  ({name}: "
+                  f"{result.get('candidates')} candidate(s))")
+            return
 
         if kind != "backtest":
             raise ValueError(f"unsupported job kind: {kind}")
