@@ -101,6 +101,16 @@ def describe(sym: str, spy) -> None:
     # name was unjudgeable — it just looked quiet.
     yrs = len(c) / 252
     print(f"  history      {d[0]} → {d[-1]}   {len(c)} bars (~{yrs:.1f}y)")
+
+    # STALENESS. NBIS came back from the yfinance fallback with its last bar a
+    # MONTH old, and every line below would still have been printed as though
+    # it described today. A month-old close quoted as current is worse than no
+    # answer: it is an answer you would act on.
+    import datetime as _dt
+    _age = (_dt.date.today() - _dt.date.fromisoformat(d[-1])).days
+    if _age > 5:
+        print(f"  ✗ STALE — last bar is {_age} days old. Everything below describes")
+        print(f"    {d[-1]}, NOT today. Re-harvest before acting on any of it.")
     if len(c) < MIN_BARS:
         print(f"  ✗ UNJUDGEABLE — the rule needs {MIN_BARS} bars for its 200-day floor.")
         print("    No signal here means 'cannot say', NOT 'no opportunity'.")

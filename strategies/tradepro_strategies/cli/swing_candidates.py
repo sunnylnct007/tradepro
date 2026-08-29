@@ -71,6 +71,28 @@ from ..signals.mean_reversion import (SIGMA, BB_WINDOW, STOP_PCT,  # noqa: E402
 MAX_DAY_MOVE = 0.25
 BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
+# YOUR names, on top of the screened universe. Owner's call, 29 Aug 2026:
+# the point of this screen is candidates for a HUMAN to act on, so it has to
+# cover the names actually traded — NBIS was not in the store at all and
+# therefore could never appear, however good the setup.
+#
+# One symbol per line, '#' comments allowed. Absent file = universe only.
+# Deliberately a file rather than a constant: the list is the owner's, and
+# editing it must not need a code change.
+WATCHLIST_PATH = os.path.expanduser("~/.tradepro/watchlist.txt")
+
+
+def watchlist() -> list[str]:
+    try:
+        with open(WATCHLIST_PATH) as fh:
+            return [ln.split("#")[0].strip().upper() for ln in fh
+                    if ln.split("#")[0].strip()]
+    except FileNotFoundError:
+        return []
+    except Exception as exc:  # noqa: BLE001 — a bad watchlist must not kill the screen
+        log.warning("watchlist unreadable (%s) — universe only", exc)
+        return []
+
 # Tiering from the per-name study: mega-caps and sector ETFs post the highest
 # win rates (XLI 86%, V 74%, MSFT 80%); semis/high-beta post the biggest moves
 # (+1.91%/trade on ATR>=4%). Sized differently, so labelled differently.
@@ -440,9 +462,20 @@ def main() -> int:
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    syms = ([s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-            if args.symbols else
-            universe_symbols())
+    if args.symbols:
+        syms = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    else:
+        # Universe FIRST, watchlist added — order preserved, duplicates dropped.
+        # The watchlist is additive: it never removes a screened name, so the
+        # evidenced universe stays intact and the owner's names ride alongside.
+        seen, syms = set(), []
+        for x in list(universe_symbols()) + watchlist():
+            if x not in seen:
+                seen.add(x); syms.append(x)
+        extra = [x for x in watchlist() if x not in set(universe_symbols())]
+        if extra:
+            log.info("watchlist adds %d name(s) outside the universe: %s",
+                     len(extra), ", ".join(extra))
     rows, quarantined, near = scan(syms)
     art = build_artifact(rows, args.universe, quarantined,
                          near=near, evaluated=len(syms))
@@ -473,17 +506,38 @@ def main() -> int:
             for q in quarantined:
                 print(f"   {q['symbol']:<7} {q['detail']}")
         if not rows:
-            print(f"none today — {len(syms)} symbol(s) evaluated; the screen is "
-                  f"selective (~7 signals/week across the universe)")
-            if near:
-                blocked = sum(1 for n in near if not n["above_trend"])
-                print(f"\nCLOSEST TO FIRING — entry needs sigma < {-SIGMA}:")
-                print(f"  {'sym':<7}{'sigma':>8}{'close':>10}   why not")
-                for n in near[:8]:
-                    print(f"  {n['symbol']:<7}{n['sigma_from_mean']:>8.2f}"
-                          f"{n['close']:>10.2f}   {n['blocked_by']}")
-                print(f"\n  {blocked} of the {len(near)} evaluated sit BELOW their 200-SMA — "
-                      f"the trend filter is refusing them on purpose (falling knives).")
+            print(f"none rule-qualified today — {len(syms)} symbol(s) evaluated; "
+                  f"the rule is selective (69% of sessions produce nothing).")
+
+        # THE GRADED LIST, shown EVERY day whether or not the rule fired.
+        #
+        # Owner's call, 29 Aug 2026: this screen exists to hand a HUMAN
+        # candidates, not to drive an algo. A human can weigh a 1.8-sigma setup
+        # with context; the rule cannot, so it waits for 2.5. Showing only
+        # rule-qualified names meant a blank screen on 69% of sessions and
+        # nothing to work with on the other days either.
+        #
+        # The distinction is kept LOUD rather than blended: only the starred
+        # rows carry the backtested evidence. Everything below is a watch item
+        # the rule has NOT vouched for, and the header says so.
+        WATCH_SIGMA = 1.5
+        watch = [n for n in near if n["sigma_from_mean"] <= -WATCH_SIGMA]
+        if watch:
+            ok = [n for n in watch if n["above_trend"]]
+            knives = [n for n in watch if not n["above_trend"]]
+            print(f"\nWATCH LIST — {WATCH_SIGMA}σ or more below the 20-day mean.")
+            print("  NOT rule-qualified: the backtest says nothing about these. "
+                  "Your judgement, not the rule's.")
+            if ok:
+                print(f"\n  above the 200-SMA ({len(ok)}):")
+                print(f"    {'sym':<7}{'sigma':>8}{'close':>10}   {'further to fall':>16}")
+                for n in ok[:12]:
+                    print(f"    {n['symbol']:<7}{n['sigma_from_mean']:>8.2f}"
+                          f"{n['close']:>10.2f}   {abs(-SIGMA - n['sigma_from_mean']):>14.2f}σ")
+            if knives:
+                print(f"\n  BELOW the 200-SMA ({len(knives)}) — the trend filter refuses "
+                      "these on purpose; in a crash the rule wins 8% of the time:")
+                print("    " + ", ".join(n["symbol"] for n in knives[:14]))
 
     if args.push:
         try:
