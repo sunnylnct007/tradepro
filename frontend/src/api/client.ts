@@ -1740,6 +1740,13 @@ export const api = {
   // Data-Health dashboard shows good-for-today / pending-N-days at a glance.
   /** CURRENT fundamentals per symbol (migration 067).
    *
+   * NOTE the "/api/" prefix. `get()` does `new URL(path, apiBaseUrl)` and a
+   * LEADING SLASH makes the path absolute, discarding any base path — so
+   * "/fundamentals" resolved to https://host/fundamentals, 404'd, was swallowed
+   * by the caller's catch, and every P/E and ROE cell rendered "—" against a
+   * database that had all 244 rows. Every other call here is "/api/...";
+   * this one was not, and the failure looked exactly like "no data".
+   *
    * Owner, 29 Aug 2026: "this figure shd be visible on our data harvesting
    * screen as well". A snapshot for a HUMAN deciding today — never a backtest
    * input, because today's P/E on a past date is look-ahead.
@@ -1767,7 +1774,7 @@ export const api = {
         marketcap: number | null;
         annualeps: string | null;
       }[];
-    }>("/fundamentals"),
+    }>("/api/fundamentals"),
 
   barCacheQuality: (params?: { assetClass?: string; staleAfterDays?: number }) => {
     const qp: Record<string, string | undefined> = {};
