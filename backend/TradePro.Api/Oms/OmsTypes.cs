@@ -38,8 +38,16 @@ public sealed record OmsOrder(
 
     /// <summary>What the SIGNAL said, carried from the intent (migration 066).
     /// Entry slippage is measured against SignalRefPrice, never against the
-    /// fill. Null throughout means no setup was recorded for this order.</summary>
-    DateOnly? SignalBar = null,
+    /// fill. Null throughout means no setup was recorded for this order.
+    ///
+    /// DateTime?, NOT DateOnly?. Npgsql materialises a Postgres `date` as
+    /// DateTime, and Dapper matches the constructor by exact type -- DateOnly?
+    /// here threw on EVERY read ("no constructor matching signature") and took
+    /// GET /api/oms/orders to a 500 the moment it deployed. The build passed
+    /// and the tests passed, because nothing in either touches a database.
+    /// Only the live endpoint could have caught it, and I pushed before
+    /// checking it. Consume with .Date.</summary>
+    DateTime? SignalBar = null,
     decimal? SignalRefPrice = null,
     decimal? SignalTargetPrice = null,
     decimal? SignalStopPrice = null,
