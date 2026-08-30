@@ -502,6 +502,14 @@ public static class IBKRResponseParser
                 Theta: DecLoose(it, "7310"),
                 Vega: DecLoose(it, "7311"),
                 ImpliedVolPct: DecLoose(it, "7633"),
+                // 7638 was a GUESS and it is WRONG. Probed 7283-7296, 7607 and
+                // 7634-7655 against a contract whose live open interest is 2,472:
+                // NO field carried it. Open interest is not served on this cpapi
+                // session at all — the live account exposes it through a different
+                // service. Left in place so the absence stays visible instead of
+                // the field silently disappearing; the wheel's liquidity gate
+                // reads Yahoo's own capture, and that is now a MEASURED decision
+                // rather than the folklore it has been for weeks.
                 OpenInterest: DecLoose(it, "7638"),
                 PriorClose: DecLoose(it, "7741")));
         }
@@ -547,8 +555,25 @@ public static class IBKRResponseParser
         {
             var s = v.GetString();
             if (string.IsNullOrWhiteSpace(s)) return null;
-            s = s.TrimStart('C', 'H');
-            if (decimal.TryParse(s, out var ds)) return ds;
+            // IBKR prefixes a close with 'C' and a halt with 'H' — and suffixes
+            // PERCENTAGE fields with '%'. Field 7633 (option implied vol) comes
+            // back as the STRING "57.2%", which decimal.TryParse rejects, so this
+            // returned null and the chain reported "IV: None" on every leg.
+            //
+            // Measured 30 Aug against a known answer: the MRVL Sep-18 '26 195 put
+            // returns 7633 = "57.2%" on the PAPER session, matching the 57.2% the
+            // live session reports for the same contract. IBKR served the implied
+            // vol the whole time; we threw it away on a suffix, and the wheel
+            // screen fell back to a 'bridge' estimate on every row.
+            //
+            // THIRD instance of this shape in this file: execution price arriving
+            // as a string, the order id under a name nobody checked, now a percent
+            // suffix. Same lesson each time — read the RAW payload before
+            // concluding a field is dark.
+            s = s.TrimStart('C', 'H').TrimEnd('%');
+            if (decimal.TryParse(s, System.Globalization.NumberStyles.Any,
+                                 System.Globalization.CultureInfo.InvariantCulture, out var ds))
+                return ds;
         }
         return null;
     }
