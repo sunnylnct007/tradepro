@@ -576,8 +576,8 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
                 c = r["ccy"]
                 T.append(f"      one weekly contract: collect ~{c}{e['credit_modelled']:,} "
                          f"(modelled) · margin ~{c}{e['margin_estimate']:,}")
-                T.append(f"      typical {c}{e['typical_gain']:+,} · worst day "
-                         f"{c}{e['worst_day']:+,} · if the gate fails "
+                T.append(f"      typical {c}{e['typical_gain']:+,} · worst so far "
+                         f"{c}{e['worst_day']:+,} · caught in a crash "
                          f"{c}{e['gate_failure']:+,}")
         T.append("")
     if aside:
@@ -610,7 +610,7 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
               f"{int(100 * MARGIN_PCT)}% of",
               "  collateral - your broker's number governs.", "",
               f"  {'market':<11}{'margin':>13}{'collect':>11}{'typical':>10}"
-              f"{'worst day':>12}{'gate fails':>13}", "  " + "-" * 70]
+              f"{'worst so far':>14}{'caught in a crash':>19}", "  " + "-" * 76]
         for r in money:
             e, c = r["economics"], r["ccy"]
             T.append(f"  {r['market']:<11}{c + format(e['margin_estimate'], ',') :>13}"
@@ -620,18 +620,24 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
                      f"{c + format(e['gate_failure'], '+,') :>13}")
         T += ["", "  THE SAME NUMBERS AS % OF MARGIN - what decides whether an",
               "  account survives. Margin amplifies BOTH directions ~8x:", "",
-              f"  {'market':<11}{'typical':>10}{'worst day':>12}{'gate fails':>13}"
-              f"{'winners to repay':>18}", "  " + "-" * 64]
+              f"  {'market':<11}{'typical':>10}{'worst so far':>14}{'caught in a crash':>19}"
+              f"{'winners to repay':>18}", "  " + "-" * 70]
         for r in money:
             e = r["economics"]
             T.append(f"  {r['market']:<11}{e['typical_gain_on_margin_pct']:>9.2f}%"
                      f"{e['worst_day_on_margin_pct']:>11.1f}%"
                      f"{e['gate_failure_on_margin_pct']:>12.1f}%"
                      f"{e['winners_per_gate_failure']:>15,} trades")
-        T += ["", "  Read the last column first. One leaked crash day costs what",
-              "  hundreds of ordinary winning trades earn. That is the shape of",
-              "  every premium-selling strategy and it is why the gate, not the",
-              "  win rate, is the thing to watch.", ""]
+        T += ["", "  WHAT 'CAUGHT IN A CRASH' MEANS. It is the worst single day in",
+              "  that market's entire history, priced as if you were holding this",
+              "  position through it. It is an UPPER BOUND on what one day can",
+              "  cost - not a prediction, and not a claim about how often the",
+              "  volatility filter lets such a day through.",
+              "",
+              "  Read the last column first. One such day costs what hundreds of",
+              "  ordinary winning trades earn. That is the shape of every",
+              "  premium-selling strategy, and it is why the filter - not the win",
+              "  rate - is the thing to watch.", ""]
 
     if ev:
         T += ["=" * 62, "THE EVIDENCE", "=" * 62, "",
@@ -661,9 +667,11 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
               "  Read this before the win rates above persuade you of anything.", "",
               "  The simulation resamples only trades the volatility gate ALLOWED.",
               "  No crash day is in that sample, so its 'bad year' column is NOT a",
-              "  worst case. This is:", "",
-              f"  {'market':<10}{'gate shut':>11}{'gate OPEN':>12}{'on':>12}"
-              f"{'costs':>10}", "  " + "-" * 55]
+              "  worst case. This is - and it is an UPPER BOUND on one day, not a",
+              "  forecast, and not a claim about how often the filter lets one",
+              "  through:", "",
+              f"  {'market':<10}{'worst taken':>13}{'worst ever':>12}{'on':>12}"
+              f"{'costs':>10}", "  " + "-" * 57]
         for m, e in sorted(ev.items(), key=lambda kv: (kv[1].get("stress") or {})
                            .get("worst_ungated_pct", 0)):
             s = e.get("stress") or {}
@@ -777,7 +785,7 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
                                  ("margin needed (est)", f"{c}{e['margin_estimate']:,}", D),
                                  ("typical outcome", f"{c}{e['typical_gain']:+,}", OK),
                                  ("worst day so far", f"{c}{e['worst_day']:+,}", BAD),
-                                 ("if the gate fails", f"{c}{e['gate_failure']:+,}", BAD)))
+                                 ("caught in a crash", f"{c}{e['gate_failure']:+,}", BAD)))
                          + "</table>")
             H.append(f'<div style="font-size:12px;color:{MUT}">±{r["width_pct"]}% wide · '
                      f'{r["vol_index"]} vs {r["vol_threshold"]:.0f} gate · close same day'
@@ -851,8 +859,8 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
         H.append(f'<tr><td style="padding:0 22px;background:{BG}">'
                  f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
                  f'style="width:100%;border-collapse:collapse">')
-        H.append(_row(("market", "margin", "collect", "typical", "worst day",
-                       "gate fails"), head=True, mono=False))
+        H.append(_row(("market", "margin", "collect", "typical", "worst so far",
+                       "caught in a crash"), head=True, mono=False))
         for r in money:
             e, c = r["economics"], r["ccy"]
             H.append(_row((f'<b>{r["market"]}</b>', f"{c}{e['margin_estimate']:,}",
@@ -868,7 +876,7 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
                  f'directions about eightfold.</div>')
         H.append(f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
                  f'style="width:100%;border-collapse:collapse">')
-        H.append(_row(("market", "typical", "worst day", "gate fails",
+        H.append(_row(("market", "typical", "worst so far", "caught in a crash",
                        "winners to repay"), head=True, mono=False))
         for r in money:
             e = r["economics"]
@@ -883,10 +891,15 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
         H.append("</table>")
         H.append(f'<div style="background:#fef2f2;border-radius:10px;padding:13px 15px;'
                  f'margin-top:12px;font-size:12.5px;color:#7f1d1d;line-height:1.55">'
-                 f'<b>Read the last column first.</b> One leaked crash day costs what '
-                 f'hundreds of ordinary winning trades earn. That is the shape of every '
-                 f'premium-selling strategy, and it is why the gate — not the win rate — '
-                 f'is the thing to watch.</div></td></tr>')
+                 f'<b>“Caught in a crash”</b> is the worst single day in that market\'s '
+                 f'entire history, priced as if you were holding this position through '
+                 f'it. It is an <b>upper bound</b> on what one day can cost — not a '
+                 f'prediction, and not a claim about how often the volatility filter '
+                 f'lets such a day through.<br><br>'
+                 f'<b>Read the last column first.</b> One such day costs what hundreds '
+                 f'of ordinary winning trades earn. That is the shape of every '
+                 f'premium-selling strategy, and it is why the filter — not the win '
+                 f'rate — is the thing to watch.</div></td></tr>')
 
     if ev:
         # ---- evidence: sample size and period BEFORE any performance number ----
@@ -940,10 +953,12 @@ def _email_body(rows: list[dict]) -> tuple[str, tuple[str, str]]:
                  f'font-size:12.5px;color:#7c4a02;line-height:1.55;margin-bottom:12px">'
                  f'The simulation above resamples only trades the volatility gate '
                  f'<b>allowed</b>. No crash day is in that sample, so its “bad year” '
-                 f'column is <b>not a worst case</b>. This is:</div>')
+                 f'column is <b>not a worst case</b>. This is — and it is an '
+                 f'<b>upper bound</b> on what a single day can cost, not a forecast, '
+                 f'and not a claim about how often the filter lets one through:</div>')
         H.append(f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
                  f'style="width:100%;border-collapse:collapse">')
-        H.append(_row(("market", "gate shut", "gate OPEN", "on", "costs"),
+        H.append(_row(("market", "worst taken", "worst ever", "on", "costs"),
                       head=True, mono=False))
         for m, e in sorted(ev.items(),
                            key=lambda kv: (kv[1].get("stress") or {})
@@ -1080,9 +1095,11 @@ def main() -> int:
                   f"({e['typical_gain_on_margin_pct']:+.2f}% of margin)  ·  "
                   f"worst day {c}{e['worst_day']:+,} "
                   f"({e['worst_day_on_margin_pct']:.1f}%)")
-            print(f"      if the gate FAILS {c}{e['gate_failure']:+,} "
+            print(f"      caught in a crash {c}{e['gate_failure']:+,} "
                   f"({e['gate_failure_on_margin_pct']:.1f}% of margin) — "
-                  f"{e['winners_per_gate_failure']:,} winners to repay")
+                  f"{e['winners_per_gate_failure']:,} winners to repay; this is the "
+                  f"worst day in\n      this market's history, an UPPER BOUND, not a "
+                  f"forecast")
         print()
     if args.email:
         # Fail-soft: an email problem must never lose the decision, which is

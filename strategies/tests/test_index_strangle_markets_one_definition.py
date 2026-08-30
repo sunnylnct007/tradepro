@@ -103,6 +103,7 @@ def test_evidence_carries_the_gate_failure_stress():
     "What would make this wrong",     # the honest section must exist
     "How to read this",               # the reading guide
     "not a worst case",               # the Monte Carlo caveat, stated inline
+    "upper bound",                    # what "caught in a crash" actually means
     "no bid-ask spread charged",      # the modelled-price admission
     "NOT FUNDED",
 ])
