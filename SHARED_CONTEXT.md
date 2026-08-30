@@ -656,3 +656,32 @@ still absent by call 4, so one retry can never reach open interest.
 on a paper session or merely slower to prime. Everything above was measured on a
 CLOSED SUNDAY. Monday's live run settles it. **Nobody should buy an OPRA
 subscription to fix what may be a priming bug.**
+
+---
+
+## 30 Aug — the chain resolves by MONTH; IBKR needs the EXACT EXPIRY
+
+Why the chain returns only ~4 strikes and cannot reach a 10% OTM put.
+
+`ChainEndpoints` picks strikes nearest spot and resolves each with
+`secdef/info?conid=…&month=SEP26&strike=…&right=P`. Measured on MRVL:
+**52 of 56 strikes failed with `"No Contracts retrieved"`.** Only 212.5–220.0
+resolved — the four nearest spot.
+
+SEP26 contains FOUR expiries (0904, 0911, 0918, 0925). A month-level query is
+ambiguous, and IBKR answers for the nearest weekly, whose listed strike band is
+narrow. The far strikes are not missing from the market — they are missing from
+*that* expiry.
+
+Proof: the same 195 put resolves fine through an EXACT expiry. The live MCP call
+used `483492393@SMART/OPT/SMART/20260918/MRVL/1` and returned conid 873598611,
+which then priced at bid 3.30 / ask 3.70 / IV 57.2% / OI 2,472.
+
+**Fix direction:** `GetOptionContractsAsync` should resolve by exact expiry, not
+month. `maxStrikes` is NOT the problem — 20 and 60 return identical output
+because the cap is applied before resolution and resolution is what fails.
+
+**Consequence today:** the puts screen cannot price a 10% OTM put and says so on
+the row rather than pricing the wrong contract (54d7654). That guard exists
+because the first version silently priced a 5-day 212.5 put against a 30-day
+194.96 target — real numbers, wrong contract.
