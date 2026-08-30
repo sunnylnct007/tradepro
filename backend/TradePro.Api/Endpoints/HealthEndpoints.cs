@@ -131,7 +131,12 @@ public static class HealthEndpoints
                 verdict,
                 utc = DateTime.UtcNow,
                 environment = env.EnvironmentName,
+                // GIT_SHA is never set by the build; BACKEND_COMMIT is (baked
+                // in by aws-build-push). Reporting "unknown" beside a field
+                // that knows the answer sent me looking for a capability that
+                // already existed. Fall back rather than mislead.
                 gitSha = Environment.GetEnvironmentVariable("GIT_SHA")
+                         ?? Environment.GetEnvironmentVariable("BACKEND_COMMIT")
                     ?? Environment.GetEnvironmentVariable("GITHUB_SHA")
                     ?? "unknown",
                 // Deployment provenance — set during Docker build via

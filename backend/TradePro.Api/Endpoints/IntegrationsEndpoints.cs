@@ -1398,6 +1398,12 @@ public static class IntegrationsEndpoints
                     // disabled unless IBKR:AllowOrders=true. Surfaced so the
                     // read-only guarantee is visible/auditable.
                     allowOrders = ibkr.AllowOrders,
+                    // Surfaced 30 Aug 2026 so the no-live-orders guarantee is
+                    // CHECKABLE from outside, not merely asserted in a commit
+                    // message. Without it the only way to confirm the guard was
+                    // deployed was reading source and trusting CI — which is
+                    // how a six-hour-stale Lambda went unnoticed the same day.
+                    blockedForLive = ibkr.BlockedForLive,
                     mode = string.IsNullOrWhiteSpace(o.Mode) ? "disabled" : o.Mode,
                     clientIdInUse = RedactClientId(o.ActiveClientId),
                     accounts = Array.Empty<string>(),
@@ -1439,6 +1445,7 @@ public static class IntegrationsEndpoints
                 // disabled unless IBKR:AllowOrders=true. Surfaced so the
                 // read-only guarantee on the live account is visible/auditable.
                 allowOrders = ibkr.AllowOrders,
+                blockedForLive = ibkr.BlockedForLive,
                 mode = status.Mode,
                 brokerLabel = status.BrokerLabel,
                 // Active (mode-resolved) client id, redacted to a hint so the
