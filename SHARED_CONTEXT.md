@@ -436,3 +436,104 @@ and nothing asserted a relationship between them. The guard added is therefore
 two-part — semantic (a populated ratio never yields "unavailable") and
 source-order — and the ordering guard was VERIFIED to fail against the pre-fix
 file before being trusted.
+
+---
+
+## 30 Aug 2026 — THE WHEEL SCREEN IS REJECTING ON FABRICATED LIQUIDITY
+
+**For whoever picks up the options/wheel lane. Diagnosis only — nothing fixed yet.**
+
+An external review flagged the wheel board as untrustworthy. I verified every
+claim against the live API and the harvest logs rather than accepting them.
+Most were right; two were wrong in ways that change the priority order.
+
+### CONFIRMED, and it is the headline
+
+The chain source has fallen back to yfinance, and its open interest is
+fiction. From the 28 Aug screen run, blocking with "illiquid, bad fills":
+
+    SPY   OI 194 < 250        QQQ   OI  46 < 250
+    DIA   OI  12 < 250        IBKR  OI   2 < 250
+    ACN   OI  28 < 250        MS    OI  16 < 250
+
+SPY options are among the deepest markets in existence. An external check on
+XOM put the same figure at 57 from yfinance against 7,570 live on IBKR, with
+3,783 on the bid, and the spread gate likewise false (21.5% claimed vs 12.7%
+real). So the liquidity and spread gates have been firing on garbage for at
+least 44 hours and plausibly since bars_1m went down on the 21st.
+
+THIS IS THE ANSWER TO "the screen rejects everything and I cannot tell if the
+reasoning is sound". It was not reasoning. FIX THIS FIRST — every other item
+below is secondary to it.
+
+The IV/HV block is the one legitimate rejection (XOM 0.899 vs the 0.95 gate),
+but IV also comes off the same degraded chain, so re-measure it before
+concluding anything. Note that with every board name currently under 0.95 a
+hard gate means nothing is tradeable at all; a graded version is the better
+shape, but that is a design call, not a bug fix.
+
+### CORRECTION 1 — "options_screen broken since 28 Aug, 44h" is mostly a weekend
+
+It last ran Fri 19:59Z and exited rc=0. Only ~4 of those 44 hours are weekday
+time. The readiness check applies a weekday adjustment to bars_1m ("121h of
+them weekday time") and NOT to options_screen — the same false-alarm class
+already fixed for the health probe in 3f252df.
+
+The 37 CONSECUTIVE DEGRADED RUNS are real and are a different fault: the screen
+runs fine, it is the OUTPUT that is degraded. Do not chase a scheduling ghost.
+
+### CORRECTION 2 — bars_1d is a FAIL-OPEN MONITOR, and the harvest is innocent
+
+Readiness reports bars_1d as "all 1 symbols covered — 0 from IBKR, 1 from the
+yfinance fallback" AND usable:true. The harvest is fine: 28 Aug ran 244 symbols,
+244 GOLD, 0 partial, 0 failed.
+
+What happened is that the swing refresh at 09:30-09:31Z on 29 Aug did an
+incidental single-symbol cache-miss fetch, and THAT stamped the lane telemetry
+at 09:32:57Z. Coverage is computed against the run's own symbol count, so 1-of-1
+reads as 100% and the dataset reports healthy.
+
+So ANY ad-hoc single-symbol fetch silently overwrites the health of the entire
+daily lane. That is a fail-open monitor over the dataset feeding every HV,
+regime, Ichimoku and backtest figure — and it is why this passed three runs
+without an alarm. Same shape as the 5 monitors found green while broken on
+17-18 Aug.
+
+Do NOT "fix the daily harvest". It is not broken. Fix the telemetry rollup so a
+partial fetch cannot masquerade as a full-universe run.
+
+### ALSO CONFIRMED — the book the gates size against is not the real book
+
+The board reports deployed 4000, 1 open position (SLV), NAV 119,062. The actual
+account holds ten short options (AMZN, APLD x2, GOOGL, IBM, MRVL x2, PG, SKHY,
+XOM) with NAV 125,387. It returns already_in_book:false for XOM while the
+account is short the exact contract being suggested. Every concentration and
+position-size gate is therefore computed against a book that is not yours.
+
+### RANKED
+
+1. Repoint the option chain from yfinance to IBKR — unblocks trading
+2. Stop incidental fetches overwriting lane telemetry — until then NO readiness
+   verdict can be trusted, including the green ones
+3. Apply the weekday adjustment to options_screen staleness
+4. Reconcile the book against get_ibkr_positions
+5. Revisit the IV/HV hard gate (design call, after 1)
+
+### UNRELATED, and DONE this session — index short strangle
+
+8 markets live (SPX/XSP/SPY, NDX/QQQ, BANKNIFTY/NIFTY, GOLD), deployed to
+Lambda and verified from the live function. Two corrections worth knowing if
+you touch it:
+
+* THE GATE WAS READING THE FUTURE. It filtered on the same day's vol close
+  while entering at that morning's open. Corrected to a one-session lag; mean
+  return fell 10-17% everywhere and SPY's worst day went -0.80% -> -1.89%.
+  Every threshold tightened. India's 12.5 was already right.
+* Thresholds are now COMPUTED, not chosen — largest gate admitting zero trades
+  in any declared crisis window. It reproduces SPY's hand-picked 14 exactly,
+  which is why it is trusted; it also caught that GVZ<=16 (my guess) traded
+  through 31 sessions of the 2022 bear.
+
+Six MCP tools now expose the suite (94 total). Also removed two tools that were
+registered TWICE — FastMCP lets the last win silently, so the first of each
+pair was dead code that still looked live.
