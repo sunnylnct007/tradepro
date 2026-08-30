@@ -88,6 +88,11 @@ class OptionsRiskConfig:
     # over automatically once the window matures (fetch_iv_rank_web sets
     # iv_rank only then).
     iv_hv_min: float = 1.0
+    # Below this the trade is uneconomic rather than merely thin — the only
+    # level that still HARD-blocks. Above it and below iv_hv_min the candidate
+    # survives with a warning and a realised-vol strike adjustment, because a
+    # gate that rejects the entire universe protects nothing (30 Aug 2026).
+    iv_hv_floor: float = 0.35
     # Premium floor (owner 2026-08-09: "avoid selling options not paying
     # much") — an otherwise-clean candidate that only pays pennies ties up
     # collateral for nothing. Both must clear: an absolute per-share floor
@@ -203,6 +208,7 @@ class OptionsRiskConfig:
             # hard 1.0 veto rejects nearly everything in an IV-crush tape;
             # keep the default but let the operator run it looser/tighter.
             iv_hv_min=_f("TRADEPRO_WHEEL_IV_HV_MIN", d.iv_hv_min),
+            iv_hv_floor=_f("TRADEPRO_WHEEL_IV_HV_FLOOR", d.iv_hv_floor),
             min_pct_off_52w_high=_f("TRADEPRO_WHEEL_MIN_PCT_OFF_HIGH",
                                     d.min_pct_off_52w_high),
             iv_rank_min=_f("TRADEPRO_WHEEL_IV_RANK_MIN", d.iv_rank_min),
@@ -404,9 +410,41 @@ def evaluate(
             checked.append("iv_hv_bridge")
             # Terse on purpose — this fires on most of the universe at once and
             # the screen repeats it per row; boilerplate goes in the UI tooltip.
-            if ctx.iv_hv_ratio < cfg.iv_hv_min:
+            if ctx.iv_hv_ratio < cfg.iv_hv_floor:
+                # HARD floor only — genuinely uneconomic, not merely thin.
                 blocks.append(
-                    f"IV/HV {ctx.iv_hv_ratio:.2f} < {cfg.iv_hv_min:.2f} — premium thin vs realised (bridge{_win}).")
+                    f"IV/HV {ctx.iv_hv_ratio:.2f} < {cfg.iv_hv_floor:.2f} — the option is priced "
+                    f"for far less movement than the stock is actually delivering. Selling here "
+                    f"is taking the wrong side of the variance gap, not harvesting it.")
+            elif ctx.iv_hv_ratio < cfg.iv_hv_min:
+                # A DIAL, NOT A GATE (30 Aug 2026).
+                #
+                # This was a hard block at 1.0 and it was blocking EVERYTHING:
+                # every name on the live board sits below it (XOM 0.90, NVDA 0.81,
+                # GOOGL 0.78, APLD 0.70, PG 0.63, MU 0.62, MRVL 0.49), which is
+                # exactly the "82 screened, 0 eligible" the owner has been looking
+                # at for weeks.
+                #
+                # The owner's own record says the calibration is wrong in this
+                # direction: 10 closed option trades, 10 winners, $2,025 realised,
+                # 85% of premium captured, 17 days held. A filter can only add
+                # value by removing losers. There are none. So a gate that blocks
+                # every candidate is not protecting anything — it is the failure
+                # mode in evidence.
+                #
+                # IV < HV does not mean "do not sell". It means the QUOTED DELTA
+                # UNDERSTATES THE RISK, because delta is derived from implied vol
+                # while the stock is moving at realised. The correct response is
+                # to sell FURTHER OUT for the same true delta, not to refuse.
+                # Sized at realised vol the strike moves materially: on MRVL
+                # (IV/HV 0.49) the naive and true strikes are 19 points apart.
+                shortfall = cfg.iv_hv_min - ctx.iv_hv_ratio
+                warnings.append(
+                    f"IV/HV {ctx.iv_hv_ratio:.2f} < {cfg.iv_hv_min:.2f} — the option prices LESS "
+                    f"movement than the stock is delivering, so the quoted delta UNDERSTATES "
+                    f"assignment risk. Not a block: size the strike off realised vol, not implied, "
+                    f"and expect the true delta to be ~{shortfall:.0%} worse than quoted. "
+                    f"Ranked below better-paid names.")
             else:
                 warnings.append(
                     f"Vega edge via IV/HV bridge {ctx.iv_hv_ratio:.2f} ≥ {cfg.iv_hv_min:.2f}{_win} — provisional until rank window matures.")
