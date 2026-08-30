@@ -210,6 +210,44 @@ def describe(sym: str, otm_pct: float, dte: int) -> None:
     print("\n    NO PREMIUM IS ASSUMED. 'Assigned' counts even where the premium")
     print("    would have covered the loss — so this is the risk BEFORE income.")
 
+    # ── WHAT HAPPENED AFTER ASSIGNMENT ───────────────────────────────────
+    #
+    # Owner, 30 Aug: *"with fundamental stock like google i took that risk of put
+    # option and was fine"*.
+    #
+    # That is a DIFFERENT risk model and the table above misprices it. If you are
+    # willing to own the name, assignment is not a loss — it is buying a stock
+    # you wanted, at a discount, with the premium already banked. What decides
+    # whether that was "fine" is not the assignment rate but what the shares did
+    # NEXT.
+    #
+    # Measured from the strike (your cost basis on assignment), so it answers the
+    # actual question: having been put the stock, were you made whole?
+    if itm:
+        print(f"\n  IF YOU ARE HAPPY TO OWN IT — what the shares did AFTER assignment")
+        print(f"    (measured from the STRIKE, your cost basis, on {len(itm)} assignments)")
+        print(f"    {'held for':<12}{'recovered':>11}{'median':>9}{'worst':>9}{'best':>9}")
+        idx = {d: k for k, d in enumerate(dates)}
+        for hold in (21, 63, 126, 252):
+            fwd = []
+            for r in itm:
+                k = idx.get(r["date"])
+                if k is None:
+                    continue
+                j = k + dte + hold
+                if j >= len(c):
+                    continue
+                fwd.append(100 * (c[j] / r["strike"] - 1))
+            if len(fwd) < 5:
+                continue
+            up = sum(1 for x in fwd if x > 0)
+            label = {21: "1 month", 63: "3 months", 126: "6 months",
+                     252: "1 year"}.get(hold, f"{hold}d")
+            print(f"    {label:<12}{100 * up / len(fwd):>10.0f}%{st.median(fwd):>8.1f}%"
+                  f"{min(fwd):>8.1f}%{max(fwd):>8.1f}%")
+        print("    'recovered' = share price back ABOVE the strike you paid.")
+        print("    Still no premium counted, so the real break-even is lower.")
+
     print("\n  NOT KNOWN HERE: live option premium (the chain resolves by month and")
     print("  cannot reach a 10% OTM strike — see SHARED_CONTEXT), sector, guidance.")
 
