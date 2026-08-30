@@ -255,6 +255,137 @@ def scan(api_base: str) -> tuple[list[dict], list[dict], dict]:
     return cands, near, market
 
 
+
+# How far a LISTED strike/expiry may sit from the target before we refuse to
+# price it. A plausible premium for the wrong contract is the worst output this
+# screen could produce.
+STRIKE_TOLERANCE = 0.03      # 3% of the target strike
+DTE_TOLERANCE = 10           # days
+
+
+def price_candidates(cands: list[dict], base: str, token: str | None) -> int:
+    """Attach REAL option pricing to each candidate. Returns how many were priced.
+
+    Owner, 30 Aug: *"a screen saying put and showing almost nothing"*. Fair — it
+    told you to sell a put at 194.96 and never what you would be PAID for it.
+    Premium, yield and delta are the numbers a human actually decides on, and
+    until today they were unobtainable: IBKR served the option IV as the string
+    "57.2%" and the parser discarded it on the suffix (806f806), so the chain
+    came back empty and the screen was built to survive without it.
+
+    THE BARS-ONLY DESIGN IS PRESERVED DELIBERATELY. Strike and size still come
+    from bars, so a dark chain can never HIDE a setup — that was the right call
+    and it stays. This only ADDS what the chain knows on top. A candidate with no
+    chain data keeps every field it had; it simply says the premium is unknown
+    rather than silently dropping off the board.
+    """
+    import requests
+    H = {"Authorization": f"Bearer {token}"} if token else {}
+    priced = 0
+    for c in cands:
+        sym, strike = c.get("symbol"), c.get("strike")
+        if not sym or not strike:
+            continue
+        # TWO calls, deliberately. The first read returns availableExpiries and
+        # whatever expiry IBKR defaults to — which is the NEAREST weekly, not the
+        # 30-day contract this strategy trades. Pricing the default gave MRVL a
+        # 5-day 212.5 put against a 30-day 195 target: a real premium for a
+        # contract the strategy would never sell.
+        import datetime as _dt
+        target_dte = int(c.get("dte_target") or 30)
+        try:
+            r0 = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{sym}",
+                              params={"maxStrikes": 1, "right": "P"},
+                              headers=H, timeout=120)
+            j0 = r0.json() if r0.status_code == 200 else {}
+            expiries = [str(x) for x in (j0.get("availableExpiries") or []) if str(x).isdigit()]
+        except Exception as exc:  # noqa: BLE001 — pricing is additive, never fatal
+            c["pricing_note"] = f"chain unavailable ({str(exc)[:60]})"
+            continue
+        if not expiries:
+            c["pricing_note"] = "chain served no expiry list"
+            continue
+        today = _dt.date.today()
+        def _dte(e):
+            return (_dt.date(int(e[:4]), int(e[4:6]), int(e[6:8])) - today).days
+        # Nearest expiry to target that is still in the future.
+        future = [e for e in expiries if _dte(e) > 0]
+        if not future:
+            c["pricing_note"] = "no future expiry listed"
+            continue
+        chosen = min(future, key=lambda e: abs(_dte(e) - target_dte))
+        try:
+            # Wide strike window: a 10% OTM put sits well below spot, and the
+            # default window centres on spot and never reaches it.
+            r = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{sym}",
+                             params={"maxStrikes": 60, "right": "P", "expiry": chosen},
+                             headers=H, timeout=180)
+            legs = (r.json() or {}).get("legs") or [] if r.status_code == 200 else []
+        except Exception as exc:  # noqa: BLE001
+            c["pricing_note"] = f"chain unavailable ({str(exc)[:60]})"
+            continue
+        puts = [l for l in legs if (l.get("right") or "").upper().startswith("P")
+                and l.get("strike") is not None]
+        if not puts:
+            c["pricing_note"] = "no put legs returned for this expiry"
+            continue
+        # Nearest LISTED strike to the bars-derived target — but ONLY if it is
+        # actually near it.
+        #
+        # Caught before shipping: without a tolerance this priced MRVL's 212.5
+        # put (1.8% OTM, delta -0.388) against a 194.96 target (10% OTM),
+        # because the chain window never reached 195 and min() happily returned
+        # the closest thing it had. A real premium for the WRONG contract is
+        # worse than no premium — it is a number a human would act on.
+        leg = min(puts, key=lambda l: abs(float(l["strike"]) - float(strike)))
+        drift = abs(float(leg["strike"]) - float(strike)) / float(strike)
+        if drift > STRIKE_TOLERANCE:
+            c["pricing_note"] = (
+                f"no listed strike near {strike:.2f} — nearest was "
+                f"{leg['strike']} ({100 * drift:.1f}% away). Chain window does not "
+                "reach the target; NOT priced rather than priced wrongly.")
+            continue
+        # Same for the expiry: a 5-day contract is not a 30-day trade.
+        exp = str(leg.get("maturityDate") or "")
+        if exp:
+            import datetime as _dt
+            try:
+                days = (_dt.date(int(exp[:4]), int(exp[4:6]), int(exp[6:8]))
+                        - _dt.date.today()).days
+                if abs(days - int(c.get("dte_target") or 30)) > DTE_TOLERANCE:
+                    c["pricing_note"] = (
+                        f"nearest listed expiry is {days}d out, target "
+                        f"{c.get('dte_target')}d — NOT priced rather than priced "
+                        "on the wrong expiry.")
+                    continue
+                c["dte_actual"] = days
+            except ValueError:
+                pass
+        bid, ask = leg.get("bid"), leg.get("ask")
+        mid = round((bid + ask) / 2, 2) if (bid is not None and ask is not None) else None
+        c["listed_strike"] = leg.get("strike")
+        c["expiry"] = leg.get("maturityDate")
+        c["bid"], c["ask"], c["mid"] = bid, ask, mid
+        c["iv_pct"] = leg.get("impliedVolPct")
+        c["delta"] = leg.get("delta")
+        if mid and leg.get("strike"):
+            collateral = float(leg["strike"]) * 100.0
+            dte = max(1, int(c.get("dte_target") or 30))
+            c["premium_usd"] = round(mid * 100, 2)
+            # Return ON THE COLLATERAL a cash-secured put actually ties up, not on
+            # the premium — the number that decides whether this beats cash.
+            c["yield_pct"] = round(100 * (mid * 100) / collateral, 2)
+            c["annual_yield_pct"] = round(100 * (mid * 100) / collateral * 365 / dte, 1)
+            c["breakeven"] = round(float(leg["strike"]) - mid, 2)
+            # |delta| is the market's own estimate of ending in-the-money.
+            if leg.get("delta") is not None:
+                c["assign_prob_pct"] = round(abs(float(leg["delta"])) * 100, 1)
+            priced += 1
+        else:
+            c["pricing_note"] = "chain returned the leg but no bid/ask"
+    return priced
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="tradepro-post-earnings-puts")
     ap.add_argument("--json", action="store_true")
@@ -271,6 +402,19 @@ def main() -> int:
         base, _ = load_credentials()
 
     cands, near, market = scan(base)
+
+    # Price them. Additive: a candidate with no chain keeps every bars-derived
+    # field and simply carries a pricing_note instead of a premium.
+    _tok = None
+    try:
+        from .push_to_api import load_credentials as _lc
+        _b, _tok = _lc()
+        n_priced = price_candidates(cands, base or _b, _tok)
+    except Exception as exc:  # noqa: BLE001 — never lose the scan over pricing
+        n_priced = 0
+        log.warning("option pricing unavailable (%s) — candidates keep their "
+                    "bars-derived strike and size", str(exc)[:120])
+
     art = {
         "kind": "post_earnings_puts",
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
@@ -295,6 +439,7 @@ def main() -> int:
         "evaluated": len(cands) + len(near),
         "candidates": cands,
         "near_misses": near[:10],
+        "priced": n_priced,
     }
 
     if args.json:
