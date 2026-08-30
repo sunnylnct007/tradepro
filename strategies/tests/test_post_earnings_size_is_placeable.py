@@ -31,23 +31,26 @@ def test_a_fractional_size_becomes_one_whole_contract():
     assert out["contracts"] == 1
     assert out["collateral_actual_usd"] == 19500      # 195.00 x 100 x 1
     assert out["collateral_target_usd"] == 6630       # what the vol rule asked
-    assert out["oversize_vs_target"] > 2.9
 
 
-def test_being_over_the_vol_budget_is_stated_not_hidden():
-    """When one contract blows past the intended risk, the row must SAY so —
-    that is the rule telling you the name is too big to size, which is
-    information, not something to round away."""
-    note = _tradeable_size(194.96, 0.34)["size_note"]
-    assert "too big to size" in note and "2.9x" in note
+def test_collateral_never_restricts_a_candidate():
+    """Owner, 30 Aug 2026: "I do not want collateral restrictions", consistent
+    with the standing rule that capital never decides eligibility.
+
+    This function must REPORT and never judge. If a warning, a demotion or a
+    filter ever reappears here, it contradicts an explicit instruction and this
+    fails."""
+    out = _tradeable_size(194.96, 0.34)
+    for banned in ("size_note", "oversize_vs_target", "blocked", "warning"):
+        assert banned not in out, f"{banned} reintroduces a capital judgement"
+    assert set(out) == {"strike_indicative", "contracts",
+                        "collateral_actual_usd", "collateral_target_usd"}
 
 
 def test_a_name_that_sizes_properly_carries_no_warning():
     out = _tradeable_size(50.0, 2.0)
     assert out["contracts"] == 2
     assert out["collateral_actual_usd"] == 10000
-    assert out["oversize_vs_target"] == 1.0
-    assert "too big" not in out["size_note"]
 
 
 def test_collateral_is_never_below_one_contract():

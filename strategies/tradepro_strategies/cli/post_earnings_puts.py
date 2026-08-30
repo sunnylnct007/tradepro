@@ -167,28 +167,27 @@ def _tradeable_size(strike: float, factor: float) -> dict:
     That understatement is the dangerous direction: it reads as a small,
     well-sized position while committing three times the collateral.
 
-    What the vol rule is really saying when factor < 1 is "this name is too
-    volatile to size properly at one contract" — which is information worth
-    surfacing, not rounding away. So both numbers are reported, plus how far
-    over the intended budget a single contract lands.
+    NOT A RESTRICTION. Owner, 30 Aug 2026: "I do not want collateral
+    restrictions", consistent with the standing rule that capital never decides
+    eligibility (the "Notional > per-position limit" line was removed from the
+    wheel email for the same reason). Nothing here filters, blocks or demotes a
+    candidate — the only things that reject a name are the earnings drop and
+    the SPY 200-SMA gate. This function exists solely so the displayed number is
+    ARITHMETICALLY REAL: whole contracts at a listed strike.
+
+    collateral_target_usd is kept in the payload for the record but is not
+    surfaced; it is what the vol rule asked for, which is a risk note, not a
+    limit.
     """
     snapped = _snap_strike(strike)
     per_contract = snapped * 100.0
-    target = per_contract * factor
     contracts = max(1, int(round(factor)))
     actual = per_contract * contracts
     return {
         "strike_indicative": snapped,
         "contracts": contracts,
-        "collateral_target_usd": round(target, 0),
         "collateral_actual_usd": round(actual, 0),
-        "oversize_vs_target": (round(actual / target, 2) if target > 0 else None),
-        "size_note": (
-            f"1 contract is the minimum: ${actual:,.0f} against a vol-scaled "
-            f"target of ${target:,.0f} ({actual / target:.1f}x) — this name is "
-            f"too big to size properly"
-            if target > 0 and actual > target * 1.15
-            else f"{contracts} contract(s), ${actual:,.0f}"),
+        "collateral_target_usd": round(per_contract * factor, 0),
     }
 
 
@@ -312,17 +311,12 @@ def main() -> int:
 
     if cands:
         print(f"  {'sym':<7}{'reported':<12}{'move':>8}{'spot':>10}{'strike':>10}"
-              f"{'vol':>7}{'x':>4}{'collateral':>12}{'vs target':>11}")
+              f"{'vol':>7}{'contracts':>10}{'collateral':>12}")
         for r in cands:
-            _ov = r.get("oversize_vs_target")
             print(f"  {r['symbol']:<7}{r['report_date']:<12}{r['report_move_pct']:>7.1f}%"
                   f"{r['spot']:>10.2f}{r['strike_indicative']:>10.2f}"
-                  f"{(r['annual_vol_pct'] or 0):>6.0f}%{r['contracts']:>4}"
-                  f"{r['collateral_actual_usd']:>11,.0f}"
-                  f"{(f'{_ov:.1f}x' if _ov else '-'):>11}")
-        for r in cands:
-            if (r.get("oversize_vs_target") or 0) > 1.15:
-                print(f"    ! {r['symbol']}: {r['size_note']}")
+                  f"{(r['annual_vol_pct'] or 0):>6.0f}%{r['contracts']:>10}"
+                  f"{r['collateral_actual_usd']:>11,.0f}")
         print("\n  Strike and size come from BARS only — no option data needed, so a")
         print("  dark chain cannot hide a setup. Premium/OI/spread are a separate")
         print("  best-effort layer and are not required to see the candidate.")

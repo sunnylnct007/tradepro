@@ -28,7 +28,6 @@ type Row = {
   annual_vol_pct: number | null; size_factor: number; collateral_usd: number;
   strike_indicative?: number; contracts?: number;
   collateral_actual_usd?: number; collateral_target_usd?: number;
-  oversize_vs_target?: number | null; size_note?: string;
   why_not?: string;
 };
 type Market = { ok: boolean | null; reason: string; spy_close?: number;
@@ -160,11 +159,6 @@ export function PostEarningsPutsView() {
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>{r.contracts ?? 1}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
                     ${(r.collateral_actual_usd ?? r.collateral_usd).toLocaleString()}
-                    {r.oversize_vs_target && r.oversize_vs_target > 1.15 && (
-                      <span style={{ color: "var(--warn, #b26a00)", fontSize: 12 }}>
-                        {" "}({r.oversize_vs_target.toFixed(1)}× target)
-                      </span>
-                    )}
                   </td>
                 </tr>
               ))}
@@ -176,11 +170,10 @@ export function PostEarningsPutsView() {
       <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>
         Strike and size come from <b>bars only</b> — no option data — so a dark chain
         cannot hide a setup. Size is scaled by each name's volatility, which is why a
-        high-vol name shows a smaller collateral than its strike implies.
-        Options trade in WHOLE contracts, so the collateral shown is one
-        contract at the listed strike — when that lands above the vol-scaled
-        target the row says by how much, because the name is then too big to
-        size properly rather than a small position.
+        high-vol name shows fewer contracts than a low-vol one. Options trade
+        in WHOLE contracts, so the collateral shown is what you would actually
+        commit at the listed strike. It is shown for information — nothing here
+        is blocked or demoted on capital.
       </div>
 
       {/* Evidence AND limits together. A screen that quotes 89.5% has to quote
