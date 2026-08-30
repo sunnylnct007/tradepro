@@ -34,6 +34,39 @@ public static class DataReadinessEndpoints
     private sealed record DatasetSpec(
         string Key, string Label, string Purpose, double MaxAgeHours, bool MarketHoursOnly);
 
+    /// <summary>
+    /// Pick which run in a lane's history should GRADE the lane, given each
+    /// run's covered-symbol count, newest first.
+    ///
+    /// Exists because an incidental single-symbol fetch was overwriting the
+    /// health of an entire dataset (30 Aug 2026): bars_1d reported "all 1
+    /// symbols covered" and usable:true while the real nightly harvest had run
+    /// 244 symbols with zero missing. Coverage is a missing/total ratio, so a
+    /// 1-of-1 run scores 0% missing and grades as perfect — the fail-open
+    /// direction, which is the silent one.
+    ///
+    /// Returns the index of the newest run covering at least half the lane's
+    /// own recent maximum, plus how many newer partial runs were skipped.
+    /// Returns (-1, 0) when nothing qualifies, and the caller falls back to
+    /// grading the newest row as before.
+    /// </summary>
+    public static (int Index, int PartialsIgnored) PickGradedRun(
+        IReadOnlyList<int> coveredNewestFirst)
+    {
+        if (coveredNewestFirst is null || coveredNewestFirst.Count == 0) return (-1, 0);
+        var laneSize = coveredNewestFirst.Max();
+        // A lane that has only ever reported one symbol has no "normal" to
+        // compare against — do not invent one.
+        if (laneSize <= 1) return (-1, 0);
+        // Half the lane's own recent maximum. Deliberately generous: the aim is
+        // to exclude 1-of-244 fetches, not to police a harvest that legitimately
+        // skipped a few delisted names.
+        var floor = (int)Math.Ceiling(laneSize * 0.5);
+        for (var i = 0; i < coveredNewestFirst.Count; i++)
+            if (coveredNewestFirst[i] >= floor) return (i, i);
+        return (-1, 0);
+    }
+
     public static IEndpointRouteBuilder MapDataReadinessEndpoints(this IEndpointRouteBuilder app)
     {
         var g = app.MapGroup("/data-readiness").WithTags("DataReadiness");
@@ -199,7 +232,58 @@ public static class DataReadinessEndpoints
                 // daily-bar outage when 177 of 179 symbols were complete and
                 // ZERO were missing: precisely the false alarm this endpoint
                 // exists to prevent.
-                var summaryText = (string?)lane[0].summary ?? "";
+                // AN INCIDENTAL FETCH IS NOT A LANE HEALTH REPORT.
+                //
+                // 30 Aug 2026: bars_1d reported "all 1 symbols covered" and
+                // usable:true while the actual nightly harvest had run 244
+                // symbols, 244 GOLD, zero missing. What happened is that the
+                // swing refresh did a single-symbol cache-miss fetch, and THAT
+                // wrote the newest run_log row for the lane. Coverage below is
+                // computed as missing/(covered+missing), so a 1-of-1 run scores
+                // 0% missing and grades as perfectly healthy.
+                //
+                // So ANY ad-hoc single-symbol fetch silently overwrote the
+                // health of the dataset feeding every regime, Ichimoku, HV and
+                // backtest figure — and it did so for three runs without an
+                // alarm, because the fail-open direction is the silent one.
+                //
+                // Fix: grade the newest run that actually covered a
+                // LANE-SIZED universe. A run covering a small fraction of what
+                // this lane normally does is a partial fetch, not a harvest,
+                // and is skipped for grading (it is still reported, so the
+                // operator can see one happened).
+                var parsed = new List<(DateTime At, string Status, string Summary,
+                                       int G, int S, int B, int M, int Total)>();
+                foreach (var r in lane)
+                {
+                    var txt = (string?)r.summary ?? "";
+                    var mm = System.Text.RegularExpressions.Regex.Match(
+                        txt, @"(\d+)G/(\d+)S/(\d+)B/(\d+)M");
+                    if (!mm.Success) continue;
+                    int g = int.Parse(mm.Groups[1].Value), s = int.Parse(mm.Groups[2].Value);
+                    int b = int.Parse(mm.Groups[3].Value), mis = int.Parse(mm.Groups[4].Value);
+                    parsed.Add(((DateTime)r.created_at_utc, ((string)r.status ?? ""),
+                                txt, g, s, b, mis, g + s + b + mis));
+                }
+                var laneSize = parsed.Count > 0 ? parsed.Max(p => p.Total) : 0;
+                var pick = PickGradedRun(parsed.Select(p => p.Total).ToList());
+                var graded = pick.Index >= 0 ? parsed[pick.Index] : default;
+                var partialSkipped = pick.PartialsIgnored;
+                if (graded.Total > 0)
+                {
+                    if (partialSkipped > 0)
+                    {
+                        // Re-age against the last REAL harvest, not the fetch.
+                        newest = graded.At;
+                        ageH = (now - newest).TotalHours;
+                        effectiveAgeH = weekdayOnly ? ExpectedRunHours(newest, now) : ageH;
+                        ranRecently = effectiveAgeH <= maxAgeH;
+                    }
+                }
+
+                var summaryText = graded.Total > 0
+                    ? graded.Summary
+                    : (string?)lane[0].summary ?? "";
                 var m = System.Text.RegularExpressions.Regex.Match(
                     summaryText, @"(\d+)G/(\d+)S/(\d+)B/(\d+)M");
                 int? missing = null, gold = null, bronze = null, silver = null;
@@ -247,9 +331,15 @@ public static class DataReadinessEndpoints
                 {
                     detail = $"ran {ageH:F1}h ago — {Trim(summaryText)}";
                 }
+                if (partialSkipped > 0)
+                {
+                    detail += $"; ignored {partialSkipped} partial fetch(es) newer than "
+                            + "this harvest (single-symbol cache misses are not lane coverage)";
+                }
                 Add(key, label, purpose, usable, newest, detail, since,
                     new { gold, silver, bronzeFallback = bronze, missing,
-                          consecutiveDegradedRuns = consecutiveBad });
+                          consecutiveDegradedRuns = consecutiveBad,
+                          laneSize, partialRunsIgnored = partialSkipped });
             }
 
             // maxAgeH must match each lane's REAL launchd cadence, or the banner
@@ -269,8 +359,15 @@ public static class DataReadinessEndpoints
             await AddLaneAsync("bars_1m", "Intraday bars (1m)",
                 "intraday strategies", "bar-cache-harvest", "1m", 30,
                 weekdayOnly: true);
+            // weekdayOnly, like the bar lanes. Without it a Friday-evening run
+            // reads as "has not run for 44h" by Sunday afternoon, of which only
+            // ~4h is weekday time — the same weekend false alarm already fixed
+            // for the IBKR health probe in 3f252df. It sent an external reviewer
+            // chasing a scheduling outage that did not exist while the REAL
+            // fault (37 consecutive degraded runs) sat untouched.
             await AddLaneAsync("options_screen", "Options screen",
-                "the wheel candidate board you trade from", "options-screen", "screened", 30);
+                "the wheel candidate board you trade from", "options-screen", "screened", 30,
+                weekdayOnly: true);
 
             var usableCount = rows.Count(r => (bool)r.GetType().GetProperty("usable")!.GetValue(r)!);
             var total = rows.Count;
