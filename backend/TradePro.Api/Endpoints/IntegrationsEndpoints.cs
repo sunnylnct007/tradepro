@@ -1063,6 +1063,43 @@ public static class IntegrationsEndpoints
         })
         .WithName("CancelIBKROrder");
 
+        // GET /api/integrations/ibkr/probe-fields — WHICH field code carries what?
+        //
+        // The option field codes were guessed from a third-party client and the
+        // code has said "NEEDING LIVE VERIFICATION" ever since: 7633 IV,
+        // 7638 open interest. Measured 30 Aug: bid/ask (84/86) return fine on a
+        // paper session while 7633/7638 return nothing across repeated primed
+        // calls — so the session and entitlement work and the codes are the
+        // suspect. This project already mistook 7282 for IV rank when it was
+        // average volume, so guessing again is not an option.
+        //
+        // Read-only passthrough of the RAW snapshot for ONE conid, so a candidate
+        // field code can be checked against a KNOWN answer (the MRVL Sep-18 195
+        // put reads OI 2,472 / IV 57.2% through the live session).
+        app.MapGet("/integrations/ibkr/probe-fields", async (
+            long conid, string? fields, IBKRClient ibkr, CancellationToken ct) =>
+        {
+            var f = string.IsNullOrWhiteSpace(fields)
+                ? "31,84,86,7283,7284,7285,7287,7289,7291,7293,7308,7309,7310,7311,7607,7633,7635,7636,7637,7638,7639,7741"
+                : fields;
+            // Primed: the snapshot SUBSCRIBES, so a single read reports absence
+            // that is really just earliness — the whole reason this exists.
+            string? raw = null;
+            for (var i = 0; i < 4; i++)
+            {
+                raw = await ibkr.GetSnapshotRawAsync(conid, f, ct);
+                if (raw is not null && raw.Contains("\"7", StringComparison.Ordinal)) break;
+                await Task.Delay(700, ct);
+            }
+            return Results.Ok(new
+            {
+                conid, fieldsRequested = f, raw,
+                note = "Raw IBKR response. A field code absent from `raw` was NOT served — "
+                     + "which is different from being served empty.",
+            });
+        })
+        .WithName("ProbeIBKRFields");
+
         // GET /api/integrations/ibkr/diagnose-fills — WHY is the OMS blind?
         //
         // Row counts cannot separate the three causes of an empty read: IBKR
