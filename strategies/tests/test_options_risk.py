@@ -80,11 +80,32 @@ def test_dte_out_of_band_blocks():
     assert any("DTE" in b for b in d.all_blocks)
 
 
-def test_illiquid_blocks():
+def test_low_oi_with_a_TIGHT_market_is_allowed_with_a_warning():
+    """Low OI alone must NOT block when the quote is two-sided and tight.
+
+    Open interest is a PROXY for fillability; the spread is the measurement.
+    Ours comes from the Yahoo capture — coverage swings run to run (82/82 one
+    night, null the next) and a review measured XOM Oct-16 150P at 57 for us
+    against 7,570 live. The spread does not have that problem: the same
+    contract reads bid 2.95 / ask 3.35 in our store, matching IBKR exactly.
+
+    So blocking on OI alone rejected fillable contracts on the weaker of two
+    signals — 42 of 82 rows on the 26 Aug board. It must still SAY so, loudly,
+    which is why this asserts the warning rather than silence.
+    """
     ctx = MarketContext(**{**_good_ctx().__dict__, "open_interest": 100})
     d = evaluate(_good_csp(), ctx, _flat())
+    assert d.allowed, "a tight two-sided market is fillable whatever thin OI claims"
+    assert any("Open interest" in w for w in d.warnings), "the gap must still be stated"
+
+
+def test_low_oi_AND_a_wide_spread_blocks():
+    """Both signals failing is the genuine illiquidity case — still blocked."""
+    ctx = MarketContext(**{**_good_ctx().__dict__,
+                           "open_interest": 100, "bid_ask_spread_usd": 0.40})
+    d = evaluate(_good_csp(), ctx, _flat())
     assert not d.allowed
-    assert any("Open interest" in b for b in d.all_blocks)
+    assert any("Open interest" in b and "spread is wide" in b for b in d.all_blocks)
 
 
 def test_wide_spread_blocks():

@@ -469,7 +469,38 @@ def evaluate(
     if ctx.open_interest is None:
         data_blocks.append("Open interest unavailable — cannot confirm fillable liquidity.")
     elif ctx.open_interest < cfg.oi_min:
-        blocks.append(f"Open interest {ctx.open_interest} < {cfg.oi_min} — illiquid, bad fills.")
+        # OPEN INTEREST IS A PROXY. THE SPREAD IS THE MEASUREMENT. (30 Aug 2026)
+        #
+        # OI answers "how many contracts are outstanding". What actually decides
+        # whether you get filled at a fair price is the SPREAD and the size
+        # behind it — and we now know our spread data is right: XOM Oct-16 150P
+        # reads bid 2.95 / ask 3.35 in option_quote_daily, matching the live
+        # IBKR quote exactly.
+        #
+        # Our OI does NOT have that pedigree. It comes from the Yahoo capture,
+        # coverage is intermittent run to run (82/82 symbols one night, null the
+        # next), and a review measured that same XOM contract at 57 for us
+        # against 7,570 live. So OI is the weaker of the two signals and it was
+        # the one doing the blocking — 42 of 82 rows on the 26 Aug board.
+        #
+        # Block only when BOTH liquidity signals fail. A contract quoting a
+        # tight two-sided market is fillable whatever a thin OI feed claims;
+        # one with a wide spread AND low OI genuinely is not.
+        _mid = ctx.premium_mid_usd
+        _sp = ctx.bid_ask_spread_usd
+        _tight = (_mid is not None and _mid > 0 and _sp is not None
+                  and (_sp / _mid) <= cfg.spread_max_pct_of_mid)
+        if _tight:
+            warnings.append(
+                f"Open interest {ctx.open_interest} < {cfg.oi_min}, but the market is "
+                f"two-sided and tight ({_sp:.2f} on a {_mid:.2f} mid = "
+                f"{100 * _sp / _mid:.0f}%). OI comes from the Yahoo capture and has been "
+                f"measured low against IBKR; the spread is verified against the live quote. "
+                f"Not blocked on the weaker signal — work a limit and check the depth.")
+        else:
+            blocks.append(
+                f"Open interest {ctx.open_interest} < {cfg.oi_min} AND the spread is wide — "
+                f"both liquidity signals fail, so this is genuinely hard to fill.")
     # Premium-relative spread cap: the absolute $0.10 floor only fits sub-$1
     # premiums; scale by the mid when we have one so mid/high-priced quality
     # names aren't permanently blocked on a structurally-wider (but fair) market.
