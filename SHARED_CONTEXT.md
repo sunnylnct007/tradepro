@@ -565,3 +565,53 @@ you touch it:
 Six MCP tools now expose the suite (94 total). Also removed two tools that were
 registered TWICE — FastMCP lets the last win silently, so the first of each
 pair was dead code that still looked live.
+
+---
+
+## 30 Aug 2026 — OPTION PRICING: the chain is a PROGRESSIVE SNAPSHOT, read once
+
+**For the options lane. Diagnosis only; owner has assigned the fix elsewhere.**
+
+The IBKR session serving option data is `mode: paper`, `authenticated: true`.
+It is NOT dark. The chain endpoint returns fields PROGRESSIVELY, and
+`fetch_chain_g3` reads it exactly once.
+
+Identical requests, same expiry, seconds apart, live against the deployed API:
+
+    first probe:  6 legs   bid/ask 0   OI 0   IV 0    <- ONLY conId/strike/right
+    call 1:       6 legs   bid/ask 6   OI 0   IV 0    <- bid/ask arrived
+    call 2:       6 legs   bid/ask 6   OI 0   IV 0
+    call 3:       6 legs   bid/ask 6   OI 0   IV 0
+
+The first read carried nothing but contract identity — every quote field null.
+The next read had bid/ask on all six legs. IBKR primes the snapshot on request
+and serves it on a LATER call.
+
+**THIS IS THE SAME SHAPE AS THE FILL BLINDNESS** (see
+project_ibkr_fill_blindness_root_cause: "the blotter read asked ONCE, IBKR
+primes it and says snapshot:false"). The chain path repeats it exactly: ask
+once, get an unprimed response, give up.
+
+It explains, at last:
+
+* `chains_g3` logging "N leg(s) but none carried quote data ... returning None"
+  and falling through to yfinance. Not a dark feed — an UNPRIMED one.
+* Open interest that was inconsistent between identical calls minutes apart
+  (SPY median 654, then 0, same expiry). Fields land on different calls.
+* The 37 consecutive DEGRADED options_screen runs.
+
+So the monthly-expiry fix committed earlier today (932c178) is real but
+SECONDARY. The primary fault is that a single read of a progressive snapshot is
+unreliable for every field, not just OI.
+
+**SUGGESTED FIX** — treat an all-null chain response as UNPRIMED rather than
+absent: re-poll once after a short delay, and only then fall through to
+yfinance. Cheap, and it targets the mechanism instead of the symptom.
+
+**TWO THINGS NOT ESTABLISHED, do not assume either way.** OI and IV never
+arrived in any of these four calls, yet both DID come back earlier the same day
+for the same names — so it is unknown whether they are genuinely unavailable on
+a paper/no-OPRA session or merely slower to prime. And all of this was measured
+on a Sunday with the market shut; cache behaviour may differ entirely with live
+quotes. A Monday run distinguishes them, and that measurement should come
+BEFORE any conclusion about entitlements.
