@@ -55,6 +55,15 @@ def build_server():
         return _json(t.get_name_context(symbols))
 
     @mcp.tool()
+    @instrumented("get_put_check")
+    def get_put_check(symbols: list[str], otm_pct: float = 0.10, dte: int = 30) -> str:
+        """Is THIS name a sensible put-sell? Trend, IV vs realised, earnings inside
+        the hold, fundamentals, and the OUTCOME HISTORY — how often that put
+        expired worthless, was assigned, or touched the strike, split by tenor
+        from weekly to 45 sessions. Numbers only, no verdict. No premium assumed."""
+        return _json(t.get_put_check(symbols, otm_pct, dte))
+
+    @mcp.tool()
     @instrumented("get_post_earnings_puts")
     def get_post_earnings_puts() -> str:
         """TODAY's post-earnings PUT candidates. UNPROVEN — passed 8/8 gates with

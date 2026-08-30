@@ -3847,6 +3847,37 @@ def get_name_context(symbols: list[str]) -> dict:
     return {"count": len(out), "context": out}
 
 
+def get_put_check(symbols: list[str], otm_pct: float = 0.10, dte: int = 30) -> dict:
+    """Is THIS name a sensible put-sell right now? Numbers, never a verdict.
+
+    Answers the question an owner actually asks — "should I sell a put on GOOGL"
+    — rather than "which of 82 names clears my gates". Per symbol: trend and
+    distance from the 52-week high (a short put is an obligation to BUY), IV vs
+    realised vol, IV rank, earnings inside the hold, current fundamentals, and
+    the OUTCOME HISTORY: how often that exact put expired worthless, was
+    assigned, or touched the strike — plus the same split by tenor, weekly
+    through 45 sessions.
+
+    The history is computed from BARS, so a dark option chain cannot block it.
+    NO PREMIUM IS ASSUMED: "assigned" counts even where the premium would have
+    covered the loss, so it reads as risk BEFORE income, never as a P&L claim.
+    """
+    import io as _io
+    from contextlib import redirect_stdout as _rs
+    from ..cli import put_check as _pc
+    out = {}
+    for sym in symbols[:15]:
+        key = sym.strip().upper()
+        buf = _io.StringIO()
+        try:
+            with _rs(buf):
+                _pc.describe(key, otm_pct, dte)
+            out[key] = buf.getvalue()
+        except Exception as exc:  # noqa: BLE001
+            out[key] = f"unavailable: {str(exc)[:160]}"
+    return {"count": len(out), "otm_pct": otm_pct, "dte": dte, "check": out}
+
+
 def get_post_earnings_puts() -> dict:
     """TODAY's post-earnings PUT candidates — sell a put after an earnings drop.
 
