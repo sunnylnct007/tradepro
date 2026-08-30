@@ -24,8 +24,12 @@ namespace TradePro.Api.Tests.Providers;
 /// </summary>
 public class NoLiveOrdersTest
 {
-    private static IBKROptions Opts(string mode, bool allowOrders, bool allowLive = false)
-        => new() { Mode = mode, AllowOrders = allowOrders, AllowLiveOrders = allowLive };
+    private static IBKROptions Opts(string mode, bool allowOrders)
+        => new() { Mode = mode, AllowOrders = allowOrders };
+
+    /// The guard exactly as IBKRClient.AllowOrders implements it.
+    private static bool OrdersPermitted(IBKROptions o)
+        => !o.IsLiveMode && o.AllowOrders;
 
     [Fact]
     public void LiveMode_WithOrdersEnabled_IsStillRefused()
@@ -34,7 +38,20 @@ public class NoLiveOrdersTest
         // flipping Mode alone used to be sufficient.
         var o = Opts("live", allowOrders: true);
         Assert.True(o.IsLiveMode);
-        Assert.False(o.AllowOrders && (!o.IsLiveMode || o.AllowLiveOrders));
+        Assert.False(OrdersPermitted(o));
+    }
+
+    [Fact]
+    public void ThereIsNoKeyThatCanEnableLivePlacement()
+    {
+        // Owner: "no placement to live at all". An earlier version of this fix
+        // shipped an AllowLiveOrders opt-in; it was removed because a key can
+        // be set by accident, by a copied secret, or by someone who does not
+        // know why it exists. If this test fails, someone has reintroduced an
+        // escape hatch — that is a decision requiring the owner, not a merge.
+        Assert.Null(typeof(IBKROptions).GetProperty("AllowLiveOrders"));
+        foreach (var mode in new[] { "live", "LIVE", "Live" })
+            Assert.False(OrdersPermitted(Opts(mode, allowOrders: true)));
     }
 
     [Theory]
@@ -51,32 +68,24 @@ public class NoLiveOrdersTest
     public void PaperMode_WithOrdersEnabled_IsPermitted()
     {
         // The guard must not break the paper forward test, which is the whole
-        // point of the system today.
+        // point of the system today. This is the case an `&&` instead of the
+        // original `||` would have silently killed.
         var o = Opts("paper", allowOrders: true);
         Assert.False(o.IsLiveMode);
-        Assert.True(o.AllowOrders && (!o.IsLiveMode || o.AllowLiveOrders));
+        Assert.True(OrdersPermitted(o));
     }
 
     [Fact]
-    public void LiveOrders_RequireBothKeys()
+    public void PaperKillSwitchStillWorks()
     {
-        // Deliberately possible, so this is a decision someone makes rather
-        // than a hardcode they rip out. But it takes TWO explicit values.
-        var o = Opts("live", allowOrders: true, allowLive: true);
-        Assert.True(o.AllowOrders && (!o.IsLiveMode || o.AllowLiveOrders));
-
-        // Either key alone is not enough.
-        Assert.False(Opts("live", allowOrders: false, allowLive: true).AllowOrders);
-        var oneKey = Opts("live", allowOrders: true, allowLive: false);
-        Assert.False(oneKey.AllowOrders && (!oneKey.IsLiveMode || oneKey.AllowLiveOrders));
+        Assert.False(OrdersPermitted(Opts("paper", allowOrders: false)));
     }
 
     [Fact]
-    public void AllowLiveOrders_DefaultsToFalse()
+    public void DefaultsAreFailSafe()
     {
         // Absent from the secret must mean OFF. If this ever defaults true, a
         // missing key becomes permission.
-        Assert.False(new IBKROptions().AllowLiveOrders);
         Assert.False(new IBKROptions().AllowOrders);
         Assert.Equal("disabled", new IBKROptions().Mode);
     }

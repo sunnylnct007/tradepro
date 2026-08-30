@@ -151,31 +151,14 @@ public sealed class IBKROptions
 
     private bool IsLive => IsLiveMode;
 
-    /// <summary>SECOND KEY for LIVE order placement. Default FALSE, and it must
-    /// stay that way until algorithmic trading is actually wanted.
-    ///
-    /// WHY THIS EXISTS. Audited 30 Aug 2026 on the owner's instruction: "ensure
-    /// we never place algo order to live account by any chance ... its fine to
-    /// use the live for read but no way we shd be placing the order to live as
-    /// we are far away from algo trading setup."
-    ///
-    /// The audit found the guarantee rested on a SINGLE value. `Mode` selects
-    /// the credential triple, so mode=paper cannot authenticate against the
-    /// live account — that part is sound. But `IsLive` was used in exactly four
-    /// places, ALL of them credential selection, and NOWHERE to refuse an
-    /// order. Meanwhile `AllowOrders` is TRUE in production, despite comments
-    /// throughout this codebase still asserting "which we will NOT set; it is
-    /// absent from the secret and so binds to false".
-    ///
-    /// So flipping one secret value from "paper" to "live" would have routed
-    /// orders to the live account with nothing left to stop them — and the live
-    /// credentials live in that same secret, because the live account is used
-    /// for READS.
-    ///
-    /// T212 already had this right: live orders there need the constructor flag
-    /// AND the TRADEPRO_T212_ALLOW_LIVE env var. Two independent keys. IBKR had
-    /// none. This restores the symmetry.</summary>
-    public bool AllowLiveOrders { get; set; } = false;
+    // NOTE: there is deliberately NO "AllowLiveOrders" option. An earlier
+    // version of this fix added one as a second key. The owner overruled it —
+    // "no placement to live at all" — because an opt-in key can be set by
+    // accident, by a copied secret, or by someone who does not know why it
+    // exists. IBKRClient.AllowOrders now returns false for live mode
+    // unconditionally, so enabling live placement takes a code change, a review
+    // and a deploy. If you are here to add the key back, that is the decision
+    // you are actually making.
 
     // ─── Active (mode-resolved) credentials ──────────────────────────
     //

@@ -1015,9 +1015,9 @@ public static class IntegrationsEndpoints
                 return Results.Json(new
                 {
                     error = ibkr.BlockedForLive
-                        ? "REFUSED: this is a LIVE account. Order placement to live is "
-                        + "blocked by a second, separate key (IBKR:AllowLiveOrders) that "
-                        + "is deliberately unset — flipping Mode to live is NOT sufficient."
+                        ? "REFUSED: this is a LIVE account. TradePro places NO orders to "
+                        + "live, ever, and there is no setting that enables it. Enabling "
+                        + "live placement requires a code change, a review and a deploy."
                         : "IBKR order placement is disabled (read-only kill-switch). "
                         + "Set IBKR:AllowOrders=true on the paper secret to enable.",
                     allowOrders = false, blockedForLive = ibkr.BlockedForLive,

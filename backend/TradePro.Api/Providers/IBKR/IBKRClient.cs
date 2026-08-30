@@ -112,14 +112,32 @@ public sealed class IBKRClient
     /// endpoints, the status endpoint) reads this property, so the guard is
     /// inherited everywhere rather than repeated — and cannot be forgotten at
     /// a new call site.</remarks>
-    public bool AllowOrders =>
-        _options.AllowOrders && (!_options.IsLiveMode || _options.AllowLiveOrders);
+    public bool AllowOrders
+    {
+        get
+        {
+            // NO ORDER PLACEMENT TO LIVE. AT ALL. Owner, 30 Aug 2026: "just
+            // remember no order placement to live unless we change it", then
+            // immediately firmer — "no placement3 to live at all".
+            //
+            // This started as a two-key opt-in (AllowOrders + AllowLiveOrders).
+            // The owner overruled that, and he is right: an opt-in key is a
+            // thing that can be set by accident, by a copied secret, or by
+            // someone who does not know why it exists. There is now NO key to
+            // flip. Enabling live placement requires editing this method, which
+            // means a diff, a review and a deploy — the friction is the point.
+            //
+            // Checked FIRST so no combination of other flags can reach past it.
+            if (_options.IsLiveMode) return false;
+            return _options.AllowOrders;    // paper: the normal kill-switch
+        }
+    }
 
-    /// <summary>True when orders are blocked SOLELY because the account is
-    /// live. Surfaced by /integrations/ibkr/status so the reason is legible
-    /// rather than looking like a generic kill-switch.</summary>
-    public bool BlockedForLive =>
-        _options.AllowOrders && _options.IsLiveMode && !_options.AllowLiveOrders;
+    /// <summary>True when orders are blocked because the account is LIVE.
+    /// Surfaced by /integrations/ibkr/status so the reason is legible rather
+    /// than looking like a generic kill-switch someone might "helpfully" turn
+    /// back on.</summary>
+    public bool BlockedForLive => _options.IsLiveMode;
 
     /// <summary>The IP that actually went into the last sso-sessions claim,
     /// for operator visibility (surfaced by /integrations/ibkr/status). Null
