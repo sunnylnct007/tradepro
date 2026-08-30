@@ -26,6 +26,9 @@ type Row = {
   symbol: string; report_date: string; sessions_since: number;
   report_move_pct: number | null; spot: number; strike: number;
   annual_vol_pct: number | null; size_factor: number; collateral_usd: number;
+  strike_indicative?: number; contracts?: number;
+  collateral_actual_usd?: number; collateral_target_usd?: number;
+  oversize_vs_target?: number | null; size_note?: string;
   why_not?: string;
 };
 type Market = { ok: boolean | null; reason: string; spy_close?: number;
@@ -142,21 +145,26 @@ export function PostEarningsPutsView() {
                   <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{r.symbol}</td>
                   <td style={{ padding: "8px 10px", color: "var(--text-muted)" }}>
                     {r.report_date}
-                    <span style={{ fontSize: 12 }}> ({r.sessions_since}d ago)</span>
+                    <span style={{ fontSize: 12 }}> ({r.sessions_since} session{r.sessions_since === 1 ? "" : "s"} ago)</span>
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: TONE.warn }}>
                     {r.report_move_pct?.toFixed(1)}%
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>{r.spot.toFixed(2)}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>
-                    {r.strike.toFixed(2)}
+                    {(r.strike_indicative ?? r.strike).toFixed(2)}
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
                     {r.annual_vol_pct != null ? `${r.annual_vol_pct.toFixed(0)}%` : "—"}
                   </td>
-                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>{r.size_factor.toFixed(2)}×</td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>{r.contracts ?? 1}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
-                    ${r.collateral_usd.toLocaleString()}
+                    ${(r.collateral_actual_usd ?? r.collateral_usd).toLocaleString()}
+                    {r.oversize_vs_target && r.oversize_vs_target > 1.15 && (
+                      <span style={{ color: "var(--warn, #b26a00)", fontSize: 12 }}>
+                        {" "}({r.oversize_vs_target.toFixed(1)}× target)
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -169,6 +177,10 @@ export function PostEarningsPutsView() {
         Strike and size come from <b>bars only</b> — no option data — so a dark chain
         cannot hide a setup. Size is scaled by each name's volatility, which is why a
         high-vol name shows a smaller collateral than its strike implies.
+        Options trade in WHOLE contracts, so the collateral shown is one
+        contract at the listed strike — when that lands above the vol-scaled
+        target the row says by how much, because the name is then too big to
+        size properly rather than a small position.
       </div>
 
       {/* Evidence AND limits together. A screen that quotes 89.5% has to quote

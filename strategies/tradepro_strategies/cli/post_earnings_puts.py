@@ -145,6 +145,53 @@ def _recent_reports(api_base: str) -> dict[str, str]:
     return out
 
 
+# US equity options list on $2.50 increments up to $200 and $5 above it (with
+# $1 increments on many liquid names). Without a chain we cannot know which a
+# name uses, so this snaps to the CONSERVATIVE common grid and the row says
+# "indicative" — the point is to stop printing a price that cannot be traded.
+def _snap_strike(strike: float) -> float:
+    step = 2.5 if strike < 200 else 5.0
+    return round(round(strike / step) * step, 2)
+
+
+def _tradeable_size(strike: float, factor: float) -> dict:
+    """What can ACTUALLY be placed, versus what the vol rule asked for.
+
+    THE BUG THIS FIXES (30 Aug 2026). collateral_usd was strike x 100 x
+    size_factor, and size_factor is a fraction — 0.34 for MRVL. The screen
+    therefore printed "$6,663" for a position whose real minimum is ONE
+    contract at 194.96 x 100 = $19,496. Nobody can sell 0.34 of a contract, so
+    the number understated capital at risk by ~2.9x on a screen whose entire
+    purpose is telling someone what to place.
+
+    That understatement is the dangerous direction: it reads as a small,
+    well-sized position while committing three times the collateral.
+
+    What the vol rule is really saying when factor < 1 is "this name is too
+    volatile to size properly at one contract" — which is information worth
+    surfacing, not rounding away. So both numbers are reported, plus how far
+    over the intended budget a single contract lands.
+    """
+    snapped = _snap_strike(strike)
+    per_contract = snapped * 100.0
+    target = per_contract * factor
+    contracts = max(1, int(round(factor)))
+    actual = per_contract * contracts
+    return {
+        "strike_indicative": snapped,
+        "contracts": contracts,
+        "collateral_target_usd": round(target, 0),
+        "collateral_actual_usd": round(actual, 0),
+        "oversize_vs_target": (round(actual / target, 2) if target > 0 else None),
+        "size_note": (
+            f"1 contract is the minimum: ${actual:,.0f} against a vol-scaled "
+            f"target of ${target:,.0f} ({actual / target:.1f}x) — this name is "
+            f"too big to size properly"
+            if target > 0 and actual > target * 1.15
+            else f"{contracts} contract(s), ${actual:,.0f}"),
+    }
+
+
 def scan(api_base: str) -> tuple[list[dict], list[dict], dict]:
     """Returns (candidates, near_misses, market)."""
     spy_c, spy_d = _bars("SPY")
@@ -191,6 +238,7 @@ def scan(api_base: str) -> tuple[list[dict], list[dict], dict]:
             "size_factor": round(size_factor(vol), 2),
             "collateral_usd": round(strike_for(spot) * 100 * size_factor(vol), 0),
         }
+        row.update(_tradeable_size(row["strike"], size_factor(vol)))
         if not qualifies(move):
             row["why_not"] = (f"fell {100 * move:.1f}% on the report, needs "
                               f"{100 * DROP_PCT:.0f}%") if move is not None \
@@ -264,12 +312,17 @@ def main() -> int:
 
     if cands:
         print(f"  {'sym':<7}{'reported':<12}{'move':>8}{'spot':>10}{'strike':>10}"
-              f"{'vol':>7}{'size':>7}{'collateral':>12}")
+              f"{'vol':>7}{'x':>4}{'collateral':>12}{'vs target':>11}")
         for r in cands:
+            _ov = r.get("oversize_vs_target")
             print(f"  {r['symbol']:<7}{r['report_date']:<12}{r['report_move_pct']:>7.1f}%"
-                  f"{r['spot']:>10.2f}{r['strike']:>10.2f}"
-                  f"{(r['annual_vol_pct'] or 0):>6.0f}%{r['size_factor']:>7.2f}"
-                  f"{r['collateral_usd']:>11,.0f}")
+                  f"{r['spot']:>10.2f}{r['strike_indicative']:>10.2f}"
+                  f"{(r['annual_vol_pct'] or 0):>6.0f}%{r['contracts']:>4}"
+                  f"{r['collateral_actual_usd']:>11,.0f}"
+                  f"{(f'{_ov:.1f}x' if _ov else '-'):>11}")
+        for r in cands:
+            if (r.get("oversize_vs_target") or 0) > 1.15:
+                print(f"    ! {r['symbol']}: {r['size_note']}")
         print("\n  Strike and size come from BARS only — no option data needed, so a")
         print("  dark chain cannot hide a setup. Premium/OI/spread are a separate")
         print("  best-effort layer and are not required to see the candidate.")
@@ -330,7 +383,13 @@ def main() -> int:
                         "dte": c.get("dte_target"),
                         "annualVolPct": c.get("annual_vol_pct"),
                         "sizeFactor": c.get("size_factor"),
-                        "collateral": c.get("collateral"),
+                        # `collateral` does not exist on the row — this recorded
+                        # NULL for every candidate since the log shipped. The
+                        # PLACEABLE number is the one worth keeping: whole
+                        # contracts, not a fractional vol-scaled target.
+                        "collateral": c.get("collateral_actual_usd"),
+                        "collateralTargetUsd": c.get("collateral_target_usd"),
+                        "contracts": c.get("contracts"),
                         "detail": _json.dumps(c),
                     })
                 except Exception:  # noqa: BLE001 — one bad row must not lose the rest
