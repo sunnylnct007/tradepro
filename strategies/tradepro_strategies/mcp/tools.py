@@ -3784,6 +3784,69 @@ def get_swing_candidates() -> dict:
     return _get("/api/today-setups/swing/latest")
 
 
+def get_research_studies(verdict: str | None = None) -> dict:
+    """THE EVIDENCE REGISTER — every pre-registered study, with its verdict.
+
+    Read this BEFORE presenting any strategy as proven. Each entry carries the
+    question, the prediction recorded BEFORE the run, the gates file and the
+    commit sha the gates were committed at — so a claim can be CHECKED
+    (`git show <sha>`) rather than trusted.
+
+    FAILED studies are kept deliberately: they are usually the ones that saved
+    money. A strategy absent from this list has NO graded evidence behind it.
+
+    `verdict` optionally filters (e.g. "PASS", "FAIL", "PARTIAL").
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    # Bundled with the desk rather than served by the API — the Research screen
+    # imports this same file, so the MCP answer and the screen cannot disagree.
+    for base in (_Path(__file__).resolve().parents[3], _Path.cwd()):
+        f = base / "frontend" / "src" / "data" / "studies.json"
+        if f.exists():
+            data = _json.loads(f.read_text())
+            items = data.get("studies") or []
+            if verdict:
+                v = verdict.upper()
+                items = [x for x in items if v in str(x.get("verdict", "")).upper()]
+            return {"count": len(items), "studies": items,
+                    "note": ("Gates were committed BEFORE each run; gatesCommit "
+                             "makes every claim checkable with git show.")}
+    return {"error": "studies.json not found", "count": 0, "studies": []}
+
+
+def get_name_context(symbols: list[str]) -> dict:
+    """What we KNOW about specific names — and what we do NOT.
+
+    For a HUMAN deciding a trade on names they picked, which is what this desk
+    is for. Per symbol: whether it can be judged at all (history depth,
+    staleness), where the price-only rule stands and what close would make it
+    fire, THAT NAME'S own record under the rule, market fit, earnings
+    proximity, and current fundamentals.
+
+    Deliberately produces NO score and NO verdict. Every line is a measurement
+    or a named gap; the judgement stays with the caller. Fundamentals are a
+    CURRENT snapshot and must never be used to reason about a PAST date — that
+    is look-ahead and would invent an edge that was never there.
+    """
+    import io as _io
+    from contextlib import redirect_stdout as _rs
+    from ..cli import name_context as _nc
+    out = {}
+    for sym in symbols[:25]:          # bounded: reads the bar store per name
+        key = sym.strip().upper()
+        buf = _io.StringIO()
+        try:
+            sdf = _nc._load("SPY")
+            spy = (sdf["close"].tolist(), None) if sdf is not None else None
+            with _rs(buf):
+                _nc.describe(key, spy)
+            out[key] = buf.getvalue()
+        except Exception as exc:  # noqa: BLE001 — one bad name must not lose the rest
+            out[key] = f"unavailable: {str(exc)[:160]}"
+    return {"count": len(out), "context": out}
+
+
 def get_post_earnings_puts() -> dict:
     """TODAY's post-earnings PUT candidates — sell a put after an earnings drop.
 
