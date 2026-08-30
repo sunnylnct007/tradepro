@@ -362,7 +362,16 @@ public static class DataReadinessEndpoints
             // reports an outage the operator cannot fix because none exists:
             //   1d  com.tradepro.bar-cache-harvest-daily  21:30 Mon-Fri  (once daily)
             //   5m  com.tradepro.bar-cache-harvest-5m     StartInterval 1800 (continuous)
-            //   1m  com.tradepro.bar-cache-harvest        21:15 Mon-Fri  (once daily)
+            //   1m  com.tradepro.bar-cache-resource-intraday 22:30 Mon-Fri, SECOND
+            //       pass after 5m in a SHARED deadline. 30 Aug 2026: the plist
+            //       this line used to name (com.tradepro.bar-cache-harvest) had
+            //       been repointed at a tradepro-laneB checkout that no longer
+            //       exists — launchctl exit 127, every Saturday, silently. It
+            //       is retired. The 1m work now rides the intraday re-source,
+            //       which is being KILLED by its 5400s budget (rc=124) before
+            //       the harvest can write its run_log row — so this lane reads
+            //       "has not run for 368h" while 207 symbols of 1m data sit on
+            //       disk, refreshed Friday. The lane is starved, not dead.
             // 1m was registered at 6h against a job that runs every 24h — it was
             // therefore RED for 18 hours out of every 24, and all weekend, while
             // the harvest was in fact completing normally (15 Aug: 251/251
