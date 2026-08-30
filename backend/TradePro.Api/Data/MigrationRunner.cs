@@ -97,6 +97,26 @@ public sealed class MigrationRunner
                 continue;
             }
 
+            // A migration MUST NOT manage its own transaction — this runner owns
+            // it. A stray BEGIN;/COMMIT; ends the runner's transaction, and the
+            // resulting "transaction has completed" error points nowhere near
+            // the file that caused it. Caught here, by name, BEFORE executing.
+            //
+            // Deliberately matches only a statement-level `BEGIN;` / `COMMIT;`
+            // on its own line: PL/pgSQL function bodies legitimately contain
+            // `BEGIN` (no semicolon) and `END;`, and must not trip this.
+            var strayTx = System.Text.RegularExpressions.Regex.Match(
+                body, @"^[ \t]*(BEGIN|COMMIT)[ \t]*;[ \t]*$",
+                System.Text.RegularExpressions.RegexOptions.Multiline
+                | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (strayTx.Success)
+                throw new InvalidOperationException(
+                    $"Migration {name} contains its own '{strayTx.Groups[1].Value.ToUpperInvariant()};' "
+                    + "statement. MigrationRunner already wraps each migration in a transaction; "
+                    + "a nested COMMIT ends it and the runner's own commit then fails with a "
+                    + "misleading 'transaction has completed' error. Remove the BEGIN;/COMMIT; "
+                    + "from the .sql file.");
+
             _log.LogInformation("Applying migration {name}", name);
             await using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync(ct);
@@ -113,9 +133,38 @@ public sealed class MigrationRunner
             }
             catch (Exception ex)
             {
-                await tx.RollbackAsync(ct);
-                _log.LogError(ex, "Migration {name} failed; rolled back", name);
-                throw;
+                // LOG THE REAL FAILURE FIRST, and never let cleanup replace it.
+                //
+                // This used to call RollbackAsync BEFORE logging. When a
+                // migration fails in a way that has already ended the
+                // transaction — Postgres aborting it, or a failure after the
+                // commit — the rollback itself throws "This NpgsqlTransaction
+                // has completed; it is no longer usable", and THAT exception
+                // replaced the original. `ex` was never logged and never
+                // thrown, so the actual migration error was invisible.
+                //
+                // Cost of that: 108 of 371 backend tests failed with the
+                // masking message and nobody could see why. I assumed for most
+                // of 30 Aug 2026 that it meant "Postgres is not running" — it
+                // was running the whole time. A safety-critical change (the
+                // no-live-orders guard) went in against a suite whose failures
+                // could not be read.
+                _log.LogError(ex, "Migration {name} FAILED", name);
+                try
+                {
+                    // Connection is null once the transaction has completed.
+                    if (tx.Connection is not null)
+                        await tx.RollbackAsync(ct);
+                }
+                catch (Exception rollbackEx)
+                {
+                    // Reported, never rethrown — a cleanup failure must not
+                    // become the story.
+                    _log.LogError(rollbackEx,
+                        "Rollback ALSO failed for migration {name} (the failure above is the real one)",
+                        name);
+                }
+                throw;   // the ORIGINAL exception, preserved
             }
         }
     }

@@ -26,7 +26,13 @@
 -- cycle for 1d/1m, half an hour for 5m. Readers should treat "no row for this
 -- resolution yet" as unknown, not as unhealthy.
 
-BEGIN;
+-- NO BEGIN;/COMMIT; HERE. MigrationRunner wraps every migration in its own
+-- transaction. This file used to open and close one of its own, which ENDED
+-- the runner's transaction — so the runner's CommitAsync then threw "This
+-- NpgsqlTransaction has completed", and that exception was in turn masked by a
+-- failing rollback in the catch block. Net effect: 108 of 371 backend tests
+-- failed with an error that pointed at nothing, for long enough that the cause
+-- was assumed to be "Postgres isn't running". It was running the whole time.
 
 -- 1. Promote resolution to a real, non-null identity column.
 ALTER TABLE bar_cache_health
@@ -75,4 +81,3 @@ COMMENT ON COLUMN bar_cache_health.resolution IS
 COMMENT ON COLUMN bar_cache_health.missing_days_count IS
     'MISNOMER: this is rows_expected - rows_returned from the last harvest, i.e. missing BARS, not days. On a 1d lane a bar is a session, so "days" happens to be right; on 1m/5m it counts missing MINUTES within a single session and must not be compared against a day-count threshold.';
 
-COMMIT;
