@@ -53,6 +53,12 @@ def _month_to_date(month: str) -> str | None:
         return None
 
 
+# Below this many strikes a monthly is not usable: the 0.27-delta selection
+# would pick whatever it could reach and label it correctly-delta'd. Measured
+# 30 Aug 2026 — healthy monthlies return ~20 legs, XOM's returned 2.
+_MIN_MONTHLY_LEGS = 6
+
+
 def fetch_chain_g3(
     symbol: str,
     *,
@@ -60,6 +66,7 @@ def fetch_chain_g3(
     right: str = "P",
     max_strikes: int = 20,
     expiry: str | None = None,     # exact expiry (YYYY-MM-DD) — weekly selection (SPEC §1)
+    prefer_monthly: bool = True,
     api_base: str | None = None,
     api_token: str | None = None,
     timeout: float = 30.0,
@@ -117,6 +124,38 @@ def fetch_chain_g3(
         _params = {"month": chosen_month, "right": right, "maxStrikes": max_strikes}
         if expiry:
             _params["expiry"] = expiry.replace("-", "")
+        elif prefer_monthly:
+            # ASK FOR THE MONTHLY BY DATE, not for "closest to target_dte".
+            #
+            # THE BUG THIS FIXES (30 Aug 2026). The month was already chosen
+            # correctly — October, whose 3rd Friday at 47 days is nearest a 35
+            # DTE target. But passing `targetDte` then let the SERVER re-pick
+            # the closest listed expiry INSIDE that month, which is a weekly:
+            # Oct 2 (33d) rather than Oct 16 (47d).
+            #
+            # Weeklies carry a fraction of the open interest of monthlies, and
+            # the screen's liquidity gate (OI >= 250) is calibrated for
+            # monthlies. Measured the same minute, same symbols:
+            #
+            #     SPY  weekly Sep 30  median OI 284   max 516
+            #     SPY  monthly Oct 16 median OI 654   max 763   <- 2.3x deeper
+            #     XOM  weekly Sep 25  median OI  29   max  95   <- fails the gate
+            #
+            # So the screen selected the thin expiry and then rejected it for
+            # being thin. That is the whole of "the screen rejects everything
+            # and I cannot tell whether the reasoning is sound" — the reasoning
+            # was sound, it was being applied to the wrong contract. An external
+            # review read the same OI=57 on XOM and concluded the data was
+            # fabricated by a yfinance fallback; it was not. The number was real
+            # and it was the WEEKLY's.
+            #
+            # Monthlies are also simply the right instrument for this strategy:
+            # deeper books, tighter spreads, better fills.
+            _monthly = _month_to_date(chosen_month)
+            if _monthly:
+                _params["expiry"] = _monthly.replace("-", "")
+            else:
+                _params["targetDte"] = target_dte
         else:
             # Let the server pick the listed expiry closest to target_dte — it
             # holds every contract per strike, so this costs no extra IBKR
@@ -139,6 +178,35 @@ def fetch_chain_g3(
         return None
     spot = data.get("spot")
     legs = data.get("legs") or []
+
+    # A THIN OR UNPRICED MONTHLY IS WORSE THAN A WEEKLY — fall back rather than
+    # swap one failure for another. Measured 30 Aug 2026: XOM's Oct-16 monthly
+    # came back with 10 legs ALL carrying open interest 0, while its Sep-25
+    # weekly returned 20 legs with real OI. Preferring monthlies unconditionally
+    # would therefore have made the liquidity gate fire HARDER on exactly the
+    # names it was already wrongly rejecting.
+    #
+    # Two distinct unusable shapes, and both must be caught:
+    #   too few strikes  — the 0.27-delta selection picks whatever it can reach
+    #                      and labels it correctly-delta'd
+    #   no usable OI     — every leg 0/None, so the liquidity gate is deciding
+    #                      on absence of data rather than on illiquidity
+    #
+    # Counted on the PARSED legs, not the raw response: QQQ returned a raw legs
+    # list that passed a length check and parsed down to a single put.
+    if prefer_monthly and not expiry:
+        _oi = [l.get("openInterest") for l in legs]
+        _usable_oi = [x for x in _oi if x]
+        _why = (f"only {len(legs)} leg(s)" if len(legs) < _MIN_MONTHLY_LEGS
+                else "no leg carries open interest" if not _usable_oi else None)
+        if _why:
+            log.info("%s: monthly %s unusable (%s) — falling back to the expiry "
+                     "nearest %dd", symbol, chosen_month, _why, target_dte)
+            return fetch_chain_g3(
+                symbol, target_dte=target_dte, right=right,
+                max_strikes=max_strikes, expiry=None, prefer_monthly=False,
+                api_base=api_base, api_token=api_token, timeout=timeout)
+
     if not spot or not legs:
         log.warning("%s: G3 chain returned no spot/legs", symbol)
         return None
