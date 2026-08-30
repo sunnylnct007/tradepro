@@ -1028,16 +1028,50 @@ public sealed class IBKRClient
             var conidsParam = string.Join(",", chunk);
             try
             {
-                using var resp = await SendWithAuthAsync(
-                    HttpMethod.Get,
-                    $"v1/api/iserver/marketdata/snapshot?conids={conidsParam}&fields={Fields}",
-                    null, ct);
-                var text = await resp.Content.ReadAsStringAsync(ct);
-                lastStatus = (int)resp.StatusCode;
-                if (!resp.IsSuccessStatusCode)
-                    return new IBKROptionQuotesResult(all,
-                        $"marketdata/snapshot failed for {chunk.Length} conids: {text}", lastStatus);
-                all.AddRange(IBKRResponseParser.ParseOptionSnapshot(text));
+                // /iserver/marketdata/snapshot SUBSCRIBES. The first request
+                // registers the conids and answers empty or partial; the data
+                // arrives on a LATER call. We asked once and read the empty
+                // first answer as "no option data on this account".
+                //
+                // That single missing retry is why the wheel screen has run on
+                // Yahoo open interest for weeks while IBKR held the real
+                // numbers: the same MRVL Sep-18 195 put that returns null here
+                // returns OI 2,472, IV 57.2% and bid 3.30/ask 3.70 through the
+                // live session. Sharing was ON the whole time, the session was
+                // healthy the whole time (the underlying's SPOT came back at
+                // 216.39 in the same call that gave null greeks), and three
+                // separate theories -- no OPRA entitlement, session contention,
+                // wrong field codes -- were all wrong.
+                //
+                // Identical shape to /iserver/account/orders answering
+                // {"orders":[],"snapshot":false} on its first call, which hid
+                // every fill for two months (e1ed6e4). Second time in this file.
+                var text = string.Empty;
+                for (var attempt = 1; attempt <= SnapshotPrimeAttempts; attempt++)
+                {
+                    using var resp = await SendWithAuthAsync(
+                        HttpMethod.Get,
+                        $"v1/api/iserver/marketdata/snapshot?conids={conidsParam}&fields={Fields}",
+                        null, ct);
+                    text = await resp.Content.ReadAsStringAsync(ct);
+                    lastStatus = (int)resp.StatusCode;
+                    if (!resp.IsSuccessStatusCode)
+                        return new IBKROptionQuotesResult(all,
+                            $"marketdata/snapshot failed for {chunk.Length} conids: {text}", lastStatus);
+                    // Stop as soon as ANY quote field is populated. Judged on the
+                    // parsed rows rather than on row COUNT: IBKR returns a row per
+                    // conid immediately, carrying only the conid, so counting rows
+                    // would call an unprimed answer a success.
+                    var parsed = IBKRResponseParser.ParseOptionSnapshot(text);
+                    if (parsed.Any(q => q.Bid is not null || q.Ask is not null
+                                        || q.OpenInterest is not null || q.ImpliedVolPct is not null)
+                        || attempt == SnapshotPrimeAttempts)
+                    {
+                        all.AddRange(parsed);
+                        break;
+                    }
+                    await Task.Delay(SnapshotPrimeDelay, ct);
+                }
             }
             catch (Exception ex)
             {
