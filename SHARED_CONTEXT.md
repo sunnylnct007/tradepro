@@ -615,3 +615,44 @@ a paper/no-OPRA session or merely slower to prime. And all of this was measured
 on a Sunday with the market shut; cache behaviour may differ entirely with live
 quotes. A Monday run distinguishes them, and that measurement should come
 BEFORE any conclusion about entitlements.
+
+---
+
+## 30 Aug — the chain retry ALREADY EXISTS, and is capped at one. Do not add a second.
+
+Follow-up to the progressive-snapshot diagnosis above. Before anyone implements
+a re-poll, read this: **there is already one, and the Python path is not a
+separate client.**
+
+**There is ONE path to IBKR, not two.** `chains_g3.py` does not talk to IBKR — it
+calls `GET /api/ibkr/chain/{symbol}` on our own API, which owns the session. So a
+retry added in Python would sit ON TOP of the C# retry below, on the same
+request, with neither layer owning the decision. Three layers of retry and a
+worse pacing budget. Owner's ruling, 30 Aug: *"i still do not want 2 diff path of
+data access ... one api shd be there for core data access"* — we already have
+that; the fix belongs in the one place.
+
+**`ChainEndpoints.cs` has primed since 2 August** and the cap is deliberate:
+
+    // Same warm-up quirk as the spot snapshot above, live-verified 2 Aug
+    var quotesResult = await ibkr.GetOptionSnapshotBatchAsync(conIds, ct);
+    // One retry, not two (12 Aug): the second retry's extra snapshot
+    for (var attempt = 0; attempt < 1 && QuotesStillCold(quotesResult.Quotes); attempt++)
+
+So the defect is NOT a missing concept. It is an **under-tuned bound**, capped at
+one to protect the pacing budget on 12 Aug — before anyone knew fields prime at
+different rates. The measurement above shows bid/ask arriving on call 2 with OI
+still absent by call 4, so one retry can never reach open interest.
+
+**Two changes, one place:**
+1. Raise the `attempt < 1` bound.
+2. Make `QuotesStillCold` judge on OPEN INTEREST, not just bid/ask — otherwise it
+   goes cold-to-warm the moment bid/ask land and abandons the field the wheel's
+   liquidity gate actually rejects on. `GetOptionQuotesAsync` (caf5b4f) already
+   polls until the answer stops improving and logs which fields never arrived;
+   `QuotesStillCold` needs the same standard.
+
+**Still unestablished, and do not assume either way:** whether OI/IV are absent
+on a paper session or merely slower to prime. Everything above was measured on a
+CLOSED SUNDAY. Monday's live run settles it. **Nobody should buy an OPRA
+subscription to fix what may be a priming bug.**
