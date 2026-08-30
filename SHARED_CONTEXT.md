@@ -685,3 +685,68 @@ because the cap is applied before resolution and resolution is what fails.
 the row rather than pricing the wrong contract (54d7654). That guard exists
 because the first version silently priced a 5-day 212.5 put against a 30-day
 194.96 target — real numbers, wrong contract.
+
+---
+
+## 2026-08-30 — the puts screen prices. Two of my own diagnoses above were WRONG.
+
+MRVL now reads across, live from IBKR on the paper account:
+
+    sell the 195 put, expiring 2026-09-25 (26 DTE)
+    bid 4.45 / ask 5.00 · mid 4.72 · premium $472
+    yield 2.42% on collateral · annualised 29.4%
+    break-even 190.28 · IV 56.2% · delta -0.22 (22% assignment)
+
+Verified end-to-end: priced by the CLI, pushed, served by the live API at
+`/api/today-setups/post_earnings_puts/latest`, and rendered by the deployed
+bundle (confirmed on the box — the UI sits behind basic auth, so CI green was
+not accepted as proof).
+
+### Correction 1 — "resolve by exact expiry, not month" was wrong
+
+The section above concluded `GetOptionContractsAsync` had to stop querying by
+month. It did not. `secdef/info` takes a **month** and returns every expiry
+within it; the 52-of-56 strike failure was a missing `exchange=SMART` on the
+`secdef/info` and `secdef/strikes` calls (bca6b43). With that one parameter the
+chain went from **4 strikes (212.5–220.0) to 40 (167.5–265.0)**, reaching the
+195 target. I had written the wrong fix direction into this file as if settled.
+
+### Correction 2 — "OPRA is unsubscribed" was wrong, all week
+
+IV, bid, ask and greeks are all served. The market-data probe returns the
+*subscribed field set*, not the set you asked for, so a field absent from the
+probe is not a field IBKR withholds. Several days of "we have an OPRA problem"
+were spent on this. The owner challenged it repeatedly and was right each time.
+
+### The two bugs that were actually left
+
+1. **`maxStrikes=1` on the expiry-discovery call.** `availableExpiries` is
+   derived from the legs the chain actually RESOLVED, not from a separate
+   listing — so asking for one strike under-reports it:
+
+       maxStrikes=1 -> ['20260904','20260911','20260918']
+       maxStrikes=2 -> [..., '20260925']
+
+   The 26-day expiry — four days from a 30-day target — was invisible, the
+   nearest looked like 19 days, it missed the ±10-day tolerance, and the row
+   reported no expiry near the target. **A limit created by my own cheap
+   discovery call, not by the listing.**
+
+2. **No poll for bid/ask.** Per IBKR's spec the first snapshot call for a conid
+   is a PRE-FLIGHT that "will not deliver any data", and option legs are freshly
+   subscribed the instant we resolve them. So the first read returns IV and
+   greeks (computed server-side) with bid/ask still empty — giving up there
+   produced "chain returned the leg but no bid/ask" on a contract IBKR quotes
+   perfectly well. Now polls 4× at 2.5s.
+
+Both in `post_earnings_puts.py` (9d15ad9). UI columns in 00f7443 — the API had
+carried premium/yield/delta/IV since the pricing layer landed and the desk
+rendered **none** of it, so the screen looked empty even once the data was there.
+
+### Standing warning
+
+The strike/expiry tolerance guards stay. They are the reason this took another
+day instead of shipping a wrong number: the first pricing version silently
+priced a 5-day 212.5 put against a 30-day 194.96 target. Real premium, wrong
+contract. **A screen that prices the wrong contract is worse than one that
+prices nothing.**
