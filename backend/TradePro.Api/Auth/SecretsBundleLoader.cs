@@ -120,6 +120,10 @@ public static class SecretsBundleLoader
         // IBKR:AllowOrders so the secret controls it (config-driven, no code
         // change / redeploy needed to arm or disarm placement).
         ["allow_orders"]     = "IBKR:AllowOrders",
+        // SECOND KEY for live placement. Absent from the secret -> binds to
+        // false, so mode=live alone cannot place an order. See
+        // IBKROptions.AllowLiveOrders for why one key was not enough.
+        ["allow_live_orders"] = "IBKR:AllowLiveOrders",
     };
 
     public static void LoadInto(IConfigurationBuilder builder, IConfiguration existing, ILogger? log = null)

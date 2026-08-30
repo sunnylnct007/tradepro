@@ -105,7 +105,21 @@ public sealed class IBKRClient
     /// guard and the /integrations/ibkr/status endpoint read this so the
     /// read-only guarantee is visible + auditable. Only an explicit
     /// IBKR:AllowOrders=true flips it.</summary>
-    public bool AllowOrders => _options.AllowOrders;
+    /// <remarks>Since 30 Aug 2026 this is BOTH keys, not one. Live placement
+    /// additionally requires <see cref="IBKROptions.AllowLiveOrders"/>, so
+    /// flipping Mode to "live" is NOT sufficient to place an order. Every
+    /// existing call site (the OMS dispatch branch, the two integration
+    /// endpoints, the status endpoint) reads this property, so the guard is
+    /// inherited everywhere rather than repeated — and cannot be forgotten at
+    /// a new call site.</remarks>
+    public bool AllowOrders =>
+        _options.AllowOrders && (!_options.IsLiveMode || _options.AllowLiveOrders);
+
+    /// <summary>True when orders are blocked SOLELY because the account is
+    /// live. Surfaced by /integrations/ibkr/status so the reason is legible
+    /// rather than looking like a generic kill-switch.</summary>
+    public bool BlockedForLive =>
+        _options.AllowOrders && _options.IsLiveMode && !_options.AllowLiveOrders;
 
     /// <summary>The IP that actually went into the last sso-sessions claim,
     /// for operator visibility (surfaced by /integrations/ibkr/status). Null

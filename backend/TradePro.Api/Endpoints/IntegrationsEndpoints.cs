@@ -1014,9 +1014,14 @@ public static class IntegrationsEndpoints
             if (!ibkr.AllowOrders)
                 return Results.Json(new
                 {
-                    error = "IBKR order placement is disabled (read-only kill-switch). "
-                          + "Set IBKR:AllowOrders=true on the paper secret to enable.",
-                    allowOrders = false, mode = opts.Value.Mode, account = opts.Value.AccountId,
+                    error = ibkr.BlockedForLive
+                        ? "REFUSED: this is a LIVE account. Order placement to live is "
+                        + "blocked by a second, separate key (IBKR:AllowLiveOrders) that "
+                        + "is deliberately unset — flipping Mode to live is NOT sufficient."
+                        : "IBKR order placement is disabled (read-only kill-switch). "
+                        + "Set IBKR:AllowOrders=true on the paper secret to enable.",
+                    allowOrders = false, blockedForLive = ibkr.BlockedForLive,
+                    mode = opts.Value.Mode, account = opts.Value.AccountId,
                 }, statusCode: 403);
             if (req is null || string.IsNullOrWhiteSpace(req.Symbol)
                 || string.IsNullOrWhiteSpace(req.Side) || req.Quantity <= 0)
