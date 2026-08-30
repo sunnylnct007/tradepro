@@ -3939,3 +3939,199 @@ def get_forward_test_status() -> dict:
         "gates_file": "FORWARD_TEST_GATES_V1.md",
         "harness": "strategies/backtests/studies/mean_reversion_v2.py",
     }
+
+
+# ---------------------------------------------------------------------------
+# INDEX SHORT STRANGLE
+#
+# Owner, 30 Aug 2026: "all functionality we need to expose from tradepro as mcp
+# so we can improve them if needed". The strangle suite was 0% exposed — a whole
+# day's work (8 markets, the threshold rule, the Monte Carlo, the per-contract
+# economics) was reachable only by running a CLI on this machine, which is
+# exactly the thing that makes a strategy impossible to review from a chat.
+#
+# These call the CLI modules IN-PROCESS rather than through /api. The strangle
+# jobs run in Lambda and write no API state, so there is no endpoint to proxy;
+# going through one would mean inventing a server round-trip for a computation
+# that is local. Reading the same modules the email uses also guarantees an MCP
+# answer and an emailed answer cannot diverge.
+
+
+def get_index_strangle_markets() -> dict:
+    """The eight configured index-strangle markets: volatility gate, contract
+    size, settlement style, and which markets are the SAME underlying bet at a
+    different size (`family`)."""
+    from ..cli.index_strangle_paper import MARKETS, STRIKE_MULT, DTE_SET, MARGIN_PCT
+    return {
+        "ok": True,
+        "strike_rule": f"{STRIKE_MULT}x expected daily move, centred on the forward",
+        "expiries": DTE_SET,
+        "margin_pct_assumed": MARGIN_PCT,
+        "markets": [
+            {"market": m, "index": c["index"], "vol_index": c["vol"],
+             "vol_gate": c["vol_max"], "vol_scale": c["vol_scale"],
+             "lot": c["lot"], "strike_grid": c["grid"], "rate": c["rate"],
+             "family": c["family"], "currency": c["ccy"],
+             "product": c["product"], "note": c["note"]}
+            for m, c in MARKETS.items()],
+        "note": ("markets sharing a `family` are one bet at different contract "
+                 "sizes, not independent opportunities"),
+    }
+
+
+def get_index_strangle_candidates(market: str = "") -> dict:
+    """Today's strangle decision for each market: trade or stand aside, the
+    strikes, and what one contract gains or loses in money.
+
+    `market` optionally narrows to one (e.g. "NIFTY"); default is all eight.
+    Stand-aside rows are returned too — they are the only way to tell whether
+    the volatility gate is set correctly.
+    """
+    from ..cli.index_strangle_paper import (
+        MARKETS, decide, economics, _evidence)
+    names = ([m.strip().upper() for m in market.split(",") if m.strip()]
+             or list(MARKETS))
+    unknown = [m for m in names if m not in MARKETS]
+    if unknown:
+        return {"ok": False, "error": f"unknown market(s): {unknown}",
+                "known": sorted(MARKETS)}
+    ev = _evidence()
+    rows = []
+    for m in names:
+        r = decide(m)
+        econ = economics(r, ev.get(m))
+        if econ:
+            r["economics"] = econ
+        rows.append(r)
+    live = [r for r in rows if r.get("status") == "CANDIDATE"]
+    return {
+        "ok": True,
+        "candidate_count": len(live),
+        "evaluated": len(rows),
+        "candidates": rows,
+        "reminder": ("PAPER RECORD, nothing is placed. Credits are MODELLED "
+                     "Black-Scholes with no bid-ask charged; loss figures are "
+                     "the strategy's realised history scaled to one contract."),
+    }
+
+
+def get_index_strangle_evidence(market: str = "") -> dict:
+    """The committed simulation evidence behind the strangle email: historical
+    performance, the blocked-bootstrap Monte Carlo, the crash stress, and the
+    threshold rule's full working.
+
+    Reads the versioned artifact the email quotes, so an MCP answer and an
+    emailed number cannot disagree. No network, no recompute.
+    """
+    from ..cli.index_strangle_paper import _evidence
+    ev = _evidence()
+    if not ev:
+        return {"ok": False, "error": "evidence file missing or unreadable"}
+    if market:
+        names = [m.strip().upper() for m in market.split(",") if m.strip()]
+        unknown = [m for m in names if m not in ev]
+        if unknown:
+            return {"ok": False, "error": f"no evidence for {unknown}",
+                    "known": sorted(ev)}
+        ev = {m: ev[m] for m in names}
+    return {
+        "ok": True,
+        "markets": ev,
+        "how_to_read": {
+            "returns": "% of collateral (put strike x lot), comparable across markets",
+            "mc_blocked": ("forward Monte Carlo, stationary block bootstrap — the "
+                           "figure to use, because losses cluster"),
+            "mc_iid": ("same simulation without clustering; shown only so the GAP "
+                       "to mc_blocked is visible"),
+            "stress": ("worst single day in history priced as if held through it. "
+                       "An UPPER BOUND on one day — NOT a claim about how often "
+                       "the gate lets one through"),
+            "limit": ("the Monte Carlo resamples only trades the gate ALLOWED, so "
+                      "no crash day is in it and its p5 is not a worst case"),
+        },
+    }
+
+
+def get_index_strangle_threshold_rule(market: str = "") -> dict:
+    """Why each volatility gate is the number it is.
+
+    The gate is COMPUTED, not chosen: of a half-point grid, the largest
+    threshold admitting zero trades inside any declared crisis window. Returns
+    the chosen value plus every candidate and what it would have leaked, so the
+    choice can be audited rather than trusted.
+    """
+    from ..cli.index_strangle_paper import MARKETS, _evidence
+    ev = _evidence()
+    if not ev:
+        return {"ok": False, "error": "evidence file missing"}
+    names = ([m.strip().upper() for m in market.split(",") if m.strip()]
+             or list(ev))
+    out = {}
+    for m in names:
+        if m not in ev:
+            continue
+        rule = ev[m].get("threshold_rule") or {}
+        chosen = rule.get("chosen")
+        looser = [g for g in (rule.get("grid") or []) if g["threshold"] > chosen]
+        out[m] = {
+            "configured": MARKETS[m]["vol_max"] if m in MARKETS else None,
+            "chosen_by_rule": chosen,
+            "agrees": rule.get("matches_config"),
+            "crisis_windows": rule.get("windows"),
+            "capped_by": (f"{looser[0]['threshold']} would have leaked "
+                          f"{looser[0]['leaks']}" if looser else None),
+            "grid": rule.get("grid"),
+        }
+    return {
+        "ok": True,
+        "rule": ("largest threshold on a half-point grid admitting ZERO trades "
+                 "inside any declared crisis window"),
+        "caveat": ("the windows are hindsight, so this is a ROBUSTNESS rule — "
+                   "evidence the gate would have sat out the last four crises, "
+                   "and none that it will sit out the next"),
+        "markets": out,
+    }
+
+
+def get_index_strangle_alerts() -> dict:
+    """Intraday alerts on today's recorded strangles: index moved past its
+    threshold, price closed on a strike, or the volatility premise expired.
+    Reports the MOMENT only — what to do about it is deliberately not automated.
+    """
+    from ..cli.index_strangle_alert import check, MOVE_PCT, STRIKE_NEAR_PCT, VOL_RISE
+    try:
+        hits = check()
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)[:300]}
+    return {"ok": True, "alert_count": len(hits), "alerts": hits,
+            "thresholds": {"move_pct": MOVE_PCT,
+                           "strike_near_pct": STRIKE_NEAR_PCT,
+                           "vol_rise_points": VOL_RISE},
+            "note": "each threshold fires once per session"}
+
+
+def run_index_strangle_sim(market: str, dte: int = 7, paths: int = 5000,
+                           trades: int = 50) -> dict:
+    """Re-run the backtest and forward Monte Carlo for ONE market, live.
+
+    Use this to test a change — a different expiry, more paths — WITHOUT
+    touching the committed evidence the email quotes. `market` is required and
+    single, because a full eight-market run takes ~20s and does not belong
+    behind a chat prompt. Default paths are lowered from the committed 20,000
+    for the same reason.
+    """
+    from ..cli.index_strangle_paper import MARKETS
+    from ..cli.index_strangle_sim import simulate
+    m = (market or "").strip().upper()
+    if m not in MARKETS:
+        return {"ok": False, "error": f"unknown market {market!r}",
+                "known": sorted(MARKETS)}
+    if paths > 50_000 or trades > 500:
+        return {"ok": False, "error": "paths<=50000 and trades<=500"}
+    try:
+        res = simulate(m, dte=dte, paths=paths, trades=trades)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)[:300]}
+    return {"ok": True, "result": res,
+            "note": ("ad-hoc run — does NOT update the committed evidence file "
+                     "the email quotes")}

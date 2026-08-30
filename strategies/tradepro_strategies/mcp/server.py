@@ -686,17 +686,63 @@ def build_server():
         quote/orderbook. Never a fabricated price (404/502 when unavailable)."""
         return _json(t.get_ibkr_quote(symbol, fields))
 
-    @mcp.tool()
-    @instrumented("list_watchlists")
-    def list_watchlists() -> str:
-        """Names of all TradePro watchlists."""
-        return _json(t.list_watchlists())
+    # ---- Index short strangle -------------------------------------------
+    #
+    # The whole suite: today's decision, the money at stake, the evidence, and
+    # WHY each volatility gate is the number it is. Exposed 30 Aug 2026 because
+    # none of it was — a strategy that can only be inspected by running a CLI on
+    # one laptop cannot be reviewed, argued with, or improved from a chat.
 
     @mcp.tool()
-    @instrumented("get_watchlist")
-    def get_watchlist(name: str) -> str:
-        """Symbols in one TradePro watchlist by name."""
-        return _json(t.get_watchlist(name))
+    @instrumented("get_index_strangle_candidates")
+    def get_index_strangle_candidates(market: str = "") -> str:
+        """Today's index short-strangle decision per market — trade or stand
+        aside, the strikes, and what ONE contract gains or loses in money.
+        Optionally narrow with market="NIFTY". Stand-aside rows are included
+        deliberately: they are the only way to judge whether the gate is right."""
+        return _json(t.get_index_strangle_candidates(market))
+
+    @mcp.tool()
+    @instrumented("get_index_strangle_markets")
+    def get_index_strangle_markets() -> str:
+        """The eight configured strangle markets: volatility gate, lot size,
+        strike grid, settlement style, and which are the SAME bet at different
+        contract sizes (`family`)."""
+        return _json(t.get_index_strangle_markets())
+
+    @mcp.tool()
+    @instrumented("get_index_strangle_evidence")
+    def get_index_strangle_evidence(market: str = "") -> str:
+        """Evidence behind the strangle email: historical performance, the
+        blocked-bootstrap Monte Carlo, and the crash stress. Reads the same
+        committed artifact the email quotes, so the two cannot disagree."""
+        return _json(t.get_index_strangle_evidence(market))
+
+    @mcp.tool()
+    @instrumented("get_index_strangle_threshold_rule")
+    def get_index_strangle_threshold_rule(market: str = "") -> str:
+        """Why each volatility gate is the number it is. The gate is computed —
+        the largest threshold admitting zero trades in any crisis window — and
+        this returns every candidate with what it would have leaked, so the
+        choice can be audited rather than trusted."""
+        return _json(t.get_index_strangle_threshold_rule(market))
+
+    @mcp.tool()
+    @instrumented("get_index_strangle_alerts")
+    def get_index_strangle_alerts() -> str:
+        """Intraday alerts on today's recorded strangles: index past its move
+        threshold, price closed on a strike, or the low-volatility premise
+        expired. Reports the moment only; the response is not automated."""
+        return _json(t.get_index_strangle_alerts())
+
+    @mcp.tool()
+    @instrumented("run_index_strangle_sim")
+    def run_index_strangle_sim(market: str, dte: int = 7, paths: int = 5000,
+                               trades: int = 50) -> str:
+        """Re-run the backtest and Monte Carlo for ONE market to test a change
+        (different expiry, more paths) WITHOUT touching the committed evidence
+        the email quotes. One market at a time — a full run takes ~20s."""
+        return _json(t.run_index_strangle_sim(market, dte, paths, trades))
 
     # ---- Track-record validation: hitrate, scan, evaluate one signal ----
 
