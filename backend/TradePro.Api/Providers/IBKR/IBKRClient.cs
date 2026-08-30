@@ -1047,6 +1047,8 @@ public sealed class IBKRClient
                 // {"orders":[],"snapshot":false} on its first call, which hid
                 // every fill for two months (e1ed6e4). Second time in this file.
                 var text = string.Empty;
+                var bestFilled = -1;
+                IReadOnlyList<IBKROptionQuote>? best = null;
                 for (var attempt = 1; attempt <= SnapshotPrimeAttempts; attempt++)
                 {
                     using var resp = await SendWithAuthAsync(
@@ -1058,16 +1060,35 @@ public sealed class IBKRClient
                     if (!resp.IsSuccessStatusCode)
                         return new IBKROptionQuotesResult(all,
                             $"marketdata/snapshot failed for {chunk.Length} conids: {text}", lastStatus);
-                    // Stop as soon as ANY quote field is populated. Judged on the
-                    // parsed rows rather than on row COUNT: IBKR returns a row per
-                    // conid immediately, carrying only the conid, so counting rows
-                    // would call an unprimed answer a success.
+                    // Poll until the answer STOPS IMPROVING, not until the first
+                    // field lands. Fields prime at different rates: measured
+                    // 30 Aug on a paper session, bid/ask arrived on call 2 while
+                    // OI and IV had still not appeared by call 4. Breaking on
+                    // "any field present" would take the bid/ask answer and
+                    // abandon open interest — which is the ONE field the wheel's
+                    // liquidity gate actually rejects on.
+                    //
+                    // Judged on PARSED FIELDS, never on row count: IBKR returns a
+                    // row per conid immediately carrying only the conid, so
+                    // counting rows would call an unprimed answer a success.
                     var parsed = IBKRResponseParser.ParseOptionSnapshot(text);
-                    if (parsed.Any(q => q.Bid is not null || q.Ask is not null
-                                        || q.OpenInterest is not null || q.ImpliedVolPct is not null)
-                        || attempt == SnapshotPrimeAttempts)
+                    var filled = parsed.Count(q => q.Bid is not null) + parsed.Count(q => q.Ask is not null)
+                               + parsed.Count(q => q.OpenInterest is not null)
+                               + parsed.Count(q => q.ImpliedVolPct is not null);
+                    if (filled > bestFilled) { bestFilled = filled; best = parsed; }
+                    if (attempt == SnapshotPrimeAttempts || (filled > 0 && filled == bestFilled && attempt > 1))
                     {
-                        all.AddRange(parsed);
+                        all.AddRange(best ?? parsed);
+                        // Name the fields that never arrived. A silently partial
+                        // chain is how "IBKR has no open interest" became folklore
+                        // for weeks when the truth was that we stopped asking.
+                        var res = best ?? parsed;
+                        if (res.Count > 0 && res.All(q => q.OpenInterest is null))
+                            _log.LogWarning(
+                                "IBKR option snapshot: {N} legs primed but OPEN INTEREST never arrived "
+                                + "after {A} calls (bid/ask on {B}) — field 7638 may be wrong, or OI is "
+                                + "not served on this session. NOT the same as 'no open interest'.",
+                                res.Count, attempt, res.Count(q => q.Bid is not null));
                         break;
                     }
                     await Task.Delay(SnapshotPrimeDelay, ct);
