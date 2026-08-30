@@ -502,13 +502,40 @@ without an alarm. Same shape as the 5 monitors found green while broken on
 Do NOT "fix the daily harvest". It is not broken. Fix the telemetry rollup so a
 partial fetch cannot masquerade as a full-universe run.
 
-### ALSO CONFIRMED — the book the gates size against is not the real book
+### RETRACTED — "the book is out of sync" WAS NOT A DEFECT
 
-The board reports deployed 4000, 1 open position (SLV), NAV 119,062. The actual
-account holds ten short options (AMZN, APLD x2, GOOGL, IBM, MRVL x2, PG, SKHY,
-XOM) with NAV 125,387. It returns already_in_book:false for XOM while the
-account is short the exact contract being suggested. Every concentration and
-position-size gate is therefore computed against a book that is not yours.
+I wrote this up as a bug on 30 Aug. It is not one, and implementing the
+"reconcile the book" item below would DAMAGE the paper record. Correcting it
+here because it is the kind of plausible-sounding fix another agent would act
+on.
+
+What I claimed: the board reports 1 open position (SLV) while the account holds
+ten short options (AMZN, APLD x2, GOOGL, IBM, MRVL x2, PG, SKHY, XOM), so the
+size and concentration gates compute against the wrong book.
+
+Why that is wrong, per the owner: THESE ARE TWO DIFFERENT ACCOUNTS AND ALWAYS
+WERE. `options_paper_position` is the PAPER wheel ledger. The IBKR account is
+the LIVE one, traded BY HAND. TradePro places nothing into the live account —
+"we are not placing any auto trade into live account". SLV is not a phantom; it
+is a legitimate paper position. The two books are disjoint BY DESIGN and no
+amount of reconciliation should make them agree.
+
+And the gates were never gating the screen anyway: options_screen.py:1486
+passes `capital_gates=False` — "the SCREEN answers 'is this a good trade?', not
+'can I afford it?'". Capital limits bind only the autonomous paper wheel, which
+is the split already specified in the project notes. `already_in_book:false`
+for XOM is CORRECT for the paper account.
+
+DO NOT point the paper ledger at live broker positions. It would merge two
+deliberately separate accounts and corrupt the execution record being built
+precisely because no platform provides that data for free.
+
+WHAT IS REAL, stripped of the error: on 30 Aug the post-earnings screen offered
+MRVL 195 PUT while the LIVE account was already short MRVL Sep18'26 195 PUT.
+Nothing is broken — the paper system does not know about the live book and
+should not — but someone reading candidates to place manually would want that
+surfaced. That is an INFORMATIONAL overlay on the live account, clearly
+labelled and never a block. A feature, and only if the owner wants it.
 
 ### RANKED
 
@@ -516,7 +543,8 @@ position-size gate is therefore computed against a book that is not yours.
 2. Stop incidental fetches overwriting lane telemetry — until then NO readiness
    verdict can be trusted, including the green ones
 3. Apply the weekday adjustment to options_screen staleness
-4. Reconcile the book against get_ibkr_positions
+4. ~~Reconcile the book against get_ibkr_positions~~ RETRACTED — see above.
+   The paper and live books are separate by design. Do not merge them.
 5. Revisit the IV/HV hard gate (design call, after 1)
 
 ### UNRELATED, and DONE this session — index short strangle
