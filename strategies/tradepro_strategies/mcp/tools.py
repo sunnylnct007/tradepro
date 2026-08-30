@@ -3784,6 +3784,37 @@ def get_swing_candidates() -> dict:
     return _get("/api/today-setups/swing/latest")
 
 
+def get_post_earnings_puts() -> dict:
+    """TODAY's post-earnings PUT candidates — sell a put after an earnings drop.
+
+    UNPROVEN. It passed 8/8 pre-registered gates but the study named its own weak
+    pass: W6 ('2022 must not lose') passed on NINE events, because the market
+    filter removed 41 of 2022's 50 drops. Earnings history starts Oct 2020, so
+    both halves of the split sit in ONE regime. Recorded verdict: paper-forward
+    at small size, NOT FUNDED.
+
+    A short put is an OBLIGATION, not a position: assigned, it buys 100 shares at
+    the strike whether or not you want them. `collateral` is what a cash-secured
+    put ties up.
+    """
+    return _get("/api/today-setups/post_earnings_puts/latest")
+
+
+def get_candidate_log(strategy: str, days: int = 90) -> dict:
+    """What a screen PUBLISHED, day by day — the forward-test record.
+
+    Distinct from the `get_*_candidates` tools, which show only TODAY: those read
+    today_setups_results, which is overwritten on every run. This is the
+    append-only history (migration 068), so it can answer "what did the screen
+    say on each of the last 60 days" and later "did the fill land where it said".
+
+    Records candidates, NOT orders. `coverage` reports the first and last dates
+    held, so an empty result reads as 'nothing published yet' rather than 'this
+    strategy finds nothing'.
+    """
+    return _get(f"/api/candidate-log/{strategy}", params={"days": days})
+
+
 def get_momentum_candidates() -> dict:
     """TODAY's Momentum candidates — the longer-hold sleeve (~35-session hold).
 
