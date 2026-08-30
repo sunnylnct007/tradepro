@@ -37,6 +37,24 @@ def build_server():
         return _json(t.get_swing_candidates())
 
     @mcp.tool()
+    @instrumented("get_research_studies")
+    def get_research_studies(verdict: str = "") -> str:
+        """THE EVIDENCE REGISTER — every pre-registered study and its verdict.
+        Read this BEFORE calling any strategy proven. Gates were committed to git
+        BEFORE each run, so every claim is checkable with `git show <sha>`. A
+        strategy absent from this list has NO graded evidence behind it."""
+        return _json(t.get_research_studies(verdict or None))
+
+    @mcp.tool()
+    @instrumented("get_name_context")
+    def get_name_context(symbols: list[str]) -> str:
+        """What we KNOW about specific names — and what we do NOT. History depth,
+        staleness, where the rule stands, that name's own record under it,
+        earnings proximity and CURRENT fundamentals. No score, no verdict: the
+        judgement stays with the caller."""
+        return _json(t.get_name_context(symbols))
+
+    @mcp.tool()
     @instrumented("get_post_earnings_puts")
     def get_post_earnings_puts() -> str:
         """TODAY's post-earnings PUT candidates. UNPROVEN — passed 8/8 gates with
