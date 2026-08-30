@@ -547,6 +547,32 @@ public static class IBKRResponseParser
     /// encodes quote/greek values as strings on some gateway versions, raw numbers
     /// on others. Strips a trailing 'C'/'H' halted-market marker IBKR sometimes
     /// prefixes onto string values (e.g. "C168.42").</summary>
+    /// <summary>One numeric field out of a snapshot array, by tag.
+    ///
+    /// Needed because spot for strike selection does not have to be a LIVE tick:
+    /// a mark (7635) or prior close (7741) picks near-the-money strikes just as
+    /// well, and on a closed market field 31 legitimately never arrives. Refusing
+    /// the chain in that case reported "no chain" for a symbol IBKR was answering
+    /// perfectly — the same "market shut is not an outage" error already fixed in
+    /// the quote endpoint and the health probe.
+    ///
+    /// Uses DecLoose, so it inherits the C/H prefix and % suffix handling.</summary>
+    public static decimal? ParseSnapshotField(string json, string tag)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+            foreach (var it in doc.RootElement.EnumerateArray())
+            {
+                var v = DecLoose(it, tag);
+                if (v is > 0) return v;
+            }
+        }
+        catch (JsonException) { }
+        return null;
+    }
+
     private static decimal? DecLoose(JsonElement el, string prop)
     {
         if (el.ValueKind != JsonValueKind.Object || !el.TryGetProperty(prop, out var v)) return null;

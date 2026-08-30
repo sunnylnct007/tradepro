@@ -112,18 +112,39 @@ public static class ChainEndpoints
             //
             // Escalating waits, and only paid when cold: a warm symbol still
             // returns on the first call with no delay at all.
-            foreach (var waitSeconds in new[] { 1.2, 2.5, 4.0 })
+            // IBKR's spec makes the mechanism explicit: /iserver/marketdata/snapshot
+            // requires a PRE-FLIGHT request which "will not deliver any data, but
+            // rather makes the stream available for future snapshot requests", and
+            // fields "computed on an interval may not be delivered immediately, and
+            // instead will be returned when updated".
+            //
+            // So a first empty answer is the protocol working, not a failure — and
+            // the escalation below is the documented wait, not a workaround.
+            //
+            // ALSO ASK FOR A CLOSE. Spot here is only used to pick near-the-money
+            // strikes, and for that yesterday's close is entirely adequate. Refusing
+            // the whole chain because there is no LIVE tick is the same mistake as
+            // the health probe calling a shut market "session contention": on a
+            // Sunday, field 31 legitimately never arrives, and we returned
+            // "could not read MRVL spot price" on a name IBKR was answering fine.
+            // 7635 (mark) and 7741 (prior close) fill that gap.
+            foreach (var waitSeconds in new[] { 1.2, 2.5, 4.0, 6.0, 8.0 })
             {
                 if (spot is not null) break;
                 await Task.Delay(TimeSpan.FromSeconds(waitSeconds), ct);
-                spotRaw = await ibkr.GetSnapshotRawAsync(underlyingConId, "31", ct);
+                spotRaw = await ibkr.GetSnapshotRawAsync(underlyingConId, "31,7635,7741", ct);
                 if (spotRaw is not null)
-                    spot = IBKRResponseParser.ParseSnapshotLast(spotRaw);
+                    spot = IBKRResponseParser.ParseSnapshotLast(spotRaw)
+                           ?? IBKRResponseParser.ParseSnapshotField(spotRaw, "7635")
+                           ?? IBKRResponseParser.ParseSnapshotField(spotRaw, "7741");
             }
             if (spot is null)
                 return Results.Ok(new ChainResponse(
                     sym, underlyingConId, chosenMonth, null, Array.Empty<ChainLeg>(),
-                    $"could not read {sym} spot price after warm-up retry (needed to select near-the-money strikes)"));
+                    $"could not read {sym} spot after 5 primed attempts over ~22s — tried last (31), "
+                    + "mark (7635) and prior close (7741). Per IBKR's spec the first snapshot call is a "
+                    + "pre-flight that returns no data; this means the stream never warmed, NOT that the "
+                    + "symbol has no chain."));
 
             // Strikes for the chosen month, narrowed to maxStrikes nearest spot
             // PER SIDE before any per-contract resolution — each selected strike
