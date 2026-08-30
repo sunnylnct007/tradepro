@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using TradePro.Api.Endpoints;
 using Xunit;
 
@@ -64,6 +66,40 @@ public class DataReadinessGradingTests
         var (index, ignored) = DataReadinessEndpoints.PickGradedRun(new[] { 1, 1, 1 });
         Assert.Equal(-1, index);
         Assert.Equal(0, ignored);
+    }
+
+    [Fact]
+    public void ALaneWhoseUniverseLEGITIMATELYSHRANK_IsNotReportedBroken()
+    {
+        // REGRESSION, caught against the live deployment minutes after shipping
+        // the first version of this fix. bars_5m's history still contains runs
+        // of 955 symbols from a universe-resolution bug that was deliberately
+        // fixed down to 244. With the baseline taken as the all-time MAX, half
+        // of 955 is 478, so every correct 244-symbol run scored as a partial
+        // fetch, all were discarded, and a healthy lane reported "has not run
+        // for 98h".
+        //
+        // Newest first: current correct runs, then ad-hoc fetches, then the old
+        // oversized ones.
+        var history = new List<int>();
+        history.AddRange(Enumerable.Repeat(244, 15));   // the lane as it is now
+        history.AddRange(Enumerable.Repeat(1, 39));     // incidental fetches
+        history.AddRange(Enumerable.Repeat(955, 6));    // the old buggy size
+        var (index, ignored) = DataReadinessEndpoints.PickGradedRun(history);
+        Assert.Equal(0, index);      // grade on today's real run
+        Assert.Equal(0, ignored);
+    }
+
+    [Fact]
+    public void SmallFetchesDoNotDragTheBaselineDown_HoweverManyThereAre()
+    {
+        // The other direction: the percentile must still sit above a crowd of
+        // single-symbol fetches, or they start grading the lane again.
+        var history = new List<int> { 1, 1, 1, 1, 1, 1, 244, 244, 244, 244,
+                                      244, 244, 244, 244, 244, 244 };
+        var (index, ignored) = DataReadinessEndpoints.PickGradedRun(history);
+        Assert.Equal(6, index);
+        Assert.Equal(6, ignored);
     }
 
     [Fact]

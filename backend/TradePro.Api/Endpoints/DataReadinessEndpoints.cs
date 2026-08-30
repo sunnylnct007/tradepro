@@ -54,12 +54,28 @@ public static class DataReadinessEndpoints
         IReadOnlyList<int> coveredNewestFirst)
     {
         if (coveredNewestFirst is null || coveredNewestFirst.Count == 0) return (-1, 0);
-        var laneSize = coveredNewestFirst.Max();
+
+        // THE BASELINE IS A PERCENTILE, NOT THE MAXIMUM — and that distinction
+        // is load-bearing. Using the all-time max broke bars_5m within minutes
+        // of shipping: that lane's history still contains runs of 955 symbols
+        // from a universe-resolution bug that was deliberately fixed down to
+        // 244. Half of 955 is 478, so every CORRECT 244-symbol run scored as a
+        // partial fetch, all of them were discarded, and a healthy lane
+        // reported "has not run for 98h". A monitor that cries wolf after a
+        // legitimate universe change is no better than one that fails open.
+        //
+        // The 75th percentile is robust in both directions at once: small
+        // ad-hoc fetches sit below it however many there are, and a shrunken
+        // universe moves it down with the lane instead of pinning it to a size
+        // the lane no longer has.
+        var sorted = coveredNewestFirst.OrderBy(x => x).ToList();
+        var laneSize = sorted[(int)Math.Min(sorted.Count - 1,
+                                            Math.Floor(sorted.Count * 0.75))];
         // A lane that has only ever reported one symbol has no "normal" to
         // compare against — do not invent one.
         if (laneSize <= 1) return (-1, 0);
-        // Half the lane's own recent maximum. Deliberately generous: the aim is
-        // to exclude 1-of-244 fetches, not to police a harvest that legitimately
+        // Half the lane's typical size. Deliberately generous: the aim is to
+        // exclude 1-of-244 fetches, not to police a harvest that legitimately
         // skipped a few delisted names.
         var floor = (int)Math.Ceiling(laneSize * 0.5);
         for (var i = 0; i < coveredNewestFirst.Count; i++)
