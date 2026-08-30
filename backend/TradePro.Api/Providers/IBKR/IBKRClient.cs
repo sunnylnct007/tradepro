@@ -965,7 +965,11 @@ public sealed class IBKRClient
         {
             using var resp = await SendWithAuthAsync(
                 HttpMethod.Get,
-                $"v1/api/iserver/secdef/strikes?conid={underlyingConId}&sectype=OPT&month={Uri.EscapeDataString(month)}",
+                // exchange=SMART per IBKR's documented flow. Omitting it is why 52 of
+                // 56 MRVL SEP26 strikes came back "No Contracts retrieved" while the
+                // same 195 put resolves fine — the request was under-specified, not
+                // the listing missing.
+                $"v1/api/iserver/secdef/strikes?conid={underlyingConId}&exchange=SMART&sectype=OPT&month={Uri.EscapeDataString(month)}",
                 null, ct);
             var text = await resp.Content.ReadAsStringAsync(ct);
             if (!resp.IsSuccessStatusCode)
@@ -1008,7 +1012,17 @@ public sealed class IBKRClient
         {
             using var resp = await SendWithAuthAsync(
                 HttpMethod.Get,
-                $"v1/api/iserver/secdef/info?conid={underlyingConId}&sectype=OPT&month={Uri.EscapeDataString(month)}"
+                // exchange=SMART — IBKR's own example carries it on BOTH secdef calls:
+                //   secdef/info?conid=265598&exchange=SMART&sectype=OPT&month=OCT24&strike=217.5
+                // We sent neither, and 52 of 56 strikes answered "No Contracts
+                // retrieved" — read for weeks as "IBKR does not list that strike",
+                // when the same contract resolves through a fully-specified request.
+                //
+                // The month IS correct, contrary to what I assumed before reading the
+                // doc: secdef/info takes a MONTH and returns every expiration inside
+                // it (IBKR's example returns four records for OCT24 — the 18th and the
+                // 25th, call and put). So the narrow chain was never an expiry problem.
+                $"v1/api/iserver/secdef/info?conid={underlyingConId}&exchange=SMART&sectype=OPT&month={Uri.EscapeDataString(month)}"
                 + $"&strike={Uri.EscapeDataString(strike.ToString(System.Globalization.CultureInfo.InvariantCulture))}"
                 + $"&right={Uri.EscapeDataString(right)}",
                 null, ct);
