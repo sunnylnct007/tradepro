@@ -29,6 +29,13 @@ type Row = {
   strike_indicative?: number; contracts?: number;
   collateral_actual_usd?: number; collateral_target_usd?: number;
   why_not?: string;
+  // Best-effort option layer. Every one of these can be absent — the row still
+  // renders from bars alone, which is the whole point of the split.
+  listed_strike?: number | null; expiry?: string | null; dte_actual?: number | null;
+  bid?: number | null; ask?: number | null; mid?: number | null;
+  premium_usd?: number | null; yield_pct?: number | null; annual_yield_pct?: number | null;
+  breakeven?: number | null; iv_pct?: number | null; delta?: number | null;
+  assign_prob_pct?: number | null; pricing_note?: string | null;
 };
 type Market = { ok: boolean | null; reason: string; spy_close?: number;
                 spy_sma200?: number; pct_above?: number; as_of?: string };
@@ -133,7 +140,7 @@ export function PostEarningsPutsView() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Reported", "Report move", "Spot", "Sell put at", "Vol", "Size", "Collateral"].map((x) => (
+                {["Symbol", "Reported", "Report move", "Spot", "Sell put at", "Expiry", "Premium", "Yield", "Annualised", "Break-even", "IV", "Delta", "Assign", "Size", "Collateral"].map((x) => (
                   <th key={x} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{x}</th>
                 ))}
               </tr>
@@ -153,8 +160,43 @@ export function PostEarningsPutsView() {
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>
                     {(r.strike_indicative ?? r.strike).toFixed(2)}
                   </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                    {r.expiry ? (
+                      <>
+                        {`${r.expiry.slice(0, 4)}-${r.expiry.slice(4, 6)}-${r.expiry.slice(6, 8)}`}
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}> ({r.dte_actual}d)</span>
+                      </>
+                    ) : <span style={{ color: TONE.dim }}>—</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>
+                    {r.premium_usd != null ? (
+                      <>
+                        ${r.premium_usd.toLocaleString()}
+                        {r.bid != null && r.ask != null && (
+                          <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 400 }}>
+                            {` ${r.bid.toFixed(2)}/${r.ask.toFixed(2)}`}
+                          </span>
+                        )}
+                      </>
+                    ) : <span style={{ color: TONE.dim }}>—</span>}
+                  </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
-                    {r.annual_vol_pct != null ? `${r.annual_vol_pct.toFixed(0)}%` : "—"}
+                    {r.yield_pct != null ? `${r.yield_pct.toFixed(2)}%` : <span style={{ color: TONE.dim }}>—</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: r.annual_yield_pct != null ? TONE.ok : undefined }}>
+                    {r.annual_yield_pct != null ? `${r.annual_yield_pct.toFixed(1)}%` : <span style={{ color: TONE.dim }}>—</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
+                    {r.breakeven != null ? r.breakeven.toFixed(2) : <span style={{ color: TONE.dim }}>—</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
+                    {r.iv_pct != null ? `${r.iv_pct.toFixed(1)}%` : <span style={{ color: TONE.dim }}>—</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
+                    {r.delta != null ? r.delta.toFixed(2) : <span style={{ color: TONE.dim }}>—</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
+                    {r.assign_prob_pct != null ? `${r.assign_prob_pct.toFixed(0)}%` : <span style={{ color: TONE.dim }}>—</span>}
                   </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>{r.contracts ?? 1}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)" }}>
@@ -169,7 +211,9 @@ export function PostEarningsPutsView() {
 
       <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>
         Strike and size come from <b>bars only</b> — no option data — so a dark chain
-        cannot hide a setup. Size is scaled by each name's volatility, which is why a
+        cannot hide a setup. Premium, yield, IV, delta and break-even are a separate
+        best-effort layer read live from IBKR: when they are dark the row still stands
+        on its bars-derived strike, and shows <b>—</b> rather than a guess. Size is scaled by each name's volatility, which is why a
         high-vol name shows fewer contracts than a low-vol one. Options trade
         in WHOLE contracts, so the collateral shown is what you would actually
         commit at the listed strike. It is shown for information — nothing here
