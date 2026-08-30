@@ -29,6 +29,60 @@ public sealed class PostgresOmsService : IOmsService
     private readonly IServiceProvider? _services;
     private readonly ILogger<PostgresOmsService> _log;
 
+    /// <summary>THE projection that materialises an <see cref="OmsOrder"/>.
+    /// Every read of that type must use it.
+    ///
+    /// WHY IT IS A CONSTANT (30 Aug 2026). OmsOrder is a record with 19
+    /// required and 6 optional parameters. C# emits ONE 25-argument
+    /// constructor — optional parameters are compile-time defaults, not extra
+    /// constructors — so Dapper needs all 25 columns or it throws "no
+    /// constructor matching signature" at materialisation.
+    ///
+    /// When FillOrigin and the Signal* fields were added, the LIST query was
+    /// updated and the three single-row reads were not. They kept selecting 19
+    /// columns and threw on every call. OmsTypes.cs already carries a note
+    /// about this exact failure taking GET /api/oms/orders to a 500 on deploy
+    /// — "the build passed and the tests passed, because nothing in either
+    /// touches a database". It happened again, for the same reason, in three
+    /// more places.
+    ///
+    /// One definition means adding a field to the record can only break
+    /// compilation here, not four query sites silently. Requires the table to
+    /// be aliased `o`.</summary>
+    private const string OmsOrderProjection = @"
+                o.id              AS Id,
+                o.client_order_id AS ClientOrderId,
+                o.broker, o.broker_order_id AS BrokerOrderId,
+                o.strategy_id     AS StrategyId,
+                o.symbol, o.side, o.qty,
+                o.order_type      AS OrderType,
+                o.limit_price     AS LimitPrice,
+                o.stop_price      AS StopPrice,
+                o.time_in_force   AS TimeInForce,
+                o.state,
+                o.placed_by       AS PlacedBy,
+                o.filled_qty      AS FilledQty,
+                o.avg_fill_price  AS AvgFillPrice,
+                o.cancelled_reason AS CancelledReason,
+                o.created_at_utc  AS CreatedAtUtc,
+                o.last_state_change_at_utc AS LastStateChangeAtUtc,
+                (SELECT CASE
+                          WHEN f.broker_fill_id LIKE 'standing_reconcile%'
+                            OR f.broker_fill_id LIKE 'assumed_via_position_reconcile%'
+                               THEN 'position-reconcile'
+                          WHEN f.broker_fill_id LIKE 'purge-%' THEN 'purge'
+                          ELSE 'broker'
+                        END
+                   FROM oms_fills f
+                  WHERE f.order_id = o.id
+                  ORDER BY f.id DESC
+                  LIMIT 1)   AS FillOrigin,
+                o.signal_bar          AS SignalBar,
+                o.signal_ref_price    AS SignalRefPrice,
+                o.signal_target_price AS SignalTargetPrice,
+                o.signal_stop_price   AS SignalStopPrice,
+                o.signal_meta::text   AS SignalMeta";
+
     public PostgresOmsService(
         NpgsqlDataSource db,
         IServiceProvider? services = null,
@@ -265,41 +319,7 @@ public sealed class PostgresOmsService : IOmsService
         var whereSql = conds.Count > 0 ? "WHERE " + string.Join(" AND ", conds) : "";
         var sql = $@"
             SELECT
-                id              AS Id,
-                client_order_id AS ClientOrderId,
-                broker, broker_order_id AS BrokerOrderId,
-                strategy_id     AS StrategyId,
-                symbol, side, qty,
-                order_type      AS OrderType,
-                limit_price     AS LimitPrice,
-                stop_price      AS StopPrice,
-                time_in_force   AS TimeInForce,
-                state,
-                placed_by       AS PlacedBy,
-                filled_qty      AS FilledQty,
-                avg_fill_price  AS AvgFillPrice,
-                cancelled_reason AS CancelledReason,
-                created_at_utc  AS CreatedAtUtc,
-                last_state_change_at_utc AS LastStateChangeAtUtc,
-                -- Classify the LATEST fill's origin so a bookkeeping close can
-                -- never be mistaken for a trade. The prefixes are written by
-                -- GoldenSourceReconciler and the purge endpoint.
-                (SELECT CASE
-                          WHEN f.broker_fill_id LIKE 'standing_reconcile%'
-                            OR f.broker_fill_id LIKE 'assumed_via_position_reconcile%'
-                               THEN 'position-reconcile'
-                          WHEN f.broker_fill_id LIKE 'purge-%' THEN 'purge'
-                          ELSE 'broker'
-                        END
-                   FROM oms_fills f
-                  WHERE f.order_id = o.id
-                  ORDER BY f.id DESC
-                  LIMIT 1)   AS FillOrigin,
-                signal_bar          AS SignalBar,
-                signal_ref_price    AS SignalRefPrice,
-                signal_target_price AS SignalTargetPrice,
-                signal_stop_price   AS SignalStopPrice,
-                signal_meta::text   AS SignalMeta
+            {OmsOrderProjection}
             FROM oms_orders o
             {whereSql}
             ORDER BY created_at_utc DESC
@@ -835,25 +855,9 @@ public sealed class PostgresOmsService : IOmsService
 
         // Lock the parent row so concurrent fills don't desync
         // filled_qty / avg_fill_price.
-        var parent = await conn.QueryFirstOrDefaultAsync<OmsOrder>(@"
-            SELECT
-                id              AS Id,
-                client_order_id AS ClientOrderId,
-                broker, broker_order_id AS BrokerOrderId,
-                strategy_id     AS StrategyId,
-                symbol, side, qty,
-                order_type      AS OrderType,
-                limit_price     AS LimitPrice,
-                stop_price      AS StopPrice,
-                time_in_force   AS TimeInForce,
-                state,
-                placed_by       AS PlacedBy,
-                filled_qty      AS FilledQty,
-                avg_fill_price  AS AvgFillPrice,
-                cancelled_reason AS CancelledReason,
-                created_at_utc  AS CreatedAtUtc,
-                last_state_change_at_utc AS LastStateChangeAtUtc
-            FROM oms_orders
+        var parent = await conn.QueryFirstOrDefaultAsync<OmsOrder>($@"
+            SELECT {OmsOrderProjection}
+            FROM oms_orders o
             WHERE id = @orderId FOR UPDATE;",
             new { orderId }, transaction: tx);
         if (parent is null)
@@ -923,25 +927,9 @@ public sealed class PostgresOmsService : IOmsService
         await using var conn = await _db.OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();
 
-        var parent = await conn.QueryFirstOrDefaultAsync<OmsOrder>(@"
-            SELECT
-                id              AS Id,
-                client_order_id AS ClientOrderId,
-                broker, broker_order_id AS BrokerOrderId,
-                strategy_id     AS StrategyId,
-                symbol, side, qty,
-                order_type      AS OrderType,
-                limit_price     AS LimitPrice,
-                stop_price      AS StopPrice,
-                time_in_force   AS TimeInForce,
-                state,
-                placed_by       AS PlacedBy,
-                filled_qty      AS FilledQty,
-                avg_fill_price  AS AvgFillPrice,
-                cancelled_reason AS CancelledReason,
-                created_at_utc  AS CreatedAtUtc,
-                last_state_change_at_utc AS LastStateChangeAtUtc
-            FROM oms_orders
+        var parent = await conn.QueryFirstOrDefaultAsync<OmsOrder>($@"
+            SELECT {OmsOrderProjection}
+            FROM oms_orders o
             WHERE id = @orderId FOR UPDATE;",
             new { orderId }, transaction: tx);
         if (parent is null) return false;
@@ -1131,25 +1119,9 @@ public sealed class PostgresOmsService : IOmsService
     private static async Task<OmsOrder?> ReadOneAsync(
         NpgsqlConnection conn, IDbTransaction? transaction, Guid orderId)
     {
-        return await conn.QueryFirstOrDefaultAsync<OmsOrder>(@"
-            SELECT
-                id              AS Id,
-                client_order_id AS ClientOrderId,
-                broker, broker_order_id AS BrokerOrderId,
-                strategy_id     AS StrategyId,
-                symbol, side, qty,
-                order_type      AS OrderType,
-                limit_price     AS LimitPrice,
-                stop_price      AS StopPrice,
-                time_in_force   AS TimeInForce,
-                state,
-                placed_by       AS PlacedBy,
-                filled_qty      AS FilledQty,
-                avg_fill_price  AS AvgFillPrice,
-                cancelled_reason AS CancelledReason,
-                created_at_utc  AS CreatedAtUtc,
-                last_state_change_at_utc AS LastStateChangeAtUtc
-            FROM oms_orders
+        return await conn.QueryFirstOrDefaultAsync<OmsOrder>($@"
+            SELECT {OmsOrderProjection}
+            FROM oms_orders o
             WHERE id = @orderId;",
             new { orderId }, transaction: transaction);
     }
