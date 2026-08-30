@@ -37,6 +37,22 @@ def build_server():
         return _json(t.get_swing_candidates())
 
     @mcp.tool()
+    @instrumented("get_post_earnings_puts")
+    def get_post_earnings_puts() -> str:
+        """TODAY's post-earnings PUT candidates. UNPROVEN — passed 8/8 gates with
+        a NAMED weak pass (W6 on nine events) and no forward-test evidence yet.
+        A short put is an OBLIGATION: assigned, it buys 100 shares at the strike."""
+        return _json(t.get_post_earnings_puts())
+
+    @mcp.tool()
+    @instrumented("get_candidate_log")
+    def get_candidate_log(strategy: str, days: int = 90) -> str:
+        """What a screen PUBLISHED day by day — the forward-test record, not
+        orders. The get_*_candidates tools show only TODAY and are overwritten
+        each run; this is the append-only history."""
+        return _json(t.get_candidate_log(strategy, days))
+
+    @mcp.tool()
     @instrumented("get_momentum_candidates")
     def get_momentum_candidates() -> str:
         """TODAY's Momentum candidates — the longer-hold sleeve (~35 sessions).

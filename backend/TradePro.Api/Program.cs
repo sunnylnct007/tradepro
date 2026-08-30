@@ -369,6 +369,7 @@ api.MapSignalEndpoints();
 api.MapWatchlistEndpoints();
 api.MapCompareEndpoints();
 api.MapFundamentalsEndpoints();
+api.MapCandidateLogEndpoints();
 api.MapWorkerHealthEndpoints();
 api.MapStrategyHealthEndpoints();
 api.MapSettingsEndpoints();

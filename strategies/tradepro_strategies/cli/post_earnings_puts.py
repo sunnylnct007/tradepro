@@ -288,6 +288,7 @@ def main() -> int:
         # Fail-soft: a push problem must never lose the scan. The numbers are
         # already on screen by this point.
         try:
+            import json as _json
             import requests
             from .push_to_api import load_credentials
             b, tok = load_credentials()
@@ -301,6 +302,52 @@ def main() -> int:
                 headers={"Authorization": f"Bearer {tok}"} if tok else {},
                 timeout=30)
             print(f"  push -> HTTP {r.status_code}")
+
+            # ── THE FORWARD-TEST RECORD (S1, OPTION_EXECUTION_SCOPE.md) ──
+            #
+            # The push above lands in today_setups_results, which is
+            # PRIMARY KEY (universe, label) with label='latest' — every run
+            # REPLACES the last. Right for "what does the screen show now",
+            # useless for "what did it show on each of the last 60 days", and
+            # a forward test on it would have exactly one row.
+            #
+            # This appends each candidate to strategy_candidate_log instead,
+            # keyed by (strategy, symbol, signal_date), so the evidence
+            # accumulates from day one WITHOUT needing an order path. The
+            # orders are the second half; the record is the half that has to
+            # start now, because it cannot be reconstructed later.
+            log_rows = []
+            for c in (art.get("candidates") or []):
+                try:
+                    log_rows.append({
+                        "strategy": "post_earnings_puts",
+                        "symbol": c.get("symbol"),
+                        "signalDate": (art.get("as_of_utc") or "")[:10],
+                        "spot": c.get("spot"),
+                        "strike": c.get("strike"),
+                        "targetPrice": None,      # a short put has no target
+                        "stopPrice": None,        # nor a stop — it is an obligation
+                        "dte": c.get("dte_target"),
+                        "annualVolPct": c.get("annual_vol_pct"),
+                        "sizeFactor": c.get("size_factor"),
+                        "collateral": c.get("collateral"),
+                        "detail": _json.dumps(c),
+                    })
+                except Exception:  # noqa: BLE001 — one bad row must not lose the rest
+                    continue
+            if log_rows:
+                lr = requests.post(
+                    f"{b.rstrip('/')}/api/candidate-log",
+                    json=log_rows,
+                    headers={"Authorization": f"Bearer {tok}"} if tok else {},
+                    timeout=30)
+                if lr.status_code == 200:
+                    print(f"  forward-test record -> {len(log_rows)} row(s) logged")
+                else:
+                    # Loud: a silently-unlogged candidate is a day missing from
+                    # the forward test, and it cannot be recovered afterwards.
+                    log.error("candidate-log push FAILED %s: %s — TODAY IS MISSING "
+                              "from the forward-test record", lr.status_code, lr.text[:160])
         except Exception as exc:  # noqa: BLE001
             log.warning("push failed: %s", exc)
     return 0
