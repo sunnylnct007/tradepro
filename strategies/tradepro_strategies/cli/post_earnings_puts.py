@@ -292,11 +292,21 @@ def price_candidates(cands: list[dict], base: str, token: str | None) -> int:
         # 5-day 212.5 put against a 30-day 195 target: a real premium for a
         # contract the strategy would never sell.
         import datetime as _dt
+        import time as _t
         target_dte = int(c.get("dte_target") or 30)
         try:
+            # maxStrikes=8, NOT 1. availableExpiries is derived from the legs the
+            # chain actually RESOLVED, not from a separate listing — so asking for
+            # one strike under-reports the expiry list. Measured on MRVL:
+            #   maxStrikes=1 -> ['20260904','20260911','20260918']
+            #   maxStrikes=2 -> [..., '20260925']
+            # The 26-day expiry (4 days from a 30-day target) was invisible, so
+            # the nearest candidate looked like 19 days, missed the tolerance, and
+            # the row reported "no expiry near the target" — a limit created by my
+            # own cheap discovery call, not by the listing.
             r0 = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{sym}",
-                              params={"maxStrikes": 1, "right": "P"},
-                              headers=H, timeout=120)
+                              params={"maxStrikes": 8, "right": "P"},
+                              headers=H, timeout=180)
             j0 = r0.json() if r0.status_code == 200 else {}
             expiries = [str(x) for x in (j0.get("availableExpiries") or []) if str(x).isdigit()]
         except Exception as exc:  # noqa: BLE001 — pricing is additive, never fatal
@@ -317,10 +327,24 @@ def price_candidates(cands: list[dict], base: str, token: str | None) -> int:
         try:
             # Wide strike window: a 10% OTM put sits well below spot, and the
             # default window centres on spot and never reaches it.
-            r = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{sym}",
-                             params={"maxStrikes": 60, "right": "P", "expiry": chosen},
-                             headers=H, timeout=180)
-            legs = (r.json() or {}).get("legs") or [] if r.status_code == 200 else []
+            # Poll for bid/ask. Per IBKR's spec the first snapshot call for a conid
+            # is a PRE-FLIGHT that "will not deliver any data" — and these option
+            # legs are freshly subscribed the moment we resolve them, so the first
+            # read reliably returns IV and greeks (computed server-side) with
+            # bid/ask still empty. Measured on MRVL 195P: strike, expiry, IV 56.2%
+            # and delta -0.22 all present, bid/ask null.
+            #
+            # Giving up there produced "chain returned the leg but no bid/ask" on a
+            # contract IBKR quotes perfectly well.
+            legs = []
+            for _try in range(4):
+                r = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{sym}",
+                                 params={"maxStrikes": 60, "right": "P", "expiry": chosen},
+                                 headers=H, timeout=180)
+                legs = (r.json() or {}).get("legs") or [] if r.status_code == 200 else []
+                if any(l.get("bid") is not None or l.get("ask") is not None for l in legs):
+                    break
+                _t.sleep(2.5)
         except Exception as exc:  # noqa: BLE001
             c["pricing_note"] = f"chain unavailable ({str(exc)[:60]})"
             continue
