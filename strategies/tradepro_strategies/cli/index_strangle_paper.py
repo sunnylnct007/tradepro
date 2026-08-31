@@ -187,45 +187,52 @@ MARKETS = {
             "rate": 0.045, "grid": 5.0, "lot": 100, "divisor": 1.0,
             "family": "S&P 500", "ccy": "$",
             "product": "cash-settled index option · European · no early assignment",
-            "note": "VIX is computed FROM SPX options, so the volatility input is "
+            "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "note": "VIX is computed FROM SPX options, so the volatility input is "
                     "the underlying's own, not a proxy"},
     "XSP": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 10.0,
             "family": "S&P 500", "ccy": "$",
             "product": "Mini-SPX · exactly 1/10 of SPX · cash-settled, European",
-            "note": "the same trade as SPX at a tenth of the size — this is the "
+            "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "note": "the same trade as SPX at a tenth of the size — this is the "
                     "'smaller index' product; SPX itself is 10x SPY, not smaller"},
     "SPY": {"index": "SPY", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
             "family": "S&P 500", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
-            "note": "measured edge is within noise of SPX (83.3% vs 82.4%), so the "
+            "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "note": "measured edge is within noise of SPX (83.3% vs 82.4%), so the "
                     "choice is settlement and size, not return"},
     # ---- Nasdaq 100 ----
     "NDX": {"index": "^NDX", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
             "rate": 0.045, "grid": 25.0, "lot": 100, "divisor": 1.0,
             "family": "Nasdaq 100", "ccy": "$",
             "product": "cash-settled index option · European",
-            "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
+            "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
                     "(p5 -0.183 vs -0.101) — the same rule, more risk per unit"},
     "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
             "family": "Nasdaq 100", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
-            "note": "fires 2,015 times against SPY's 2,219 because VXN<=18 is a "
+            "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "note": "fires 2,015 times against SPY's 2,219 because VXN<=18 is a "
                     "reachable gate — this is what fixes the thin US sample"},
     # ---- India ----
     "BANKNIFTY": {"index": "^NSEBANK", "vol": "^INDIAVIX", "vol_scale": 1.35,
                   "vol_max": 12.5, "rate": 0.065, "grid": 100.0, "lot": 150,
                   "divisor": 1.0, "family": "India banks", "ccy": "Rs",
                   "product": "cash-settled index option · European",
-                  "note": "India VIX measures NIFTY and BANKNIFTY realises ~1.35x "
+                  "tz": "Asia/Kolkata", "open_local": "09:15", "close_local": "15:30",
+             "note": "India VIX measures NIFTY and BANKNIFTY realises ~1.35x "
                           "that, so the input is SCALED — a proxy, not its own index"},
     "NIFTY": {"index": "^NSEI", "vol": "^INDIAVIX", "vol_scale": 1.0,
               "vol_max": 12.5, "rate": 0.065, "grid": 50.0, "lot": 75,
               "divisor": 1.0, "family": "India broad", "ccy": "Rs",
               "product": "cash-settled index option · European",
-              "note": "India VIX measures NIFTY directly, so no 1.35 scaling is "
+              "tz": "Asia/Kolkata", "open_local": "09:15", "close_local": "15:30",
+             "note": "India VIX measures NIFTY directly, so no 1.35 scaling is "
                       "needed. Worst day -0.29% vs BANKNIFTY's -1.05% — 3.5x safer "
                       "tail for about two-thirds the return"},
     # ---- Gold: the only genuinely uncorrelated leg here ----
@@ -233,6 +240,7 @@ MARKETS = {
              "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
              "family": "Gold", "ccy": "$",
              "product": "ETF option · American · CAN be assigned early",
+             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
              "note": "best risk-adjusted of the eight (88.8% win, tightest p5) and "
                      "the only one not driven by equity risk — the others are two "
                      "bets wearing six names"},
@@ -352,6 +360,50 @@ def strike_pair(spot: float, width: float, dte: int, rate: float,
     return put, call, fwd
 
 
+# SESSION AWARENESS — two different questions, two different prices.
+#
+# Owner, 31 Aug 2026, after the 04:00 email's NIFTY strikes were already
+# lopsided by the open: "we need to wait for market open and then decide", and
+# "we need to ensure we deal with diff exchange timings".
+#
+# THE BUG. The backtest centres strikes on the DAY'S OPEN while gating on the
+# PREVIOUS close — no lookahead, current strikes. The live screen used the
+# previous close for BOTH. So on 31 Aug the email published NIFTY 23,950 /
+# 24,450 off Friday's 24,175 close; by the open the index was 24,065, leaving
+# the put 116 points away and the call 384 — not a balanced strangle. Every
+# published figure was measured on strikes centred at the open.
+#
+# So they are separated:
+#   THE GATE   "is volatility low?" — a regime question, answered from the last
+#              SETTLED close. Never an in-flight bar.
+#   THE STRIKES anchored to the session OPEN, which is what the evidence used.
+#
+# Deliberately NOT clever about timing. The owner's framing: "this option is
+# supposed to be a slow boring and safe strategy". There is no intraday
+# polling and no chasing the open by seconds — before the open the row says
+# PROVISIONAL and names when the real strikes arrive; from the open onward it
+# uses the open price. Under-promising beats a precise-looking number that
+# moves.
+_SESSION_STATES = ("pre_open", "open", "closed")
+
+
+def _session_state(cfg: dict, now_utc: _dt.datetime | None = None) -> tuple[str, str]:
+    """(state, exchange-local date as ISO) for this market, right now."""
+    from zoneinfo import ZoneInfo
+    now_utc = now_utc or _dt.datetime.now(_dt.UTC)
+    tz = ZoneInfo(cfg.get("tz", "America/New_York"))
+    local = now_utc.astimezone(tz)
+    oh, om = (int(x) for x in cfg.get("open_local", "09:30").split(":"))
+    ch, cm = (int(x) for x in cfg.get("close_local", "16:00").split(":"))
+    o = local.replace(hour=oh, minute=om, second=0, microsecond=0)
+    c = local.replace(hour=ch, minute=cm, second=0, microsecond=0)
+    if local.weekday() >= 5:          # weekend — nothing is in flight
+        return "closed", local.date().isoformat()
+    if local < o:
+        return "pre_open", local.date().isoformat()
+    return ("open" if local < c else "closed"), local.date().isoformat()
+
+
 def _series(sym: str, period: str = "2y"):
     from ..yahoo_session import yahoo_session
     import yfinance as yf
@@ -380,8 +432,21 @@ def decide(market: str) -> dict:
         out["reason"] = f"only {len(common)} joined sessions"
         return out
 
-    vols = [float(vx.loc[d, "Close"]) for d in common]
-    today, v = common[-1], vols[-1]
+    # THE GATE READS THE LAST SETTLED SESSION, never an in-flight bar.
+    # Verified 31 Aug 2026: at 13:48 IST, mid-session, Yahoo already served an
+    # India VIX row stamped that day — a live, unfinished value. Gating on it
+    # would reintroduce the same lookahead the backtest was corrected for. The
+    # 03:00 UTC scheduled job happened to be safe because it runs pre-open, but
+    # the new "Run now" button lets this be triggered mid-session, so timing
+    # luck is not a guard.
+    state, local_today = _session_state(cfg)
+    settled = [d for d in common if not (d == local_today and state != "closed")]
+    if not settled:
+        out["status"] = "no_data"
+        out["reason"] = "no settled session yet"
+        return out
+    vols = [float(vx.loc[d, "Close"]) for d in settled]
+    today, v = settled[-1], vols[-1]
     # TRAILING quartile — the boundary uses only prior sessions. An in-sample
     # quartile would leak the future into the filter, which is the easiest way
     # to fake this entire result.
@@ -390,9 +455,21 @@ def decide(market: str) -> dict:
     import os as _os
     thr = float(_os.environ.get(f"TRADEPRO_STRANGLE_VIX_MAX_{market}",
                                 cfg["vol_max"]))
-    # `divisor` carries XSP, which is the S&P index quoted at a tenth. The gate
-    # and the width are scale-free, so only the printed level and strikes move.
-    spot = float(px.loc[today, "Close"]) / cfg.get("divisor", 1.0)
+    # STRIKES ANCHOR TO THE SESSION OPEN — what the backtest actually used.
+    # `divisor` carries XSP, the S&P index quoted at a tenth; the gate and the
+    # width are scale-free, so only the printed level and strikes move.
+    div = cfg.get("divisor", 1.0)
+    anchor_date = local_today if (state in ("open", "closed")
+                                  and local_today in px.index) else None
+    if anchor_date is not None and float(px.loc[anchor_date, "Open"] or 0) > 0:
+        spot = float(px.loc[anchor_date, "Open"]) / div
+        spot_basis, provisional = "session_open", False
+    else:
+        # Before the open there IS no open price. Say so rather than dress the
+        # previous close up as a tradeable strike — on 31 Aug that gap moved
+        # NIFTY 110 points and left the emailed strangle badly lopsided.
+        spot = float(px.loc[today, "Close"]) / div
+        spot_basis, provisional = "prior_close", True
 
     iv = v / 100.0 * cfg["vol_scale"]
     daily = iv / math.sqrt(252)
@@ -404,6 +481,13 @@ def decide(market: str) -> dict:
         return p, c
     out.update({
         "as_of": today, "spot": round(spot, 2),
+        "session_state": state, "exchange_date": local_today,
+        "spot_basis": spot_basis, "provisional": provisional,
+        "strikes_note": (
+            "PROVISIONAL — priced off the previous close because the session "
+            "has not opened. Final strikes are set from the opening price."
+            if provisional else
+            f"final — anchored to the {local_today} opening price"),
         "family": cfg["family"], "product": cfg["product"], "ccy": cfg["ccy"],
         "vol_index": round(v, 2), "vol_q1_trailing": round(q1, 2),
         "vol_threshold": thr,

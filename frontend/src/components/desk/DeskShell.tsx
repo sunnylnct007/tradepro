@@ -155,6 +155,16 @@ const NAV: NavEntry[] = [
   // was "nowhere you can click".
   { key: "puts", label: "Puts", icon: "🅿", view: "post-earnings-puts", tier: "unproven",
     title: "Post-earnings puts — passed 8/8 gates with a NAMED weak pass (W6 on nine events). No forward-test evidence yet; not funded." },
+  // RESTORED 31 Aug 2026. OptionsDesk has been built and routed to
+  // view==="options" the whole time, but lost its rail entry when the desk was
+  // cut 17 -> 7. So the wheel board was running daily, screening 82 names, and
+  // was unreachable — the owner's words: "when u say the wheel screened 1
+  // where can i see. i dont have email or screen". A board nobody can open is
+  // the same as a board that does not run.
+  { key: "wheel", label: "Wheel", icon: "◎", view: "options", tier: "unproven",
+    title: "Wheel / cash-secured puts — the CSP candidate board. Liquidity, "
+         + "vega and earnings gates. Backtest v3 recommended DO NOT FUND; "
+         + "candidates are for manual review, nothing is placed." },
 ];
 
 // Escape hatch out of the standalone /desk shell into the full app (rendered
