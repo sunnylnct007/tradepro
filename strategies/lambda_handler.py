@@ -53,6 +53,84 @@ JOBS: dict[str, tuple[str, list[str]]] = {
 }
 
 
+def _provenance() -> dict:
+    """Which commit is running, and does it match what the API is running.
+
+    THE BUG THIS EXISTS FOR (31 Aug 2026). This function had a live EventBridge
+    schedule — `tradepro-post-earnings-puts`, 20:45 UTC Mon-Fri, which PUSHES to
+    the live desk artifact — but no CI deploy path. The image was uploaded by
+    hand on 30 Aug; `main` then moved on twice. The scheduled job kept running
+    30 Aug code, would have refused to price every weeknight, and reported that
+    refusal in the STRATEGY's voice ("no expiry near the target"). Nothing said
+    the deployment was stale. It was found by going looking, which is not a
+    control.
+
+    The owner's rule is that every integration fails LOUD. A deploy that can
+    silently diverge from main is the one integration that had no voice at all.
+
+    THE COMPARISON is against the API's own baked commit, because both are
+    deployed from main and the Lambda has no git. Not exact — the two pipelines
+    fire on different triggers, so a brief mismatch during a rollout is normal.
+    That is why a mismatch is a WARN and not a failure: a persistent one is the
+    bug, a momentary one is a deploy in flight. An UNSTAMPED image is a FAIL,
+    because it can only come from a hand build and its provenance is unknowable.
+    """
+    commit = (os.environ.get("JOBS_COMMIT") or "unknown").strip()
+    out = {"jobs_commit": commit[:12], "api_commit": None, "status": "ok", "detail": None}
+    if commit in ("", "unknown"):
+        out["status"] = "fail"
+        out["detail"] = ("this image carries no JOBS_COMMIT, so it was not built by "
+                         "aws-lambda-jobs — its provenance cannot be established")
+        return out
+    try:
+        import requests
+        base = os.environ.get("TRADEPRO_API_URL", "").rstrip("/")
+        if not base:
+            out["status"] = "warn"
+            out["detail"] = "TRADEPRO_API_URL unset — cannot compare against the API"
+            return out
+        r = requests.get(f"{base}/health/details", timeout=10)
+        _j = r.json() or {}
+        # NESTED, not top-level. Reading `backendCommit` off the root returns
+        # None, and the first version of this check then skipped the comparison
+        # and still reported "ok" — a drift alarm that fails open is worse than
+        # none, because it certifies exactly what it cannot see.
+        api = ((_j.get("deploy") or {}).get("backendCommit")
+               or _j.get("gitSha") or "").strip()
+        out["api_commit"] = api[:12] or None
+        if not api:
+            out["status"] = "warn"
+            out["detail"] = ("the API reported no commit, so drift cannot be "
+                             "checked — treat this run's provenance as unknown")
+        elif not api.startswith(commit[:12]) and not commit.startswith(api[:12]):
+            out["status"] = "warn"
+            out["detail"] = (f"jobs image is at {commit[:12]} while the API is at "
+                             f"{api[:12]} — if this persists past a rollout the "
+                             f"scheduled jobs are running stale code")
+    except Exception as exc:  # noqa: BLE001 — provenance must never break the job
+        out["status"] = "warn"
+        out["detail"] = f"could not read the API commit: {str(exc)[:120]}"
+    return out
+
+
+def _report_provenance(job: str) -> dict:
+    """Emit provenance to the central run log. Best-effort, never fatal."""
+    prov = _provenance()
+    try:
+        from tradepro_strategies.run_log import log_run
+        log_run(
+            "lambda-jobs", "deploy", prov["status"],
+            error=prov["detail"] if prov["status"] in ("warn", "fail") else None,
+            summary=(f"job={job} image={prov['jobs_commit']} "
+                     f"api={prov['api_commit'] or 'unknown'}"),
+        )
+    except Exception:  # noqa: BLE001 — logging must never fail the job
+        pass
+    if prov["status"] != "ok":
+        log.warning("DEPLOY PROVENANCE %s: %s", prov["status"].upper(), prov["detail"])
+    return prov
+
+
 def _run(job: str) -> dict:
     import importlib
     import sys
@@ -86,13 +164,18 @@ def handler(event, context):  # noqa: ANN001 — AWS signature
         return {"statusCode": 400,
                 "body": json.dumps({"ok": False,
                                     "error": "no job specified",
-                                    "known": sorted(JOBS)})}
+                                    "known": sorted(JOBS),
+                                    "provenance": _provenance()})}
     log.info("running job=%s", job)
+    prov = _report_provenance(job)
     try:
         result = _run(job)
     except Exception as exc:  # noqa: BLE001 — a crash must return a READABLE reason
         log.error("job %s failed: %s\n%s", job, exc, traceback.format_exc())
         result = {"ok": False, "job": job, "error": str(exc)[:400]}
+    # Provenance rides along on EVERY response, including the smoke test, so
+    # "which code produced this board" is answerable without SSM or a redeploy.
+    result["provenance"] = prov
     log.info("result: %s", result)
     return {"statusCode": 200 if result.get("ok") else 500,
             "body": json.dumps(result)}

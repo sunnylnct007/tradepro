@@ -84,6 +84,8 @@ jobs:
           tags: |
             ${{ steps.tags.outputs.image_sha }}
             ${{ steps.tags.outputs.image_latest }}
+          build-args: |
+            JOBS_COMMIT=${{ github.sha }}
           cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.JOBS_REPO }}:cache
           cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.JOBS_REPO }}:cache,mode=max
 
