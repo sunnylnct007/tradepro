@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
 import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsPayoff";
-import { WheelBoardTable, type WheelRow } from "./WheelBoardTable";
+import { WheelBoardTable } from "./WheelBoardTable";
 import { requestScreenRun, watchJob } from "../../firebase";
 
 /**
@@ -862,7 +862,7 @@ function MorningCandidatesPanel({ candidates, all }: {
           )}
         </div>
       ) : (
-        <WheelBoardTable rows={candidates as unknown as WheelRow[]} />
+        <WheelBoardTable rows={candidates} />
       )}
     </div>
   );

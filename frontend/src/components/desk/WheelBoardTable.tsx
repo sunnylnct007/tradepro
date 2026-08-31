@@ -53,9 +53,19 @@ export interface WheelRow {
   suggested_premium: number | null;
   premium_source?: string | null;
   premium_age_h?: number | null;
-  annual_yield_pct?: number | null;
-  spot?: number | null;
-  forward?: number | null;
+  // NAMES MATCH THE PAYLOAD EXACTLY (31 Aug 2026). They did not, and an
+  // `as unknown as WheelRow[]` cast at the call site silenced the compiler:
+  //   annual_yield_pct -> annualized_yield_pct
+  //   spot             -> ref_close
+  //   forward          -> forward_price
+  // The Yield column rendered "—" on every row, and because yield is also the
+  // DEFAULT SORT KEY, the header "top 5, ranked by annualised yield" was
+  // ranking on -1 for all of them. The board claimed an order it was not
+  // applying. Guessing an identifier instead of reading it is the same failure
+  // as the 7638 comment and the "g3_ibkr" source string.
+  annualized_yield_pct?: number | null;
+  ref_close?: number | null;
+  forward_price?: number | null;
 }
 
 /**
@@ -103,7 +113,7 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
         case "premium": return r.suggested_premium ?? -1;
         case "dte": return r.dte ?? 9999;
         case "strike": return r.suggested_strike ?? -1;
-        default: return r.annual_yield_pct ?? -1;
+        default: return r.annualized_yield_pct ?? -1;
       }
     };
     const f = onlyEligible ? rows.filter((r) => r.eligible) : rows;
@@ -214,7 +224,7 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_strike, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_delta, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_premium, 2)}</td>
-                  <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.annual_yield_pct, 0, "%")}</td>
+                  <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.annualized_yield_pct, 0, "%")}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>
                     {r.open_interest === null ? <span style={{ color: MUTED }}>—</span> : r.open_interest}
                   </td>
