@@ -756,6 +756,39 @@ def build_server():
         it is set right."""
         return _json(t.get_strangle_decision_summary(days))
 
+    # ---- Closing option positions ---------------------------------------
+    #
+    # Owner, 31 Aug 2026: "u shd be able to close them". TradePro could open a
+    # short option but had no way to close a single one — every option path
+    # assumed a matched pair, so three short puts had to be closed by hand in
+    # the portal. Exposed over MCP alongside the endpoints because a capability
+    # a reviewing agent cannot reach is the same as one that does not run.
+
+    @mcp.tool()
+    @instrumented("get_open_option_positions")
+    def get_open_option_positions() -> str:
+        """Open OPTION positions at the broker with P&L — the closeable set.
+        Read from the broker, not the OMS. Negative quantity means SHORT, which
+        is normal here, and a short gains when the price FALLS."""
+        return _json(t.get_open_option_positions())
+
+    @mcp.tool()
+    @instrumented("close_option_leg")
+    def close_option_leg(symbol: str, expiry: str, strike: float,
+                         right: str, contracts: int = 1) -> str:
+        """Buy back ONE short option contract (paper only). REFUSES unless the
+        account is actually short it — otherwise the same BUY would OPEN A LONG
+        instead of closing anything. expiry=YYYY-MM-DD, right=P or C."""
+        return _json(t.close_option_leg(symbol, expiry, strike, right, contracts))
+
+    @mcp.tool()
+    @instrumented("flatten_short_options")
+    def flatten_short_options() -> str:
+        """Buy back EVERY short option at the broker — the end-of-day sweep.
+        Reports each leg separately: a sweep that closes three of four legs has
+        left a NAKED short, so check `failed` before believing `ok`."""
+        return _json(t.flatten_short_options())
+
     # ---- Index short strangle -------------------------------------------
     #
     # The whole suite: today's decision, the money at stake, the evidence, and

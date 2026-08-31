@@ -4335,3 +4335,87 @@ def get_strangle_decision_summary(days: int = 30) -> dict:
         return _unreachable_envelope("get_strangle_decision_summary", exc)
     return {"ok": True, "rows": d.get("rows") or [], "note": d.get("note"),
             "window_days": days}
+
+
+# ---------------------------------------------------------------------------
+# Closing option positions.
+#
+# Owner, 31 Aug 2026: "u shd be able to close them" — and TradePro could not.
+# Three short puts sat open with every option path assuming a matched PAIR, so
+# a lone put had no exit at all and the broker session had to be handed back
+# for a manual close. A strategy that can open a position it cannot close is
+# not finished.
+# ---------------------------------------------------------------------------
+
+def get_open_option_positions() -> dict:
+    """Open OPTION positions at the broker, with P&L — the closeable set.
+
+    Reads the broker, not the OMS: the broker is golden source for what is
+    actually held. Short premium is the norm here, so a NEGATIVE quantity is
+    expected and a FALLING price is a GAIN.
+    """
+    try:
+        d = _get("/api/integrations/ibkr/positions")
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_open_option_positions", exc)
+    if d.get("error"):
+        return {"ok": False, "error": d["error"], "positions": []}
+    opts = [p for p in (d.get("positions") or []) if p.get("isOption")]
+    return {
+        "ok": True,
+        "count": len(opts),
+        "positions": opts,
+        "unrealised_total": round(sum(p.get("unrealisedAbs") or 0 for p in opts), 2),
+        "how_to_read": {
+            "quantity": "negative = SHORT, which is what this desk sells",
+            "averagePricePaid": ("per SHARE. IBKR reports an option's cost basis "
+                                 "multiplied by 100; that mismatch once made a "
+                                 "winning position read as -99%."),
+            "pnl": "a short gains when the price FALLS — you buy it back cheaper",
+        },
+    }
+
+
+def close_option_leg(symbol: str, expiry: str, strike: float, right: str,
+                     contracts: int = 1) -> dict:
+    """Buy back ONE short option contract. Paper only.
+
+    REFUSES if the account is not actually short that contract, because the
+    same BUY would then OPEN A LONG rather than close anything — a different
+    trade, paid for instead of collected. That guard is the whole reason this
+    exists as its own tool: the paired close endpoint would have bought a call
+    the account did not own when asked to close a put-only book.
+
+    `expiry` is YYYY-MM-DD, `right` is P or C.
+    """
+    right = (right or "").strip().upper()
+    if right not in ("P", "C"):
+        return {"ok": False, "error": "right must be P or C"}
+    try:
+        d = _post("/api/integrations/ibkr/option-leg", json_body={
+            "symbol": symbol.strip().upper(), "expiry": expiry.strip(),
+            "strike": strike, "right": right, "side": "BUY",
+            "contracts": contracts, "closingOnly": True,
+        })
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("close_option_leg", exc)
+    return d
+
+
+def flatten_short_options() -> dict:
+    """Buy back EVERY short option at the broker — the end-of-day sweep.
+
+    Owner, 31 Aug 2026: "a auto close one on either profit or end of day",
+    "lets get in and out at end".
+
+    Works off the BROKER's positions rather than a local ledger, so a stale
+    ledger cannot leave open the very position it believed it had closed.
+    Every leg is reported individually: a sweep that closes three of four legs
+    has left a naked short, and calling that "flat" is a failure this desk has
+    already been bitten by. Check `failed` before believing `ok`.
+    """
+    try:
+        d = _post("/api/integrations/ibkr/options/flatten")
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("flatten_short_options", exc)
+    return d

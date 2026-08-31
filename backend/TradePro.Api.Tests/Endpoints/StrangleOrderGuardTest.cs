@@ -35,17 +35,80 @@ public class StrangleOrderGuardTest
         Assert.Contains("blockedForLive", s);
     }
 
+    /// <summary>
+    /// The body of ONE endpoint handler, from its MapPost to its WithName.
+    ///
+    /// Ordering assertions have to be scoped to a single handler. This file
+    /// holds several endpoints now, so a whole-file LastIndexOf answers a
+    /// question about the LAST endpoint in the file rather than the one under
+    /// test — which is how the check below silently stopped testing what it
+    /// claimed to.
+    /// </summary>
+    private static string Handler(string path, string name)
+    {
+        var s = Src();
+        var start = s.IndexOf($"MapPost(\"{path}\"", StringComparison.Ordinal);
+        Assert.True(start > 0, $"endpoint {path} not found");
+        var end = s.IndexOf($".WithName(\"{name}\")", start, StringComparison.Ordinal);
+        Assert.True(end > start, $"WithName({name}) not found after {path}");
+        return s[start..end];
+    }
+
     [Fact]
     public void BothLegsAreResolvedBeforeEitherIsPlaced()
     {
         // Placing leg one and then failing to resolve leg two leaves a NAKED
         // short. Resolution must complete for both before any order goes out.
-        var s = Src();
-        var lastResolve = s.LastIndexOf("ResolveOptionConidAsync", StringComparison.Ordinal);
-        var firstPlace = s.IndexOf("PlaceMarketOrderAsync", StringComparison.Ordinal);
-        Assert.True(lastResolve < firstPlace,
-            "both contracts must resolve before the first order is placed");
-        Assert.Contains("NOTHING was placed", s);
+        //
+        // ANCHORED ON THE REAL CALL. This previously looked for
+        // "PlaceMarketOrderAsync", which no longer appears in any code here —
+        // only inside the comment explaining why it was abandoned. The test was
+        // asserting against prose, and reported the resulting position as a
+        // failure without anyone learning what it meant.
+        foreach (var (path, name) in new[]
+                 {
+                     ("/integrations/ibkr/strangle", "PlaceStrangle"),
+                     ("/integrations/ibkr/strangle/close", "CloseStrangle"),
+                 })
+        {
+            var h = Handler(path, name);
+            var lastResolve = h.LastIndexOf("ResolveOptionConidAsync", StringComparison.Ordinal);
+            var firstPlace = h.IndexOf("PlaceMarketOrderConfirmedAsync", StringComparison.Ordinal);
+            Assert.True(lastResolve > 0 && firstPlace > 0,
+                $"{name} must both resolve and place");
+            Assert.True(lastResolve < firstPlace,
+                $"{name}: both contracts must resolve before the first order is placed");
+        }
+        Assert.Contains("NOTHING was placed", Src());
+    }
+
+    [Fact]
+    public void ABuyIsRefusedUnlessWeAreActuallyShortThatContract()
+    {
+        // Owner, 31 Aug 2026: "u shd be able to close them". The single-leg
+        // close exists so a lone short put has an exit — but the same BUY that
+        // closes a short OPENS A LONG when there is no short to close. The
+        // paired endpoint would have made exactly that mistake on a put-only
+        // book, so the position is verified at the broker before the order.
+        var h = Handler("/integrations/ibkr/option-leg", "PlaceOptionLeg");
+        var verify = h.IndexOf("GetPositionsAsync", StringComparison.Ordinal);
+        var place = h.IndexOf("PlaceMarketOrderConfirmedAsync", StringComparison.Ordinal);
+        Assert.True(verify > 0 && place > verify,
+            "the held-position check must run BEFORE the order is placed");
+        Assert.Contains("would OPEN A LONG", h);
+        // Failing to READ positions must refuse, never assume it is a close.
+        Assert.Contains("refusing to guess", h);
+    }
+
+    [Fact]
+    public void AnIncompleteFlattenIsNeverReportedAsFlat()
+    {
+        // A sweep that closes three of four legs has left a NAKED short. This
+        // desk has already been bitten by a cheerful summary over a partial
+        // result, so the count must be reported and ok must be false.
+        var h = Handler("/integrations/ibkr/options/flatten", "FlattenShortOptions");
+        Assert.Contains("ok = failed == 0", h);
+        Assert.Contains("STILL OPEN", h);
     }
 
     [Fact]
