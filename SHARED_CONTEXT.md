@@ -861,3 +861,87 @@ become the sixth cry-wolf.
 - **IV-Rank reads `n/a` everywhere** — 18 days of the 60 needed. The IV/HV bridge
   is standing in, and says so.
 - **Momentum's 19 candidates have never been reviewed** for evidence by anyone.
+
+---
+
+## 31 Aug 2026 (evening) — OPTIONS L4 GRANTED; the exit path never existed (data/platform lane)
+
+**READ THIS BEFORE TOUCHING IBKR POSITIONS OR OPTION ORDERS.**
+
+**1. Options permission went L3 → L4 in one evening.** Every call leg that
+"failed silently" all week was IBKR correctly refusing a level-3 account:
+short puts and spreads yes, **naked calls no**. Our order construction was
+never at fault. The owner requested L4 and it was **GRANTED the same evening**,
+so the strangle now runs as designed and the iron-condor rewrite is off.
+
+Check `Settings → Account Settings → Trading Permissions` FIRST next time. A
+refusal, like an empty field, carries no diagnosis — I inferred the tier from
+the error text and stated it more firmly than the evidence supported.
+
+*Consequence:* L4 restores the **UNCAPPED call tail**. Nothing now caps the
+risk the vol gate exists to dodge, so the overnight tripwire matters more.
+
+**2. IBKR POSITIONS LIE TWO WAYS.** Both fixed, both worth knowing:
+- IBKR serves `/portfolio/{acct}/positions` from **its own cache** that never
+  self-clears. Three puts were bought back, all three orders returned Filled
+  with `remainingQty 0`, and positions reported them OPEN with byte-identical
+  P&L for minutes. Use `?fresh=true` (invalidates first) for anything asking
+  "did it close?".
+- A **CLOSED position still returns, with quantity 0**, and we rendered it as
+  open. Now filtered at the API.
+
+This mattered beyond display: both option guards VERIFY against positions
+before placing, so a stale read decided whether an order went out at all.
+
+**3. TradePro could OPEN an option it could not CLOSE.** Every path assumed a
+matched pair — `/strangle/close` buys BOTH legs, so on a put-only book it
+would have BOUGHT A CALL we never owned. New:
+`POST /integrations/ibkr/option-leg` (one contract; a BUY is REFUSED unless the
+broker confirms we are short it) and `POST /integrations/ibkr/options/flatten`.
+
+⚠ **`options/flatten` closes EVERY short option at the broker** — wheel and
+hand-placed included. The strangle auto-close deliberately does NOT use it; it
+matches configured markets and closes leg by leg.
+
+**4. The profit target was PER LEG.** Harmless while only puts filled. With
+both legs live, one leg hitting 50% decay would be bought back and leave the
+other — the losing one — NAKED. Now judged on the pair's combined credit.
+
+**5. Nothing linked a DECISION to what EXECUTED.** Owner asked "did the
+strangle work or not" and the platform could not answer from its own records;
+both numbers were reconstructed from the broker by hand. Migration **072** adds
+placement + exit columns (all nullable); `POST /api/strangle-decisions/execution`
+attaches on the decision's own key and **404s an orphan** rather than inserting
+a fill with no reasoning. `partial` and `shadow` are stored separately — a
+one-legged fill is a NAKED short, not a strangle.
+
+**6. BUILT BUT NEVER WIRED, again.** `strangle_manual_trade` (migration 070)
+had no reader, no writer, no MCP tool, so the owner's trade had nowhere to go.
+Now `GET/POST /api/strangle-manual-trades` + `/summary` + 3 MCP tools. An audit
+found 4 more tables with no backend consumer: `broker_ticker_map_suggestions`,
+`risk_velocity_window`, `system_alerts`, `schema_data_migrations`.
+
+**7. CI: two lambda deploys RACED.** AWS allows one in-flight update per
+function; the loser left the Lambda a commit behind `main` — the exact drift
+that workflow exists to prevent. Now serialised with a concurrency group plus
+wait-then-retry.
+
+**RESULTS, stated honestly.** 3 short puts closed **+229.11** (mark at close —
+there is no executions endpoint for options and `avgPrice` is null). BANKNIFTY
+manual **+396**. **ZERO strangles executed** — every US fill was put-only, so
+none of this is strangle performance.
+
+**STILL UNVERIFIED — needs an open market:**
+- whether the **PAPER clone** picked up L4 (one 1-lot call at the open settles it)
+- the **auto-close round trip**: parse → decide → place → confirm filled. Dry-runs
+  against a flat book exercise the read path and nothing else.
+
+**Traps for whoever picks this up:**
+- The IBKR **pause is in-memory — a DEPLOY clears it** and steals the session
+  back mid-portal-login.
+- **Never smoke-test a mutating route.** I used `POST /options/flatten` as a
+  liveness probe; it placed three real orders.
+- Wait-loops must key on the **commit SHA**, not the workflow name — mine
+  matched a previous deploy and called a not-yet-deployed route a failure.
+- A **Python-only** merge produces no `aws-build-push`/`aws-redeploy`; watch
+  `aws-lambda-jobs` instead or you will wait forever.
