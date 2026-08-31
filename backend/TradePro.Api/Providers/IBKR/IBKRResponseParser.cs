@@ -502,14 +502,37 @@ public static class IBKRResponseParser
                 Theta: DecLoose(it, "7310"),
                 Vega: DecLoose(it, "7311"),
                 ImpliedVolPct: DecLoose(it, "7633"),
-                // 7638 was a GUESS and it is WRONG. Probed 7283-7296, 7607 and
-                // 7634-7655 against a contract whose live open interest is 2,472:
-                // NO field carried it. Open interest is not served on this cpapi
-                // session at all — the live account exposes it through a different
-                // service. Left in place so the absence stays visible instead of
-                // the field silently disappearing; the wheel's liquidity gate
-                // reads Yahoo's own capture, and that is now a MEASURED decision
-                // rather than the folklore it has been for weeks.
+                // 7638 IS THE RIGHT FIELD. Corrected 31 Aug 2026.
+                //
+                // This previously read "7638 was a GUESS and it is WRONG ... open
+                // interest is not served on this cpapi session at all". That is
+                // false. On the PAPER session, conid 904441116 (XOM 155P exp
+                // 2026-09-04) returned 7638 = "868", matching exactly what the
+                // live account reports through option_open_interest. The field
+                // code and this parse were correct all along.
+                //
+                // WHAT IS ACTUALLY WRONG IS THE AVAILABILITY, and it is
+                // INTERMITTENT rather than absent. That same conid served 868
+                // consistently across ten polls and then stopped returning the
+                // field at all; four sibling strikes on the same expiry never
+                // served it once, across ~4 minutes of polling each, whether
+                // asked for alone or inside a 14-field request. Requesting it
+                // does not reliably subscribe it, and neither elapsed time nor a
+                // parallel live-account read reproduces it on demand. The
+                // mechanism is not yet understood.
+                //
+                // So: when this returns a number, TRUST IT — it is IBKR's own
+                // figure and it matched the live account digit for digit. When it
+                // returns null, that is NOT evidence the contract is illiquid,
+                // which is why the wheel's liquidity gate no longer rejects on
+                // open interest unless the value carries an IBKR provenance
+                // (MarketContext.open_interest_source, cfg.oi_blocking_sources).
+                //
+                // The earlier probe that produced the wrong conclusion swept
+                // 7283-7296, 7607 and 7634-7655 and saw nothing — a probe with no
+                // independently-known answer. Absence from an IBKR response is
+                // never evidence: it means not-yet, not-entitled, asked-wrong or
+                // absent, and those are indistinguishable without ground truth.
                 OpenInterest: DecLoose(it, "7638"),
                 PriorClose: DecLoose(it, "7741")));
         }

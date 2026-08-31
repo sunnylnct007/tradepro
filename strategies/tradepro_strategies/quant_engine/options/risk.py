@@ -137,7 +137,12 @@ class OptionsRiskConfig:
     # contract and none was returned. So today every OI we hold comes from our
     # own Yahoo-derived capture, which is wrong by more than an order of
     # magnitude, and it was rejecting 53 of 82 rows.
-    oi_blocking_sources: tuple[str, ...] = ("ibkr", "ibkr_web", "g3_ibkr")
+    # "g3" is the string `resolve_open_interest` actually returns for a value
+    # that came off the IBKR chain. The first version of this listed "g3_ibkr",
+    # a name I invented rather than checked, so genuine IBKR open interest would
+    # never have been allowed to block anything — the same guess-instead-of-read
+    # mistake that put "7638 is WRONG" into the parser for a week.
+    oi_blocking_sources: tuple[str, ...] = ("ibkr", "ibkr_web", "g3")
     spread_max_usd: float = 0.10
     # Spread cap is PREMIUM-RELATIVE when the mid is known: a $0.10 absolute cap
     # is only realistic for sub-$1 premiums — a $315-strike JPM put quoting a

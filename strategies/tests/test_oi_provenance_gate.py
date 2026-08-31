@@ -110,3 +110,23 @@ def test_the_spread_is_still_a_real_gate_regardless_of_oi_source():
     d = _decide(868, CAPTURE, spread=0.60, mid=1.40)
     assert not d.allowed
     assert any("spread" in b.lower() for b in d.all_blocks), d.all_blocks
+
+
+def test_chain_sourced_oi_is_allowed_to_block():
+    """`resolve_open_interest` labels chain values "g3", and a chain value IS
+    IBKR's own figure — verified 31 Aug: conid 904441116 returned 7638="868",
+    matching the live account's option_open_interest digit for digit.
+
+    The first version of oi_blocking_sources listed "g3_ibkr", a string that
+    exists nowhere in the codebase, so real IBKR open interest would never have
+    been trusted. Guessing an identifier instead of reading it is the same
+    mistake that put "7638 is WRONG" into the parser for a week.
+    """
+    d = _decide(3, "g3")
+    assert _oi_blocks(d), "IBKR chain OI must be allowed to reject an empty contract"
+
+
+def test_chain_sourced_healthy_oi_passes():
+    d = _decide(868, "g3")
+    assert not _oi_blocks(d), _oi_blocks(d)
+    assert d.allowed, d.all_blocks
