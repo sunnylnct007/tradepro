@@ -34,7 +34,8 @@ public static class StrangleDecisionLogEndpoints
         decimal? Forward = null, int? Lot = null,
         decimal? Collateral = null, decimal? MarginEstimate = null,
         decimal? CreditModelled = null, string? JobsCommit = null,
-        string? Detail = null);
+        string? Detail = null, decimal? VolAtDecision = null,
+        string? DataSource = null);
 
     public static IEndpointRouteBuilder MapStrangleDecisionLogEndpoints(
         this IEndpointRouteBuilder app)
@@ -55,13 +56,13 @@ public static class StrangleDecisionLogEndpoints
                      vol_index, vol_threshold, iv_used_pct, spot, spot_basis,
                      provisional, session_state, expiry_kind, dte, put_strike,
                      call_strike, forward, lot, collateral, margin_estimate,
-                     credit_modelled, jobs_commit, detail)
+                     credit_modelled, jobs_commit, detail, vol_at_decision, data_source)
                 VALUES
                     (@Market, @AsOf, @ExchangeDate, @Decision, @Reason, @VolSymbol,
                      @VolIndex, @VolThreshold, @IvUsedPct, @Spot, @SpotBasis,
                      @Provisional, @SessionState, @ExpiryKind, @Dte, @PutStrike,
                      @CallStrike, @Forward, @Lot, @Collateral, @MarginEstimate,
-                     @CreditModelled, @JobsCommit, @Detail::jsonb)
+                     @CreditModelled, @JobsCommit, @Detail::jsonb, @VolAtDecision, @DataSource)
                 ON CONFLICT (market, as_of, COALESCE(expiry_kind, '')) DO UPDATE SET
                      exchange_date = EXCLUDED.exchange_date,
                      decision      = EXCLUDED.decision,
@@ -79,6 +80,8 @@ public static class StrangleDecisionLogEndpoints
                      collateral    = EXCLUDED.collateral,
                      margin_estimate = EXCLUDED.margin_estimate,
                      credit_modelled = EXCLUDED.credit_modelled,
+                     vol_at_decision = EXCLUDED.vol_at_decision,
+                     data_source     = EXCLUDED.data_source,
                      jobs_commit   = EXCLUDED.jobs_commit,
                      detail        = EXCLUDED.detail,
                      decided_at_utc = now();", rows);
@@ -98,6 +101,8 @@ public static class StrangleDecisionLogEndpoints
                        spot::float8 AS spot, spot_basis, provisional, session_state,
                        expiry_kind, dte, put_strike::float8 AS put_strike,
                        call_strike::float8 AS call_strike,
+                       forward::float8 AS forward,
+                       vol_at_decision::float8 AS vol_at_decision, data_source,
                        collateral::float8 AS collateral,
                        index_close::float8 AS index_close,
                        outcome_pct::float8 AS outcome_pct, outcome_note, graded_at_utc,

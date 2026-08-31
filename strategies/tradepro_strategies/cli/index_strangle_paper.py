@@ -527,6 +527,23 @@ def decide(market: str) -> dict:
         return out
     vols = [float(vx.loc[d, "Close"]) for d in settled]
     today, v = settled[-1], vols[-1]
+
+    # THE POST-OPEN READING — recorded, never used by the gate.
+    #
+    # The gate deliberately reads the last SETTLED close, which over a weekend
+    # is three days old. Owner, 31 Aug: "instead of saying no signal we shd be
+    # looking after market open". He is right that this is not lookahead — the
+    # job runs after the open, so today's vol legitimately exists by then. But
+    # switching the gate to it on reasoning alone would repeat the mistake of
+    # setting a threshold by judgement, so BOTH are recorded and the question
+    # settles on data.
+    vol_now = None
+    try:
+        _latest = vx.index[-1]
+        if _latest != today:
+            vol_now = round(float(vx.loc[_latest, "Close"]), 4)
+    except Exception:  # noqa: BLE001 — a missing reading must not lose the decision
+        vol_now = None
     # TRAILING quartile — the boundary uses only prior sessions. An in-sample
     # quartile would leak the future into the filter, which is the easiest way
     # to fake this entire result.
@@ -573,6 +590,9 @@ def decide(market: str) -> dict:
         # this is currently always "yahoo" — but it is RECORDED rather than
         # assumed, and a future study can tell what it was reading.
         "data_source": f"price={px_src or '?'}, vol={vx_src or '?'}",
+        # Recorded for comparison; the gate above used `v` (the settled close).
+        "vol_at_decision": vol_now,
+        "vol_gate_used": round(v, 4),
         "vol_index": round(v, 2), "vol_q1_trailing": round(q1, 2),
         "vol_threshold": thr,
         "threshold_env": f"TRADEPRO_STRANGLE_VIX_MAX_{market}",
@@ -728,6 +748,7 @@ def push_decisions(rows: list[dict]) -> dict:
                 "creditModelled": econ.get("credit_modelled"),
                 "jobsCommit": (_os.environ.get("JOBS_COMMIT") or "")[:12] or None,
                 "dataSource": r.get("data_source"),
+                "volAtDecision": r.get("vol_at_decision"),
                 "detail": json.dumps({k: v for k, v in r.items()
                                       if k not in ("legs", "economics")}),
             })

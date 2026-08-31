@@ -27,6 +27,8 @@ type Row = {
   session_state: string | null; expiry_kind: string | null; dte: number | null;
   put_strike: number | null; call_strike: number | null;
   outcome_pct: number | null; graded_at_utc: string | null;
+  forward: number | null; vol_at_decision: number | null;
+  data_source: string | null;
 };
 type Summary = {
   market: string; evaluated: number; traded: number; declined: number;
@@ -104,6 +106,7 @@ export function StrangleDecisionsView() {
           <th style={{ padding: "6px 8px" }}>Market</th>
           <th style={{ padding: "6px 8px" }}>Decision</th>
           <th style={{ padding: "6px 8px" }}>Vol vs gate</th>
+          <th style={{ padding: "6px 8px" }}>Forward</th>
           <th style={{ padding: "6px 8px" }}>Strikes</th>
           <th style={{ padding: "6px 8px" }}>Why</th>
         </tr></thead>
@@ -123,6 +126,23 @@ export function StrangleDecisionsView() {
                 </td>
                 <td style={{ padding: "6px 8px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
                   {r.vol_index ?? "—"} / {r.vol_threshold ?? "—"}
+                  {/* The post-open reading, recorded but NOT used by the gate. */}
+                  {r.vol_at_decision != null && r.vol_at_decision !== r.vol_index && (
+                    <span style={{ fontSize: 10, color: TONE.warn }}>
+                      {" "}(now {r.vol_at_decision})
+                    </span>
+                  )}
+                </td>
+                {/* Forward + DTE make the weekly/monthly strike gap self-explaining.
+                    Two rows for one market on one day differ ONLY because they
+                    price off different forwards — at India's 6.5% that is ~143
+                    points between 7d and 21d, which lands as 100-200 points of
+                    strike on a 100-point grid. Without this column it reads as
+                    an inconsistency. */}
+                <td style={{ padding: "6px 8px", fontFamily: "var(--font-mono)",
+                             whiteSpace: "nowrap", color: "var(--text-muted)" }}>
+                  {r.forward ? r.forward.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}
+                  {r.dte ? <span style={{ fontSize: 10 }}> {r.dte}d</span> : null}
                 </td>
                 <td style={{ padding: "6px 8px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
                   {r.put_strike ? `${r.put_strike.toLocaleString()} / ${r.call_strike?.toLocaleString()}` : "—"}
