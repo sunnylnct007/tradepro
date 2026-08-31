@@ -729,6 +729,33 @@ def build_server():
         quote/orderbook. Never a fabricated price (404/502 when unavailable)."""
         return _json(t.get_ibkr_quote(symbol, fields))
 
+    # ---- Strangle decision history --------------------------------------
+    #
+    # Owner, 31 Aug 2026: "i need to be able to see these decisions for the
+    # daily ones so i can ask another agent to verify how we doing with this
+    # strategy", and the standing rule it stated — "MCP is by default needed
+    # for all". Anything the desk can show, a reviewing agent must be able to
+    # query.
+
+    @mcp.tool()
+    @instrumented("get_strangle_decisions")
+    def get_strangle_decisions(market: str = "", days: int = 30,
+                               decision: str = "") -> str:
+        """Daily index-strangle decisions with the REASONS behind them —
+        including STAND-ASIDES, which are the rows that show whether the
+        volatility gate is set correctly. Each row carries the inputs the
+        decision turned on, so it can be re-judged later."""
+        return _json(t.get_strangle_decisions(market, days, decision))
+
+    @mcp.tool()
+    @instrumented("get_strangle_decision_summary")
+    def get_strangle_decision_summary(days: int = 30) -> str:
+        """Per-market tally of strangle decisions: evaluated, traded, DECLINED,
+        provisional, graded. Declined is reported alongside traded because the
+        gate is the strategy — a summary of only the trades cannot say whether
+        it is set right."""
+        return _json(t.get_strangle_decision_summary(days))
+
     # ---- Index short strangle -------------------------------------------
     #
     # The whole suite: today's decision, the money at stake, the evidence, and

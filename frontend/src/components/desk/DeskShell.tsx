@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "scanner" | "post-earnings-puts";
+export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "scanner" | "post-earnings-puts" | "strangle-decisions";
 
 type NavEntry = {
   key: string;
@@ -161,6 +161,10 @@ const NAV: NavEntry[] = [
   // was unreachable — the owner's words: "when u say the wheel screened 1
   // where can i see. i dont have email or screen". A board nobody can open is
   // the same as a board that does not run.
+  { key: "strangle", label: "Strangle", icon: "⋈", view: "strangle-decisions", tier: "unproven",
+    title: "Index short strangle — every daily decision INCLUDING the days we stood "
+         + "aside, with the reason and the inputs behind each. Paper/manual only; "
+         + "nothing is placed to a live account." },
   { key: "wheel", label: "Wheel", icon: "◎", view: "options", tier: "unproven",
     title: "Wheel / cash-secured puts — the CSP candidate board. Liquidity, "
          + "vega and earnings gates. Backtest v3 recommended DO NOT FUND; "

@@ -51,6 +51,7 @@ import { ScreenersView } from "../components/desk/ScreenersView";
 import { NewsView } from "../components/desk/NewsView";
 import { HarvestView } from "../components/desk/HarvestView";
 import { OptionsDesk } from "../components/desk/OptionsDesk";
+import { StrangleDecisionsView } from "../components/desk/StrangleDecisionsView";
 import { WatchlistView } from "../components/desk/WatchlistView";
 import { QuoteView } from "../components/desk/QuoteView";
 import { SimulationView } from "../components/desk/SimulationView";
@@ -75,7 +76,7 @@ function useWide(): boolean {
   return wide;
 }
 
-const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options", "daily-screener", "research", "swing", "post-earnings-puts"];
+const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options", "daily-screener", "research", "swing", "post-earnings-puts", "strangle-decisions"];
 
 export function Desk() {
   const wide = useWide();
@@ -221,6 +222,7 @@ export function Desk() {
       {view === "momentum"   && <MomentumView />}
       {view === "scanner"    && <ScannerView />}
       {view === "options"    && <OptionsDesk />}
+      {view === "strangle-decisions" && <StrangleDecisionsView />}
       {view === "decide"         && <Compare />}
       {view === "scan"           && <UniverseScan />}
       {view === "daily-screener" && <DailyScreener />}

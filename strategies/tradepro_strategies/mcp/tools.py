@@ -4260,3 +4260,78 @@ def run_index_strangle_sim(market: str, dte: int = 7, paths: int = 5000,
     return {"ok": True, "result": res,
             "note": ("ad-hoc run — does NOT update the committed evidence file "
                      "the email quotes")}
+
+
+# ---------------------------------------------------------------------------
+# STRANGLE DECISION HISTORY
+#
+# Owner, 31 Aug 2026: "i need to be able to see these decisions for the daily
+# ones so i can ask another agent to verify how we doing with this strategy".
+#
+# Exposed over MCP rather than as another desk screen, deliberately — he has
+# asked repeatedly for FEWER surfaces ("tradepro shd be slimmer and accurate").
+# A reviewing agent needs the data queryable, not rendered.
+#
+# THE REFUSALS ARE INCLUDED BY DEFAULT. This strategy's edge is what the
+# volatility gate declines to trade, so a review that sees only the trades
+# cannot judge whether the gate is set correctly — it would be grading the
+# strategy on the half of its behaviour that isn't the point.
+
+
+def get_strangle_decisions(market: str = "", days: int = 30,
+                           decision: str = "") -> dict:
+    """Daily index-strangle decisions: what was decided, and WHY.
+
+    Every evaluation is recorded, INCLUDING stand-asides. Each row carries the
+    inputs the decision turned on — the volatility reading, the threshold it
+    was judged against, the spot and whether that spot came from the session
+    open or a stale previous close — so a decision can be re-judged later
+    without re-deriving anything or assuming the rule never changed.
+
+    `decision` narrows to CANDIDATE or STAND_ASIDE; empty returns both.
+    """
+    params = {"days": days}
+    if market:
+        params["market"] = market.strip().upper()
+    if decision:
+        params["decision"] = decision.strip().upper()
+    try:
+        d = _get("/api/strangle-decisions", params=params)
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_strangle_decisions", exc)
+    rows = d.get("rows") or []
+    return {
+        "ok": True,
+        "count": len(rows),
+        "rows": rows,
+        "how_to_read": {
+            "decision": "CANDIDATE = the gate opened; STAND_ASIDE = it refused",
+            "provisional": ("TRUE means the strikes were priced off the PREVIOUS "
+                            "close because the session had not opened — a real "
+                            "decision, but not a placeable trade. Exclude these "
+                            "when judging fills."),
+            "spot_basis": "session_open (final) vs prior_close (provisional)",
+            "outcome_pct": ("% of collateral, same unit as the published "
+                            "evidence. NULL until a grader fills it in — a "
+                            "decision is recorded when MADE, and grading it "
+                            "before the session closes would be lookahead."),
+            "caveat": ("credit_modelled is Black-Scholes off a volatility index "
+                       "with no skew and no bid-ask. It is NOT a traded price."),
+        },
+    }
+
+
+def get_strangle_decision_summary(days: int = 30) -> dict:
+    """Per-market tally: evaluated, traded, DECLINED, provisional, graded.
+
+    Reports declined alongside traded on purpose. The volatility gate is the
+    whole strategy; a summary showing only what was traded cannot answer
+    whether the gate is set right, which is the actual question a reviewer is
+    being asked to settle.
+    """
+    try:
+        d = _get("/api/strangle-decisions/summary", params={"days": days})
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_strangle_decision_summary", exc)
+    return {"ok": True, "rows": d.get("rows") or [], "note": d.get("note"),
+            "window_days": days}
