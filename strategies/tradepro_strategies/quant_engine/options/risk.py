@@ -390,6 +390,34 @@ def evaluate(
             blocks.append(
                 f"{s.value} not permitted in {ctx.regime.value} regime "
                 f"(allowed: {', '.join(sorted(x.value for x in PERMITTED_BY_REGIME[ctx.regime]))}).")
+        elif ctx.regime is Regime.YELLOW and s in WHEEL_ENTRY_STRUCTURES:
+            # YELLOW PERMITS THIS AT REDUCED SIZE — AND NOTHING REDUCES IT.
+            #
+            # Owner, seeing GREEN and YELLOW rows both marked "tradeable":
+            # "how come diff regiome and all tradeble".
+            #
+            # The matrix comment on the YELLOW row says "reduced size
+            # (brake/size handles)". It does not. The brakes are DRAWDOWN
+            # brakes keyed to cumulative realised loss in GBP (500/1000/1500),
+            # not to regime, and `size_fit_pct` is only notional / NAV — a
+            # consequence of the contract price, not a risk decision. Grep for
+            # regime-based sizing anywhere in the screen and there is none.
+            #
+            # So a YELLOW name has been presenting identically to a GREEN one.
+            # On the 31 Aug board the worst case of this was TSLA: YELLOW, and
+            # the LARGEST position on the screen at 22.5% of NAV — the opposite
+            # of the stated intent.
+            #
+            # Until sizing actually implements the reduction, the screen must
+            # say so rather than imply parity. Stating the number and naming the
+            # missing compensating behaviour is the house rule for a warning
+            # that stands in for a block.
+            warnings.append(
+                f"{ctx.regime.value} regime — permitted for {s.value} but at REDUCED "
+                f"size, and the screen does NOT size it for you. Nothing here applies a "
+                f"regime brake: size_fit is notional/NAV, and the drawdown brakes key off "
+                f"realised loss, not regime. Treat this as a HALF-SIZE candidate versus "
+                f"an equivalent GREEN one, and size it yourself.")
 
     # ── Falling-knife block (§8) ─────────────────────────────────────────
     if ctx.falling_knife is True and s in WHEEL_ENTRY_STRUCTURES:
