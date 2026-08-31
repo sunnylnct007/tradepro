@@ -436,6 +436,33 @@ def _session_state(cfg: dict, now_utc: _dt.datetime | None = None) -> tuple[str,
 DATA_SOURCE = "yahoo"
 
 
+
+def _todays_open_row(sym: str):
+    """(date, row) for TODAY from the live feed, or None.
+
+    Only the open matters — it is the strike anchor. High/low/close are carried
+    so the frame stays shaped consistently, but they are IN-FLIGHT and nothing
+    downstream may treat them as settled: the gate reads the last SETTLED
+    session precisely so an unfinished bar can never decide anything.
+    """
+    try:
+        from ..yahoo_session import yahoo_session
+        import yfinance as yf
+        d = yf.Ticker(sym, session=yahoo_session()).history(period="2d", interval="1d")
+        if d is None or not len(d):
+            return None
+        idx = [str(x)[:10] for x in d.index]
+        last = idx[-1]
+        row = d.iloc[-1]
+        if float(row.get("Open") or 0) <= 0:
+            return None
+        return last, {"Open": float(row["Open"]), "High": float(row["High"]),
+                      "Low": float(row["Low"]), "Close": float(row["Close"]),
+                      "Volume": float(row.get("Volume") or 0)}
+    except Exception:  # noqa: BLE001 — no overlay is a PROVISIONAL row, not a crash
+        return None
+
+
 def _series(sym: str, period: str = "2y"):
     """Daily bars. Returns (frame, source) via `_series_src`; this keeps the
     old shape for callers that only want the frame."""
@@ -479,6 +506,25 @@ def _series_src(sym: str, period: str = "2y"):
             if df is not None and not df.empty:
                 out = df.rename(columns=str.capitalize)
                 out.index = [str(x)[:10] for x in out.index]
+                # THE BAR CACHE IS END-OF-DAY. Its harvest runs after the close,
+                # so DURING a session it has no bar for today — and the strike
+                # anchor needs today's OPEN.
+                #
+                # Introduced as a regression 31 Aug 2026 when this was routed
+                # through the store: SPY/QQQ/GOLD went permanently
+                # spot_basis="prior_close" while the session was open, which
+                # marks them PROVISIONAL, and place_paper() refuses on
+                # provisional. Paper execution could never have fired — on
+                # exactly the three markets that are paper-tradeable. Caught by
+                # reading the basis column at the open rather than assuming.
+                #
+                # So: HISTORY from the golden source, today's OPEN overlaid from
+                # the only source that has it intraday. Both labelled, because
+                # a row built from two providers should say so.
+                todays = _todays_open_row(sym)
+                if todays is not None and todays[0] not in out.index:
+                    out.loc[todays[0]] = todays[1]
+                    return out, "bar_cache(ibkr)+yahoo(open)"
                 return out, "bar_cache(ibkr)"
         except Exception as exc:  # noqa: BLE001 — fall through, and SAY so
             log.info("%s: bar cache miss (%s) — falling back to yahoo",
