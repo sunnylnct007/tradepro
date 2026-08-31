@@ -44,6 +44,11 @@ export interface WheelRow {
   blocks: string[];
   warnings: string[];
   suggested_strike: number | null;
+  // WHICH CONTRACT to place. A strike and a premium without an expiry is not a
+  // tradeable instruction — several expiries are listed in any given week.
+  expiry?: string | null;
+  expiry_kind?: string | null;
+  dte?: number | null;
   suggested_delta: number | null;
   suggested_premium: number | null;
   premium_source?: string | null;
@@ -80,7 +85,7 @@ function quality(r: WheelRow): { label: string; degraded: boolean } {
   return { label: "no quote", degraded: true };
 }
 
-type SortKey = "symbol" | "yield" | "oi" | "ivhv" | "delta" | "premium" | "strike";
+type SortKey = "symbol" | "yield" | "oi" | "ivhv" | "delta" | "premium" | "strike" | "dte";
 
 export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
   const [sort, setSort] = useState<SortKey>("yield");
@@ -96,6 +101,7 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
         case "ivhv": return r.iv_hv_ratio ?? -1;
         case "delta": return r.suggested_delta ?? -1;
         case "premium": return r.suggested_premium ?? -1;
+        case "dte": return r.dte ?? 9999;
         case "strike": return r.suggested_strike ?? -1;
         default: return r.annual_yield_pct ?? -1;
       }
@@ -154,6 +160,7 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
               {th("Symbol", "symbol")}
               {th("Data")}
               {th("Regime")}
+              {th("Expiry", "dte")}
               {th("Strike", "strike", true)}
               {th("Δ", "delta", true)}
               {th("Premium", "premium", true)}
@@ -179,6 +186,31 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
                                color: q.degraded ? WARN : MUTED }}>{q.label}</td>
                   {/* Regime is PLAIN TEXT — see the note at the top of this file. */}
                   <td style={{ padding: "7px 8px", fontSize: 11, color: MUTED }}>{r.regime ?? "—"}</td>
+                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
+                    {r.expiry
+                      ? (() => {
+                          const e = String(r.expiry).replace(/-/g, "");
+                          const shown = `${e.slice(0, 4)}-${e.slice(4, 6)}-${e.slice(6, 8)}`;
+                          const monthly = r.expiry_kind === "monthly";
+                          return (
+                            <>
+                              <span style={{ fontVariantNumeric: "tabular-nums" }}>{shown}</span>
+                              <span title={monthly
+                                     ? "standard monthly (3rd Friday) — deepest open interest, tightest spreads"
+                                     : "weekly — faster decay, thinner book"}
+                                    style={{ fontSize: 9, marginLeft: 5, padding: "1px 4px",
+                                             borderRadius: 3, color: monthly ? OK : MUTED,
+                                             border: `1px solid ${monthly ? OK : MUTED}55` }}>
+                                {monthly ? "M" : "W"}
+                              </span>
+                              {r.dte != null && (
+                                <span style={{ fontSize: 10, color: MUTED, marginLeft: 5 }}>{r.dte}d</span>
+                              )}
+                            </>
+                          );
+                        })()
+                      : <span style={{ color: MUTED }}>—</span>}
+                  </td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_strike, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_delta, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_premium, 2)}</td>

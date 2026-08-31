@@ -1750,6 +1750,27 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "premium_as_of_utc": premium_as_of_utc,
         "premium_age_h": carry_age_h,
         "dte": dte,
+        # WHICH CONTRACT TO ACTUALLY PLACE (31 Aug 2026).
+        #
+        # Owner: "the option screen shd be telling me which period option i have
+        # to place ... as there are diff periods". The board carried `dte` and
+        # nothing else, so a reader had to count 46 days forward and then guess
+        # which LISTED expiry that lands on — and several are listed in any
+        # given week. A screen that names a strike and a premium but not the
+        # expiry has not named a tradeable contract.
+        #
+        # `chain_expiry` was already in scope: it is the expiry the premium,
+        # delta and open interest were all read from, and it is used a few lines
+        # up to match captured OI exactly. It simply never reached the payload.
+        # The short tier has emitted "expiry" all along, so the two halves of
+        # the same screen disagreed about whether this matters.
+        "expiry": chain_expiry,
+        # Weekly vs monthly, because they are different instruments in practice:
+        # standard monthlies (3rd Friday) carry the deep open interest and the
+        # tightest spreads; weeklies decay faster and are thinner. The owner
+        # asked for this split explicitly ("u shd be able to split them in
+        # mnthly and weekly DTE").
+        "expiry_kind": _expiry_kind(chain_expiry),
         "annualized_yield_pct": ann_yield_pct,
         "chain_source": chain_source,
         # ── Uniform provenance (15 Aug 2026) ─────────────────────────────
@@ -2044,6 +2065,29 @@ def _strategy_board(rows: list[dict]) -> dict:
             "rows": [],
         },
     }
+
+
+def _expiry_kind(expiry: str | None) -> str | None:
+    """"monthly" for a standard third-Friday expiry, else "weekly".
+
+    Not cosmetic. A standard monthly and a weekly on adjacent dates are
+    different instruments to trade: monthlies hold the deep open interest and
+    the tightest spreads, weeklies decay faster and are thinner. Telling the
+    two apart is the difference between "sell the 46-day put" and knowing which
+    of the four listed expiries that week to actually place.
+    """
+    if not expiry:
+        return None
+    import datetime as _d
+    raw = str(expiry).replace("-", "")[:8]
+    try:
+        d = _d.date(int(raw[:4]), int(raw[4:6]), int(raw[6:8]))
+    except (ValueError, IndexError):
+        return None
+    if d.weekday() != 4:            # not a Friday at all
+        return "weekly"
+    # Third Friday: the first Friday is day 1-7, so the third falls on 15-21.
+    return "monthly" if 15 <= d.day <= 21 else "weekly"
 
 
 def run_screen(symbols: list[str] | None = None) -> dict:
