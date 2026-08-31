@@ -603,6 +603,75 @@ def place_paper(row: dict, contracts: int = 1) -> dict | None:
             "partial": bool(out.get("partial"))}
 
 
+
+def push_decisions(rows: list[dict]) -> dict:
+    """Persist EVERY evaluation to Postgres — including the stand-asides.
+
+    Owner, 31 Aug 2026: "i need the stuff to be logged for analysis later on so
+    we might need a history table ... so we can evaluate what we did and why we
+    did it and check if it was right or not", and on why it runs daily at all —
+    "the whole purpose of running this on a daily basis is to gather as much
+    data we can for developing, backtesting new strategy".
+
+    THE LEDGER THIS REPLACES WAS EPHEMERAL. `LEDGER` writes under $HOME, and the
+    Lambda sets HOME=/tmp, which is wiped between invocations. So every
+    scheduled decision since the move to Lambda has been thrown away — the
+    forward test has been running daily and recording nothing. That is the one
+    job it exists to do.
+
+    STAND-ASIDES ARE PUSHED TOO, and they are the valuable rows: the edge here
+    is what the gate REFUSES, and a table of only the trades cannot show whether
+    the threshold is set right.
+    """
+    import os as _os
+    payload = []
+    for r in rows:
+        if r.get("status") == "no_data":
+            continue
+        legs = r.get("legs") or {}
+        econ = r.get("economics") or {}
+        decision = ("CANDIDATE" if r.get("status") == "CANDIDATE" else "STAND_ASIDE")
+        # One row PER EXPIRY — weekly and monthly have different strikes because
+        # they price off different forwards, so collapsing them would record a
+        # trade that was never described.
+        for kind, leg in (legs.items() or [("none", {})]):
+            payload.append({
+                "market": r.get("market"), "asOf": r.get("as_of"),
+                "exchangeDate": r.get("exchange_date"),
+                "decision": decision, "reason": r.get("reason") or "",
+                "volSymbol": (MARKETS.get(r.get("market"), {}) or {}).get("vol"),
+                "volIndex": r.get("vol_index"), "volThreshold": r.get("vol_threshold"),
+                "ivUsedPct": r.get("iv_used"), "spot": r.get("spot"),
+                "spotBasis": r.get("spot_basis"), "provisional": bool(r.get("provisional")),
+                "sessionState": r.get("session_state"),
+                "expiryKind": kind, "dte": leg.get("dte"),
+                "putStrike": leg.get("put_strike"), "callStrike": leg.get("call_strike"),
+                "forward": leg.get("forward"), "lot": r.get("lot"),
+                "collateral": econ.get("collateral"),
+                "marginEstimate": econ.get("margin_estimate"),
+                "creditModelled": econ.get("credit_modelled"),
+                "jobsCommit": (_os.environ.get("JOBS_COMMIT") or "")[:12] or None,
+                "detail": json.dumps({k: v for k, v in r.items()
+                                      if k not in ("legs", "economics")}),
+            })
+    if not payload:
+        return {"pushed": 0}
+    try:
+        import requests
+        from .push_to_api import load_credentials
+        base, tok = load_credentials()
+        resp = requests.post(f"{base.rstrip('/')}/api/strangle-decisions",
+                             json=payload, timeout=30,
+                             headers={"Authorization": f"Bearer {tok}"} if tok else {})
+        resp.raise_for_status()
+        return {"pushed": len(payload), "response": resp.json()}
+    except BaseException as exc:  # noqa: BLE001,B036 — load_credentials EXITS,
+        # it does not raise. `except Exception` here would let SystemExit kill
+        # the whole job, which is exactly how the Lambda went down on 31 Aug.
+        log.warning("decision-log push failed (non-fatal): %s", str(exc)[:200])
+        return {"pushed": 0, "error": str(exc)[:200]}
+
+
 def _email_cfg() -> dict:
     """SMTP settings from the SAME place every other TradePro email reads,
     with one addition for Lambda.
@@ -1229,6 +1298,14 @@ def main() -> int:
         econ = economics(r, ev.get(r.get("market")))
         if econ:
             r["economics"] = econ
+    # DURABLE first, local second. The local ledger is ephemeral in Lambda.
+    if not args.no_record:
+        pushed = push_decisions(rows)
+        if pushed.get("pushed"):
+            print(f"  decision log: {pushed['pushed']} row(s) persisted")
+        elif pushed.get("error"):
+            print(f"  decision log FAILED (non-fatal): {pushed['error'][:110]}")
+
     if not args.no_record:
         # BOTH kinds. See the shadow-recording note above.
         record([r for r in rows if r.get("status") in ("CANDIDATE", "stand aside")])
