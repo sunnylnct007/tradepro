@@ -4407,6 +4407,81 @@ def close_option_leg(symbol: str, expiry: str, strike: float, right: str,
     return d
 
 
+def get_strangle_manual_trades(market: str = "", days: int = 90) -> dict:
+    """REAL fills from manually-placed strangles — the honest prices.
+
+    Owner, 31 Aug 2026: "it got closed but lets record these so we can learn
+    from it", and "we need to start storing these execution data as no platform
+    will provide these for free".
+
+    WHY THESE ROWS MATTER MORE THAN ANY BACKTEST HERE. Every published figure
+    for this strategy is Black-Scholes off a volatility index — no skew, no
+    bid-ask, no evidence anyone would be filled there. On 31 Aug the model said
+    roughly -12,000 on 150 lots while the real position made +396 on 30. These
+    are the only honest prices this project has, and they CANNOT be backfilled.
+
+    `followed_signal` is the column to read first: it separates "the strategy
+    did this" from "the owner did this", and on 31 Aug they differed on every
+    leg.
+    """
+    params = {"days": days}
+    if market:
+        params["market"] = market.strip().upper()
+    try:
+        d = _get("/api/strangle-manual-trades", params=params)
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_strangle_manual_trades", exc)
+    rows = d.get("rows") or []
+    return {"ok": True, "count": len(rows), "rows": rows,
+            "caveat": ("these are ACTUAL fills — compare them against "
+                       "credit_modelled in the decision log, never the reverse")}
+
+
+def get_strangle_manual_trade_summary(days: int = 90) -> dict:
+    """Per-market tally of REAL manual strangle fills.
+
+    `with_pnl` is reported separately from `trades` deliberately: a mean over
+    rows that mostly lack a P&L is a number that looks like evidence and is
+    not. Check it before quoting mean_pnl.
+    """
+    try:
+        d = _get("/api/strangle-manual-trades/summary", params={"days": days})
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_strangle_manual_trade_summary", exc)
+    return {"ok": True, "rows": d.get("rows") or [], "note": d.get("note")}
+
+
+def record_strangle_manual_trade(market: str, entry_date: str,
+                                 put_strike: float | None = None,
+                                 call_strike: float | None = None,
+                                 realised_pnl: float | None = None,
+                                 lots: int = 1, exit_date: str = "",
+                                 account: str = "", product: str = "",
+                                 followed_signal: bool | None = None,
+                                 notes: str = "") -> dict:
+    """Book one REAL manually-placed strangle.
+
+    Deliberately permissive about what is known: a trade recorded with only
+    strikes and a P&L is far better than one not recorded because the leg
+    prices were not to hand. Precision can be added later — a fill nobody
+    wrote down is gone for good.
+    """
+    body = {"market": market.strip().upper(), "entryDate": entry_date,
+            "lots": lots, "putStrike": put_strike, "callStrike": call_strike,
+            "realisedPnl": realised_pnl, "followedSignal": followed_signal,
+            "notes": notes or None}
+    if exit_date:
+        body["exitDate"] = exit_date
+    if account:
+        body["account"] = account
+    if product:
+        body["product"] = product
+    try:
+        return _post("/api/strangle-manual-trades", json_body=body)
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("record_strangle_manual_trade", exc)
+
+
 def flatten_short_options() -> dict:
     """Buy back EVERY short option at the broker — the end-of-day sweep.
 
