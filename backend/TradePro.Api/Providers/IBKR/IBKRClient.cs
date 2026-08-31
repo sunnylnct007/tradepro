@@ -999,6 +999,43 @@ public sealed class IBKRClient
     /// GetOptionStrikesAsync + spot before calling this, to bound IBKR call
     /// volume — the earlier "bulk chain in one call" design was wrong).
     /// </summary>
+    /// <summary>symbol + expiry + strike + right -> the option's conid.
+    ///
+    /// Composes the pieces that already existed (ResolveConidAsync for the
+    /// underlying, GetOptionContractsAsync for the contract) rather than adding
+    /// a parallel resolution path — there is already one place where option
+    /// contracts are resolved and it should stay that way.
+    ///
+    /// Added 31 Aug 2026 for paper strangle execution: PlaceMarketOrderAsync
+    /// takes a conid, and PlaceMarketOrderBySymbolAsync hardcodes "STK", so an
+    /// option had no way through. Returns null on ANY failure — the caller must
+    /// treat that as "do not place", never as "place something close".
+    /// </summary>
+    public async Task<long?> ResolveOptionConidAsync(
+        string symbol, string expiry, decimal strike, string right,
+        CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled || string.IsNullOrWhiteSpace(symbol)) return null;
+        if (!DateTime.TryParse(expiry, out var exp)) return null;
+        var underlying = await ResolveConidAsync(symbol, "STK", ct, useCache: true);
+        if (underlying is null) return null;
+        // IBKR months are e.g. OCT26.
+        var month = exp.ToString("MMM", System.Globalization.CultureInfo.InvariantCulture)
+                        .ToUpperInvariant() + exp.ToString("yy");
+        var res = await GetOptionContractsAsync(underlying.Value, month, strike,
+                                                right.Trim().ToUpperInvariant(), ct);
+        if (res.Contracts.Count == 0) return null;
+        // Match the EXACT expiry when the contract carries one — a month can
+        // hold several expiries (weeklies), and placing the wrong one is a
+        // different trade with the same strike.
+        var want = exp.ToString("yyyyMMdd");
+        var exact = res.Contracts.FirstOrDefault(
+            c => c.MaturityDate is not null && c.MaturityDate.Replace("-", "") == want);
+        if (exact is not null) return exact.ConId;
+        // No maturity on the rows: only safe if the month holds exactly one.
+        return res.Contracts.Count == 1 ? res.Contracts[0].ConId : null;
+    }
+
     public async Task<IBKROptionContractsResult> GetOptionContractsAsync(
         long underlyingConId, string month, decimal strike, string right, CancellationToken ct = default)
     {

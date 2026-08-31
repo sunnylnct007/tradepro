@@ -428,6 +428,7 @@ api.MapEarningsCalendarEndpoints();
 // job. Replaces having to assemble that verdict by reading run-log panels.
 api.MapDataReadinessEndpoints();
 api.MapJobsEndpoints();
+api.MapStrangleOrderEndpoints();
 
 // SSE event stream — AllowAnonymous (EventSource can't send auth headers).
 app.MapEventsEndpoints();
