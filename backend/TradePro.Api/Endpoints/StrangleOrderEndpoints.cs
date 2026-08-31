@@ -212,6 +212,204 @@ public static class StrangleOrderEndpoints
         })
         .WithName("CloseStrangle");
 
+        // POST /api/integrations/ibkr/option-leg — act on ONE option contract.
+        //
+        // Owner, 31 Aug 2026: "u shd be able to close them" — and I could not.
+        // Three short puts sat open with no way to close them through TradePro,
+        // because every option path here assumed a matched PAIR. /strangle/close
+        // buys both legs by construction, so closing a lone put through it would
+        // have BOUGHT A CALL I did not own — opening a long, not closing a short.
+        // /integrations/ibkr/orders resolves by symbol and cannot address a
+        // strike at all. The session had to be handed back for a manual close.
+        //
+        // A strategy that can open a position it cannot close is not finished.
+        // This is the missing primitive; /strangle/close stays as the paired
+        // convenience on top of it.
+        app.MapPost("/integrations/ibkr/option-leg", async (
+            OptionLegRequest req,
+            IBKRClient ibkr,
+            ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("OptionLeg");
+
+            if (!ibkr.IsEnabled)
+                return Results.Json(new { error = "IBKR disabled" }, statusCode: 503);
+            if (!ibkr.AllowOrders)
+                return Results.Json(new
+                {
+                    error = ibkr.BlockedForLive
+                        ? "REFUSED: live account. TradePro places no orders to live, ever."
+                        : "order placement is off (AllowOrders=false)",
+                    blockedForLive = ibkr.BlockedForLive,
+                }, statusCode: 403);
+            if (req is null || string.IsNullOrWhiteSpace(req.Symbol)
+                || string.IsNullOrWhiteSpace(req.Expiry)
+                || req.Strike <= 0 || req.Contracts <= 0)
+                return Results.BadRequest(new { error = "symbol, expiry, strike>0, contracts>0 required" });
+
+            var right = (req.Right ?? "").Trim().ToUpperInvariant();
+            if (right is not ("P" or "C"))
+                return Results.BadRequest(new { error = "right must be P or C" });
+            var side = (req.Side ?? "").Trim().ToUpperInvariant();
+            if (side is not ("BUY" or "SELL"))
+                return Results.BadRequest(new { error = "side must be BUY or SELL" });
+
+            var sym = req.Symbol.Trim().ToUpperInvariant();
+
+            var conid = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.Strike, right, ct);
+            if (conid is null)
+                return Results.Json(new
+                {
+                    ok = false, stage = "resolve",
+                    error = "could not resolve the contract — NOTHING was placed",
+                    symbol = sym, expiry = req.Expiry, strike = req.Strike, right,
+                }, statusCode: 502);
+
+            // THE GUARD THAT MATTERS. A BUY is assumed to be closing a short.
+            // If we are not actually short that contract, the same order OPENS
+            // A LONG — a different trade, paid for rather than collected, and
+            // one nobody asked for. That is precisely the mistake /strangle/close
+            // would have made on a put-only book, so the check is enforced here
+            // rather than left to the caller to remember.
+            //
+            // Set closingOnly=false to buy deliberately (a protective long, the
+            // long wing of a spread). It must be explicit.
+            if (side == "BUY" && req.ClosingOnly)
+            {
+                var pos = await ibkr.GetPositionsAsync(ct);
+                if (pos.Error is not null)
+                    return Results.Json(new
+                    {
+                        ok = false, stage = "verify",
+                        error = $"could not read positions to verify this is a close: {pos.Error}. "
+                              + "NOTHING was placed — refusing to guess.",
+                    }, statusCode: 502);
+
+                var held = pos.Positions.FirstOrDefault(p => p.ConId == conid.Value);
+                var heldQty = held?.Quantity ?? 0m;
+                if (heldQty >= 0m || Math.Abs(heldQty) < req.Contracts)
+                    return Results.Json(new
+                    {
+                        ok = false, stage = "verify",
+                        error = $"REFUSED: you are short {heldQty} of this contract, so buying "
+                              + $"{req.Contracts} would not close a position — it would OPEN A LONG. "
+                              + "Pass closingOnly=false if that is genuinely what you want.",
+                        symbol = sym, expiry = req.Expiry, strike = req.Strike, right,
+                        heldQuantity = heldQty, requested = req.Contracts,
+                    }, statusCode: 409);
+            }
+
+            log.LogWarning("OPTION LEG (paper): {Side} {Qty} {Sym} {Exp} {Strike}{Right} conid={ConId}",
+                side, req.Contracts, sym, req.Expiry, req.Strike, right, conid.Value);
+
+            var res = await ibkr.PlaceMarketOrderConfirmedAsync(conid.Value, side, req.Contracts, ct);
+            var ok = res.Status == "ACCEPTED" && res.OrderId is not null;
+
+            return Results.Json(new
+            {
+                ok, orderId = res.OrderId, status = res.Status, reason = res.StatusReason,
+                symbol = sym, expiry = req.Expiry, strike = req.Strike, right, side,
+                contracts = req.Contracts, conid = conid.Value,
+                closing = side == "BUY" && req.ClosingOnly,
+            }, statusCode: ok ? 200 : 502);
+        })
+        .WithName("PlaceOptionLeg");
+
+        // POST /api/integrations/ibkr/options/flatten — buy back EVERY short
+        // option at the broker.
+        //
+        // Owner, 31 Aug 2026: "a auto close one on either profit or end of day"
+        // and "lets get in and out at end". This is the end-of-day sweep that
+        // index_strangle_close needs, and it works off the BROKER's positions
+        // rather than a local ledger — the broker is golden source for what we
+        // actually hold, and an EOD flatten driven by a stale ledger would leave
+        // exactly the position it believed it had closed.
+        //
+        // Reports EVERY leg individually. A flatten that closes three of four
+        // legs has left a naked short open, and summarising that as "flattened"
+        // is the failure this desk has already been bitten by.
+        app.MapPost("/integrations/ibkr/options/flatten", async (
+            IBKRClient ibkr,
+            ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("OptionFlatten");
+
+            if (!ibkr.IsEnabled)
+                return Results.Json(new { error = "IBKR disabled" }, statusCode: 503);
+            if (!ibkr.AllowOrders)
+                return Results.Json(new
+                {
+                    error = ibkr.BlockedForLive
+                        ? "REFUSED: live account. TradePro places no orders to live, ever."
+                        : "order placement is off (AllowOrders=false)",
+                    blockedForLive = ibkr.BlockedForLive,
+                }, statusCode: 403);
+
+            var pos = await ibkr.GetPositionsAsync(ct);
+            if (pos.Error is not null)
+                return Results.Json(new
+                {
+                    ok = false, error = $"could not read positions: {pos.Error}. NOTHING was closed.",
+                }, statusCode: 502);
+
+            var shorts = pos.Positions
+                .Where(p => p.ConId is not null
+                         && string.Equals(p.AssetClass, "OPT", StringComparison.OrdinalIgnoreCase)
+                         && p.Quantity < 0)
+                .ToList();
+
+            if (shorts.Count == 0)
+                return Results.Ok(new { ok = true, closed = 0, legs = Array.Empty<object>(),
+                                        note = "no short option positions — already flat" });
+
+            var legs = new List<object>();
+            var failed = 0;
+            foreach (var p in shorts)
+            {
+                var qty = (int)Math.Abs(p.Quantity);
+                log.LogWarning("FLATTEN: BUY {Qty} {Desc} (conid={ConId})",
+                    qty, p.ContractDesc ?? p.Symbol, p.ConId);
+                var r = await ibkr.PlaceMarketOrderConfirmedAsync(p.ConId!.Value, "BUY", qty, ct);
+                var legOk = r.Status == "ACCEPTED" && r.OrderId is not null;
+                if (!legOk) failed++;
+                legs.Add(new
+                {
+                    contract = p.ContractDesc ?? p.Symbol, conid = p.ConId, quantity = qty,
+                    ok = legOk, orderId = r.OrderId, status = r.Status, reason = r.StatusReason,
+                    unrealisedAtClose = p.UnrealizedPnl,
+                });
+            }
+
+            if (failed > 0)
+                log.LogError("FLATTEN INCOMPLETE: {Failed} of {Total} legs still OPEN and NAKED",
+                    failed, shorts.Count);
+
+            return Results.Json(new
+            {
+                ok = failed == 0,
+                attempted = shorts.Count, closed = shorts.Count - failed, failed,
+                warning = failed > 0
+                    ? $"INCOMPLETE — {failed} leg(s) are STILL OPEN and short. Not flat."
+                    : null,
+                legs,
+            }, statusCode: failed == 0 ? 200 : 502);
+        })
+        .WithName("FlattenShortOptions");
+
         return app;
     }
+
+    /// <summary>One option contract. Right is P or C; side is BUY or SELL.</summary>
+    public sealed record OptionLegRequest(
+        string Symbol,
+        string Expiry,          // YYYY-MM-DD
+        decimal Strike,
+        string Right,           // P | C
+        string Side,            // BUY | SELL
+        int Contracts = 1,
+        // Default TRUE: a BUY is presumed to be closing a short, and is refused
+        // if we are not short that contract. See the guard for why.
+        bool ClosingOnly = true);
 }
