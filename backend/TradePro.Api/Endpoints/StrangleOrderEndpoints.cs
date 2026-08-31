@@ -37,6 +37,45 @@ public static class StrangleOrderEndpoints
         decimal CallStrike,
         int Contracts = 1);
 
+
+    /// <summary>Place one leg and answer IBKR's precaution prompt — PAPER ONLY.
+    ///
+    /// IBKR returns NEEDS_CONFIRM with a reply id for most orders (price, size,
+    /// liquidity warnings). IBKRClient deliberately surfaces that rather than
+    /// auto-confirming, and for a LIVE account that is exactly right — a human
+    /// should read a margin warning before it becomes a position.
+    ///
+    /// But it blocks paper entirely: orders reach IBKR and stop, so nothing
+    /// ever fills and no execution data is ever captured. Owner, 31 Aug 2026:
+    /// "the whole purpose is to see the effect of the index strangle in paper
+    /// trading ... lets capture execution ... as that will be key to our
+    /// platform".
+    ///
+    /// So the prompt is answered HERE, in the paper-only endpoint, rather than
+    /// in the shared client — the live guard stays untouched and IBKRClient's
+    /// caution is preserved for every other caller. The confirmations are
+    /// REPORTED, not swallowed: whatever IBKR warned about ends up in the
+    /// response.
+    ///
+    /// Bounded at 3: a reply can itself return another prompt, and an unbounded
+    /// loop against an order endpoint is not a thing to write.
+    /// </summary>
+    private static async Task<(IBKROrderResult Result, List<string> Confirmed)>
+        PlaceAndConfirmAsync(IBKRClient ibkr, long conid, string side, int qty,
+                             ILogger log, CancellationToken ct)
+    {
+        var confirmed = new List<string>();
+        var res = await ibkr.PlaceMarketOrderAsync(conid, side, qty, ct);
+        for (var i = 0; i < 3 && res.Status == "NEEDS_CONFIRM" && res.OrderId is not null; i++)
+        {
+            log.LogWarning("IBKR precaution on conid {Conid}: {Reason} — confirming (paper)",
+                conid, res.StatusReason);
+            confirmed.Add(res.StatusReason ?? "precaution");
+            res = await ibkr.ConfirmReplyAsync(res.OrderId, ct);
+        }
+        return (res, confirmed);
+    }
+
     public static IEndpointRouteBuilder MapStrangleOrderEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/integrations/ibkr/strangle", async (
@@ -93,8 +132,10 @@ public static class StrangleOrderEndpoints
                     putStrike = req.PutStrike, callStrike = req.CallStrike,
                 }, statusCode: 502);
 
-            var putRes = await ibkr.PlaceMarketOrderAsync(put.Value, "SELL", req.Contracts, ct);
-            var callRes = await ibkr.PlaceMarketOrderAsync(call.Value, "SELL", req.Contracts, ct);
+            var (putRes, putConfirms) = await PlaceAndConfirmAsync(
+                ibkr, put.Value, "SELL", req.Contracts, log, ct);
+            var (callRes, callConfirms) = await PlaceAndConfirmAsync(
+                ibkr, call.Value, "SELL", req.Contracts, log, ct);
             var putOk = putRes.Status == "ACCEPTED" && putRes.OrderId is not null;
             var callOk = callRes.Status == "ACCEPTED" && callRes.OrderId is not null;
 
@@ -115,9 +156,11 @@ public static class StrangleOrderEndpoints
                     : null,
                 symbol = sym, expiry = req.Expiry, contracts = req.Contracts,
                 put = new { conid = put, strike = req.PutStrike, orderId = putRes.OrderId,
-                            status = putRes.Status, reason = putRes.StatusReason },
+                            status = putRes.Status, reason = putRes.StatusReason,
+                            confirmations = putConfirms },
                 call = new { conid = call, strike = req.CallStrike, orderId = callRes.OrderId,
-                             status = callRes.Status, reason = callRes.StatusReason },
+                             status = callRes.Status, reason = callRes.StatusReason,
+                             confirmations = callConfirms },
                 note = "PAPER account. Premiums are whatever the broker actually filled — "
                      + "that is the point; the modelled Black-Scholes credit is not evidence.",
             }, statusCode: (putOk && callOk) ? 200 : 502);
@@ -170,8 +213,10 @@ public static class StrangleOrderEndpoints
                     putResolved = put is not null, callResolved = call is not null,
                 }, statusCode: 502);
 
-            var putRes = await ibkr.PlaceMarketOrderAsync(put.Value, "BUY", req.Contracts, ct);
-            var callRes = await ibkr.PlaceMarketOrderAsync(call.Value, "BUY", req.Contracts, ct);
+            var (putRes, _pc) = await PlaceAndConfirmAsync(
+                ibkr, put.Value, "BUY", req.Contracts, log, ct);
+            var (callRes, _cc) = await PlaceAndConfirmAsync(
+                ibkr, call.Value, "BUY", req.Contracts, log, ct);
             var putOk = putRes.Status == "ACCEPTED" && putRes.OrderId is not null;
             var callOk = callRes.Status == "ACCEPTED" && callRes.OrderId is not null;
             var partial = putOk ^ callOk;

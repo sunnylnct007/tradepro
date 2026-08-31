@@ -1489,8 +1489,17 @@ def main() -> int:
                           f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}{tag}")
                 elif res.get("partial"):
                     print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
-                elif r.get("status") == "CANDIDATE":
-                    print(f"  not placed {r['market']}: {res.get('reason')}")
+                elif res.get("reason"):
+                    # EVERY refusal prints, not just candidates.
+                    #
+                    # This branch used to read `elif r.get("status") ==
+                    # "CANDIDATE"`, so a SHADOW placement that failed matched
+                    # nothing and printed nothing. On 31 Aug the first live run
+                    # attempted SPY, QQQ and GOLD, failed on all three, and said
+                    # absolutely nothing — the run looked clean. Exactly the
+                    # silent-failure shape this project keeps producing.
+                    tag = " [shadow]" if r.get("status") != "CANDIDATE" else ""
+                    print(f"  not placed {r['market']}{tag}: {res.get('reason')}")
 
     if args.json:
         print(json.dumps(rows, indent=1))
