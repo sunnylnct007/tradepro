@@ -1,0 +1,136 @@
+# ============================================================
+# Build the tradepro-jobs Lambda image and roll it out.
+#
+# WHY THIS EXISTS. The Lambda was created by hand and nothing updated it on
+# push, so `main` and the code actually executing on a schedule silently
+# drifted apart. On 31 Aug the EventBridge rule
+# `tradepro-post-earnings-puts` (20:45 UTC, Mon-Fri) was still running an
+# image built before the expiry-discovery and quote-poll fixes — it would
+# have refused to price every night while main looked correct. A schedule
+# pointed at stale code is worse than no schedule: it reports failure in the
+# strategy's voice rather than the deployment's.
+#
+# The job ends at `git push`, per the repo's standing rule. This is the
+# missing half of that promise for Lambda.
+#
+# RUNS on push to main touching strategies/, and manually.
+# ============================================================
+
+name: aws-lambda-jobs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'strategies/tradepro_strategies/**'
+      - 'strategies/lambda_handler.py'
+      - 'strategies/Dockerfile.lambda'
+      - 'strategies/pyproject.toml'
+      - '.github/workflows/aws-lambda-jobs.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
+  ECR_REGISTRY: 108703420282.dkr.ecr.eu-west-2.amazonaws.com
+  JOBS_REPO: tradepro-jobs
+  FUNCTION_NAME: tradepro-jobs
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: aws-prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute tags
+        id: tags
+        run: |
+          SHA=${GITHUB_SHA::8}
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "image_sha=${ECR_REGISTRY}/${JOBS_REPO}:${SHA}" >> "$GITHUB_OUTPUT"
+          echo "image_latest=${ECR_REGISTRY}/${JOBS_REPO}:latest" >> "$GITHUB_OUTPUT"
+
+      # arm64 to match the function's architecture. A mismatch here does not
+      # fail the build — it fails at INVOKE time with a runtime error, which
+      # would surface as a broken screen rather than a broken deploy.
+      - name: Build + push jobs image (linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./strategies
+          file: ./strategies/Dockerfile.lambda
+          platforms: linux/arm64
+          provenance: false
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.image_sha }}
+            ${{ steps.tags.outputs.image_latest }}
+          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.JOBS_REPO }}:cache
+          cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.JOBS_REPO }}:cache,mode=max
+
+      # Pin to the immutable per-SHA tag, not :latest. Lambda resolves an image
+      # tag to a digest once at update time, so deploying :latest twice can be
+      # a no-op — the function would keep running the old digest while the
+      # workflow reported success.
+      - name: Point the function at the new image
+        run: |
+          aws lambda update-function-code \
+            --function-name "$FUNCTION_NAME" \
+            --image-uri "${{ steps.tags.outputs.image_sha }}" \
+            --publish >/dev/null
+          aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+          echo "now running: $(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Code.ImageUri' --output text)"
+
+      # Prove the deployed image can actually import and dispatch. An unknown
+      # job name is answered by the handler itself, so a successful response
+      # means the container starts, the handler loads, and the registry is
+      # readable — without running a real screen or emailing anyone.
+      - name: Smoke test the deployed function
+        run: |
+          aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"job":"__smoke__"}' \
+            /tmp/out.json >/dev/null
+          cat /tmp/out.json
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("/tmp/out.json"))
+          body = json.loads(d.get("body", "{}")) if isinstance(d.get("body"), str) else d
+          known = body.get("known") or []
+          if "post_earnings_puts" not in known:
+              sys.exit(f"handler did not report post_earnings_puts as a known job: {body}")
+          print("known jobs:", known)
+          PY
+
+      - name: Summary
+        run: |
+          {
+            echo "## tradepro-jobs Lambda"
+            echo ""
+            echo "- image: \`${{ steps.tags.outputs.image_sha }}\`"
+            echo "- function: \`${{ env.FUNCTION_NAME }}\` (arm64)"
+            echo ""
+            echo "Schedules using this image:"
+            aws events list-rules --query 'Rules[?contains(Name,`tradepro`)||contains(Name,`strangle`)].[Name,ScheduleExpression,State]' --output text \
+              | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
