@@ -427,6 +427,7 @@ api.MapEarningsCalendarEndpoints();
 // ONE answer to "is the data there, and since when" — per DATASET, not per
 // job. Replaces having to assemble that verdict by reading run-log panels.
 api.MapDataReadinessEndpoints();
+api.MapJobsEndpoints();
 
 // SSE event stream — AllowAnonymous (EventSource can't send auth headers).
 app.MapEventsEndpoints();
