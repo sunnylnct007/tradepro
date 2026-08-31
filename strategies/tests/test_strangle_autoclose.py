@@ -90,3 +90,45 @@ def test_every_verdict_states_a_reason():
 def test_the_eod_window_is_wide_enough_to_get_filled():
     assert EOD_MINUTES_BEFORE_CLOSE >= 10
     assert 0 < TARGET_PCT < 1
+
+
+# ---------------------------------------------------------------------------
+# The profit target is judged on the PAIR, never on one leg.
+#
+# Options level 4 was granted on the evening of 31 Aug 2026, so from the next
+# session both legs of a strangle actually fill. A per-leg target would buy
+# back whichever leg had decayed and leave the other — the losing one — open
+# and NAKED. Strictly worse than holding or closing.
+# ---------------------------------------------------------------------------
+
+def test_a_leg_at_target_does_not_close_when_the_pair_is_not():
+    # Put decayed 6.00 -> 2.00 (67%, past target on its own).
+    # Call moved against us 2.00 -> 5.00.
+    # Pair: credit 8.00, cost 7.00 = 12.5% decayed. NOWHERE NEAR the target.
+    pair = decide_close({"credit": 8.0, "current_cost": 7.0}, _cfg(), _at(13, 0))
+    assert pair["close"] is False
+
+    # The winning leg alone WOULD have closed — this is the trap.
+    leg = decide_close({"credit": 6.0, "current_cost": 2.0}, _cfg(), _at(13, 0))
+    assert leg["close"] is True
+    assert leg["trigger"] == "profit_target"
+
+
+def test_the_pair_closes_when_both_legs_have_decayed_together():
+    pair = decide_close({"credit": 8.0, "current_cost": 3.5}, _cfg(), _at(13, 0))
+    assert pair["close"] is True
+    assert pair["trigger"] == "profit_target"
+
+
+def test_an_unmarkable_pair_holds_rather_than_guessing():
+    # One leg with no live mark makes the PAIR unmarkable. Half-counting it
+    # would understate the cost and fire the target early.
+    v = decide_close({"credit": None, "current_cost": None}, _cfg(), _at(13, 0))
+    assert v["close"] is False
+
+
+def test_time_exit_still_fires_on_an_unmarkable_pair():
+    # The overnight rule cannot depend on having a mark.
+    v = decide_close({"credit": None, "current_cost": None}, _cfg(), _at(15, 50))
+    assert v["close"] is True
+    assert v["trigger"] == "end_of_day"

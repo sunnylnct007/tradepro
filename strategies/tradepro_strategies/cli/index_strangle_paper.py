@@ -836,6 +836,56 @@ def push_decisions(rows: list[dict]) -> dict:
         return {"pushed": 0, "error": str(exc)[:200]}
 
 
+def record_execution(row: dict, res: dict) -> dict:
+    """Attach what ACTUALLY executed to the decision that produced it.
+
+    Owner, 31 Aug 2026: "f the strangell worked or not" — a question the
+    platform could not answer from its own records. The decision log stopped at
+    the decision: nothing said whether the order was placed, what we were
+    FILLED at, or what it cost to close, so the day's numbers had to be
+    reconstructed from the broker by hand.
+
+    THE FILL IS THE ONE INPUT NO BACKTEST CAN MANUFACTURE. Every figure this
+    strategy publishes comes from a Black-Scholes premium off a volatility
+    index — no skew, no bid-ask, and no evidence anyone would be filled there.
+    Recording the real credit is the entire point of running it on paper.
+
+    Non-fatal by design: a decision that is recorded but unlinked is a smaller
+    loss than a job that dies after placing an order.
+    """
+    legs = (row.get("legs") or {})
+    kind = next(iter(legs), None)
+    out = (res or {}).get("response") or {}
+    ids = [str(out.get(k, {}).get("orderId")) for k in ("put", "call")
+           if (out.get(k) or {}).get("orderId")]
+    body = {
+        "market": row.get("market"), "asOf": row.get("as_of"), "expiryKind": kind,
+        "placed": bool(res.get("placed")), "partial": bool(res.get("partial")),
+        "shadow": bool(res.get("shadow")),
+        "brokerOrderIds": ",".join(ids) or None,
+        "placedAtUtc": _dt.datetime.now(_dt.UTC).isoformat(),
+    }
+    try:
+        import requests
+        from .push_to_api import load_credentials
+        base, tok = load_credentials()
+        r = requests.post(f"{base.rstrip('/')}/api/strangle-decisions/execution",
+                          json=body, timeout=30,
+                          headers={"Authorization": f"Bearer {tok}"} if tok else {})
+        if r.status_code == 404:
+            # The decision was never logged. Say so — this is the row that
+            # would otherwise become an unauditable fill.
+            log.warning("execution for %s has NO decision row: %s",
+                        row.get("market"), r.text[:160])
+            return {"linked": False, "error": r.text[:200]}
+        r.raise_for_status()
+        return {"linked": True}
+    except BaseException as exc:  # noqa: BLE001,B036 — load_credentials EXITS
+        log.warning("execution link failed (non-fatal) for %s: %s",
+                    row.get("market"), str(exc)[:200])
+        return {"linked": False, "error": str(exc)[:200]}
+
+
 def _email_cfg() -> dict:
     """SMTP settings from the SAME place every other TradePro email reads,
     with one addition for Lambda.
@@ -1483,6 +1533,9 @@ def main() -> int:
             res = place_paper(r, contracts=args.contracts, shadow=args.place_shadow)
             if res:
                 r["paper_order"] = res
+                # Link the ATTEMPT, not just the success. A refusal is evidence
+                # too — three silent failures on 31 Aug are why this exists.
+                r["execution_link"] = record_execution(r, res)
                 if res.get("placed"):
                     tag = " [SHADOW — the gate said stand aside]" if res.get("shadow") else ""
                     print(f"  PLACED {r['market']}: {res['request']['putStrike']:,.0f}P + "

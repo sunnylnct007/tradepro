@@ -137,6 +137,46 @@ def _market_for(symbol: str, markets: dict) -> tuple[str, dict] | None:
     return None
 
 
+def _record_exit(base, tok, market: str, expiry: str,
+                 credit: float, cost: float, trigger: str | None,
+                 unmarkable: bool) -> None:
+    """Attach the exit to the decision that opened the position.
+
+    Owner, 31 Aug 2026: "f the strangell worked or not". Closing a position and
+    not recording what it closed AT leaves exactly the gap that made that
+    question unanswerable — the entry was known, the exit was not, so nothing
+    could be graded.
+
+    `as_of` is TODAY's date. The exit belongs to the session being closed, and
+    the decision row for it was written by the same day's run.
+    """
+    if unmarkable:
+        # No mark means no honest exit price. Record the trigger and leave the
+        # money NULL rather than inventing a number that would later be
+        # averaged into a published figure.
+        realised = cost_out = None
+    else:
+        cost_out = round(cost, 2)
+        realised = round(credit - cost, 2)
+    body = {"market": market, "asOf": _dt.date.today().isoformat(),
+            "expiryKind": "monthly" if expiry else None,
+            "exitCostActual": cost_out,
+            "realisedPnl": realised,
+            "closeTrigger": trigger,
+            "closedAtUtc": _dt.datetime.now(_dt.UTC).isoformat()}
+    try:
+        import requests
+        H = {"Authorization": f"Bearer {tok}"} if tok else {}
+        r = requests.post(f"{base.rstrip('/')}/api/strangle-decisions/execution",
+                          json=body, timeout=30, headers=H)
+        if r.status_code == 404:
+            print(f"     (no decision row for {market} today — exit NOT linked)")
+        elif not r.ok:
+            print(f"     (exit link failed for {market}: {r.text[:120]})")
+    except Exception as exc:  # noqa: BLE001
+        print(f"     (exit link failed for {market}: {str(exc)[:120]})")
+
+
 def main() -> int:
     from .index_strangle_paper import MARKETS
     ap = argparse.ArgumentParser(prog="tradepro-index-strangle-close")
@@ -179,77 +219,120 @@ def main() -> int:
     print(f"index strangle close — {_dt.datetime.now(_dt.UTC):%Y-%m-%d %H:%M}Z")
     print(f"  {len(shorts)} short option position(s) at the broker")
 
-    results, closed, failed = [], 0, 0
+    results_unparsed: list = []
+
+    # GROUP THE LEGS BEFORE DECIDING ANYTHING.
+    #
+    # The profit target must be judged on the PAIR's combined credit, never on
+    # one leg alone. A strangle whose put has decayed 50% while its call has
+    # not is not a 50% winner — and buying back only the profitable leg LEGS
+    # OUT of the position, leaving a naked short of the side that is losing.
+    # That is strictly worse than either holding the strangle or closing it.
+    #
+    # This was harmless while only puts could fill (options level 3 refused
+    # every call). Level 4 was granted the same evening, so from the next
+    # session both legs exist and per-leg targets would start legging out.
+    groups: dict[tuple, list] = {}
     for p in shorts:
         desc = p.get("instrumentName") or p.get("contractDesc") or p.get("ticker") or ""
         occ = parse_occ(desc)
         if not occ:
             print(f"  ?? {desc[:52]} — cannot parse the contract, LEFT ALONE")
-            results.append({"contract": desc, "action": "skipped",
-                            "reason": "unparseable contract"})
+            results_unparsed.append({"contract": desc, "action": "skipped",
+                                     "reason": "unparseable contract"})
             continue
-
         hit = _market_for(occ["symbol"], MARKETS)
         if not hit:
-            # Not ours. Say so plainly rather than silently ignoring it.
             print(f"  -- {desc[:52]} — not a configured strangle market, LEFT ALONE")
-            results.append({"contract": desc, "action": "skipped",
-                            "reason": f"{occ['symbol']} is not a strangle market"})
+            results_unparsed.append({"contract": desc, "action": "skipped",
+                                     "reason": f"{occ['symbol']} is not a strangle market"})
             continue
-        market, cfg = hit
+        groups.setdefault((hit[0], occ["symbol"], occ["expiry"]), []).append((p, occ, hit[1]))
 
-        qty = abs(int(float(p.get("quantity") or 0)))
-        # averagePricePaid is per share (the API normalises IBKR's x100 cost
-        # basis); currentPrice is per share too, so they compare directly.
-        credit = p.get("averagePricePaid")
-        cost = p.get("currentPrice")
+    results, closed, failed = list(results_unparsed), 0, 0
+    for (market, symbol, expiry), legs in groups.items():
+        cfg = legs[0][2]
+        # Combined credit and combined cost across every leg of this position.
+        # Both are per share; a leg with no live mark makes the pair unmarkable
+        # rather than silently half-counted.
+        credit = cost = 0.0
+        unmarkable = False
+        for p, _occ, _c in legs:
+            c = p.get("averagePricePaid")
+            m = p.get("currentPrice")
+            if c is None or m is None:
+                unmarkable = True
+                break
+            qty = abs(float(p.get("quantity") or 0))
+            credit += float(c) * qty
+            cost += float(m) * qty
+
         verdict = decide_close(
-            {"credit": credit, "current_cost": cost}, cfg)
+            {"credit": None if unmarkable else credit,
+             "current_cost": None if unmarkable else cost}, cfg)
 
-        row = {"market": market, "contract": desc, "quantity": qty,
-               "credit": credit, "current_cost": cost, **verdict}
+        shape = "+".join(sorted(o["right"] for _p, o, _c in legs))
+        label = f"{market} {expiry} [{shape}]"
 
         if not verdict.get("close"):
-            print(f"  .. {market:<9} {occ['strike']:.0f}{occ['right']} hold — {verdict['reason']}")
-            row["action"] = "hold"
-            results.append(row)
+            print(f"  .. {label:<28} hold — {verdict['reason']}")
+            results.append({"market": market, "expiry": expiry, "legs": len(legs),
+                            "credit": credit, "current_cost": cost,
+                            "action": "hold", **verdict})
             continue
 
         if args.dry_run:
-            print(f"  ->  WOULD CLOSE {market} {occ['strike']:.0f}{occ['right']} x{qty} "
-                  f"— {verdict['reason']}")
-            row["action"] = "would_close"
-            results.append(row)
+            print(f"  ->  WOULD CLOSE {label} ({len(legs)} leg) — {verdict['reason']}")
+            results.append({"market": market, "expiry": expiry, "legs": len(legs),
+                            "action": "would_close", **verdict})
             continue
 
-        try:
-            import requests
-            H = {"Authorization": f"Bearer {tok}"} if tok else {}
-            rr = requests.post(
-                f"{base.rstrip('/')}/api/integrations/ibkr/option-leg",
-                json={"symbol": occ["symbol"], "expiry": occ["expiry"],
-                      "strike": occ["strike"], "right": occ["right"],
-                      "contracts": qty, "closingOnly": True},
-                timeout=60, headers=H)
-            out = rr.json() if rr.content else {}
-        except Exception as exc:  # noqa: BLE001
-            out = {"ok": False, "error": str(exc)[:200]}
+        # Close EVERY leg of the group. A group that half-closes is reported as
+        # such — the surviving leg is naked.
+        group_failed = 0
+        for p, occ, _c in legs:
+            qty = abs(int(float(p.get("quantity") or 0)))
+            try:
+                import requests
+                H = {"Authorization": f"Bearer {tok}"} if tok else {}
+                rr = requests.post(
+                    f"{base.rstrip('/')}/api/integrations/ibkr/option-leg",
+                    json={"symbol": occ["symbol"], "expiry": occ["expiry"],
+                          "strike": occ["strike"], "right": occ["right"],
+                          "contracts": qty, "closingOnly": True},
+                    timeout=60, headers=H)
+                out = rr.json() if rr.content else {}
+            except Exception as exc:  # noqa: BLE001
+                out = {"ok": False, "error": str(exc)[:200]}
 
-        if out.get("ok"):
-            closed += 1
-            row["action"] = "closed"
-            row["order_id"] = out.get("orderId")
-            print(f"  OK  CLOSED {market} {occ['strike']:.0f}{occ['right']} x{qty} "
-                  f"— {verdict['reason']}")
-        else:
-            failed += 1
-            row["action"] = "FAILED"
-            row["error"] = out.get("error") or out.get("reason") or out.get("status")
-            # A close that did not happen leaves a SHORT open, which is exactly
-            # the overnight exposure the time exit exists to prevent.
-            print(f"  !! FAILED to close {market} {occ['strike']:.0f}{occ['right']} "
-                  f"— STILL OPEN AND SHORT — {row['error']}")
-        results.append(row)
+            row = {"market": market, "expiry": expiry,
+                   "strike": occ["strike"], "right": occ["right"], "quantity": qty,
+                   **verdict}
+            if out.get("ok"):
+                closed += 1
+                row["action"] = "closed"
+                row["order_id"] = out.get("orderId")
+                print(f"  OK  CLOSED {market} {occ['strike']:.0f}{occ['right']} x{qty}")
+            else:
+                failed += 1
+                group_failed += 1
+                row["action"] = "FAILED"
+                row["error"] = out.get("error") or out.get("reason") or out.get("status")
+                print(f"  !! FAILED to close {market} {occ['strike']:.0f}{occ['right']} "
+                      f"— STILL OPEN AND SHORT — {row['error']}")
+            results.append(row)
+
+        if group_failed and group_failed < len(legs):
+            print(f"  !! {label} is now HALF-CLOSED — the surviving leg is NAKED")
+
+        # Record the EXIT against the decision that opened it, so the round
+        # trip is answerable from our own records rather than reconstructed
+        # from the broker by hand. Only when the whole group closed: a
+        # half-closed position has no exit price, and writing one would be a
+        # fiction. Non-fatal — a missing link must never abort the sweep.
+        if not group_failed:
+            _record_exit(base, tok, market, expiry, credit, cost,
+                         verdict.get("trigger"), unmarkable)
 
     if failed:
         print(f"\n  !! {failed} position(s) COULD NOT BE CLOSED and remain short.")

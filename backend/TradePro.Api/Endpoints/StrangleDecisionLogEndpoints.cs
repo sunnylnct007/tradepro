@@ -37,6 +37,18 @@ public static class StrangleDecisionLogEndpoints
         string? Detail = null, decimal? VolAtDecision = null,
         string? DataSource = null);
 
+    /// <summary>What actually happened to a decision — placement and exit.
+    /// Every field nullable: placement follows the decision, and the exit
+    /// follows that by hours. "Not yet known" must be representable, because
+    /// grading a row before its session closes is lookahead.</summary>
+    public sealed record ExecutionRow(
+        string Market, DateTime AsOf, string? ExpiryKind = null,
+        bool? Placed = null, bool? Partial = null, bool? Shadow = null,
+        string? BrokerOrderIds = null, decimal? CreditActual = null,
+        DateTime? PlacedAtUtc = null, decimal? ExitCostActual = null,
+        string? CloseTrigger = null, DateTime? ClosedAtUtc = null,
+        decimal? RealisedPnl = null);
+
     public static IEndpointRouteBuilder MapStrangleDecisionLogEndpoints(
         this IEndpointRouteBuilder app)
     {
@@ -86,6 +98,56 @@ public static class StrangleDecisionLogEndpoints
                      detail        = EXCLUDED.detail,
                      decided_at_utc = now();", rows);
             return Results.Ok(new { ok = true, rows = n });
+        });
+
+        // POST /execution — record what ACTUALLY happened to a decision.
+        //
+        // Owner, 31 Aug 2026: "f the strangell worked or not". The platform
+        // could not answer that from its own records — the decision log stops
+        // at the decision. Nothing said whether the order was placed, what we
+        // were FILLED at, or what it cost to close, so both figures had to be
+        // reconstructed from the broker by hand.
+        //
+        // Keyed on the SAME (market, as_of, expiry_kind) the decision upsert
+        // uses, so an execution can only ever attach to a decision that was
+        // genuinely recorded first. An execution with no decision is REFUSED
+        // rather than inserted: a fill with no recorded reasoning is exactly
+        // the row that makes a forward test unauditable.
+        g.MapPost("/execution", async (ExecutionRow row, NpgsqlDataSource db,
+                                       CancellationToken ct) =>
+        {
+            if (row is null || string.IsNullOrWhiteSpace(row.Market))
+                return Results.BadRequest(new { error = "market required" });
+
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var n = await conn.ExecuteAsync(@"
+                UPDATE strangle_decision_log SET
+                    placed           = COALESCE(@Placed, placed),
+                    partial          = COALESCE(@Partial, partial),
+                    shadow           = COALESCE(@Shadow, shadow),
+                    broker_order_ids = COALESCE(@BrokerOrderIds, broker_order_ids),
+                    credit_actual    = COALESCE(@CreditActual, credit_actual),
+                    placed_at_utc    = COALESCE(@PlacedAtUtc, placed_at_utc),
+                    exit_cost_actual = COALESCE(@ExitCostActual, exit_cost_actual),
+                    close_trigger    = COALESCE(@CloseTrigger, close_trigger),
+                    closed_at_utc    = COALESCE(@ClosedAtUtc, closed_at_utc),
+                    realised_pnl     = COALESCE(@RealisedPnl, realised_pnl)
+                WHERE market = @Market
+                  AND as_of  = @AsOf
+                  AND COALESCE(expiry_kind, '') = COALESCE(@ExpiryKind, '');", row);
+
+            if (n == 0)
+                // FAIL LOUD. Silently inserting would create a fill with no
+                // recorded reasoning — unauditable, and worse than no row.
+                return Results.Json(new
+                {
+                    ok = false,
+                    error = $"no decision recorded for {row.Market} {row.AsOf:yyyy-MM-dd} "
+                          + $"[{row.ExpiryKind}] — an execution cannot be attached to a "
+                          + "decision that was never logged",
+                }, statusCode: 404);
+
+            return Results.Ok(new { ok = true, updated = n });
         });
 
         // GET — the history, newest first. `market` and `decision` narrow it;
