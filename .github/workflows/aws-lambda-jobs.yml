@@ -33,6 +33,24 @@ permissions:
   id-token: write
   contents: read
 
+# ONE LAMBDA DEPLOY AT A TIME.
+#
+# 31 Aug 2026: two merges landed minutes apart, each triggered this workflow,
+# and the second died with
+#   ResourceConflictException: An update is in progress for resource tradepro-jobs
+# AWS permits exactly one in-flight update per function. The failure left the
+# Lambda running the PREVIOUS image while main had moved on — the same
+# main-vs-schedule drift this workflow was written to end, arriving by a
+# different route.
+#
+# cancel-in-progress is FALSE deliberately. Cancelling the older run would be
+# fine for the image, but this workflow also deploys; a cancelled deploy could
+# leave the function pointing at an image whose run never completed. Queue
+# them instead — a deploy waiting sixty seconds costs nothing.
+concurrency:
+  group: aws-lambda-jobs-deploy
+  cancel-in-progress: false
+
 env:
   AWS_REGION: eu-west-2
   AWS_ROLE_ARN: arn:aws:iam::108703420282:role/ccit-dev-energycosmos-deploy
@@ -96,10 +114,38 @@ jobs:
       # workflow reported success.
       - name: Point the function at the new image
         run: |
-          aws lambda update-function-code \
-            --function-name "$FUNCTION_NAME" \
-            --image-uri "${{ steps.tags.outputs.image_sha }}" \
-            --publish >/dev/null
+          # Wait for any update ALREADY in flight before starting ours. The
+          # concurrency group serialises this workflow, but not a deploy
+          # started from the console or by another workflow, and AWS allows
+          # only one in-flight update per function.
+          aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+
+          # Retry the conflict specifically. `wait` above closes the common
+          # case; this covers an update that begins in the gap between the
+          # wait returning and the call landing.
+          for attempt in 1 2 3; do
+            if aws lambda update-function-code \
+                 --function-name "$FUNCTION_NAME" \
+                 --image-uri "${{ steps.tags.outputs.image_sha }}" \
+                 --publish >/dev/null 2>/tmp/lambda-err; then
+              break
+            fi
+            if ! grep -q ResourceConflictException /tmp/lambda-err; then
+              # A real error — fail loudly rather than retrying into it.
+              cat /tmp/lambda-err >&2
+              exit 1
+            fi
+            echo "attempt $attempt: another update in flight, waiting..."
+            aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+            # An `if`, NOT `[ ... ] && { ... }`. This step runs under bash -e,
+            # where that form returns non-zero on attempts 1 and 2 and kills
+            # the script — failing on the first retry, which is the exact case
+            # the loop exists to survive. Conditions of `if` are exempt.
+            if [ "$attempt" = 3 ]; then
+              cat /tmp/lambda-err >&2
+              exit 1
+            fi
+          done
           aws lambda wait function-updated --function-name "$FUNCTION_NAME"
           echo "now running: $(aws lambda get-function --function-name "$FUNCTION_NAME" --query 'Code.ImageUri' --output text)"
 
