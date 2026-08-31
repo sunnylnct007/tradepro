@@ -1195,6 +1195,7 @@ class BarStore:
         resolution: str,
         start_utc: datetime,
         end_utc: datetime,
+        now_utc: datetime | None = None,
     ) -> int:
         """Bars we EXPECT to see, counted over the same interval the rows are
         filtered on.
@@ -1226,9 +1227,46 @@ class BarStore:
         unreachable and must not be counted.
         """
         sessions = plugin.expected_session_dates(start_utc, end_utc)
+
+        # ALSO EXCLUDE SESSIONS THAT HAVE NOT SETTLED (31 Aug 2026).
+        #
+        # Reachability above is a TIMESTAMP test: it drops a session whose
+        # midnight is at or past `end_utc`. It does not drop TODAY. On a trading
+        # day, today's midnight is already in the past, so the session is counted
+        # in full the moment the date turns over — 78 5m bars expected from a
+        # market that does not open for another five hours.
+        #
+        # Measured: every scheduled 5m harvest from 03:56 on Mon 31 Aug reported
+        # `0G/216S/28B`, byte-identical, ten runs running. Nothing was wrong with
+        # the data — AAPL held 390 rows, 5 sessions x 78 bars, 100% ibkr_web,
+        # complete through Friday's close. The whole universe was demoted from
+        # GOLD to SILVER every 35 minutes because the denominator counted a
+        # session that had not happened.
+        #
+        # This is the exact failure this docstring already warns about, one step
+        # further along: a grade moving with the clock rather than with the data.
+        # A run-log that cries partial every 35 minutes is how a real outage goes
+        # unnoticed.
+        #
+        # `_last_settled_session` is the same helper the FETCH path uses to avoid
+        # requesting today's bars. One half of the store knew today's bar does
+        # not exist yet; the counting half asked for it anyway.
+        # A plugin that does not model a close cannot say what has settled, and
+        # `_last_settled_session` already treats that as "cannot tell — leave the
+        # window alone". A plugin that does not define the method at all is the
+        # same situation, so it must behave the same way rather than raising:
+        # the settled clamp is a refinement, not a requirement.
+        effective_end = end_utc
+        if hasattr(plugin, "session_close_utc"):
+            _settled = BarStore._last_settled_session(
+                plugin, start_utc, end_utc,
+                now_utc=now_utc or datetime.now(timezone.utc))
+            if _settled is not None:
+                effective_end = min(end_utc, _settled)
+
         reachable = [
             d for d in sessions
-            if datetime(d.year, d.month, d.day, tzinfo=timezone.utc) < end_utc
+            if datetime(d.year, d.month, d.day, tzinfo=timezone.utc) < effective_end
         ]
         return sum(plugin.expected_bar_count(resolution, d) for d in reachable)
 
