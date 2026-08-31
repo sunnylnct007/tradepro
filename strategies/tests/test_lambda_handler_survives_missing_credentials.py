@@ -51,13 +51,14 @@ def test_an_unknown_job_returns_the_known_list_rather_than_dying():
     assert body["ok"] is False
 
 
-def test_the_guard_is_baseexception_not_exception():
+def test_the_guard_names_systemexit():
     """Pinned at the source, because `except Exception` here reads as correct
     and is not. Anything reaching load_credentials can EXIT rather than raise."""
     h = _handler_module()
     src = open(h.__file__).read()
     i = src.find("def _report_provenance")
     j = src.find("\ndef ", i + 10)
-    assert "except BaseException" in src[i:j], (
-        "_report_provenance must catch BaseException — SystemExit is not an "
-        "Exception and load_credentials exits rather than raising")
+    guard = src[i:j]
+    assert "SystemExit" in guard or "BaseException" in guard, (
+        "_report_provenance must catch SystemExit explicitly — it is not an "
+        "Exception, and load_credentials exits rather than raising")

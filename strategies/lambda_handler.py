@@ -107,7 +107,7 @@ def _provenance() -> dict:
             out["detail"] = (f"jobs image is at {commit[:12]} while the API is at "
                              f"{api[:12]} — if this persists past a rollout the "
                              f"scheduled jobs are running stale code")
-    except Exception as exc:  # noqa: BLE001 — provenance must never break the job
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 — never break the job
         out["status"] = "warn"
         out["detail"] = f"could not read the API commit: {str(exc)[:120]}"
     return out
@@ -124,19 +124,20 @@ def _report_provenance(job: str) -> dict:
             summary=(f"job={job} image={prov['jobs_commit']} "
                      f"api={prov['api_commit'] or 'unknown'}"),
         )
-    except BaseException:  # noqa: BLE001,B036 — see below; MUST be BaseException
-        # `except Exception` IS NOT ENOUGH HERE, and that took the whole Lambda
-        # down on 31 Aug 2026 — every job, including the 15-minute alerts.
+    except (Exception, SystemExit):  # noqa: BLE001 — logging must never fail the job
+        # BOTH, and SystemExit is the one that matters. `except Exception` alone
+        # took the whole Lambda down on 31 Aug 2026 — every scheduled job and
+        # the 15-minute alerts — because log_run -> load_credentials() calls
+        # sys.exit() when credentials are absent, and SystemExit derives from
+        # BaseException, not Exception. It sailed through a guard whose own
+        # docstring said "must never fail the job".
         #
-        # log_run -> load_credentials(), which calls sys.exit() when the API
-        # credentials are absent. SystemExit derives from BaseException, NOT
-        # Exception, so it sailed straight through a guard whose own docstring
-        # says "must never fail the job" and killed the runtime with exit 2.
-        # Lambda has no credentials file, so this fired on EVERY invocation.
+        # Not BaseException: that would also swallow KeyboardInterrupt and
+        # GeneratorExit, which should still propagate.
         #
-        # The lesson generalises: anything in this codebase that reaches
-        # load_credentials can EXIT rather than raise. A best-effort call must
-        # therefore catch BaseException, or it is not best-effort.
+        # The lesson generalises: anything in this codebase reaching
+        # load_credentials can EXIT rather than raise, so a best-effort call
+        # must name SystemExit explicitly or it is not best-effort.
         pass
     if prov["status"] != "ok":
         log.warning("DEPLOY PROVENANCE %s: %s", prov["status"].upper(), prov["detail"])

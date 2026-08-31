@@ -40,7 +40,22 @@ def log_runs(events: list[dict], *, base: str | None = None, token: str | None =
         resp = requests.post(f"{base.rstrip('/')}/api/ingest/run-log",
                              headers=headers, json={"events": events}, timeout=10)
         return resp.status_code == 200
-    except Exception as exc:  # noqa: BLE001 — never let logging break the op
+    # SystemExit IS CAUGHT DELIBERATELY, and it is the whole point.
+    #
+    # This function's contract is the comment below: never let logging break the
+    # op. `except Exception` did not deliver that, because `load_credentials()`
+    # calls `sys.exit(2)` when the api-base-url/api-token pair is unreachable,
+    # and SystemExit derives from BaseException, not Exception. So on any host
+    # without credentials, a best-effort log line KILLED ITS CALLER.
+    #
+    # Measured 31 Aug 2026: the tradepro-jobs Lambda died with
+    # `Runtime.ExitError: exit status 2` immediately after logging
+    # "running job=...". No traceback, because the process did not raise — it
+    # exited. Every scheduled job on that function would have crashed.
+    #
+    # KeyboardInterrupt is deliberately NOT caught: a human interrupting a run
+    # must still be able to stop it.
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 — never let logging break the op
         _log.debug("run_log delivery failed (non-fatal): %s", exc)
         return False
 
