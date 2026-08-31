@@ -641,10 +641,36 @@ def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
                        + ", ".join(f"{s}×{c}" for s, c in sorted(counts.items()))
                        + ")")
             if weak:
-                bar_trust = "fallback"
-                detail += (f"; {sum(weak.values())} of those {n} are NOT from the "
+                _w = sum(weak.values())
+                detail += (f"; {_w} of those {n} are NOT from the "
                            f"golden source, and the regime/HV/52w-range windows "
                            f"all read across them")
+                # MATERIALITY, NOT THE RAW FLAG — the same rule this function
+                # already applies to missing bars a few lines below.
+                #
+                # "Any weak bar at all" downgraded 73 of 82 rows on the live
+                # board, and 77 of 82 ended up worst=fallback, almost always on
+                # ONE yfinance close in twenty. A badge that fires on 94% of the
+                # board discriminates nothing — the exact failure the comment in
+                # ProvenanceCell records for 17 Aug, when all 82 rows read
+                # "MISSING" and the column cost a table width to say so.
+                #
+                # And the contamination was not distorting anything. Checked
+                # against the series: GDX 27 Aug closed 103.69 from yfinance,
+                # sitting smoothly between 102.76 and 99.65; PLTR's yfinance
+                # bars are its two quietest days while the +8.4% jump beside
+                # them is an ibkr_web bar. One agreeing close does not move
+                # HV30 or the Ichimoku regime.
+                #
+                # The XOM case that motivated the strict rule — 10 of 20 from
+                # yfinance — still grades fallback, which is the point: the
+                # threshold keeps the signal and drops the noise. The count
+                # stays in the detail either way, so nothing is hidden; only
+                # the row's TRUST GRADE stops moving on an immaterial mix.
+                if _w > 2 and _w > 0.10 * n:
+                    bar_trust = "fallback"
+                else:
+                    detail += " — immaterial to the windows, grade unchanged"
         # Materiality, not the raw flag: BarStore grades coverage against a
         # CALENDAR estimate, so one market holiday makes `coverage_complete`
         # False on a perfectly healthy 275-bar history. Saying "INCOMPLETE"
