@@ -694,7 +694,7 @@ def _monthly_expiry(dte_target: int, today: _dt.date | None = None) -> str:
     return min(future, key=lambda d: abs((d - today).days - dte_target)).isoformat()
 
 
-def place_paper(row: dict, contracts: int = 1) -> dict | None:
+def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | None:
     """Place BOTH legs of this candidate on the IBKR PAPER account.
 
     THE POINT. Every figure this strategy publishes is a Black-Scholes premium
@@ -713,8 +713,25 @@ def place_paper(row: dict, contracts: int = 1) -> dict | None:
     cfg = MARKETS.get(row.get("market") or "")
     if not cfg or not cfg.get("paper_trade"):
         return {"placed": False, "reason": "market is not paper-tradeable"}
-    if row.get("status") != "CANDIDATE":
+    is_shadow = row.get("status") != "CANDIDATE"
+    if is_shadow and not shadow:
         return {"placed": False, "reason": "not a candidate"}
+    # SHADOW PLACEMENT — trade the days the gate REFUSED, on paper only.
+    #
+    # Owner, 31 Aug 2026: "can we just put in paper trading the index even if
+    # they are volatile". It is the same argument as shadow-RECORDING the
+    # stand-asides, except with REAL FILLS instead of modelled ones: the gate
+    # is the entire edge of this strategy and nobody has ever measured what it
+    # saves you at actual option prices. On paper that measurement is free.
+    #
+    # THE GATE IS A STRATEGY RULE. Provisional strikes and a shut session are
+    # CORRECTNESS rules — placing off a stale close or into a closed market
+    # produces a fill that describes nothing. Only the first is relaxed; the
+    # checks below still refuse.
+    #
+    # Every shadow fill is tagged, so the two populations never blend. A month
+    # of these answers "what is the gate worth?" in real money rather than
+    # Black-Scholes.
     if row.get("provisional"):
         return {"placed": False,
                 "reason": "strikes are PROVISIONAL — refusing to place off a stale close"}
@@ -742,7 +759,10 @@ def place_paper(row: dict, contracts: int = 1) -> dict | None:
         return {"placed": False, "reason": f"request failed: {str(exc)[:160]}",
                 "request": body}
     return {"placed": bool(out.get("ok")), "request": body, "response": out,
-            "partial": bool(out.get("partial"))}
+            "partial": bool(out.get("partial")),
+            # Tagged so the two populations are never averaged together.
+            "shadow": is_shadow,
+            "gate_said": "stand aside" if is_shadow else "trade"}
 
 
 
@@ -1428,6 +1448,10 @@ def main() -> int:
                          "flagged paper_trade. Refuses on provisional strikes, a "
                          "shut session, or a non-candidate row.")
     ap.add_argument("--contracts", type=int, default=1)
+    ap.add_argument("--place-shadow", action="store_true",
+                    help="ALSO place on days the volatility gate refused — paper "
+                         "only, tagged shadow=true. Measures what the gate is "
+                         "worth at real fills instead of modelled prices.")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
 
@@ -1456,12 +1480,13 @@ def main() -> int:
 
     if args.place:
         for r in rows:
-            res = place_paper(r, contracts=args.contracts)
+            res = place_paper(r, contracts=args.contracts, shadow=args.place_shadow)
             if res:
                 r["paper_order"] = res
                 if res.get("placed"):
+                    tag = " [SHADOW — the gate said stand aside]" if res.get("shadow") else ""
                     print(f"  PLACED {r['market']}: {res['request']['putStrike']:,.0f}P + "
-                          f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}")
+                          f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}{tag}")
                 elif res.get("partial"):
                     print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
                 elif r.get("status") == "CANDIDATE":

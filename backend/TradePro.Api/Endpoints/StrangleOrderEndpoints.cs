@@ -124,6 +124,75 @@ public static class StrangleOrderEndpoints
         })
         .WithName("PlaceStrangle");
 
+        // POST /api/integrations/ibkr/strangle/close — buy BOTH legs back.
+        //
+        // Owner, 31 Aug 2026: "a auto close one on either profit or end of
+        // day". This is the exit half; the decision of WHEN lives in the
+        // Python job, because it needs the credit collected and this endpoint
+        // does not.
+        //
+        // BUYS BOTH LEGS, and reports them separately for the same reason the
+        // open does: closing one leg of a strangle leaves the other NAKED. A
+        // half-closed position is a different and worse trade than either the
+        // strangle or being flat, and it must never be summarised as "closed".
+        app.MapPost("/integrations/ibkr/strangle/close", async (
+            StrangleRequest req,
+            IBKRClient ibkr,
+            ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("StrangleClose");
+            if (!ibkr.IsEnabled)
+                return Results.Json(new { error = "IBKR disabled" }, statusCode: 503);
+            if (!ibkr.AllowOrders)
+                return Results.Json(new
+                {
+                    error = ibkr.BlockedForLive
+                        ? "REFUSED: live account. TradePro places no orders to live, ever."
+                        : "order placement is off (AllowOrders=false)",
+                    blockedForLive = ibkr.BlockedForLive,
+                }, statusCode: 403);
+            if (req is null || string.IsNullOrWhiteSpace(req.Symbol)
+                || req.PutStrike <= 0 || req.CallStrike <= 0 || req.Contracts <= 0)
+                return Results.BadRequest(new { error = "symbol, expiry, strikes, contracts required" });
+
+            var sym = req.Symbol.Trim().ToUpperInvariant();
+            log.LogWarning("STRANGLE CLOSE (paper): BUY {Sym} {Exp} {Put}P + {Call}C x{Qty}",
+                sym, req.Expiry, req.PutStrike, req.CallStrike, req.Contracts);
+
+            var put = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.PutStrike, "P", ct);
+            var call = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.CallStrike, "C", ct);
+            if (put is null || call is null)
+                return Results.Json(new
+                {
+                    ok = false, stage = "resolve",
+                    error = "could not resolve one or both contracts — NOTHING was closed",
+                    putResolved = put is not null, callResolved = call is not null,
+                }, statusCode: 502);
+
+            var putRes = await ibkr.PlaceMarketOrderAsync(put.Value, "BUY", req.Contracts, ct);
+            var callRes = await ibkr.PlaceMarketOrderAsync(call.Value, "BUY", req.Contracts, ct);
+            var putOk = putRes.Status == "ACCEPTED" && putRes.OrderId is not null;
+            var callOk = callRes.Status == "ACCEPTED" && callRes.OrderId is not null;
+            var partial = putOk ^ callOk;
+            if (partial)
+                log.LogError("PARTIAL CLOSE on {Sym}: put={PutOk} call={CallOk} — the "
+                           + "leg still open is NAKED", sym, putOk, callOk);
+
+            return Results.Json(new
+            {
+                ok = putOk && callOk,
+                partial,
+                warning = partial
+                    ? "PARTIAL — only one leg closed. The remaining leg is a NAKED short."
+                    : null,
+                symbol = sym, expiry = req.Expiry, contracts = req.Contracts,
+                put = new { orderId = putRes.OrderId, status = putRes.Status, reason = putRes.StatusReason },
+                call = new { orderId = callRes.OrderId, status = callRes.Status, reason = callRes.StatusReason },
+            }, statusCode: (putOk && callOk) ? 200 : 502);
+        })
+        .WithName("CloseStrangle");
+
         return app;
     }
 }

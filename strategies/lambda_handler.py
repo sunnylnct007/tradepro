@@ -52,7 +52,29 @@ STALE_AFTER_DAYS = 21
 
 # job name -> (module, argv). Nothing here may need local disk beyond /tmp.
 JOBS: dict[str, tuple[str, list[str]]] = {
-    "index_strangle_paper": ("tradepro_strategies.cli.index_strangle_paper", ["--email"]),
+    # --place --place-shadow: place EVERY day, including days the volatility
+    # gate refused, tagged shadow=true.
+    #
+    # Owner, 31 Aug 2026: "the whole purpose is to see the effect of the index
+    # strangle in paper trading ... i know we have rule saying enter when
+    # volatality is less but lets capture execution ... as that will be key to
+    # our platform".
+    #
+    # He is right and it costs nothing. Every published figure for this
+    # strategy is Black-Scholes off a volatility index — no skew, no bid-ask,
+    # no evidence anyone would be filled there. Real paper fills are the one
+    # input no backtest can manufacture, and the days the gate REFUSED are the
+    # ones that measure what the gate is actually worth. On paper that
+    # measurement is free; skipping it throws away the only honest prices this
+    # project will ever have.
+    #
+    # The gate is NOT weakened — it still decides `status`, and every fill is
+    # tagged signal vs shadow so the two populations are never averaged
+    # together.
+    "index_strangle_paper": ("tradepro_strategies.cli.index_strangle_paper",
+                             ["--email", "--place", "--place-shadow"]),
+    # The exit half: profit target, or the bell. Runs through the session.
+    "index_strangle_close": ("tradepro_strategies.cli.index_strangle_close", []),
     "index_strangle_alert": ("tradepro_strategies.cli.index_strangle_alert", ["--email"]),
     "post_earnings_puts":   ("tradepro_strategies.cli.post_earnings_puts", ["--push"]),
 }
