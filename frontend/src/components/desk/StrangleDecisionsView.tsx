@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiGet } from "../../api/client";
+import { api } from "../../api/client";
 
 /**
  * Index-strangle decision history — what was decided each day, and WHY.
@@ -44,8 +44,8 @@ export function StrangleDecisionsView() {
   const load = useCallback(async () => {
     try {
       const [d, s] = await Promise.all([
-        apiGet<{ rows: Row[] }>(`/api/strangle-decisions?days=${days}`),
-        apiGet<{ rows: Summary[] }>(`/api/strangle-decisions/summary?days=${days}`),
+        api.strangleDecisions(days) as Promise<{ rows: Row[] }>,
+        api.strangleDecisionSummary(days) as Promise<{ rows: Summary[] }>,
       ]);
       setRows(d.rows || []); setSum(s.rows || []); setErr(null);
     } catch (e) { setErr(String((e as Error)?.message || e)); }

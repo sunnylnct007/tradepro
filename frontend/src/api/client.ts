@@ -104,6 +104,14 @@ export interface OptionsPositionEventBody {
 
 export const api = {
   health: () => get<{ status: string }>("/health"),
+  // Strangle decision history — every evaluation INCLUDING stand-asides, which
+  // are the rows that show whether the volatility gate is set correctly.
+  strangleDecisions: (days = 30, market = "") =>
+    get<{ rows: Record<string, unknown>[] }>(
+      `/api/strangle-decisions?days=${days}${market ? `&market=${market}` : ""}`),
+  strangleDecisionSummary: (days = 30) =>
+    get<{ rows: Record<string, unknown>[] }>(
+      `/api/strangle-decisions/summary?days=${days}`),
   // Integration/provider readiness — broker connectivity + cash, LLM, Finnhub.
   // Public, no auth. Feeds the Health page + the cockpit caveats banner.
   integrationsHealth: () =>

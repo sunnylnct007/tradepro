@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
 import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsPayoff";
+import { WheelBoardTable, type WheelRow } from "./WheelBoardTable";
 
 /**
  * Options Desk — the wheel (cash-secured put → assignment → covered call),
@@ -779,7 +780,7 @@ function btnStyle(enabled: boolean, color = TONE.ok): React.CSSProperties {
   };
 }
 
-function MorningCandidatesPanel({ candidates, all, onAnalyze, onRecord, busy }: {
+function MorningCandidatesPanel({ candidates, all }: {
   candidates: Candidate[]; all: Candidate[]; onAnalyze: (c: Candidate) => void; onRecord: (c: Candidate) => void; busy: boolean;
 }) {
   // Market-level verdict + nearest-to-eligible: "0 eligible" with no context
@@ -823,40 +824,7 @@ function MorningCandidatesPanel({ candidates, all, onAnalyze, onRecord, busy }: 
           )}
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {candidates.map((c) => (
-            <div key={c.symbol} style={{
-              display: "flex", alignItems: "center", gap: 12, padding: "10px 14px",
-              borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", flexWrap: "wrap",
-            }}>
-              <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", minWidth: 56 }}>{c.symbol}</span>
-              <span style={{ fontSize: 12 }}>
-                SELL PUT ${c.suggested_strike} · Δ{(c.suggested_delta ?? 0).toFixed(2)}
-                {c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)} premium` : ""}
-              </span>
-              {c.annualized_yield_pct != null && (
-                <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", fontWeight: 600, color: TONE.ok }}>
-                  {c.annualized_yield_pct.toFixed(0)}%/yr
-                </span>
-              )}
-              {c.size_fit_pct != null && (
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }} title="contract notional as % of account NAV — informational, not a gate">
-                  {c.size_fit_pct.toFixed(1)}% of NAV
-                </span>
-              )}
-              {c.put_vs_buy && (
-                <span style={{ fontSize: 11, color: c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? TONE.ok : TONE.dim }}
-                      title={`Buy now $${c.put_vs_buy.buy_now_price} vs effective cost if assigned $${c.put_vs_buy.sell_put_effective_cost_if_assigned}`}>
-                  {c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? "-" : "+"}{Math.abs(c.put_vs_buy.discount_vs_buy_now_pct).toFixed(1)}% vs buying now
-                </span>
-              )}
-              <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                <button onClick={() => onAnalyze(c)} style={btnStyle(true, TONE.line)}>Analyze</button>
-                <button disabled={busy} onClick={() => onRecord(c)} style={btnStyle(!busy)}>Record CSP</button>
-              </div>
-            </div>
-          ))}
-        </div>
+        <WheelBoardTable rows={candidates as unknown as WheelRow[]} />
       )}
     </div>
   );
