@@ -4353,9 +4353,14 @@ def get_open_option_positions() -> dict:
     Reads the broker, not the OMS: the broker is golden source for what is
     actually held. Short premium is the norm here, so a NEGATIVE quantity is
     expected and a FALLING price is a GAIN.
+
+    Forces a FRESH read. IBKR serves positions from a cache that does not clear
+    on its own — on 31 Aug 2026 three closed puts kept reporting as open, with
+    identical P&L, for minutes after their orders filled. An agent asked to
+    verify what is held must not be handed that snapshot.
     """
     try:
-        d = _get("/api/integrations/ibkr/positions")
+        d = _get("/api/integrations/ibkr/positions", params={"fresh": "true"})
     except ApiUnreachable as exc:
         return _unreachable_envelope("get_open_option_positions", exc)
     if d.get("error"):

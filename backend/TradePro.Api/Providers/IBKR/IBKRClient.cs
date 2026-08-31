@@ -608,13 +608,52 @@ public sealed class IBKRClient
     // ─── Positions ──────────────────────────────────────────────────
 
     /// <summary>GET /portfolio/{accountId}/positions/0 — first page of the
-    /// configured account's positions, mapped to the neutral IBKR shape.</summary>
-    public async Task<IBKRPositionsResult> GetPositionsAsync(CancellationToken ct = default)
+    /// configured account's positions, mapped to the neutral IBKR shape.
+    ///
+    /// IBKR SERVES THIS FROM A CACHE. Discovered 31 Aug 2026: three short puts
+    /// were bought back, all three orders returned Filled with remainingQty 0,
+    /// and this endpoint kept reporting them OPEN — with byte-identical
+    /// unrealised P&L — across repeated reads over several minutes. Nothing
+    /// here caches; the staleness is IBKR's own, and it clears only when
+    /// /positions/invalidate is called.
+    ///
+    /// So "did it close?" was a question this platform could not answer, which
+    /// is the same fill-blindness that has cost this project whole sessions.
+    /// Worse, the flatten sweep VERIFIES against these positions before buying
+    /// — a stale read there means refusing a real close, or worse, believing a
+    /// position exists that does not.
+    ///
+    /// Pass forceFresh after anything that MUTATES the book. It costs one extra
+    /// round trip, which is far cheaper than a wrong answer about what is held.
+    /// </summary>
+    public async Task<IBKRPositionsResult> GetPositionsAsync(
+        CancellationToken ct = default, bool forceFresh = false)
     {
         if (!_options.IsEnabled)
             return new IBKRPositionsResult(Array.Empty<IBKRPosition>(), "IBKR disabled", 0);
         try
         {
+            if (forceFresh)
+            {
+                // Best-effort: if the invalidate fails we still read, but the
+                // read is then possibly stale — which the caller is told about
+                // rather than left to assume freshness it did not get.
+                try
+                {
+                    using var inv = await SendWithAuthAsync(
+                        HttpMethod.Post,
+                        $"v1/api/portfolio/{_options.AccountId}/positions/invalidate", null, ct);
+                    if (!inv.IsSuccessStatusCode)
+                        _log.LogWarning(
+                            "IBKR positions/invalidate returned {Status} — the positions "
+                            + "read that follows may be STALE", (int)inv.StatusCode);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "IBKR positions/invalidate failed — read may be STALE");
+                }
+            }
+
             using var resp = await SendWithAuthAsync(
                 HttpMethod.Get, $"v1/api/portfolio/{_options.AccountId}/positions/0", null, ct);
             var text = await resp.Content.ReadAsStringAsync(ct);

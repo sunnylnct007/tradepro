@@ -1474,9 +1474,18 @@ public static class IntegrationsEndpoints
         // places NO order. When the tradepro/ibkr secret is absent the client
         // is disabled and we report {enabled:false, note} so the UI degrades
         // gracefully (renders nothing) rather than erroring the panel.
+        //
+        // ?fresh=true invalidates IBKR's OWN cache first. IBKR serves this
+        // endpoint from a cache that does not clear on its own: on 31 Aug 2026
+        // three puts were bought back, all three orders returned Filled with
+        // remainingQty 0, and this route reported them still open — with
+        // byte-identical P&L — for minutes afterwards. Anything asking "did it
+        // actually close?" must pass fresh=true; the default stays cheap for
+        // the panels that poll it every minute.
         app.MapGet("/integrations/ibkr/positions", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
-            CancellationToken ct) =>
+            CancellationToken ct,
+            bool fresh = false) =>
         {
             if (!ibkr.IsEnabled)
             {
@@ -1488,7 +1497,7 @@ public static class IntegrationsEndpoints
                     positions = Array.Empty<object>(),
                 });
             }
-            var result = await ibkr.GetPositionsAsync(ct);
+            var result = await ibkr.GetPositionsAsync(ct, forceFresh: fresh);
             if (result.Error is not null)
             {
                 // Surface the verbatim IBKR error like the other broker
