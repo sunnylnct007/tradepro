@@ -336,15 +336,25 @@ def price_candidates(cands: list[dict], base: str, token: str | None) -> int:
             #
             # Giving up there produced "chain returned the leg but no bid/ask" on a
             # contract IBKR quotes perfectly well.
-            legs = []
-            for _try in range(4):
+            legs, _tries = [], 0
+            for _try in range(6):
+                _tries = _try + 1
                 r = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{sym}",
                                  params={"maxStrikes": 60, "right": "P", "expiry": chosen},
                                  headers=H, timeout=180)
                 legs = (r.json() or {}).get("legs") or [] if r.status_code == 200 else []
                 if any(l.get("bid") is not None or l.get("ask") is not None for l in legs):
                     break
-                _t.sleep(2.5)
+                # 5s, NOT 2.5s. IBKR computes these fields "on an interval" and
+                # returns them "when updated", so the gap between polls — not the
+                # number of polls — is what decides whether the second call has
+                # anything in it. Measured on two expiries neither of which had
+                # been requested that day:
+                #     call 1 -> 42 legs, 0 quoted     call 1 -> 57 legs, 0 quoted
+                #     call 2 -> 42 legs, 42 quoted    call 2 -> 57 legs, 43 quoted
+                # both after a 5s gap. At 2.5s the run gave up on all four polls
+                # and reported "no bid/ask" on a contract that quotes fine.
+                _t.sleep(5.0)
         except Exception as exc:  # noqa: BLE001
             c["pricing_note"] = f"chain unavailable ({str(exc)[:60]})"
             continue
@@ -406,7 +416,10 @@ def price_candidates(cands: list[dict], base: str, token: str | None) -> int:
                 c["assign_prob_pct"] = round(abs(float(leg["delta"])) * 100, 1)
             priced += 1
         else:
-            c["pricing_note"] = "chain returned the leg but no bid/ask"
+            # Say how hard we tried. "no bid/ask" alone sent me hunting a
+            # subscription problem that did not exist.
+            c["pricing_note"] = (f"chain returned the leg but no bid/ask after "
+                                 f"{_tries} poll(s) over ~{int((_tries - 1) * 5)}s")
     return priced
 
 
