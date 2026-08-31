@@ -155,3 +155,50 @@ def test_every_known_job_is_still_registered():
     for job, (module, argv) in H.JOBS.items():
         assert module.startswith("tradepro_strategies."), job
         assert isinstance(argv, list), job
+
+
+def test_a_job_that_exits_returns_a_readable_error_not_a_runtime_crash(env, monkeypatch):
+    """THE regression, 31 Aug 2026. `post_earnings_puts` calls
+    `load_credentials()`, which prints the sources it checked and then exits 2
+    when none has the api-base-url/api-token pair. Inside Lambda that terminated
+    the runtime and the caller saw only:
+
+        {"errorType": "Runtime.ExitError",
+         "errorMessage": "Error: Runtime exited with error: exit status 2"}
+
+    No traceback, because nothing raised. The actual reason existed only in
+    CloudWatch — not in the run log, not in the invoke response, not in the UI
+    that triggered the job.
+    """
+    env.setenv("JOBS_COMMIT", SHA)
+    env.setenv("JOBS_BUILD_TIME", _now_iso())
+    _patch(env, {"deploy": {"backendCommit": SHA}})
+
+    def _exits(job):
+        raise SystemExit(2)
+
+    monkeypatch.setattr(H, "_run", _exits)
+    resp = H.handler({"job": "post_earnings_puts"}, None)
+    import json as _json
+    body = _json.loads(resp["body"])
+    assert resp["statusCode"] == 500
+    assert body["ok"] is False
+    assert body["rc"] == 2
+    assert "sys.exit(2)" in body["error"], body["error"]
+    assert "credential" in body["error"], body["error"]
+
+
+def test_an_ordinary_job_crash_still_reports_its_message(env, monkeypatch):
+    """Widening to SystemExit must not swallow the normal path."""
+    env.setenv("JOBS_COMMIT", SHA)
+    env.setenv("JOBS_BUILD_TIME", _now_iso())
+    _patch(env, {"deploy": {"backendCommit": SHA}})
+
+    def _raises(job):
+        raise RuntimeError("chain unavailable")
+
+    monkeypatch.setattr(H, "_run", _raises)
+    import json as _json
+    body = _json.loads(H.handler({"job": "post_earnings_puts"}, None)["body"])
+    assert body["ok"] is False
+    assert "chain unavailable" in body["error"]

@@ -213,6 +213,28 @@ def handler(event, context):  # noqa: ANN001 — AWS signature
     prov = _report_provenance(job)
     try:
         result = _run(job)
+    except SystemExit as exc:
+        # A JOB THAT EXITS MUST STILL EXPLAIN ITSELF (31 Aug 2026).
+        #
+        # Several CLIs call sys.exit() for an expected, well-described failure —
+        # `push_to_api.load_credentials()` prints exactly which sources it
+        # checked and then exits 2. Inside Lambda that terminated the runtime,
+        # and the caller saw only:
+        #
+        #     {"errorType": "Runtime.ExitError",
+        #      "errorMessage": "Error: Runtime exited with error: exit status 2"}
+        #
+        # with no traceback, because nothing raised. The real reason was sitting
+        # in CloudWatch two lines earlier and nowhere else — not in the run log,
+        # not in the invoke response, not in the UI that triggered it.
+        #
+        # SystemExit is not an Exception, so the handler below never saw it.
+        log.error("job %s exited with status %s", job, exc.code)
+        result = {"ok": False, "job": job, "rc": exc.code,
+                  "error": (f"the job called sys.exit({exc.code}) — this is usually a "
+                            f"missing credential or config; the CLI prints the specific "
+                            f"reason to stderr immediately before exiting, see the "
+                            f"CloudWatch line above this one")}
     except Exception as exc:  # noqa: BLE001 — a crash must return a READABLE reason
         log.error("job %s failed: %s\n%s", job, exc, traceback.format_exc())
         result = {"ok": False, "job": job, "error": str(exc)[:400]}
