@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
+import { OptionPositionsCard } from "./OptionPositionsCard";
 
 /**
  * Index-strangle decision history — what was decided each day, and WHY.
@@ -59,6 +60,10 @@ export function StrangleDecisionsView() {
 
   return (
     <div style={{ padding: 16 }}>
+      {/* What is actually OPEN comes first. A decision log is history; a live
+          short position is money at risk right now. */}
+      <div style={{ marginBottom: 16 }}><OptionPositionsCard /></div>
+
       <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Strangle decisions</h2>
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>

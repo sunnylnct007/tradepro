@@ -99,7 +99,10 @@ public static class IBKRResponseParser
                 MarketPrice: Dec(p, "mktPrice"),
                 MarketValue: Dec(p, "mktValue"),
                 UnrealizedPnl: Dec(p, "unrealizedPnl"),
-                Currency: Str(p, "currency")));
+                Currency: Str(p, "currency"),
+                AssetClass: Str(p, "assetClass") ?? Str(p, "secType"),
+                ContractDesc: Str(p, "contractDesc"),
+                Multiplier: Dec(p, "multiplier")));
         }
         return result;
     }
@@ -713,7 +716,21 @@ public sealed record IBKRPosition(
     decimal? MarketPrice,
     decimal? MarketValue,
     decimal? UnrealizedPnl,
-    string? Currency);
+    string? Currency,
+    // ADDED 31 Aug 2026. Without these an OPTION is indistinguishable from a
+    // stock in every downstream surface. Two short puts sat in the paper
+    // account reported as plain "SPY" and "QQQ" rows, and the conclusion drawn
+    // was that no option positions existed at all.
+    //
+    // AssetClass is the tag; ContractDesc is what a human needs — "SPY" tells
+    // you nothing about which strike or expiry you are short.
+    string? AssetClass = null,
+    string? ContractDesc = null,
+    // IBKR reports an option's avgCost as premium x multiplier while mktPrice
+    // is PER SHARE. Comparing them directly produced "-99.06%" on a position
+    // that was up $38.63. The multiplier is what reconciles them, so it is
+    // carried rather than assumed to be 1.
+    decimal? Multiplier = null);
 
 public sealed record IBKRPositionsResult(
     IReadOnlyList<IBKRPosition> Positions,

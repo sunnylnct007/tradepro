@@ -1507,19 +1507,43 @@ public static class IntegrationsEndpoints
                 // unrealizedPnl directly (golden) for the absolute. Guard the %
                 // against a missing/zero avgCost so we never fabricate a phantom
                 // move. Same uniform shape the desk reads for T212/IG.
+                // OPTIONS NEED THE MULTIPLIER, and getting this wrong printed
+                // "-99.06%" on a position that was UP $38.63 (31 Aug 2026).
+                //
+                // IBKR reports an option's avgCost as premium x multiplier
+                // (a put sold at 6.01 shows 600.95) while mktPrice stays PER
+                // SHARE (5.62). Dividing one by the other compares a total
+                // against a unit price and reports near-total loss on a
+                // winning trade. Normalise the cost to per-share first.
+                var isOpt = string.Equals(p.AssetClass, "OPT", StringComparison.OrdinalIgnoreCase);
+                var mult = p.Multiplier is decimal m && m > 0 ? m : (isOpt ? 100m : 1m);
+                var avgPerShare = p.AvgCost is decimal ac ? ac / mult : (decimal?)null;
+
                 decimal? unrealisedPct = null;
-                if (p.AvgCost is decimal avg && avg > 0 && p.MarketPrice is decimal cur)
-                    unrealisedPct = (cur - avg) / avg * 100m;
+                if (avgPerShare is decimal avg && avg > 0 && p.MarketPrice is decimal cur)
+                {
+                    // A SHORT position gains when the price FALLS. Signing this
+                    // by quantity keeps the percentage pointing the same way as
+                    // the absolute P&L, which IBKR reports directly.
+                    var raw = (cur - avg) / avg * 100m;
+                    unrealisedPct = p.Quantity < 0 ? -raw : raw;
+                }
                 return new
                 {
-                    ticker = p.Symbol,                 // IBKR ticker / contractDesc
-                    instrumentName = p.Symbol,         // IBKR positions carry no separate long name
+                    ticker = p.Symbol,
+                    // The FULL contract for options — "SPY" alone does not say
+                    // which strike or expiry you are short.
+                    instrumentName = p.ContractDesc ?? p.Symbol,
                     quantity = p.Quantity,
-                    averagePricePaid = p.AvgCost,
+                    averagePricePaid = avgPerShare,
                     currentPrice = p.MarketPrice,
                     unrealisedAbs = p.UnrealizedPnl,
                     unrealisedPct,
                     currency = p.Currency,
+                    // Tagged, so an option is never mistaken for a stock again.
+                    assetClass = p.AssetClass,
+                    isOption = isOpt,
+                    multiplier = mult,
                 };
             }).ToArray();
             return Results.Ok(new
