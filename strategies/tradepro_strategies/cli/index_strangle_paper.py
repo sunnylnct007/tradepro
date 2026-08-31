@@ -412,22 +412,94 @@ def _session_state(cfg: dict, now_utc: _dt.datetime | None = None) -> tuple[str,
     return ("open" if local < c else "closed"), local.date().isoformat()
 
 
+# WHERE THIS STRATEGY'S DATA COMES FROM, stated rather than assumed.
+#
+# Owner's standing rule is IBKR golden source, "Yahoo only as a VISIBLE
+# fallback, never silent default". This file broke it: _series() went straight
+# to yfinance with no IBKR attempt and no label, so every price, vol reading and
+# strike came from Yahoo and nothing said so.
+#
+# Checked 31 Aug 2026 against IBKR directly. It is not laziness — it is forced:
+#
+#     AAPL       STK   -> full OHLCV returned
+#     VIX        IND   -> "Details currently unavailable"
+#     BANKNIFTY  IND   -> "Details currently unavailable"
+#
+# Stocks work; INDICES do not, US and Indian alike, so it is not a missing NSE
+# subscription. And this strategy gates on a volatility index in every market —
+# ^VIX, ^VXN, ^GVZ, ^INDIAVIX — so it CANNOT run on IBKR data at all. Owner,
+# 31 Aug: "for indian one yahoo is the way I guess".
+#
+# So the honest fix is provenance, not a provider switch: every row records
+# which source answered, and the decision log stores it. If IBKR indices ever
+# become available this is the one place that changes.
+DATA_SOURCE = "yahoo"
+
+
 def _series(sym: str, period: str = "2y"):
+    """Daily bars. Returns (frame, source) via `_series_src`; this keeps the
+    old shape for callers that only want the frame."""
+    got = _series_src(sym, period)
+    return got[0] if got else None
+
+
+def _series_src(sym: str, period: str = "2y"):
+    """Daily bars + the source that answered.
+
+    ROUTES THROUGH THE BAR STORE FIRST, which is the IBKR-primary path this
+    project already solved — provider chain, S3 read-through, provenance
+    grading, the lot. Owner, 31 Aug 2026: "we have sorted all data related call
+    issues with IBKR ... so now we dont want to get into that again". Writing
+    fresh IBKR calls here would be re-solving it badly.
+
+    It only helps for the ETFs. Checked the same day: SPY, QQQ and GLD are in
+    the store with ~200 partitions each; every INDEX this strategy needs —
+    ^VIX, ^VXN, ^GVZ, ^INDIAVIX, ^GSPC, ^NDX, ^NSEBANK, ^NSEI — is absent, and
+    IBKR itself returns "Details currently unavailable" for index price history
+    (verified against VIX and BANKNIFTY directly, while AAPL/STK works). So the
+    volatility gate CANNOT come from IBKR in any market, and Yahoo is forced
+    rather than chosen — which is why the source is recorded per series instead
+    of assumed.
+    """
+    import datetime as _d
+    if not sym.startswith("^"):
+        try:
+            from pathlib import Path
+            from ..bar_cache.asset_classes import UsEtfPlugin  # noqa: F401 — registers
+            from ..bar_cache.store import BarStore
+            store = BarStore(base_dir=Path(os.path.expanduser("~/.tradepro/bar_cache")))
+            end = _d.datetime.now(_d.UTC)
+            years = 2 if period == "2y" else 20
+            frame = store.get(canonical=sym, asset_class="us_etf", resolution="1d",
+                              start=end - _d.timedelta(days=365 * years + 30), end=end,
+                              allow_partial=True,
+                              skip_fetch=True,   # never let a screen trigger a provider call
+                              fetched_by="index_strangle_paper")
+            df = frame.df
+            if df is not None and not df.empty:
+                out = df.rename(columns=str.capitalize)
+                out.index = [str(x)[:10] for x in out.index]
+                return out, "bar_cache(ibkr)"
+        except Exception as exc:  # noqa: BLE001 — fall through, and SAY so
+            log.info("%s: bar cache miss (%s) — falling back to yahoo",
+                     sym, str(exc)[:90])
+
     from ..yahoo_session import yahoo_session
     import yfinance as yf
     d = yf.Ticker(sym, session=yahoo_session()).history(period=period, interval="1d")
     if d is None or not len(d):
         return None
     d.index = [str(x)[:10] for x in d.index]
-    return d
+    return d, DATA_SOURCE
 
 
 def decide(market: str) -> dict:
     """Today's candidate for one market. Bars + a vol index only — no chain,
     so a dark options feed can never stop this producing a decision."""
     cfg = MARKETS[market]
-    px = _series(cfg["index"])
-    vx = _series(cfg["vol"])
+    _p = _series_src(cfg["index"]); _v = _series_src(cfg["vol"])
+    px, px_src = (_p if _p else (None, None))
+    vx, vx_src = (_v if _v else (None, None))
     out: dict = {"market": market, "index": cfg["index"], "note": cfg["note"]}
     if px is None or vx is None:
         out["status"] = "no_data"
@@ -497,6 +569,10 @@ def decide(market: str) -> dict:
             if provisional else
             f"final — anchored to the {local_today} opening price"),
         "family": cfg["family"], "product": cfg["product"], "ccy": cfg["ccy"],
+        # Provenance, on every row. IBKR serves no indices on this account, so
+        # this is currently always "yahoo" — but it is RECORDED rather than
+        # assumed, and a future study can tell what it was reading.
+        "data_source": f"price={px_src or '?'}, vol={vx_src or '?'}",
         "vol_index": round(v, 2), "vol_q1_trailing": round(q1, 2),
         "vol_threshold": thr,
         "threshold_env": f"TRADEPRO_STRANGLE_VIX_MAX_{market}",
@@ -651,6 +727,7 @@ def push_decisions(rows: list[dict]) -> dict:
                 "marginEstimate": econ.get("margin_estimate"),
                 "creditModelled": econ.get("credit_modelled"),
                 "jobsCommit": (_os.environ.get("JOBS_COMMIT") or "")[:12] or None,
+                "dataSource": r.get("data_source"),
                 "detail": json.dumps({k: v for k, v in r.items()
                                       if k not in ("legs", "economics")}),
             })
