@@ -12,18 +12,20 @@ is not a control. The owner's standing rule is that every integration fails
 LOUD; a deploy able to silently diverge from main was the one integration with
 no voice at all.
 
-Four states, and the two that matter most are the ones where we CANNOT tell:
+CORRECTED THE SAME DAY. The first version compared this image's commit against
+the API's and WARNED on any difference. That warns permanently under normal
+operation — aws-build-push rebuilds the API only for backend/ and frontend/
+changes, so every strategies-only commit legitimately leaves the two apart
+(verified live: jobs ebaae2d1, API 1b125351, both correct). An alarm that fires
+when nothing is wrong is the cry-wolf failure this repo has walked back three
+times. The API commit is now CONTEXT, never a verdict.
 
-  * stamped and matching        -> ok
-  * stamped and different       -> warn   (persistent = stale; brief = rollout)
-  * unstamped                   -> fail   (hand-built, provenance unknowable)
-  * cannot read the API commit  -> warn   (NOT ok — see below)
+What is asserted instead, using only what the image can know alone:
 
-The first version of this check read `backendCommit` off the root of
-/health/details, where it does not live — it is nested under `deploy`. That
-returned None, the comparison was skipped, and the status stayed "ok". A drift
-alarm that fails open is worse than no alarm, because it certifies precisely
-the thing it cannot see. Hence the explicit unreadable-commit cases here.
+  * unstamped        -> FAIL   (hand-built; provenance unknowable)
+  * stale by age     -> warn   (the deploy pipeline itself stopped running)
+  * fresh            -> ok     (even when the API commit differs)
+
 """
 from __future__ import annotations
 
@@ -37,6 +39,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import lambda_handler as H  # noqa: E402
 
 API = "http://api.test"
+
+
+def _now_iso() -> str:
+    import datetime as dt
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def _iso_days_ago(n: int) -> str:
+    import datetime as dt
+    return (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=n)).isoformat()
 SHA = "1b125351f9f18bb58bcc65c002558d26acfdf80b"
 
 
@@ -66,28 +78,40 @@ def env(monkeypatch):
     return monkeypatch
 
 
-def test_matching_commits_are_ok(env):
+def test_a_fresh_image_is_ok_even_when_the_api_commit_differs(env):
+    """THE correction. A strategies-only push leaves the API behind BY DESIGN.
+    That must not raise anything."""
     env.setenv("JOBS_COMMIT", SHA)
-    _patch(env, {"deploy": {"backendCommit": SHA}})
+    env.setenv("JOBS_BUILD_TIME", _now_iso())
+    _patch(env, {"deploy": {"backendCommit": "1b125351f9f18bb"}})
     p = H._provenance()
     assert p["status"] == "ok", p
-    assert p["jobs_commit"] == SHA[:12]
-    assert p["api_commit"] == SHA[:12]
+    assert p["api_commit"] == "1b125351f9f1", "the API commit is still RECORDED"
+    assert p["age_days"] == 0
 
 
-def test_a_stale_image_warns_and_names_both_commits(env):
-    """THE regression. A job running yesterday's code must say so, and say what
-    it is running versus what it should be."""
-    env.setenv("JOBS_COMMIT", "deadbeef1234567890")
+def test_an_image_older_than_the_threshold_warns(env):
+    """The signal the comparison was reaching for, expressed so it cannot fire
+    on a healthy day: the workflow deploys on every strategies/ push, so a stale
+    image means the pipeline stopped."""
+    env.setenv("JOBS_COMMIT", SHA)
+    env.setenv("JOBS_BUILD_TIME", _iso_days_ago(H.STALE_AFTER_DAYS + 10))
     _patch(env, {"deploy": {"backendCommit": SHA}})
     p = H._provenance()
     assert p["status"] == "warn", p
-    assert "deadbeef1234" in p["detail"] and SHA[:12] in p["detail"], p["detail"]
+    assert "deploy pipeline has stopped" in p["detail"], p["detail"]
+
+
+def test_an_image_just_inside_the_threshold_is_ok(env):
+    env.setenv("JOBS_COMMIT", SHA)
+    env.setenv("JOBS_BUILD_TIME", _iso_days_ago(H.STALE_AFTER_DAYS - 2))
+    _patch(env, {"deploy": {"backendCommit": SHA}})
+    assert H._provenance()["status"] == "ok"
 
 
 def test_an_unstamped_image_fails(env):
     """Only a hand build produces this. It is the exact thing that happened, and
-    it is unknowable rather than merely different — so it is a FAIL, not a warn."""
+    it is unknowable rather than merely different — so it is a FAIL."""
     env.delenv("JOBS_COMMIT", raising=False)
     p = H._provenance()
     assert p["status"] == "fail", p
@@ -96,35 +120,32 @@ def test_an_unstamped_image_fails(env):
 
 def test_commit_nested_under_deploy_is_actually_read(env):
     """`backendCommit` is nested, not top-level. Reading the root returned None,
-    which silently skipped the comparison — the alarm's own fail-open bug."""
+    and the first version reported "ok" having compared nothing."""
     env.setenv("JOBS_COMMIT", SHA)
+    env.setenv("JOBS_BUILD_TIME", _now_iso())
     _patch(env, {"deploy": {"backendCommit": SHA}, "gitSha": SHA})
     assert H._provenance()["api_commit"] == SHA[:12]
 
 
-def test_missing_api_commit_warns_rather_than_certifying_ok(env):
-    """If the API will not say what it is running, drift CANNOT be checked. That
-    must never read as agreement."""
+def test_an_unreachable_api_is_not_an_alarm(env):
+    """Context that cannot be fetched is missing context, not a fault — the job
+    itself is unaffected by it."""
     env.setenv("JOBS_COMMIT", SHA)
-    _patch(env, {"deploy": {}})
-    p = H._provenance()
-    assert p["status"] == "warn", p
-    assert "cannot be checked" in p["detail"]
-
-
-def test_unreachable_api_warns(env):
-    env.setenv("JOBS_COMMIT", SHA)
+    env.setenv("JOBS_BUILD_TIME", _now_iso())
     _patch(env, boom=ConnectionError("down"))
     p = H._provenance()
-    assert p["status"] == "warn", p
+    assert p["status"] == "ok", p
     assert p["api_commit"] is None
 
 
-def test_no_api_url_warns(env):
-    env.delenv("TRADEPRO_API_URL", raising=False)
+def test_a_credential_exit_in_the_context_probe_does_not_kill_the_job(env):
+    """SystemExit is not an Exception. `load_credentials` exits rather than
+    raising, and that is how the first version of this alarm crashed the very
+    function it was written to protect."""
     env.setenv("JOBS_COMMIT", SHA)
-    p = H._provenance()
-    assert p["status"] == "warn", p
+    env.setenv("JOBS_BUILD_TIME", _now_iso())
+    _patch(env, boom=SystemExit(2))
+    assert H._provenance()["status"] == "ok"
 
 
 def test_every_known_job_is_still_registered():

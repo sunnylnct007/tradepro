@@ -45,6 +45,11 @@ import traceback
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
+# An image older than this means aws-lambda-jobs has stopped deploying, since it
+# runs on every push touching strategies/. Generous on purpose: a quiet fortnight
+# in that directory is plausible, a quiet month is not.
+STALE_AFTER_DAYS = 21
+
 # job name -> (module, argv). Nothing here may need local disk beyond /tmp.
 JOBS: dict[str, tuple[str, list[str]]] = {
     "index_strangle_paper": ("tradepro_strategies.cli.index_strangle_paper", ["--email"]),
@@ -54,62 +59,86 @@ JOBS: dict[str, tuple[str, list[str]]] = {
 
 
 def _provenance() -> dict:
-    """Which commit is running, and does it match what the API is running.
+    """Which commit is running, and is that plausibly current.
 
     THE BUG THIS EXISTS FOR (31 Aug 2026). This function had a live EventBridge
     schedule — `tradepro-post-earnings-puts`, 20:45 UTC Mon-Fri, which PUSHES to
     the live desk artifact — but no CI deploy path. The image was uploaded by
-    hand on 30 Aug; `main` then moved on twice. The scheduled job kept running
+    hand on 30 Aug; main then moved on twice. The scheduled job kept running
     30 Aug code, would have refused to price every weeknight, and reported that
-    refusal in the STRATEGY's voice ("no expiry near the target"). Nothing said
-    the deployment was stale. It was found by going looking, which is not a
-    control.
+    refusal in the STRATEGY's voice. Nothing said the deployment was stale.
 
-    The owner's rule is that every integration fails LOUD. A deploy that can
-    silently diverge from main is the one integration that had no voice at all.
+    WHAT THIS DOES NOT DO, AND WHY (corrected same day). The first version
+    compared this image's commit against the API's baked commit and WARNED on
+    any difference. That warns permanently under normal operation: aws-build-push
+    rebuilds the API only for `backend/` and `frontend/` changes, so every
+    strategies-only commit legitimately leaves the two SHAs apart. Verified live
+    — jobs at ebaae2d1, API at 1b125351, both correct and current.
 
-    THE COMPARISON is against the API's own baked commit, because both are
-    deployed from main and the Lambda has no git. Not exact — the two pipelines
-    fire on different triggers, so a brief mismatch during a rollout is normal.
-    That is why a mismatch is a WARN and not a failure: a persistent one is the
-    bug, a momentary one is a deploy in flight. An UNSTAMPED image is a FAIL,
-    because it can only come from a hand build and its provenance is unknowable.
+    An alarm that fires when nothing is wrong is the cry-wolf failure this repo
+    has now had to walk back three times (bar-cache tiers, the 5m harvest
+    grading an unopened session, and this). So the API commit is REPORTED as
+    context and never raises an alarm on its own.
+
+    What genuinely indicates trouble, using only what the image can know:
+
+      * UNSTAMPED    -> fail. Only a hand build produces this, which is exactly
+                       what happened. Provenance is unknowable, not merely
+                       different.
+      * STALE BY AGE -> warn. The workflow deploys on every strategies/ push,
+                       so an image that has not been rebuilt in weeks means the
+                       pipeline itself stopped running. That is the condition
+                       the original comparison was reaching for, expressed in a
+                       way that cannot fire on a healthy day.
     """
+    import datetime as _dt
+
     commit = (os.environ.get("JOBS_COMMIT") or "unknown").strip()
-    out = {"jobs_commit": commit[:12], "api_commit": None, "status": "ok", "detail": None}
+    built = (os.environ.get("JOBS_BUILD_TIME") or "unknown").strip()
+    out = {"jobs_commit": commit[:12], "built": built, "api_commit": None,
+           "age_days": None, "status": "ok", "detail": None}
+
     if commit in ("", "unknown"):
         out["status"] = "fail"
         out["detail"] = ("this image carries no JOBS_COMMIT, so it was not built by "
                          "aws-lambda-jobs — its provenance cannot be established")
         return out
+
+    # Age, which is the only staleness signal the image can compute alone.
+    if built not in ("", "unknown"):
+        try:
+            _b = _dt.datetime.fromisoformat(built.replace("Z", "+00:00"))
+            if _b.tzinfo is None:
+                _b = _b.replace(tzinfo=_dt.timezone.utc)
+            age = (_dt.datetime.now(_dt.timezone.utc) - _b).days
+            out["age_days"] = age
+            if age > STALE_AFTER_DAYS:
+                out["status"] = "warn"
+                out["detail"] = (
+                    f"this image was built {age} days ago ({built[:10]}). "
+                    f"aws-lambda-jobs deploys on every strategies/ push, so an "
+                    f"image older than {STALE_AFTER_DAYS} days means the deploy "
+                    f"pipeline has stopped running")
+        except Exception:  # noqa: BLE001 — an unparseable stamp is not an outage
+            out["age_days"] = None
+
+    # The API commit is CONTEXT, not a verdict. Recorded so a human comparing
+    # two boards can see what each was produced against; never an alarm, because
+    # the two pipelines deploy on different path filters by design.
     try:
         import requests
         base = os.environ.get("TRADEPRO_API_URL", "").rstrip("/")
-        if not base:
-            out["status"] = "warn"
-            out["detail"] = "TRADEPRO_API_URL unset — cannot compare against the API"
-            return out
-        r = requests.get(f"{base}/health/details", timeout=10)
-        _j = r.json() or {}
-        # NESTED, not top-level. Reading `backendCommit` off the root returns
-        # None, and the first version of this check then skipped the comparison
-        # and still reported "ok" — a drift alarm that fails open is worse than
-        # none, because it certifies exactly what it cannot see.
-        api = ((_j.get("deploy") or {}).get("backendCommit")
-               or _j.get("gitSha") or "").strip()
-        out["api_commit"] = api[:12] or None
-        if not api:
-            out["status"] = "warn"
-            out["detail"] = ("the API reported no commit, so drift cannot be "
-                             "checked — treat this run's provenance as unknown")
-        elif not api.startswith(commit[:12]) and not commit.startswith(api[:12]):
-            out["status"] = "warn"
-            out["detail"] = (f"jobs image is at {commit[:12]} while the API is at "
-                             f"{api[:12]} — if this persists past a rollout the "
-                             f"scheduled jobs are running stale code")
-    except (Exception, SystemExit) as exc:  # noqa: BLE001 — never break the job
-        out["status"] = "warn"
-        out["detail"] = f"could not read the API commit: {str(exc)[:120]}"
+        if base:
+            r = requests.get(f"{base}/health/details", timeout=10)
+            _j = r.json() or {}
+            # NESTED under `deploy`, not at the root. Reading the root returned
+            # None and the first version then reported "ok" having compared
+            # nothing — a check that fails open certifies what it cannot see.
+            api = ((_j.get("deploy") or {}).get("backendCommit")
+                   or _j.get("gitSha") or "").strip()
+            out["api_commit"] = api[:12] or None
+    except (Exception, SystemExit):  # noqa: BLE001 — context must never break the job
+        pass
     return out
 
 
@@ -122,6 +151,7 @@ def _report_provenance(job: str) -> dict:
             "lambda-jobs", "deploy", prov["status"],
             error=prov["detail"] if prov["status"] in ("warn", "fail") else None,
             summary=(f"job={job} image={prov['jobs_commit']} "
+                     f"built={prov['built'][:10]} age={prov['age_days']}d "
                      f"api={prov['api_commit'] or 'unknown'}"),
         )
     except (Exception, SystemExit):  # noqa: BLE001 — logging must never fail the job

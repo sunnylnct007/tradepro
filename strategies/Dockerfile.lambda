@@ -23,7 +23,9 @@ COPY lambda_handler.py   ${LAMBDA_TASK_ROOT}/
 # refusing to price every night while main looked correct — and NOTHING
 # reported it. An unstamped image is now itself an alarm: see lambda_handler.
 ARG JOBS_COMMIT=unknown
-ENV JOBS_COMMIT=${JOBS_COMMIT}
+ARG JOBS_BUILD_TIME=unknown
+ENV JOBS_COMMIT=${JOBS_COMMIT} \
+    JOBS_BUILD_TIME=${JOBS_BUILD_TIME}
 
 # Lambda's filesystem is read-only except /tmp, and the package writes caches
 # and a ledger under ~/.tradepro. Repointing HOME here means the code needs no

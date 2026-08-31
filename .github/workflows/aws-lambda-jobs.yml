@@ -86,6 +86,7 @@ jobs:
             ${{ steps.tags.outputs.image_latest }}
           build-args: |
             JOBS_COMMIT=${{ github.sha }}
+            JOBS_BUILD_TIME=${{ github.event.head_commit.timestamp }}
           cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.JOBS_REPO }}:cache
           cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.JOBS_REPO }}:cache,mode=max
 
