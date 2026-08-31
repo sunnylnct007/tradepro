@@ -782,6 +782,39 @@ def build_server():
         return _json(t.close_option_leg(symbol, expiry, strike, right, contracts))
 
     @mcp.tool()
+    @instrumented("get_strangle_manual_trades")
+    def get_strangle_manual_trades(market: str = "", days: int = 90) -> str:
+        """REAL fills from manually-placed strangles — the only honest prices
+        this project has, and they cannot be backfilled. Read `followed_signal`
+        first: it separates what the STRATEGY did from what the OWNER did."""
+        return _json(t.get_strangle_manual_trades(market, days))
+
+    @mcp.tool()
+    @instrumented("get_strangle_manual_trade_summary")
+    def get_strangle_manual_trade_summary(days: int = 90) -> str:
+        """Per-market tally of REAL manual strangle fills. `with_pnl` is
+        separate from `trades` on purpose — a mean over rows that mostly lack a
+        P&L looks like evidence and is not."""
+        return _json(t.get_strangle_manual_trade_summary(days))
+
+    @mcp.tool()
+    @instrumented("record_strangle_manual_trade")
+    def record_strangle_manual_trade(market: str, entry_date: str,
+                                     put_strike: float | None = None,
+                                     call_strike: float | None = None,
+                                     realised_pnl: float | None = None,
+                                     lots: int = 1, exit_date: str = "",
+                                     account: str = "", product: str = "",
+                                     followed_signal: bool | None = None,
+                                     notes: str = "") -> str:
+        """Book one REAL manually-placed strangle. Permissive about what is
+        known — strikes and a P&L beat not recording it at all, because a fill
+        nobody wrote down is gone."""
+        return _json(t.record_strangle_manual_trade(
+            market, entry_date, put_strike, call_strike, realised_pnl, lots,
+            exit_date, account, product, followed_signal, notes))
+
+    @mcp.tool()
     @instrumented("flatten_short_options")
     def flatten_short_options() -> str:
         """Buy back EVERY short option at the broker — the end-of-day sweep.

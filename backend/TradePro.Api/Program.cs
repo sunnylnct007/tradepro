@@ -428,6 +428,7 @@ api.MapEarningsCalendarEndpoints();
 // job. Replaces having to assemble that verdict by reading run-log panels.
 api.MapDataReadinessEndpoints();
 api.MapStrangleDecisionLogEndpoints();
+api.MapStrangleManualTradeEndpoints();
 api.MapJobsEndpoints();
 api.MapStrangleOrderEndpoints();
 
