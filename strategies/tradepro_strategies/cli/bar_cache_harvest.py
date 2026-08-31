@@ -625,11 +625,18 @@ def main() -> int:
 
     # ── Summary ────────────────────────────────────────────────
     print("-" * 70)
+    # "complete" here means the COVERAGE on disk is complete, which is a real and
+    # useful thing to say. But printing "244 complete / 0 partial / 0 failed"
+    # directly above "FORCE-REFRESH DID NOTHING for 244 of 244" reads as a
+    # contradiction, and the reader has to work out which line to believe. Say
+    # both facts on the same line so they cannot be read apart.
+    _not_refreshed = (f"  ({len(_refresh_denied)} NOT refreshed)"
+                      if _refresh_denied else "")
     print(
         f"Done: {ok_count} complete  "
         f"{partial_count} partial  "
         f"{fail_count} failed  "
-        f"/ {len(symbols)} symbols"
+        f"/ {len(symbols)} symbols{_not_refreshed}"
     )
     print(
         f"Quality: "
