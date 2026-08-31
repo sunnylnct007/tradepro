@@ -188,6 +188,7 @@ MARKETS = {
             "family": "S&P 500", "ccy": "$",
             "product": "cash-settled index option · European · no early assignment",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "paper_trade": False,  # cash index product; needs its own IBKR symbol mapping, not the ETF
              "note": "VIX is computed FROM SPX options, so the volatility input is "
                     "the underlying's own, not a proxy"},
     "XSP": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
@@ -195,6 +196,7 @@ MARKETS = {
             "family": "S&P 500", "ccy": "$",
             "product": "Mini-SPX · exactly 1/10 of SPX · cash-settled, European",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "paper_trade": False,  # Mini-SPX is modelled here as ^GSPC/10, which is not an IBKR symbol
              "note": "the same trade as SPX at a tenth of the size — this is the "
                     "'smaller index' product; SPX itself is 10x SPY, not smaller"},
     "SPY": {"index": "SPY", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
@@ -202,6 +204,7 @@ MARKETS = {
             "family": "S&P 500", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "paper_trade": True,  # liquid ETF options, unambiguous IBKR symbol
              "note": "measured edge is within noise of SPX (83.3% vs 82.4%), so the "
                     "choice is settlement and size, not return"},
     # ---- Nasdaq 100 ----
@@ -210,6 +213,7 @@ MARKETS = {
             "family": "Nasdaq 100", "ccy": "$",
             "product": "cash-settled index option · European",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "paper_trade": False,  # cash index product; same mapping work as SPX
              "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
                     "(p5 -0.183 vs -0.101) — the same rule, more risk per unit"},
     "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
@@ -217,6 +221,7 @@ MARKETS = {
             "family": "Nasdaq 100", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "paper_trade": True,  # liquid ETF options, unambiguous IBKR symbol
              "note": "fires 2,015 times against SPY's 2,219 because VXN<=18 is a "
                     "reachable gate — this is what fixes the thin US sample"},
     # ---- India ----
@@ -225,6 +230,7 @@ MARKETS = {
                   "divisor": 1.0, "family": "India banks", "ccy": "Rs",
                   "product": "cash-settled index option · European",
                   "tz": "Asia/Kolkata", "open_local": "09:15", "close_local": "15:30",
+             "paper_trade": False,  # no paper trading available for India — email only
              "note": "India VIX measures NIFTY and BANKNIFTY realises ~1.35x "
                           "that, so the input is SCALED — a proxy, not its own index"},
     "NIFTY": {"index": "^NSEI", "vol": "^INDIAVIX", "vol_scale": 1.0,
@@ -232,6 +238,7 @@ MARKETS = {
               "divisor": 1.0, "family": "India broad", "ccy": "Rs",
               "product": "cash-settled index option · European",
               "tz": "Asia/Kolkata", "open_local": "09:15", "close_local": "15:30",
+             "paper_trade": False,  # no paper trading available for India — email only
              "note": "India VIX measures NIFTY directly, so no 1.35 scaling is "
                       "needed. Worst day -0.29% vs BANKNIFTY's -1.05% — 3.5x safer "
                       "tail for about two-thirds the return"},
@@ -241,6 +248,7 @@ MARKETS = {
              "family": "Gold", "ccy": "$",
              "product": "ETF option · American · CAN be assigned early",
              "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "paper_trade": True,  # GLD — liquid ETF options
              "note": "best risk-adjusted of the eight (88.8% win, tightest p5) and "
                      "the only one not driven by equity risk — the others are two "
                      "bets wearing six names"},
@@ -521,6 +529,78 @@ def decide(market: str) -> dict:
         out["reason"] = (f"{cfg['vol']} {v:.2f} is ABOVE the {thr:.1f} threshold "
                          f"— not a low-volatility day (trailing 25th pctile {q1:.2f})")
     return out
+
+
+
+def _monthly_expiry(dte_target: int, today: _dt.date | None = None) -> str:
+    """The listed MONTHLY expiry nearest `dte_target` days out (3rd Friday).
+
+    Monthlies only. The owner trades the monthly and closes intraday, and a
+    month holds several weekly expiries once those are listed — placing the
+    wrong one is a different trade at the same strike.
+    """
+    today = today or _dt.date.today()
+    out = []
+    for add in (0, 1, 2):
+        m = today.month + add
+        y = today.year + (m - 1) // 12
+        m = (m - 1) % 12 + 1
+        d = _dt.date(y, m, 1)
+        first_fri = d + _dt.timedelta(days=(4 - d.weekday()) % 7)
+        out.append(first_fri + _dt.timedelta(days=14))
+    future = [d for d in out if (d - today).days >= 1]
+    return min(future, key=lambda d: abs((d - today).days - dte_target)).isoformat()
+
+
+def place_paper(row: dict, contracts: int = 1) -> dict | None:
+    """Place BOTH legs of this candidate on the IBKR PAPER account.
+
+    THE POINT. Every figure this strategy publishes is a Black-Scholes premium
+    off a volatility index — no skew, no bid-ask, no evidence anyone would be
+    filled there. A real paper fill is the one input no backtest can
+    manufacture. Owner, 31 Aug: "ok start with the us paper execution".
+
+    REFUSES rather than guesses, in four cases, because a strangle placed on
+    the wrong basis is worse than no data:
+      * the market is not paper-tradeable (India has no paper account at all)
+      * the row is not a CANDIDATE
+      * the strikes are PROVISIONAL — placing off a stale close is exactly the
+        lopsided trade this was just fixed to avoid
+      * the session is not open
+    """
+    cfg = MARKETS.get(row.get("market") or "")
+    if not cfg or not cfg.get("paper_trade"):
+        return {"placed": False, "reason": "market is not paper-tradeable"}
+    if row.get("status") != "CANDIDATE":
+        return {"placed": False, "reason": "not a candidate"}
+    if row.get("provisional"):
+        return {"placed": False,
+                "reason": "strikes are PROVISIONAL — refusing to place off a stale close"}
+    if row.get("session_state") != "open":
+        return {"placed": False, "reason": f"session is {row.get('session_state')}"}
+
+    leg = (row.get("legs") or {}).get("monthly")
+    if not leg:
+        return {"placed": False, "reason": "no monthly leg"}
+    expiry = _monthly_expiry(leg["dte"])
+    body = {"symbol": cfg["index"], "expiry": expiry,
+            "putStrike": leg["put_strike"], "callStrike": leg["call_strike"],
+            "contracts": contracts}
+    try:
+        import requests
+        from .push_to_api import load_credentials
+        base, tok = load_credentials()
+        r = requests.post(f"{base.rstrip('/')}/api/integrations/ibkr/strangle",
+                          json=body, timeout=60,
+                          headers={"Authorization": f"Bearer {tok}"} if tok else {})
+        out = r.json() if r.content else {}
+    except Exception as exc:  # noqa: BLE001 — a placement failure must never
+        # lose the DECISION, which is already recorded and emailed by now.
+        log.warning("paper placement failed for %s: %s", row.get("market"), exc)
+        return {"placed": False, "reason": f"request failed: {str(exc)[:160]}",
+                "request": body}
+    return {"placed": bool(out.get("ok")), "request": body, "response": out,
+            "partial": bool(out.get("partial"))}
 
 
 def _email_cfg() -> dict:
@@ -1130,6 +1210,11 @@ def main() -> int:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--no-record", action="store_true")
     ap.add_argument("--email", action="store_true", help="send the daily candidate email")
+    ap.add_argument("--place", action="store_true",
+                    help="place BOTH legs on the IBKR PAPER account for markets "
+                         "flagged paper_trade. Refuses on provisional strikes, a "
+                         "shut session, or a non-candidate row.")
+    ap.add_argument("--contracts", type=int, default=1)
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
 
@@ -1147,6 +1232,19 @@ def main() -> int:
     if not args.no_record:
         # BOTH kinds. See the shadow-recording note above.
         record([r for r in rows if r.get("status") in ("CANDIDATE", "stand aside")])
+
+    if args.place:
+        for r in rows:
+            res = place_paper(r, contracts=args.contracts)
+            if res:
+                r["paper_order"] = res
+                if res.get("placed"):
+                    print(f"  PLACED {r['market']}: {res['request']['putStrike']:,.0f}P + "
+                          f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}")
+                elif res.get("partial"):
+                    print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
+                elif r.get("status") == "CANDIDATE":
+                    print(f"  not placed {r['market']}: {res.get('reason')}")
 
     if args.json:
         print(json.dumps(rows, indent=1))
