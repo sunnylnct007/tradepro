@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
 import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsPayoff";
 import { WheelBoardTable, type WheelRow } from "./WheelBoardTable";
+import { requestScreenRun, watchJob } from "../../firebase";
 
 /**
  * Options Desk — the wheel (cash-secured put → assignment → covered call),
@@ -140,6 +141,36 @@ export function OptionsDesk() {
       .then((d) => { setPositions(d.positions ?? []); setPosErr(null); })
       .catch((e) => setPosErr(String(e?.message || e)));
   }, []);
+
+  const [runState, setRunState] = useState<string | null>(null);
+
+  const loadCandidates = useCallback(() => {
+    api.optionsCandidates()
+      .then((d) => { setData(d as ScreenResp); setErr(null); })
+      .catch((e) => setErr(String(e?.message || e)));
+  }, []);
+
+  // RUN ON DEMAND. This screen's launchd agent was retired in the 22 Aug desk
+  // cut (17 screens -> 7) and this does not bring it back — the owner asked to
+  // be able to run it when they want, which is what a button is for.
+  //
+  // It goes through the SAME worker path as the scheduled runs, so a button
+  // press and a cron fire cannot diverge. The wheel screen wants a warm chain,
+  // so a run outside US market hours will screen on last-available data and say
+  // so in the data-health banner rather than silently reporting fewer names.
+  const runNow = useCallback(async () => {
+    setRunState("queued…");
+    try {
+      const id = await requestScreenRun("options_screen");
+      if (!id) { setRunState("unavailable — Firebase not configured"); return; }
+      const off = await watchJob(id, (status, d) => {
+        setRunState(status === "complete"
+          ? `done — ${d.eligible ?? 0} eligible of ${d.candidates ?? 0}`
+          : status === "failed" ? `failed: ${String(d.error ?? "")}` : status);
+        if (status === "complete" || status === "failed") { off(); loadCandidates(); }
+      });
+    } catch (e) { setRunState(`failed: ${String((e as Error)?.message || e)}`); }
+  }, [loadCandidates]);
 
   const loadWatchdog = useCallback(() => {
     api.optionsWatchdog()
@@ -313,6 +344,13 @@ export function OptionsDesk() {
           {data?.generated_at_utc ? `last screen ${new Date(data.generated_at_utc).toLocaleString()}` : "no screen yet"}
           {data && !data.market_open ? " · market closed (chain/Δ pending open)" : ""}
         </span>
+        <button onClick={runNow} title="Re-screen now. Uses the same worker path as a scheduled run."
+                style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 6,
+                         border: "1px solid var(--border)", background: "var(--surface-2)",
+                         color: "var(--text)", cursor: "pointer", fontSize: 13 }}>
+          ▶ Run now
+        </button>
+        {runState && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{runState}</span>}
       </div>
 
       {/* ── DATA HEALTH — loud when the run itself is degraded ──── */}

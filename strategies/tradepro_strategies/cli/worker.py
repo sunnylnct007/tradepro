@@ -94,6 +94,12 @@ def _run_backtest_job(req: dict, logger: RunLogger) -> dict:
     return {"stats": result.stats, "trade_count": len(result.trades)}
 
 
+# Screens the desk may trigger on demand. The VALUE is what actually runs, so
+# adding a button never means re-implementing a screen — see the note in
+# post_earnings_puts.build_artifact about the two that had drifted apart.
+UI_SCREENS: tuple[str, ...] = ("post_earnings_puts", "options_screen")
+
+
 def _run_screen_job(name: str, run_id_logger) -> dict:
     """Run a screen in-process and push its artifact.
 
@@ -101,38 +107,63 @@ def _run_screen_job(name: str, run_id_logger) -> dict:
     credentials, and a subprocess would need its own `uv run` resolution —
     which is exactly what broke the worker heartbeat for six days when a
     hardcoded `uv` path stopped existing.
+
+    THIS USED TO RE-IMPLEMENT THE PUTS ARTIFACT (fixed 31 Aug 2026) and, in
+    doing so, skipped `price_candidates` entirely. Pressing "Run now" therefore
+    replaced a board carrying premium, yield, delta, break-even and IV with one
+    carrying none of them — and dropped the rule/evidence block the UI renders
+    underneath. The button made the screen worse, silently. Both paths now call
+    the same builder.
     """
-    if name != "post_earnings_puts":
-        raise ValueError(f"unknown screen: {name!r}")
-    from .post_earnings_puts import scan
+    if name not in UI_SCREENS:
+        raise ValueError(f"unknown screen: {name!r} (known: {', '.join(UI_SCREENS)})")
+
     from .push_to_api import load_credentials
-    import datetime as _d
     import requests as _rq
 
     base, tok = load_credentials()
-    cands, near, market = scan(base)
-    art = {
-        "kind": "post_earnings_puts",
-        "as_of_utc": _d.datetime.now(_d.UTC).isoformat(),
-        "market": market, "evaluated": len(cands) + len(near),
-        "candidates": cands, "near_misses": near[:10],
-        "triggered_by": "ui",
-    }
-    pushed = None
-    if base:
-        try:
-            r = _rq.post(f"{base.rstrip('/')}/api/ingest/today-setups",
-                         json={"universe": "post_earnings_puts",
-                               "label": "latest", "artifact": art},
-                         headers={"Authorization": f"Bearer {tok}"} if tok else {},
-                         timeout=30)
-            pushed = r.status_code
-        except Exception as exc:  # noqa: BLE001 — a push failure must not lose the scan
-            run_id_logger.emit("screen.push_failed", screen=name, error=str(exc)[:200])
+    headers = {"Authorization": f"Bearer {tok}"} if tok else {}
+
+    if name == "post_earnings_puts":
+        from .post_earnings_puts import build_artifact
+        art, cands, _near = build_artifact(base, tok)
+        art["triggered_by"] = "ui"
+        pushed = None
+        if base:
+            try:
+                r = _rq.post(f"{base.rstrip('/')}/api/ingest/today-setups",
+                             json={"universe": "post_earnings_puts",
+                                   "label": "latest", "artifact": art},
+                             headers=headers, timeout=30)
+                pushed = r.status_code
+            except Exception as exc:  # noqa: BLE001 — a push failure must not lose the scan
+                run_id_logger.emit("screen.push_failed", screen=name, error=str(exc)[:200])
+        run_id_logger.emit("screen.done", screen=name, candidates=len(cands),
+                           priced=art.get("priced"), pushed=pushed)
+        return {"candidates": len(cands), "priced": art.get("priced"),
+                "artifact": "today-setups/post_earnings_puts", "pushed_http": pushed}
+
+    # ── the wheel / general option-candidate screen ──────────────────────
+    #
+    # ON DEMAND ONLY, DELIBERATELY. Its launchd agent was retired in the
+    # 22 Aug desk cut (17 screens -> 7) and this does not resurrect it. The
+    # owner asked to be able to run it when they want, which is what a button
+    # is for.
+    #
+    # It pushes itself to /api/options/candidates, so there is nothing to
+    # assemble here — running it IS the publish.
+    from .options_screen import run_screen
+    payload = run_screen() or {}
+    rows = payload.get("candidates") or []
+    eligible = sum(1 for r in rows if r.get("eligible"))
+    # run_screen() also emails the owner, but only when the ELIGIBLE SET CHANGED
+    # against the previous push — so a button press cannot spam, and a scheduled
+    # run and a manual one behave identically. That equivalence is the point.
     run_id_logger.emit("screen.done", screen=name,
-                       candidates=len(cands), pushed=pushed)
-    return {"candidates": len(cands), "artifact": "today-setups/post_earnings_puts",
-            "pushed_http": pushed}
+                       candidates=len(rows), eligible=eligible)
+    return {"candidates": len(rows), "eligible": eligible,
+            "market_open": payload.get("market_open"),
+            "artifact": "options/candidates"}
 
 
 def _execute(db, job_id: str, doc: dict) -> None:

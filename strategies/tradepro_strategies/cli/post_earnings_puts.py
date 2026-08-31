@@ -450,32 +450,36 @@ def price_candidates(cands: list[dict], base: str, token: str | None) -> int:
     return priced
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(prog="tradepro-post-earnings-puts")
-    ap.add_argument("--json", action="store_true")
-    ap.add_argument("--api-base", default=None)
-    ap.add_argument("--push", action="store_true",
-                    help="POST the artifact to /api/ingest/today-setups")
-    args = ap.parse_args()
-    logging.basicConfig(level=logging.WARNING,
-                        format="%(asctime)s %(levelname)s %(message)s")
+def build_artifact(base: str | None = None, token: str | None = None) -> tuple[dict, list, list]:
+    """Scan, PRICE, and assemble the artifact. Returns (artifact, cands, near).
 
-    base = args.api_base
+    ONE BUILDER, BECAUSE THERE WERE TWO (31 Aug 2026).
+
+    `cli/worker.py::_run_screen_job` — the path behind the desk's "Run now"
+    button — re-implemented this inline and did NOT call `price_candidates`.
+    So a UI-triggered run pushed a board with no premium, yield, delta,
+    break-even or IV, and no `rule`/`evidence` block either, straight over a
+    priced one. Pressing Run now made the screen worse, silently.
+
+    Duplicate definitions are the dominant defect shape in this repo: nothing
+    raises, two components quietly disagree. The scheduled path and the button
+    must produce the SAME artifact, so they now call the same function.
+    """
     if base is None:
         from .push_to_api import load_credentials
-        base, _ = load_credentials()
+        base, token = load_credentials()
 
     cands, near, market = scan(base)
 
     # Price them. Additive: a candidate with no chain keeps every bars-derived
     # field and simply carries a pricing_note instead of a premium.
-    _tok = None
+    n_priced = 0
     try:
-        from .push_to_api import load_credentials as _lc
-        _b, _tok = _lc()
-        n_priced = price_candidates(cands, base or _b, _tok)
+        if token is None:
+            from .push_to_api import load_credentials as _lc
+            _b, token = _lc()
+        n_priced = price_candidates(cands, base, token)
     except Exception as exc:  # noqa: BLE001 — never lose the scan over pricing
-        n_priced = 0
         log.warning("option pricing unavailable (%s) — candidates keep their "
                     "bars-derived strike and size", str(exc)[:120])
 
@@ -505,6 +509,26 @@ def main() -> int:
         "near_misses": near[:10],
         "priced": n_priced,
     }
+    return art, cands, near
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="tradepro-post-earnings-puts")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--api-base", default=None)
+    ap.add_argument("--push", action="store_true",
+                    help="POST the artifact to /api/ingest/today-setups")
+    args = ap.parse_args()
+    logging.basicConfig(level=logging.WARNING,
+                        format="%(asctime)s %(levelname)s %(message)s")
+
+    base = args.api_base
+    if base is None:
+        from .push_to_api import load_credentials
+        base, _ = load_credentials()
+
+    art, cands, near = build_artifact(base)
+    market = art["market"]
 
     if args.json:
         print(json.dumps(art, indent=1))
