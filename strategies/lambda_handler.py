@@ -124,7 +124,19 @@ def _report_provenance(job: str) -> dict:
             summary=(f"job={job} image={prov['jobs_commit']} "
                      f"api={prov['api_commit'] or 'unknown'}"),
         )
-    except Exception:  # noqa: BLE001 — logging must never fail the job
+    except BaseException:  # noqa: BLE001,B036 — see below; MUST be BaseException
+        # `except Exception` IS NOT ENOUGH HERE, and that took the whole Lambda
+        # down on 31 Aug 2026 — every job, including the 15-minute alerts.
+        #
+        # log_run -> load_credentials(), which calls sys.exit() when the API
+        # credentials are absent. SystemExit derives from BaseException, NOT
+        # Exception, so it sailed straight through a guard whose own docstring
+        # says "must never fail the job" and killed the runtime with exit 2.
+        # Lambda has no credentials file, so this fired on EVERY invocation.
+        #
+        # The lesson generalises: anything in this codebase that reaches
+        # load_credentials can EXIT rather than raise. A best-effort call must
+        # therefore catch BaseException, or it is not best-effort.
         pass
     if prov["status"] != "ok":
         log.warning("DEPLOY PROVENANCE %s: %s", prov["status"].upper(), prov["detail"])
