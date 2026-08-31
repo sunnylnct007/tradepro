@@ -107,7 +107,7 @@ def _provenance() -> dict:
             out["detail"] = (f"jobs image is at {commit[:12]} while the API is at "
                              f"{api[:12]} — if this persists past a rollout the "
                              f"scheduled jobs are running stale code")
-    except Exception as exc:  # noqa: BLE001 — provenance must never break the job
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 — never break the job
         out["status"] = "warn"
         out["detail"] = f"could not read the API commit: {str(exc)[:120]}"
     return out
@@ -124,7 +124,10 @@ def _report_provenance(job: str) -> dict:
             summary=(f"job={job} image={prov['jobs_commit']} "
                      f"api={prov['api_commit'] or 'unknown'}"),
         )
-    except Exception:  # noqa: BLE001 — logging must never fail the job
+    except (Exception, SystemExit):  # noqa: BLE001 — logging must never fail the job
+        # SystemExit too: `load_credentials()` exits rather than raising when
+        # secrets are unreachable, which is precisely how this alarm crashed the
+        # function it was written to protect.
         pass
     if prov["status"] != "ok":
         log.warning("DEPLOY PROVENANCE %s: %s", prov["status"].upper(), prov["detail"])
