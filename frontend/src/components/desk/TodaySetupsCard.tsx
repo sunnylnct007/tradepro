@@ -243,7 +243,17 @@ export function TodaySetupsCard() {
               <div key={`${s.universe}:${s.symbol}`} style={{ display: "grid", gridTemplateColumns: "auto 58px 50px 1fr", gap: 7, alignItems: "baseline", padding: "4px 6px", borderTop: "1px solid #11161f", opacity: expired ? 0.55 : 1 }}>
                 <span style={{ color: expired ? "var(--text-muted)" : t.color, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", textDecoration: expired ? "line-through" : "none" }}>
                   {dot} {s.symbol}
-                  <span style={{ fontSize: 8, marginLeft: 4, padding: "0 3px", borderRadius: 3, color: hb ? "#d29922" : "var(--text-muted)", border: `1px solid ${hb ? "#5a4a1a" : "#1b2233"}` }}>{hb ? "HB" : "L50"}</span>
+                  {/* SEPARATED FROM THE TICKER ON PURPOSE (31 Aug 2026).
+                      At 8px with a 4px margin and no separator, this badge read
+                      as part of the symbol: the owner asked what to do with
+                      "ABBVL50", "SWKHB" and "SYFHB", which are ABBV, SWK and
+                      SYF wearing a universe tag. A ticker you cannot identify
+                      is one you cannot trade, and mis-reading one on a trading
+                      screen is the kind of error that ends in the wrong order.
+                      The leading space also makes a copied row unambiguous. */}
+                  {" "}
+                  <span title={hb ? "high-beta sleeve" : "large-50 sleeve"}
+                        style={{ fontSize: 8, marginLeft: 3, padding: "1px 4px", borderRadius: 3, verticalAlign: "middle", letterSpacing: 0.3, color: hb ? "#d29922" : "var(--text-muted)", background: hb ? "#d2992214" : "#1b223344", border: `1px solid ${hb ? "#5a4a1a" : "#1b2233"}` }}>{hb ? "HB" : "L50"}</span>
                   {/* The sleeve's MEASURED win rate, on the recommendation
                       itself. Amber below 50% — a coin-flip sleeve should not
                       look the same as one that works. */}
