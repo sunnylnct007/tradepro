@@ -101,6 +101,29 @@ public class StrangleOrderGuardTest
     }
 
     [Fact]
+    public void PositionChecksForceAFreshReadNotIbkrsCache()
+    {
+        // IBKR serves /portfolio/{acct}/positions from a cache that does not
+        // clear on its own. On 31 Aug 2026 three puts were bought back, all
+        // three orders returned Filled with remainingQty 0, and the positions
+        // read reported them still OPEN — with byte-identical unrealised P&L —
+        // for minutes afterwards.
+        //
+        // Both option paths VERIFY against positions before acting, so a stale
+        // read here does not merely mislead a panel: it decides whether an
+        // order is placed at all. Every such check must force a fresh read.
+        foreach (var (path, name) in new[]
+                 {
+                     ("/integrations/ibkr/option-leg", "PlaceOptionLeg"),
+                     ("/integrations/ibkr/options/flatten", "FlattenShortOptions"),
+                 })
+        {
+            var h = Handler(path, name);
+            Assert.Contains("GetPositionsAsync(ct, forceFresh: true)", h);
+        }
+    }
+
+    [Fact]
     public void AnIncompleteFlattenIsNeverReportedAsFlat()
     {
         // A sweep that closes three of four legs has left a NAKED short. This

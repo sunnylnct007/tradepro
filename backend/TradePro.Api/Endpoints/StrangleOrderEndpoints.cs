@@ -277,7 +277,7 @@ public static class StrangleOrderEndpoints
             // long wing of a spread). It must be explicit.
             if (side == "BUY" && req.ClosingOnly)
             {
-                var pos = await ibkr.GetPositionsAsync(ct);
+                var pos = await ibkr.GetPositionsAsync(ct, forceFresh: true);
                 if (pos.Error is not null)
                     return Results.Json(new
                     {
@@ -347,7 +347,7 @@ public static class StrangleOrderEndpoints
                     blockedForLive = ibkr.BlockedForLive,
                 }, statusCode: 403);
 
-            var pos = await ibkr.GetPositionsAsync(ct);
+            var pos = await ibkr.GetPositionsAsync(ct, forceFresh: true);
             if (pos.Error is not null)
                 return Results.Json(new
                 {
