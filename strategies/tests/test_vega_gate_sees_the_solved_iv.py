@@ -78,13 +78,42 @@ def test_a_populated_bridge_ratio_is_never_reported_unavailable():
         f"a row with a real IV/HV of 1.21 was told its vega edge is unknowable: {_blocks(d)}")
 
 
-def test_a_thin_bridge_ratio_still_blocks_but_says_why():
-    """The gate must keep doing its job — AMZN at 0.61 is a REAL rejection,
-    and it must not be silently converted into a pass by this fix."""
+def test_a_thin_bridge_ratio_is_never_silently_passed():
+    """The gate must keep doing its job — a thin ratio may not become silence.
+
+    RECALIBRATED 31 Aug 2026, deliberately. This asserted that 0.61 produces a
+    BLOCK, which was right while IV/HV was a hard gate at 1.00 — and that gate
+    was rejecting the entire universe (XOM 0.90, NVDA 0.81, GOOGL 0.78, MRVL
+    0.49), which is the "82 screened, 0 eligible" board the owner looked at for
+    weeks. Against ten closed option trades with ten winners, a filter removing
+    every candidate was not protecting anything.
+
+    So 0.61 now warns instead of blocking. The guard's INTENT is unchanged and
+    is what this still enforces: a thin ratio must never be converted into a
+    silent pass. It has to say so, and — this is the part that was missing when
+    the block became a warning — it must restate the delta, because the whole
+    hazard of IV < HV is that the QUOTED delta understates assignment risk.
+    A warning that says "size off realised vol" while the row still shows the
+    implied-vol delta is advice the desk never applies.
+    """
     d = _decide(iv_rank=None, iv_hv_ratio=0.61, iv_rank_window_days=12)
-    blocked = _blocks(d)
-    assert any("IV/HV" in b for b in blocked), blocked
-    assert not [b for b in blocked if UNAVAILABLE in b], blocked
+    assert not [b for b in _blocks(d) if UNAVAILABLE in b], _blocks(d)
+
+    warned = [w for w in (d.warnings or []) if "IV/HV" in w]
+    assert warned, f"a thin ratio passed in silence: {d.warnings}"
+
+    # Quoted 0.28 at a 0.61 ratio is really ~0.36 (an explicit Black-Scholes
+    # reprice at realised vol says 0.345 — the estimate is deliberately the
+    # conservative side of it). The NUMBER must be on the row, not a description
+    # of one.
+    assert "0.36" in warned[0], (
+        f"the warning must restate the true delta, not merely describe it: {warned[0]}")
+
+
+def test_a_genuinely_uneconomic_ratio_still_hard_blocks():
+    """Below the floor there is no sizing that rescues it — that must BLOCK."""
+    d = _decide(iv_rank=None, iv_hv_ratio=0.20, iv_rank_window_days=12)
+    assert any("IV/HV" in b for b in _blocks(d)), _blocks(d)
 
 
 def test_genuinely_absent_vega_data_still_blocks():

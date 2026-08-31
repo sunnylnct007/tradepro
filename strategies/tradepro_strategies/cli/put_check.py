@@ -21,7 +21,6 @@ feed. It is also honest about what it cannot model: no premium is assumed, so
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import math
 import os
@@ -31,16 +30,37 @@ BASE = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 R = os.path.expanduser("~/.tradepro/research")
 
 
-def _load(sym: str):
-    fs = sorted(glob.glob(f"{BASE}/{sym}/1d/*.parquet"))
-    if not fs:
-        return None
-    import pandas as pd
+def _load(sym: str, sessions: int = 1200):
+    """Daily bars THROUGH THE STORE, not off the local disk.
+
+    This globbed ~/.tradepro/bar_cache directly, which reads whatever this
+    machine happens to hold and silently under-reads everywhere the local cache
+    is incomplete — the bar store is shared via S3 and only BarStore.get()
+    falls through to it. A put-sell assessment that quietly evaluates four
+    years of history on one box and eleven on another is worse than one that
+    fails, because both answers look equally confident.
+
+    skip_fetch=True keeps it local + S3 and never calls a provider, so this
+    stays a read-only research command.
+    """
+    import datetime as _d
+    end = _d.datetime.now(_d.UTC)
+    start = end - _d.timedelta(days=int(sessions * 1.5))   # sessions -> calendar
     try:
-        df = pd.concat([pd.read_parquet(f) for f in fs]).sort_index()
-    except Exception:
+        from ..bar_cache.store import BarStore
+        frame = BarStore().get(
+            canonical=sym, asset_class="us_etf", resolution="1d",
+            start=start, end=end,
+            allow_partial=True,
+            skip_fetch=True,
+            fetched_by="put_check",
+        )
+    except Exception:  # noqa: BLE001 — an unreadable symbol answers "no data"
         return None
-    return df[~df.index.duplicated(keep="last")]
+    df = getattr(frame, "df", None)
+    if df is None or df.empty:
+        return None
+    return df[~df.index.duplicated(keep="last")].sort_index()
 
 
 def _sma(c, i, n):

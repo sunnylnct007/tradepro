@@ -120,10 +120,16 @@ class OptionsRiskConfig:
     # happened to be close; this is the number the harness produced.
     manage_dte_frac: float = 0.53
     # Liquidity gates (§6.1 filter 1, §9.2)
-    oi_min: int = 250          # per-strike OI floor. 1,000 was index-level and
+    oi_min: int = 250                # per-strike OI floor. 1,000 was index-level and
     #   rejected every single-name equity strike (KO/F/INTC near-month strikes
     #   run 50–500 OI); 250 is enough for 1-lot paper/wheel fills without bad
     #   slippage. Raise for size.
+    # Below THIS, the contract is EMPTY rather than thin and the spread cannot
+    # vouch for it. Distinct from oi_min above, which is the "thin but real"
+    # line where a verified tight spread is allowed to outvote our weaker OI
+    # feed. Nothing is outstanding at 0-10 contracts, so a two-sided quote there
+    # is a market-maker's indicative, not evidence that anyone has traded it.
+    oi_absent_max: int = 10
     spread_max_usd: float = 0.10
     # Spread cap is PREMIUM-RELATIVE when the mid is known: a $0.10 absolute cap
     # is only realistic for sub-$1 premiums — a $315-strike JPM put quoting a
@@ -438,12 +444,49 @@ def evaluate(
                 # to sell FURTHER OUT for the same true delta, not to refuse.
                 # Sized at realised vol the strike moves materially: on MRVL
                 # (IV/HV 0.49) the naive and true strikes are 19 points apart.
-                shortfall = cfg.iv_hv_min - ctx.iv_hv_ratio
+                # SAY THE NUMBER, DO NOT DESCRIBE IT.
+                #
+                # This warning used to promise the reader "expect the true delta
+                # to be ~N% worse" and then leave the row showing the quoted
+                # delta anyway. Nothing in the screen sizes off realised vol —
+                # the advice named a correction the desk never applied, so the
+                # row still read as a 0.22-delta trade when it was not. That is
+                # the understated-risk direction, on the screen the owner trades
+                # from, which is exactly what the guard tests existed to stop.
+                #
+                # Quoted |delta| ~ N(-d) with d = ln(K/S)/(sigma*sqrt(T)). Only
+                # sigma changes between the implied and realised view, so
+                # d_true = d_quoted * (IV/HV) and the true delta follows without
+                # needing S, K or T — all of which we may not have here.
+                #   |delta| 0.28 at IV/HV 0.61 -> d 0.583 -> 0.356 -> |delta| 0.36
+                #
+                # APPROXIMATE, AND CONSERVATIVE BY DESIGN. It drops the
+                # variance-drift term, so it overstates the true delta slightly:
+                # against an explicit Black-Scholes reprice of the same contract
+                # at realised vol, 0.36 here versus 0.345 there. Erring toward
+                # MORE assignment risk is the right direction for a disclosure,
+                # and the exact figure would need spot, which MarketContext does
+                # not carry. Stated as "about", never as a precise delta.
+                _true_delta = None
+                try:
+                    from statistics import NormalDist as _ND
+                    _q = abs(float(candidate.abs_delta))
+                    if 0.0 < _q < 1.0 and ctx.iv_hv_ratio > 0:
+                        _d_true = _ND().inv_cdf(1.0 - _q) * ctx.iv_hv_ratio
+                        _true_delta = 1.0 - _ND().cdf(_d_true)
+                except Exception:  # noqa: BLE001 — a missing delta must not kill the screen
+                    _true_delta = None
+                _delta_txt = (
+                    f"At this ratio the quoted |delta| {abs(candidate.abs_delta):.2f} is really "
+                    f"about {_true_delta:.2f} — assignment odds ~{100 * _true_delta:.0f}%, not "
+                    f"~{100 * abs(candidate.abs_delta):.0f}%. "
+                    if _true_delta is not None else
+                    "The true delta cannot be restated without a quoted delta. ")
                 warnings.append(
                     f"IV/HV {ctx.iv_hv_ratio:.2f} < {cfg.iv_hv_min:.2f} — the option prices LESS "
                     f"movement than the stock is delivering, so the quoted delta UNDERSTATES "
-                    f"assignment risk. Not a block: size the strike off realised vol, not implied, "
-                    f"and expect the true delta to be ~{shortfall:.0%} worse than quoted. "
+                    f"assignment risk. {_delta_txt}"
+                    f"Not a block: sell further out for the same TRUE delta. "
                     f"Ranked below better-paid names.")
             else:
                 warnings.append(
@@ -468,6 +511,28 @@ def evaluate(
     checked.append("liquidity")
     if ctx.open_interest is None:
         data_blocks.append("Open interest unavailable — cannot confirm fillable liquidity.")
+    elif ctx.open_interest <= cfg.oi_absent_max:
+        # A MEASURED NEAR-ZERO IS NOT A THIN PROXY — IT IS AN EMPTY CONTRACT.
+        #
+        # The proxy argument below says our OI feed UNDERSTATES the true number,
+        # so a low reading should not outvote a verified tight spread. That
+        # argument does not reach the bottom of the range. At 0-10 contracts
+        # nothing is outstanding at all, and a quoted spread there is a
+        # market-maker's indicative, not evidence that anyone has traded it.
+        #
+        # Not a knife-edge at exactly zero: 3 outstanding contracts is as empty
+        # as 0, and drawing the line at 0 would have let a 3-OI contract through
+        # on a tight quote purely because the feed happened to return non-zero.
+        #
+        # The null/near-zero split is deliberate and load-bearing: None means
+        # "not recorded" and blocks as UNAVAILABLE, a small number means
+        # "recorded as almost none" and blocks as ILLIQUID. chains_g3 preserves
+        # a missing OI as None rather than coercing it to 0, which is what makes
+        # a measured zero trustworthy enough to act on.
+        blocks.append(
+            f"Open interest {ctx.open_interest} — effectively nothing is outstanding at this "
+            f"strike, so it is illiquid regardless of the quoted spread. A two-sided quote on "
+            f"a contract no one holds is indicative, not a market.")
     elif ctx.open_interest < cfg.oi_min:
         # OPEN INTEREST IS A PROXY. THE SPREAD IS THE MEASUREMENT. (30 Aug 2026)
         #

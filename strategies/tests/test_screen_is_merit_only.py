@@ -96,7 +96,10 @@ def test_capital_gates_default_to_on():
 
 def test_merit_failures_still_block_the_screen():
     """Suppressing capital must not turn the screen into a rubber stamp."""
-    thin = evaluate(_oversized_candidate(), _sound_ctx(iv_hv_ratio=0.61),
+    # 0.61 is a WARNING now, not a block (the IV/HV dial, 31 Aug 2026) — so the
+    # merit failure this asserts has to be one that genuinely still blocks.
+    # Below the floor is exactly that: no strike choice rescues it.
+    thin = evaluate(_oversized_candidate(), _sound_ctx(iv_hv_ratio=0.20),
                     _book(), OptionsRiskConfig(), capital_gates=False)
     assert not thin.allowed and any("IV/HV" in b for b in thin.blocks), thin.blocks
 

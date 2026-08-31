@@ -142,11 +142,29 @@ class TestVegaGateTwoTier:
         assert any("IV/HV bridge" in w for w in d.warnings)
         assert any("12d" in w for w in d.warnings)
 
-    def test_bridge_blocks_thin_premium(self):
+    def test_bridge_warns_loudly_on_thin_premium_but_does_not_block(self):
+        """RECALIBRATED 31 Aug 2026. This required 0.85 to BLOCK, which was
+        correct while IV/HV was a hard gate at 1.00 — and that gate rejected the
+        whole universe, since essentially every name sits below 1.00. IV < HV
+        does not mean "do not sell"; it means the quoted delta understates
+        assignment risk, and the answer is to sell further out, not to refuse.
+
+        What must NOT happen is a silent pass, so the ratio and the restated
+        delta both have to appear."""
         d = evaluate(_cand(), _ctx(iv_rank=None, iv_hv_ratio=0.85,
                                    iv_rank_window_days=12), PortfolioState())
+        assert d.allowed is True
+        warned = [w for w in d.warnings if "IV/HV 0.85" in w]
+        assert warned, f"0.85 passed without saying so: {d.warnings}"
+        assert "really about" in warned[0], (
+            f"the warning must restate the true delta: {warned[0]}")
+
+    def test_bridge_still_hard_blocks_below_the_floor(self):
+        """The dial has a bottom. Below it no strike choice rescues the trade."""
+        d = evaluate(_cand(), _ctx(iv_rank=None, iv_hv_ratio=0.20,
+                                   iv_rank_window_days=12), PortfolioState())
         assert d.allowed is False
-        assert any("IV/HV 0.85" in b for b in d.all_blocks)
+        assert any("IV/HV 0.20" in b for b in d.all_blocks), d.all_blocks
 
     def test_neither_metric_still_blocks(self):
         d = evaluate(_cand(), _ctx(iv_rank=None, iv_hv_ratio=None), PortfolioState())
