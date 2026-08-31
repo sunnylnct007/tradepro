@@ -324,6 +324,8 @@ def main() -> int:
     from collections import Counter as _Counter
     _source_counts: _Counter = _Counter()
     _cache_served = 0
+    # Symbols where --force-refresh was asked for and CACHE came back instead.
+    _refresh_denied: list[str] = []
     _demotion_counts: _Counter = _Counter()
     # Per-symbol health records → POSTed to the cockpit's data-trust DB after the
     # run so the Harvest/Data-Health screen renders the real coverage (bridges
@@ -459,6 +461,32 @@ def main() -> int:
             _source_counts[_used] += 1
             if _from_cache:
                 _cache_served += 1
+
+            # A REFUSED REFRESH IS NOT A SUCCESS (31 Aug 2026).
+            #
+            # Serving cache on an ORDINARY run is correct and must stay quiet —
+            # that is the note above, and the cry-wolf this file already walked
+            # back once. But --force-refresh is an explicit instruction to
+            # re-source, so cache coming back means the instruction was NOT
+            # carried out, and the run printed:
+            #
+            #     ✓ TSLA   9/9 bars   🥇 gold   source=cache
+            #
+            # while IBKR was unreachable. Tick, GOLD, exit 0. The grade was even
+            # accurate — it grades what is ON DISK — but the RUN did nothing,
+            # and nothing said so. That is how "--ibkr-only --force-refresh
+            # doesn't work" got diagnosed as an inert flag when the real story
+            # was IBKR flapping every ~15 minutes.
+            #
+            # --ibkr-only promises "gaps will be reported as PENDING — no
+            # yfinance fallback". Reporting a cache hit as a tick breaks that
+            # promise in the one mode that exists to keep it.
+            if args.force_refresh and _from_cache:
+                _refresh_denied.append(symbol)
+                mark = "!"
+                _demoted += ("  ← FORCE-REFRESH NOT HONOURED: served cache, bars unchanged"
+                             + (" (--ibkr-only forbids a fallback, so IBKR did not answer)"
+                                if args.ibkr_only else ""))
 
             print(
                 f"  {mark} {symbol:<8s} "
@@ -640,6 +668,19 @@ def main() -> int:
     if _skipped_fetches:
         print(f"  ⚡ circuit breaker skipped {_skipped_fetches} doomed fetch(es) "
               f"— cached data served instead; next run retries normally")
+    if _refresh_denied:
+        # State the number, name the symbols, and say what to do — a
+        # force-refresh that quietly changed nothing is worse than one that
+        # fails, because the operator walks away believing the data was cleaned.
+        _shown = ", ".join(_refresh_denied[:12])
+        _more = f" (+{len(_refresh_denied) - 12} more)" if len(_refresh_denied) > 12 else ""
+        print(f"\n  ‼ FORCE-REFRESH DID NOTHING for {len(_refresh_denied)} of "
+              f"{len(symbols)} symbol(s): {_shown}{_more}")
+        print(f"      Cache was served, so their bars are UNCHANGED — this run did "
+              f"not re-source anything for them.")
+        print(f"      Usual cause: the provider was unreachable at that moment. "
+              f"IBKR market data flaps; check /api/run-log for `ibkr-health` "
+              f"quote=False around this run, then re-run.")
     if fail_count and args.ibkr_only:
         print(
             f"\n  ⏳ {fail_count} symbol(s) PENDING — open TWS on port 7497 and re-run:\n"
@@ -703,10 +744,18 @@ def main() -> int:
     # partial harvest is LOUD in the cross-machine cockpit, not just in this stdout.
     try:
         from tradepro_strategies.run_log import log_run
-        _rl_status = "fail" if fail_count else "partial" if partial_count else "ok"
+        # A run that was ASKED to re-source and served cache instead did not do
+        # its job, so it may not log "ok" — the cockpit is where a silent
+        # no-op has to become visible.
+        _rl_status = ("fail" if fail_count else
+                      "partial" if (partial_count or _refresh_denied) else "ok")
+        _rl_error = (f"{fail_count} symbol(s) missing" if fail_count else
+                     (f"force-refresh not honoured for {len(_refresh_denied)} "
+                      f"symbol(s) — cache served, bars unchanged"
+                      if _refresh_denied else None))
         log_run(
             "bar-cache-harvest", "harvest", _rl_status,
-            error=(f"{fail_count} symbol(s) missing" if fail_count else None),
+            error=_rl_error,
             summary=(f"{args.resolution} {len(symbols)} sym → "
                      f"{quality_counts['gold']}G/{quality_counts['silver']}S/"
                      f"{quality_counts['bronze']}B/{quality_counts['missing']}M"),
