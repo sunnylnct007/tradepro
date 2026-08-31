@@ -309,6 +309,116 @@ def simulate(market: str, dte: int = 7, paths: int = MC_PATHS,
     }
 
 
+
+# ---------------------------------------------------------------------------
+# PERIODIC PARAMETER AUDIT.
+#
+# Owner, 31 Aug 2026, after his live BANKNIFTY strangle came out narrower than
+# the emailed one: "it might be our stratgey is tight evaluate at regular
+# interval".
+#
+# He is right, and the day's own evidence makes the case. STRIKE_MULT was set to
+# 1.5 and never re-checked. Measured across 549 gated BANKNIFTY sessions, every
+# width from 0.9x to 2.0x produces the same trade — win rate 82-83%, mean
+# 0.028-0.032%, worst -0.60 to -0.64%. A parameter that load-bearing in the
+# code and that irrelevant in the data is exactly the kind nobody notices going
+# stale.
+#
+# THIS REPORTS. IT NEVER RE-TUNES. Re-fitting parameters to the newest data on
+# a schedule is how a strategy ends up chasing noise, and it would silently
+# invalidate every published figure. The audit says "the rule would now pick X,
+# you have Y" and stops. Changing Y stays a human decision with a commit
+# attached.
+#
+# Exit code 1 on drift, so a scheduled run can alert rather than scroll past.
+
+WIDTH_GRID = [0.75, 1.0, 1.25, 1.5, 2.0, 2.5]
+
+
+def audit(markets: list[str], dte: int = 21) -> dict:
+    """Are the configured parameters still the ones the evidence supports?"""
+    import numpy as np
+    from .index_strangle_paper import MARKETS, STRIKE_MULT
+    out: dict = {"strike_mult_configured": STRIKE_MULT, "markets": {}, "drift": []}
+    for m in markets:
+        cfg = MARKETS[m]
+        row: dict = {}
+
+        # 1. Would the threshold rule still choose the configured gate?
+        rule = choose_threshold(m)
+        if rule.get("status") == "ok":
+            row["gate_configured"] = cfg["vol_max"]
+            row["gate_rule_now"] = rule["chosen"]
+            row["gate_agrees"] = rule["chosen"] == cfg["vol_max"]
+            if not row["gate_agrees"]:
+                out["drift"].append(
+                    f"{m}: gate configured {cfg['vol_max']} but the rule now "
+                    f"picks {rule['chosen']}")
+
+        # 2. Does the strike width still sit on a FLAT part of the curve? If a
+        #    width starts to matter, that is news — it means the trade has
+        #    become sensitive to a number chosen arbitrarily.
+        got = trade_returns(m, dte=dte, gated=True)
+        if got is not None and len(got[0]) >= 60:
+            widths = {}
+            for mult in WIDTH_GRID:
+                x = _returns_at_width(m, mult, dte)
+                if x is None or not len(x):
+                    continue
+                widths[mult] = {"n": int(len(x)),
+                                "win_pct": round(float(100 * (x > 0).mean()), 1),
+                                "mean_pct": round(float(x.mean()), 4),
+                                "worst_pct": round(float(x.min()), 3)}
+            row["width_curve"] = widths
+            if widths:
+                means = [w["mean_pct"] for w in widths.values()]
+                spread = max(means) - min(means)
+                best = max(widths, key=lambda k: widths[k]["mean_pct"])
+                row["width_spread"] = round(spread, 4)
+                row["width_best"] = best
+                # Flat = the configured choice is not costing anything. The
+                # threshold is deliberately loose; the point is to catch a
+                # REGIME where width suddenly matters, not to chase decimals.
+                row["width_matters"] = spread > 0.02
+                if row["width_matters"]:
+                    out["drift"].append(
+                        f"{m}: strike width now MATTERS (mean spread {spread:.4f} "
+                        f"across {min(widths)}x-{max(widths)}x, best {best}x) — "
+                        f"STRIKE_MULT={STRIKE_MULT} was chosen when it did not")
+        out["markets"][m] = row
+    return out
+
+
+def _returns_at_width(market: str, mult: float, dte: int):
+    """Per-trade returns with STRIKE_MULT overridden — the audit's whole job."""
+    import math as _m
+    import numpy as np
+    from .index_strangle_paper import MARKETS, strike_pair
+    cfg = MARKETS[market]
+    px, vx = _load(cfg["index"]), _load(cfg["vol"])
+    if px is None or vx is None:
+        return None
+    j = px[["Open", "Close"]].join(vx["Close"].rename("V"), how="inner").dropna().astype(float)
+    j["V"] = j["V"].shift(1)          # same one-session lag as trade_returns
+    j = j.dropna()
+    div = cfg.get("divisor", 1.0)
+    j = j[(j.Open > 0) & (j.V <= cfg["vol_max"])]
+    p = _pricer()
+    rows = []
+    for _, r in j.iterrows():
+        s0, sc = r.Open / div, r.Close / div
+        iv = r.V / 100.0 * cfg["vol_scale"]
+        kp, kc, _f = strike_pair(s0, mult * iv / _m.sqrt(252), dte, cfg["rate"], cfg["grid"])
+        if kp <= 0:
+            continue
+        credit = (p.price(s0, kc, dte / 365, iv, "call")
+                  + p.price(s0, kp, dte / 365, iv, "put"))
+        value = (p.price(sc, kc, (dte - 1) / 365, iv, "call")
+                 + p.price(sc, kp, (dte - 1) / 365, iv, "put"))
+        rows.append(100.0 * (credit - value) / kp)
+    return np.array(rows)
+
+
 def main() -> int:
     from .index_strangle_paper import MARKETS
     ap = argparse.ArgumentParser(prog="tradepro-index-strangle-sim")
@@ -318,8 +428,45 @@ def main() -> int:
     ap.add_argument("--trades", type=int, default=MC_TRADES)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--out", default=OUT)
+    ap.add_argument("--audit", action="store_true",
+                    help="re-check the configured gate and strike width against "
+                         "current data; REPORTS drift, never re-tunes. Exit 1 on drift.")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
+
+    if args.audit:
+        names = ([m.strip().upper() for m in args.markets.split(",") if m.strip()]
+                 or list(MARKETS))
+        rep = audit([m for m in names if m in MARKETS], dte=args.dte)
+        if args.json:
+            print(json.dumps(rep, indent=1))
+            return 1 if rep["drift"] else 0
+        print(f"\nSTRANGLE PARAMETER AUDIT — are the configured numbers still "
+              f"the ones the evidence supports?\n")
+        print(f"  {'market':<11}{'gate':>7}{'rule':>7}  {'width curve (mean% by multiple)':<46}")
+        print("  " + "-" * 74)
+        for m, row in rep["markets"].items():
+            wc = row.get("width_curve") or {}
+            curve = "  ".join(f"{k}x:{v['mean_pct']:+.3f}" for k, v in sorted(wc.items()))
+            g, rl = row.get("gate_configured"), row.get("gate_rule_now")
+            flag = "" if row.get("gate_agrees", True) else "  <-- DRIFT"
+            print(f"  {m:<11}{str(g):>7}{str(rl):>7}  {curve[:46]}{flag}")
+        print(f"\n  strike multiple in use: {rep['strike_mult_configured']}")
+        for m, row in rep["markets"].items():
+            if row.get("width_spread") is not None:
+                verdict = ("MATTERS — revisit STRIKE_MULT" if row.get("width_matters")
+                           else "flat — the choice is not costing anything")
+                print(f"    {m:<11} width spread {row['width_spread']:.4f}  ({verdict})")
+        if rep["drift"]:
+            print("\n  DRIFT DETECTED:")
+            for d in rep["drift"]:
+                print(f"    * {d}")
+            print("\n  NOTHING WAS CHANGED. Re-tuning on a schedule is how a")
+            print("  strategy chases noise and silently invalidates its published")
+            print("  numbers. Decide, then commit.")
+            return 1
+        print("\n  No drift — configured parameters still match what the evidence picks.")
+        return 0
 
     names = ([m.strip().upper() for m in args.markets.split(",") if m.strip()]
              or list(MARKETS))

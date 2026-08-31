@@ -50,6 +50,15 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     "index_strangle_paper": ("tradepro_strategies.cli.index_strangle_paper", ["--email"]),
     "index_strangle_alert": ("tradepro_strategies.cli.index_strangle_alert", ["--email"]),
     "post_earnings_puts":   ("tradepro_strategies.cli.post_earnings_puts", ["--push"]),
+    # MONTHLY, not daily. Re-checks whether the configured volatility gates and
+    # the strike multiple are still what the evidence picks — and REPORTS,
+    # never re-tunes. Owner, 31 Aug 2026: "it might be our stratgey is tight
+    # evaluate at regular interval". Heavier than the daily jobs (it re-prices
+    # every gated session at six widths across eight markets), so it wants a
+    # long timeout and a monthly cadence; running it daily would burn time to
+    # tell you the same thing thirty times.
+    "strangle_param_audit": ("tradepro_strategies.cli.index_strangle_sim",
+                             ["--audit", "--dte", "21"]),
 }
 
 

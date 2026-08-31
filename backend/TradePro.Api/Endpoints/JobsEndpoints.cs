@@ -44,6 +44,8 @@ public static class JobsEndpoints
         "index_strangle_paper",
         "index_strangle_alert",
         "post_earnings_puts",
+        // Monthly, not daily — see the note in lambda_handler.py.
+        "strangle_param_audit",
     };
 
     public static IEndpointRouteBuilder MapJobsEndpoints(this IEndpointRouteBuilder app)
