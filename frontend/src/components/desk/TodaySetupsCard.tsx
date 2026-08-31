@@ -26,6 +26,22 @@ const UNIVERSES: Array<{ key: string; tag: string; label: string }> = [
   { key: "large_50", tag: "core", label: "L50" },
   { key: "high_beta", tag: "high-β", label: "HB" },
 ];
+// THE SLEEVE'S OWN TRACK RECORD, shown ON the recommendation.
+//
+// Owner, 31 Aug 2026: "less confusion better as our cockpit shd be crystal
+// clear and we shd be able to explain numbers".
+//
+// The cockpit was contradicting itself in public. The fill-replay panel
+// measured high_beta at a 24% win rate over 17 entries with corr(ext,ret)
+// -0.32 — more-extended entries did WORSE — while this panel recommended two
+// high_beta names with nothing said about it. Both numbers were on the same
+// screen and nothing connected them, so the reader had to notice the conflict
+// unaided.
+//
+// This does not filter anything. It puts the sleeve's measured win rate next
+// to the badge, so a recommendation carries its own evidence and the reader
+// can weigh it in one glance instead of cross-referencing two panels.
+const STRATEGY_ID = "ichimoku_equity";
 const HIGH_ATR = 6;      // %/day above which we flag a setup as a wild ride
 const FLAG_ATR = 0.4;    // live moved ≥ this many ATRs from the cached close → flag "moved"
 const EXPIRED_ATR = 0.6; // a ⭐ that ran UP ≥ this many ATRs → the pullback entry is gone (chasing)
@@ -67,6 +83,24 @@ function moveAtr(s: Setup, livePx: number | null | undefined): number | null {
 
 export function TodaySetupsCard() {
   const [state, setState] = useState<State>("loading");
+  // Per-sleeve entry quality from the fill replay. Null until it has been
+  // pushed — the panel degrades to what it showed before rather than blocking.
+  const [sleeve, setSleeve] = useState<Record<string, { n: number; win: number; corr: number }> | null>(null);
+  useEffect(() => {
+    let off = false;
+    (async () => {
+      try {
+        const d = await api.fillReplay(STRATEGY_ID);
+        const u = d?.artifact?.universes ?? {};
+        const out: Record<string, { n: number; win: number; corr: number }> = {};
+        for (const [k, v] of Object.entries(u)) {
+          out[k] = { n: v.n, win: v.win_rate_pct, corr: v.ext_return_corr };
+        }
+        if (!off) setSleeve(out);
+      } catch { /* evidence is a bonus, never a blocker */ }
+    })();
+    return () => { off = true; };
+  }, []);
   const [setups, setSetups] = useState<Setup[]>([]);
   const [counts, setCounts] = useState<{ consider: number; extended: number; excluded: number; weak: number; suspect: number }>({ consider: 0, extended: 0, excluded: 0, weak: 0, suspect: 0 });
   const [asOf, setAsOf] = useState<string | null>(null);
@@ -210,6 +244,21 @@ export function TodaySetupsCard() {
                 <span style={{ color: expired ? "var(--text-muted)" : t.color, fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", textDecoration: expired ? "line-through" : "none" }}>
                   {dot} {s.symbol}
                   <span style={{ fontSize: 8, marginLeft: 4, padding: "0 3px", borderRadius: 3, color: hb ? "#d29922" : "var(--text-muted)", border: `1px solid ${hb ? "#5a4a1a" : "#1b2233"}` }}>{hb ? "HB" : "L50"}</span>
+                  {/* The sleeve's MEASURED win rate, on the recommendation
+                      itself. Amber below 50% — a coin-flip sleeve should not
+                      look the same as one that works. */}
+                  {sleeve?.[s.universe] && (
+                    <span
+                      title={`This sleeve's actual fills: ${sleeve[s.universe].n} entries, `
+                           + `${sleeve[s.universe].win.toFixed(0)}% win rate, `
+                           + `extension/return correlation ${sleeve[s.universe].corr.toFixed(2)}`
+                           + (sleeve[s.universe].corr < 0
+                              ? " — more-extended entries did WORSE" : "")}
+                      style={{ fontSize: 8, marginLeft: 3,
+                               color: sleeve[s.universe].win < 50 ? "#d29922" : "var(--text-muted)" }}>
+                      {sleeve[s.universe].win.toFixed(0)}% win · n={sleeve[s.universe].n}
+                    </span>
+                  )}
                 </span>
                 <span style={{ fontFamily: "monospace", fontSize: 11, lineHeight: 1.1 }}>
                   {livePx != null ? (
@@ -248,6 +297,10 @@ export function TodaySetupsCard() {
               {showAll ? "consider + extended" : "⭐ consider only"} ·
               <span onClick={() => setShowAll((v) => !v)} style={{ cursor: "pointer", color: "var(--accent, #4f8cff)" }}> {showAll ? "consider only" : "show extended"}</span>
               {" · "}<span style={{ color: "#d29922" }}>HB / amber ATR = higher risk, size down</span>
+              {" · "}<span style={{ color: "var(--text-muted)" }}>
+                the % beside each badge is that sleeve&apos;s OWN fill record — actual
+                entries, not a backtest. Amber below 50%.
+              </span>
             </span>
             <span title="signal — not advice; systematic signal, discretionary entry">you decide entry ⓘ</span>
           </div>
