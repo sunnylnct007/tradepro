@@ -619,10 +619,47 @@ public static class IBKRResponseParser
             // as a string, the order id under a name nobody checked, now a percent
             // suffix. Same lesson each time — read the RAW payload before
             // concluding a field is dark.
-            s = s.TrimStart('C', 'H').TrimEnd('%');
+            s = s.TrimStart('C', 'H').TrimEnd('%').Trim();
+
+            // ...AND IBKR ABBREVIATES LARGE NUMBERS (31 Aug 2026). Field 7638
+            // (option open interest) comes back as "9.21K" on liquid names.
+            // TryParse rejects that exactly as it rejected "57.2%", so the value
+            // became null on precisely the contracts where open interest is
+            // highest — the ones a liquidity gate most wants to pass.
+            //
+            // Measured with the market OPEN, same chain call:
+            //     XOM  openInterest [548, 868, 857, 759, 619, 119]   all parsed
+            //     SPY  openInterest [None x6]        raw 7638 = "9.21K", "9.09K"
+            //     MRVL openInterest [None, 484, None, 675, None, 398]
+            //                                       raw 7638 = "1.99K", "1.34K"
+            // Every null is a K-suffixed value; every number that survived was
+            // plain. The feed was never patchy — the parse was.
+            //
+            // FOURTH instance of this shape in this file: execution price as a
+            // string, order id under an unchecked name, a percent suffix, now a
+            // thousands suffix. Same lesson every time — read the RAW payload
+            // before concluding a field is dark. Field 7282 (average volume)
+            // arrives as "8.98M", so M and B are handled too.
+            var mult = 1m;
+            if (s.Length > 1)
+            {
+                var last = char.ToUpperInvariant(s[^1]);
+                if (last is 'K' or 'M' or 'B')
+                {
+                    mult = last switch
+                    {
+                        'K' => 1_000m,
+                        'M' => 1_000_000m,
+                        'B' => 1_000_000_000m,
+                        _ => 1m,
+                    };
+                    s = s[..^1].TrimEnd();
+                }
+            }
+
             if (decimal.TryParse(s, System.Globalization.NumberStyles.Any,
                                  System.Globalization.CultureInfo.InvariantCulture, out var ds))
-                return ds;
+                return ds * mult;
         }
         return null;
     }
