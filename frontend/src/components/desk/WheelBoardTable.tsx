@@ -34,6 +34,28 @@ const OK = "#0ca30c";       // good — eligible
 const WARN = "#fab219";     // warning — degraded inputs
 const MUTED = "var(--text-muted)";
 
+
+// ── PROVENANCE, lifted from OptionsDesk (31 Aug 2026) ───────────────────────
+// It rendered the "FALLBACK bars, spot, premium, div" badge on the prose table
+// that this file replaced. Losing it would have removed the one thing that
+// answers "is this row's number IBKR, cache or Yahoo?" — which the owner asked
+// about directly today. The badge belongs with the numbers it qualifies.
+export type ProvTrust =
+  | "golden" | "derived" | "vendor" | "fallback" | "carried" | "unavailable";
+export interface ProvInput {
+  input: string;
+  label: string;
+  trust: ProvTrust;
+  source_label: string;
+  detail: string;
+  age?: string | null;
+}
+export interface ProvenanceBlock {
+  worst: ProvTrust;
+  summary: string;
+  inputs: ProvInput[];
+}
+
 export interface WheelRow {
   symbol: string;
   regime: string | null;
@@ -65,6 +87,7 @@ export interface WheelRow {
   // as the 7638 comment and the "g3_ibkr" source string.
   annualized_yield_pct?: number | null;
   ref_close?: number | null;
+  provenance?: ProvenanceBlock | null;
   forward_price?: number | null;
 }
 
@@ -97,14 +120,27 @@ function quality(r: WheelRow): { label: string; degraded: boolean } {
 
 type SortKey = "symbol" | "yield" | "oi" | "ivhv" | "delta" | "premium" | "strike" | "dte";
 
-export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
+// GENERIC over the row type on purpose. The callers hold a richer `Candidate`
+// and their handlers need those extra fields, so a non-generic
+// `(r: WheelRow) => void` would force a cast at the call site — and a cast is
+// precisely what hid the annual_yield_pct/annualized_yield_pct mismatch that
+// blanked this table's Yield column and unranked it.
+export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord, busy }: {
+  rows: T[];
+  // Actions live in the EXPANDED row, not in a trailing column. A button per
+  // row on 82 rows is 164 controls competing with the numbers; a button beside
+  // the reasoning is a decision made with its context in view.
+  onAnalyze?: (r: T) => void;
+  onRecord?: (r: T) => void;
+  busy?: boolean;
+}) {
   const [sort, setSort] = useState<SortKey>("yield");
   const [desc, setDesc] = useState(true);
   const [onlyEligible, setOnlyEligible] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
 
   const view = useMemo(() => {
-    const pick = (r: WheelRow): number | string => {
+    const pick = (r: T): number | string => {
       switch (sort) {
         case "symbol": return r.symbol;
         case "oi": return r.open_interest ?? -1;
@@ -192,8 +228,11 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
                     style={{ borderBottom: "1px solid var(--border)", cursor: "pointer",
                              background: r.eligible ? "rgba(12,163,12,.06)" : undefined }}>
                   <td style={{ padding: "7px 8px", fontWeight: 600 }}>{r.symbol}</td>
-                  <td style={{ padding: "7px 8px", fontSize: 11,
-                               color: q.degraded ? WARN : MUTED }}>{q.label}</td>
+                  <td style={{ padding: "7px 8px", fontSize: 11 }}>
+                    {r.provenance
+                      ? <ProvenanceCell prov={r.provenance} />
+                      : <span style={{ color: q.degraded ? WARN : MUTED }}>{q.label}</span>}
+                  </td>
                   {/* Regime is PLAIN TEXT — see the note at the top of this file. */}
                   <td style={{ padding: "7px 8px", fontSize: 11, color: MUTED }}>{r.regime ?? "—"}</td>
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
@@ -239,7 +278,7 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
                 </tr>,
                 isOpen && (
                   <tr key={`${r.symbol}-why`} style={{ background: "var(--surface-2)" }}>
-                    <td colSpan={11} style={{ padding: "10px 12px", fontSize: 12,
+                    <td colSpan={12} style={{ padding: "10px 12px", fontSize: 12,
                                               color: "var(--text-muted)", lineHeight: 1.6 }}>
                       {/* The prose still exists and is worth reading — it just
                           does not shout at you 36 times at once. */}
@@ -251,6 +290,28 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
                           <b style={{ color: WARN }}>Warnings:</b> {r.warnings.join(" ")}
                         </div>
                       ) : null}
+                      {(onAnalyze || onRecord) && (
+                        <div style={{ marginTop: 10, display: "flex", gap: 8 }}
+                             onClick={(e) => e.stopPropagation()}>
+                          {onAnalyze && (
+                            <button onClick={() => onAnalyze(r)}
+                                    style={{ padding: "4px 10px", borderRadius: 5, fontSize: 12,
+                                             border: "1px solid var(--border)",
+                                             background: "var(--surface-2)", color: "var(--text)",
+                                             cursor: "pointer" }}>
+                              Analyze
+                            </button>
+                          )}
+                          {onRecord && (
+                            <button disabled={busy} onClick={() => onRecord(r)}
+                                    style={{ padding: "4px 10px", borderRadius: 5, fontSize: 12,
+                                             border: `1px solid ${OK}66`, background: `${OK}14`,
+                                             color: OK, cursor: busy ? "wait" : "pointer" }}>
+                              Record CSP
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ),
@@ -268,5 +329,76 @@ export function WheelBoardTable({ rows }: { rows: WheelRow[] }) {
         carried or indicative, not live — the ranking below it is only as good as that input.
       </div>
     </div>
+  );
+}
+
+const BAD = "#ec835a";
+const SHORT_INPUT: Record<string, string> = {
+  bars: "bars", spot: "spot", premium: "premium", iv: "IV",
+  open_interest: "OI", div_yield: "div", earnings: "earnings",
+};
+const PROV_TONE: Record<ProvTrust, string> = {
+  golden: OK,
+  derived: MUTED,
+  vendor: "var(--text-dim)",
+  fallback: WARN,
+  carried: WARN,
+  unavailable: BAD,
+};
+const PROV_WORD: Record<ProvTrust, string> = {
+  golden: "IBKR",
+  derived: "computed",
+  vendor: "vendor",
+  fallback: "FALLBACK",
+  carried: "CARRIED",
+  unavailable: "MISSING",
+};
+
+function ProvenanceCell({ prov }: { prov: ProvenanceBlock | null | undefined }) {
+  if (!prov) {
+    return (
+      <span style={{ color: BAD, fontSize: 11 }}
+            title="This row carries no provenance block — it predates uniform provenance, or the screen failed to build one. Treat its numbers as unverified.">
+        unknown
+      </span>
+    );
+  }
+  // A single worst-grade word does NOT discriminate. On 17 Aug every one of 82
+  // rows read "MISSING", because open interest and dividend yield are dark
+  // universe-wide — so the column cost a table width and told the reader
+  // nothing about which row was worse than which. Show WHICH inputs are dark
+  // and HOW MANY, so two rows with different gaps look different.
+  const dark = prov.inputs.filter((i) => i.trust === "unavailable");
+  const weak = prov.inputs.filter((i) => i.trust === "fallback" || i.trust === "carried");
+  const tone = PROV_TONE[prov.worst] ?? BAD;
+  // The hover ledger IS the explainer (house rule: every metric needs one).
+  const ledger = prov.inputs
+    .map((i) => `${i.label}: ${i.source_label}${i.age ? ` · ${i.age}` : ""}\n    ${i.detail}`)
+    .join("\n");
+  return (
+    <span
+      title={`WHERE THIS ROW'S NUMBERS CAME FROM\n\n${prov.summary}\n\n${ledger}\n\n`
+        + `Grades — IBKR: the golden source. computed: derived by TradePro from `
+        + `real inputs, reproducible by hand. vendor: the right non-broker feed `
+        + `(no IBKR equivalent exists). FALLBACK: yahoo/IG standing in for a feed `
+        + `IBKR does serve. CARRIED: a real number from an earlier moment. `
+        + `MISSING: nobody served it.`}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10,
+        fontWeight: 700, color: tone, border: `1px solid ${tone}55`,
+        background: `${tone}14`, borderRadius: 999, padding: "2px 8px",
+        whiteSpace: "nowrap", cursor: "help",
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: 999, background: tone, flex: "0 0 auto" }} />
+      {/* Name the dark inputs rather than repeating one word on every row.
+          "MISSING" told the reader nothing when all 82 rows said it; "OI, div"
+          says exactly what this row is missing and lets two rows differ. */}
+      {dark.length
+        ? `no ${dark.map((i) => SHORT_INPUT[i.input] ?? i.input).join(", ")}`
+        : weak.length
+          ? `${PROV_WORD[prov.worst]} ${weak.map((i) => SHORT_INPUT[i.input] ?? i.input).join(", ")}`
+          : PROV_WORD[prov.worst] ?? "?"}
+    </span>
   );
 }

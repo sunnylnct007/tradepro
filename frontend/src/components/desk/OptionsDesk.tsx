@@ -370,7 +370,7 @@ export function OptionsDesk() {
           below. Never capital-gated here (project_wheel_signal_vs_paper_
           capital_split) — size-fit is informational, shown not filtered. */}
       {!loading && !err && cands.length > 0 && (
-        <MorningCandidatesPanel candidates={eligible.slice(0, 5)} all={cands} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />
+        <MorningCandidatesPanel candidates={cands} all={cands} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />
       )}
 
       {/* ── Candidate screen ───────────────────────────────────── */}
@@ -384,176 +384,22 @@ export function OptionsDesk() {
         </div>
       )}
 
-      {cands.length > 0 && (
-        <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 18 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Data", "Regime", "Vega edge", "OI / Spread", "Eligible (CSP)", "Annual yield", "Suggested", "Put vs buy now", "Size fit", "Why / why-not", ""].map((h) => (
-                  <th key={h} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {cands.map((c) => (
-                <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b", background: c.is_best ? `${TONE.ok}12` : undefined }}>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
-                    {c.is_best && <span title="best eligible CSP right now" style={{ marginRight: 5 }}>⭐</span>}{c.symbol}
-                    {/* Short-dated tier verdict. Only present when earnings
-                        conflict with the standard band — and usually it is a
-                        REASON IT DIDN'T FIRE, which is exactly the thing worth
-                        showing rather than hiding. */}
-                    {c.short_tier && (
-                      <span
-                        title={`SHORT-DATED TIER (7-21 DTE, earnings avoidance)\n\n${c.short_tier.status}\n${c.short_tier.detail ?? ""}\n\nThis tier is attempted only when the standard ~35 DTE expiry would hold through an earnings print. A status other than a live suggestion means it could NOT find a safe short-dated alternative — the name simply stays blocked on earnings.`}
-                        style={{ display: "block", marginTop: 2, fontSize: 9, fontWeight: 600,
-                                 cursor: "help",
-                                 color: c.short_tier.eligible ? TONE.ok : TONE.dim }}
-                      >
-                        {c.short_tier.eligible ? "◆ SHORT-DATED" : `◇ short: ${c.short_tier.status.replace(/_/g, " ")}`}
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ padding: "8px 10px" }}>
-                    <ProvenanceCell prov={c.provenance} />
-                  </td>
-                  <td style={{ padding: "8px 10px" }}>
-                    {c.regime ? <RegimePill regime={c.regime} /> : <span style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>}
-                  </td>
-                  <td style={{ padding: "8px 10px" }}>
-                    {c.iv_rank != null ? (
-                      <IvGauge rank={c.iv_rank} />
-                    ) : c.iv_hv_ratio != null ? (
-                      <span
-                        title={`IV/HV bridge gate: implied vol ÷ 30d realised. ≥ 1.00 = premium at least pays for realised risk. `
-                          + `Used while our own IV dataset (${c.iv_rank_days ?? "?"}d so far) grows toward the 60d needed for a true IV-Rank.`}
-                        style={{ fontFamily: "var(--font-mono)", fontWeight: 600,
-                                 color: c.iv_hv_ratio >= 1 ? TONE.ok : "var(--text-dim)" }}
-                      >
-                        {c.iv_hv_ratio.toFixed(2)}<span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: 10 }}> IV/HV</span>
-                      </span>
-                    ) : (
-                      <span title="No vega-edge metric available — IV snapshot dark; blocked, not assumed."
-                            style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>
-                    )}
-                  </td>
-                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
-                    {c.open_interest == null ? "—" : c.open_interest.toLocaleString()}
-                    {c.spread_usd != null ? ` / $${c.spread_usd.toFixed(2)}` : ""}
-                  </td>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, color: c.eligible ? TONE.ok : TONE.dim }}>
-                    {c.eligible ? "✓ YES" : "— no"}
-                  </td>
-                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 600, color: c.annualized_yield_pct != null ? (c.eligible ? TONE.ok : "var(--text-dim)") : "var(--text-muted)" }}>
-                    {c.annualized_yield_pct != null ? `${c.annualized_yield_pct.toFixed(0)}%/yr` : "—"}
-                  </td>
-                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
-                    {c.suggested_strike != null ? (
-                      <span>
-                        {`$${c.suggested_strike} · Δ${(c.suggested_delta ?? 0).toFixed(2)}${c.suggested_premium != null ? ` · $${c.suggested_premium.toFixed(2)}` : ""}`}
-                        {/* EVERY pricing state gets a badge, not just one. The
-                            15 Aug board was 55 prev-close, 19 CARRIED and only
-                            8 live — and `carried_last_live`, the stalest of the
-                            three, rendered with no label at all, so a number
-                            hours old looked identical to a live quote. */}
-                        {c.premium_source && c.premium_source !== "live_mid" && (
-                          <span
-                            title={c.premium_source === "prev_close_indicative"
-                              ? "Options have no pre-market session — this premium is the PRIOR session's close (IBKR field 7741), shown as the last available value. Indicative only; live quotes take over at the US open."
-                              : `Pricing CARRIED WHOLESALE from the last screen that had live quotes${c.premium_age_h != null ? ` — ${c.premium_age_h}h old` : ""}. Strike, premium, OI and spread all belong to that earlier snapshot, so nothing is grafted across moments. Hard-blocked from eligibility: informative, never actionable.`}
-                            style={{ marginLeft: 4, fontSize: 9, padding: "1px 4px", borderRadius: 4,
-                                     border: `1px solid ${c.premium_source === "carried_last_live" ? TONE.bad : TONE.warn}`,
-                                     color: c.premium_source === "carried_last_live" ? TONE.bad : TONE.warn }}
-                          >
-                            {c.premium_source === "prev_close_indicative"
-                              ? "prev close"
-                              : `carried${c.premium_age_h != null ? ` ${c.premium_age_h}h` : ""}`}
-                          </span>
-                        )}
-                        {c.forward_price != null && (
-                          <span
-                            style={{ display: "block", fontSize: 10, color: "var(--text-muted)" }}
-                            title={`Forward price at expiry (F = S·e^((r−q)T)) — the honest "how far OTM" anchor: `
-                              + `strike vs forward, not vs spot. `
-                              + (c.forward_basis === "r_and_div_yield"
-                                ? "Includes this name's dividend yield."
-                                : "Rates-only (dividend yield not served) — slightly overstated for dividend payers.")}
-                          >
-                            fwd ${c.forward_price.toFixed(1)}
-                            {c.suggested_strike != null && c.forward_price > 0 &&
-                              ` · strike ${((1 - c.suggested_strike / c.forward_price) * 100).toFixed(1)}% below fwd`}
-                          </span>
-                        )}
-                      </span>
-                    ) : "—"}
-                  </td>
-                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
-                    {c.put_vs_buy ? (
-                      <span title={
-                        `Buy now: $${c.put_vs_buy.buy_now_price.toFixed(2)} · `
-                        + `Sell put: $${c.put_vs_buy.sell_put_strike} strike, `
-                        + `$${c.put_vs_buy.sell_put_premium.toFixed(2)} premium, `
-                        + `effective cost if assigned $${c.put_vs_buy.sell_put_effective_cost_if_assigned.toFixed(2)}`
-                      }>
-                        <span style={{ color: "var(--text-muted)" }}>buy </span>${c.put_vs_buy.buy_now_price.toFixed(0)}
-                        <span style={{ color: "var(--text-muted)" }}> vs put </span>${c.put_vs_buy.sell_put_effective_cost_if_assigned.toFixed(0)}
-                        <span style={{ color: c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? TONE.ok : TONE.bad, marginLeft: 4 }}>
-                          ({c.put_vs_buy.discount_vs_buy_now_pct >= 0 ? "-" : "+"}{Math.abs(c.put_vs_buy.discount_vs_buy_now_pct).toFixed(1)}%)
-                        </span>
-                      </span>
-                    ) : (
-                      <span style={{ color: "var(--text-muted)", fontSize: 11 }}
-                            title="This comparison needs a live option premium; chains are cold when the market is closed. It fills in-session.">
-                        needs live premium
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}
-                      title="Contract notional as a share of account NAV — informational only, never a hard gate here (the risk engine's own notional cap does that)">
-                    {c.size_fit_pct != null ? `${c.size_fit_pct.toFixed(1)}%` : "—"}
-                  </td>
-                  <td
-                    style={{ padding: "8px 10px", color: c.eligible ? TONE.warn : TONE.bad,
-                             maxWidth: 360, minWidth: 240, fontSize: 11, lineHeight: 1.45,
-                             // Wrap up to 3 lines — single-line ellipsis HID the
-                             // reason entirely at narrow widths (owner: "text
-                             // gets hidden, I can't see them"). Full list stays
-                             // in the hover tooltip.
-                             display: "-webkit-box", WebkitLineClamp: 3,
-                             WebkitBoxOrient: "vertical", overflow: "hidden",
-                             whiteSpace: "normal", overflowWrap: "anywhere" }}
-                    title={[...(c.blocks ?? []), ...(c.warnings ?? [])].join("\n") || undefined}
-                  >
-                    {(() => {
-                      // PRIMARY reason wrapped-visible; the rest in the tooltip.
-                      const list = c.blocks?.length ? c.blocks : (c.warnings ?? []);
-                      if (!list.length) return c.eligible ? "all gates pass" : "—";
-                      const extra = list.length - 1;
-                      return <>{list[0]}{extra > 0 && <span style={{ color: "var(--text-muted)" }}> +{extra} more (hover)</span>}</>;
-                    })()}
-                  </td>
-                  <td style={{ padding: "8px 10px" }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button
-                        disabled={c.suggested_strike == null}
-                        onClick={() => analyze(c)}
-                        title={c.suggested_strike == null ? "no chain yet (pending market open)" : "load into the payoff explorer"}
-                        style={btnStyle(c.suggested_strike != null, TONE.line)}
-                      >Analyze</button>
-                      <button
-                        disabled={busy || c.suggested_strike == null}
-                        onClick={() => recordCandidate(c)}
-                        title={c.suggested_strike == null ? "no suggested strike yet (chain pending market open)" : "record this CSP on the paper ledger"}
-                        style={btnStyle(c.suggested_strike != null)}
-                      >Record CSP</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* The prose table that used to live here is GONE (31 Aug 2026).
+
+          Owner: "donth think our option screen is anywhere near
+          professional grae". Two tables rendered the SAME rows with
+          different column sets and different field names — which is how
+          `annual_yield_pct` vs `annualized_yield_pct` survived, blanking
+          the Yield column and silently unranking the panel that names
+          what to trade first.
+
+          The second table also carried a paragraph per row justifying
+          itself, 82 times. That is a document, not a screen: you cannot
+          scan it, sort it, or compare two names. WheelBoardTable already
+          solved this — fixed numeric columns, sortable on every one, one
+          reason code per row, prose behind a click — and now gets EVERY
+          candidate instead of the top five, with Analyze / Record CSP in
+          the expanded row beside the reasoning they belong to. */}
 
       {/* ── Analyze modal — big, zoomable payoff for one candidate ── */}
       {analyzeOpen && (
@@ -818,7 +664,7 @@ function btnStyle(enabled: boolean, color = TONE.ok): React.CSSProperties {
   };
 }
 
-function MorningCandidatesPanel({ candidates, all }: {
+function MorningCandidatesPanel({ candidates, all, onAnalyze, onRecord, busy }: {
   candidates: Candidate[]; all: Candidate[]; onAnalyze: (c: Candidate) => void; onRecord: (c: Candidate) => void; busy: boolean;
 }) {
   // Market-level verdict + nearest-to-eligible: "0 eligible" with no context
@@ -836,10 +682,12 @@ function MorningCandidatesPanel({ candidates, all }: {
       <SectionTitle>
         Today's candidates
         <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--text-muted)", textTransform: "none" }}>
-          {candidates.length === 0 ? "none eligible right now" : `top ${candidates.length}, ranked by annualised yield`}
+          {candidates.length === 0
+            ? "none screened yet"
+            : `${candidates.filter((c) => c.eligible).length} tradeable of ${candidates.length} · eligible first, then by annualised yield`}
         </span>
       </SectionTitle>
-      {candidates.length === 0 ? (
+      {candidates.filter((c) => c.eligible).length === 0 && candidates.length > 0 ? (
         <div style={{ padding: "12px 14px", border: "1px dashed var(--border)", borderRadius: 8, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 12, color: "var(--text)" }}>
             <b>No trade is the verdict, not a failure.</b>{" "}
@@ -862,7 +710,7 @@ function MorningCandidatesPanel({ candidates, all }: {
           )}
         </div>
       ) : (
-        <WheelBoardTable rows={candidates} />
+        <WheelBoardTable rows={candidates} onAnalyze={onAnalyze} onRecord={onRecord} busy={busy} />
       )}
     </div>
   );
@@ -1052,107 +900,9 @@ function MarketDataBanner() {
   );
 }
 
-function RegimePill({ regime }: { regime: string }) {
-  const c = REGIME_TONE[regime] || TONE.dim;
-  return (
-    <span style={{ display: "inline-block", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", color: c, background: `${c}1f`, border: `1px solid ${c}55`, borderRadius: 999, padding: "2px 9px" }}>
-      {regime}
-    </span>
-  );
-}
-
-// Uniform provenance, per row. The owner's standing complaint (15 Aug 2026):
-// "we shouldn't hit issues where we don't know if data is coming from cache,
-// yahoo or ibkr." One dot for the row's WORST input, and the full per-input
-// ledger — source, as-of, age — on hover. `golden` is deliberately quiet:
-// what needs to catch the eye is a fallback, a carried number, or a hole.
-const PROV_TONE: Record<ProvTrust, string> = {
-  golden: TONE.ok,
-  derived: TONE.line,
-  vendor: "var(--text-dim)",
-  fallback: TONE.warn,
-  carried: TONE.warn,
-  unavailable: TONE.bad,
-};
-const PROV_WORD: Record<ProvTrust, string> = {
-  golden: "IBKR",
-  derived: "computed",
-  vendor: "vendor",
-  fallback: "FALLBACK",
-  carried: "CARRIED",
-  unavailable: "MISSING",
-};
-
-function ProvenanceCell({ prov }: { prov: Candidate["provenance"] }) {
-  if (!prov) {
-    return (
-      <span style={{ color: TONE.bad, fontSize: 11 }}
-            title="This row carries no provenance block — it predates uniform provenance, or the screen failed to build one. Treat its numbers as unverified.">
-        unknown
-      </span>
-    );
-  }
-  // A single worst-grade word does NOT discriminate. On 17 Aug every one of 82
-  // rows read "MISSING", because open interest and dividend yield are dark
-  // universe-wide — so the column cost a table width and told the reader
-  // nothing about which row was worse than which. Show WHICH inputs are dark
-  // and HOW MANY, so two rows with different gaps look different.
-  const dark = prov.inputs.filter((i) => i.trust === "unavailable");
-  const weak = prov.inputs.filter((i) => i.trust === "fallback" || i.trust === "carried");
-  const tone = PROV_TONE[prov.worst] ?? TONE.bad;
-  // The hover ledger IS the explainer (house rule: every metric needs one).
-  const ledger = prov.inputs
-    .map((i) => `${i.label}: ${i.source_label}${i.age ? ` · ${i.age}` : ""}\n    ${i.detail}`)
-    .join("\n");
-  return (
-    <span
-      title={`WHERE THIS ROW'S NUMBERS CAME FROM\n\n${prov.summary}\n\n${ledger}\n\n`
-        + `Grades — IBKR: the golden source. computed: derived by TradePro from `
-        + `real inputs, reproducible by hand. vendor: the right non-broker feed `
-        + `(no IBKR equivalent exists). FALLBACK: yahoo/IG standing in for a feed `
-        + `IBKR does serve. CARRIED: a real number from an earlier moment. `
-        + `MISSING: nobody served it.`}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10,
-        fontWeight: 700, color: tone, border: `1px solid ${tone}55`,
-        background: `${tone}14`, borderRadius: 999, padding: "2px 8px",
-        whiteSpace: "nowrap", cursor: "help",
-      }}
-    >
-      <span style={{ width: 6, height: 6, borderRadius: 999, background: tone, flex: "0 0 auto" }} />
-      {/* Name the dark inputs rather than repeating one word on every row.
-          "MISSING" told the reader nothing when all 82 rows said it; "OI, div"
-          says exactly what this row is missing and lets two rows differ. */}
-      {dark.length
-        ? `no ${dark.map((i) => SHORT_INPUT[i.input] ?? i.input).join(", ")}`
-        : weak.length
-          ? `${PROV_WORD[prov.worst]} ${weak.map((i) => SHORT_INPUT[i.input] ?? i.input).join(", ")}`
-          : PROV_WORD[prov.worst] ?? "?"}
-    </span>
-  );
-}
 
 // Compact labels for the Data pill — the full names are in the hover ledger.
-const SHORT_INPUT: Record<string, string> = {
-  bars: "bars", spot: "spot", premium: "premium", iv: "IV",
-  open_interest: "OI", div_yield: "div", earnings: "earnings",
-};
 
-function IvGauge({ rank }: { rank: number | null }) {
-  if (rank == null) return <span style={{ color: TONE.bad, fontSize: 11 }}>n/a</span>;
-  const pass = rank >= 30;
-  const c = pass ? TONE.ok : TONE.warn;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 96 }} title={`IV-Rank ${rank.toFixed(0)}% — ${pass ? "premium rich (≥30 gate)" : "below the 30 gate, too cheap"}`}>
-      <div style={{ position: "relative", flex: 1, height: 6, borderRadius: 3, background: "var(--surface)", border: "1px solid var(--border)", overflow: "hidden" }}>
-        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, Math.max(0, rank))}%`, background: c }} />
-        {/* 30% threshold marker */}
-        <div style={{ position: "absolute", left: "30%", top: -1, bottom: -1, width: 1, background: "var(--text-muted)" }} />
-      </div>
-      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, color: c, width: 30, textAlign: "right" }}>{rank.toFixed(0)}%</span>
-    </div>
-  );
-}
 
 function Flag({ tone, children }: { tone: string; children: React.ReactNode }) {
   return (
