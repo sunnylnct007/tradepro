@@ -1463,7 +1463,15 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         iv_rank=ivr.iv_rank if ivr.available else None,
         iv_hv_ratio=ivr.iv_hv_ratio if ivr.available else None,
         iv_rank_window_days=ivr.days if ivr.available else None,
-        open_interest=oi, bid_ask_spread_usd=spread,
+        open_interest=oi,
+        # DECLARE THE PROVENANCE so the risk engine can decide whether this
+        # number is allowed to reject a name. Ours is not: IBKR serves OI on the
+        # live account (XOM 155P = 868) but not on the paper cpapi session we
+        # screen with, so every value here comes from our own capture — measured
+        # 58 against that same 868. It was the largest rejection reason on the
+        # board, 53 of 82 rows.
+        open_interest_source=oi_source,
+        bid_ask_spread_usd=spread,
         premium_mid_usd=premium,   # scales the spread cap (relative, not $0.10 flat)
         earnings_in_expiry_window=earnings_in_window,
         # Screen on best-available data: a usable chain is enough to ASSESS

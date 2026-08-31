@@ -130,6 +130,14 @@ class OptionsRiskConfig:
     # feed. Nothing is outstanding at 0-10 contracts, so a two-sided quote there
     # is a market-maker's indicative, not evidence that anyone has traded it.
     oi_absent_max: int = 10
+    # Sources whose open interest is allowed to BLOCK a candidate. Anything else
+    # may only warn. IBKR serves OI on the live account (verified: XOM 155P =
+    # 868 via option_open_interest) but NOT on the paper cpapi session we screen
+    # with — probed 7085-7089, 7607, 7638, 7639, 7697-7698 against that same
+    # contract and none was returned. So today every OI we hold comes from our
+    # own Yahoo-derived capture, which is wrong by more than an order of
+    # magnitude, and it was rejecting 53 of 82 rows.
+    oi_blocking_sources: tuple[str, ...] = ("ibkr", "ibkr_web", "g3_ibkr")
     spread_max_usd: float = 0.10
     # Spread cap is PREMIUM-RELATIVE when the mid is known: a $0.10 absolute cap
     # is only realistic for sub-$1 premiums — a $315-strike JPM put quoting a
@@ -252,6 +260,12 @@ class MarketContext:
     iv_hv_ratio: float | None = None       # IV ÷ HV30 — bridge vega gate while the rank window accumulates
     iv_rank_window_days: int | None = None # depth of the IV dataset behind iv_rank/bridge (for honest reasons)
     open_interest: int | None = None       # near-month OI at the strike
+    # WHERE that OI came from. A number is only as blocking as its source is
+    # trustworthy, and ours is currently not: measured 31 Aug 2026, XOM's 155P
+    # read 58 for us against 868 live from IBKR, and an earlier review put the
+    # same contract at 57 against 7,570. None means "unspecified" and is treated
+    # as authoritative, so a caller that says nothing keeps the strict behaviour.
+    open_interest_source: str | None = None
     bid_ask_spread_usd: float | None = None
     premium_mid_usd: float | None = None   # mid of the short leg — scales the spread cap
     earnings_in_expiry_window: bool | None = None   # §9.4 blackout
@@ -509,9 +523,28 @@ def evaluate(
 
     # ── Liquidity gates (§6.1, §9.2) ─────────────────────────────────────
     checked.append("liquidity")
-    if ctx.open_interest is None:
+    # OPEN INTEREST MAY NOT BLOCK ON AN UNTRUSTED SOURCE (31 Aug 2026, owner:
+    # "OI data doesnt need to be a hard gate").
+    #
+    # The liquidity gate was the single largest rejection reason on the live
+    # board — 53 of 82 rows — and it was reading a feed measured wrong by more
+    # than an order of magnitude. Blocking a genuinely liquid name on a number
+    # we know is false is worse than not checking at all, because it presents as
+    # a judgement about the market rather than about our data.
+    #
+    # The spread stays a real gate. It is verified against live IBKR quotes and
+    # it measures the thing that actually decides a fill.
+    _oi_may_block = (ctx.open_interest_source is None
+                     or ctx.open_interest_source in cfg.oi_blocking_sources)
+    if ctx.open_interest is not None and not _oi_may_block:
+        warnings.append(
+            f"Open interest {ctx.open_interest:,} is from {ctx.open_interest_source!r}, "
+            f"not from IBKR — shown for context only and NOT used to reject this "
+            f"candidate. Our capture has measured an order of magnitude below the "
+            f"live figure. Liquidity here is judged on the spread, which is verified.")
+    elif ctx.open_interest is None:
         data_blocks.append("Open interest unavailable — cannot confirm fillable liquidity.")
-    elif ctx.open_interest <= cfg.oi_absent_max:
+    elif _oi_may_block and ctx.open_interest <= cfg.oi_absent_max:
         # A MEASURED NEAR-ZERO IS NOT A THIN PROXY — IT IS AN EMPTY CONTRACT.
         #
         # The proxy argument below says our OI feed UNDERSTATES the true number,
@@ -533,7 +566,7 @@ def evaluate(
             f"Open interest {ctx.open_interest} — effectively nothing is outstanding at this "
             f"strike, so it is illiquid regardless of the quoted spread. A two-sided quote on "
             f"a contract no one holds is indicative, not a market.")
-    elif ctx.open_interest < cfg.oi_min:
+    elif _oi_may_block and ctx.open_interest < cfg.oi_min:
         # OPEN INTEREST IS A PROXY. THE SPREAD IS THE MEASUREMENT. (30 Aug 2026)
         #
         # OI answers "how many contracts are outstanding". What actually decides
