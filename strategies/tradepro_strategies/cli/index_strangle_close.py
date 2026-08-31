@@ -31,6 +31,7 @@ import datetime as _dt
 import json
 import logging
 import os
+import re as _re
 
 log = logging.getLogger("tradepro.index_strangle_close")
 
@@ -93,6 +94,49 @@ def decide_close(position: dict, cfg: dict,
     return {"close": False, "reason": "no live cost to mark against — holding"}
 
 
+# An IBKR option contract description embeds the OCC symbol, e.g.
+#   "SPY    SEP2026 759 P [SPY   260918P00759000 100]"
+# The bracketed OCC form is the ONE unambiguous part: root, YYMMDD, P/C, and
+# the strike in thousandths. The human prefix ("SEP2026 759 P") carries no day,
+# so it cannot identify a contract on its own — a monthly and a weekly in the
+# same month look identical there.
+_OCC = _re.compile(r"([A-Z]{1,6})\s*(\d{6})([PC])(\d{8})")
+
+
+def parse_occ(desc: str) -> dict | None:
+    """Pull symbol / expiry / right / strike out of an IBKR contract string.
+
+    Returns None when the string does not contain an OCC symbol — and the
+    caller must then LEAVE THE POSITION ALONE rather than guess. Closing the
+    wrong contract is worse than closing nothing.
+    """
+    m = _OCC.search((desc or "").upper())
+    if not m:
+        return None
+    root, ymd, right, strike = m.groups()
+    try:
+        exp = _dt.datetime.strptime(ymd, "%y%m%d").date()
+    except ValueError:
+        return None
+    return {"symbol": root, "expiry": exp.isoformat(), "right": right,
+            "strike": int(strike) / 1000.0}
+
+
+def _market_for(symbol: str, markets: dict) -> tuple[str, dict] | None:
+    """The configured market whose index IS this ticker.
+
+    Deliberately an exact match on the configured `index`. This job must only
+    close what the strategy could itself have opened — the account may hold
+    options from the wheel, or placed by hand, and a close job that sweeps
+    everything short would flatten those too. That is why this uses the
+    single-leg close rather than /options/flatten.
+    """
+    for name, cfg in markets.items():
+        if str(cfg.get("index", "")).upper() == symbol.upper():
+            return name, cfg
+    return None
+
+
 def main() -> int:
     from .index_strangle_paper import MARKETS
     ap = argparse.ArgumentParser(prog="tradepro-index-strangle-close")
@@ -102,35 +146,123 @@ def main() -> int:
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
 
-    # Open paper strangles come from the broker, which is the golden source for
-    # "do we own this" — never from an OMS view that can drift.
-    out = []
+    # Open positions come from the broker, the golden source for "do we hold
+    # this" — never from an OMS view that can drift.
+    #
+    # fresh=true is NOT optional. IBKR serves positions from its own cache that
+    # does not self-clear: on 31 Aug 2026 three closed puts kept reporting as
+    # open, with identical P&L, for minutes after their orders filled. A close
+    # job reading that cache would re-close positions it had already closed.
+    base = tok = None
     try:
         import requests
         from .push_to_api import load_credentials
         base, tok = load_credentials()
         H = {"Authorization": f"Bearer {tok}"} if tok else {}
         r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/positions",
-                         timeout=30, headers=H)
-        positions = (r.json() or {}).get("positions") or []
+                         params={"fresh": "true"}, timeout=45, headers=H)
+        body = r.json() or {}
+        if body.get("error"):
+            # FAIL LOUD. An unreadable book is not an empty book, and treating
+            # it as one would silently skip every close that was due.
+            print(f"  !! could not read the broker book: {body['error']}")
+            return 1
+        positions = body.get("positions") or []
     except BaseException as exc:  # noqa: BLE001,B036 — load_credentials EXITS
-        log.warning("could not read the broker book: %s", str(exc)[:160])
-        positions = []
+        print(f"  !! could not read the broker book: {str(exc)[:200]}")
+        return 1
 
-    opts = [p for p in positions if (p.get("assetClass") or p.get("asset_class")) == "OPT"]
+    shorts = [p for p in positions
+              if (p.get("assetClass") or p.get("asset_class")) == "OPT"
+              and float(p.get("quantity") or 0) < 0]
+
     print(f"index strangle close — {_dt.datetime.now(_dt.UTC):%Y-%m-%d %H:%M}Z")
-    print(f"  {len(opts)} option position(s) at the broker")
-    for m, cfg in MARKETS.items():
-        if not cfg.get("paper_trade"):
+    print(f"  {len(shorts)} short option position(s) at the broker")
+
+    results, closed, failed = [], 0, 0
+    for p in shorts:
+        desc = p.get("instrumentName") or p.get("contractDesc") or p.get("ticker") or ""
+        occ = parse_occ(desc)
+        if not occ:
+            print(f"  ?? {desc[:52]} — cannot parse the contract, LEFT ALONE")
+            results.append({"contract": desc, "action": "skipped",
+                            "reason": "unparseable contract"})
             continue
-        mins = _minutes_to_close(cfg)
-        if mins is not None:
-            print(f"  {m:<7} open, {mins:.0f} min to the close")
+
+        hit = _market_for(occ["symbol"], MARKETS)
+        if not hit:
+            # Not ours. Say so plainly rather than silently ignoring it.
+            print(f"  -- {desc[:52]} — not a configured strangle market, LEFT ALONE")
+            results.append({"contract": desc, "action": "skipped",
+                            "reason": f"{occ['symbol']} is not a strangle market"})
+            continue
+        market, cfg = hit
+
+        qty = abs(int(float(p.get("quantity") or 0)))
+        # averagePricePaid is per share (the API normalises IBKR's x100 cost
+        # basis); currentPrice is per share too, so they compare directly.
+        credit = p.get("averagePricePaid")
+        cost = p.get("currentPrice")
+        verdict = decide_close(
+            {"credit": credit, "current_cost": cost}, cfg)
+
+        row = {"market": market, "contract": desc, "quantity": qty,
+               "credit": credit, "current_cost": cost, **verdict}
+
+        if not verdict.get("close"):
+            print(f"  .. {market:<9} {occ['strike']:.0f}{occ['right']} hold — {verdict['reason']}")
+            row["action"] = "hold"
+            results.append(row)
+            continue
+
+        if args.dry_run:
+            print(f"  ->  WOULD CLOSE {market} {occ['strike']:.0f}{occ['right']} x{qty} "
+                  f"— {verdict['reason']}")
+            row["action"] = "would_close"
+            results.append(row)
+            continue
+
+        try:
+            import requests
+            H = {"Authorization": f"Bearer {tok}"} if tok else {}
+            rr = requests.post(
+                f"{base.rstrip('/')}/api/integrations/ibkr/option-leg",
+                json={"symbol": occ["symbol"], "expiry": occ["expiry"],
+                      "strike": occ["strike"], "right": occ["right"],
+                      "contracts": qty, "closingOnly": True},
+                timeout=60, headers=H)
+            out = rr.json() if rr.content else {}
+        except Exception as exc:  # noqa: BLE001
+            out = {"ok": False, "error": str(exc)[:200]}
+
+        if out.get("ok"):
+            closed += 1
+            row["action"] = "closed"
+            row["order_id"] = out.get("orderId")
+            print(f"  OK  CLOSED {market} {occ['strike']:.0f}{occ['right']} x{qty} "
+                  f"— {verdict['reason']}")
+        else:
+            failed += 1
+            row["action"] = "FAILED"
+            row["error"] = out.get("error") or out.get("reason") or out.get("status")
+            # A close that did not happen leaves a SHORT open, which is exactly
+            # the overnight exposure the time exit exists to prevent.
+            print(f"  !! FAILED to close {market} {occ['strike']:.0f}{occ['right']} "
+                  f"— STILL OPEN AND SHORT — {row['error']}")
+        results.append(row)
+
+    if failed:
+        print(f"\n  !! {failed} position(s) COULD NOT BE CLOSED and remain short.")
+    elif closed:
+        print(f"\n  {closed} position(s) closed.")
+
     if args.json:
-        print(json.dumps({"positions": len(opts), "checked": out}, indent=1))
-    print("\n  NOTE: nothing has been placed yet by the strangle, so there is nothing")
-    print("  to close. This is wired and awaiting the first real paper fill.")
-    return 0
+        print(json.dumps({"shorts": len(shorts), "closed": closed,
+                          "failed": failed, "results": results}, indent=1, default=str))
+
+    # Non-zero when something that should have closed did not — the scheduler
+    # must be able to tell "nothing to do" from "the exit did not fire".
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
