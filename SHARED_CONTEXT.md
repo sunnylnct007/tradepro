@@ -750,3 +750,114 @@ day instead of shipping a wrong number: the first pricing version silently
 priced a 5-day 212.5 put against a 30-day 194.96 target. Real premium, wrong
 contract. **A screen that prices the wrong contract is worse than one that
 prices nothing.**
+
+---
+
+## 2026-08-31 — OPEN INTEREST WAS NEVER THE PROBLEM. The wheel screen works.
+
+**The board went from 1 eligible of 82 to 18**, GOOGL among them at 15.1%/yr on
+6,510 open interest. Nothing about the strategy changed; the inputs stopped
+being wrong.
+
+### Field 7638 IS open interest, on the PAPER account
+
+This file and `IBKRResponseParser` both carried the claim that 7638 "was a GUESS
+and it is WRONG ... not served on this cpapi session at all". **False.** Same
+contract, same moment:
+
+    paper cpapi, conid 904441116 (XOM 155P exp 2026-09-04):  7638 = "868"
+    live account, option_open_interest:                      putInterest = 868
+
+Two ordinary bugs, no entitlement issue, no OPRA problem:
+
+1. **We dropped abbreviated numbers.** IBKR sends large values as `"9.21K"` and
+   `decimal.TryParse` rejects it — exactly as it rejected `"57.2%"` for IV. So OI
+   went null on the MOST LIQUID contracts, which are the ones a liquidity gate
+   most wants to pass. Measured live, one chain call:
+
+       XOM  [548, 868, 857, 759, 619, 119]   all parsed
+       SPY  [null x6]        raw = "9.21K", "9.09K", "6.80K"
+
+   Fixed in `DecLoose` (K/M/B) — 7e5abbc. After: **39 of 40 legs** carry OI,
+   SPY 8/8, NVDA 22,500.
+
+2. **We tested with the market SHUT.** OI served for **1 of 6** contracts closed,
+   **11 of 12** open. The "intermittency" was a closed-market artefact.
+
+Median OI across the board went **40 -> 385**. The old Yahoo capture read XOM at
+58 against a true 868 and was doing most of the rejecting. Bid-ask is now the top
+rejection reason, which is the signal we can actually verify.
+
+### The one rule that would have prevented all of it
+
+**An empty field from IBKR carries NO information.** It can mean not-yet,
+not-entitled, asked-wrong, or genuinely absent, and those are indistinguishable
+without independently-known truth. Every IBKR saga this month is the same error:
+IV as `"57.2%"`, the chain at 4 strikes (missing `exchange=SMART`), empty bid/ask
+(documented pre-flight), a missing expiry (our own `maxStrikes=1`), and now OI.
+
+Establish ground truth FIRST, then probe. A probe with a known answer is
+evidence; a probe without one is folklore.
+
+### Provenance is what made it safe to change
+
+`MarketContext.open_interest_source` + `cfg.oi_blocking_sources` (9c458d3,
+corrected 52d34c5). OI may only REJECT when its source is IBKR; anything else
+informs only and says so on the row. It refused to trust the Yahoo number in the
+morning and trusts the IBKR one now, with **no code change in between**.
+
+CAUTION: the first version listed `"g3_ibkr"` — a string invented rather than
+read. The real label is `"g3"`. Guessing an identifier is the same failure as the
+7638 comment, one layer down.
+
+### FIVE cry-wolf labels walked back in two days
+
+Every one fired so often it stopped meaning anything:
+
+| Label | Fired on | Actually |
+|---|---|---|
+| `0G/216S/28B` harvest | 10 identical runs | counting a session that had not opened |
+| `FALLBACK bars` | 73 of 82 rows | ONE agreeing Yahoo close in twenty |
+| deploy-drift alarm | permanently | API only rebuilds for backend/frontend |
+| "IBKR data is DARK" | after every restart | true, but self-inflicted by mid-session deploys |
+| `force-refresh` "inert" | — | it served cache and reported GOLD |
+
+**A channel that is always loud is the same as one that is silent.** The
+materiality rule now used in two places (missing bars, mixed providers) is the
+pattern: keep the detail, move the GRADE only when it matters.
+
+### force-refresh was never broken — it failed QUIET
+
+    ✓ TSLA   9/9 bars   🥇 gold   source=cache
+
+...printed while IBKR was unreachable. Tick, GOLD, exit 0, bars untouched. The
+grade was accurate (it grades what is ON DISK) but the RUN did nothing. IBKR
+market data flaps every ~15 minutes (19:05 ok, 18:50 degraded, 18:35 ok), and the
+run landed in a dark window. **This cost a wrong diagnosis reported to the
+owner.** Now marked `!` with the reason, and the run log records `partial`
+(681ff8b). Ordinary cache hits stay silent — deliberately narrow, so it does not
+become the sixth cry-wolf.
+
+### Traps found today
+
+- **`tradepro-bar-cache-harvest --from ... ` with no `--symbols` covers TWELVE
+  hardcoded names**, not the 244-name universe. It says `symbols=12` in the
+  header, but "run the backfill" does not do what it sounds like.
+- **`--force-refresh` WITHOUT `--ibkr-only` will overwrite IBKR bars with
+  Yahoo.** I did this to TSLA while investigating (21 of 41 bars became
+  yfinance, including a bar for an unfinished session) and repaired it to 100%
+  ibkr_web. The script's own warning says exactly this. Use the guarded CLI path,
+  never a raw `store.get(force_refresh=True)`.
+- **Deploying restarts the API and kills the IBKR market-data session.** Two
+  sessions deployed inside eleven minutes today. Worth a rule: no mid-session
+  deploys unless the change is needed FOR that session.
+- **The MCP connector also takes the market-data session** (one per account).
+  Using it to establish ground truth is legitimate; doing so silently is not.
+
+### Still true, and not fixed by any of the above
+
+- The wheel's **v3 backtest verdict DO NOT FUND stands.** Today fixed the
+  screen's INPUTS, not the strategy's mechanism.
+- **IV-Rank reads `n/a` everywhere** — 18 days of the 60 needed. The IV/HV bridge
+  is standing in, and says so.
+- **Momentum's 19 candidates have never been reviewed** for evidence by anyone.
