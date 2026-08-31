@@ -130,7 +130,34 @@ def _recent_reports(api_base: str) -> dict[str, str]:
     from ..earnings import _calendar_store_events, _store_is_authoritative
     from ..universe import harvest_symbols
     today = _dt.date.today().isoformat()
-    for sym in harvest_symbols(STORE):
+
+    # A SCREEN WITH NO UNIVERSE MUST STOP, NOT PUBLISH NOTHING (31 Aug 2026).
+    #
+    # `harvest_symbols` asks for the universe with strict=False, which returns
+    # an empty list when the file is absent instead of raising. That is
+    # defensible for a HARVEST — it can still refresh whatever the store holds —
+    # and wrong for a screen, which then evaluates nobody.
+    #
+    # Measured on the first real Lambda run: the image did not ship
+    # `universe/tradeable.json` (it sits beside the package, not inside it), so
+    # this returned []. The screen reported "scanned 0 recent reporters", exited
+    # 0, and PUSHED an empty board over one that had a priced MRVL candidate on
+    # it. Nine seconds, ok=true, no warning anywhere.
+    #
+    # `load_universe` already says a missing universe "must stop a screen, not
+    # silently restore the behaviour this module exists to end". This is that
+    # rule, enforced at the one call site that had opted out of it.
+    symbols = harvest_symbols(STORE)
+    if not symbols:
+        from ..universe import universe_path
+        raise RuntimeError(
+            f"no universe to screen — {universe_path()} is missing or empty, so "
+            f"this run would evaluate zero names and publish an empty board over "
+            f"whatever is currently on the desk. Refusing. Build it with "
+            f"`python -m tradepro_strategies.cli.build_universe`, or ship the "
+            f"universe/ directory alongside the package if this is a container.")
+
+    for sym in symbols:
         try:
             data = _calendar_store_events(sym, api_base) or {}
             if not _store_is_authoritative(data.get("store")):

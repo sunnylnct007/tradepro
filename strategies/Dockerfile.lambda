@@ -16,6 +16,16 @@ RUN python -m pip install --no-cache-dir --upgrade pip && \
 COPY tradepro_strategies ${LAMBDA_TASK_ROOT}/tradepro_strategies
 COPY lambda_handler.py   ${LAMBDA_TASK_ROOT}/
 
+# THE UNIVERSE, which is NOT inside the package. `universe.py` resolves it as
+# `parents[1] / "universe" / "tradeable.json"` — a sibling of tradepro_strategies,
+# so copying the package alone left the image with no universe at all.
+#
+# The screen then evaluated ZERO names and pushed an EMPTY board over a good one
+# while reporting ok/rc=0 (31 Aug 2026: "scanned 0 recent reporters", 9 seconds,
+# against 8 reporters and one candidate locally). The file is the definition of
+# what we trade; it has to travel with the code that screens it.
+COPY universe ${LAMBDA_TASK_ROOT}/universe
+
 # WHICH COMMIT IS ACTUALLY RUNNING. Baked at build time, exactly as the API
 # bakes BACKEND_COMMIT so /health/details can answer "is this the SHA I just
 # pushed?". Without it a scheduled job cannot say what code it is, and on
