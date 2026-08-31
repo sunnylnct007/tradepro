@@ -1510,7 +1510,19 @@ public static class IntegrationsEndpoints
                     positions = Array.Empty<object>(),
                 });
             }
-            var rows = result.Positions.Select(p =>
+            // A CLOSED POSITION IS NOT A POSITION. IBKR keeps returning a row
+            // for a contract after it is flattened, with quantity 0 — it is
+            // reporting "here is what became of this contract", not "you hold
+            // this". Passing those through made three puts that had just been
+            // bought back render as three OPEN positions with 0 quantity and 0
+            // P&L, moments after the fresh-read fix had correctly proved them
+            // closed. One stale-data bug wearing a second costume.
+            //
+            // Dropped here rather than in each surface, so no consumer has to
+            // remember. The flatten sweep and the single-leg guard filter on
+            // Quantity < 0 and were never fooled; the UI card and the MCP tool
+            // both were.
+            var rows = result.Positions.Where(p => p.Quantity != 0m).Select(p =>
             {
                 // Compute unrealised % from (mktPrice − avgCost); IBKR carries
                 // unrealizedPnl directly (golden) for the absolute. Guard the %
