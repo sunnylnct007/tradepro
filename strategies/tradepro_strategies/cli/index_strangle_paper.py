@@ -778,7 +778,20 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
         log.warning("paper placement failed for %s: %s", row.get("market"), exc)
         return {"placed": False, "reason": f"request failed: {str(exc)[:160]}",
                 "request": body, "expiry_kind": kind}
-    return {"placed": bool(out.get("ok")), "request": body, "response": out,
+    ok = bool(out.get("ok"))
+    # A REJECTION MUST CARRY A REASON. Without one it matched no reporting
+    # branch and printed nothing — see the `else` in main(). The API's own
+    # words first; the leg statuses next, because "which leg died" is the
+    # question actually being asked.
+    reason = None
+    if not ok:
+        legs_said = " ".join(
+            f"{side}={(out.get(side) or {}).get('status') or '?'}"
+            f"{'/' + str((out.get(side) or {}).get('reason'))[:60] if (out.get(side) or {}).get('reason') else ''}"
+            for side in ("put", "call") if out.get(side))
+        reason = (str(out.get("error") or out.get("warning") or "")[:200]
+                  or legs_said or f"HTTP {r.status_code}: {str(out)[:160]}")
+    return {"placed": ok, "request": body, "response": out, "reason": reason,
             "partial": bool(out.get("partial")), "expiry_kind": kind,
             # Tagged so the two populations are never averaged together.
             "shadow": is_shadow,
@@ -1569,6 +1582,10 @@ def main() -> int:
             if only and r.get("market") not in only:
                 continue
             res = place_paper(r, contracts=args.contracts, shadow=args.place_shadow)
+            if not res:
+                # Even a None is reported. Silence is the one outcome that is
+                # never acceptable here.
+                print(f"  not placed {r.get('market')}: placement returned nothing")
             if res:
                 r["paper_order"] = res
                 # Link the ATTEMPT, not just the success. A refusal is evidence
@@ -1580,17 +1597,26 @@ def main() -> int:
                           f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}{tag}")
                 elif res.get("partial"):
                     print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
-                elif res.get("reason"):
-                    # EVERY refusal prints, not just candidates.
+                else:
+                    # AN ELSE, NOT ANOTHER CONDITION. This has now been the
+                    # silent-failure site twice.
                     #
-                    # This branch used to read `elif r.get("status") ==
-                    # "CANDIDATE"`, so a SHADOW placement that failed matched
-                    # nothing and printed nothing. On 31 Aug the first live run
-                    # attempted SPY, QQQ and GOLD, failed on all three, and said
-                    # absolutely nothing — the run looked clean. Exactly the
-                    # silent-failure shape this project keeps producing.
+                    # 31 Aug: it read `elif r.get("status") == "CANDIDATE"`, so
+                    # a failed SHADOW placement matched nothing. Three markets
+                    # were attempted, all three failed, and the run printed
+                    # nothing at all.
+                    #
+                    # 1 Sep: I "fixed" that to `elif res.get("reason")` — but
+                    # the API-rejection path returned no `reason` key, so SPY,
+                    # QQQ and GOLD failed silently AGAIN, in the scheduled run,
+                    # while the log looked clean.
+                    #
+                    # Twice is a pattern: any CONDITION here can be missed by a
+                    # return shape nobody thought about. An unconditional else
+                    # cannot.
                     tag = " [shadow]" if r.get("status") != "CANDIDATE" else ""
-                    print(f"  not placed {r['market']}{tag}: {res.get('reason')}")
+                    why = res.get("reason") or f"no reason given — raw: {str(res)[:200]}"
+                    print(f"  not placed {r['market']}{tag}: {why}")
 
     if args.json:
         print(json.dumps(rows, indent=1))
