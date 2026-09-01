@@ -299,7 +299,15 @@ def main() -> int:
                     f"{base.rstrip('/')}/api/integrations/ibkr/option-leg",
                     json={"symbol": occ["symbol"], "expiry": occ["expiry"],
                           "strike": occ["strike"], "right": occ["right"],
-                          "contracts": qty, "closingOnly": True},
+                          "contracts": qty, "closingOnly": True,
+                          # The position's OWN conid, so the close never depends
+                          # on IBKR's option chain. On 1 Sep 2026 that chain
+                          # failed for every symbol probed — including SPY 758P,
+                          # which we were short at the time. A close that cannot
+                          # resolve cannot close, and the position sits open
+                          # overnight: precisely the exposure the time exit
+                          # exists to prevent.
+                          "conid": p.get("conid")},
                     timeout=60, headers=H)
                 out = rr.json() if rr.content else {}
             except Exception as exc:  # noqa: BLE001

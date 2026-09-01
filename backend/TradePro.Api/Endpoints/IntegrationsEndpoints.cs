@@ -1551,6 +1551,14 @@ public static class IntegrationsEndpoints
                 }
                 return new
                 {
+                    // The contract's OWN identifier, carried through so a CLOSE
+                    // never has to re-derive it. Re-resolving symbol+expiry+
+                    // strike goes through IBKR's option chain, which is a
+                    // progressive snapshot and was failing outright on 1 Sep
+                    // 2026 — including for a contract we were holding at that
+                    // moment. A close that cannot resolve cannot close, and the
+                    // position sits open overnight.
+                    conid = p.ConId,
                     ticker = p.Symbol,
                     // The FULL contract for options — "SPY" alone does not say
                     // which strike or expiry you are short.
