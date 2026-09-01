@@ -1247,7 +1247,8 @@ public sealed class IBKRClient
     /// reply id rather than silently auto-confirming a margin/price warning).
     /// </summary>
     public async Task<IBKROrderResult> PlaceMarketOrderAsync(
-        long conid, string side, decimal quantity, CancellationToken ct = default)
+        long conid, string side, decimal quantity, CancellationToken ct = default,
+        string orderType = "MKT", decimal? price = null, string tif = "DAY")
     {
         // ── HARD kill-switch (Layer 1 — primary guarantee) ──
         // We run IBKR READ-ONLY against a LIVE account. Unless an operator has
@@ -1270,6 +1271,19 @@ public sealed class IBKRClient
             return new IBKROrderResult(null, "REJECTED", "IBKR disabled", 0);
         try
         {
+            // orderType/price/tif come from the caller. This was hardcoded to
+            // a DAY MARKET order, which is fine for entering and wrong for
+            // EXITING: a profit target has to be a LIMIT that rests at the
+            // broker, so the exit survives our job being down, the session
+            // dying, or the option chain refusing to resolve — all three of
+            // which happened on 1 Sep 2026.
+            //
+            // A LMT with no price is refused rather than silently downgraded
+            // to a market order, which would sell at whatever is there.
+            var type = string.IsNullOrWhiteSpace(orderType) ? "MKT" : orderType.Trim().ToUpperInvariant();
+            if (type == "LMT" && price is null)
+                return new IBKROrderResult(null, "REJECTED",
+                    "a LMT order needs a price — refusing to send it as a market order", 0);
             var body = new
             {
                 orders = new[]
@@ -1277,10 +1291,11 @@ public sealed class IBKRClient
                     new
                     {
                         conid,
-                        orderType = "MKT",
+                        orderType = type,
                         side = side.ToUpperInvariant(),
                         quantity = Math.Abs(quantity),
-                        tif = "DAY",
+                        price = type == "LMT" ? price : null,
+                        tif = string.IsNullOrWhiteSpace(tif) ? "DAY" : tif.Trim().ToUpperInvariant(),
                     },
                 },
             };
@@ -1348,13 +1363,14 @@ public sealed class IBKRClient
     /// so a paper secret can only ever place to the paper account.
     /// </summary>
     public async Task<IBKROrderResult> PlaceMarketOrderConfirmedAsync(
-        long conid, string side, decimal quantity, CancellationToken ct = default)
+        long conid, string side, decimal quantity, CancellationToken ct = default,
+        string orderType = "MKT", decimal? price = null, string tif = "DAY")
     {
         _log.LogInformation(
             "IBKR order routing: mode={Mode} account={Account} label={Label} conid={Conid} side={Side} qty={Qty}",
             _options.Mode, _options.AccountId, _options.BrokerLabel, conid, side, quantity);
 
-        var result = await PlaceMarketOrderAsync(conid, side, quantity, ct);
+        var result = await PlaceMarketOrderAsync(conid, side, quantity, ct, orderType, price, tif);
         const int MaxConfirms = 5;
         for (int i = 0; i < MaxConfirms && result.Status == "NEEDS_CONFIRM" && result.OrderId is not null; i++)
         {
