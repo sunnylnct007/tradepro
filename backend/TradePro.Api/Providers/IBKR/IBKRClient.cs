@@ -1076,9 +1076,50 @@ public sealed class IBKRClient
         // hold several expiries (weeklies), and placing the wrong one is a
         // different trade with the same strike.
         var want = exp.ToString("yyyyMMdd");
-        var exact = res.Contracts.FirstOrDefault(
-            c => c.MaturityDate is not null && c.MaturityDate.Replace("-", "") == want);
-        if (exact is not null) return exact.ConId;
+        var onDate = res.Contracts
+            .Where(c => c.MaturityDate is not null && c.MaturityDate.Replace("-", "") == want)
+            .ToList();
+
+        if (onDate.Count == 1) return onDate[0].ConId;
+        if (onDate.Count > 1)
+        {
+            // MORE THAN ONE CONTRACT ON THE SAME DATE AND STRIKE. On a third
+            // Friday the AM-settled monthly (SPX) and the PM-settled weekly
+            // (SPXW) both exist. FirstOrDefault used to pick whichever IBKR
+            // returned first — on 1 Sep 2026 an order for SPX filled as SPXW,
+            // a different instrument from the one the config describes.
+            //
+            // Prefer the trading class the caller actually asked for.
+            var sym = symbol.Trim().ToUpperInvariant();
+            var preferred = onDate.FirstOrDefault(
+                c => string.Equals(c.TradingClass, sym, StringComparison.OrdinalIgnoreCase));
+            if (preferred is not null) return preferred.ConId;
+
+            // No exact class match. If every candidate is the SAME class there
+            // is nothing to choose between — take it, but SAY which, because
+            // the config describes the monthly and this may be the weekly.
+            var classes = onDate.Select(c => c.TradingClass ?? "?")
+                                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (classes.Count == 1)
+            {
+                _log.LogWarning(
+                    "{Sym} {Exp} {Strike}{Right} resolved as trading class {Class}, not {Sym} — "
+                    + "the only class listed on that date. AM- and PM-settled differ at expiry; "
+                    + "this desk closes same-day, so it is recorded rather than refused.",
+                    sym, want, strike, right, classes[0]);
+                return onDate[0].ConId;
+            }
+
+            // Genuinely different instruments on offer. Do NOT guess between
+            // settlement conventions.
+            _log.LogError(
+                "AMBIGUOUS CONTRACT for {Sym} {Exp} {Strike}{Right}: {N} contracts on that "
+                + "date across trading classes [{Classes}], none matching {Sym}. Refusing to "
+                + "pick — AM- and PM-settled are different instruments.",
+                sym, want, strike, right, onDate.Count, string.Join(", ", classes), sym);
+            return null;
+        }
+
         // No maturity on the rows: only safe if the month holds exactly one.
         return res.Contracts.Count == 1 ? res.Contracts[0].ConId : null;
     }
