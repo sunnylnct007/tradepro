@@ -29,7 +29,15 @@ type Row = {
   put_strike: number | null; call_strike: number | null;
   outcome_pct: number | null; graded_at_utc: string | null;
   forward: number | null; vol_at_decision: number | null;
-  data_source: string | null;
+  data_source: string | null; exchange_date: string | null;
+  // EXECUTION — what actually happened, not just what was decided. Recorded
+  // since migration 072; until then the platform could not answer "did the
+  // strangle work or not" from its own records.
+  placed: boolean | null; partial: boolean | null; shadow: boolean | null;
+  broker_order_ids: string | null; credit_actual: number | null;
+  credit_modelled: number | null; realised_pnl: number | null;
+  close_trigger: string | null; closed_at_utc: string | null;
+  exit_cost_actual: number | null; lot: number | null;
 };
 type Summary = {
   market: string; evaluated: number; traded: number; declined: number;
@@ -105,54 +113,123 @@ export function StrangleDecisionsView() {
         </tbody>
       </table>
 
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-        <thead><tr style={{ color: "var(--text-muted)", textAlign: "left" }}>
+      {/* GATED vs OVERRIDDEN, side by side. This is the comparison the whole
+          design exists to make: the strategy's edge is what the gate REFUSES,
+          so the only way to know whether the threshold is set right is to
+          trade some refused days on purpose and keep the two populations
+          apart. Averaging them would destroy the very measurement. */}
+      {(() => {
+        const done = rows.filter((r) => r.placed === true && r.realised_pnl != null);
+        const gated = done.filter((r) => !r.shadow);
+        const over = done.filter((r) => r.shadow);
+        const sumOf = (xs: Row[]) => xs.reduce((a, r) => a + (r.realised_pnl || 0), 0);
+        const openNow = rows.filter((r) => r.placed === true && r.realised_pnl == null).length;
+        if (!done.length && !openNow) return null;
+        const cell = (label: string, n: number, pnl: number | null, note: string) => (
+          <div style={{ flex: 1, minWidth: 190, border: "1px solid var(--border)",
+                        borderRadius: 8, padding: "10px 12px" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{label}</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 3 }}>
+              <span style={{ fontSize: 20, fontWeight: 600 }}>{n}</span>
+              {pnl != null && (
+                <span style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                               color: pnl >= 0 ? TONE.ok : TONE.bad }}>
+                  {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.45 }}>
+              {note}
+            </div>
+          </div>
+        );
+        return (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 8px" }}>
+            {cell("Gate said trade — closed", gated.length, gated.length ? sumOf(gated) : null,
+                  "the strategy as designed")}
+            {cell("Gate REFUSED — traded anyway", over.length, over.length ? sumOf(over) : null,
+                  "captured on purpose. A LOSS here is evidence the gate is set right")}
+            {cell("Still open", openNow, null, "P&L lands when the position closes")}
+          </div>
+        );
+      })()}
+
+      {/* WHAT WE ACTUALLY DID, and whether it agreed with the gate.
+          Owner, 1 Sep 2026: "i shd be able to see these executions on screen
+          on daily basis and pnl and also if gate quality was overriden". */}
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5,
+                      fontVariantNumeric: "tabular-nums" }}>
+        <thead><tr style={{ color: "var(--text-muted)", textAlign: "left", fontSize: 11 }}>
           <th style={{ padding: "6px 8px" }}>Date</th>
           <th style={{ padding: "6px 8px" }}>Market</th>
-          <th style={{ padding: "6px 8px" }}>Decision</th>
+          <th style={{ padding: "6px 8px" }}>Gate said</th>
+          <th style={{ padding: "6px 8px" }}>We did</th>
           <th style={{ padding: "6px 8px" }}>Vol vs gate</th>
-          <th style={{ padding: "6px 8px" }}>Forward</th>
           <th style={{ padding: "6px 8px" }}>Strikes</th>
-          <th style={{ padding: "6px 8px" }}>Why</th>
+          <th style={{ padding: "6px 8px", textAlign: "right" }}>Credit</th>
+          <th style={{ padding: "6px 8px", textAlign: "right" }}>P&amp;L</th>
+          <th style={{ padding: "6px 8px" }}>Exit</th>
         </tr></thead>
         <tbody>
           {rows.map((r, i) => {
-            const traded = r.decision === "CANDIDATE";
+            const gateOpened = r.decision === "CANDIDATE";
+            // THE OVERRIDE. shadow means the gate REFUSED and we placed anyway
+            // to capture execution. It is tinted and worded, never colour
+            // alone, because it is the row a reviewer must not miss: a LOSING
+            // override is evidence the gate is set RIGHT.
+            const override = r.placed === true && r.shadow === true;
+            const pnl = r.realised_pnl;
             return (
-              <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
-                <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>{String(r.as_of).slice(0, 10)}</td>
+              <tr key={i} style={{ borderTop: "1px solid var(--border)",
+                                   background: override ? "rgba(210,153,34,.07)" : undefined }}>
+                <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                  {String(r.exchange_date || r.as_of).slice(0, 10)}
+                </td>
                 <td style={{ padding: "6px 8px", fontWeight: 600 }}>
                   {r.market}
-                  {r.expiry_kind && <span style={{ fontSize: 10, color: "var(--text-muted)" }}> {r.expiry_kind}</span>}
+                  {r.expiry_kind && (
+                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}> {r.expiry_kind}</span>
+                  )}
                 </td>
-                <td style={{ padding: "6px 8px", color: traded ? TONE.ok : TONE.off, whiteSpace: "nowrap" }}>
-                  {traded ? "TRADED" : "stood aside"}
-                  {r.provisional && <span style={{ color: TONE.warn, fontSize: 10 }}> · provisional</span>}
+                <td style={{ padding: "6px 8px", whiteSpace: "nowrap",
+                             color: gateOpened ? TONE.ok : TONE.off }}>
+                  {gateOpened ? "trade" : "stand aside"}
+                </td>
+                <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                  {r.placed === true ? (
+                    override
+                      ? <b style={{ color: TONE.warn }}>OVERRODE — placed anyway</b>
+                      : <span style={{ color: TONE.ok }}>placed</span>
+                  ) : r.placed === false
+                    ? <span style={{ color: TONE.off }}>not placed</span>
+                    : <span style={{ color: TONE.off }}>&mdash;</span>}
+                  {r.partial && <b style={{ color: TONE.bad }}> · PARTIAL (naked)</b>}
                 </td>
                 <td style={{ padding: "6px 8px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
                   {r.vol_index ?? "—"} / {r.vol_threshold ?? "—"}
-                  {/* The post-open reading, recorded but NOT used by the gate. */}
-                  {r.vol_at_decision != null && r.vol_at_decision !== r.vol_index && (
-                    <span style={{ fontSize: 10, color: TONE.warn }}>
-                      {" "}(now {r.vol_at_decision})
-                    </span>
-                  )}
-                </td>
-                {/* Forward + DTE make the weekly/monthly strike gap self-explaining.
-                    Two rows for one market on one day differ ONLY because they
-                    price off different forwards — at India's 6.5% that is ~143
-                    points between 7d and 21d, which lands as 100-200 points of
-                    strike on a 100-point grid. Without this column it reads as
-                    an inconsistency. */}
-                <td style={{ padding: "6px 8px", fontFamily: "var(--font-mono)",
-                             whiteSpace: "nowrap", color: "var(--text-muted)" }}>
-                  {r.forward ? r.forward.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}
-                  {r.dte ? <span style={{ fontSize: 10 }}> {r.dte}d</span> : null}
                 </td>
                 <td style={{ padding: "6px 8px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
                   {r.put_strike ? `${r.put_strike.toLocaleString()} / ${r.call_strike?.toLocaleString()}` : "—"}
                 </td>
-                <td style={{ padding: "6px 8px", color: "var(--text-muted)" }}>{r.reason}</td>
+                <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                  {/* A TRADED credit and a MODELLED one are different things and
+                      are never printed as the same number. */}
+                  {r.credit_actual != null
+                    ? <b>{r.credit_actual.toFixed(2)}</b>
+                    : r.credit_modelled != null
+                      ? <span style={{ color: TONE.off }}>
+                          {r.credit_modelled.toFixed(0)}<i style={{ fontSize: 10 }}> modelled</i>
+                        </span>
+                      : "—"}
+                </td>
+                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600,
+                             color: pnl == null ? "var(--text-muted)" : pnl >= 0 ? TONE.ok : TONE.bad }}>
+                  {pnl == null ? "—" : `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}`}
+                </td>
+                <td style={{ padding: "6px 8px", fontSize: 11, color: "var(--text-muted)",
+                             whiteSpace: "nowrap" }}>
+                  {r.close_trigger || (r.placed ? "open" : "—")}
+                </td>
               </tr>
             );
           })}
@@ -167,6 +244,15 @@ export function StrangleDecisionsView() {
         <b style={{ color: "var(--text)" }}>Provisional</b> means the strikes were priced off the
         previous close because the session had not opened — a real decision, but not a placeable
         trade.
+        <br />
+        <b style={{ color: TONE.warn }}>OVERRODE</b> means the volatility gate said stand aside and
+        the trade was placed regardless, to capture a real fill. Those rows are tinted and are
+        counted <b>separately</b> — a losing override is evidence the gate is set correctly, and
+        blending it into the gated numbers would destroy that measurement.
+        <br />
+        <b style={{ color: "var(--text)" }}>Credit</b> in bold is what the broker actually filled.
+        Grey <i>modelled</i> is Black-Scholes off a volatility index — no skew, no bid-ask, and not
+        a price anyone was offered. The two are never shown as the same number.
         <br />
         <b style={{ color: "var(--text)" }}>Outcomes are ungraded</b> until after the session closes.
         Grading a decision before then would be the same lookahead this strategy has already had to
