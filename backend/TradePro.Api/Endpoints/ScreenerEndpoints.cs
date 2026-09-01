@@ -17,6 +17,45 @@ namespace TradePro.Api.Endpoints;
 /// </summary>
 public static class ScreenerEndpoints
 {
+    /// <summary>
+    /// IBKR's display-formatted numbers, parsed the way IBKRResponseParser.DecLoose
+    /// already does: a percent suffix ("11.950%"), a thousands abbreviation
+    /// ("8.98M"), a thousands separator ("1,227.50"), or a close/halt prefix.
+    ///
+    /// WHY THIS EXISTS (1 Sep 2026). This file used bare double.TryParse, which
+    /// rejects every one of those. IBKR served SPY field 7283 as "11.950%" and
+    /// the screener read it as 0 — then scored on the zero, failed the name, and
+    /// emailed the owner "0 wheel candidates" while the desk board showed 21
+    /// eligible from the same account at the same moment.
+    ///
+    /// Fifth instance of this shape across the codebase: an execution price as a
+    /// string, an order id under an unchecked name, IV as "57.2%", open interest
+    /// as "9.21K", and now this. Read the RAW payload before concluding a field
+    /// is dark.
+    /// </summary>
+    private static double? ParseLoose(JsonElement v)
+    {
+        if (v.ValueKind == JsonValueKind.Number) return v.GetDouble();
+        if (v.ValueKind != JsonValueKind.String) return null;
+        var s = v.GetString();
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        s = s.Trim().TrimStart('C', 'H', 'D').TrimEnd('%').Trim();
+        var mult = 1.0;
+        if (s.Length > 1)
+        {
+            var last = char.ToUpperInvariant(s[^1]);
+            if (last is 'K' or 'M' or 'B')
+            {
+                mult = last switch { 'K' => 1_000d, 'M' => 1_000_000d, 'B' => 1_000_000_000d, _ => 1d };
+                s = s[..^1].TrimEnd();
+            }
+        }
+        return double.TryParse(s, System.Globalization.NumberStyles.Any,
+                               System.Globalization.CultureInfo.InvariantCulture, out var d)
+            ? d * mult : (double?)null;
+    }
+
+
     // IBKR snapshot field codes needed by the Python screener
     private const string SnapshotFields = "31,7293,7294,7282,7283,7631,7286,87,7718";
 
@@ -231,12 +270,7 @@ public static class ScreenerEndpoints
                 {
 
                     static double? N(JsonElement e, string key)
-                    {
-                        if (!e.TryGetProperty(key, out var v)) return null;
-                        if (v.ValueKind == JsonValueKind.Number) return v.GetDouble();
-                        if (v.ValueKind == JsonValueKind.String && double.TryParse(v.GetString(), out var d)) return d;
-                        return null;
-                    }
+                        => e.TryGetProperty(key, out var v) ? ParseLoose(v) : null;
 
                     var price    = N(elem, "31");
                     var high52w  = N(elem, "7293");
@@ -312,22 +346,40 @@ public static class ScreenerEndpoints
 
             if (elem.ValueKind != JsonValueKind.Object) return ([], false);
 
+            // NumOrNull keeps the null so a caller can tell "IBKR did not serve
+            // this" from "IBKR served zero". Num() preserves the old
+            // default-to-zero signature for fields where zero is genuinely
+            // meaningful, but every SCORED input now goes through NumOrNull and
+            // is counted below when dark — scoring a name on zeroes it never
+            // received is how "0 wheel candidates" got emailed daily.
+            static double? NumOrNull(JsonElement e, string key)
+                => e.TryGetProperty(key, out var v) ? ParseLoose(v) : null;
             static double Num(JsonElement e, string key, double def = 0.0)
+                => NumOrNull(e, key) ?? def;
+
+            // COUNT WHAT IBKR DID NOT SERVE. Measured on SPY, 1 Sep 2026: nine
+            // fields requested, TWO returned (31 and 7283). The other seven
+            // became 0.0, the wheel scored 4/14 against those zeroes, every
+            // name failed, and the owner was emailed "0 wheel candidates" while
+            // the desk board showed 21 eligible from the same account at the
+            // same moment. A screen cannot tell the owner "nothing qualifies"
+            // when what it means is "I could not see".
+            var darkFields = new List<string>();
+            double Scored(string key, string label, double scale = 1.0)
             {
-                if (!e.TryGetProperty(key, out var v)) return def;
-                if (v.ValueKind == JsonValueKind.Number) return v.GetDouble();
-                if (v.ValueKind == JsonValueKind.String && double.TryParse(v.GetString(), out var d)) return d;
-                return def;
+                var v = NumOrNull(elem, key);
+                if (v is null) { darkFields.Add($"{label}({key})"); return 0.0; }
+                return v.Value / scale;
             }
 
             var last   = Num(elem, "31");
-            var h52w   = Num(elem, "7293");
-            var l52w   = Num(elem, "7294");
-            var ivPct  = Num(elem, "7282") / 100.0; // IBKR returns 0-100, we need fraction
-            var ivAnn  = Num(elem, "7283") / 100.0;
-            var hvAnn  = Num(elem, "7631") / 100.0;
-            var divYld = Num(elem, "7286");
-            var avgVol = Num(elem, "87");   // avg daily USD volume
+            var h52w   = Scored("7293", "52w_high");
+            var l52w   = Scored("7294", "52w_low");
+            var ivPct  = Scored("7282", "iv_percentile", 100.0);
+            var ivAnn  = Scored("7283", "iv_annual", 100.0);
+            var hvAnn  = Scored("7631", "hv30", 100.0);
+            var divYld = Scored("7286", "div_yield");
+            var avgVol = Scored("87", "avg_volume");
 
             return (new Dictionary<string, object>
             {
@@ -341,6 +393,10 @@ public static class ScreenerEndpoints
                 // so Python's snapshot_to_fields (which divides back by price) recovers shares
                 ["avg-90d-usd-volume"]            = new { volume = avgVol * last },
                 ["underlying-avg-option-volume"]  = new { avgCallVolume = 0, avgPutVolume = 0 },
+                // Rides with the row so the Python screener, its log line and the
+                // email can all say WHY a name scored what it scored. Empty on a
+                // healthy snapshot.
+                ["_dark_fields"]                  = darkFields,
             }, ivAnn > 0);
         }
         catch (Exception ex)
