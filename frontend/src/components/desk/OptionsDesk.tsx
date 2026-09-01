@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
 import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsPayoff";
 import { WheelBoardTable } from "./WheelBoardTable";
+import { AnalysisPanel } from "./AnalysisPanel";
 import { requestScreenRun, watchJob } from "../../firebase";
 
 /**
@@ -69,6 +70,13 @@ interface Candidate {
     discount_vs_buy_now_pct: number;
   } | null;
   size_fit_pct?: number | null;           // contract notional as % of account NAV
+  // Derived greeks (1 Sep 2026) — Black-Scholes at the row's own IV, labelled
+  // "model" in the UI. Delta stays the broker's when IBKR serves tick greeks.
+  theta_per_day?: number | null;
+  vega_per_1pct?: number | null;
+  gamma?: number | null;
+  model_delta?: number | null;
+  greeks_basis?: string | null;
   ref_close?: number | null;              // last daily close — seeds the payoff spot
   spot_basis?: "daily_close" | "chain_spot" | null;  // WHICH number ref_close is
   forward_price?: number | null;          // F = S·e^((r−q)T) — the real OTM anchor at expiry
@@ -277,7 +285,12 @@ export function OptionsDesk() {
   // bigger canvas, taller chart, Esc / backdrop / ✕ to close. Seeded with the
   // candidate's REAL values (spot from ref_close, its actual DTE).
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
+  const [analyzeRow, setAnalyzeRow] = useState<Candidate | null>(null);
   const analyze = useCallback((c: Candidate) => {
+    // Keep the WHOLE candidate. The payoff seed is seven fields; the analysis
+    // panel needs the rest, and discarding it here is why "Analyze" showed a
+    // shape with no quality.
+    setAnalyzeRow(c);
     setSeed({
       symbol: c.symbol,
       structure: "CASH_SECURED_PUT",
@@ -416,13 +429,18 @@ export function OptionsDesk() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div style={{ fontSize: 14, fontWeight: 700 }}>
-                Analyze{seed?.symbol ? <span style={{ fontFamily: "var(--font-mono)" }}> · {seed.symbol}</span> : ""} — payoff &amp; greeks
+                Analyze{seed?.symbol ? <span style={{ fontFamily: "var(--font-mono)" }}> · {seed.symbol}</span> : ""} — the numbers, then the payoff
               </div>
               <button onClick={() => setAnalyzeOpen(false)} title="Close (Esc)"
                       style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6,
                                color: "var(--text-dim)", padding: "4px 10px", cursor: "pointer", fontSize: 13 }}>✕</button>
             </div>
-            <OptionsPayoff seed={seed} onPlace={placeFromExplorer} placing={busy} chartHeight={430} shareSymbols={shareSymbols} />
+            {analyzeRow && (
+              <div style={{ marginBottom: 14 }}>
+                <AnalysisPanel r={analyzeRow} />
+              </div>
+            )}
+            <OptionsPayoff seed={seed} onPlace={placeFromExplorer} placing={busy} chartHeight={340} shareSymbols={shareSymbols} />
           </div>
         </div>
       )}

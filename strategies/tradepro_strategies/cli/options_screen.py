@@ -1743,6 +1743,26 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "warnings": decision.warnings,
         "suggested_strike": strike,
         "suggested_delta": delta,
+        # ── THE REST OF THE GREEKS (1 Sep 2026) ──────────────────────────
+        #
+        # Owner: "we need more analysis paraneters on analysis screen. it
+        # doesnt display as pro". The Analyze modal seeded a payoff chart with
+        # seven fields and threw the rest away — and the row itself only ever
+        # carried DELTA. For a premium SELLER theta is the headline number: it
+        # is the daily income rate, the entire reason the position exists. An
+        # options analysis screen without theta is not an analysis screen.
+        #
+        # DERIVED, NOT FETCHED, and labelled as such. `OptionQuote` carries a
+        # broker delta when IBKR serves tick greeks but has no field for theta,
+        # gamma or vega, so these come from the same Black-Scholes pricer, at
+        # the same IV this row already displays, on the same strike/spot/DTE.
+        # That makes every number here reproducible by hand from the row — the
+        # "computed" provenance grade, never presented as a broker quote.
+        # chain_iv FIRST: these are THIS contract's greeks, so the leg's own
+        # implied vol is the right input. ivr.iv (the solved/underlying read)
+        # only stands in when the leg served no IV of its own.
+        **_derived_greeks(pricer, ref_close, strike, dte,
+                          chain_iv or (ivr.iv if ivr.available else None)),
         "suggested_premium": premium,
         "premium_source": premium_source,
         # When the pricing was carried, WHEN it was actually priced (the
@@ -2088,6 +2108,32 @@ def _expiry_kind(expiry: str | None) -> str | None:
         return "weekly"
     # Third Friday: the first Friday is day 1-7, so the third falls on 15-21.
     return "monthly" if 15 <= d.day <= 21 else "weekly"
+
+
+def _derived_greeks(pricer, spot, strike, dte, iv) -> dict:
+    """Theta/gamma/vega for the selected leg, from the row's own inputs.
+
+    Returns {} when any input is missing rather than emitting zeros: a zero
+    theta reads as "no decay", which is a statement about the trade, whereas
+    absent means "we could not compute it". The row must not invent either.
+
+    theta_per_day is what a seller actually earns per calendar day, per share.
+    Multiply by 100 for one contract. vega is per 1 percentage point of IV.
+    """
+    try:
+        if not spot or not strike or not iv or iv <= 0 or not dte or dte <= 0:
+            return {}
+        g = pricer.greeks(float(spot), float(strike), max(int(dte), 1) / 365.0,
+                          float(iv), "put")
+        return {
+            "theta_per_day": round(g.theta_per_year / 365.0, 4),
+            "gamma": round(g.gamma, 6),
+            "vega_per_1pct": round(g.vega_per_1pct, 4),
+            "model_delta": round(g.delta, 4),
+            "greeks_basis": "black_scholes_from_row_iv",
+        }
+    except Exception:  # noqa: BLE001 — an analysis extra must never break a screen
+        return {}
 
 
 def run_screen(symbols: list[str] | None = None) -> dict:
