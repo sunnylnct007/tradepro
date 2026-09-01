@@ -38,7 +38,18 @@ public static class StrangleOrderEndpoints
         int Contracts = 1,
         // "STK" for an ETF, "IND" for a cash index (SPX, XSP, NDX). Config
         // supplies it per market; nothing here infers it from the symbol.
-        string UnderlyingSecType = "STK");
+        string UnderlyingSecType = "STK",
+        // "market" (default, unchanged) or "mid" — rest a LIMIT at the mid of
+        // each leg instead of crossing the spread.
+        //
+        // WHY IT IS WORTH TRYING. The edge is ~$25 per SPY contract; crossing a
+        // 1-cent market on both legs costs $2 on entry and $2 again on exit —
+        // 16% of the edge, and worse on anything wider.
+        //
+        // WHY IT IS OPT-IN. A resting limit MAY NOT FILL, and a strangle with
+        // one leg filled is a NAKED short. Market orders always fill. This is
+        // an experiment to be measured against credit_actual, not a default.
+        string EntryPricing = "market");
 
 
     // NOTE: order placement uses IBKRClient.PlaceMarketOrderConfirmedAsync,
@@ -127,10 +138,50 @@ public static class StrangleOrderEndpoints
                 }, statusCode: 502);
             }
 
+            // MID-LIMIT ENTRY, when asked for. Falls back to a market order and
+            // SAYS SO — a silent downgrade would make the experiment
+            // unmeasurable, since we could no longer tell a mid fill from a
+            // crossed one.
+            decimal? putLimit = null, callLimit = null;
+            string pricingNote = "market order — crosses the spread on both legs";
+            if (string.Equals(req.EntryPricing, "mid", StringComparison.OrdinalIgnoreCase))
+            {
+                var q = await ibkr.GetOptionSnapshotBatchAsync(
+                    new[] { put.Value, call.Value }, ct);
+                decimal? MidOf(long conid)
+                {
+                    var x = q.Quotes.FirstOrDefault(z => z.ConId == conid);
+                    if (x?.Bid is not decimal b2 || x.Ask is not decimal a2) return null;
+                    if (b2 <= 0 || a2 <= 0 || a2 < b2) return null;
+                    var mid = (b2 + a2) / 2m;
+                    // Round DOWN to a valid tick. Selling, so rounding down is
+                    // the conservative direction: it stays marketable rather
+                    // than resting above the ask. 5c above $3, 1c below, which
+                    // is the penny-pilot convention.
+                    var tick = mid >= 3m ? 0.05m : 0.01m;
+                    return Math.Floor(mid / tick) * tick;
+                }
+                putLimit = MidOf(put.Value);
+                callLimit = MidOf(call.Value);
+                pricingNote = (putLimit is null || callLimit is null)
+                    ? "asked for MID but a leg had no two-sided quote — FELL BACK to market"
+                    : "LIMIT at the mid of each leg — may not fill";
+                if (putLimit is null || callLimit is null)
+                {
+                    log.LogWarning(
+                        "MID pricing requested for {Sym} but a leg had no usable bid/ask "
+                        + "(put={P} call={C}) — falling back to MARKET", sym, putLimit, callLimit);
+                    putLimit = callLimit = null;
+                }
+            }
+
+            var useLimit = putLimit is not null && callLimit is not null;
             var putRes = await ibkr.PlaceMarketOrderConfirmedAsync(
-                put.Value, "SELL", req.Contracts, ct);
+                put.Value, "SELL", req.Contracts, ct,
+                useLimit ? "LMT" : "MKT", putLimit);
             var callRes = await ibkr.PlaceMarketOrderConfirmedAsync(
-                call.Value, "SELL", req.Contracts, ct);
+                call.Value, "SELL", req.Contracts, ct,
+                useLimit ? "LMT" : "MKT", callLimit);
             var putOk = putRes.Status == "ACCEPTED" && putRes.OrderId is not null;
             var callOk = callRes.Status == "ACCEPTED" && callRes.OrderId is not null;
 
@@ -154,6 +205,8 @@ public static class StrangleOrderEndpoints
                             status = putRes.Status, reason = putRes.StatusReason },
                 call = new { conid = call, strike = req.CallStrike, orderId = callRes.OrderId,
                              status = callRes.Status, reason = callRes.StatusReason },
+                pricing = pricingNote,
+                putLimit, callLimit,
                 note = "PAPER account. Premiums are whatever the broker actually filled — "
                      + "that is the point; the modelled Black-Scholes credit is not evidence.",
             }, statusCode: (putOk && callOk) ? 200 : 502);
