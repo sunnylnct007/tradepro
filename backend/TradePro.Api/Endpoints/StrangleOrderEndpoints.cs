@@ -99,6 +99,21 @@ public static class StrangleOrderEndpoints
             var put = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.PutStrike, "P", ct);
             var call = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.CallStrike, "C", ct);
             if (put is null || call is null)
+            {
+                // LOG IT, do not merely return it. On 1 Sep 2026 the scheduled
+                // 13:45Z run failed to resolve SPY, QQQ and GLD; this branch
+                // returned 502 and wrote nothing to the log, while the caller
+                // swallowed the response just as silently. The failure was
+                // invisible at BOTH ends and was found only by noticing that
+                // positions had not changed.
+                //
+                // A refusal to place is an event worth a line in the log,
+                // whatever the caller does with the response.
+                log.LogError(
+                    "STRANGLE RESOLVE FAILED for {Sym} {Exp}: put {Put}={PutOk} "
+                    + "call {Call}={CallOk} — NOTHING was placed",
+                    sym, req.Expiry, req.PutStrike, put is not null,
+                    req.CallStrike, call is not null);
                 return Results.Json(new
                 {
                     ok = false, stage = "resolve",
@@ -107,6 +122,7 @@ public static class StrangleOrderEndpoints
                     symbol = sym, expiry = req.Expiry,
                     putStrike = req.PutStrike, callStrike = req.CallStrike,
                 }, statusCode: 502);
+            }
 
             var putRes = await ibkr.PlaceMarketOrderConfirmedAsync(
                 put.Value, "SELL", req.Contracts, ct);
@@ -180,12 +196,16 @@ public static class StrangleOrderEndpoints
             var put = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.PutStrike, "P", ct);
             var call = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.CallStrike, "C", ct);
             if (put is null || call is null)
+            {
+                log.LogError("STRANGLE CLOSE RESOLVE FAILED for {Sym} {Exp} — NOTHING was closed",
+                    sym, req.Expiry);
                 return Results.Json(new
                 {
                     ok = false, stage = "resolve",
                     error = "could not resolve one or both contracts — NOTHING was closed",
                     putResolved = put is not null, callResolved = call is not null,
                 }, statusCode: 502);
+            }
 
             var putRes = await ibkr.PlaceMarketOrderConfirmedAsync(
                 put.Value, "BUY", req.Contracts, ct);
