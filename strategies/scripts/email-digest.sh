@@ -1,4 +1,33 @@
 #!/usr/bin/env bash
+# ── RETIRED 2 Sep 2026 ───────────────────────────────────────────────────────
+#
+# Owner: "again this email which adds no value". Its launchd agent
+# (com.tradepro.email-digest, 23:00 local) has been unloaded and the plist moved
+# to ~/Library/LaunchAgents/retired/.
+#
+# WHY, measured rather than asserted. Across all 14 compare universes this
+# digest scored 1,778 rows and bucketed them:
+#
+#     WAIT   1,596  (90%)
+#     AVOID    175
+#     BUY        7  (0.4%)
+#
+# and the verification gate then suppressed the remainder — 196 rows carried
+# EARNINGS_UNKNOWN or EARNINGS_UNVERIFIED, and that gate is CORRECT (added after
+# a UBER row counted as "verified" with its earnings input unresolved). So the
+# mail arrived nightly reading "98 candidates · 0 verified BUY". Not a bug: a
+# screen that says WAIT to 90% of everything will keep producing zero.
+#
+# Its candidate half is superseded by `tradepro-candidates-digest`, which covers
+# every strategy with tier, freshness, gates and provenance — and this one spoke
+# a SEVENTH vocabulary (BUY/WAIT/AVOID) matching nothing else on the desk.
+#
+# The one thing it had that existed nowhere else — the holdings unrealised-P&L
+# chart — MOVED to the candidates digest rather than dying with it.
+#
+# Nothing here is deleted: run this script by hand if the compare buckets are
+# ever worth mailing again.
+
 # Daily email digest hook — runs `tradepro-email` against the production
 # API and sends the digest to the recipient in ~/.tradepro/email-creds.json.
 # Invoked by launchd (~/Library/LaunchAgents/com.tradepro.email-digest.plist)

@@ -204,7 +204,8 @@ def _card(c: dict, stale_hours: float, with_charts: bool) -> str:
 
 
 def build_html(rows: list[dict], problems: list[str], now: _dt.datetime,
-               stale_hours: float, with_charts: bool = True) -> str:
+               stale_hours: float, with_charts: bool = True,
+               holdings_html: str = "") -> str:
     """The rich body. `rows` must already be sorted and grouped by the caller."""
     parts = [
         f"<div style='background:{_BG};padding:16px;font-family:-apple-system,"
@@ -238,6 +239,9 @@ def build_html(rows: list[dict], problems: list[str], now: _dt.datetime,
                     f"font-size:12px'>— {note}</span></div>")
             parts.append(_card(c, stale_hours, with_charts))
 
+    if holdings_html:
+        parts.append(holdings_html)
+
     if problems:
         items = "".join(f"<li style='margin:2px 0'>{_esc(p)}</li>" for p in problems)
         parts.append(
@@ -258,3 +262,48 @@ def build_html(rows: list[dict], problems: list[str], now: _dt.datetime,
         f"Board: <a href='http://16.60.201.137/' style='color:{_OK}'>the desk</a> → "
         f"Candidates</div></div>")
     return "".join(parts)
+
+
+def _holdings_html(holdings: list[dict], mode: str | None) -> str:
+    """Your actual book, beside today's candidates.
+
+    MOVED HERE from the nightly digest (2 Sep 2026), which is being retired.
+    Owner: "again this email which adds no value".
+
+    That digest was structurally empty and not by accident: across all 14
+    compare universes it scored 1,778 rows and bucketed 1,596 WAIT, 175 AVOID
+    and SEVEN BUY — and the verification gate then suppressed those, because 196
+    rows carried EARNINGS_UNKNOWN or EARNINGS_UNVERIFIED. A screen that says
+    WAIT to 90% of everything will keep producing zero most nights.
+
+    Its candidate half is superseded by this digest, which covers every strategy
+    with tier, freshness, gates and provenance — and in a SEVENTH vocabulary
+    (BUY/WAIT/AVOID) that matched nothing else on the desk.
+
+    This chart was the one thing in it that existed nowhere else, so it comes
+    across rather than dying with it. Candidates answer "what could I do today";
+    holdings answer "how is what I already did going". One email, both.
+    """
+    if not holdings:
+        return ""
+    try:
+        import sys
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[2]
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from tradepro_strategies.email_charts import holdings_pnl_bar_png
+        b64 = holdings_pnl_bar_png(holdings)
+    except Exception as exc:  # noqa: BLE001 — never lose the mail over a chart
+        log.debug("holdings chart failed: %s", exc)
+        b64 = ""
+    if not b64:
+        return ""
+    tag = f" · {_esc(mode)}" if mode else ""
+    return (f"<div style='margin:20px 0 6px;font-size:13px;font-weight:600'>"
+            f"Your holdings<span style='font-weight:400;color:{_MUTED};font-size:12px'>"
+            f" — unrealised P&amp;L{tag}</span></div>"
+            f"<div style='background:{_CARD};border:1px solid {_LINE};border-radius:8px;"
+            f"padding:10px'>"
+            f"<img src='data:image/png;base64,{b64}' alt='holdings' "
+            f"style='width:100%;border-radius:4px'/></div>")

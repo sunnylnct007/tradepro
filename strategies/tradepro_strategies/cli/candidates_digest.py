@@ -200,11 +200,24 @@ def main() -> int:
 
     now = _dt.datetime.now(_dt.UTC)
     rows, problems = gather(base, token, now)
+
+    # YOUR BOOK, beside today's candidates. Fetched here rather than in
+    # gather() because it is not a candidate source — it answers a different
+    # question ("how is what I already did going") and must not be counted as
+    # one. A failure is NAMED, like any other source.
+    holdings, mode = [], None
+    try:
+        from .email_digest import fetch_holdings
+        holdings, mode = fetch_holdings(base, token)
+    except Exception as exc:  # noqa: BLE001
+        problems.append(f"Holdings: {str(exc)[:70]}")
     subject, text = render(rows, problems, now)
 
     if args.html_out:
-        from .candidates_html import build_html
-        open(args.html_out, "w").write(build_html(rows, problems, now, STALE_HOURS))
+        from .candidates_html import _holdings_html, build_html
+        open(args.html_out, "w").write(
+            build_html(rows, problems, now, STALE_HOURS,
+                       holdings_html=_holdings_html(holdings, mode)))
         print(f"wrote {args.html_out} ({len(rows)} rows, {len(problems)} problem(s))")
         return 0
 
@@ -225,10 +238,12 @@ def main() -> int:
         # to remove.
         try:
             from .candidates_html import build_html
+            from .candidates_html import _holdings_html
             html = build_html(rows, problems, now, STALE_HOURS,
                               with_charts=os.environ.get(
                                   "TRADEPRO_DIGEST_CHARTS", "1").lower()
-                              not in ("0", "false", "no", "off"))
+                              not in ("0", "false", "no", "off"),
+                              holdings_html=_holdings_html(holdings, mode))
         except Exception as exc:  # noqa: BLE001 — never lose the mail over presentation
             log.warning("rich body failed, sending plain text (%s)", str(exc)[:160])
             html = "<pre style=\"font-family:monospace\">" + text.replace("<", "&lt;") + "</pre>"
