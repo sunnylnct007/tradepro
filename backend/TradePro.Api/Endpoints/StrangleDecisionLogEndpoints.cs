@@ -166,6 +166,22 @@ public static class StrangleDecisionLogEndpoints
                        forward::float8 AS forward,
                        vol_at_decision::float8 AS vol_at_decision, data_source,
                        collateral::float8 AS collateral,
+                       -- The MONEY columns were written but never selected, so
+                       -- credit_modelled and lot read as NULL through the API
+                       -- while sitting populated in the table. Asked how much
+                       -- the system would have made, the log could not answer
+                       -- from data it already held. (No double quotes in here:
+                       -- this is a C# verbatim string and a bare quote ends it.)
+                       margin_estimate::float8 AS margin_estimate,
+                       credit_modelled::float8 AS credit_modelled, lot,
+                       -- EXECUTION — added in 072 and likewise never selected,
+                       -- which made the whole decision->execution link
+                       -- invisible to every reader of this endpoint.
+                       placed, partial, shadow, broker_order_ids,
+                       credit_actual::float8 AS credit_actual, placed_at_utc,
+                       exit_cost_actual::float8 AS exit_cost_actual,
+                       close_trigger, closed_at_utc,
+                       realised_pnl::float8 AS realised_pnl,
                        index_close::float8 AS index_close,
                        outcome_pct::float8 AS outcome_pct, outcome_note, graded_at_utc,
                        jobs_commit
