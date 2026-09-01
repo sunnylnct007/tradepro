@@ -25,3 +25,29 @@ RESP="$(curl -s -m 590 -X POST "${BASE%/}/api/screener/run" \
 # Surface ok / skipped(reason) / candidate counts in the log so a missing email
 # is diagnosable without guessing (market-closed skip vs a real 0-candidate day).
 log "response: ${RESP:0:600}"
+
+# ── THE CANONICAL WHEEL (Phase 1, 1 Sep 2026) ───────────────────────────────
+#
+# `screener/daily_run.py`'s wheel half is now OFF by default: there were two
+# things called "wheel" and they disagreed on the same afternoon — 21 eligible
+# from the gate-based screen against 0 from the score-based one, on different
+# universes, different logic and different data. Owner: "we want a coherant and
+# trustworthy data and not scattered data ... not 2 diff emails".
+#
+# The canonical wheel is tradepro-options-screen. Its launchd agent was retired
+# in the 22 Aug desk cut, so without this line nothing runs it on a schedule and
+# its change-detected email never fires. It runs HERE, in the same mid-session
+# slot, for the same reason that slot exists: the chain and IV need to be warm.
+#
+# It emails only when the ELIGIBLE SET CHANGES, so this cannot spam — and a
+# no-change day correctly produces silence rather than a daily false "0".
+log "canonical wheel -> tradepro-options-screen"
+# Resolve the strategies dir from THIS script's location (scripts/ -> ..), the
+# same way options-screen.sh does. Not inherited: this script never defined it.
+STRAT_DIR="${TRADEPRO_STRATEGIES_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+export PATH="/opt/homebrew/bin:/opt/anaconda3/bin:$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
+if ( cd "$STRAT_DIR" && uv run tradepro-options-screen >>"$LOG" 2>&1 ); then
+  log "wheel screen: ok"
+else
+  log "wheel screen: FAILED (exit $?) — see $LOG"
+fi

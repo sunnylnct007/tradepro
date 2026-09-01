@@ -2272,10 +2272,57 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     import requests
     base, tok = _pta.load_credentials()
     if base and tok:
+        _H = {"Authorization": f"Bearer {tok}"}
         r = requests.post(f"{base.rstrip('/')}/api/options/candidates",
-                          json=payload, headers={"Authorization": f"Bearer {tok}"}, timeout=30)
+                          json=payload, headers=_H, timeout=30)
         log.info("pushed screen: HTTP %s (%d candidates, %d eligible)",
                  r.status_code, len(rows), sum(1 for x in rows if x["eligible"]))
+
+        # ── PHASE 1: PUBLISH WHERE EVERY OTHER SCREEN PUBLISHES ──────────
+        #
+        # Owner: "we want a coherant and trustworthy data and not scattered
+        # data ... as user i dont have to think many screens".
+        #
+        # today_setups, swing_candidates, momentum_candidates and
+        # post_earnings_puts all publish to /api/ingest/today-setups keyed by
+        # universe. This screen went its own way to /api/options/candidates,
+        # and `screener/daily_run` never joined at all — which is how two
+        # things both called "wheel" came to disagree in the same afternoon
+        # (1 Sep 2026: 21 eligible here, 0 in the emailed screener, on
+        # different universes with different logic and different data).
+        #
+        # ADDITIVE ON PURPOSE. /api/options/candidates stays exactly as it is
+        # and remains what the Options tab reads, so nothing breaks while the
+        # other half of the migration lands. This adds ONE canonical location
+        # for "what does the wheel consider a candidate today", which the
+        # emailing screener can then read instead of scoring its own.
+        #
+        # A push failure here must never lose the screen — the real publish
+        # above has already succeeded by this point.
+        try:
+            _art = {
+                "kind": "wheel",
+                "as_of_utc": payload.get("generated_at_utc"),
+                "market_open": payload.get("market_open"),
+                "evaluated": len(rows),
+                "eligible_count": sum(1 for x in rows if x["eligible"]),
+                "candidates": [x for x in rows if x["eligible"]],
+                "screened": rows,
+                "data_health": payload.get("data_health"),
+                "evidence": {
+                    "gates_file": "quant_engine/options/risk.py::evaluate",
+                    "verdict": "PAPER / CANDIDATES FOR MANUAL USE — the v3 "
+                               "backtest verdict DO NOT FUND is unchanged by "
+                               "this screen's inputs being correct.",
+                },
+            }
+            _r2 = requests.post(
+                f"{base.rstrip('/')}/api/ingest/today-setups",
+                json={"universe": "wheel", "label": "latest", "artifact": _art},
+                headers=_H, timeout=30)
+            log.info("pushed wheel -> today-setups/wheel: HTTP %s", _r2.status_code)
+        except Exception as _exc:  # noqa: BLE001 — the screen is already published
+            log.warning("today-setups/wheel push failed (non-fatal): %s", str(_exc)[:160])
     # Owner alert on the actionable moment: the eligible set changed vs the
     # previous push (_prev was fetched above for the carry map — same snapshot).
     _maybe_send_wheel_email(payload, _prev if isinstance(_prev, dict) else None)

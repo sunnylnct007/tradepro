@@ -40,6 +40,37 @@ log = logging.getLogger("screener.daily_run")
 TOP_N = 5
 
 
+
+# ── PHASE 1: THIS IS NO LONGER THE WHEEL (1 Sep 2026) ────────────────────────
+#
+# Owner: "we want a coherant and trustworthy data and not scattered data ... as
+# user i dont have to think many screens", and "not 2 diff emails".
+#
+# There were TWO things called "wheel" and they disagreed on the same afternoon:
+# `cli/options_screen.py` (82 symbols, 14 risk gates, live IBKR chain) said 21
+# ELIGIBLE, while this module (30 hardcoded tickers, a 14-point score, snapshot
+# fields) emailed 0 CANDIDATES. Different universe, different logic, different
+# data — and both mailed the owner.
+#
+# Worse, this side's zero was not a verdict. It requested nine snapshot fields
+# and received two; the rest defaulted to 0.0, and the one that DID arrive
+# ("11.950%") failed a bare double.TryParse and became 0.0 as well. Every name
+# then scored 4/14 against a minimum of 5. A screen may not tell the owner
+# "nothing qualifies" when it means "I could not see" (fixed in 7e5998e, but the
+# duplicate definition is the real defect).
+#
+# The canonical wheel is `tradepro-options-screen`. It publishes to
+# /api/options/candidates AND to today-setups/wheel, carries per-input
+# provenance, a gate trace, real IBKR open interest and greeks, and emails the
+# owner when the ELIGIBLE SET CHANGES rather than daily regardless.
+#
+# The SWING half of this module is untouched and still runs.
+#
+# Set TRADEPRO_SCREENER_WHEEL=1 to re-enable this scorer — kept rather than
+# deleted so the 14-point model stays reviewable, not because it should run.
+_WHEEL_ENABLED = os.environ.get("TRADEPRO_SCREENER_WHEEL", "0").strip().lower() in (
+    "1", "true", "yes", "on")
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-file", required=True, help="Path to JSON file with IBKR data")
@@ -95,7 +126,10 @@ def main() -> int:
             premium_pct = estimate_put_premium_pct(bars, price)
             options = options_from_json(data.get("options"))
 
-            wc = score_wheel(
+            if not _WHEEL_ENABLED:
+                wc = None
+            else:
+                wc = score_wheel(
                 ticker=ticker,
                 price=price,
                 ivr=snap_fields["iv_percentile_52w"],
@@ -108,12 +142,12 @@ def main() -> int:
                 options=options,
                 current_iv_pct=snap_fields["current_iv_annual"],
                 avg_option_volume=snap_fields["avg_option_volume"],
-            )
-            if wc.passed_gate():
+                )
+            if wc is not None and wc.passed_gate():
                 wc._bars = bars
                 wc.hv_annual = snap_fields["historical_vol_annual"]
                 wheel_passed.append(wc)
-            else:
+            elif wc is not None:
                 log.info("%s wheel excluded: %s", ticker, wc.gate_fail_reason)
 
             sc = score_swing(
@@ -161,7 +195,8 @@ def main() -> int:
     if args.dry_run:
         _dry_run_output(wheel_top, swing_top, run_date, run_errors)
     else:
-        wheel_ok = send_wheel_email(wheel_top, run_date, run_errors=run_errors)
+        wheel_ok = (send_wheel_email(wheel_top, run_date, run_errors=run_errors)
+                    if _WHEEL_ENABLED else True)
         swing_ok = send_swing_email(swing_top, run_date, run_errors=run_errors)
         log.info("Emails sent — wheel: %s  swing: %s", wheel_ok, swing_ok)
 
