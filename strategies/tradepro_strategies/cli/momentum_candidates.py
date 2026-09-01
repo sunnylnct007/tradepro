@@ -423,9 +423,10 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
 
 
 def build_artifact(rows, universe, quarantined=None) -> dict:
+    _as_of = _dt.datetime.now(_dt.UTC).isoformat()
     return {
         "kind": "momentum_candidates",
-        "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
+        "as_of_utc": _as_of,
         "universe": universe,
         "signal_bar": rows[0]["bar"] if rows else _last_completed_session(),
         "settled_bar_only": True,
@@ -463,6 +464,10 @@ def build_artifact(rows, universe, quarantined=None) -> dict:
         "quarantined": quarantined or [],
         "count": len(rows),
         "candidates": rows,
+        # PHASE 3: additive. `candidates` stays as-is for this strategy's own
+        # tab; `candidates_v2` is the shape every strategy emits so the combined
+        # Candidates screen stops needing to know our private field names.
+        "candidates_v2": _common_records(rows, _as_of),
     }
 
 
@@ -515,3 +520,27 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _common_records(cands: list[dict], as_of: str) -> list[dict]:
+    """Our rows in the shape every strategy emits (Phase 3).
+
+    Tier is "gated": this strategy passed its pre-registered gates. That is the
+    whole point of the field — a row from here must be visibly different from a
+    row from a sleeve that has not been proven.
+    """
+    from ..candidates import Candidate, emit
+    out = []
+    for c in cands:
+        try:
+            out.append(Candidate(
+                symbol=c.get("symbol", ""), strategy="Momentum", tier="gated",
+                action="buy", as_of=as_of,
+                entry=(c.get("calcs") or {}).get("entry", {}).get("value") or c.get("close"),
+                level=c.get("stop"), level_label="stop",
+                metric=(c.get("calcs") or {}).get("atr_pct", {}).get("value"), metric_label="ATR%",
+                eligible=True, why="Ichimoku, above cloud",
+            ))
+        except Exception:  # noqa: BLE001 — one bad row must not lose the screen
+            pass
+    return emit(out)

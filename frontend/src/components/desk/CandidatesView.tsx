@@ -57,6 +57,11 @@ interface Row {
   asOf: string | null;
   eligible: boolean;
   why: string;
+  /** Per-input provenance — IBKR / cache / vendor / fallback / missing. */
+  provenance?: any[];
+  /** What was checked and what it measured. The answer to "why is this a
+   *  candidate", in the engine's own numbers rather than a sentence. */
+  gates?: any[];
 }
 
 const num = (v: number | null | undefined, d = 2, suf = "") =>
@@ -77,6 +82,7 @@ export function CandidatesView() {
   const [loading, setLoading] = useState(true);
   const [only, setOnly] = useState<string>("all");
   const [hideBlocked, setHideBlocked] = useState(true);
+  const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const out: Row[] = [];
@@ -88,9 +94,28 @@ export function CandidatesView() {
     // combined screen is worse than one that says it could not load, because
     // the reader cannot tell an empty strategy from an absent one.
 
+    // PHASE 3: prefer `candidates_v2` — the shape every strategy emits, which
+    // carries the gate trace and per-input provenance the drill-down needs. The
+    // per-strategy adapters below remain ONLY as a fallback for artifacts
+    // published before producers were updated, and delete themselves the moment
+    // every artifact has v2.
+    const fromV2 = (rows: any[], asOf: string | null): Row[] =>
+      (rows ?? []).map((c) => ({
+        symbol: c.symbol, strategy: c.strategy,
+        tier: c.tier === "gated" ? "trusted" : "unproven",
+        action: c.action, entry: c.entry ?? null,
+        level: c.level ?? null, levelLabel: c.level_label ?? "",
+        metric: c.metric ?? null, metricLabel: c.metric_label ?? "",
+        asOf: c.as_of ?? asOf, eligible: !!c.eligible, why: c.why ?? "",
+        provenance: c.provenance ?? [], gates: c.gates ?? [],
+      }));
+
     try {
       const r = await api.postEarningsPuts();
       const a: any = r?.artifact ?? {};
+      if (a.candidates_v2?.length) {
+        out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
+      } else
       for (const c of (a.candidates ?? [])) {
         out.push({
           symbol: c.symbol, strategy: "Puts", tier: "unproven",
@@ -108,6 +133,9 @@ export function CandidatesView() {
     try {
       const r: any = await api.swingCandidates();
       const a: any = r?.artifact ?? {};
+      if (a.candidates_v2?.length) {
+        out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
+      } else
       for (const c of (a.candidates ?? [])) {
         out.push({
           symbol: c.symbol, strategy: "Swing", tier: "trusted",
@@ -123,6 +151,9 @@ export function CandidatesView() {
     try {
       const r: any = await api.momentumCandidates();
       const a: any = r?.artifact ?? {};
+      if (a.candidates_v2?.length) {
+        out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
+      } else
       for (const c of (a.candidates ?? [])) {
         out.push({
           symbol: c.symbol, strategy: "Momentum", tier: "trusted",
@@ -137,6 +168,9 @@ export function CandidatesView() {
 
     try {
       const r: any = await api.optionsCandidates();
+      if (r?.candidates_v2?.length) {
+        out.push(...fromV2(r.candidates_v2, r?.generated_at_utc ?? null));
+      } else
       for (const c of (r?.candidates ?? [])) {
         out.push({
           symbol: c.symbol, strategy: "Wheel", tier: "unproven",
@@ -262,9 +296,13 @@ export function CandidatesView() {
               {view.map((r, i) => {
                 const age = ageHours(r.asOf);
                 const stale = age != null && age > 20;
-                return (
-                  <tr key={`${r.strategy}:${r.symbol}:${i}`}
-                      style={{ borderTop: "1px solid #141b2b",
+                const rowKey = `${r.strategy}:${r.symbol}:${i}`;
+                const isOpen = open === rowKey;
+                return [
+                  <tr key={rowKey}
+                      onClick={() => setOpen(isOpen ? null : rowKey)}
+                      title="Click for the gate trace and where each number came from"
+                      style={{ borderTop: "1px solid #141b2b", cursor: "pointer",
                                background: r.eligible ? "rgba(12,163,12,.05)" : undefined }}>
                     <td style={{ padding: "7px 8px", fontWeight: 700,
                                  fontFamily: "var(--font-mono)" }}>{r.symbol}</td>
@@ -296,9 +334,21 @@ export function CandidatesView() {
                         title={r.asOf ?? "no as-of recorded"}>
                       {age == null ? "—" : age < 1 ? "live" : `${age.toFixed(0)}h old`}
                     </td>
-                    <td style={{ padding: "7px 8px", color: MUTED, maxWidth: 340 }}>{r.why}</td>
-                  </tr>
-                );
+                    <td style={{ padding: "7px 8px", color: MUTED, maxWidth: 340 }}>
+                      {r.why}
+                      <span style={{ marginLeft: 6, fontSize: 10, color: MUTED }}>
+                        {isOpen ? "▾" : "▸"}
+                      </span>
+                    </td>
+                  </tr>,
+                  isOpen && (
+                    <tr key={`${rowKey}-detail`} style={{ background: "var(--surface-2)" }}>
+                      <td colSpan={8} style={{ padding: "10px 12px" }}>
+                        <Detail r={r} />
+                      </td>
+                    </tr>
+                  ),
+                ];
               })}
             </tbody>
           </table>
@@ -312,6 +362,94 @@ export function CandidatesView() {
         strategy publishes on its own schedule; anything over 20 hours old is
         flagged. This is a <b>candidate list for manual use</b>, not an
         autonomous signal.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * WHY this is a candidate, in the engine's own numbers.
+ *
+ * Owner, 1 Sep 2026: "how do i drill down to see why its a candidate".
+ *
+ * The WHY column is one sentence — enough to scan, not enough to decide. This
+ * shows the GATE TRACE (each check, its threshold, what was actually measured,
+ * and the verdict) and the PROVENANCE (where every input came from). Both were
+ * already computed and published; nothing here is derived for display.
+ *
+ * A strategy that publishes neither says so plainly rather than rendering an
+ * empty box — "this strategy does not yet report its gates" is information, and
+ * a blank panel is not.
+ */
+function Detail({ r }: { r: Row }) {
+  const gates = r.gates ?? [];
+  const prov = r.provenance ?? [];
+  const cell: React.CSSProperties = { padding: "3px 8px", fontSize: 11.5 };
+  return (
+    <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 12 }}>
+      <div style={{ minWidth: 300, flex: "1 1 380px" }}>
+        <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
+                      color: MUTED, marginBottom: 5 }}>
+          Gates — what was checked
+        </div>
+        {gates.length === 0 ? (
+          <div style={{ color: MUTED }}>
+            This strategy does not publish a gate trace yet. Its verdict is in the
+            WHY column; the per-check numbers are not available.
+          </div>
+        ) : (
+          <table style={{ borderCollapse: "collapse", width: "100%",
+                          fontVariantNumeric: "tabular-nums" }}>
+            <tbody>
+              {gates.map((g: any, i: number) => {
+                const pass = String(g.verdict ?? "").toLowerCase() === "pass";
+                return (
+                  <tr key={i} style={{ borderTop: "1px solid #141b2b" }}>
+                    <td style={{ ...cell, color: "var(--text)" }}>{g.gate}</td>
+                    <td style={{ ...cell, textAlign: "right", color: MUTED }}>
+                      {g.actual ?? "—"}{g.unit ? ` ${g.unit}` : ""}
+                    </td>
+                    <td style={{ ...cell, color: MUTED }}>{g.threshold ?? ""}</td>
+                    <td style={{ ...cell, color: pass ? OK : WARN, fontWeight: 600 }}>
+                      {pass ? "pass" : String(g.verdict ?? "")}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div style={{ minWidth: 260, flex: "1 1 300px" }}>
+        <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
+                      color: MUTED, marginBottom: 5 }}>
+          Data — where each number came from
+        </div>
+        {prov.length === 0 ? (
+          <div style={{ color: MUTED }}>
+            This strategy does not publish per-input provenance yet, so "is this
+            IBKR, cache or Yahoo?" is unanswerable for this row. That is a gap in
+            the strategy, not in the data.
+          </div>
+        ) : (
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <tbody>
+              {prov.map((pi: any, i: number) => {
+                const weak = ["fallback", "carried", "unavailable"].includes(pi.trust);
+                return (
+                  <tr key={i} style={{ borderTop: "1px solid #141b2b" }}>
+                    <td style={{ ...cell, color: "var(--text)" }}>{pi.label ?? pi.input}</td>
+                    <td style={{ ...cell, color: weak ? WARN : MUTED }}>
+                      {pi.source_label ?? pi.trust}
+                    </td>
+                    <td style={{ ...cell, color: MUTED }}>{pi.age ?? ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

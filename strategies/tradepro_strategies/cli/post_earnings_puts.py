@@ -509,7 +509,40 @@ def build_artifact(base: str | None = None, token: str | None = None) -> tuple[d
         "near_misses": near[:10],
         "priced": n_priced,
     }
+    # ── PHASE 3: the COMMON record, alongside our own shape ──────────────
+    # Additive on purpose. `candidates` stays exactly as it is (the desk's Puts
+    # tab reads it); `candidates_v2` is the one shape every strategy emits, so
+    # the combined Candidates screen stops needing to know this strategy's
+    # private field names. See tradepro_strategies/candidates.py.
+    art["candidates_v2"] = _common_records(cands, art["as_of_utc"])
     return art, cands, near
+
+
+def _common_records(cands: list[dict], as_of: str) -> list[dict]:
+    """Our rows in the shape every strategy emits.
+
+    UNPROVEN, and it says so: 229 trades but from ~Oct 2020, one market regime,
+    and the "2022 was not a losing year" check passed on NINE events. The tier
+    is not decoration — it is what stops a row from this screen reading like a
+    row from a gated one.
+    """
+    from ..candidates import Candidate, emit
+    out = []
+    for c in cands:
+        try:
+            out.append(Candidate(
+                symbol=c.get("symbol", ""), strategy="Puts", tier="unproven",
+                action="sell put", as_of=as_of,
+                entry=c.get("spot"),
+                level=c.get("listed_strike") or c.get("strike_indicative") or c.get("strike"),
+                level_label="strike",
+                metric=c.get("annual_yield_pct"), metric_label="%/yr",
+                eligible=True,
+                why=c.get("pricing_note") or "post-earnings drop, market gate open",
+            ))
+        except Exception as exc:  # noqa: BLE001 — one bad row must not lose the screen
+            log.warning("candidate record skipped for %s: %s", c.get("symbol"), exc)
+    return emit(out)
 
 
 def main() -> int:

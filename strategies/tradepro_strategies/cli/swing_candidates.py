@@ -390,9 +390,10 @@ def build_artifact(rows: list[dict], universe: str,
                    quarantined: list[dict] | None = None,
                    near: list[dict] | None = None,
                    evaluated: int | None = None) -> dict:
+    _as_of = _dt.datetime.now(_dt.UTC).isoformat()
     return {
         "kind": "swing_candidates",
-        "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
+        "as_of_utc": _as_of,
         "universe": universe,
         # Restored 23 Aug: an earlier rewrite of the evidence block dropped
         # this, so the screen rendered an undefined signal bar and a dated
@@ -488,6 +489,10 @@ def build_artifact(rows: list[dict], universe: str,
         "quarantined": quarantined or [],
         "count": len(rows),
         "candidates": rows,
+        # PHASE 3: additive. `candidates` stays as-is for this strategy's own
+        # tab; `candidates_v2` is the shape every strategy emits so the combined
+        # Candidates screen stops needing to know our private field names.
+        "candidates_v2": _common_records(rows, _as_of),
     }
 
 
@@ -637,3 +642,27 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _common_records(cands: list[dict], as_of: str) -> list[dict]:
+    """Our rows in the shape every strategy emits (Phase 3).
+
+    Tier is "gated": this strategy passed its pre-registered gates. That is the
+    whole point of the field — a row from here must be visibly different from a
+    row from a sleeve that has not been proven.
+    """
+    from ..candidates import Candidate, emit
+    out = []
+    for c in cands:
+        try:
+            out.append(Candidate(
+                symbol=c.get("symbol", ""), strategy="Swing", tier="gated",
+                action="buy", as_of=as_of,
+                entry=(c.get("calcs") or {}).get("entry", {}).get("value") or c.get("close"),
+                level=c.get("stop"), level_label="stop",
+                metric=c.get("sigma_from_mean"), metric_label="σ",
+                eligible=True, why="σ-band entry, trend filter passed",
+            ))
+        except Exception:  # noqa: BLE001 — one bad row must not lose the screen
+            pass
+    return emit(out)

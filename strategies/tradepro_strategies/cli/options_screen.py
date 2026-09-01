@@ -2110,6 +2110,38 @@ def _derived_greeks(pricer, spot, strike, dte, iv) -> dict:
         return {}
 
 
+def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
+    """Wheel rows in the common shape.
+
+    UNPROVEN on purpose. The v3 backtest verdict is DO NOT FUND — fixing this
+    screen's INPUTS (open interest, greeks, expiry) did not change its
+    STRATEGY result, and a row that reads "gated" would say otherwise.
+
+    Blocked rows travel too. A combined screen that shows only winners cannot
+    answer "why is nothing eligible today", which is the question a quiet board
+    actually raises.
+    """
+    from ..candidates import Candidate, emit
+    out = []
+    for c in rows:
+        try:
+            out.append(Candidate(
+                symbol=c.get("symbol", ""), strategy="Wheel", tier="unproven",
+                action="sell put", as_of=as_of or "",
+                entry=c.get("ref_close"),
+                level=c.get("suggested_strike"), level_label="strike",
+                metric=c.get("annualized_yield_pct"), metric_label="%/yr",
+                eligible=bool(c.get("eligible")),
+                why=("clears every gate" if c.get("eligible")
+                     else (c.get("blocks") or ["blocked"])[0]),
+                provenance=((c.get("provenance") or {}).get("inputs") or []),
+                gates=c.get("decision_trace") or [],
+            ))
+        except Exception as exc:  # noqa: BLE001 — one bad row must not lose the screen
+            log.warning("candidate record skipped for %s: %s", c.get("symbol"), exc)
+    return emit(out)
+
+
 def run_screen(symbols: list[str] | None = None) -> dict:
     import ib_insync
     from . import push_to_api as _pta
@@ -2281,6 +2313,11 @@ def run_screen(symbols: list[str] | None = None) -> dict:
                 "evaluated": len(rows),
                 "eligible_count": sum(1 for x in rows if x["eligible"]),
                 "candidates": [x for x in rows if x["eligible"]],
+                # PHASE 3: the shape every strategy emits. This screen already
+                # carries per-input provenance and a full gate trace, so its
+                # record is the richest of the four — and it is what the others
+                # should grow toward rather than the reverse.
+                "candidates_v2": _wheel_records(rows, payload.get("generated_at_utc")),
                 "screened": rows,
                 "data_health": payload.get("data_health"),
                 "evidence": {
