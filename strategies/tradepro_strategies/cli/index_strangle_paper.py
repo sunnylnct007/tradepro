@@ -188,7 +188,8 @@ MARKETS = {
             "family": "S&P 500", "ccy": "$",
             "product": "cash-settled index option · European · no early assignment",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
-             "paper_trade": False,  # cash index product; needs its own IBKR symbol mapping, not the ETF
+             "broker_symbol": "SPX", "broker_sec_type": "IND",
+             "paper_trade": True,  # IND underlying — see broker_sec_type
              "note": "VIX is computed FROM SPX options, so the volatility input is "
                     "the underlying's own, not a proxy"},
     "XSP": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
@@ -196,7 +197,8 @@ MARKETS = {
             "family": "S&P 500", "ccy": "$",
             "product": "Mini-SPX · exactly 1/10 of SPX · cash-settled, European",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
-             "paper_trade": False,  # Mini-SPX is modelled here as ^GSPC/10, which is not an IBKR symbol
+             "broker_symbol": "XSP", "broker_sec_type": "IND",
+             "paper_trade": True,  # priced off ^GSPC/10; the BROKER symbol is XSP
              "note": "the same trade as SPX at a tenth of the size — this is the "
                     "'smaller index' product; SPX itself is 10x SPY, not smaller"},
     "SPY": {"index": "SPY", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
@@ -213,7 +215,8 @@ MARKETS = {
             "family": "Nasdaq 100", "ccy": "$",
             "product": "cash-settled index option · European",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
-             "paper_trade": False,  # cash index product; same mapping work as SPX
+             "broker_symbol": "NDX", "broker_sec_type": "IND",
+             "paper_trade": True,  # IND underlying — see broker_sec_type
              "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
                     "(p5 -0.183 vs -0.101) — the same rule, more risk per unit"},
     "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
@@ -762,7 +765,16 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
     if not leg:
         return {"placed": False, "reason": f"no {kind} leg", "expiry_kind": kind}
     expiry = _monthly_expiry(leg["dte"])
-    body = {"symbol": cfg["index"], "expiry": expiry,
+    # THE BROKER SYMBOL IS NOT THE DATA SYMBOL. `index` is what Yahoo is asked
+    # for (^GSPC, ^NDX); IBKR needs SPX / NDX / XSP. They coincide for SPY, QQQ
+    # and GLD, which is the only reason sending `index` ever worked — and why
+    # SPX, XSP and NDX sat marked unplaceable behind a note about "needing
+    # their own IBKR symbol mapping". The mapping is two config keys.
+    #
+    # sec_type matters as much: a cash index is IND, not STK, and resolution
+    # was hardcoded to STK. Both come from config, neither is inferred.
+    body = {"symbol": cfg.get("broker_symbol") or cfg["index"], "expiry": expiry,
+            "underlyingSecType": cfg.get("broker_sec_type") or "STK",
             "putStrike": leg["put_strike"], "callStrike": leg["call_strike"],
             "contracts": contracts}
     try:

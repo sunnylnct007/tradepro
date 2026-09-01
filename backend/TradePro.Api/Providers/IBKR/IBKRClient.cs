@@ -1050,13 +1050,21 @@ public sealed class IBKRClient
     /// option had no way through. Returns null on ANY failure — the caller must
     /// treat that as "do not place", never as "place something close".
     /// </summary>
+    /// <param name="underlyingSecType">
+    /// The UNDERLYING's security type — "STK" for an ETF, "IND" for a cash
+    /// index. This was hardcoded to STK, which is why SPX, XSP and NDX could
+    /// never resolve and sat marked unplaceable with a note about "needing
+    /// their own IBKR symbol mapping". The mapping was one argument.
+    /// </param>
     public async Task<long?> ResolveOptionConidAsync(
         string symbol, string expiry, decimal strike, string right,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string underlyingSecType = "STK")
     {
         if (!_options.IsEnabled || string.IsNullOrWhiteSpace(symbol)) return null;
         if (!DateTime.TryParse(expiry, out var exp)) return null;
-        var underlying = await ResolveConidAsync(symbol, "STK", ct, useCache: true);
+        var secType = string.IsNullOrWhiteSpace(underlyingSecType)
+            ? "STK" : underlyingSecType.Trim().ToUpperInvariant();
+        var underlying = await ResolveConidAsync(symbol, secType, ct, useCache: true);
         if (underlying is null) return null;
         // IBKR months are e.g. OCT26.
         var month = exp.ToString("MMM", System.Globalization.CultureInfo.InvariantCulture)

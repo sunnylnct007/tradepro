@@ -35,7 +35,10 @@ public static class StrangleOrderEndpoints
         string Expiry,          // YYYY-MM-DD
         decimal PutStrike,
         decimal CallStrike,
-        int Contracts = 1);
+        int Contracts = 1,
+        // "STK" for an ETF, "IND" for a cash index (SPX, XSP, NDX). Config
+        // supplies it per market; nothing here infers it from the symbol.
+        string UnderlyingSecType = "STK");
 
 
     // NOTE: order placement uses IBKRClient.PlaceMarketOrderConfirmedAsync,
@@ -96,8 +99,8 @@ public static class StrangleOrderEndpoints
 
             // Resolve BOTH contracts BEFORE placing either. Placing leg one and
             // then discovering leg two does not exist would leave a naked short.
-            var put = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.PutStrike, "P", ct);
-            var call = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.CallStrike, "C", ct);
+            var put = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.PutStrike, "P", ct, req.UnderlyingSecType);
+            var call = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.CallStrike, "C", ct, req.UnderlyingSecType);
             if (put is null || call is null)
             {
                 // LOG IT, do not merely return it. On 1 Sep 2026 the scheduled
@@ -193,8 +196,8 @@ public static class StrangleOrderEndpoints
             log.LogWarning("STRANGLE CLOSE (paper): BUY {Sym} {Exp} {Put}P + {Call}C x{Qty}",
                 sym, req.Expiry, req.PutStrike, req.CallStrike, req.Contracts);
 
-            var put = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.PutStrike, "P", ct);
-            var call = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.CallStrike, "C", ct);
+            var put = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.PutStrike, "P", ct, req.UnderlyingSecType);
+            var call = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.CallStrike, "C", ct, req.UnderlyingSecType);
             if (put is null || call is null)
             {
                 log.LogError("STRANGLE CLOSE RESOLVE FAILED for {Sym} {Exp} — NOTHING was closed",
@@ -280,7 +283,7 @@ public static class StrangleOrderEndpoints
             // The caller's conid wins. Only fall back to the chain lookup when
             // there is nothing better.
             var conid = req.Conid ?? await ibkr.ResolveOptionConidAsync(
-                sym, req.Expiry, req.Strike, right, ct);
+                sym, req.Expiry, req.Strike, right, ct, req.UnderlyingSecType);
             if (conid is null)
                 return Results.Json(new
                 {
@@ -435,6 +438,8 @@ public static class StrangleOrderEndpoints
         // Default TRUE: a BUY is presumed to be closing a short, and is refused
         // if we are not short that contract. See the guard for why.
         bool ClosingOnly = true,
+        // "STK" for an ETF, "IND" for a cash index.
+        string UnderlyingSecType = "STK",
         // The contract's OWN id, when the caller already holds it. Skips
         // resolution entirely.
         //
