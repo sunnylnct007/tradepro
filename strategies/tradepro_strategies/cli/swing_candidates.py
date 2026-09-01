@@ -372,6 +372,18 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
             "stop": round(stop, 2),
             "target_pct": round(100 * (target / c[i] - 1), 2),
             "reward_risk": round(rr, 2) if rr else None,
+            # THE WIN RATE THIS TRADE NEEDS JUST TO BREAK EVEN.
+            #
+            # R:R is sorted on but never filtered — the list is ordered, not
+            # judged, so on a day with ONE candidate the ranking is a no-op and
+            # whatever turns up is "today's candidate". Owner, 1 Sep 2026, on an
+            # IWM signal at R:R 0.39: "i am not convinced".
+            #
+            # He was right, and this is why: risking 23.25 to make 9.01 needs
+            # 72.1% of these to win. The strategy's own backtest wins 73.2%
+            # (2,523 trades) — a margin of ONE POINT. Stating it turns a ratio
+            # nobody can price into the one comparison that settles it.
+            "breakeven_win_pct": (round(100.0 / (1.0 + rr), 1) if rr else None),
             "sigma_below": round((mean20 - c[i]) / sd, 2),
             "atr_pct": round(atr_pct, 2),
             "pct_above_200sma": round(100 * (c[i] / sma200 - 1), 1),
@@ -539,11 +551,16 @@ def main() -> int:
               f"  run {art['as_of_utc'][:19]}Z · scanned {len(syms)} · "
               f"{len(rows)} candidate(s)\n")
         if rows:
-            print(f"{'sym':<7}{'tier':<11}{'close':>9}{'target':>9}{'stop':>9}{'upside':>8}{'R:R':>6}{'sigma':>7}{'ATR%':>7}")
+            print(f"{'sym':<7}{'tier':<11}{'close':>9}{'target':>9}{'stop':>9}{'upside':>8}{'R:R':>6}{'needs':>7}{'sigma':>7}{'ATR%':>7}")
             for r in rows:
                 print(f"{r['symbol']:<7}{r['tier']:<11}{r['close']:>9.2f}{r['target']:>9.2f}"
                       f"{r['stop']:>9.2f}{r['target_pct']:>7.1f}%{r['reward_risk'] or 0:>6.2f}"
+                      f"{(f'{r["breakeven_win_pct"]:.0f}%' if r.get('breakeven_win_pct') else '  -'):>7}"
                       f"{r['sigma_below']:>7.2f}{r['atr_pct']:>6.1f}%")
+            print("  'needs' = the win rate this trade requires just to BREAK EVEN,")
+            print("  from its own reward:risk. Compare it against the backtest's 73.2%")
+            print("  (2,523 trades). R:R is SORTED on but never filtered, so on a")
+            print("  one-candidate day nothing has judged whether it is worth taking.")
         if quarantined:
             print(f"\n⚠ {len(quarantined)} symbol(s) DROPPED for suspect price history:")
             for q in quarantined:
