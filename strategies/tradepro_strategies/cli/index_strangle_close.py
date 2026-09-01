@@ -191,6 +191,43 @@ def _record_exit(base, tok, market: str, expiry: str,
         print(f"     (exit link failed for {market}: {str(exc)[:120]})")
 
 
+def _placed_today(base, tok) -> set | None:
+    """(market, right, strike) placed in TODAY's session, from the decision log.
+
+    Anything short at the broker that is NOT in this set was opened on an
+    EARLIER session and must be flattened at the first opportunity — not held
+    until tonight's bell.
+
+    Returns None when the log cannot be read. The caller then treats nothing as
+    stale, because wrongly declaring a FRESH position stale would close a trade
+    the moment it was opened. Failing safe here means holding, not closing.
+    """
+    try:
+        import requests
+        H = {"Authorization": f"Bearer {tok}"} if tok else {}
+        r = requests.get(f"{base.rstrip('/')}/api/strangle-decisions",
+                         params={"days": 1}, timeout=30, headers=H)
+        rows = (r.json() or {}).get("rows") or []
+    except Exception as exc:  # noqa: BLE001
+        print(f"  (could not read today's decisions: {str(exc)[:90]} — "
+              f"treating nothing as stale)")
+        return None
+    today = _dt.date.today().isoformat()
+    out = set()
+    for d in rows:
+        if not d.get("placed"):
+            continue
+        when = str(d.get("placed_at_utc") or "")[:10]
+        if when != today:
+            continue
+        m = d.get("market")
+        for right, key in (("P", "put_strike"), ("C", "call_strike")):
+            k = d.get(key)
+            if k is not None:
+                out.add((m, right, round(float(k), 2)))
+    return out
+
+
 def main() -> int:
     from .index_strangle_paper import MARKETS
     ap = argparse.ArgumentParser(prog="tradepro-index-strangle-close")
@@ -263,9 +300,21 @@ def main() -> int:
             continue
         groups.setdefault((hit[0], occ["symbol"], occ["expiry"]), []).append((p, occ, hit[1]))
 
+    # WHAT WAS OPENED TODAY. Everything else is left over from an earlier
+    # session and gets flattened now rather than at tonight's bell — otherwise
+    # one accidental overnight becomes two. On 1 Sep 2026 four legs survived the
+    # 19:45 exit because the close request was malformed; without this they
+    # would have ridden the whole of the next session too.
+    fresh = _placed_today(base, tok)
+
     results, closed, failed = list(results_unparsed), 0, 0
     for (market, symbol, expiry), legs in groups.items():
         cfg = legs[0][2]
+        stale = False
+        if fresh is not None:
+            stale = not any(
+                (market, o["right"], round(float(o["strike"]), 2)) in fresh
+                for _p, o, _c in legs)
         # Combined credit and combined cost across every leg of this position.
         # Both are per share; a leg with no live mark makes the pair unmarkable
         # rather than silently half-counted.
@@ -284,6 +333,15 @@ def main() -> int:
         verdict = decide_close(
             {"credit": None if unmarkable else credit,
              "current_cost": None if unmarkable else cost}, cfg)
+
+        # A LEFTOVER POSITION GOES AT THE FIRST OPPORTUNITY. It still needs an
+        # open market to trade in, so this only upgrades a "hold" once the
+        # session is running — it never invents a fill out of hours.
+        if stale and _minutes_to_close(cfg) is not None and not verdict.get("close"):
+            verdict = {"close": True, "trigger": "stale_overnight",
+                       "reason": "opened on an EARLIER session — this desk is "
+                                 "same-day, so it is flattened now rather than "
+                                 "carried to tonight's bell"}
 
         shape = "+".join(sorted(o["right"] for _p, o, _c in legs))
         label = f"{market} {expiry} [{shape}]"
