@@ -131,8 +131,22 @@ def _market_for(symbol: str, markets: dict) -> tuple[str, dict] | None:
     everything short would flatten those too. That is why this uses the
     single-leg close rather than /options/flatten.
     """
+    want = (symbol or "").upper()
     for name, cfg in markets.items():
-        if str(cfg.get("index", "")).upper() == symbol.upper():
+        # Match the BROKER's roots, not the data symbol. `index` is what Yahoo
+        # is asked for (^GSPC), while a position carries the OCC root — and for
+        # index options that root is often the PM-settled weekly (SPXW, NDXP).
+        #
+        # 1 Sep 2026: an SPX strangle filled as SPXW and this returned None, so
+        # the close job logged "not a configured strangle market, LEFT ALONE"
+        # and would have carried it OVERNIGHT — the one thing the time exit
+        # exists to prevent.
+        #
+        # Roots are DECLARED in config, never inferred by prefix: a prefix rule
+        # would quietly make SPX match SPXW today and something unintended the
+        # day a new market is added.
+        roots = cfg.get("broker_roots") or (cfg.get("broker_symbol") or cfg.get("index"),)
+        if want in {str(r).upper() for r in roots}:
             return name, cfg
     return None
 

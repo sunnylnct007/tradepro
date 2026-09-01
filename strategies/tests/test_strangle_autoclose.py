@@ -132,3 +132,41 @@ def test_time_exit_still_fires_on_an_unmarkable_pair():
     v = decide_close({"credit": None, "current_cost": None}, _cfg(), _at(15, 50))
     assert v["close"] is True
     assert v["trigger"] == "end_of_day"
+
+
+# ---------------------------------------------------------------------------
+# The close must recognise a position by the BROKER's root, not the data symbol.
+#
+# 1 Sep 2026: an SPX strangle filled as SPXW — the PM-settled weekly, which is
+# what a third-Friday index order actually fills as. _market_for compared
+# against cfg["index"], i.e. "^GSPC", matched nothing, and the close job logged
+# "not a configured strangle market, LEFT ALONE" for both legs. It would have
+# carried a ~$754k index strangle OVERNIGHT: precisely what the time exit
+# exists to prevent, and a position the published evidence does not describe.
+# ---------------------------------------------------------------------------
+
+def test_an_index_strangle_is_recognised_under_its_weekly_root():
+    assert _market_for("SPXW", MARKETS)[0] == "SPX"
+    assert _market_for("NDXP", MARKETS)[0] == "NDX"
+
+
+def test_the_plain_roots_still_match():
+    for root, market in (("SPX", "SPX"), ("SPY", "SPY"),
+                         ("QQQ", "QQQ"), ("GLD", "GOLD")):
+        hit = _market_for(root, MARKETS)
+        assert hit and hit[0] == market, f"{root} should map to {market}"
+
+
+def test_positions_we_did_not_open_are_still_left_alone():
+    # The account also holds wheel and hand-placed options. Widening the match
+    # must not turn the close into a blanket sweep.
+    for foreign in ("MRVL", "AAPL", "ARWR"):
+        assert _market_for(foreign, MARKETS) is None
+
+
+def test_roots_are_declared_not_inferred_by_prefix():
+    # A prefix rule would happen to work for SPX/SPXW today and misfire the day
+    # a market whose symbol prefixes another is added. Every index market
+    # declares its roots explicitly.
+    for m in ("SPX", "XSP", "NDX"):
+        assert MARKETS[m].get("broker_roots"), f"{m} must declare broker_roots"

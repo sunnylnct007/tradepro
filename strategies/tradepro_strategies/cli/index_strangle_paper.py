@@ -189,6 +189,10 @@ MARKETS = {
             "product": "cash-settled index option · European · no early assignment",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
              "broker_symbol": "SPX", "broker_sec_type": "IND",
+             # OCC roots this market can appear under at the broker. SPXW is
+             # the PM-settled weekly and is what a third-Friday order fills
+             # as; matching only "SPX" left the position unrecognised.
+             "broker_roots": ("SPX", "SPXW"),
              "paper_trade": True,  # IND underlying — see broker_sec_type
              "note": "VIX is computed FROM SPX options, so the volatility input is "
                     "the underlying's own, not a proxy"},
@@ -198,6 +202,7 @@ MARKETS = {
             "product": "Mini-SPX · exactly 1/10 of SPX · cash-settled, European",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
              "broker_symbol": "XSP", "broker_sec_type": "IND",
+             "broker_roots": ("XSP", "XSPW"),
              "paper_trade": True,  # priced off ^GSPC/10; the BROKER symbol is XSP
              "note": "the same trade as SPX at a tenth of the size — this is the "
                     "'smaller index' product; SPX itself is 10x SPY, not smaller"},
@@ -216,6 +221,8 @@ MARKETS = {
             "product": "cash-settled index option · European",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
              "broker_symbol": "NDX", "broker_sec_type": "IND",
+             # NDXP is the PM-settled variant IBKR named in its rejection.
+             "broker_roots": ("NDX", "NDXP"),
              "paper_trade": True,  # IND underlying — see broker_sec_type
              "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
                     "(p5 -0.183 vs -0.101) — the same rule, more risk per unit"},
