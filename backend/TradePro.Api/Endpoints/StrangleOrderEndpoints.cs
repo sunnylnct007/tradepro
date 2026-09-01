@@ -277,7 +277,10 @@ public static class StrangleOrderEndpoints
 
             var sym = req.Symbol.Trim().ToUpperInvariant();
 
-            var conid = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, req.Strike, right, ct);
+            // The caller's conid wins. Only fall back to the chain lookup when
+            // there is nothing better.
+            var conid = req.Conid ?? await ibkr.ResolveOptionConidAsync(
+                sym, req.Expiry, req.Strike, right, ct);
             if (conid is null)
                 return Results.Json(new
                 {
@@ -431,5 +434,15 @@ public static class StrangleOrderEndpoints
         int Contracts = 1,
         // Default TRUE: a BUY is presumed to be closing a short, and is refused
         // if we are not short that contract. See the guard for why.
-        bool ClosingOnly = true);
+        bool ClosingOnly = true,
+        // The contract's OWN id, when the caller already holds it. Skips
+        // resolution entirely.
+        //
+        // WHY: resolving symbol+expiry+strike goes through IBKR's option chain,
+        // a progressive snapshot that failed for EVERY symbol on 1 Sep 2026 —
+        // including SPY 758P, a contract we were short at that very moment. A
+        // close that cannot resolve cannot close. Since a position already
+        // carries its conid, re-deriving it through a flaky lookup is throwing
+        // away a known-good identifier for no reason.
+        long? Conid = null);
 }
