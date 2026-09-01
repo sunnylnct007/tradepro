@@ -466,8 +466,23 @@ public static class IBKRResponseParser
                 if (!string.IsNullOrWhiteSpace(raw) && raw.Length == 8 && raw.All(char.IsDigit))
                     maturity = raw;
             }
+            // tradingClass distinguishes contracts that are otherwise
+            // identical (SPX vs SPXW). `symbol` is the fallback IBKR uses on
+            // some chain shapes. Absent → null, never guessed.
+            string? tradingClass = null;
+            foreach (var key in new[] { "tradingClass", "symbol" })
+            {
+                if (it.TryGetProperty(key, out var tc)
+                    && tc.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(tc.GetString()))
+                {
+                    tradingClass = tc.GetString()!.Trim().ToUpperInvariant();
+                    break;
+                }
+            }
             if (conId is not null && strike is not null)
-                list.Add(new IBKROptionContract(conId.Value, strike.Value, maturity));
+                list.Add(new IBKROptionContract(
+                    conId.Value, strike.Value, maturity, tradingClass));
         }
         return list;
     }
@@ -847,7 +862,15 @@ public sealed record IBKROptionStrikesResult(
 
 /// <summary>One resolved option contract — its own tradeable conid + strike
 /// (right and month are the caller's request context, not repeated here).</summary>
-public sealed record IBKROptionContract(long ConId, decimal Strike, string? MaturityDate = null);
+public sealed record IBKROptionContract(
+    long ConId, decimal Strike, string? MaturityDate = null,
+    // The SPX-vs-SPXW discriminator, and it was being DROPPED. On a third
+    // Friday both the AM-settled monthly (SPX) and the PM-settled weekly
+    // (SPXW) exist at the same strike and expiry, so a resolver that cannot
+    // see the trading class picks whichever IBKR happens to return first.
+    // On 1 Sep 2026 an order for SPX filled as SPXW — a different instrument
+    // from the one the config describes and the backtest assumed.
+    string? TradingClass = null);
 
 /// <summary>Result of step 3 (secdef/info, strike omitted): every contract
 /// for one underlying + month + right.</summary>
