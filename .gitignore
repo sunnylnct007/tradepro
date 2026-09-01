@@ -446,3 +446,8 @@ build/
 
 # Backtest outputs
 /out/
+
+# Matches a node_modules SYMLINK too — a worktree has no node_modules
+# of its own, so pointing one at the main checkout is the normal way to
+# run the real typechecker there. `node_modules/` alone would not ignore it.
+node_modules
