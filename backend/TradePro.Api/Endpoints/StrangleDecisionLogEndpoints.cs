@@ -75,8 +75,11 @@ public static class StrangleDecisionLogEndpoints
                      @Provisional, @SessionState, @ExpiryKind, @Dte, @PutStrike,
                      @CallStrike, @Forward, @Lot, @Collateral, @MarginEstimate,
                      @CreditModelled, @JobsCommit, @Detail::jsonb, @VolAtDecision, @DataSource)
-                ON CONFLICT (market, as_of, COALESCE(expiry_kind, '')) DO UPDATE SET
-                     exchange_date = EXCLUDED.exchange_date,
+                -- Keyed on the session being TRADED, not the settled session the gate
+                -- read. Those diverge, and keying on as_of silently destroyed a
+                -- day of Indian decisions on 1 Sep 2026 (migration 073).
+                ON CONFLICT (market, COALESCE(exchange_date, as_of), COALESCE(expiry_kind, '')) DO UPDATE SET
+                     as_of         = EXCLUDED.as_of,
                      decision      = EXCLUDED.decision,
                      reason        = EXCLUDED.reason,
                      vol_index     = EXCLUDED.vol_index,
