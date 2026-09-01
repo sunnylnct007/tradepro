@@ -69,38 +69,12 @@ WHEEL_EVIDENCE = (
 # assignment on, weighted toward strikes that FIT the configurable pot
 # (TRADEPRO_WHEEL_PER_POSITION_GBP; a $315 JPM strike needs a raised cap).
 # Expanded 10 → 30 (user: "only 14 symbols — we should evaluate more").
-DEFAULT_UNIVERSE = [
-    # original core
-    "CVX", "XOM", "ABBV", "JNJ", "VZ", "MO", "PG", "DUK", "D", "PEP",
-    # affordable, liquid chains (fit a £10k/pos pot)
-    "KO", "T", "PFE", "F", "INTC", "BAC", "WFC", "CSCO", "MU", "GM",
-    "SLB", "OXY", "KMI", "DVN", "GILD", "BMY", "CMCSA", "DOW", "WMB", "HPE",
-    # mega-liquid chains — the deepest/tightest option markets there are. Their
-    # strikes only fit a RAISED pot (TRADEPRO_WHEEL_PER_POSITION_GBP): the
-    # notional gate decides affordability per the user's configured capital,
-    # the universe just makes them CANDIDATES (config-driven, not pre-filtered).
-    "NVDA", "GOOGL", "AAPL", "MSFT", "AMD", "QCOM",
-    # expansion 36 → 66 (owner 2026-08-09: "we need more symbols to compare").
-    # Same bar: liquid chains, names you'd accept assignment on.
-    # financials / healthcare / consumer / tech / energy / industrials
-    "IBM", "JPM", "C", "USB", "SCHW", "MRK", "CVS", "TGT", "SBUX", "NKE",
-    "KHC", "MDLZ", "ORCL", "DELL", "HPQ", "HAL", "FCX", "NEM", "DAL", "UPS", "ON",
-    # ETFs — natural wheel underlyings: deep chains and STRUCTURALLY no
-    # earnings event inside any expiry window (see _ETF_UNDERLYINGS).
-    "XLE", "XLF", "XLI", "XLU", "GDX", "SLV", "TLT", "IWM", "KRE",
-    # owner's IBKR "TradePro-Screen" watchlist merge (10 Aug 2026 — "is the
-    # list based on my IBKR watchlist?" — it is now): the equities from that
-    # watchlist not already above. Watchlist edits still need a manual sync
-    # here (auto-sync = future work; the MCP watchlist API is session-side).
-    "ACN", "TSLA", "GS", "MS", "META", "UBER", "DIS", "HOOD", "MRVL",
-    "APLD", "AMZN", "PLTR", "IBKR",
-    # index ETFs (owner 11 Aug 2026: "add index on the option wheel screen").
-    # ETF form, NOT SPX-style index options — those are cash-settled/European
-    # so they can't assign shares, which breaks the wheel's assignment leg.
-    # SPY/QQQ strikes only fit a raised per-position pot; the notional gate
-    # reports that honestly rather than pre-filtering them out.
-    "SPY", "QQQ", "DIA",
-]
+# The wheel sleeve now lives in `universe.py` — see WHEEL_SLEEVE there for why.
+# Imported, never copied: a second list is how four definitions of "what we
+# screen" came to exist.
+from ..universe import WHEEL_SLEEVE as _WHEEL_SLEEVE
+
+DEFAULT_UNIVERSE = list(_WHEEL_SLEEVE)
 
 # ETFs have no earnings — the blackout gate gets a structural False, not a
 # "calendar unavailable" block. Keep in sync with the ETF rows above.

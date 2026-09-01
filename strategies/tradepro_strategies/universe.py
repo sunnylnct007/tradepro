@@ -341,3 +341,83 @@ def poison_check(closes, volumes=None):
         return False, 999
     ratio = round(max(closes) / med, 1)
     return ratio <= MAX_POISON_RATIO, ratio
+
+
+# ── THE WHEEL SLEEVE (moved here 1 Sep 2026) ────────────────────────────────
+#
+# Owner: "its good to subclassify but we shd have unirkm list".
+#
+# This list lived inside cli/options_screen.py, which made it a FOURTH
+# definition of "what we screen" alongside the committed 244, the DB-backed
+# /api/universes/{name}, and a hardcoded 30 in ScreenerEndpoints. A screen
+# running on a different list from its neighbours is how "0 of 30" and "21 of
+# 82" looked like a strategy disagreement when it was a universe disagreement.
+#
+# It lives in the module that owns what we trade, is imported by both the screen
+# and the universe builder, and is COPIED NOWHERE. Sub-classification (tags) is
+# fine; a second list is not.
+#
+# STILL A HAND LIST, and that is the next thing to fix — it should be derived
+# from optionable + liquidity + per-position affordability. Deriving it today
+# would silently change which names get screened on a live trading surface, so
+# that is a separate reviewable step, not a side effect of consolidation.
+WHEEL_SLEEVE: tuple[str, ...] = (
+    # original core
+    "CVX", "XOM", "ABBV", "JNJ", "VZ", "MO", "PG", "DUK", "D", "PEP",
+    # affordable, liquid chains (fit a £10k/pos pot)
+    "KO", "T", "PFE", "F", "INTC", "BAC", "WFC", "CSCO", "MU", "GM",
+    "SLB", "OXY", "KMI", "DVN", "GILD", "BMY", "CMCSA", "DOW", "WMB", "HPE",
+    # mega-liquid chains — the deepest/tightest option markets there are. Their
+    # strikes only fit a RAISED pot (TRADEPRO_WHEEL_PER_POSITION_GBP): the
+    # notional gate decides affordability per the user's configured capital,
+    # the universe just makes them CANDIDATES (config-driven, not pre-filtered).
+    "NVDA", "GOOGL", "AAPL", "MSFT", "AMD", "QCOM",
+    # expansion 36 → 66 (owner 2026-08-09: "we need more symbols to compare").
+    # Same bar: liquid chains, names you'd accept assignment on.
+    # financials / healthcare / consumer / tech / energy / industrials
+    "IBM", "JPM", "C", "USB", "SCHW", "MRK", "CVS", "TGT", "SBUX", "NKE",
+    "KHC", "MDLZ", "ORCL", "DELL", "HPQ", "HAL", "FCX", "NEM", "DAL", "UPS", "ON",
+    # ETFs — natural wheel underlyings: deep chains and STRUCTURALLY no
+    # earnings event inside any expiry window (see _ETF_UNDERLYINGS).
+    "XLE", "XLF", "XLI", "XLU", "GDX", "SLV", "TLT", "IWM", "KRE",
+    # owner's IBKR "TradePro-Screen" watchlist merge (10 Aug 2026 — "is the
+    # list based on my IBKR watchlist?" — it is now): the equities from that
+    # watchlist not already above. Watchlist edits still need a manual sync
+    # here (auto-sync = future work; the MCP watchlist API is session-side).
+    "ACN", "TSLA", "GS", "MS", "META", "UBER", "DIS", "HOOD", "MRVL",
+    "APLD", "AMZN", "PLTR", "IBKR",
+    # index ETFs (owner 11 Aug 2026: "add index on the option wheel screen").
+    # ETF form, NOT SPX-style index options — those are cash-settled/European
+    # so they can't assign shares, which breaks the wheel's assignment leg.
+    # SPY/QQQ strikes only fit a raised per-position pot; the notional gate
+    # reports that honestly rather than pre-filtering them out.
+    "SPY", "QQQ", "DIA",
+)
+
+
+def universe_by_tag(tag: str, *, strict: bool = False) -> list[str]:
+    """Symbols carrying `tag` — the ONE way to ask for a sleeve.
+
+    Owner, 1 Sep 2026: "its good to subclassify but we shd have unirkm list".
+    Tags are sub-classification OVER the single committed universe, never a
+    second list. `build_universe` derives them (large_50 by median dollar
+    volume, high_beta from beta_tier, wheel from WHEEL_SLEEVE) and writes them
+    into tradeable.json.
+
+    Returns [] rather than raising when the universe predates tags, so a caller
+    can fall back to its own list during the migration and say so — a silently
+    empty sleeve would be the screen-evaluates-nobody failure again.
+    """
+    rows = load_universe(strict=strict).get("symbols") or []
+    return [r["symbol"] for r in rows
+            if tag in (r.get("tags") or []) and r.get("symbol")]
+
+
+def universe_tags() -> dict[str, int]:
+    """Every tag in the committed universe and how many symbols carry it."""
+    from collections import Counter
+    c: Counter = Counter()
+    for r in (load_universe(strict=False).get("symbols") or []):
+        for t in (r.get("tags") or []):
+            c[t] += 1
+    return dict(sorted(c.items()))

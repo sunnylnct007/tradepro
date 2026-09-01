@@ -118,6 +118,71 @@ def classify(df, c) -> dict:
             "atr_pct": atr_pct, "volatility_tier": tier(atr_pct, 1.5, 3.5)}
 
 
+# ── PHASE 2: ONE UNIVERSE, TAGGED (1 Sep 2026) ──────────────────────────────
+#
+# Owner: "we want a coherant and trustworthy data and not scattered data ... as
+# user i dont have to think many screens".
+#
+# There were FOUR definitions of "what we screen":
+#   1. this file's 244 committed names          (the real definition)
+#   2. /api/universes/{name}, DB-backed         (large_50, high_beta, +12 more)
+#   3. options_screen.DEFAULT_UNIVERSE          (~82, hand-curated in code)
+#   4. ScreenerEndpoints.Universe               (30 hardcoded ticker+conid pairs)
+#
+# A screen running on a different list than its neighbours is how "0 of 30" and
+# "21 of 82" looked like a strategy disagreement when it was a universe
+# disagreement. Tags make the 244 the single source and everything else a FILTER
+# over it.
+#
+# WHEEL IS SEEDED FROM THE EXISTING CURATED LIST, deliberately. Deriving it from
+# price/liquidity rules would silently change which names get screened, and the
+# owner's board is a live trading surface — a consolidation must not also be a
+# behaviour change. The criteria that should eventually replace the hand-list
+# are noted below; swapping them in is a separate, reviewable decision.
+# IMPORTED, NOT COPIED. My first draft pasted a TRUNCATED copy of the wheel
+# list here — 20 of 82 names — which would have silently shrunk what the wheel
+# screens. That is exactly the failure this phase exists to end, committed while
+# ending it. There is one list; everything else points at it.
+from ..universe import WHEEL_SLEEVE as _WHEEL_SEED
+
+_LARGE_N = 50
+
+
+def _apply_tags(rows: list[dict]) -> list[dict]:
+    """Attach `tags` to each included symbol. Derived, never hand-maintained.
+
+    large_50   the N most liquid by median dollar volume — "the big names",
+               which is what that label has always meant informally.
+    high_beta  beta_tier already computed above; this just names it as a tag so
+               a consumer selects by tag rather than by reaching into a field.
+    wheel      seeded from the curated list (see _WHEEL_SEED).
+    """
+    ranked = sorted(
+        (r for r in rows if r.get("dollar_volume_median") is not None),
+        key=lambda r: r["dollar_volume_median"], reverse=True)
+    large = {r["symbol"] for r in ranked[:_LARGE_N]}
+    for r in rows:
+        tags = []
+        sym = r.get("symbol")
+        if sym in large:
+            tags.append("large_50")
+        if r.get("beta_tier") == "high":
+            tags.append("high_beta")
+        if sym in _WHEEL_SEED:
+            tags.append("wheel")
+        r["tags"] = tags
+    return rows
+
+
+def _tag_counts(rows: list[dict]) -> dict:
+    from collections import Counter
+    c: Counter = Counter()
+    for r in rows:
+        for t in (r.get("tags") or []):
+            c[t] += 1
+    return dict(sorted(c.items()))
+
+
 def assess(sym: str) -> dict:
     """Measure one symbol against every criterion. Returns a verdict dict."""
     ok, why = _instrument_ok(sym)
@@ -242,7 +307,8 @@ def main() -> int:
                          "min_sessions": MIN_SESSIONS, "max_phantom_bars": MAX_PHANTOM_BARS,
                          "min_recent_coverage": MIN_RECENT_COVERAGE},
             "counts": {"scanned": len(syms), "included": len(inc), "excluded": len(exc)},
-            "symbols": inc,
+            "tags": _tag_counts(inc),
+            "symbols": _apply_tags(inc),
             "excluded": [{"symbol": r["symbol"], "class": r["class"], "reason": r["reason"]}
                          for r in sorted(exc, key=lambda r: r["symbol"])],
         }
