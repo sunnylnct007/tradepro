@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "scanner" | "post-earnings-puts" | "strangle-decisions";
+export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "scanner" | "post-earnings-puts" | "strangle-decisions" | "candidates";
 
 type NavEntry = {
   key: string;
@@ -128,6 +128,13 @@ type NavEntry = {
 // The screens themselves still exist and still run — this removes them from the
 // DESK, which is the surface that has to be trustworthy. Nothing was deleted.
 const NAV: NavEntry[] = [
+  // ONE SCREEN, ABOVE THE PER-STRATEGY TABS (Phase 4, 1 Sep 2026). Owner: "as
+  // user i dont have to think many screens". The tabs below are now the DETAIL
+  // views — this is the one that answers "what is there today" across all of
+  // them, with each row carrying its own freshness and its sleeve's tier.
+  { key: "candidates", label: "Candidates", icon: "◈", view: "candidates", tier: "trusted",
+    title: "Every strategy's candidates in ONE table — strategy is a filter, not a tab. "
+           + "Each row shows its own freshness and whether its sleeve passed its gates." },
   { key: "swing",     label: "Swing",     icon: "🎣", view: "swing",     tier: "trusted",
     title: "Swing candidates — the only screen built on a strategy that cleared pre-registered gates" },
   { key: "momentum",  label: "Momentum",  icon: "🚀", view: "momentum",  tier: "trusted",

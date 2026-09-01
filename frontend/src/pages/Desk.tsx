@@ -30,6 +30,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { ResearchView } from "../components/desk/ResearchView";
+import { CandidatesView } from "../components/desk/CandidatesView";
 import { SwingView } from "../components/desk/SwingView";
 import { PostEarningsPutsView } from "../components/desk/PostEarningsPutsView";
 import { MomentumView } from "../components/desk/MomentumView";
@@ -217,6 +218,7 @@ export function Desk() {
       {view === "risk"       && <RiskPage />}
       {view === "harvest"    && <HarvestView />}
       {view === "research"   && <ResearchView />}
+      {view === "candidates" && <CandidatesView />}
       {view === "swing"      && <SwingView />}
       {view === "post-earnings-puts" && <PostEarningsPutsView />}
       {view === "momentum"   && <MomentumView />}
