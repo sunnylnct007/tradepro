@@ -313,6 +313,16 @@ def main() -> int:
                     f"{base.rstrip('/')}/api/integrations/ibkr/option-leg",
                     json={"symbol": occ["symbol"], "expiry": occ["expiry"],
                           "strike": occ["strike"], "right": occ["right"],
+                          # BUY to close a short. This was MISSING, so the
+                          # endpoint rejected every close with "side must be
+                          # BUY or SELL" and four legs were carried overnight
+                          # on 1 Sep 2026 — the exact exposure the time exit
+                          # exists to prevent.
+                          #
+                          # It was invisible because neither the dry-run nor a
+                          # "hold" tick ever POSTs. The job reported healthy
+                          # for six hours and failed the first time it mattered.
+                          "side": "BUY",
                           "contracts": qty, "closingOnly": True,
                           # The position's OWN conid, so the close never depends
                           # on IBKR's option chain. On 1 Sep 2026 that chain

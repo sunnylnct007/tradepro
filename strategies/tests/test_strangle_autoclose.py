@@ -170,3 +170,46 @@ def test_roots_are_declared_not_inferred_by_prefix():
     # declares its roots explicitly.
     for m in ("SPX", "XSP", "NDX"):
         assert MARKETS[m].get("broker_roots"), f"{m} must declare broker_roots"
+
+
+# ---------------------------------------------------------------------------
+# THE CLOSE REQUEST MUST CARRY EVERY FIELD THE ENDPOINT REQUIRES.
+#
+# 1 Sep 2026, 19:45Z: the time exit fired and all four legs failed with
+#   "side must be BUY or SELL"
+# because the request never included one. Four short legs — SPY and SPX, about
+# $830k of collateral — were carried OVERNIGHT.
+#
+# It could never have worked. It was invisible because the dry-run path and
+# every "hold" tick return before the POST, so six hours of green "hold —
+# decayed 8% of 50% target" logs said nothing about whether the close itself
+# was reachable. The one path that mattered had never been executed.
+#
+# This test asserts the CONTRACT between job and endpoint, which is the only
+# thing that would have caught it without a live fill.
+# ---------------------------------------------------------------------------
+
+def test_the_close_request_carries_every_field_the_endpoint_requires():
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C.main)
+    i = src.index("/api/integrations/ibkr/option-leg")
+    # Wide enough to span the whole request literal INCLUDING its
+    # comments — a window that just fits today silently stops
+    # covering a field the moment anyone adds a line.
+    body = src[i:i + 2000]
+    # OptionLegRequest rejects a missing/blank side, right, strike or symbol.
+    for field in ('"side"', '"symbol"', '"expiry"', '"strike"', '"right"',
+                  '"contracts"', '"closingOnly"'):
+        assert field in body, f"close request is missing {field}"
+    # And the side must be BUY — SELL would DOUBLE the short, not close it.
+    assert '"side": "BUY"' in body
+
+
+def test_closing_a_short_is_a_buy_never_a_sell():
+    # Guard against the worst possible typo here: selling again would double
+    # the position while reporting success.
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C.main)
+    assert '"side": "SELL"' not in src
