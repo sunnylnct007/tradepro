@@ -518,10 +518,6 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     """Our rows in the shape every strategy emits (Phase 3).
 
@@ -544,3 +540,9 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
         except Exception:  # noqa: BLE001 — one bad row must not lose the screen
             pass
     return emit(out)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+

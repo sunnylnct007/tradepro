@@ -188,6 +188,8 @@ def render(rows: list[dict], problems: list[str], now: _dt.datetime) -> tuple[st
 def main() -> int:
     ap = argparse.ArgumentParser(prog="tradepro-candidates-digest")
     ap.add_argument("--dry-run", action="store_true", help="print, send nothing")
+    ap.add_argument("--html-out", default=None,
+                    help="write the rich body to a file (for eyeballing it)")
     ap.add_argument("--api-base", default=None)
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -200,6 +202,12 @@ def main() -> int:
     rows, problems = gather(base, token, now)
     subject, text = render(rows, problems, now)
 
+    if args.html_out:
+        from .candidates_html import build_html
+        open(args.html_out, "w").write(build_html(rows, problems, now, STALE_HOURS))
+        print(f"wrote {args.html_out} ({len(rows)} rows, {len(problems)} problem(s))")
+        return 0
+
     if args.dry_run:
         print(subject)
         print()
@@ -210,7 +218,20 @@ def main() -> int:
         import json
         from .email_digest import CRED_PATH, send_email
         cfg = json.loads(CRED_PATH.read_text())
-        html = "<pre style=\"font-family:monospace\">" + text.replace("<", "&lt;") + "</pre>"
+        # RICH BODY, plain text as the fallback part. Owner: "shdnt the email be
+        # roich as opposed to just a pure text". Both renderings come from the
+        # SAME rows, so a client showing plain text loses the charts and nothing
+        # else — two renderings that can disagree is the defect this plan exists
+        # to remove.
+        try:
+            from .candidates_html import build_html
+            html = build_html(rows, problems, now, STALE_HOURS,
+                              with_charts=os.environ.get(
+                                  "TRADEPRO_DIGEST_CHARTS", "1").lower()
+                              not in ("0", "false", "no", "off"))
+        except Exception as exc:  # noqa: BLE001 — never lose the mail over presentation
+            log.warning("rich body failed, sending plain text (%s)", str(exc)[:160])
+            html = "<pre style=\"font-family:monospace\">" + text.replace("<", "&lt;") + "</pre>"
         send_email(SimpleNamespace(subject=subject, text_body=text,
                                    html_body=html, pdf_bytes=None), cfg)
         log.info("candidates digest sent: %s", subject)
