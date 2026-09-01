@@ -411,6 +411,51 @@ class BarStore:
                             f"delta:{_ds.date().isoformat()}"
                             f"→{_de.date().isoformat()}"
                         )
+                # THE CLAMP APPLIES ON EVERY PATH, NOT ONLY DELTA MODE
+                # (1 Sep 2026).
+                #
+                # The block above only runs when `delta_from is not None and not
+                # force_refresh`. A CACHE MISS or a FORCE-REFRESH therefore still
+                # asked for today's unsettled session — and the failure the note
+                # above describes then played out exactly as written: IBKR
+                # correctly answers "none within range", the chain classifies
+                # that correct answer as a parse failure, falls through, and
+                # YFINANCE WRITES TODAY'S PARTIAL BAR.
+                #
+                # Measured at 14:56 UTC, 1h26m into an open session: 50 of 244
+                # symbols carried a 2026-09-01 daily bar sourced from yfinance,
+                # while the untouched 194 correctly ended at Monday's close.
+                # HV30, the Ichimoku regime and the 52-week range all read that
+                # partial bar as a finished day. It is also the standing source
+                # of the mixed-provider tails behind the desk's FALLBACK badges.
+                #
+                # DAILY-OR-COARSER ONLY. An intraday lane legitimately wants
+                # today's partial bars — that is the whole point of a 5m
+                # harvest. A DAILY bar for a session still in progress is not
+                # early data, it is a wrong number wearing a date.
+                # NOT ON force_refresh. Setting a fetch_window converts a
+                # full-partition REPLACE into a windowed merge, which defeats
+                # the validated-shrink that force_refresh exists to perform
+                # (it is how a poisoned partition gets rebuilt). An explicit
+                # re-source is also an operator saying "fetch this range" — if
+                # they include today, that is their call. The contamination
+                # this fixes came from the SCHEDULED path, not from a manual
+                # re-source.
+                if (fetch_window is None and not _unsettled_only
+                        and not force_refresh
+                        and _is_daily_or_coarser(resolution)):
+                    _settled = self._last_settled_session(
+                        plugin, partition_start, partition_end,
+                        now_utc=datetime.now(timezone.utc))
+                    if _settled is not None and _settled <= partition_start:
+                        _unsettled_only = True
+                        chain_log.append("unsettled_skip")
+                    elif _settled is not None and _settled < partition_end:
+                        fetch_window = (partition_start, _settled)
+                        chain_log.append(
+                            f"settled_cap:{partition_start.date().isoformat()}"
+                            f"→{_settled.date().isoformat()}")
+
                 if _unsettled_only:
                     # Skip the chain walk entirely for this partition.
                     need_fetch = False
