@@ -110,7 +110,16 @@ def _board(elig_syms, best=None):
 
 
 def test_wheel_email_fires_on_eligible_set_change(monkeypatch):
+    """The change-detection logic still works — it is simply OFF by default now.
+
+    Phase 5 (1 Sep 2026) replaced four senders with one
+    `tradepro-candidates-digest`, so TRADEPRO_WHEEL_EMAIL now defaults to "0".
+    The logic below — alert when the ELIGIBLE SET changes rather than daily — is
+    the good part of the old sender and the digest should grow it, so it stays
+    tested rather than deleted.
+    """
     from tradepro_strategies.cli import options_screen as osc
+    monkeypatch.setenv("TRADEPRO_WHEEL_EMAIL", "1")
     sent = {}
     monkeypatch.setattr("tradepro_strategies.cli.email_digest.send_email",
                         lambda digest, cfg: sent.update(subject=digest.subject))

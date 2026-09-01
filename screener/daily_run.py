@@ -70,6 +70,8 @@ TOP_N = 5
 # deleted so the 14-point model stays reviewable, not because it should run.
 _WHEEL_ENABLED = os.environ.get("TRADEPRO_SCREENER_WHEEL", "0").strip().lower() in (
     "1", "true", "yes", "on")
+_SWING_EMAIL = os.environ.get("TRADEPRO_SCREENER_SWING_EMAIL", "0").strip().lower() in (
+    "1", "true", "yes", "on")
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -197,7 +199,18 @@ def main() -> int:
     else:
         wheel_ok = (send_wheel_email(wheel_top, run_date, run_errors=run_errors)
                     if _WHEEL_ENABLED else True)
-        swing_ok = send_swing_email(swing_top, run_date, run_errors=run_errors)
+        # PHASE 5: OFF by default. `tradepro-candidates-digest` sends ONE email
+        # across every strategy from the common record. Owner: "not 2 diff
+        # emails", "as user i dont have to think many screens".
+        #
+        # HONEST TRADE-OFF: this sender is RICHER than the digest — charts,
+        # Claude analysis, support/resistance. The digest is plain text. It is
+        # off because one coherent email beats two that disagree, not because
+        # this one is bad. TRADEPRO_SCREENER_SWING_EMAIL=1 restores it, and the
+        # digest should grow the presentation rather than this staying a second
+        # sender forever.
+        swing_ok = (send_swing_email(swing_top, run_date, run_errors=run_errors)
+                    if _SWING_EMAIL else True)
         log.info("Emails sent — wheel: %s  swing: %s", wheel_ok, swing_ok)
 
     result = {

@@ -1909,7 +1909,13 @@ def _maybe_send_wheel_email(payload: dict, prev_payload: dict | None) -> bool:
     nightly digest's SMTP creds (~/.tradepro/email-creds.json). Disable with
     TRADEPRO_WHEEL_EMAIL=0. Fail-soft: an email problem must never fail the
     screen — it logs to run_log and moves on. Returns True when a mail went."""
-    if os.environ.get("TRADEPRO_WHEEL_EMAIL", "1").strip().lower() in ("0", "false", "no", "off"):
+    # PHASE 5: DEFAULT OFF. `tradepro-candidates-digest` now sends ONE email
+    # across every strategy, reading the common record. Owner: "not 2 diff
+    # emails". This sender stays behind the flag rather than being deleted — the
+    # change-detection logic below (alert when the ELIGIBLE SET changes, not
+    # daily) is good and the digest should grow it, so the code is worth keeping
+    # readable. Set TRADEPRO_WHEEL_EMAIL=1 to restore it.
+    if os.environ.get("TRADEPRO_WHEEL_EMAIL", "0").strip().lower() in ("0", "false", "no", "off"):
         return False
     now_elig = {c["symbol"] for c in payload.get("candidates") or [] if c.get("eligible")}
     prev_elig = {c["symbol"] for c in (prev_payload or {}).get("candidates") or [] if c.get("eligible")}

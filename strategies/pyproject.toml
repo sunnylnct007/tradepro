@@ -68,6 +68,7 @@ dev = [
 [project.scripts]
 tradepro-analysis-server = "tradepro_strategies.cli.analysis_server:main"
 tradepro-post-earnings-puts = "tradepro_strategies.cli.post_earnings_puts:main"
+tradepro-candidates-digest = "tradepro_strategies.cli.candidates_digest:main"
 tradepro-backtest = "tradepro_strategies.cli.run_backtest:main"
 tradepro-build-high-beta-universe = "tradepro_strategies.cli.build_high_beta_universe:main"
 tradepro-compare = "tradepro_strategies.cli.run_comparison:main"

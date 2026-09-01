@@ -51,3 +51,22 @@ if ( cd "$STRAT_DIR" && uv run tradepro-options-screen >>"$LOG" 2>&1 ); then
 else
   log "wheel screen: FAILED (exit $?) — see $LOG"
 fi
+
+# ── ONE EMAIL (Phase 5, 1 Sep 2026) ─────────────────────────────────────────
+#
+# Owner: "not 2 diff emails", "as user i dont have to think many screens".
+#
+# Four senders used to mail this account on different schedules with different
+# universes — two of them both called "wheel", reporting 21 eligible and 0
+# candidates on the same afternoon. The wheel and swing senders are now off by
+# default; this is the single digest that replaces them.
+#
+# It runs LAST, after the screens above have published, so it reads today's
+# artifacts rather than yesterday's. It knows nothing about any strategy's
+# private shape — it reads the common record, so a fifth strategy costs nothing.
+log "candidates digest -> tradepro-candidates-digest"
+if ( cd "$STRAT_DIR" && uv run tradepro-candidates-digest >>"$LOG" 2>&1 ); then
+  log "candidates digest: ok"
+else
+  log "candidates digest: FAILED (exit $?) — see $LOG"
+fi
