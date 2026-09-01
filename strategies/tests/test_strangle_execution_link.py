@@ -111,3 +111,60 @@ def test_place_paper_and_record_execution_read_the_SAME_definition():
     assert "PLACE_EXPIRY_KIND" in src_place
     assert "PLACE_EXPIRY_KIND" in src_rec
     assert "next(iter(legs)" not in src_rec
+
+
+# ---------------------------------------------------------------------------
+# NO PLACEMENT OUTCOME MAY BE SILENT. This site has failed twice.
+#
+# 31 Aug: the report branch read `elif r["status"] == "CANDIDATE"`, so a failed
+# SHADOW placement matched nothing — three markets attempted, all three failed,
+# run printed nothing.
+#
+# 1 Sep: "fixed" to `elif res.get("reason")` — but the API-rejection path
+# returned no `reason` key, so SPY, QQQ and GOLD failed silently AGAIN in the
+# SCHEDULED run while the log read clean.
+#
+# Twice is a pattern: any condition can be missed by a return shape nobody
+# anticipated. The guarantee has to be structural.
+# ---------------------------------------------------------------------------
+
+def test_an_api_rejection_carries_a_reason():
+    class R:
+        status_code = 502
+        content = b"{}"
+        def json(self):
+            # Exactly the shape that printed nothing: ok false, partial false,
+            # and historically no reason.
+            return {"ok": False, "partial": False,
+                    "put": {"status": "REJECTED", "reason": "no permission"},
+                    "call": {"status": "REJECTED"}}
+
+    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+        import requests
+        with patch.object(requests, "post", lambda *a, **k: R()):
+            res = P.place_paper(_row(), contracts=1, shadow=True)
+
+    assert res["placed"] is False
+    assert res["partial"] is False
+    assert res["reason"], "a rejection with no reason is how this failed twice"
+    assert "REJECTED" in res["reason"] or "permission" in res["reason"]
+
+
+def test_the_report_branch_is_an_else_not_a_condition():
+    # The structural guarantee. A condition here can always be missed by a
+    # return shape nobody thought about; an else cannot.
+    # Checks CODE, not prose. The comments below deliberately quote the old
+    # broken line, and an earlier version of this very test matched its own
+    # explanation — the same way StrangleOrderGuardTest spent a day asserting
+    # against a comment. Strip comments first.
+    import inspect, re
+    src = inspect.getsource(P.main)
+    block = src[src.index("if args.place:"):]
+    code = "\n".join(ln for ln in block.splitlines()
+                     if not ln.lstrip().startswith("#"))
+
+    assert re.search(r"^\s+else:\s*$", code, re.M), \
+        "the final placement branch must be an unconditional else"
+    assert not re.search(r'^\s*elif res\.get\("reason"\)', code, re.M), \
+        "a condition here can be missed by an unanticipated return shape"
+    assert "placement returned nothing" in code, "a None result must report too"
