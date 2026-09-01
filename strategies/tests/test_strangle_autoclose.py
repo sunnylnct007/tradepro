@@ -213,3 +213,42 @@ def test_closing_a_short_is_a_buy_never_a_sell():
     import tradepro_strategies.cli.index_strangle_close as C
     src = inspect.getsource(C.main)
     assert '"side": "SELL"' not in src
+
+
+# ---------------------------------------------------------------------------
+# A LEFTOVER POSITION GOES AT THE FIRST OPPORTUNITY, not at tonight's bell.
+#
+# 1 Sep 2026: four legs survived the 19:45 time exit because the close request
+# was malformed. The close job would then have treated them exactly like fresh
+# positions on 2 Sep and held them until 19:45 AGAIN — turning one accidental
+# overnight into two.
+# ---------------------------------------------------------------------------
+
+def test_a_stale_position_is_flattened_rather_than_held_to_the_bell():
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C.main)
+    assert "stale_overnight" in src
+    # It must still require an OPEN market — never invent a fill out of hours.
+    assert "_minutes_to_close(cfg) is not None" in src
+
+
+def test_an_unreadable_decision_log_treats_NOTHING_as_stale():
+    # Failing safe here means HOLDING. Wrongly declaring a fresh position stale
+    # would close a trade the moment it was opened.
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C._placed_today)
+    assert "return None" in src
+    main_src = inspect.getsource(C.main)
+    assert "if fresh is not None:" in main_src
+
+
+def test_staleness_is_judged_on_todays_PLACED_rows_only():
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C._placed_today)
+    # a decision that was never placed says nothing about what we hold
+    assert 'if not d.get("placed")' in src
+    # and yesterday's placement must not make today's position look fresh
+    assert "when != today" in src
