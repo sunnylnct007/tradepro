@@ -288,6 +288,20 @@ INDIA_VOL_SCALE = MARKETS["BANKNIFTY"]["vol_scale"]
 MARGIN_PCT = 0.12          # SPAN ESTIMATE ONLY - the broker's number governs
 
 
+# WHICH EXPIRY THIS DESK ACTUALLY PLACES.
+#
+# Named once because it was named twice. place_paper() traded the MONTHLY leg
+# while record_execution() attached the fill to `next(iter(legs))` — the
+# WEEKLY. On 1 Sep 2026 the first real two-leg strangle went on at 758/780
+# (monthly) and was recorded against the 757/779 weekly row, which was never
+# traded. The grader would have scored the wrong strikes, and the row that was
+# actually filled would have read as never placed.
+#
+# The monthlies are chosen for liquidity: they carry ~2.3x the open interest of
+# the weeklies, which is the same finding that unblocked the wheel screen.
+PLACE_EXPIRY_KIND = "monthly"
+
+
 def economics(row: dict, ev_entry: dict | None) -> dict | None:
     """Money, per ONE weekly contract, at today's levels.
 
@@ -712,10 +726,12 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
     """
     cfg = MARKETS.get(row.get("market") or "")
     if not cfg or not cfg.get("paper_trade"):
-        return {"placed": False, "reason": "market is not paper-tradeable"}
+        return {"placed": False, "reason": "market is not paper-tradeable",
+                "expiry_kind": PLACE_EXPIRY_KIND}
     is_shadow = row.get("status") != "CANDIDATE"
     if is_shadow and not shadow:
-        return {"placed": False, "reason": "not a candidate"}
+        return {"placed": False, "reason": "not a candidate",
+                "expiry_kind": PLACE_EXPIRY_KIND}
     # SHADOW PLACEMENT — trade the days the gate REFUSED, on paper only.
     #
     # Owner, 31 Aug 2026: "can we just put in paper trading the index even if
@@ -733,14 +749,18 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
     # of these answers "what is the gate worth?" in real money rather than
     # Black-Scholes.
     if row.get("provisional"):
-        return {"placed": False,
+        return {"placed": False, "expiry_kind": PLACE_EXPIRY_KIND,
                 "reason": "strikes are PROVISIONAL — refusing to place off a stale close"}
     if row.get("session_state") != "open":
-        return {"placed": False, "reason": f"session is {row.get('session_state')}"}
+        return {"placed": False, "reason": f"session is {row.get('session_state')}",
+                "expiry_kind": PLACE_EXPIRY_KIND}
 
-    leg = (row.get("legs") or {}).get("monthly")
+    # The expiry this desk actually trades. Named once, reported back in the
+    # result, and consumed by record_execution — so the two can never drift.
+    kind = PLACE_EXPIRY_KIND
+    leg = (row.get("legs") or {}).get(kind)
     if not leg:
-        return {"placed": False, "reason": "no monthly leg"}
+        return {"placed": False, "reason": f"no {kind} leg", "expiry_kind": kind}
     expiry = _monthly_expiry(leg["dte"])
     body = {"symbol": cfg["index"], "expiry": expiry,
             "putStrike": leg["put_strike"], "callStrike": leg["call_strike"],
@@ -757,9 +777,9 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
         # lose the DECISION, which is already recorded and emailed by now.
         log.warning("paper placement failed for %s: %s", row.get("market"), exc)
         return {"placed": False, "reason": f"request failed: {str(exc)[:160]}",
-                "request": body}
+                "request": body, "expiry_kind": kind}
     return {"placed": bool(out.get("ok")), "request": body, "response": out,
-            "partial": bool(out.get("partial")),
+            "partial": bool(out.get("partial")), "expiry_kind": kind,
             # Tagged so the two populations are never averaged together.
             "shadow": is_shadow,
             "gate_said": "stand aside" if is_shadow else "trade"}
@@ -853,8 +873,9 @@ def record_execution(row: dict, res: dict) -> dict:
     Non-fatal by design: a decision that is recorded but unlinked is a smaller
     loss than a job that dies after placing an order.
     """
-    legs = (row.get("legs") or {})
-    kind = next(iter(legs), None)
+    # The expiry the PLACEMENT reported, never a guess off the legs dict —
+    # its iteration order is weekly-first and the desk trades the monthly.
+    kind = (res or {}).get("expiry_kind") or PLACE_EXPIRY_KIND
     out = (res or {}).get("response") or {}
     ids = [str(out.get(k, {}).get("orderId")) for k in ("put", "call")
            if (out.get(k) or {}).get("orderId")]
@@ -1498,6 +1519,18 @@ def main() -> int:
                          "flagged paper_trade. Refuses on provisional strikes, a "
                          "shut session, or a non-candidate row.")
     ap.add_argument("--contracts", type=int, default=1)
+    # Scope a PLACEMENT to named markets. Three markets are paper-tradeable
+    # (SPY, QQQ, GLD) and --place hits all of them, which is right for the
+    # scheduled run and wrong for a deliberate single-market test. Owner,
+    # 1 Sep 2026: "today we can test the SPY index" — one market, not three.
+    #
+    # Filters PLACEMENT ONLY. Evaluation, the email and the decision log still
+    # cover every market: the stand-aside rows are the ones that make the gate
+    # testable, and narrowing those to prove a point about SPY would quietly
+    # bias the record this whole exercise exists to build.
+    ap.add_argument("--place-market", default="",
+                    help="comma-separated markets to PLACE (default: all "
+                         "paper-tradeable). Does not narrow evaluation.")
     ap.add_argument("--place-shadow", action="store_true",
                     help="ALSO place on days the volatility gate refused — paper "
                          "only, tagged shadow=true. Measures what the gate is "
@@ -1529,7 +1562,12 @@ def main() -> int:
         record([r for r in rows if r.get("status") in ("CANDIDATE", "stand aside")])
 
     if args.place:
+        only = {m.strip().upper() for m in args.place_market.split(",") if m.strip()}
+        if only:
+            print(f"  placement scoped to: {', '.join(sorted(only))}")
         for r in rows:
+            if only and r.get("market") not in only:
+                continue
             res = place_paper(r, contracts=args.contracts, shadow=args.place_shadow)
             if res:
                 r["paper_order"] = res
