@@ -377,7 +377,20 @@ class T212OrderRouter(OrderRouter):
         # don't duplicate the intent.
         import hashlib
         import uuid as _uuid
-        bar_ts_iso = approval.bar_at_approval.timestamp.isoformat()
+        # IDEMPOTENCY KEYS OFF THE SIGNAL BAR, NOT THE APPROVAL BAR.
+        #
+        # It used to seed from `approval.bar_at_approval`, which moves every
+        # run. On 2026-09-02 that minted 28 DISTINCT ClientOrderIds for ONE
+        # signal bar (2026-09-01) — so the OMS unique-index dedupe this seed
+        # exists to trigger never fired, and a rejected order was re-placed
+        # every 15 minutes all day. The signal bar is what identifies the
+        # trade; the approval bar is just when we happened to look.
+        _sig_bar = getattr(order, "signal_bar", None)
+        bar_ts_iso = (
+            _sig_bar.isoformat() if hasattr(_sig_bar, "isoformat")
+            else (str(_sig_bar) if _sig_bar
+                  else approval.bar_at_approval.timestamp.isoformat())
+        )
         seed = f"{order.strategy_id}:{order.symbol}:{order.side.value}:{int(order.quantity)}:{bar_ts_iso}"
         client_id = str(_uuid.UUID(hashlib.md5(seed.encode()).hexdigest()))
         broker_label = (
@@ -446,6 +459,23 @@ class T212OrderRouter(OrderRouter):
                 "tag": order.tag,
                 "confidence": getattr(order, "confidence", None),
             })
+        # DEFECT 1 — a permanent rejection must never be retried.
+        # IBKR answered "No Trading Permission, Customer Ineligible" to all 28
+        # IWM orders on 2026-09-02 (PRIIPs KID: a UK retail account cannot buy
+        # a US-domiciled ETF). Nothing remembered that, so it asked again every
+        # 15 minutes. See paper/broker_ineligible.py — the OMS is the store.
+        from ..broker_ineligible import blocked_symbols, first_line
+        _blocked = blocked_symbols(api_base, api_token, broker_label)
+        _why = _blocked.get(broker_symbol)
+        if _why:
+            log.error(
+                "REFUSING %s %s on %s — the broker has PERMANENTLY rejected "
+                "it and will again: %s. Not retried; take it out of the "
+                "strategy universe.",
+                order.side.value, broker_symbol, broker_label, first_line(_why),
+            )
+            return
+
         url = f"{api_base.rstrip('/')}/api/oms/orders"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -466,11 +496,39 @@ class T212OrderRouter(OrderRouter):
                         approve_url, json={},
                         headers={"Authorization": f"Bearer {api_token}"},
                     )
-                    if approve.status_code not in (200, 409):
-                        log.warning(
-                            "OMS auto-approve returned %s for %s: %s",
-                            approve.status_code, order.symbol, approve.text[:200],
+                    # DEFECT 2 — this used to whitelist 409 alongside 200 and
+                    # say nothing, so 22 broker REJECTIONS on 2026-09-02 left
+                    # no trace in the log at all. A 409 is the idempotency
+                    # dedupe working (worth an INFO, it is the loop stopping);
+                    # anything else is a real failure and must be loud.
+                    if approve.status_code == 409:
+                        log.info(
+                            "OMS already holds this intent for %s (409) — "
+                            "same signal bar, not re-placed",
+                            order.symbol,
                         )
+                    elif approve.status_code != 200:
+                        log.error(
+                            "OMS auto-approve FAILED %s for %s: %s",
+                            approve.status_code, order.symbol,
+                            approve.text[:300],
+                        )
+                    else:
+                        # 200 is not the same as filled. The broker can reject
+                        # on the way through, and that is exactly what stayed
+                        # invisible all day.
+                        try:
+                            _final = approve.json()
+                        except Exception:  # noqa: BLE001
+                            _final = {}
+                        _state = str(_final.get("state") or "")
+                        if _state in ("REJECTED", "CANCELLED"):
+                            _reason = _final.get("cancelledReason") or "(no reason given)"
+                            log.error(
+                                "BROKER %s %s %s — %s",
+                                _state, order.side.value, order.symbol,
+                                first_line(_reason),
+                            )
         except Exception:
             log.exception(
                 "OMS push failed for %s — "
