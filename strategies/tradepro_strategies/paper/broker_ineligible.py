@@ -44,37 +44,128 @@ nobody chose, which is the more expensive mistake.
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 log = logging.getLogger("tradepro.paper.ineligible")
 
-# Substrings (lowercased) that mean THIS WILL NEVER SUCCEED for this account.
-# Entitlement and eligibility, not liquidity, not margin, not market hours.
-# Keep this list short and evidence-led: every entry should trace to a real
-# rejection we have actually seen, quoted in the comment beside it.
-PERMANENT_MARKERS: tuple[str, ...] = (
+# CONFIG-DRIVEN. The markers live in the DB, editable from the UI:
+#
+#     GET/PUT /api/settings-kv/broker_permanent_rejection_markers
+#
+# Owner, 2 Sep 2026: *"no hard coding please"*. A broker adding a new
+# ineligibility wording must not need a code change and a redeploy — by the
+# time that ships, the retry loop has run for another day. Resolution order:
+#
+#   1. /api/settings-kv/broker_permanent_rejection_markers   (UI-tunable)
+#   2. $TRADEPRO_BROKER_PERMANENT_MARKERS                    (comma-separated)
+#   3. SEED_MARKERS below                                    (last resort only)
+#
+# SEED_MARKERS is NOT the configuration. It is the value the config key was
+# created with, kept here only so a box that cannot reach the API still
+# refuses the one rejection we have actually observed, rather than reopening
+# the loop this module exists to close. Every entry traces to a real rejection
+# quoted beside it — never a guess about how a broker might word something.
+SEED_MARKERS: tuple[str, ...] = (
     "no trading permission",        # IBKR, IWM 2026-09-02 (PRIIPs KID)
     "customer ineligible",          # IBKR, same rejection
     "does not have a kid",          # PRIIPs, the specific cause
-    "not eligible to trade",        # IBKR variant
-    "contract is not available",    # IBKR, delisted / not tradeable
 )
 
-_CACHE: dict[str, tuple[float, dict[str, str]]] = {}
+SETTINGS_KEY = "broker_permanent_rejection_markers"
+ENV_VAR = "TRADEPRO_BROKER_PERMANENT_MARKERS"
+
 _TTL_S = 300.0
+_CACHE: dict[str, tuple[float, dict[str, str]]] = {}
+_MARKERS: tuple[str, ...] | None = None
+_MARKERS_SOURCE = "unresolved"
 
 
-def is_permanent(reason: str | None) -> bool:
+def _coerce(value) -> tuple[str, ...]:
+    """Accept a JSON list or a comma/newline-separated string."""
+    if isinstance(value, (list, tuple)):
+        items = [str(v) for v in value]
+    elif isinstance(value, str):
+        items = value.replace("\n", ",").split(",")
+    else:
+        return ()
+    return tuple(i.strip().lower() for i in items if i and i.strip())
+
+
+def permanent_markers(api_base: str | None = None, token: str | None = None,
+                      *, force_refresh: bool = False) -> tuple[str, ...]:
+    """The configured "never retry this" markers, cached per process.
+
+    Logs WHICH SOURCE WON, once. A guard that quietly falls back to a compiled
+    list while the operator believes they are editing config from the UI is
+    exactly the silent divergence this desk keeps getting bitten by.
+    """
+    global _MARKERS, _MARKERS_SOURCE
+    if _MARKERS is not None and not force_refresh:
+        return _MARKERS
+
+    got: tuple[str, ...] = ()
+    source = ""
+    if api_base:
+        try:
+            import requests
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            resp = requests.get(
+                f"{api_base.rstrip('/')}/api/settings-kv/{SETTINGS_KEY}",
+                headers=headers, timeout=15)
+            if resp.status_code == 200:
+                got = _coerce(resp.json().get("value"))
+                source = f"/api/settings-kv/{SETTINGS_KEY}"
+            elif resp.status_code == 404:
+                log.warning(
+                    "config key %s does not exist — create it so these markers "
+                    "are editable without a deploy", SETTINGS_KEY)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not read %s (%s) — falling back",
+                        SETTINGS_KEY, type(exc).__name__)
+
+    if not got:
+        got = _coerce(os.environ.get(ENV_VAR, ""))
+        if got:
+            source = f"${ENV_VAR}"
+
+    if not got:
+        got = SEED_MARKERS
+        source = "SEED_MARKERS (compiled fallback — config was unreachable)"
+
+    if source != _MARKERS_SOURCE:
+        log.info("permanent-rejection markers: %d from %s", len(got), source)
+        _MARKERS_SOURCE = source
+    _MARKERS = got
+    return got
+
+
+def marker_source() -> str:
+    """Which source the active markers came from — for run logs and tests."""
+    return _MARKERS_SOURCE
+
+
+def clear_cache() -> None:
+    """Drop cached markers and block lists (tests, or after a UI edit)."""
+    global _MARKERS, _MARKERS_SOURCE
+    _MARKERS = None
+    _MARKERS_SOURCE = "unresolved"
+    _CACHE.clear()
+
+
+def is_permanent(reason: str | None,
+                 markers: tuple[str, ...] | None = None) -> bool:
     """True when a broker rejection can never succeed on a retry.
 
-    Unknown reasons return False — see the module docstring. We would rather
-    retry something hopeless than silently stop trading a name for a reason
-    nobody chose.
+    Unknown reasons return False — deliberately. We would rather retry
+    something hopeless than silently stop trading a name for a reason nobody
+    chose. `markers` defaults to whatever `permanent_markers()` last resolved.
     """
     if not reason:
         return False
     low = str(reason).lower()
-    return any(m in low for m in PERMANENT_MARKERS)
+    use = markers if markers is not None else (_MARKERS or SEED_MARKERS)
+    return any(m in low for m in use)
 
 
 def blocked_symbols(api_base: str, token: str | None, broker: str,
@@ -94,6 +185,7 @@ def blocked_symbols(api_base: str, token: str | None, broker: str,
     if hit and (time.time() - hit[0]) < _TTL_S:
         return hit[1]
 
+    markers = permanent_markers(api_base, token)
     out: dict[str, str] = {}
     try:
         import requests
@@ -113,7 +205,7 @@ def blocked_symbols(api_base: str, token: str | None, broker: str,
             if str(row.get("state") or "") != "REJECTED":
                 continue
             reason = row.get("cancelledReason")
-            if not is_permanent(reason):
+            if not is_permanent(reason, markers):
                 continue
             sym = str(row.get("symbol") or "")
             if sym:

@@ -27,9 +27,54 @@ def test_the_real_rejection_is_permanent():
     assert bi.is_permanent(REAL_IBKR_REJECTION) is True
 
 
+def test_markers_come_from_config_not_from_the_source_file(monkeypatch):
+    """Owner: "no hard coding please". Config must WIN over the seed."""
+    import requests
+
+    class _R:
+        status_code = 200
+        def json(self): return {"value": ["some brand new broker wording"]}
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
+    bi.clear_cache()
+    markers = bi.permanent_markers("https://api.example", "tok")
+    assert markers == ("some brand new broker wording",)
+    assert "settings-kv" in bi.marker_source()
+    # a reason the SEED would have caught is now retryable, because config said so
+    assert bi.is_permanent(REAL_IBKR_REJECTION, markers) is False
+
+
+def test_env_var_is_used_when_the_api_has_no_key(monkeypatch):
+    import requests
+
+    class _R404:
+        status_code = 404
+        def json(self): return {}
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _R404())
+    monkeypatch.setenv(bi.ENV_VAR, "alpha , BETA ,, gamma")
+    bi.clear_cache()
+    assert bi.permanent_markers("https://api.example", "tok") == ("alpha", "beta", "gamma")
+
+
+def test_seed_is_the_last_resort_and_says_so(monkeypatch):
+    import requests
+
+    def _boom(*a, **k):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(requests, "get", _boom)
+    monkeypatch.delenv(bi.ENV_VAR, raising=False)
+    bi.clear_cache()
+    assert bi.permanent_markers("https://api.example", "tok") == bi.SEED_MARKERS
+    # the fallback must be VISIBLE, not silent
+    assert "compiled fallback" in bi.marker_source()
+
+
 def test_unknown_and_transient_reasons_stay_retryable():
     # Deliberate: we would rather retry something hopeless than silently stop
     # trading a name for a reason nobody chose.
+    bi.clear_cache()
     assert bi.is_permanent("insufficient buying power") is False
     assert bi.is_permanent("a reason we have never seen before") is False
     assert bi.is_permanent(None) is False
