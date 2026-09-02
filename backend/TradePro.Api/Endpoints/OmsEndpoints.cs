@@ -291,6 +291,48 @@ public static class OmsEndpoints
             try
             {
                 var row = await oms.EnqueueAsync(intent, actor);
+
+                // ── PAPER AUTO-APPROVES (2 Sep 2026) ─────────────────────
+                //
+                // Owner: "i know approval is needed but for now in PT we cna
+                // bypass". Correct — a human clicking approve on a paper order
+                // is ceremony, and five orders sat PENDING_APPROVAL for an hour
+                // and would never have become trades.
+                //
+                // THIS BYPASSES THE HUMAN, NOT THE GATES. ApproveAsync is where
+                // the operator kill switch and the RiskGate run — blacklist,
+                // size caps, velocity, cash — every decision audited to
+                // risk_events, all fail-closed. Paper is precisely where those
+                // must be exercised: it is the same code path that will stand
+                // between a strategy and real money, and skipping it here means
+                // discovering it works the first time it matters.
+                //
+                // A refusal therefore still refuses. The order stays where the
+                // gate left it and the caller gets the row, so "the gate said
+                // no" is visible rather than looking like a placement failure.
+                //
+                // LIVE BROKERS ARE NEVER AUTO-APPROVED. The list is explicit
+                // rather than "anything not live" — a new broker string must be
+                // opted IN, because the failure direction here is real money.
+                var paperBrokers = new[] { "PAPER", "T212_DEMO", "IBKR_PAPER" };
+                if (paperBrokers.Contains(intent.Broker?.ToUpperInvariant())
+                    && row.State == OmsState.PendingApproval)
+                {
+                    try
+                    {
+                        row = await oms.ApproveAsync(row.Id, $"{actor}:paper-auto");
+                    }
+                    catch (Exception ex)
+                    {
+                        // A gate refusal is an OUTCOME, not an error. Return the
+                        // enqueued row so the caller sees PENDING_APPROVAL and
+                        // the reason, instead of a 500 that reads as "the order
+                        // never happened".
+                        Console.Error.WriteLine(
+                            $"paper auto-approve refused for {intent.Symbol}: {ex.Message}");
+                    }
+                }
+
                 return Results.Ok(row);
             }
             catch (Npgsql.PostgresException ex)
