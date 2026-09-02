@@ -227,3 +227,45 @@ def first_line(reason: str) -> str:
     if cut > 0:
         txt = txt[:cut]
     return txt[:200]
+
+
+def blocked_bare(api_base: str, token: str | None, broker_prefix: str,
+                 *, timeout: float = 20.0) -> dict[str, str]:
+    """{bare_ticker: reason} for every broker whose label starts with
+    `broker_prefix` (e.g. "IBKR" covers IBKR_PAPER and IBKR_LIVE).
+
+    The OMS records broker symbols ("IWM_US_EQ"); universes are bare ("IWM").
+    This bridges the two so a permanently-barred name can be dropped from the
+    traded universe at SOURCE, instead of generating a signal every run that
+    the placement guard then refuses. Fail-open, like blocked_symbols.
+    """
+    out: dict[str, str] = {}
+    markers = permanent_markers(api_base, token)
+    try:
+        import requests
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        resp = requests.get(f"{api_base.rstrip('/')}/api/oms/orders",
+                            headers=headers, params={"limit": 1000},
+                            timeout=timeout)
+        resp.raise_for_status()
+        body = resp.json()
+        rows = body if isinstance(body, list) else (
+            body.get("orders") or body.get("items") or body.get("rows") or [])
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if not str(row.get("broker") or "").upper().startswith(broker_prefix.upper()):
+                continue
+            if str(row.get("state") or "") != "REJECTED":
+                continue
+            reason = row.get("cancelledReason")
+            if not is_permanent(reason, markers):
+                continue
+            sym = str(row.get("symbol") or "").strip().upper()
+            if sym:
+                out.setdefault(sym.split("_")[0], str(reason))
+    except Exception as exc:  # noqa: BLE001 — fail-open
+        log.warning("universe ineligibility filter unavailable (%s) — "
+                    "universe unfiltered this run", type(exc).__name__)
+        return {}
+    return out

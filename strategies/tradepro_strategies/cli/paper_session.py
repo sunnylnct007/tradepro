@@ -269,13 +269,48 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+# Named universes that live in THIS repo rather than behind /api/universes.
+# `tradeable` is the committed 244-name list in strategies/universe/ — the one
+# swing_candidates.py screens. See _fetch_universe_symbols.
+_LOCAL_UNIVERSES = {"tradeable", "committed"}
+
+
 def _fetch_universe_symbols(name: str) -> list[str]:
-    """Load a named universe's EFFECTIVE tickers from the API (the same
-    universe the UI shows and tradepro-build-high-beta-universe pushes). The
-    daemon reads this live so the trader's dynamic high-beta sleeve drives the
-    live book instead of a hardcoded --symbols list. Fail-LOUD: a universe
-    that can't be read raises (a silent empty universe = the strategy trades
-    nothing / falls back to a stale list, which we must not do quietly)."""
+    """Load a named universe's EFFECTIVE tickers. Local names first, then API.
+
+    THE SCREEN AND THE TRADER MUST READ ONE LIST.
+
+    Owner, 2 Sep 2026, looking at the desk: *"mean_reversion_swing_ibkr sems
+    to have olded startegy symbols traded"* and, repeatedly, *"we shd have
+    unirkm list"*. Measured that day: swing_candidates.py screens
+    `universe_symbols()` = 244 names, while the paper daemon's plist carried a
+    hardcoded `--symbols` list of 21. So 223 screened names could never be
+    traded, and five of the 21 (SPY, QQQ, IWM, SOXX, VOO) are US-domiciled
+    ETFs a UK retail account is PERMANENTLY barred from buying — which is how
+    28 identical IWM orders went out in one day.
+
+    `tradeable` resolves to the same committed universe the screen reads, so
+    the two cannot drift again. Anything else goes to /api/universes/{name} as
+    before — unchanged behaviour for high_beta, sp500, and the rest.
+
+    Fail-LOUD either way: a universe that can't be read raises. A silent empty
+    universe means the strategy trades nothing, or falls back to a stale list,
+    and we must not do that quietly.
+    """
+    if name.strip().lower() in _LOCAL_UNIVERSES:
+        from ..universe import universe_symbols, universe_path
+        out = list(universe_symbols(strict=False))
+        if not out:
+            raise SystemExit(
+                f"ERROR: local universe {name!r} resolved to 0 symbols "
+                f"({universe_path()} missing or empty) — refusing to run on an "
+                f"empty universe.")
+        logging.getLogger("tradepro.cli").info(
+            "universe %r → %d symbols from the COMMITTED list (%s) — "
+            "same source the swing screen reads",
+            name, len(out), universe_path())
+        return out
+
     import requests
     from . import push_to_api
     base, token = push_to_api.load_credentials()
@@ -382,7 +417,49 @@ def _resolve_symbols(args: argparse.Namespace) -> list[str]:
                 "ERROR: at least one symbol is required. "
                 "Use --symbol AAPL or --symbols AAPL,MSFT,NVDA"
             )
-    return out
+    return _drop_permanently_blocked(out, args)
+
+
+def _drop_permanently_blocked(symbols: list[str],
+                              args: argparse.Namespace) -> list[str]:
+    """Remove names this broker has PERMANENTLY refused, at source.
+
+    The placement guard (paper/broker_ineligible.py) already refuses these, but
+    a name left in the universe still produces a ranked signal every run that
+    is then thrown away — on 2026-09-02 that was IWM, 28 times in a day. A
+    signal you can never act on is not a signal.
+
+    Says WHICH names and WHY, with the count: a filter that silently shrinks
+    the traded universe is indistinguishable from a broken universe read.
+    Fail-open — if the OMS can't be reached the universe passes through whole.
+    """
+    broker = str(getattr(args, "broker", "") or "")
+    if not broker or not symbols:
+        return symbols
+    prefix = "IBKR" if "ibkr" in broker.lower() else (
+        "T212" if "t212" in broker.lower() else "")
+    if not prefix:
+        return symbols
+    try:
+        from . import push_to_api
+        from ..paper.broker_ineligible import blocked_bare, first_line
+        base, token = push_to_api.load_credentials()
+        blocked = blocked_bare(base, token, prefix)
+    except Exception:  # noqa: BLE001 — fail-open
+        return symbols
+    if not blocked:
+        return symbols
+    kept = [s for s in symbols if s.upper() not in blocked]
+    dropped = [s for s in symbols if s.upper() in blocked]
+    if dropped:
+        lg = logging.getLogger("tradepro.cli")
+        lg.warning(
+            "DROPPED %d of %d symbol(s) — %s has permanently refused them, so "
+            "a signal on them could never be acted on: %s",
+            len(dropped), len(symbols), prefix,
+            "; ".join(f"{s} ({first_line(blocked[s.upper()])[:70]})"
+                      for s in dropped))
+    return kept
 
 
 def _fetch_t212_tradeable_symbols() -> set[str] | None:
