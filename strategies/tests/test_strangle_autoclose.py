@@ -250,5 +250,51 @@ def test_staleness_is_judged_on_todays_PLACED_rows_only():
     src = inspect.getsource(C._placed_today)
     # a decision that was never placed says nothing about what we hold
     assert 'if not d.get("placed")' in src
-    # and yesterday's placement must not make today's position look fresh
-    assert "when != today" in src
+    # And yesterday's placement must not make today's position look fresh.
+    # Asserted on the PROPERTY, not the phrasing: the guard was an early
+    # `continue` on `when != today` and is now `if when == today: add`. Pinning
+    # the exact wording made a behaviour-preserving rewrite fail.
+    assert "when == today" in src or "when != today" in src
+    assert "placed_at_utc" in src, "freshness must come from WHEN it was placed"
+
+
+# ---------------------------------------------------------------------------
+# AN EXIT BELONGS TO THE SESSION THAT OPENED THE POSITION.
+#
+# 2 Sep 2026: four legs closed successfully — "4 position(s) closed" — and not
+# one exit was recorded. Two separate key mistakes:
+#
+#   1. _record_exit stamped TODAY. A stale position closes the morning AFTER it
+#      was opened, so the write looked for a 2 Sep row that never existed.
+#   2. The execution endpoint still matched `as_of` while migration 073 had
+#      moved the decision key to `exchange_date`. Two keys for one row.
+#
+# Net: the round trip stayed unanswerable even though the close worked.
+# ---------------------------------------------------------------------------
+
+def test_the_exit_is_filed_against_the_opening_session_not_today():
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C._record_exit)
+    assert "session or _dt.date.today()" in src, \
+        "must prefer the OPENING session and fall back to today only as a last resort"
+
+
+def test_the_session_map_survives_a_position_opened_earlier():
+    # The lookback must exceed one day, or yesterday's decision is invisible
+    # to today's close and the exit can never be attached.
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C._placed_today)
+    assert '"days": 3' in src
+    assert "sessions" in src
+
+
+def test_staleness_and_session_are_computed_from_the_same_rows():
+    # One read, two answers: which contracts are FRESH (placed today) and which
+    # SESSION each belongs to. Splitting them would let the two disagree.
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C._placed_today)
+    assert "when == today" in src      # freshness
+    assert "exchange_date" in src      # session
