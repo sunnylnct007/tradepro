@@ -117,6 +117,10 @@ class Candidate:
     provenance: list[dict[str, Any]] = field(default_factory=list)
     # What was checked and what blocked, when the strategy has a gate engine.
     gates: list[dict[str, Any]] = field(default_factory=list)
+    # WHY this row cannot be acted on, when it cannot. The desk's "hide
+    # blocked" toggle reads this. Empty means "nothing is stopping it" — which
+    # must stay distinguishable from "we never checked".
+    blocks: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -149,6 +153,7 @@ class Candidate:
             "metric": self.metric, "metric_label": self.metric_label,
             "eligible": self.eligible, "why": self.why,
             "provenance": self.provenance, "gates": self.gates,
+            **({"blocks": self.blocks} if self.blocks else {}),
             **({"extra": self.extra} if self.extra else {}),
         }
 

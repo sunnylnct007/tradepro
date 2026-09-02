@@ -269,3 +269,41 @@ def blocked_bare(api_base: str, token: str | None, broker_prefix: str,
                     "universe unfiltered this run", type(exc).__name__)
         return {}
     return out
+
+
+ACCOUNT_BLOCK_KEY = "account_untradeable_symbols"
+
+
+def account_untradeable(api_base: str | None, token: str | None) -> tuple[str, ...]:
+    """Bare tickers this ACCOUNT cannot trade, from config.
+
+    Jurisdiction, not broker and not strategy: a UK retail client cannot buy a
+    US-domiciled ETF under PRIIPs. Seeded 2026-09-02 with the 39 such names in
+    the universe, after IBKR rejected IWM 22 times in one day for exactly that
+    reason and the owner chose to remove the class rather than trip over each
+    one in turn.
+
+    TRADING ONLY. Callers must keep screening and harvesting these names: SPY
+    drives the regime filter, and losing it silently vetoed every equity long
+    for nine days once already.
+
+    Config-driven (`/api/settings-kv/account_untradeable_symbols`) with NO
+    compiled fallback — an unreachable API returns () and the caller trades the
+    full universe, which is the pre-existing behaviour, not a new failure mode.
+    """
+    if not api_base:
+        return ()
+    try:
+        import requests
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        resp = requests.get(f"{api_base.rstrip('/')}/api/settings-kv/{ACCOUNT_BLOCK_KEY}",
+                            headers=headers, timeout=15)
+        if resp.status_code != 200:
+            return ()
+        return tuple(s.strip().upper()
+                     for s in (resp.json().get("value") or [])
+                     if str(s).strip())
+    except Exception as exc:  # noqa: BLE001 — fail-open
+        log.warning("could not read %s (%s) — universe unfiltered",
+                    ACCOUNT_BLOCK_KEY, type(exc).__name__)
+        return ()

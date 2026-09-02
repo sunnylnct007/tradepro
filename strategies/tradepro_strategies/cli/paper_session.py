@@ -434,6 +434,7 @@ def _drop_permanently_blocked(symbols: list[str],
     Fail-open — if the OMS can't be reached the universe passes through whole.
     """
     broker = str(getattr(args, "broker", "") or "")
+    broker_refused: set[str] = set()
     if not broker or not symbols:
         return symbols
     prefix = "IBKR" if "ibkr" in broker.lower() else (
@@ -442,9 +443,19 @@ def _drop_permanently_blocked(symbols: list[str],
         return symbols
     try:
         from . import push_to_api
-        from ..paper.broker_ineligible import blocked_bare, first_line
+        from ..paper.broker_ineligible import (
+            account_untradeable, blocked_bare, first_line)
         base, token = push_to_api.load_credentials()
         blocked = blocked_bare(base, token, prefix)
+        broker_refused = set(blocked)      # what the BROKER actually said no to
+        # Config-driven, jurisdiction-level: names this ACCOUNT cannot trade at
+        # all (US-domiciled ETFs under PRIIPs). Merged with the OMS-derived
+        # evidence so we neither wait to trip over each one nor lose the
+        # broker's own wording where we have it.
+        for sym in account_untradeable(base, token):
+            blocked.setdefault(
+                sym, "this account cannot trade it (see settings-kv "
+                     "account_untradeable_symbols)")
     except Exception:  # noqa: BLE001 — fail-open
         return symbols
     if not blocked:
@@ -452,13 +463,30 @@ def _drop_permanently_blocked(symbols: list[str],
     kept = [s for s in symbols if s.upper() not in blocked]
     dropped = [s for s in symbols if s.upper() in blocked]
     if dropped:
+        # Two DIFFERENT facts, reported separately. Saying "the broker refused
+        # SPY" when the broker was never asked is the kind of confident-wrong
+        # line that sends the next reader hunting a rejection that never
+        # happened. Count first (a warning must state the number), then a few
+        # names, never all 39 with reasons — that is a wall, not a warning.
+        refused = [s for s in dropped if s.upper() in broker_refused]
+        barred = [s for s in dropped if s.upper() not in broker_refused]
         lg = logging.getLogger("tradepro.cli")
+        parts = []
+        if refused:
+            parts.append("%d refused by %s (%s)" % (
+                len(refused), prefix,
+                "; ".join(f"{s}: {first_line(blocked[s.upper()])[:60]}"
+                          for s in refused[:3])))
+        if barred:
+            shown = ", ".join(barred[:8])
+            more = f" +{len(barred) - 8} more" if len(barred) > 8 else ""
+            parts.append(
+                "%d barred for this ACCOUNT per settings-kv/%s (%s%s)" % (
+                    len(barred), "account_untradeable_symbols", shown, more))
         lg.warning(
-            "DROPPED %d of %d symbol(s) — %s has permanently refused them, so "
-            "a signal on them could never be acted on: %s",
-            len(dropped), len(symbols), prefix,
-            "; ".join(f"{s} ({first_line(blocked[s.upper()])[:70]})"
-                      for s in dropped))
+            "DROPPED %d of %d symbol(s) from TRADING — %s. They are still "
+            "screened and their bars still harvested.",
+            len(dropped), len(symbols), "; ".join(parts))
     return kept
 
 

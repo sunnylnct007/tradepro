@@ -665,6 +665,22 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     row from a sleeve that has not been proven.
     """
     from ..candidates import Candidate, emit
+
+    # A candidate this ACCOUNT cannot buy is not a trading signal. It stays on
+    # the board (the screen is also a record of what the rule saw) but marked,
+    # so the desk's "hide blocked" toggle removes it and nobody spends a
+    # morning on a name that would be rejected on the way to the broker.
+    # 39 of the 244 are US-domiciled ETFs, barred under PRIIPs — see
+    # settings-kv/account_untradeable_symbols.
+    barred: set[str] = set()
+    try:
+        from . import push_to_api
+        from ..paper.broker_ineligible import account_untradeable
+        _base, _tok = push_to_api.load_credentials()
+        barred = set(account_untradeable(_base, _tok))
+    except Exception:  # noqa: BLE001 — fail-open; an unmarked board beats none
+        pass
+
     out = []
     for c in cands:
         try:
@@ -674,7 +690,13 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
                 entry=(c.get("calcs") or {}).get("entry", {}).get("value") or c.get("close"),
                 level=c.get("stop"), level_label="stop",
                 metric=c.get("sigma_from_mean"), metric_label="σ",
-                eligible=True, why="σ-band entry, trend filter passed",
+                eligible=(c.get("symbol", "").upper() not in barred),
+                why=("σ-band entry, trend filter passed"
+                     if c.get("symbol", "").upper() not in barred
+                     else "σ-band entry, but THIS ACCOUNT CANNOT TRADE IT"),
+                blocks=(["this account cannot trade it — US-domiciled ETF, "
+                         "barred under PRIIPs (no KID)"]
+                        if c.get("symbol", "").upper() in barred else []),
             ))
         except Exception:  # noqa: BLE001 — one bad row must not lose the screen
             pass
