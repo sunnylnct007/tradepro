@@ -189,6 +189,9 @@ def main() -> int:
         print(f"  [{h['market']}] {h['message']}")
 
     if args.email:
+        # Sentinels for the outcome record below — set before the attempt so a
+        # failure path cannot leave them undefined.
+        _mail_status, _mail_detail = "ok", None
         try:
             from types import SimpleNamespace
             from .email_digest import send_email
@@ -212,8 +215,22 @@ def main() -> int:
                                        html_body=html, pdf_bytes=None), _email_cfg())
             print(f"  email sent: {subj}")
         except Exception as exc:  # noqa: BLE001 — a send failure must not re-fire tomorrow
+            _mail_status = "fail"
+            _mail_detail = f"{type(exc).__name__}: {str(exc)[:180]}"
             log.warning("alert email failed (non-fatal): %s", exc)
             print(f"  email FAILED (non-fatal): {str(exc)[:120]}")
+        # RECORD THE OUTCOME (2 Sep 2026). Fail-soft is correct — a send problem
+        # must not re-fire the threshold tomorrow. Fail-SILENT is not: the run
+        # log said `ok` whether or not the mail went, so "no email for nifty"
+        # could only be answered from CloudWatch, which is unreachable the
+        # moment an SSO token expires.
+        try:
+            from ..run_log import log_run
+            log_run("index-strangle-alert", "email", _mail_status,
+                    error=_mail_detail,
+                    summary=f"{len(hits)} threshold(s) crossed")
+        except Exception:  # noqa: BLE001 — logging must never fail the job
+            pass
 
     if not args.dry_run:
         _mark_fired({h["key"] for h in hits})

@@ -1677,16 +1677,37 @@ def main() -> int:
     if args.email:
         # Fail-soft: an email problem must never lose the decision, which is
         # already recorded and printed by this point.
+        # RECORD THE OUTCOME (2 Sep 2026). Fail-soft is right — a mail problem
+        # must not lose a decision that is already recorded. Fail-SILENT is not:
+        # this returned 0 either way, so the run log said `ok` whether or not
+        # the mail went, and the owner asking "no email for nifty" could not be
+        # answered without CloudWatch. On a Lambda that is unreachable the
+        # moment an SSO token expires.
+        #
+        # NIFTY was a CANDIDATE today (^INDIAVIX 11.49 vs a 12.5 threshold) and
+        # the job reported ok — so "did the mail send?" was the one question the
+        # log could not answer, about the one thing the job exists to do.
+        _mail_status, _mail_detail, _subj = "ok", None, ""
         try:
             from types import SimpleNamespace
             from .email_digest import send_email
-            subj, (text, html) = _email_body(rows)
-            send_email(SimpleNamespace(subject=subj, text_body=text,
+            _subj, (text, html) = _email_body(rows)
+            send_email(SimpleNamespace(subject=_subj, text_body=text,
                                        html_body=html, pdf_bytes=None), _email_cfg())
-            print(f"  email sent: {subj}")
+            print(f"  email sent: {_subj}")
         except Exception as exc:  # noqa: BLE001
+            _mail_status, _mail_detail = "fail", f"{type(exc).__name__}: {str(exc)[:180]}"
             log.warning("email failed (non-fatal): %s", exc)
             print(f"  email FAILED (non-fatal): {str(exc)[:120]}")
+        try:
+            from ..run_log import log_run
+            _n_cand = sum(1 for r in rows if str(r.get("decision", "")).upper() == "CANDIDATE")
+            log_run("index-strangle-paper", "email", _mail_status,
+                    error=_mail_detail,
+                    summary=(f"{_n_cand} candidate(s) of {len(rows)}"
+                             + (f" — {_subj}" if _subj else "")))
+        except Exception:  # noqa: BLE001 — logging must never fail the job
+            pass
 
     print("  Premiums are NOT shown: India has no free NSE chain and US chains are")
     print("  captured end-of-day. The record stores the STRIKES; the credit is filled")
