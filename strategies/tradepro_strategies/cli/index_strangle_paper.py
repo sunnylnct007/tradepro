@@ -223,7 +223,23 @@ MARKETS = {
              "broker_symbol": "NDX", "broker_sec_type": "IND",
              # NDXP is the PM-settled variant IBKR named in its rejection.
              "broker_roots": ("NDX", "NDXP"),
-             "paper_trade": True,  # IND underlying — see broker_sec_type
+             # NOT paper-tradeable: TOO BIG FOR THE ACCOUNT, not a mapping gap.
+             # One contract is ~28,500 x 100 = ~$2.85M of collateral against a
+             # paper NLV of ~$151k — nineteen times the account. IBKR rejected
+             # it on 1 and 2 Sep 2026 with the order echoed back:
+             #   put=REJECTED/"SELL 1 NDX (NDXP) SEP 18 '26 28500 Put"
+             # It RESOLVES fine; it simply cannot be funded, so attempting it
+             # daily is noise that trains the reader to ignore failures.
+             #
+             # Nasdaq exposure is NOT lost: QQQ gates on the same VXN, is
+             # placeable, and has the BEST measured edge of the set
+             # (+1.16%/yr excess vs NDX's +0.94%). NDX would add size, not a
+             # new signal. Owner, 2 Sep 2026: "drop NDX fro paper tarde".
+             #
+             # It stays fully EVALUATED — email, decision log, gate — because
+             # the stand-aside rows are what make the threshold testable, and
+             # that costs nothing.
+             "paper_trade": False,
              "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
                     "(p5 -0.183 vs -0.101) — the same rule, more risk per unit"},
     "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
