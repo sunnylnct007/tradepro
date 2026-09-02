@@ -136,7 +136,12 @@ public static class StrangleDecisionLogEndpoints
                     closed_at_utc    = COALESCE(@ClosedAtUtc, closed_at_utc),
                     realised_pnl     = COALESCE(@RealisedPnl, realised_pnl)
                 WHERE market = @Market
-                  AND as_of  = @AsOf
+                  -- SAME KEY AS THE DECISION UPSERT. Migration 073 moved that to
+                  -- the TRADED session (exchange_date); this still matched as_of,
+                  -- so on 2 Sep 2026 four legs closed successfully and not one
+                  -- exit was recorded — the write found no row and 404'd, and
+                  -- the round trip stayed unanswerable. Two keys for one row.
+                  AND COALESCE(exchange_date, as_of) = @AsOf
                   AND COALESCE(expiry_kind, '') = COALESCE(@ExpiryKind, '');", row);
 
             if (n == 0)

@@ -1069,8 +1069,38 @@ public sealed class IBKRClient
         // IBKR months are e.g. OCT26.
         var month = exp.ToString("MMM", System.Globalization.CultureInfo.InvariantCulture)
                         .ToUpperInvariant() + exp.ToString("yy");
-        var res = await GetOptionContractsAsync(underlying.Value, month, strike,
-                                                right.Trim().ToUpperInvariant(), ct);
+        var r = right.Trim().ToUpperInvariant();
+        var res = await GetOptionContractsAsync(underlying.Value, month, strike, r, ct);
+
+        if (res.Contracts.Count == 0)
+        {
+            // PRIME THE CHAIN, THEN ASK AGAIN.
+            //
+            // secdef/info answers "no contracts" for a strike that plainly
+            // exists unless IBKR has been asked for that (conid, month) via
+            // secdef/strikes first — it populates a server-side chain the info
+            // call then reads. The documented order is search -> strikes ->
+            // info, and this resolver skipped the middle step.
+            //
+            // That is the whole of the intermittency: it worked whenever some
+            // OTHER caller (the wheel screen) had recently primed the same
+            // month, and failed otherwise. On 2 Sep 2026 SPY, QQQ and GOLD all
+            // failed to place while SPX and XSP succeeded — and SPY 758P, a
+            // contract we had held until that morning, could not be resolved.
+            //
+            // Not a retry. The first call asked a question IBKR was not yet
+            // ready to answer; this asks the prerequisite and then re-asks.
+            var strikes = await GetOptionStrikesAsync(underlying.Value, month, ct);
+            if (strikes.Error is not null)
+                _log.LogWarning("chain prime failed for {Sym} {Month}: {Err}",
+                    symbol, month, strikes.Error);
+            res = await GetOptionContractsAsync(underlying.Value, month, strike, r, ct);
+            if (res.Contracts.Count > 0)
+                _log.LogInformation(
+                    "{Sym} {Month} {Strike}{Right} resolved only AFTER priming the chain",
+                    symbol, month, strike, r);
+        }
+
         if (res.Contracts.Count == 0) return null;
         // Match the EXACT expiry when the contract carries one — a month can
         // hold several expiries (weeklies), and placing the wrong one is a

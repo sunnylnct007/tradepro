@@ -153,7 +153,7 @@ def _market_for(symbol: str, markets: dict) -> tuple[str, dict] | None:
 
 def _record_exit(base, tok, market: str, expiry: str,
                  credit: float, cost: float, trigger: str | None,
-                 unmarkable: bool) -> None:
+                 unmarkable: bool, session: str | None = None) -> None:
     """Attach the exit to the decision that opened the position.
 
     Owner, 31 Aug 2026: "f the strangell worked or not". Closing a position and
@@ -172,7 +172,10 @@ def _record_exit(base, tok, market: str, expiry: str,
     else:
         cost_out = round(cost, 2)
         realised = round(credit - cost, 2)
-    body = {"market": market, "asOf": _dt.date.today().isoformat(),
+    # The session that OPENED the position, falling back to today only when it
+    # cannot be determined. A stale position closes the morning AFTER it was
+    # opened; filing its exit under the closing date misses the decision row.
+    body = {"market": market, "asOf": session or _dt.date.today().isoformat(),
             "expiryKind": "monthly" if expiry else None,
             "exitCostActual": cost_out,
             "realisedPnl": realised,
@@ -206,7 +209,7 @@ def _placed_today(base, tok) -> set | None:
         import requests
         H = {"Authorization": f"Bearer {tok}"} if tok else {}
         r = requests.get(f"{base.rstrip('/')}/api/strangle-decisions",
-                         params={"days": 1}, timeout=30, headers=H)
+                         params={"days": 3}, timeout=30, headers=H)
         rows = (r.json() or {}).get("rows") or []
     except Exception as exc:  # noqa: BLE001
         print(f"  (could not read today's decisions: {str(exc)[:90]} — "
@@ -214,17 +217,26 @@ def _placed_today(base, tok) -> set | None:
         return None
     today = _dt.date.today().isoformat()
     out = set()
+    # (market, right, strike) -> the TRADED session the decision belongs to.
+    # An exit must be filed against the session that OPENED the position, not
+    # the day it happened to close. A stale position closes the NEXT morning,
+    # and stamping today's date made the write miss the row entirely.
+    sessions: dict = {}
     for d in rows:
         if not d.get("placed"):
             continue
-        when = str(d.get("placed_at_utc") or "")[:10]
-        if when != today:
-            continue
         m = d.get("market")
+        sess = str(d.get("exchange_date") or d.get("as_of") or "")[:10]
+        when = str(d.get("placed_at_utc") or "")[:10]
         for right, key in (("P", "put_strike"), ("C", "call_strike")):
             k = d.get(key)
-            if k is not None:
-                out.add((m, right, round(float(k), 2)))
+            if k is None:
+                continue
+            ident = (m, right, round(float(k), 2))
+            sessions.setdefault(ident, sess)
+            if when == today:
+                out.add(ident)
+    _placed_today.sessions = sessions  # type: ignore[attr-defined]
     return out
 
 
@@ -421,8 +433,14 @@ def main() -> int:
         # half-closed position has no exit price, and writing one would be a
         # fiction. Non-fatal — a missing link must never abort the sweep.
         if not group_failed:
+            sess = None
+            for _p, o, _c in legs:
+                sess = (getattr(_placed_today, "sessions", {}) or {}).get(
+                    (market, o["right"], round(float(o["strike"]), 2)))
+                if sess:
+                    break
             _record_exit(base, tok, market, expiry, credit, cost,
-                         verdict.get("trigger"), unmarkable)
+                         verdict.get("trigger"), unmarkable, sess)
 
     if failed:
         print(f"\n  !! {failed} position(s) COULD NOT BE CLOSED and remain short.")

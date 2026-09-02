@@ -46,11 +46,22 @@ public class StrangleExecutionLinkTest
     [Fact]
     public void ExecutionIsKeyedOnTheSameTripleAsTheDecision()
     {
-        // Any other key would let an execution attach to the wrong decision.
+        // Any other key would let an execution attach to the wrong decision —
+        // or, as on 2 Sep 2026, to NO decision at all.
+        //
+        // This originally pinned `as_of`. Migration 073 then moved the decision
+        // key to the TRADED session (exchange_date) and this endpoint was left
+        // behind, so four legs closed and not one exit was recorded: the write
+        // found no row and 404'd. The two keys MUST be the same expression.
         var s = Src(Endpoint);
         Assert.Contains("WHERE market = @Market", s);
-        Assert.Contains("AND as_of  = @AsOf", s);
+        Assert.Contains("AND COALESCE(exchange_date, as_of) = @AsOf", s);
+        Assert.DoesNotContain("AND as_of  = @AsOf", s);
         Assert.Contains("COALESCE(expiry_kind, '') = COALESCE(@ExpiryKind, '')", s);
+
+        // The decision upsert must key the same way, or they drift again.
+        Assert.Contains(
+            "ON CONFLICT (market, COALESCE(exchange_date, as_of), COALESCE(expiry_kind, ''))", s);
     }
 
     [Fact]
