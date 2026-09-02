@@ -2119,9 +2119,14 @@ def _derived_greeks(pricer, spot, strike, dte, iv) -> dict:
 def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
     """Wheel rows in the common shape.
 
-    UNPROVEN on purpose. The v3 backtest verdict is DO NOT FUND — fixing this
-    screen's INPUTS (open interest, greeks, expiry) did not change its
-    STRATEGY result, and a row that reads "gated" would say otherwise.
+    TIER "failed", not "unproven" (2 Sep 2026). The v3 backtest verdict is DO
+    NOT FUND: the 200-SMA trend floor failed and META drew down -71.4%. Fixing
+    this screen's INPUTS (open interest, greeks, expiry) made its DATA correct
+    and left its STRATEGY result untouched.
+
+    "Unproven" UNDERSTATED that. "Not yet shown to work" and "shown not to work"
+    are opposite claims, and a reader deciding what to size needs the second
+    one said out loud.
 
     Blocked rows travel too. A combined screen that shows only winners cannot
     answer "why is nothing eligible today", which is the question a quiet board
@@ -2132,7 +2137,7 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
     for c in rows:
         try:
             out.append(Candidate(
-                symbol=c.get("symbol", ""), strategy="Wheel", tier="unproven",
+                symbol=c.get("symbol", ""), strategy="Wheel", tier="failed",
                 action="sell put", as_of=as_of or "",
                 entry=c.get("ref_close"),
                 level=c.get("suggested_strike"), level_label="strike",

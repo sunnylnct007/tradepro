@@ -521,17 +521,21 @@ def build_artifact(base: str | None = None, token: str | None = None) -> tuple[d
 def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     """Our rows in the shape every strategy emits.
 
-    UNPROVEN, and it says so: 229 trades but from ~Oct 2020, one market regime,
-    and the "2022 was not a losing year" check passed on NINE events. The tier
-    is not decoration — it is what stops a row from this screen reading like a
-    row from a gated one.
+    TIER "thin", not "unproven" (2 Sep 2026). This screen PASSED its eight
+    pre-registered gates — 229 trades, 89.5% win, +1.29% mean. What is weak is
+    the EVIDENCE BASE: all of it from ~Oct 2020, one market regime, with the
+    "2022 was not a losing year" check resting on NINE events.
+
+    "Not proven" and "proven on thin data" are different claims, and the owner
+    reading a wall of one word ("unproven gves me low confidence") was the
+    signal that collapsing them cost information rather than saving it.
     """
     from ..candidates import Candidate, emit
     out = []
     for c in cands:
         try:
             out.append(Candidate(
-                symbol=c.get("symbol", ""), strategy="Puts", tier="unproven",
+                symbol=c.get("symbol", ""), strategy="Puts", tier="thin",
                 action="sell put", as_of=as_of,
                 entry=c.get("spot"),
                 level=c.get("listed_strike") or c.get("strike_indicative") or c.get("strike"),

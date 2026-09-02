@@ -56,9 +56,40 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-# A strategy is "gated" only when it has passed its own pre-registered gates.
-# Anything else is "unproven" and its candidates are for judgement, not size.
-TIERS = ("gated", "unproven")
+# THREE STATES, NOT TWO (2 Sep 2026).
+#
+# Owner: "unproven gves me low confidence" — looking at a board where 22 of 34
+# rows carried that one word. They were right, and the label was doing too much
+# work: it covered two situations that are not remotely the same.
+#
+#   gated   passed its own pre-registered gates. Swing, Momentum.
+#
+#   thin    PASSED its gates, but on evidence too narrow to lean on. The puts
+#           screen: 229 trades, 89.5% win — and all of it from ~Oct 2020, one
+#           market regime, with the "2022 was not a losing year" check resting
+#           on NINE events. Calling that "unproven" OVERSTATES the problem.
+#
+#   failed  its backtest verdict was NEGATIVE. The wheel: v3 said DO NOT FUND,
+#           the 200-SMA trend floor failed and META drew down -71.4%. Calling
+#           THAT "unproven" UNDERSTATES it — "not yet shown to work" and "shown
+#           not to work" are opposite claims.
+#
+# Collapsing them made a wall of one word, which is why it read as noise rather
+# than as a signal. A reader cannot act on "unproven" x22; they can act on
+# "this one failed its backtest" and "this one passed on thin evidence".
+#
+# `unproven` is still ACCEPTED so nothing breaks mid-migration, and maps to the
+# most cautious reading.
+TIERS = ("gated", "thin", "failed", "unproven")
+
+# What each tier means on a row, in the reader's terms. The UI and the email
+# both render from here so they cannot drift into different wordings.
+TIER_NOTE = {
+    "gated": "passed its pre-registered gates",
+    "thin": "passed its gates, but on thin evidence — size accordingly",
+    "failed": "its BACKTEST FAILED — for study, not for size",
+    "unproven": "not proven — for your judgement, not for size",
+}
 
 
 class CandidateError(ValueError):

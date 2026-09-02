@@ -110,7 +110,11 @@ def test_every_producer_emits_the_same_shape():
     assert {r["strategy"] for r in rows} == {"Puts", "Swing", "Momentum", "Wheel"}
     tiers = {r["strategy"]: r["tier"] for r in rows}
     assert tiers["Swing"] == "gated" and tiers["Momentum"] == "gated"
-    assert tiers["Wheel"] == "unproven" and tiers["Puts"] == "unproven"
+    # PRECISE, not collapsed. The wheel's backtest FAILED (v3: DO NOT FUND);
+    # the puts screen PASSED its gates on thin evidence. Same badge for both
+    # understated one and overstated the other.
+    assert tiers["Wheel"] == "failed", "a failed backtest may not read as merely unproven"
+    assert tiers["Puts"] == "thin", "a screen that passed its gates is not unproven"
 
 
 def test_the_wheel_record_carries_its_gate_trace_and_provenance():

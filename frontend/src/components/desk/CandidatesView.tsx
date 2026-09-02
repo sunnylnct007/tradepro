@@ -40,11 +40,37 @@ const BAD = "#ec835a";
 const MUTED = "var(--text-muted)";
 
 type Tier = "trusted" | "unproven";
+type TierRaw = "gated" | "thin" | "failed" | "unproven";
+
+/**
+ * THREE STATES, NOT TWO (2 Sep 2026). Owner: "unproven gves me low confidence",
+ * on a board where 22 of 34 rows carried that one word.
+ *
+ * It was doing too much work. "Not yet shown to work" (thin evidence) and
+ * "shown not to work" (a failed backtest) are OPPOSITE claims, and collapsing
+ * them produced a wall of one word that reads as noise instead of signal. A
+ * reader cannot act on "unproven" x22; they can act on "this one failed its
+ * backtest" and "this one passed on thin evidence".
+ *
+ * Wording lives in ONE place — mirrored from candidates.py TIER_NOTE — so the
+ * screen and the email cannot drift into different vocabularies.
+ */
+const TIER_NOTE: Record<string, string> = {
+  gated: "passed its pre-registered gates",
+  thin: "passed its gates, but on thin evidence — size accordingly",
+  failed: "its BACKTEST FAILED — for study, not for size",
+  unproven: "not proven — for your judgement, not for size",
+};
+const TIER_COLOR: Record<string, string> = {
+  gated: OK, thin: WARN, failed: BAD, unproven: WARN,
+};
 
 interface Row {
   symbol: string;
   strategy: string;
   tier: Tier;
+  /** gated | thin | failed — the precise state, not the two-way collapse. */
+  tierRaw?: TierRaw;
   /** What the strategy says to do — kept as the strategy's own words. */
   action: string;
   entry: number | null;
@@ -62,6 +88,10 @@ interface Row {
   /** What was checked and what it measured. The answer to "why is this a
    *  candidate", in the engine's own numbers rather than a sentence. */
   gates?: any[];
+  /** You already own this. Set from the live book, not from the strategy —
+   *  selling a put on a name you hold, or buying more of one, is a DIFFERENT
+   *  trade from opening fresh, and the screen was silent about it. */
+  heldQty?: number | null;
 }
 
 const num = (v: number | null | undefined, d = 2, suf = "") =>
@@ -103,6 +133,7 @@ export function CandidatesView() {
       (rows ?? []).map((c) => ({
         symbol: c.symbol, strategy: c.strategy,
         tier: c.tier === "gated" ? "trusted" : "unproven",
+        tierRaw: (c.tier ?? "unproven") as TierRaw,
         action: c.action, entry: c.entry ?? null,
         level: c.level ?? null, levelLabel: c.level_label ?? "",
         metric: c.metric ?? null, metricLabel: c.metric_label ?? "",
@@ -118,7 +149,7 @@ export function CandidatesView() {
       } else
       for (const c of (a.candidates ?? [])) {
         out.push({
-          symbol: c.symbol, strategy: "Puts", tier: "unproven",
+          symbol: c.symbol, strategy: "Puts", tierRaw: "thin", tier: "unproven",
           action: "sell put", entry: c.spot ?? null,
           level: c.listed_strike ?? c.strike_indicative ?? c.strike ?? null,
           levelLabel: "strike",
@@ -138,7 +169,7 @@ export function CandidatesView() {
       } else
       for (const c of (a.candidates ?? [])) {
         out.push({
-          symbol: c.symbol, strategy: "Swing", tier: "trusted",
+          symbol: c.symbol, strategy: "Swing", tierRaw: "gated", tier: "trusted",
           action: "buy", entry: c.close ?? null,
           level: c.stop ?? null, levelLabel: "stop",
           metric: c.sigma_from_mean ?? null, metricLabel: "σ",
@@ -156,7 +187,7 @@ export function CandidatesView() {
       } else
       for (const c of (a.candidates ?? [])) {
         out.push({
-          symbol: c.symbol, strategy: "Momentum", tier: "trusted",
+          symbol: c.symbol, strategy: "Momentum", tierRaw: "gated", tier: "trusted",
           action: "buy", entry: c.calcs?.entry?.value ?? c.close ?? null,
           level: c.stop ?? null, levelLabel: "stop",
           metric: c.calcs?.atr_pct?.value ?? null, metricLabel: "ATR%",
@@ -173,7 +204,7 @@ export function CandidatesView() {
       } else
       for (const c of (r?.candidates ?? [])) {
         out.push({
-          symbol: c.symbol, strategy: "Wheel", tier: "unproven",
+          symbol: c.symbol, strategy: "Wheel", tierRaw: "failed", tier: "unproven",
           action: "sell put", entry: c.ref_close ?? null,
           level: c.suggested_strike ?? null, levelLabel: "strike",
           metric: c.annualized_yield_pct ?? null, metricLabel: "%/yr",
@@ -184,6 +215,26 @@ export function CandidatesView() {
         });
       }
     } catch (e) { problems.push(`Wheel: ${String((e as Error)?.message || e)}`); }
+
+    // YOUR BOOK, matched onto the candidates. Owner, 2 Sep 2026: "and i have
+    // some symbols on" — FCX was a Wheel candidate while 10 shares of FCX sat
+    // in the portfolio, and nothing on the screen said so. Concentration is a
+    // decision the reader can only make if the screen tells them.
+    try {
+      const pos: any = await api.t212Positions();
+      const held = new Map<string, number>();
+      for (const p of (pos?.positions ?? [])) {
+        const sym = String(p.ticker ?? "").split("_")[0].toUpperCase();
+        const q = Number(p.quantity ?? p.qty ?? 0);
+        if (sym && q) held.set(sym, (held.get(sym) ?? 0) + q);
+      }
+      for (const r of out) {
+        const q = held.get(r.symbol.toUpperCase());
+        if (q) r.heldQty = q;
+      }
+    } catch (e) {
+      problems.push(`Holdings: ${String((e as Error)?.message || e)}`);
+    }
 
     setRows(out);
     setErrs(problems);
@@ -309,15 +360,21 @@ export function CandidatesView() {
                     <td style={{ padding: "7px 8px" }}>
                       {r.strategy}
                       {/* Tier beside the name, always — never colour alone. */}
-                      <span title={r.tier === "trusted"
-                                    ? "passed its pre-registered gates"
-                                    : "has NOT passed its gates — candidates are for review, not size"}
+                      <span title={TIER_NOTE[r.tierRaw ?? "unproven"] ?? ""}
                             style={{ fontSize: 9, marginLeft: 5, padding: "1px 4px",
                                      borderRadius: 3, whiteSpace: "nowrap",
-                                     color: r.tier === "trusted" ? OK : WARN,
-                                     border: `1px solid ${r.tier === "trusted" ? OK : WARN}55` }}>
-                        {r.tier === "trusted" ? "gated" : "unproven"}
+                                     color: TIER_COLOR[r.tierRaw ?? "unproven"],
+                                     border: `1px solid ${TIER_COLOR[r.tierRaw ?? "unproven"]}55` }}>
+                        {r.tierRaw ?? "unproven"}
                       </span>
+                      {r.heldQty ? (
+                        <span title={`You already hold ${r.heldQty}. Adding here concentrates the same name — selling a put on stock you own, or buying more of it, is a different trade from opening fresh.`}
+                              style={{ fontSize: 9, marginLeft: 4, padding: "1px 4px",
+                                       borderRadius: 3, whiteSpace: "nowrap", color: OK,
+                                       border: `1px solid ${OK}55` }}>
+                          held {r.heldQty}
+                        </span>
+                      ) : null}
                     </td>
                     <td style={{ padding: "7px 8px", color: MUTED }}>{r.action}</td>
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.entry)}</td>

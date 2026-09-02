@@ -155,7 +155,7 @@ def _card(c: dict, stale_hours: float, with_charts: bool) -> str:
     age = c.get("_age_h")
     stale = age is not None and age > stale_hours
     tier = c.get("tier") or "?"
-    tier_col = _OK if tier == "gated" else _WARN
+    tier_col = {"gated": _OK, "thin": _WARN, "failed": _BAD}.get(tier, _WARN)
 
     chart = _chart_b64(c.get("symbol", "")) if with_charts else ""
     chart_html = (
@@ -231,8 +231,8 @@ def build_html(rows: list[dict], problems: list[str], now: _dt.datetime,
             if c.get("strategy") != cur:
                 cur = c.get("strategy")
                 tier = c.get("tier") or "?"
-                note = ("passed its pre-registered gates" if tier == "gated"
-                        else "NOT proven — for your judgement, not for size")
+                from ..candidates import TIER_NOTE
+                note = TIER_NOTE.get(tier, "tier unknown")
                 parts.append(
                     f"<div style='margin:18px 0 8px;font-size:13px;font-weight:600'>"
                     f"{_esc(cur)} <span style='font-weight:400;color:{_MUTED};"

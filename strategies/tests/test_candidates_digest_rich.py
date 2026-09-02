@@ -44,13 +44,12 @@ def _row(**kw):
 
 
 def test_tier_appears_on_the_card_not_only_the_header():
-    h = build_html([_row()], [], NOW, 20.0, with_charts=False)
-    # The group header explains the tier in words ("NOT proven"); the CARD
-    # carries the badge itself, so the tier survives when a reader scrolls past
-    # the header — which is the whole point of putting it on the card.
-    assert "NOT proven" in h, "the group header must explain the tier"
-    card = h.split("NOT proven", 1)[1]
-    assert "unproven" in card, "the tier badge must ride on the card too"
+    h = build_html([_row(tier="failed")], [], NOW, 20.0, with_charts=False)
+    # The group header explains the tier in words; the CARD carries the badge
+    # itself, so the tier survives when a reader scrolls past the header.
+    assert "BACKTEST FAILED" in h, "the group header must explain the tier"
+    card = h.split("BACKTEST FAILED", 1)[1]
+    assert "failed" in card, "the tier badge must ride on the card too"
 
 
 def test_a_stale_row_is_marked_on_its_card():

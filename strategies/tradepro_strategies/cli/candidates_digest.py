@@ -156,8 +156,10 @@ def render(rows: list[dict], problems: list[str], now: _dt.datetime) -> tuple[st
             if c.get("strategy") != cur:
                 cur = c.get("strategy")
                 tier = c.get("tier") or "?"
-                note = ("passed its pre-registered gates" if tier == "gated"
-                        else "NOT proven — for your judgement, not for size")
+                # ONE vocabulary. The screen and the email read the same map, so
+                # they cannot drift into different words for the same state.
+                from ..candidates import TIER_NOTE
+                note = TIER_NOTE.get(tier, "tier unknown")
                 out += ["", f"── {cur}  [{tier}] — {note}", ""]
             age = c.get("_age_h")
             stale = ("  ** STALE %.0fh **" % age) if (age is not None and age > STALE_HOURS) else ""

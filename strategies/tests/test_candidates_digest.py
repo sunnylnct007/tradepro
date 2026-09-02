@@ -43,10 +43,15 @@ def _row(**kw):
 
 
 def test_tier_is_stated_for_every_strategy_group():
-    _, text = render([_row(), _row(symbol="CRL", strategy="Momentum", tier="gated")],
-                     [], NOW)
-    assert "[unproven]" in text and "[gated]" in text
-    assert "NOT proven" in text
+    """THREE states now, not two (2 Sep 2026). "Not yet shown to work" and
+    "shown not to work" are opposite claims; the owner reading a wall of one
+    word said it gave them low confidence, and they were right."""
+    _, text = render([_row(tier="failed"),
+                      _row(symbol="MRVL", strategy="Puts", tier="thin"),
+                      _row(symbol="CRL", strategy="Momentum", tier="gated")], [], NOW)
+    assert "[failed]" in text and "[thin]" in text and "[gated]" in text
+    assert "BACKTEST FAILED" in text
+    assert "thin evidence" in text
     assert "passed its pre-registered gates" in text
 
 
