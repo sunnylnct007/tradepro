@@ -18,19 +18,30 @@ know until someone happened to open a tab.
 
 ## What it alerts on
 
-    STOP BREACHED    price is at or below the signal's stop. The trade the
-                     signal described is over; this is the exit it promised.
-    TARGET REACHED   where the strategy published one.
-    HELD TOO LONG    past max_hold_sessions — the edge these strategies measured
-                     is a HOLDING-PERIOD edge, and a position kept beyond it is
-                     no longer the trade that was tested.
-    NEW SIGNAL       a candidate that was not there on the last check.
+    STOP BREACHED    at or below the signal's own stop. CLOSES on paper.
+    TARGET REACHED   at or above the target the strategy named. CLOSES on paper.
+    HELD TOO LONG    past the strategy's own max_hold_sessions. CLOSES on paper.
+                     The edge is a HOLDING-PERIOD edge; a position kept beyond
+                     it is no longer the trade that was tested.
+    AWAITING APPROVAL  queued and never approved — it is not a trade.
 
-## What it will not do
+## It CLOSES paper positions (2 Sep 2026)
 
-**It does not place or close anything.** It says what happened; the owner acts.
-Automating the exit is a separate decision and a much larger one — a wrong
-automated exit is worse than a late manual one.
+Owner: *"and will the sugnals close by them seleves after profit booking"*.
+
+They did not, and that was worse than it sounds. Both strategies DEFINE their
+exits — Swing targets +3.1% with a 20-session cap, Momentum trails 8% with a
+60-session cap — and nothing executed them. Positions would have sat open
+indefinitely, so `tradepro-trade-eval` would have been scoring BUY-AND-HOLD
+rather than the strategy. The scorecard would have been worthless, and worse,
+confidently so.
+
+An edge measured over a holding period is not the same trade when held longer.
+So a paper test without exits does not test the strategy at all.
+
+**PAPER ONLY.** A live position is never closed by this. The exit rules come
+from the strategy's own published numbers — the stop recorded on the order, the
+target it named, its own max-hold — never invented here.
 
 **Each event fires ONCE per position per day.** A watcher that re-sends every
 fifteen minutes trains you to filter it out, which is how the desk lost four
@@ -61,6 +72,11 @@ FIRED = Path.home() / ".tradepro" / "signal_watch_fired.json"
 
 # Only strategies whose candidates carry a stop we can check.
 WATCHED_PREFIX = "candidates_"
+
+# The strategies' OWN max-hold, from their published artifacts. Not a number
+# invented here: holding past it makes the position a different trade from the
+# one that was measured.
+MAX_HOLD_SESSIONS = {"candidates_swing": 20, "candidates_momentum": 60}
 
 
 def _fired_today() -> set[str]:
@@ -108,6 +124,8 @@ def check(base: str, token: str | None) -> list[dict]:
     import requests
 
     headers = {"Authorization": f"Bearer {token}"} if token else {}
+    if token:
+        headers["Content-Type"] = "application/json"
     already = _fired_today()
     events: list[dict] = []
 
@@ -148,18 +166,93 @@ def check(base: str, token: str | None) -> list[dict]:
         if close is None:
             continue
 
+        target = o.get("signalTargetPrice") or o.get("signal_target_price")
+        pnl = (f" (entry {float(ref):.2f}, {100 * (close / float(ref) - 1):+.1f}%)"
+               if ref else "")
+        hit = None
+
         if close <= float(stop):
-            key = f"{sym}:stop"
-            if key not in already:
-                events.append({
-                    "key": key, "kind": "STOP BREACHED", "symbol": sym,
-                    "text": (f"{sym} closed {close:.2f} on {bar}, at or below its stop "
-                             f"{float(stop):.2f}"
-                             + (f" (entry {float(ref):.2f}, "
-                                f"{100 * (close / float(ref) - 1):+.1f}%)" if ref else "")
-                             + ". The trade the signal described is over — this is the "
-                               "exit it promised.")})
+            hit = ("STOP BREACHED", "stop",
+                   f"{sym} closed {close:.2f} on {bar}, at or below its stop "
+                   f"{float(stop):.2f}{pnl}. The trade the signal described is over "
+                   f"— this is the exit it promised.")
+        elif target and close >= float(target):
+            hit = ("TARGET REACHED", "target",
+                   f"{sym} closed {close:.2f} on {bar}, at or above its target "
+                   f"{float(target):.2f}{pnl}. Book it — this is the profit the "
+                   f"signal was sized for.")
+        else:
+            # HELD TOO LONG. The edge is a holding-period edge: a position kept
+            # past the window it was measured over is no longer that trade.
+            held = _sessions_held(o.get("signalBar") or o.get("signal_bar"))
+            cap = MAX_HOLD_SESSIONS.get(strat)
+            if held is not None and cap and held >= cap:
+                hit = ("HELD TOO LONG", "maxhold",
+                       f"{sym} has been held {held} sessions against this "
+                       f"strategy's own {cap}-session cap{pnl}. Past its window "
+                       f"the edge was never measured.")
+
+        if hit:
+            kind, tag, text = hit
+            key = f"{sym}:{tag}"
+            if key in already:
+                continue
+            closed = _close_paper(base, headers, o, close)
+            events.append({"key": key, "kind": kind, "symbol": sym,
+                           "text": text + ("  [paper position CLOSED]" if closed
+                                           else "  [close FAILED — do it by hand]")})
     return events
+
+
+def _sessions_held(signal_bar) -> int | None:
+    """Trading sessions since the signal fired. Weekday count — good enough for
+    a hold cap, and it never OVERstates the hold, so it cannot close early."""
+    if not signal_bar:
+        return None
+    try:
+        d0 = _dt.date.fromisoformat(str(signal_bar)[:10])
+    except (ValueError, TypeError):
+        return None
+    n, cur = 0, d0
+    today = _dt.date.today()
+    while cur < today:
+        cur += _dt.timedelta(days=1)
+        if cur.weekday() < 5:
+            n += 1
+    return n
+
+
+def _close_paper(base: str, headers: dict, order: dict, price: float) -> bool:
+    """Close a PAPER position by enqueueing the opposite side.
+
+    PAPER ONLY, checked here and not assumed from the strategy id — a live
+    position is never closed by a watcher. The exit auto-approves through the
+    same risk gates as any other paper order.
+    """
+    import uuid
+
+    import requests
+
+    broker = str(order.get("broker") or "").upper()
+    if broker not in ("PAPER", "T212_DEMO", "IBKR_PAPER"):
+        log.warning("refusing to close a non-paper position: %s on %s",
+                    order.get("symbol"), broker)
+        return False
+    side = "SELL" if str(order.get("side") or "").upper() == "BUY" else "BUY"
+    try:
+        r = requests.post(f"{base.rstrip('/')}/api/oms/orders", headers=headers, timeout=45,
+                          json={"clientOrderId": str(uuid.uuid4()), "broker": broker,
+                                "symbol": order.get("symbol"), "side": side,
+                                "qty": order.get("qty"), "orderType": "MKT",
+                                "strategyId": order.get("strategyId"),
+                                "timeInForce": "DAY", "placedBy": "SIGNAL_WATCH_EXIT",
+                                "signalRefPrice": price,
+                                "signalMeta": json.dumps({"exit": True,
+                                                          "closes": str(order.get("id"))})})
+        return r.status_code == 200
+    except Exception as exc:  # noqa: BLE001 — the ALERT still goes out
+        log.warning("paper close failed for %s: %s", order.get("symbol"), str(exc)[:120])
+        return False
 
 
 def main() -> int:

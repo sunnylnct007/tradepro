@@ -107,3 +107,88 @@ def test_a_missing_price_does_not_invent_a_breach(monkeypatch):
                            "signalStopPrice": 100.0}])
     monkeypatch.setattr(SW, "_last_close", lambda s: (None, None))
     assert SW.check("http://api.test", None) == []
+
+
+# ── EXITS (2 Sep 2026) ──────────────────────────────────────────────────────
+#
+# Owner: "and will the sugnals close by them seleves after profit booking".
+#
+# They did not, and that was worse than it sounds. Both strategies DEFINE their
+# exits — Swing targets +3.1% with a 20-session cap, Momentum trails 8% with a
+# 60-session cap — and nothing executed them. Positions would have sat open
+# indefinitely, so tradepro-trade-eval would have scored BUY-AND-HOLD rather
+# than the strategy, confidently and wrongly.
+#
+# An edge measured over a holding period is not the same trade when held longer.
+
+def _paper(sym, **kw):
+    base = {"id": "abc", "symbol": sym, "side": "BUY", "qty": 10, "state": "FILLED",
+            "broker": "PAPER", "strategyId": "candidates_swing",
+            "signalStopPrice": 267.32, "signalRefPrice": 290.57}
+    base.update(kw)
+    return base
+
+
+def test_a_reached_target_closes_the_paper_position(monkeypatch):
+    _orders(monkeypatch, [_paper("IWM", signalTargetPrice=299.58)])
+    monkeypatch.setattr(SW, "_last_close", lambda s: (301.0, "2026-09-20"))
+    closed = {}
+    monkeypatch.setattr(SW, "_close_paper", lambda b, h, o, p: closed.setdefault("x", True))
+    ev = SW.check("http://api.test", None)
+    assert ev[0]["kind"] == "TARGET REACHED"
+    assert closed.get("x") is True
+    assert "CLOSED" in ev[0]["text"]
+
+
+def test_a_breached_stop_also_closes(monkeypatch):
+    _orders(monkeypatch, [_paper("IWM")])
+    monkeypatch.setattr(SW, "_last_close", lambda s: (260.0, "2026-09-20"))
+    monkeypatch.setattr(SW, "_close_paper", lambda b, h, o, p: True)
+    ev = SW.check("http://api.test", None)
+    assert ev[0]["kind"] == "STOP BREACHED" and "CLOSED" in ev[0]["text"]
+
+
+def test_held_past_the_strategys_own_cap_closes(monkeypatch):
+    """20 sessions is Swing's OWN published max_hold, not a number invented
+    here. Past its window the edge was never measured."""
+    _orders(monkeypatch, [_paper("IWM", signalBar="2026-01-05")])
+    monkeypatch.setattr(SW, "_last_close", lambda s: (285.0, "2026-09-20"))
+    monkeypatch.setattr(SW, "_close_paper", lambda b, h, o, p: True)
+    ev = SW.check("http://api.test", None)
+    assert ev[0]["kind"] == "HELD TOO LONG"
+    assert "20-session cap" in ev[0]["text"]
+
+
+def test_a_position_inside_all_three_rules_is_left_alone(monkeypatch):
+    _orders(monkeypatch, [_paper("IWM", signalTargetPrice=299.58,
+                                 signalBar=_dt_today_iso())])
+    monkeypatch.setattr(SW, "_last_close", lambda s: (291.0, "2026-09-02"))
+    assert SW.check("http://api.test", None) == []
+
+
+def test_a_LIVE_position_is_never_closed(monkeypatch):
+    """The check is on the BROKER, not the strategy id. A watcher must not be
+    able to close real money on any code path."""
+    called = {}
+    import requests
+    monkeypatch.setattr(requests, "post",
+                        lambda *a, **k: called.setdefault("posted", True))
+    ok = SW._close_paper("http://api.test", {},
+                         _paper("IWM", broker="IBKR_LIVE"), 260.0)
+    assert ok is False
+    assert "posted" not in called, "a live position must never be closed here"
+
+
+def test_a_failed_close_still_alerts_and_says_so(monkeypatch):
+    """The alert is the fallback. If the close fails the owner must be told to
+    do it by hand, not left believing it was handled."""
+    _orders(monkeypatch, [_paper("IWM")])
+    monkeypatch.setattr(SW, "_last_close", lambda s: (260.0, "2026-09-20"))
+    monkeypatch.setattr(SW, "_close_paper", lambda b, h, o, p: False)
+    ev = SW.check("http://api.test", None)
+    assert "close FAILED" in ev[0]["text"] and "by hand" in ev[0]["text"]
+
+
+def _dt_today_iso():
+    import datetime as d
+    return d.date.today().isoformat()
