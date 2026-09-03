@@ -44,12 +44,39 @@ def _row(**kw):
 
 
 def test_tier_appears_on_the_card_not_only_the_header():
-    h = build_html([_row(tier="failed")], [], NOW, 20.0, with_charts=False)
+    h = build_html([_row(tier="thin")], [], NOW, 20.0, with_charts=False)
     # The group header explains the tier in words; the CARD carries the badge
     # itself, so the tier survives when a reader scrolls past the header.
-    assert "BACKTEST FAILED" in h, "the group header must explain the tier"
-    card = h.split("BACKTEST FAILED", 1)[1]
-    assert "failed" in card, "the tier badge must ride on the card too"
+    assert "thin evidence" in h, "the group header must explain the tier"
+    card = h.split("thin evidence", 1)[1]
+    assert "thin" in card, "the tier badge must ride on the card too"
+
+
+def test_a_failed_strategy_gets_a_count_not_a_card():
+    """Owner, 3 Sep 2026, on a full chart card for a PLTR `failed` row:
+    *"whats the point in sending a put failed email"* — and the same again
+    about the desk. 14 of 22 rows were one strategy's DO-NOT-FUND verdict
+    repeated. A failed-tier strategy is now WITHHELD: one counted line with
+    the verdict, no cards, no charts — but never silently dropped."""
+    h = build_html([_row(tier="failed"),
+                    _row(symbol="MSFT", tier="failed"),
+                    _row(symbol="CRL", strategy="Momentum", tier="gated")],
+                   [], NOW, 20.0, with_charts=False)
+    assert "XOM" not in h and "MSFT" not in h, "failed rows must not get cards"
+    assert "CRL" in h, "listed tiers still get their cards"
+    assert "counted, never hidden" in h
+    assert "2 name(s)" in h and "BACKTEST FAILED" in h
+
+
+def test_an_account_barred_row_gets_a_count_not_a_card():
+    h = build_html([_row(symbol="SPY", strategy="Swing", tier="gated",
+                         eligible=False,
+                         blocks=["this account cannot trade it"]),
+                    _row(symbol="CRL", strategy="Momentum", tier="gated")],
+                   [], NOW, 20.0, with_charts=False)
+    assert "SPY" not in h.split("counted, never hidden")[0], \
+        "a barred name must not render as an actionable card"
+    assert "cannot trade it" in h
 
 
 def test_a_stale_row_is_marked_on_its_card():

@@ -84,6 +84,11 @@ TIERS = ("gated", "thin", "failed", "unproven")
 
 # What each tier means on a row, in the reader's terms. The UI and the email
 # both render from here so they cannot drift into different wordings.
+# Actionability order, for any surface that ranks tiers. Part of the tier
+# CONTRACT, defined once: the email and the desk must not order the same four
+# words two different ways. Lower = more actionable.
+TIER_RANK = {"gated": 0, "thin": 1, "unproven": 2, "failed": 3}
+
 TIER_NOTE = {
     "gated": "passed its pre-registered gates",
     "thin": "passed its gates, but on thin evidence — size accordingly",

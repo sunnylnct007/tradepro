@@ -206,7 +206,19 @@ def _card(c: dict, stale_hours: float, with_charts: bool) -> str:
 def build_html(rows: list[dict], problems: list[str], now: _dt.datetime,
                stale_hours: float, with_charts: bool = True,
                holdings_html: str = "") -> str:
-    """The rich body. `rows` must already be sorted and grouped by the caller."""
+    """The rich body. Withholds the same rows the text body withholds."""
+    # ONE policy, defined once in the digest: a failed-tier strategy or a row
+    # this account cannot act on gets a COUNT, not a card. The owner opened a
+    # full chart card for a PLTR `failed` row and fairly asked what the point
+    # was — presentation lends authority, and a 90-session chart is a lot of
+    # authority to lend a strategy whose backtest said DO NOT FUND.
+    from .candidates_digest import _withheld_lines, split_for_reading
+    from ..candidates import TIER_RANK
+    rows, withheld = split_for_reading(rows)
+    rows = sorted(rows, key=lambda c: (
+        TIER_RANK.get(c.get("tier"), 9),
+        c.get("strategy") or "",
+        -(c.get("metric") if c.get("metric") is not None else -1e9)))
     parts = [
         f"<div style='background:{_BG};padding:16px;font-family:-apple-system,"
         f"BlinkMacSystemFont,Segoe UI,sans-serif;color:#e6edf3'>",
@@ -238,6 +250,17 @@ def build_html(rows: list[dict], problems: list[str], now: _dt.datetime,
                     f"{_esc(cur)} <span style='font-weight:400;color:{_MUTED};"
                     f"font-size:12px'>— {note}</span></div>")
             parts.append(_card(c, stale_hours, with_charts))
+
+    if withheld:
+        lines = "".join(f"<li style='margin:2px 0'>{_esc(ln.strip('· '))}</li>"
+                        for ln in _withheld_lines(withheld))
+        parts.append(
+            f"<div style='margin-top:16px;background:{_CARD};border:1px solid {_LINE};"
+            f"border-radius:8px;padding:12px 14px;font-size:12px'>"
+            f"<b style='color:{_MUTED}'>Not listed — counted, never hidden</b>"
+            f"<ul style='margin:6px 0 0;padding-left:18px;color:{_MUTED}'>{lines}</ul>"
+            f"<div style='color:{_MUTED};margin-top:6px'>They stay on the board — "
+            f"untick “hide blocked” there.</div></div>")
 
     if holdings_html:
         parts.append(holdings_html)

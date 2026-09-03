@@ -117,14 +117,56 @@ def gather(base: str, token: str | None, now: _dt.datetime | None = None
     return rows, problems
 
 
+def split_for_reading(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(listed, withheld). ONE policy for every surface that renders candidates.
+
+    Owner, 3 Sep 2026, twice in one evening — on the email: *"whats the point
+    in sending a put failed email"*; on the desk: *"whats the point in showing
+    wheel candiate with failed banner"*. They were looking at 14 wheel rows
+    badged `failed` out of 22 — two-thirds of the list was one strategy's
+    DO-NOT-FUND verdict repeated fourteen times, drowning the eight rows they
+    could act on.
+
+    Withheld: rows whose tier is `failed` (the strategy's backtest failed its
+    pre-registered gates) and rows this account cannot act on (eligible=False —
+    e.g. PRIIPs-barred ETFs). They are COUNTED, never silently dropped: the
+    renderer states how many and why, because "surface the gap" is a standing
+    rule and a shrunken list with no explanation is indistinguishable from a
+    broken producer.
+    """
+    listed, withheld = [], []
+    for c in rows:
+        if c.get("tier") == "failed" or c.get("eligible") is False:
+            withheld.append(c)
+        else:
+            listed.append(c)
+    return listed, withheld
+
+
+def _withheld_lines(withheld: list[dict]) -> list[str]:
+    """One line per withheld strategy: count + verdict, same vocabulary as the
+    tiers themselves (TIER_NOTE), so no surface invents its own words."""
+    from ..candidates import TIER_NOTE
+    by: dict[tuple[str, str], int] = {}
+    for c in withheld:
+        why = (TIER_NOTE.get("failed") if c.get("tier") == "failed"
+               else (c.get("blocks") or ["cannot be acted on"])[0])
+        key = (c.get("strategy") or "?", f"[{c.get('tier') or '?'}] {why}")
+        by[key] = by.get(key, 0) + 1
+    return [f"  · {strat}: {n} name(s) pass its screen — {why}"
+            for (strat, why), n in sorted(by.items())]
+
+
 def render(rows: list[dict], problems: list[str], now: _dt.datetime) -> tuple[str, str]:
     """(subject, text). The text IS the email — one monospace block, scannable."""
+    rows, withheld = split_for_reading(rows)
     n = len(rows)
     strategies = sorted({c.get("strategy") for c in rows if c.get("strategy")})
+    withheld_tag = f" · {len(withheld)} withheld" if withheld else ""
     subject = (f"[CANDIDATES] {n} across {len(strategies)} "
                f"{'strategy' if len(strategies) == 1 else 'strategies'}"
-               f" — {now:%Y-%m-%d}" if n else
-               f"[CANDIDATES] none today — {now:%Y-%m-%d}")
+               f"{withheld_tag} — {now:%Y-%m-%d}" if n else
+               f"[CANDIDATES] none today{withheld_tag} — {now:%Y-%m-%d}")
 
     out: list[str] = [
         f"TradePro candidates — {now:%Y-%m-%d %H:%M}Z",
@@ -137,7 +179,9 @@ def render(rows: list[dict], problems: list[str], now: _dt.datetime) -> tuple[st
     # the strategy CHANGES, so unsorted input splits one strategy into two
     # groups — a reader would see "Wheel" twice and reasonably conclude they
     # were different things. Caught by a test that passed rows in arrival order.
+    from ..candidates import TIER_RANK
     rows = sorted(rows, key=lambda c: (
+        TIER_RANK.get(c.get("tier"), 9),
         c.get("strategy") or "",
         -(c.get("metric") if c.get("metric") is not None else -1e9)))
 
@@ -172,6 +216,11 @@ def render(rows: list[dict], problems: list[str], now: _dt.datetime) -> tuple[st
                        f"entry {entry:>10}   {lvl:<16}{met:>9}{stale}")
             if c.get("why"):
                 out.append(f"          {c['why'][:96]}")
+
+    if withheld:
+        out += ["", "NOT LISTED — counted, never hidden:", ""]
+        out += _withheld_lines(withheld)
+        out += ["    (they stay on the board — untick 'hide blocked' there)"]
 
     if problems:
         out += ["", "COULD NOT LOAD — this is not the same as 'no candidates':", ""]

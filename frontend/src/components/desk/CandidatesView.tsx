@@ -246,21 +246,36 @@ export function CandidatesView() {
   const strategies = useMemo(
     () => Array.from(new Set(rows.map((r) => r.strategy))).sort(), [rows]);
 
+  // Actionability order — the same TIER_RANK the email uses. Defined in the
+  // Python tier contract (candidates.py); restated here because the desk has
+  // no runtime path to it. If the tiers ever change, both change.
+  const TIER_ORDER: Record<TierRaw, number> = { gated: 0, thin: 1, unproven: 2, failed: 3 };
+
   const view = useMemo(() => {
     let v = rows;
     if (only !== "all") v = v.filter((r) => r.strategy === only);
-    if (hideBlocked) v = v.filter((r) => r.eligible);
-    // Eligible first, then by each strategy's own ranking metric. Cross-strategy
-    // metrics are NOT comparable (a σ is not a %/yr), so this ranks WITHIN a
-    // strategy and groups by it — claiming a single ranking across strategies
-    // would be a number that means nothing.
+    // A failed-tier strategy is WITHHELD from the combined view, not deleted:
+    // the owner looked at 14 wheel rows badged `failed` out of 22 and fairly
+    // asked what the point was — two-thirds of the list was one DO-NOT-FUND
+    // verdict repeated. Clicking the strategy's own pill is an explicit
+    // opt-in to the study view, so there it still shows.
+    if (hideBlocked) {
+      v = v.filter((r) => r.eligible);
+      if (only === "all") v = v.filter((r) => r.tierRaw !== "failed");
+    }
+    // Actionable tiers first, then by each strategy's own ranking metric.
+    // Cross-strategy metrics are NOT comparable (a σ is not a %/yr), so this
+    // ranks WITHIN a strategy and groups by it — claiming a single ranking
+    // across strategies would be a number that means nothing.
     return [...v].sort((a, b) =>
-      (a.eligible === b.eligible ? 0 : a.eligible ? -1 : 1)
+      (TIER_ORDER[a.tierRaw ?? "unproven"] - TIER_ORDER[b.tierRaw ?? "unproven"])
+      || (a.eligible === b.eligible ? 0 : a.eligible ? -1 : 1)
       || a.strategy.localeCompare(b.strategy)
       || ((b.metric ?? -Infinity) - (a.metric ?? -Infinity)));
   }, [rows, only, hideBlocked]);
 
-  const eligibleCount = rows.filter((r) => r.eligible).length;
+  const eligibleCount = rows.filter((r) => r.eligible && r.tierRaw !== "failed").length;
+  const withheldCount = rows.filter((r) => r.eligible && r.tierRaw === "failed").length;
 
   const Pill = ({ v, label }: { v: string; label: string }) => (
     <button onClick={() => setOnly(v)}
@@ -311,7 +326,8 @@ export function CandidatesView() {
         <Pill v="all" label={`All (${eligibleCount})`} />
         {strategies.map((s) => (
           <Pill key={s} v={s}
-                label={`${s} (${rows.filter((r) => r.strategy === s && r.eligible).length})`} />
+                label={`${s} (${rows.filter((r) => r.strategy === s && r.eligible).length})${
+                  rows.some((r) => r.strategy === s && r.tierRaw === "failed") ? " ⚠" : ""}`} />
         ))}
         <label style={{ marginLeft: "auto", fontSize: 12, cursor: "pointer", color: "var(--text)" }}>
           <input type="checkbox" checked={hideBlocked}
@@ -320,6 +336,13 @@ export function CandidatesView() {
           hide blocked
         </label>
       </div>
+
+      {hideBlocked && only === "all" && withheldCount > 0 && (
+        <div style={{ fontSize: 11.5, color: MUTED }}>
+          {withheldCount} row(s) from a strategy whose backtest FAILED are not
+          listed here — counted, never hidden. Click its pill to study them.
+        </div>
+      )}
 
       {loading ? (
         <div style={{ color: MUTED }}>Loading…</div>
