@@ -428,11 +428,21 @@ class T212OrderRouter(OrderRouter):
             "Symbol": broker_symbol,
             "Side": order.side.value,
             "Qty": broker_qty,
-            "OrderType": order.type.value if order.type.value in ("MKT", "LMT", "STP", "STP_LMT") else "MKT",
+            # The enum says MARKET/LIMIT; the OMS speaks MKT/LMT. The old
+            # membership test compared MARKET against ("MKT", ...) — never
+            # matched — so EVERY order, LIMIT included, was silently downgraded
+            # to a market order: the exact downgrade IBKRClient refuses to do
+            # ("a LMT order needs a price — refusing to send it as a market
+            # order"). That is how SNOW's capped entry would have paid 367.44
+            # for a 305.84 signal even after the strategy fix.
+            "OrderType": {"MARKET": "MKT", "LIMIT": "LMT", "STOP": "STP",
+                          "STOP_LIMIT": "STP_LMT"}.get(order.type.value, "MKT"),
             "StrategyId": order.strategy_id,
             "PlacedBy": "STRATEGY_AUTO",
             "TimeInForce": "DAY",
         }
+        if getattr(order, "limit_price", None) is not None:
+            intent["LimitPrice"] = order.limit_price
         # WHAT THE SIGNAL SAID, carried to the OMS (migration 066).
         #
         # The order record held only what we DID -- symbol, side, qty, fill.

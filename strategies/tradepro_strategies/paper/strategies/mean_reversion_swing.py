@@ -41,6 +41,35 @@ from ...signals.mean_reversion import (
 _log = logging.getLogger("tradepro.paper.swing")
 
 
+# ── entry chase band ──────────────────────────────────────────────────────
+# HOW MUCH ABOVE THE SIGNAL CLOSE AN ENTRY MAY FILL, in percent.
+# Config: settings-kv `swing_entry_max_chase_pct`. Fail-open to the default.
+_DEFAULT_CHASE_PCT = 1.5
+_chase_cache: list[float] = []
+
+
+def _entry_chase_pct() -> float:
+    """Read once per process; a wedged API must not block a trade decision."""
+    if _chase_cache:
+        return _chase_cache[0]
+    val = _DEFAULT_CHASE_PCT
+    try:
+        import requests
+        from ...cli.push_to_api import load_credentials
+        base, token = load_credentials()
+        r = requests.get(f"{base.rstrip('/')}/api/settings-kv/swing_entry_max_chase_pct",
+                         headers={"Authorization": f"Bearer {token}"} if token else {},
+                         timeout=10)
+        if r.status_code == 200:
+            got = r.json().get("value")
+            if isinstance(got, (int, float)) and 0 < float(got) < 20:
+                val = float(got)
+    except Exception:  # noqa: BLE001 — default, not a blocked entry
+        pass
+    _chase_cache.append(val)
+    return val
+
+
 @register_strategy("mean_reversion_swing")
 class MeanReversionSwingStrategy(Strategy):
     """Long-only dip buyer. One position per symbol, no pyramiding.
@@ -277,8 +306,24 @@ class MeanReversionSwingStrategy(Strategy):
         # So F3 would have been UNGRADEABLE in week twelve — the same shape of
         # failure as G4 in the rejected dip study, found too late to fix. These
         # fields make it measurable from the order record alone.
+        # A LIMIT, NEVER A MARKET ORDER — capped just above the signal close.
+        #
+        # 3 Sep 2026: the signal was SNOW's pre-print dip at 305.84. SNOW
+        # reported that evening and gapped up; next morning the daemon sent a
+        # MARKET order that filled at 367.44 — 20% above its own reference and
+        # 41 points ABOVE ITS OWN TARGET of 325.99. A mean-reversion entry
+        # that pays up through the band that defined it is not late, it is
+        # WRONG: the dip it was built to buy no longer exists.
+        #
+        # The cap travels ON the order, so the broker enforces it with no race
+        # and no second data fetch. DAY time-in-force means a gap-up morning
+        # simply never fills and the order dies at the close — which is the
+        # trade the strategy would have wanted. Band is config
+        # (settings-kv swing_entry_max_chase_pct, default 1.5%).
+        _limit = round(closes[i] * (1 + _entry_chase_pct() / 100.0), 2)
         return [Order(strategy_id=self.strategy_id, symbol=sym, side=OrderSide.BUY,
-                      quantity=qty, type=OrderType.MARKET,
+                      quantity=qty, type=OrderType.LIMIT,
+                      limit_price=_limit,
                       risk_target_price=round(target_price(closes, i), 4),
                       risk_stop_price=round(stop_price(closes[i]), 4),
                       # Structured, not just inside the tag — the tag is an

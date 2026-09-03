@@ -618,9 +618,18 @@ public sealed class PostgresOmsService : IOmsService
                     // while the order never actually placed — the exact reason the
                     // clone's fills carried no broker id. Confirmed path returns a
                     // real order id (ACCEPTED) or REJECTED; never a dangling reply.
+                    // Pass the order's OWN type and price through. This always
+                    // sent a DAY MARKET order regardless of what the intent
+                    // said — which is how a swing entry with a 305.84 signal
+                    // filled at 367.44 on 3 Sep 2026: the strategy's cap could
+                    // not survive the trip to the broker. IBKRClient already
+                    // refuses a LMT with no price rather than downgrading it.
                     var place = await ibkr.PlaceMarketOrderConfirmedAsync(
                         conid: conid, side: side, quantity: Math.Abs(approved.Qty),
-                        ct: CancellationToken.None);
+                        ct: CancellationToken.None,
+                        orderType: string.IsNullOrWhiteSpace(approved.OrderType) ? "MKT" : approved.OrderType,
+                        price: approved.LimitPrice,
+                        tif: string.IsNullOrWhiteSpace(approved.TimeInForce) ? "DAY" : approved.TimeInForce);
                     if (place.Status == "REJECTED" || place.OrderId is null)
                     {
                         _log.LogWarning(

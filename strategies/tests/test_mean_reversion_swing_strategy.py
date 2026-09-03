@@ -153,3 +153,68 @@ class TestInheritedPositions:
     def test_a_position_we_never_filled_is_ours_only_after_a_fill(self):
         s = self._strategy_holding(14)
         assert "DIS" not in s._fill_price      # seeded, not filled
+
+
+class TestEntryNeverChasesTheGap:
+    """SNOW, 3 Sep 2026: signal on the pre-print dip at 305.84; SNOW reported
+    that evening and gapped up; the MARKET entry filled at 367.44 — 20% above
+    its own reference and 41 points ABOVE its own 325.99 target. A
+    mean-reversion entry that pays up through the band that defined it is not
+    late, it is wrong: the dip it was built to buy no longer exists."""
+
+    def test_the_entry_is_a_limit_capped_just_above_the_signal_close(self):
+        import tradepro_strategies.paper.strategies.mean_reversion_swing as M
+        M._chase_cache.clear(); M._chase_cache.append(1.5)
+        orders = _entry_orders_for_dip()
+        assert len(orders) == 1, "the proven dip fixture must fire exactly once"
+        o = orders[0]
+        ref = o.signal_ref_price
+        assert o.type.value == "LIMIT"
+        assert o.limit_price == round(ref * 1.015, 2), \
+            "the cap must be derived from the SIGNAL close, nothing else"
+        # the SNOW morning, replayed against the cap: a 20% gap must not fill
+        assert ref * 1.20 > o.limit_price
+
+    def test_the_router_speaks_the_oms_dialect_not_the_enum(self):
+        """MARKET was tested against ("MKT", ...) — never matched — so every
+        order, LIMIT included, was silently downgraded to a market order: the
+        downgrade IBKRClient itself refuses ("a LMT order needs a price")."""
+        import inspect
+        from tradepro_strategies.paper.brokers import t212
+        src = inspect.getsource(t212)
+        assert '"LIMIT": "LMT"' in src
+        assert '"MARKET": "MKT"' in src
+        assert 'intent["LimitPrice"] = order.limit_price' in src
+
+
+def _entry_orders_for_dip():
+    """Drive one bar through on_bar with the file's PROVEN firing series
+    (_dip_series: uptrend, 2.5σ dip, still above the 200-SMA — a dip, not a
+    falling knife). `_history` is stubbed at its seam: the strategy reads
+    settled closes from the bar store, never from the streamed bar."""
+    import datetime as dt
+
+    import tradepro_strategies.paper.strategies.mean_reversion_swing as M
+    from tradepro_strategies.paper.strategy import Bar
+
+    s = M.MeanReversionSwingStrategy(strategy_id="t")
+    s.params = {"capital": 100_000, "position_pct": 0.05}
+    closes = _dip_series()
+    dates = [(dt.date(2024, 1, 1) + dt.timedelta(days=i)).isoformat()
+             for i in range(len(closes))]
+
+    def _stub_history(sym, bar):
+        s._dates = dates
+        return closes, None
+
+    s._history = _stub_history
+    bar = Bar(symbol="SNOW", timestamp=dt.datetime(2024, 12, 1, tzinfo=dt.UTC),
+              open=closes[-1], high=closes[-1], low=closes[-1],
+              close=closes[-1], volume=1_000_000, timeframe_seconds=86_400)
+    # The entry path ranks the day's firing candidates across the whole
+    # universe; pin it to the one symbol under test.
+    from unittest.mock import patch
+
+    import tradepro_strategies.universe as U
+    with patch.object(U, "universe_symbols", lambda **kw: ["SNOW"]):
+        return [o for o in (s.on_bar(bar) or []) if o.side.value == "BUY"]
