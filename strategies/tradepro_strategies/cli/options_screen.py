@@ -27,6 +27,16 @@ from ..quant_engine.options.risk import (
     TradeCandidate, evaluate,
 )
 
+# The wheel's screen verdict, in one place. A name can clear every gate the
+# screen applies TODAY while the strategy those gates belong to failed its
+# pre-registered backtest (WHEEL_BACKTEST_GATES_V3.md, gates committed in
+# f296405 before the run). Saying only the first half is how a "failed" badge
+# ends up looking like a recommendation.
+WHEEL_SCREEN_PASS_BUT_FAILED = (
+    "passes today's screen · wheel BACKTEST FAILED "
+    "(CAGR 7.61% vs 8% bar; worst name -71.4% vs 40% bar)"
+)
+
 log = logging.getLogger("tradepro.options_screen")
 
 # THE WHEEL FAILED ITS BACKTEST. Say so everywhere this screen speaks.
@@ -2143,7 +2153,16 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
                 level=c.get("suggested_strike"), level_label="strike",
                 metric=c.get("annualized_yield_pct"), metric_label="%/yr",
                 eligible=bool(c.get("eligible")),
-                why=("clears every gate" if c.get("eligible")
+                # "clears every gate" next to a tier of "failed" reads as an
+                # endorsement, and the owner read it that way: *"what do u mean
+                # by wheel faield"*. Both halves are true — the NAME passes
+                # today's screen, the STRATEGY lost money in backtest — but on
+                # one line the good news wins. So the row now carries the
+                # verdict with its numbers, per WHEEL_BACKTEST_GATES_V3.md,
+                # pre-registered in f296405 BEFORE the run: G3 full-window CAGR
+                # 7.61% against an 8% bar, G4 worst single name META -71.4%
+                # against a 40% bar. Recommendation was DO NOT FUND.
+                why=(WHEEL_SCREEN_PASS_BUT_FAILED if c.get("eligible")
                      else (c.get("blocks") or ["blocked"])[0]),
                 provenance=((c.get("provenance") or {}).get("inputs") or []),
                 gates=c.get("decision_trace") or [],
