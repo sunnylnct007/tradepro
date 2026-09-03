@@ -70,11 +70,56 @@ class FallbackSource(BarSource):
                         symbol, session_date.date(), interval, len(bars),
                     )
                 return bars
-        log.warning(
-            "no source returned bars for %s %s %s — all %d sources empty",
-            symbol, session_date.date(), interval, len(self.sources),
-        )
+        _record_empty(symbol, str(session_date.date()), interval,
+                      len(self.sources))
         return []
 
 
 __all__ = ["FallbackSource"]
+
+
+# ---------------------------------------------------------------------------
+# EMPTY-FETCH REPORTING: one line per run, not one per symbol.
+#
+# Measured 3 Sep 2026: the equity daemon's log grew ~900 MB in a single day and
+# rotate-logs.sh truncates to the last 20 MB, so a day's history was being
+# discarded within hours. 2,240 of those lines per run were this warning and
+# yfinance's twin, once per symbol — 1,106 identical messages saying the US
+# market had not opened yet.
+#
+# That volume did real harm beyond disk. It buried the ONE thing an operator
+# needs to see: ichimoku_equity made no entries all day, and the reason was
+# that every source returned nothing, not that the rule declined. A warning
+# repeated 1,106 times is indistinguishable from wallpaper.
+#
+# So: count per (date, interval), keep the per-symbol detail at DEBUG, and emit
+# a SINGLE warning naming the count and a sample. The count is the point — a
+# handful of silent names overnight is normal; all 244 is a broken feed, and
+# only the number tells them apart.
+_EMPTY: dict[tuple[str, str], list[str]] = {}
+_EMPTY_SOURCES: dict[tuple[str, str], int] = {}
+
+
+def _record_empty(symbol: str, day: str, interval: str, n_sources: int) -> None:
+    key = (day, interval)
+    _EMPTY.setdefault(key, []).append(symbol)
+    _EMPTY_SOURCES[key] = n_sources
+    log.debug("no source returned bars for %s %s %s — all %d sources empty",
+              symbol, day, interval, n_sources)
+
+
+def flush_empty_summary() -> None:
+    """Emit one warning per (date, interval) that had empty fetches."""
+    for (day, interval), syms in sorted(_EMPTY.items()):
+        shown = ", ".join(syms[:10])
+        more = f" +{len(syms) - 10} more" if len(syms) > 10 else ""
+        log.warning(
+            "NO BARS for %d symbol(s) on %s @ %s — all %d sources empty (%s%s)",
+            len(syms), day, interval, _EMPTY_SOURCES.get((day, interval), 0),
+            shown, more)
+    _EMPTY.clear()
+    _EMPTY_SOURCES.clear()
+
+
+import atexit as _atexit
+_atexit.register(flush_empty_summary)

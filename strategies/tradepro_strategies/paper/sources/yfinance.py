@@ -158,9 +158,15 @@ class YfinanceSource(BarSource):
         df = YfinanceSource._download_with_retry(
             yahoo_ticker, start, end_dt.isoformat(), interval, symbol)
         if df is None or df.empty:
-            log.warning("yfinance: NO BARS after retries for %s (%s) %s–%s @ %s "
-                        "— pair will be silent this run",
-                        symbol, yahoo_ticker, start, end_dt.isoformat(), interval)
+            # DEBUG, not WARNING: the fallback chain reports the decisive
+            # outcome ("no source served this at all") as one counted summary
+            # per run. This line fired 1,106 times in a single run on 3 Sep,
+            # almost all of it "the US market has not opened yet" — noise that
+            # buried a real strategy-starvation finding. See
+            # paper/sources/fallback.py:_record_empty.
+            log.debug("yfinance: NO BARS after retries for %s (%s) %s–%s @ %s "
+                      "— falling through the chain",
+                      symbol, yahoo_ticker, start, end_dt.isoformat(), interval)
             return []
         return YfinanceSource._df_to_bars(df, symbol, interval)
 
