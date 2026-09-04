@@ -1393,6 +1393,16 @@ export const api = {
         unrealisedAbs: number | null;
         unrealisedPct: number | null;
         currency: string | null;
+        // OPTION fields. Added to the API when option positions were made
+        // visible (31 Aug 2026) and to `conid` when the close stopped
+        // re-resolving contracts (1 Sep) — but never mirrored here, so every
+        // consumer had to cast. isOption is the only way to tell an option
+        // from a stock; multiplier is what turns a per-share price into money,
+        // and assuming 100 is how "-99.06%" was printed on a winning position.
+        assetClass?: string | null;
+        isOption?: boolean;
+        multiplier?: number | null;
+        conid?: number | null;
       }>;
     }>("/api/integrations/ibkr/positions"),
 
