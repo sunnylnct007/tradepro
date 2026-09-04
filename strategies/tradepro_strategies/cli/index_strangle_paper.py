@@ -904,6 +904,49 @@ def push_decisions(rows: list[dict]) -> dict:
         return {"pushed": 0, "error": str(exc)[:200]}
 
 
+def _occ_strike(desc: str) -> float | None:
+    """Strike out of an IBKR contract description, via the OCC symbol."""
+    import re as _re
+    m = _re.search(r"\d{6}[PC](\d{8})", (desc or "").upper())
+    return int(m.group(1)) / 1000.0 if m else None
+
+
+def _credit_from_broker(row: dict, leg: dict) -> float | None:
+    """What the broker ACTUALLY filled the two legs at, in MONEY.
+
+    Matched on STRIKE, because IBKR's Web API returns avgPrice null on the
+    order itself — the position is the only place a fill price exists.
+
+    Money, not per share: the multiplier is READ from the position, never
+    assumed. Recording a per-share figure here would repeat the 100x mistake
+    the close job made on 2 Sep.
+    """
+    import requests
+    from .push_to_api import load_credentials
+    base, tok = load_credentials()
+    r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/positions",
+                     params={"fresh": "true"}, timeout=45,
+                     headers={"Authorization": f"Bearer {tok}"} if tok else {})
+    payload = r.json() or {}
+    if payload.get("error"):
+        return None
+    want = {float(leg.get("put_strike") or -1), float(leg.get("call_strike") or -1)}
+    total, seen = 0.0, 0
+    for p in payload.get("positions") or []:
+        if not p.get("isOption") or float(p.get("quantity") or 0) >= 0:
+            continue
+        k = _occ_strike(p.get("instrumentName") or "")
+        if k is None or k not in want:
+            continue
+        px = p.get("averagePricePaid")
+        if px is None:
+            continue
+        mult = float(p.get("multiplier") or 0) or 100.0
+        total += float(px) * abs(float(p.get("quantity") or 0)) * mult
+        seen += 1
+    return round(total, 2) if seen else None
+
+
 def record_execution(row: dict, res: dict) -> dict:
     """Attach what ACTUALLY executed to the decision that produced it.
 
@@ -928,12 +971,39 @@ def record_execution(row: dict, res: dict) -> dict:
     ids = [str(out.get(k, {}).get("orderId")) for k in ("put", "call")
            if (out.get(k) or {}).get("orderId")]
     body = {
-        "market": row.get("market"), "asOf": row.get("as_of"), "expiryKind": kind,
+        # THE SESSION BEING TRADED, not the settled one the gate read. The
+        # execution endpoint keys on COALESCE(exchange_date, as_of); sending
+        # as_of made every PLACEMENT 404 while exits (which send the session)
+        # linked fine — which is why the log showed placed=None beside a
+        # perfectly good realised_pnl for days.
+        "market": row.get("market"),
+        "asOf": row.get("exchange_date") or row.get("as_of"),
+        "expiryKind": kind,
         "placed": bool(res.get("placed")), "partial": bool(res.get("partial")),
         "shadow": bool(res.get("shadow")),
         "brokerOrderIds": ",".join(ids) or None,
         "placedAtUtc": _dt.datetime.now(_dt.UTC).isoformat(),
     }
+
+    # THE FILL PRICE — the one number this whole exercise exists to collect.
+    #
+    # Every published figure for this strategy is Black-Scholes off a
+    # volatility index: no skew, no bid-ask, no evidence anyone would be filled
+    # there. credit_actual is the column built to hold what the broker ACTUALLY
+    # gave us, and nothing ever wrote to it. The number sits on the position
+    # (averagePricePaid) and the moment that position closes it is gone —
+    # IBKR's Web API returns avgPrice NULL on the order, so there is no second
+    # chance to recover it.
+    #
+    # Owner, 4 Sep 2026: "i cant see what price".
+    if body["placed"] or res.get("partial"):
+        try:
+            got = _credit_from_broker(row, leg=(row.get("legs") or {}).get(kind) or {})
+            if got is not None:
+                body["creditActual"] = got
+        except Exception as exc:  # noqa: BLE001 — never lose the link over this
+            log.warning("could not read the filled credit for %s: %s",
+                        row.get("market"), str(exc)[:120])
     try:
         import requests
         from .push_to_api import load_credentials
