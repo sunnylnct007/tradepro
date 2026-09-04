@@ -65,9 +65,14 @@ def test_index_products_are_placed_as_INDICES_never_as_etfs():
     quietly re-typed as equities — trading SPX as if it were an ETF is the
     wrong instrument at the wrong size.
     """
+    # NDX was re-disabled in f6a6368 for a DIFFERENT reason than before: not a
+    # mapping gap but funding — one contract is ~$2.5M collateral the paper
+    # account cannot carry. The instrument-safety asserts below still apply to
+    # its config: if it is ever re-enabled, it must come back as an index.
     for m in ("SPX", "XSP", "NDX"):
         cfg = P.MARKETS[m]
-        assert cfg["paper_trade"] is True, f"{m} should be placeable"
+        assert cfg["paper_trade"] is (m != "NDX"), (
+            f"{m}: SPX/XSP placeable; NDX stays off until it can be funded")
         assert cfg.get("broker_sec_type") == "IND", (
             f"{m} is a cash index and must resolve as IND, not as an equity")
         assert not str(cfg.get("broker_symbol", "")).startswith("^"), (
@@ -82,7 +87,7 @@ def test_the_placeable_set_is_deliberate():
     ~$2.5M vs ~$77k), so "one more market" is not a small change.
     """
     enabled = {m for m, c in P.MARKETS.items() if c.get("paper_trade")}
-    assert enabled == {"SPY", "QQQ", "GOLD", "SPX", "XSP", "NDX"}
+    assert enabled == {"SPY", "QQQ", "GOLD", "SPX", "XSP"}
     # India has no paper account — the owner places those by hand.
     assert not any(P.MARKETS[m]["paper_trade"] for m in ("NIFTY", "BANKNIFTY"))
 
