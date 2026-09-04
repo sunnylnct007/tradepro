@@ -168,3 +168,64 @@ def test_the_report_branch_is_an_else_not_a_condition():
     assert not re.search(r'^\s*elif res\.get\("reason"\)', code, re.M), \
         "a condition here can be missed by an unanticipated return shape"
     assert "placement returned nothing" in code, "a None result must report too"
+
+
+# ---------------------------------------------------------------------------
+# THE FILL PRICE. Owner, 4 Sep 2026: "i cant see what price".
+#
+# credit_actual — the column built to hold what the broker ACTUALLY gave us —
+# was never written. record_execution recorded that an order was placed and its
+# ids, and nothing about the price. IBKR's Web API returns avgPrice NULL on the
+# order, so the position's averagePricePaid is the ONLY place a fill price
+# exists, and it disappears the moment the position closes.
+#
+# Every published figure for this strategy is Black-Scholes off a volatility
+# index. The traded credit is the one input no backtest can manufacture, and it
+# was being thrown away daily.
+# ---------------------------------------------------------------------------
+
+def test_the_placement_records_the_credit_it_was_filled_at():
+    import inspect
+    src = inspect.getsource(P.record_execution)
+    assert "creditActual" in src
+    assert "_credit_from_broker" in src
+
+
+def test_the_credit_is_money_not_per_share():
+    # The close job stored 0.32 for a $32 trade by summing per-share prices.
+    # This must not repeat: the multiplier is READ, never assumed.
+    import inspect
+    src = inspect.getsource(P._credit_from_broker)
+    assert 'p.get("multiplier")' in src
+    assert "* mult" in src
+
+
+def test_only_SHORT_option_legs_count_toward_the_credit():
+    # A long leg, or a stock position, is not part of the credit. Counting one
+    # would inflate the very number this exists to keep honest.
+    import inspect
+    src = inspect.getsource(P._credit_from_broker)
+    assert 'p.get("isOption")' in src
+    assert 'float(p.get("quantity") or 0) >= 0' in src
+
+
+def test_strikes_are_matched_via_the_occ_symbol():
+    assert P._occ_strike("SPX    SEP2026 7545 P [SPXW  260918P07545000 100]") == 7545.0
+    assert P._occ_strike("SPY    SEP2026 758 P [SPY   260918P00758000 100]") == 758.0
+    assert P._occ_strike("nothing here") is None
+
+
+def test_the_placement_keys_on_the_TRADED_session():
+    # It sent as_of (the settled session the GATE read) while the endpoint keys
+    # on COALESCE(exchange_date, as_of). Every placement 404'd while exits
+    # linked fine — placed=None beside a perfectly good realised_pnl.
+    import inspect
+    src = inspect.getsource(P.record_execution)
+    assert 'row.get("exchange_date") or row.get("as_of")' in src
+
+
+def test_a_failed_price_read_never_costs_the_link():
+    # A missing price is a worse row; a lost link is a lost row.
+    import inspect
+    src = inspect.getsource(P.record_execution)
+    assert "could not read the filled credit" in src
