@@ -164,6 +164,9 @@ def _record_exit(base, tok, market: str, expiry: str,
     `as_of` is TODAY's date. The exit belongs to the session being closed, and
     the decision row for it was written by the same day's run.
     """
+    # `credit` and `cost` are DOLLARS — the caller multiplies by the contract
+    # multiplier before calling. Passing per-share figures here understated the
+    # 2 Sep XSP round trip by 100x.
     if unmarkable:
         # No mark means no honest exit price. Record the trigger and leave the
         # money NULL rather than inventing a number that would later be
@@ -327,10 +330,24 @@ def main() -> int:
             stale = not any(
                 (market, o["right"], round(float(o["strike"]), 2)) in fresh
                 for _p, o, _c in legs)
-        # Combined credit and combined cost across every leg of this position.
-        # Both are per share; a leg with no live mark makes the pair unmarkable
-        # rather than silently half-counted.
-        credit = cost = 0.0
+        # TWO SETS OF NUMBERS, AND THEY ARE NOT INTERCHANGEABLE.
+        #
+        # PER SHARE drives the profit target. decide_close computes
+        # (credit - cost) / credit — a RATIO, so the multiplier cancels and
+        # must NOT be applied there.
+        #
+        # MONEY is what gets recorded. It MUST carry the contract multiplier.
+        # On 2 Sep 2026 the XSP round trip stored realised_pnl = 0.32 when the
+        # trade actually made ~$32: per-share prices were summed as though they
+        # were dollars. Everything else on this desk reports money in dollars
+        # (unrealisedAbs did), so the column was wrong by 100x in a table built
+        # specifically to hold honest numbers.
+        #
+        # The multiplier comes from the POSITION, never assumed to be 100 — an
+        # adjusted contract can carry a different one, and guessing is how the
+        # "-99.06%" cost-basis bug happened.
+        credit = cost = 0.0            # per share, for the ratio
+        credit_money = cost_money = 0.0  # dollars, for the record
         unmarkable = False
         for p, _occ, _c in legs:
             c = p.get("averagePricePaid")
@@ -339,8 +356,11 @@ def main() -> int:
                 unmarkable = True
                 break
             qty = abs(float(p.get("quantity") or 0))
+            mult = float(p.get("multiplier") or 0) or 100.0
             credit += float(c) * qty
             cost += float(m) * qty
+            credit_money += float(c) * qty * mult
+            cost_money += float(m) * qty * mult
 
         verdict = decide_close(
             {"credit": None if unmarkable else credit,
@@ -439,7 +459,8 @@ def main() -> int:
                     (market, o["right"], round(float(o["strike"]), 2)))
                 if sess:
                     break
-            _record_exit(base, tok, market, expiry, credit, cost,
+            # MONEY here, not the per-share figures the ratio used.
+            _record_exit(base, tok, market, expiry, credit_money, cost_money,
                          verdict.get("trigger"), unmarkable, sess)
 
     if failed:

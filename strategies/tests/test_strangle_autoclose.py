@@ -298,3 +298,54 @@ def test_staleness_and_session_are_computed_from_the_same_rows():
     src = inspect.getsource(C._placed_today)
     assert "when == today" in src      # freshness
     assert "exchange_date" in src      # session
+
+
+# ---------------------------------------------------------------------------
+# RECORDED MONEY IS DOLLARS. THE PROFIT TARGET IS A RATIO.
+#
+# 2 Sep 2026, the first complete round trip this project ever recorded, stored
+#   realised_pnl = 0.32
+# for a trade that made about $32. Per-share prices were summed as though they
+# were dollars. Everything else reports money in dollars, so the column was
+# wrong by 100x — in the table built specifically to hold honest numbers.
+#
+# The two must stay separate: decide_close divides, so the multiplier cancels
+# and must NOT be applied there; _record_exit stores, so it must be.
+# ---------------------------------------------------------------------------
+
+def test_the_profit_target_is_unaffected_by_the_multiplier():
+    # A ratio. Per-share and dollar inputs must give the SAME verdict, which is
+    # why applying the multiplier to the target would be wrong.
+    ps = decide_close({"credit": 8.35, "current_cost": 4.0}, _cfg(), _at(13, 0))
+    money = decide_close({"credit": 835.0, "current_cost": 400.0}, _cfg(), _at(13, 0))
+    assert ps["close"] == money["close"] is True
+    assert ps["trigger"] == money["trigger"] == "profit_target"
+    assert ps["decayed_pct"] == money["decayed_pct"]
+
+
+def test_recorded_money_carries_the_contract_multiplier():
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C.main)
+    assert "credit_money" in src and "cost_money" in src
+    assert 'float(p.get("multiplier")' in src, "the multiplier must come from the POSITION"
+    # and the recorder gets the MONEY, not the per-share figures
+    assert "_record_exit(base, tok, market, expiry, credit_money, cost_money" in src
+
+
+def test_the_multiplier_is_read_not_assumed():
+    # Assuming 100 is how the "-99.06%" cost-basis bug happened. A default is
+    # a last resort, not the source of truth.
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C.main)
+    assert 'p.get("multiplier")' in src
+
+
+def test_the_xsp_case_that_prompted_this():
+    # credit 7.54+7.77 per share, bought back for 0.32 less, multiplier 100.
+    credit_ps, cost_ps, mult = 15.31, 14.99, 100.0
+    assert round((credit_ps - cost_ps) * mult, 2) == 32.0
+    # the ratio is identical either way — that is the point
+    assert round((credit_ps - cost_ps) / credit_ps, 4) == \
+           round((credit_ps * mult - cost_ps * mult) / (credit_ps * mult), 4)
