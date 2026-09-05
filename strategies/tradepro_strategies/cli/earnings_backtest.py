@@ -211,7 +211,12 @@ def q1_q2_trades(closes, dates, prints) -> tuple[list[dict], list[dict]]:
             ret = _swing_sim(closes, i)
             if ret is not None:
                 q1.append({"ret": ret, "date": dates[i],
-                           "earnings": any((i - k) in pis for k in range(0, 3))})
+                           # V-PAST tag: print in the 3 sessions up to and
+                           # including the signal bar (the Q1 definition).
+                           "earnings": any((i - k) in pis for k in range(0, 3)),
+                           # V-FUTURE tag: print scheduled in the 10 sessions
+                           # after the signal bar — the hold-through hazard.
+                           "future": any((i + k) in pis for k in range(1, 11))})
         if i in pis and closes[i] <= closes[i - 1] * 0.95:
             sma = _sma(closes, i)
             if sma is not None and closes[i] > sma:
@@ -367,8 +372,57 @@ def main() -> int:
           f"{100*q2win:.1f}% (need ≥55%)" if q2win is not None else "  no trades")
     print(f"  E2 mean {pct(_mean(q2r))} · E5 worst {pct(min(q2r) if q2r else None)}")
 
+    # ── SWING_EARNINGS_VETO_GATES_V1 (6a57eb0) ──────────────────────────
+    # Graded here because it reads the SAME q1 sweep — a second runner would
+    # be a second definition of "the rule's trades".
+    print("\n══ Veto study — SWING_EARNINGS_VETO_GATES_V1 @ 6a57eb0 ══")
+    veto_out = {}
+    for label, flag, share_gate in (("V-PAST", "earnings", True),
+                                    ("V-FUTURE", "future", False)):
+        tagged = [t for t in q1_all if t[flag]]
+        kept = [t for t in q1_all if not t[flag]]
+        tm, km = _mean([t["ret"] for t in tagged]), _mean([t["ret"] for t in kept])
+        share = len(tagged) / len(q1_all) if q1_all else None
+        # per-cell: same deterministic split as everywhere else, computed on
+        # ALL of q1 so both arms share one cell geometry
+        dmed = sorted(t["date"] for t in q1_all)[len(q1_all) // 2] if q1_all else ""
+        syms = sorted({t["sym"] for t in q1_all})
+        first = set(syms[:len(syms) // 2])
+        cells = {}
+        for tn, tf in (("early", lambda t: t["date"] < dmed),
+                       ("late", lambda t: t["date"] >= dmed)):
+            for sn, sf in (("A", lambda t: t["sym"] in first),
+                           ("Z", lambda t: t["sym"] not in first)):
+                tc = [t["ret"] for t in tagged if tf(t) and sf(t)]
+                kc = [t["ret"] for t in kept if tf(t) and sf(t)]
+                cells[f"{tn}/{sn}"] = {
+                    "n_vetoed": len(tc), "vetoed": _mean(tc), "kept": _mean(kc),
+                    "kept_beats": (_mean(kc) is not None and _mean(tc) is not None
+                                   and _mean(kc) > _mean(tc))}
+        edge = (km - tm) if (km is not None and tm is not None) else None
+        g1 = (share is not None and share <= 0.20) if share_gate else (len(tagged) >= 100)
+        g2 = edge is not None and edge >= 0.0030
+        g3 = bool(cells) and all(c["kept_beats"] for c in cells.values())
+        n1 = ("VP1" if share_gate else "VF1")
+        print(f"  {label}: vetoed {len(tagged)} of {len(q1_all)}"
+              + (f" ({100*share:.1f}%)" if share is not None else ""))
+        print(f"    {n1} {'PASS' if g1 else 'FAIL'}   "
+              + (f"share {100*share:.1f}% (≤20%)" if share_gate
+                 else f"n={len(tagged)} (≥100)"))
+        print(f"    {'VP2' if share_gate else 'VF2'} {'PASS' if g2 else 'FAIL'}   "
+              f"kept {pct(km)} vs vetoed {pct(tm)} → edge {pct(edge)} (≥ +0.30pt)")
+        print(f"    {'VP3' if share_gate else 'VF3'} {'PASS' if g3 else 'FAIL'}   "
+              + " · ".join(f"{k}: kept {pct(v['kept'])} vs {pct(v['vetoed'])}"
+                           f" (n={v['n_vetoed']})" for k, v in cells.items()))
+        ships = g1 and g2 and g3
+        print(f"    → {label} {'SHIPS' if ships else 'does NOT ship'}")
+        veto_out[label] = {"n_vetoed": len(tagged), "share": share,
+                           "vetoed_mean": tm, "kept_mean": km, "edge": edge,
+                           "cells": cells, "gates": [g1, g2, g3], "ships": ships}
+
     out = {
         "generated_utc": end.isoformat(),
+        "veto_study": veto_out,
         "doc": "EARNINGS_GATES_V2.md @ 16de3c0",
         "coverage": {"symbols_with_events": len(events), "no_bars": no_bars,
                      "events_dropped_missing_bars": dropped_missing_bars},

@@ -1,5 +1,85 @@
 {
- "generated_utc": "2026-09-05T07:27:09.742533+00:00",
+ "generated_utc": "2026-09-05T10:46:10.387823+00:00",
+ "veto_study": {
+  "V-PAST": {
+   "n_vetoed": 251,
+   "share": 0.10894097222222222,
+   "vetoed_mean": 0.007186265116126763,
+   "kept_mean": 0.014212202892886442,
+   "edge": 0.007025937776759679,
+   "cells": {
+    "early/A": {
+     "n_vetoed": 75,
+     "vetoed": 0.020545780732295776,
+     "kept": 0.016510417449650757,
+     "kept_beats": false
+    },
+    "early/Z": {
+     "n_vetoed": 46,
+     "vetoed": 0.013637897305037923,
+     "kept": 0.018435799346326484,
+     "kept_beats": true
+    },
+    "late/A": {
+     "n_vetoed": 80,
+     "vetoed": -0.011988127716472351,
+     "kept": 0.009295327446625173,
+     "kept_beats": true
+    },
+    "late/Z": {
+     "n_vetoed": 50,
+     "vetoed": 0.011890518610233564,
+     "kept": 0.012487968421923398,
+     "kept_beats": true
+    }
+   },
+   "gates": [
+    true,
+    true,
+    false
+   ],
+   "ships": false
+  },
+  "V-FUTURE": {
+   "n_vetoed": 438,
+   "share": 0.19010416666666666,
+   "vetoed_mean": 0.01826513823794115,
+   "kept_mean": 0.012315795570753196,
+   "edge": -0.005949342667187954,
+   "cells": {
+    "early/A": {
+     "n_vetoed": 84,
+     "vetoed": 0.026227883806623515,
+     "kept": 0.015422250229762334,
+     "kept_beats": false
+    },
+    "early/Z": {
+     "n_vetoed": 105,
+     "vetoed": 0.015927592254613678,
+     "kept": 0.018524118706017105,
+     "kept_beats": true
+    },
+    "late/A": {
+     "n_vetoed": 118,
+     "vetoed": 0.015453199601886897,
+     "kept": 0.004115571951169554,
+     "kept_beats": false
+    },
+    "late/Z": {
+     "n_vetoed": 131,
+     "vetoed": 0.017565752432860744,
+     "kept": 0.010915429516906919,
+     "kept_beats": false
+    }
+   },
+   "gates": [
+    true,
+    false,
+    false
+   ],
+   "ships": false
+  }
+ },
  "doc": "EARNINGS_GATES_V2.md @ 16de3c0",
  "coverage": {
   "symbols_with_events": 204,
@@ -15,23 +95,31 @@
   "worst": -0.3761831452091997,
   "comparison_mean": 0.0030532745277942843,
   "comparison_n": 18749,
-  "edge": 0.001100644910811644,
+  "edge": -0.005949342667187954,
   "cells": {
-   "early/A-half": {
-    "n": 132,
-    "mean": 0.016072971138687008
+   "early/A": {
+    "n_vetoed": 84,
+    "vetoed": 0.026227883806623515,
+    "kept": 0.015422250229762334,
+    "kept_beats": false
    },
-   "early/Z-half": {
-    "n": 137,
-    "mean": 0.0024968220870279813
+   "early/Z": {
+    "n_vetoed": 105,
+    "vetoed": 0.015927592254613678,
+    "kept": 0.018524118706017105,
+    "kept_beats": true
    },
-   "late/A-half": {
-    "n": 154,
-    "mean": -0.0018710436281108784
+   "late/A": {
+    "n_vetoed": 118,
+    "vetoed": 0.015453199601886897,
+    "kept": 0.004115571951169554,
+    "kept_beats": false
    },
-   "late/Z-half": {
-    "n": 116,
-    "mean": 0.0005466075854151054
+   "late/Z": {
+    "n_vetoed": 131,
+    "vetoed": 0.017565752432860744,
+    "kept": 0.010915429516906919,
+    "kept_beats": false
    }
   },
   "shift_minus1_mean": 0.0065087298513913745,
