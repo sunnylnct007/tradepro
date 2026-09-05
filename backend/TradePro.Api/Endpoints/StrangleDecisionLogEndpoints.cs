@@ -47,7 +47,11 @@ public static class StrangleDecisionLogEndpoints
         string? BrokerOrderIds = null, decimal? CreditActual = null,
         DateTime? PlacedAtUtc = null, decimal? ExitCostActual = null,
         string? CloseTrigger = null, DateTime? ClosedAtUtc = null,
-        decimal? RealisedPnl = null);
+        decimal? RealisedPnl = null,
+        // WHY it did not place — the broker's own words where we have them.
+        // Until now this lived only in a Lambda log the owner cannot read, so
+        // on screen a REFUSED placement looked identical to one never tried.
+        string? PlaceError = null);
 
     public static IEndpointRouteBuilder MapStrangleDecisionLogEndpoints(
         this IEndpointRouteBuilder app)
@@ -134,7 +138,8 @@ public static class StrangleDecisionLogEndpoints
                     exit_cost_actual = COALESCE(@ExitCostActual, exit_cost_actual),
                     close_trigger    = COALESCE(@CloseTrigger, close_trigger),
                     closed_at_utc    = COALESCE(@ClosedAtUtc, closed_at_utc),
-                    realised_pnl     = COALESCE(@RealisedPnl, realised_pnl)
+                    realised_pnl     = COALESCE(@RealisedPnl, realised_pnl),
+                    place_error      = COALESCE(@PlaceError, place_error)
                 WHERE market = @Market
                   -- SAME KEY AS THE DECISION UPSERT. Migration 073 moved that to
                   -- the TRADED session (exchange_date); this still matched as_of,
@@ -189,7 +194,7 @@ public static class StrangleDecisionLogEndpoints
                        credit_actual::float8 AS credit_actual, placed_at_utc,
                        exit_cost_actual::float8 AS exit_cost_actual,
                        close_trigger, closed_at_utc,
-                       realised_pnl::float8 AS realised_pnl,
+                       realised_pnl::float8 AS realised_pnl, place_error,
                        index_close::float8 AS index_close,
                        outcome_pct::float8 AS outcome_pct, outcome_note, graded_at_utc,
                        jobs_commit

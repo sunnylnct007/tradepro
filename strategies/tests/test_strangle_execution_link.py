@@ -229,3 +229,73 @@ def test_a_failed_price_read_never_costs_the_link():
     import inspect
     src = inspect.getsource(P.record_execution)
     assert "could not read the filled credit" in src
+
+
+# ---------------------------------------------------------------------------
+# WHY IT DID NOT PLACE, on the row.
+#
+# Owner, 5 Sep 2026: "yes but placeemnt fails then we need to see failure
+# reason". It existed only in a Lambda log he cannot read, so on screen a
+# REFUSED placement was indistinguishable from one never attempted.
+#
+# In the first week of live running the failures were the MAJORITY of the
+# record — resolution on SPY/QQQ/GOLD, margin on NDX, a cancelled SPX — and
+# none of it reached the person deciding whether to trust the desk.
+# ---------------------------------------------------------------------------
+
+def test_a_refusal_records_its_reason():
+    res = {"placed": False, "partial": False, "shadow": True,
+           "expiry_kind": "monthly", "response": {},
+           "reason": 'put=REJECTED/"SELL 1 NDX (NDXP) SEP 18 26 28500 Put"'}
+    sent = {}
+
+    class R:
+        status_code = 200; ok = True; text = ""
+        def raise_for_status(self): pass
+
+    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+        import requests
+        with patch.object(requests, "post",
+                          lambda url, json=None, **kw: (sent.update(body=json), R())[1]):
+            P.record_execution(_row(), res)
+
+    assert sent["body"]["placeError"].startswith("put=REJECTED")
+    assert sent["body"]["placed"] is False
+
+
+def test_a_SUCCESS_carries_no_error():
+    res = {"placed": True, "partial": False, "shadow": False,
+           "expiry_kind": "monthly", "reason": None,
+           "response": {"put": {"orderId": "1"}, "call": {"orderId": "2"}}}
+    sent = {}
+
+    class R:
+        status_code = 200; ok = True; text = ""
+        def raise_for_status(self): pass
+
+    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+        import requests
+        with patch.object(requests, "post",
+                          lambda url, json=None, **kw: (sent.update(body=json), R())[1]):
+            P.record_execution(_row(), res)
+
+    assert sent["body"]["placeError"] is None
+
+
+def test_a_very_long_reason_is_truncated_not_dropped():
+    res = {"placed": False, "partial": False, "shadow": False,
+           "expiry_kind": "monthly", "response": {}, "reason": "x" * 5000}
+    sent = {}
+
+    class R:
+        status_code = 200; ok = True; text = ""
+        def raise_for_status(self): pass
+
+    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+        import requests
+        with patch.object(requests, "post",
+                          lambda url, json=None, **kw: (sent.update(body=json), R())[1]):
+            P.record_execution(_row(), res)
+
+    # A reason too long to store is still worth storing the FRONT of.
+    assert len(sent["body"]["placeError"]) == 400

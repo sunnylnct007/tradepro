@@ -983,6 +983,20 @@ def record_execution(row: dict, res: dict) -> dict:
         "shadow": bool(res.get("shadow")),
         "brokerOrderIds": ",".join(ids) or None,
         "placedAtUtc": _dt.datetime.now(_dt.UTC).isoformat(),
+        # WHY IT DID NOT PLACE, on the row. Owner, 5 Sep 2026: "yes but
+        # placeemnt fails then we need to see failure reason".
+        #
+        # The reason existed only in the Lambda log, which he cannot read. On
+        # screen a REFUSED placement was indistinguishable from one never
+        # attempted. In the first week of live running the failures were the
+        # MAJORITY of the record — resolution on SPY/QQQ/GOLD, margin on NDX, a
+        # cancelled SPX — and none of it was visible to the person deciding
+        # whether to trust the desk.
+        #
+        # Truncated here, not in the database: a reason too long to store is
+        # still worth storing the front of.
+        "placeError": (None if res.get("placed")
+                       else (str(res.get("reason") or "")[:400] or None)),
     }
 
     # THE FILL PRICE — the one number this whole exercise exists to collect.

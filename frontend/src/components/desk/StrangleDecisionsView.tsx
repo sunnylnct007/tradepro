@@ -38,6 +38,7 @@ type Row = {
   credit_modelled: number | null; realised_pnl: number | null;
   close_trigger: string | null; closed_at_utc: string | null;
   exit_cost_actual: number | null; lot: number | null;
+  place_error: string | null;
 };
 type Summary = {
   market: string; evaluated: number; traded: number; declined: number;
@@ -311,7 +312,21 @@ export function StrangleDecisionsView() {
                       ? <b style={{ color: TONE.warn }}>OVERRODE — placed anyway</b>
                       : <span style={{ color: TONE.ok }}>placed</span>
                   ) : r.placed === false
-                    ? <span style={{ color: TONE.off }}>not placed</span>
+                    ? (
+                      // WHY, not just THAT. A refusal with no reason is the
+                      // same dead end the Lambda log was.
+                      <span style={{ color: TONE.off }}>
+                        not placed
+                        {r.place_error && (
+                          <b style={{ color: TONE.warn, fontWeight: 500 }}
+                             title={r.place_error}>
+                            {" — "}{r.place_error.length > 58
+                              ? r.place_error.slice(0, 58) + "…"
+                              : r.place_error}
+                          </b>
+                        )}
+                      </span>
+                    )
                     : (r.realised_pnl != null || r.close_trigger)
                       // TRADED, BUT THE PLACEMENT WAS NEVER LINKED. A realised
                       // P&L cannot exist without a position, so "—" here is a
@@ -372,6 +387,10 @@ export function StrangleDecisionsView() {
         the trade was placed regardless, to capture a real fill. Those rows are tinted and are
         counted <b>separately</b> — a losing override is evidence the gate is set correctly, and
         blending it into the gated numbers would destroy that measurement.
+        <br />
+        <b style={{ color: "var(--text)" }}>not placed</b> carries the reason where we have it —
+        the broker&rsquo;s own words for a rejection, ours for a refusal. Hover for the full text.
+        A refusal with no reason is the same dead end as no message at all.
         <br />
         <b style={{ color: TONE.bad }}>traded — PLACEMENT NOT RECORDED</b> means a realised P&amp;L
         exists with no placement row. The trade happened; our record of opening it did not. Treat
