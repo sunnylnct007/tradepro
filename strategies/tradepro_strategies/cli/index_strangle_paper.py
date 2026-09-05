@@ -904,6 +904,49 @@ def push_decisions(rows: list[dict]) -> dict:
         return {"pushed": 0, "error": str(exc)[:200]}
 
 
+def _occ_strike(desc: str) -> float | None:
+    """Strike out of an IBKR contract description, via the OCC symbol."""
+    import re as _re
+    m = _re.search(r"\d{6}[PC](\d{8})", (desc or "").upper())
+    return int(m.group(1)) / 1000.0 if m else None
+
+
+def _credit_from_broker(row: dict, leg: dict) -> float | None:
+    """What the broker ACTUALLY filled the two legs at, in MONEY.
+
+    Matched on STRIKE, because IBKR's Web API returns avgPrice null on the
+    order itself — the position is the only place a fill price exists.
+
+    Money, not per share: the multiplier is READ from the position, never
+    assumed. Recording a per-share figure here would repeat the 100x mistake
+    the close job made on 2 Sep.
+    """
+    import requests
+    from .push_to_api import load_credentials
+    base, tok = load_credentials()
+    r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/positions",
+                     params={"fresh": "true"}, timeout=45,
+                     headers={"Authorization": f"Bearer {tok}"} if tok else {})
+    payload = r.json() or {}
+    if payload.get("error"):
+        return None
+    want = {float(leg.get("put_strike") or -1), float(leg.get("call_strike") or -1)}
+    total, seen = 0.0, 0
+    for p in payload.get("positions") or []:
+        if not p.get("isOption") or float(p.get("quantity") or 0) >= 0:
+            continue
+        k = _occ_strike(p.get("instrumentName") or "")
+        if k is None or k not in want:
+            continue
+        px = p.get("averagePricePaid")
+        if px is None:
+            continue
+        mult = float(p.get("multiplier") or 0) or 100.0
+        total += float(px) * abs(float(p.get("quantity") or 0)) * mult
+        seen += 1
+    return round(total, 2) if seen else None
+
+
 def record_execution(row: dict, res: dict) -> dict:
     """Attach what ACTUALLY executed to the decision that produced it.
 
@@ -928,12 +971,53 @@ def record_execution(row: dict, res: dict) -> dict:
     ids = [str(out.get(k, {}).get("orderId")) for k in ("put", "call")
            if (out.get(k) or {}).get("orderId")]
     body = {
-        "market": row.get("market"), "asOf": row.get("as_of"), "expiryKind": kind,
+        # THE SESSION BEING TRADED, not the settled one the gate read. The
+        # execution endpoint keys on COALESCE(exchange_date, as_of); sending
+        # as_of made every PLACEMENT 404 while exits (which send the session)
+        # linked fine — which is why the log showed placed=None beside a
+        # perfectly good realised_pnl for days.
+        "market": row.get("market"),
+        "asOf": row.get("exchange_date") or row.get("as_of"),
+        "expiryKind": kind,
         "placed": bool(res.get("placed")), "partial": bool(res.get("partial")),
         "shadow": bool(res.get("shadow")),
         "brokerOrderIds": ",".join(ids) or None,
         "placedAtUtc": _dt.datetime.now(_dt.UTC).isoformat(),
+        # WHY IT DID NOT PLACE, on the row. Owner, 5 Sep 2026: "yes but
+        # placeemnt fails then we need to see failure reason".
+        #
+        # The reason existed only in the Lambda log, which he cannot read. On
+        # screen a REFUSED placement was indistinguishable from one never
+        # attempted. In the first week of live running the failures were the
+        # MAJORITY of the record — resolution on SPY/QQQ/GOLD, margin on NDX, a
+        # cancelled SPX — and none of it was visible to the person deciding
+        # whether to trust the desk.
+        #
+        # Truncated here, not in the database: a reason too long to store is
+        # still worth storing the front of.
+        "placeError": (None if res.get("placed")
+                       else (str(res.get("reason") or "")[:400] or None)),
     }
+
+    # THE FILL PRICE — the one number this whole exercise exists to collect.
+    #
+    # Every published figure for this strategy is Black-Scholes off a
+    # volatility index: no skew, no bid-ask, no evidence anyone would be filled
+    # there. credit_actual is the column built to hold what the broker ACTUALLY
+    # gave us, and nothing ever wrote to it. The number sits on the position
+    # (averagePricePaid) and the moment that position closes it is gone —
+    # IBKR's Web API returns avgPrice NULL on the order, so there is no second
+    # chance to recover it.
+    #
+    # Owner, 4 Sep 2026: "i cant see what price".
+    if body["placed"] or res.get("partial"):
+        try:
+            got = _credit_from_broker(row, leg=(row.get("legs") or {}).get(kind) or {})
+            if got is not None:
+                body["creditActual"] = got
+        except Exception as exc:  # noqa: BLE001 — never lose the link over this
+            log.warning("could not read the filled credit for %s: %s",
+                        row.get("market"), str(exc)[:120])
     try:
         import requests
         from .push_to_api import load_credentials
@@ -1613,7 +1697,26 @@ def main() -> int:
         only = {m.strip().upper() for m in args.place_market.split(",") if m.strip()}
         if only:
             print(f"  placement scoped to: {', '.join(sorted(only))}")
-        for r in rows:
+        # SMALLEST FIRST. Margin is finite and first-come-first-funded, and
+        # dict order put the LARGEST market first: SPX needs ~12x the margin of
+        # GOLD, so one big position can crowd out four small diversified ones.
+        #
+        # On 2 Sep 2026 XSP filled and SPX was then CANCELLED — consistent with
+        # exactly that. Our MARGIN_PCT of 12% is an ESTIMATE; IBKR's real
+        # requirement on a ~$763k-notional index strangle is unknown and very
+        # likely higher, so the headroom must not be assumed.
+        #
+        # Ordering by collateral costs nothing and means a shortfall drops the
+        # single LARGEST position rather than everything queued behind it.
+        # Owner, 5 Sep 2026: "why are we not placing order for other indexes if
+        # we can place within the money limit".
+        def _size(r: dict) -> float:
+            leg = (r.get("legs") or {}).get(PLACE_EXPIRY_KIND) or {}
+            k = leg.get("put_strike")
+            lot = (MARKETS.get(r.get("market")) or {}).get("lot") or 1
+            return float(k) * float(lot) if k else 0.0
+
+        for r in sorted(rows, key=_size):
             if only and r.get("market") not in only:
                 continue
             res = place_paper(r, contracts=args.contracts, shadow=args.place_shadow)

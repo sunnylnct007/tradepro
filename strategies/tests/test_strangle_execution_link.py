@@ -168,3 +168,134 @@ def test_the_report_branch_is_an_else_not_a_condition():
     assert not re.search(r'^\s*elif res\.get\("reason"\)', code, re.M), \
         "a condition here can be missed by an unanticipated return shape"
     assert "placement returned nothing" in code, "a None result must report too"
+
+
+# ---------------------------------------------------------------------------
+# THE FILL PRICE. Owner, 4 Sep 2026: "i cant see what price".
+#
+# credit_actual — the column built to hold what the broker ACTUALLY gave us —
+# was never written. record_execution recorded that an order was placed and its
+# ids, and nothing about the price. IBKR's Web API returns avgPrice NULL on the
+# order, so the position's averagePricePaid is the ONLY place a fill price
+# exists, and it disappears the moment the position closes.
+#
+# Every published figure for this strategy is Black-Scholes off a volatility
+# index. The traded credit is the one input no backtest can manufacture, and it
+# was being thrown away daily.
+# ---------------------------------------------------------------------------
+
+def test_the_placement_records_the_credit_it_was_filled_at():
+    import inspect
+    src = inspect.getsource(P.record_execution)
+    assert "creditActual" in src
+    assert "_credit_from_broker" in src
+
+
+def test_the_credit_is_money_not_per_share():
+    # The close job stored 0.32 for a $32 trade by summing per-share prices.
+    # This must not repeat: the multiplier is READ, never assumed.
+    import inspect
+    src = inspect.getsource(P._credit_from_broker)
+    assert 'p.get("multiplier")' in src
+    assert "* mult" in src
+
+
+def test_only_SHORT_option_legs_count_toward_the_credit():
+    # A long leg, or a stock position, is not part of the credit. Counting one
+    # would inflate the very number this exists to keep honest.
+    import inspect
+    src = inspect.getsource(P._credit_from_broker)
+    assert 'p.get("isOption")' in src
+    assert 'float(p.get("quantity") or 0) >= 0' in src
+
+
+def test_strikes_are_matched_via_the_occ_symbol():
+    assert P._occ_strike("SPX    SEP2026 7545 P [SPXW  260918P07545000 100]") == 7545.0
+    assert P._occ_strike("SPY    SEP2026 758 P [SPY   260918P00758000 100]") == 758.0
+    assert P._occ_strike("nothing here") is None
+
+
+def test_the_placement_keys_on_the_TRADED_session():
+    # It sent as_of (the settled session the GATE read) while the endpoint keys
+    # on COALESCE(exchange_date, as_of). Every placement 404'd while exits
+    # linked fine — placed=None beside a perfectly good realised_pnl.
+    import inspect
+    src = inspect.getsource(P.record_execution)
+    assert 'row.get("exchange_date") or row.get("as_of")' in src
+
+
+def test_a_failed_price_read_never_costs_the_link():
+    # A missing price is a worse row; a lost link is a lost row.
+    import inspect
+    src = inspect.getsource(P.record_execution)
+    assert "could not read the filled credit" in src
+
+
+# ---------------------------------------------------------------------------
+# WHY IT DID NOT PLACE, on the row.
+#
+# Owner, 5 Sep 2026: "yes but placeemnt fails then we need to see failure
+# reason". It existed only in a Lambda log he cannot read, so on screen a
+# REFUSED placement was indistinguishable from one never attempted.
+#
+# In the first week of live running the failures were the MAJORITY of the
+# record — resolution on SPY/QQQ/GOLD, margin on NDX, a cancelled SPX — and
+# none of it reached the person deciding whether to trust the desk.
+# ---------------------------------------------------------------------------
+
+def test_a_refusal_records_its_reason():
+    res = {"placed": False, "partial": False, "shadow": True,
+           "expiry_kind": "monthly", "response": {},
+           "reason": 'put=REJECTED/"SELL 1 NDX (NDXP) SEP 18 26 28500 Put"'}
+    sent = {}
+
+    class R:
+        status_code = 200; ok = True; text = ""
+        def raise_for_status(self): pass
+
+    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+        import requests
+        with patch.object(requests, "post",
+                          lambda url, json=None, **kw: (sent.update(body=json), R())[1]):
+            P.record_execution(_row(), res)
+
+    assert sent["body"]["placeError"].startswith("put=REJECTED")
+    assert sent["body"]["placed"] is False
+
+
+def test_a_SUCCESS_carries_no_error():
+    res = {"placed": True, "partial": False, "shadow": False,
+           "expiry_kind": "monthly", "reason": None,
+           "response": {"put": {"orderId": "1"}, "call": {"orderId": "2"}}}
+    sent = {}
+
+    class R:
+        status_code = 200; ok = True; text = ""
+        def raise_for_status(self): pass
+
+    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+        import requests
+        with patch.object(requests, "post",
+                          lambda url, json=None, **kw: (sent.update(body=json), R())[1]):
+            P.record_execution(_row(), res)
+
+    assert sent["body"]["placeError"] is None
+
+
+def test_a_very_long_reason_is_truncated_not_dropped():
+    res = {"placed": False, "partial": False, "shadow": False,
+           "expiry_kind": "monthly", "response": {}, "reason": "x" * 5000}
+    sent = {}
+
+    class R:
+        status_code = 200; ok = True; text = ""
+        def raise_for_status(self): pass
+
+    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+        import requests
+        with patch.object(requests, "post",
+                          lambda url, json=None, **kw: (sent.update(body=json), R())[1]):
+            P.record_execution(_row(), res)
+
+    # A reason too long to store is still worth storing the FRONT of.
+    assert len(sent["body"]["placeError"]) == 400
