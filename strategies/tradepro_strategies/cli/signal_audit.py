@@ -73,6 +73,63 @@ def _signal(df):
     return cur, last_exit
 
 
+def _entry_gate_verdict(df, cfg_gates: dict) -> tuple[bool, str]:
+    """Would the STRATEGY actually buy this, or do its entry gates refuse?
+
+    The audit used to ask only `position == 1.0` and call everything else a
+    MISSED BUY. That ignores every gate the live strategy applies, so a name it
+    would correctly REFUSE as a blow-off top was reported as an opportunity we
+    fumbled. On 4 Sep 2026 that produced 47 red rows against 8 held — a count
+    nobody can act on, which is how a panel trains you to stop reading it.
+
+    The gates are the ones in runtime_config, and the formulas are copied from
+    ichimoku_equity's own meta block so the two cannot disagree:
+
+        entry_rsi_max        RSI(14) simple-mean, as the strategy computes it
+        entry_max_ext_pct    % above the 200-SMA
+        entry_max_kijun_atr  (close - kijun) / ATR(14), kijun = 32-bar mid
+
+    Returns (would_buy, why). `why` is empty when it would buy — that row is a
+    genuine miss and the only kind worth acting on.
+    """
+    import pandas as pd
+    try:
+        close, high, low = df["Close"], df["High"], df["Low"]
+        last = float(close.iloc[-1])
+
+        ext_max = cfg_gates.get("entry_max_ext_pct")
+        if ext_max is not None and len(close) >= 200:
+            sma200 = float(close.tail(200).mean())
+            if sma200 > 0:
+                ext = (last / sma200 - 1.0) * 100.0
+                if ext > float(ext_max):
+                    return False, f"{ext:+.0f}% over 200-SMA > {ext_max}% cap"
+
+        rsi_max = cfg_gates.get("entry_rsi_max")
+        if rsi_max is not None and len(close) >= 15:
+            d = close.diff()
+            up = float(d.clip(lower=0).tail(14).mean())
+            dn = float((-d.clip(upper=0)).tail(14).mean())
+            rsi = 100.0 - 100.0 / (1.0 + up / dn) if dn > 0 else (100.0 if up > 0 else 50.0)
+            if rsi > float(rsi_max):
+                return False, f"RSI {rsi:.0f} > {rsi_max} cap"
+
+        kj_max = cfg_gates.get("entry_max_kijun_atr")
+        if kj_max is not None and len(close) >= 33:
+            kv = (float(high.tail(32).max()) + float(low.tail(32).min())) / 2.0
+            pc = close.shift(1)
+            tr = pd.concat([(high - low), (high - pc).abs(), (low - pc).abs()], axis=1).max(axis=1)
+            atr = float(tr.tail(14).mean())
+            if kv > 0 and atr > 0:
+                dist = (last - kv) / atr
+                if dist > float(kj_max):
+                    return False, f"{dist:.1f} ATR above kijun > {kj_max} cap"
+    except Exception:  # noqa: BLE001
+        # A gate we cannot evaluate must not silently pass the name as a miss.
+        return True, "gates not evaluable"
+    return True, ""
+
+
 def _fetch_book(base: str, headers: dict, cfg: dict) -> tuple[list[dict], dict]:
     """Return (positions, account) from the broker golden source.
     positions: [{symbol, qty, entry, price}]; account: {nlv, cash, invested_cost, unrealised}."""
@@ -155,6 +212,26 @@ def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
     # gated off (--reconcile-entries), so the trader SEES what the strategy would buy.
     import requests as _rq
     held_syms = {p["symbol"] for p in positions if p.get("symbol")}
+    # THE STRATEGY'S OWN GATES, from the same runtime_config it runs on — never
+    # a second copy of the numbers here. entry_rsi_max=80, entry_max_ext_pct=50
+    # and entry_max_kijun_atr=1.5 were all live and all ignored by this audit.
+    gates: dict = {}
+    try:
+        for m in (_rq.get(f"{base}/api/admin/strategy-broker-map",
+                          headers=headers, timeout=15).json().get("mappings") or []):
+            if m.get("strategy_id") != strategy:
+                continue
+            rc = m.get("runtime_config") or m.get("runtimeConfig") or {}
+            if isinstance(rc, str):
+                import json as _j
+                rc = _j.loads(rc)
+            gates = {k: rc.get(k) for k in
+                     ("entry_rsi_max", "entry_max_ext_pct", "entry_max_kijun_atr")
+                     if rc.get(k) is not None}
+            break
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not read entry gates (%s) — every LONG will read as "
+                    "a genuine miss", str(exc)[:120])
     missed_buys: list[dict] = []
     for uname in cfg.get("universes", []):
         try:
@@ -166,9 +243,18 @@ def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
         for us in usyms:
             if us in held_syms or any(m["symbol"] == us for m in missed_buys):
                 continue
-            pos, _ = _signal(_load_daily(cache_dir, us))
-            if pos == 1.0:  # signal LONG but we hold none → missed buy candidate
-                missed_buys.append({"symbol": us, "universe": uname})
+            df = _load_daily(cache_dir, us)
+            pos, _ = _signal(df)
+            if pos != 1.0:
+                continue
+            # LONG and flat — but would the strategy actually BUY it? Apply its
+            # own entry gates. A name refused as too extended is the strategy
+            # WORKING, not an opportunity missed, and lumping the two together
+            # is what turned this panel into 47 unactionable red rows.
+            would, why = _entry_gate_verdict(df, gates)
+            missed_buys.append({"symbol": us, "universe": uname,
+                                "would_enter": would,
+                                "blocked_by": why or None})
     missed_buys.sort(key=lambda m: m["symbol"])
 
     # Honest P&L: NLV vs start, splitting realized+costs from unrealised-on-held.
@@ -236,7 +322,11 @@ def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
         },
         "counts": {"held": len(rows), "hold": n("hold"),
                    "exit_overdue": n("exit_overdue"), "blind": n("blind"),
-                   "missed_buys": len(missed_buys)},
+                   # The headline is the ACTIONABLE count. A name the entry
+                   # gates refuse is the strategy working; counting it as a
+                   # miss is what made this panel unreadable.
+                   "missed_buys": sum(1 for m in missed_buys if m.get("would_enter")),
+                   "gate_blocked": sum(1 for m in missed_buys if not m.get("would_enter"))},
         "exit_overdue": overdue,
         "missed_buys": missed_buys,
         "blind": [r["symbol"] for r in rows if r["classification"] == "blind"],
