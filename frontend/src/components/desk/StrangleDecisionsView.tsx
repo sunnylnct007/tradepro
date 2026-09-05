@@ -312,7 +312,20 @@ export function StrangleDecisionsView() {
                       : <span style={{ color: TONE.ok }}>placed</span>
                   ) : r.placed === false
                     ? <span style={{ color: TONE.off }}>not placed</span>
-                    : <span style={{ color: TONE.off }}>&mdash;</span>}
+                    : (r.realised_pnl != null || r.close_trigger)
+                      // TRADED, BUT THE PLACEMENT WAS NEVER LINKED. A realised
+                      // P&L cannot exist without a position, so "—" here is a
+                      // gap in OUR record, not an absence of a trade.
+                      //
+                      // 4 Sep 2026: SPX showed "—" beside +123.89. The
+                      // placement link was 404ing (it sent as_of while the
+                      // endpoint keyed on exchange_date) so `placed` stayed
+                      // null while the exit recorded fine. Rendering that as
+                      // "—" invited the reader to conclude nothing happened.
+                      ? <b style={{ color: TONE.bad }} title="A realised P&L means a position existed. The placement record is missing, not the trade.">
+                          traded &mdash; PLACEMENT NOT RECORDED
+                        </b>
+                      : <span style={{ color: TONE.off }}>&mdash;</span>}
                   {r.partial && <b style={{ color: TONE.bad }}> · PARTIAL (naked)</b>}
                 </td>
                 <td style={{ padding: "6px 8px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
@@ -359,6 +372,10 @@ export function StrangleDecisionsView() {
         the trade was placed regardless, to capture a real fill. Those rows are tinted and are
         counted <b>separately</b> — a losing override is evidence the gate is set correctly, and
         blending it into the gated numbers would destroy that measurement.
+        <br />
+        <b style={{ color: TONE.bad }}>traded — PLACEMENT NOT RECORDED</b> means a realised P&amp;L
+        exists with no placement row. The trade happened; our record of opening it did not. Treat
+        the P&amp;L as real and the row as incomplete.
         <br />
         <b style={{ color: "var(--text)" }}>Credit</b> in bold is what the broker actually filled.
         Grey <i>modelled</i> is Black-Scholes off a volatility index — no skew, no bid-ask, and not
