@@ -114,15 +114,53 @@ export function SignalAuditCard() {
           {/* Missed BUYs — signal says LONG but we're flat (the entry gap) */}
           {(a.missed_buys?.length ?? 0) > 0 && (
             <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Missed BUYs — signal says LONG, we're flat ({a.counts.missed_buys ?? a.missed_buys!.length})
-              </div>
-              <div style={{ fontSize: 10.5, color: "#58a6ff", padding: "3px 0", lineHeight: 1.5 }}>
-                {a.missed_buys!.map((m) => m.symbol).join(", ")}
-              </div>
-              <div style={{ fontSize: 9, color: "var(--text-muted)" }}>
-                The entry half of the gap — flat names the strategy should hold. Auto-entry is gated (<code>--reconcile-entries</code> off) until reviewed; these are what it would open.
-              </div>
+              {/* SPLIT BY WHETHER THE STRATEGY WOULD ACTUALLY BUY IT.
+                  4 Sep 2026: this read "Missed BUYs (47)" against 8 held,
+                  because the audit asked only `position == 1.0` and ignored
+                  every entry gate the strategy applies. A blow-off top it
+                  correctly REFUSES was counted as an opportunity we fumbled.
+                  47 undifferentiated red rows is a count nobody can act on. */}
+              {(() => {
+                const all = a.missed_buys!;
+                const real = all.filter((m) => (m as {would_enter?: boolean}).would_enter !== false);
+                const blocked = all.filter((m) => (m as {would_enter?: boolean}).would_enter === false);
+                return (
+                  <>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      Missed BUYs — the strategy WOULD have opened these ({real.length})
+                    </div>
+                    <div style={{ fontSize: 10.5, color: real.length ? "#58a6ff" : "var(--text-muted)", padding: "3px 0", lineHeight: 1.5 }}>
+                      {real.length ? real.map((m) => m.symbol).join(", ") : "none — nothing was actually missed"}
+                    </div>
+
+                    {blocked.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 6 }}>
+                          Long, but the entry gates REFUSED them ({blocked.length}) — this is the strategy working
+                        </div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)", padding: "3px 0", lineHeight: 1.6 }}>
+                          {blocked.map((m) => (
+                            <span key={m.symbol} title={(m as {blocked_by?: string}).blocked_by ?? ""}
+                                  style={{ marginRight: 8, whiteSpace: "nowrap" }}>
+                              {m.symbol}
+                              <i style={{ fontSize: 9, opacity: 0.75 }}>
+                                {" "}{(m as {blocked_by?: string}).blocked_by ?? "gated"}
+                              </i>
+                            </span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>
+                      Only the first list is actionable. The second is names whose signal is LONG but
+                      which the strategy&rsquo;s own caps (RSI, % over the 200-SMA, ATR above the kijun)
+                      reject as too extended &mdash; the blow-off-top behaviour those caps exist to stop.
+                      Auto-entry stays gated (<code>--reconcile-entries</code> off) until reviewed.
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
