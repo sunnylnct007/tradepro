@@ -56,11 +56,24 @@ def load_events(base: str, token: str | None, symbols: list[str]) -> dict[str, l
     today = _dt.date.today().isoformat()
     out: dict[str, list[str]] = {}
     raw_n = 0
+    failed: list[str] = []
     for sym in symbols:
-        r = requests.get(f"{base}/api/earnings-calendar/{sym}",
-                         params={"back": 4000, "ahead": 0},
-                         headers=headers, timeout=45)
-        if r.status_code != 200:
+        # One flaky read must not kill a 205-symbol study — the first full run
+        # died on a single ReadTimeout. Two tries, then the symbol is NAMED as
+        # unloaded and the run continues; silence is the only wrong outcome.
+        r = None
+        for attempt in (1, 2):
+            try:
+                r = requests.get(f"{base}/api/earnings-calendar/{sym}",
+                                 params={"back": 4000, "ahead": 0},
+                                 headers=headers, timeout=45)
+                break
+            except requests.RequestException:
+                if attempt == 2:
+                    failed.append(sym)
+        if r is None or r.status_code != 200:
+            if r is not None and r.status_code != 200:
+                failed.append(sym)
             continue
         dates = sorted({str(e.get("report_date"))[:10]
                         for e in (r.json().get("events") or [])
@@ -76,6 +89,9 @@ def load_events(base: str, token: str | None, symbols: list[str]) -> dict[str, l
             out[sym] = clustered
     total = sum(len(v) for v in out.values())
     print(f"events: {raw_n} raw -> {total} after clustering, {len(out)} symbol(s)")
+    if failed:
+        print(f"  EVENT FETCH FAILED for {len(failed)}: {', '.join(failed[:12])}"
+              + (" …" if len(failed) > 12 else ""))
     return out
 
 

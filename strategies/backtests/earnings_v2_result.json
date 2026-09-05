@@ -1,0 +1,63 @@
+{
+ "generated_utc": "2026-09-05T07:27:09.742533+00:00",
+ "doc": "EARNINGS_GATES_V2.md @ 16de3c0",
+ "coverage": {
+  "symbols_with_events": 204,
+  "no_bars": [],
+  "events_dropped_missing_bars": 2222
+ },
+ "q3": {
+  "n": 539,
+  "symbols": 182,
+  "mean": 0.004153919438605928,
+  "win": 0.4935064935064935,
+  "p5": -0.12846283171254325,
+  "worst": -0.3761831452091997,
+  "comparison_mean": 0.0030532745277942843,
+  "comparison_n": 18749,
+  "edge": 0.001100644910811644,
+  "cells": {
+   "early/A-half": {
+    "n": 132,
+    "mean": 0.016072971138687008
+   },
+   "early/Z-half": {
+    "n": 137,
+    "mean": 0.0024968220870279813
+   },
+   "late/A-half": {
+    "n": 154,
+    "mean": -0.0018710436281108784
+   },
+   "late/Z-half": {
+    "n": 116,
+    "mean": 0.0005466075854151054
+   }
+  },
+  "shift_minus1_mean": 0.0065087298513913745,
+  "shift_plus1_mean": 0.002592774115167731,
+  "gates": {
+   "P0": true,
+   "P1": false,
+   "P2": false,
+   "P3": false,
+   "P4": false,
+   "P5": false,
+   "P6": false,
+   "A3": true
+  },
+  "verdict": false
+ },
+ "q1": {
+  "earnings_n": 251,
+  "earnings_mean": 0.007186265116126763,
+  "rest_n": 2053,
+  "rest_mean": 0.014212202892886442
+ },
+ "q2": {
+  "n": 327,
+  "mean": 0.005131612464840281,
+  "win": 0.5902140672782875,
+  "worst": -0.16133844292053245
+ }
+}
