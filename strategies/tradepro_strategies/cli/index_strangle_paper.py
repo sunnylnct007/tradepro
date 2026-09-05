@@ -1683,7 +1683,26 @@ def main() -> int:
         only = {m.strip().upper() for m in args.place_market.split(",") if m.strip()}
         if only:
             print(f"  placement scoped to: {', '.join(sorted(only))}")
-        for r in rows:
+        # SMALLEST FIRST. Margin is finite and first-come-first-funded, and
+        # dict order put the LARGEST market first: SPX needs ~12x the margin of
+        # GOLD, so one big position can crowd out four small diversified ones.
+        #
+        # On 2 Sep 2026 XSP filled and SPX was then CANCELLED — consistent with
+        # exactly that. Our MARGIN_PCT of 12% is an ESTIMATE; IBKR's real
+        # requirement on a ~$763k-notional index strangle is unknown and very
+        # likely higher, so the headroom must not be assumed.
+        #
+        # Ordering by collateral costs nothing and means a shortfall drops the
+        # single LARGEST position rather than everything queued behind it.
+        # Owner, 5 Sep 2026: "why are we not placing order for other indexes if
+        # we can place within the money limit".
+        def _size(r: dict) -> float:
+            leg = (r.get("legs") or {}).get(PLACE_EXPIRY_KIND) or {}
+            k = leg.get("put_strike")
+            lot = (MARKETS.get(r.get("market")) or {}).get("lot") or 1
+            return float(k) * float(lot) if k else 0.0
+
+        for r in sorted(rows, key=_size):
             if only and r.get("market") not in only:
                 continue
             res = place_paper(r, contracts=args.contracts, shadow=args.place_shadow)
