@@ -22,7 +22,7 @@ job runs at 04:00 BST when that box is asleep.
 | `index_strangle_paper` | yfinance, SMTP | **moves** — no local dependency |
 | `index_strangle_alert` | yfinance, SMTP | **moves** |
 | `post_earnings_puts` | BarStore (S3 read-through) | **moves**, given bucket access |
-| swing / momentum screens | BarStore + heavy pandas | later — bigger images, longer runs |
+| swing / momentum screens | BarStore + heavy pandas | **MEASURED 6 Sep — do not lift-and-shift, see below** |
 | bar-cache harvest | IBKR session, large writes | **stays** — long-running, stateful |
 | ollama / LLM | local model | **never** |
 
@@ -112,3 +112,63 @@ how you discover in a week that the 04:00 Indian job never fired.
 The UI trigger: desk -> API -> `lambda:InvokeFunction`. The handler already
 accepts `{"job": "..."}` from any caller, so this is an API endpoint and a
 button, not new Lambda work.
+
+## Measured, 6 Sep 2026 — why the paper sleeves did NOT move
+
+Owner: *"we are not leveraging olama so i would prefer all to lambda"*, then
+*"ensure we do not create more regression"*, and on the result:
+*"ok dont lft and shift for now then"*.
+
+**The Mac's stated justification is gone.** Ollama is running, holding 8GB of
+gemma3:12b resident, and has produced FIVE verdicts — newest 1 August, 35 days
+stale. So the reasoning in "Why" above no longer holds, and the question was
+worth re-opening.
+
+**Both sleeves RUN on Lambda.** Registered as `paper_swing_dryrun` /
+`paper_equity_dryrun` and invoked by hand. They load the same 244-symbol
+universe, drop the same 39 barred ETFs, enable the S3 bar cache and honour
+`--placement-mode manual`. `ib_insync` is not needed: it is imported lazily and
+the package works without it. Every dependency is a network call.
+
+**They are too slow for the interval, and that is the blocker:**
+
+| job | Lambda duration | Mac schedule | ceiling |
+|---|---|---|---|
+| `paper_equity_dryrun` | **658 s** (11 min) | every 900 s | 900 s |
+| `paper_swing_dryrun`  | **579 s** (10 min) | every 900 s | 900 s |
+
+65–73% of every interval, against a HARD 900-second kill. One cold start, one
+laggy IBKR session or one yfinance retry storm and the job is killed mid-run —
+at exactly the moment it would be placing orders.
+
+**That is a worse failure mode than the laptop.** A sleeping Mac does not
+trade. A Lambda killed at 900 s can place one leg and die.
+
+A false alarm worth recording: the Lambda run logged `NO bars from any source`
+for many symbols. The Mac logged the SAME warning 13,048 times on the same day.
+It was Sunday; there are no bars. Not a regression — check the other side
+before concluding.
+
+### What would actually unblock it, in order
+
+1. **Split fetch from decide.** Most of those 11 minutes is fetching bars for
+   ~200 symbols. Batch the fetch (cacheable, S3) and leave decide-and-place —
+   the half that matters — running in seconds.
+2. **Fargate, or the EC2 box.** No 15-minute ceiling. EC2 auto-stops overnight,
+   which is fine for US hours and not for India.
+3. **Question the interval.** Ichimoku is a DAILY strategy on settled bars.
+   Running it 26 times a session may be inherited habit rather than
+   requirement. If once or twice a day suffices, an 11-minute job is entirely
+   fine on Lambda and options 1 and 2 are unnecessary.
+
+Option 3 is a question about the strategy, not the infrastructure, and would
+make this trivial. It should be answered first.
+
+### State left behind
+
+- Both jobs stay registered, `_dryrun`, `manual` placement, **no `--push`, no
+  EventBridge rule**. A test asserts neither can be armed while the Mac agents
+  still run — a double-placed signal is the one regression that costs money.
+- The Mac agents are UNTOUCHED and still doing the real work.
+- The Lambda timeout was raised 300 s → 900 s. That only affects jobs that were
+  previously being killed; nothing else changes behaviour.
