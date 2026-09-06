@@ -83,6 +83,40 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # shared. Daily bars come from the BarStore via S3 read-through (same as
     # post_earnings_puts); intraday 15m from yfinance, labelled.
     "preearnings_watch":    ("tradepro_strategies.cli.preearnings_watch", []),
+
+    # ── Paper sleeves, moving off the MacBook ───────────────────────────
+    #
+    # Owner, 6 Sep 2026: "we are not leveraging olama so i would prefer all to
+    # lambda", and "ensure we do not create more regression".
+    #
+    # The Mac's one justification was Ollama, which has produced FIVE verdicts,
+    # newest 1 August — 35 days stale — while holding 8GB resident. Meanwhile
+    # 30 launchd agents depend on a laptop staying awake, two of which PLACE
+    # ORDERS.
+    #
+    # These run here WITHOUT ib_insync: it is imported lazily and the package
+    # works without it. Bars come from the shared cache, account state from the
+    # IBKR Web API, and orders route through the OMS to the backend — all
+    # network calls Lambda makes as well as the Mac does.
+    #
+    # REGISTERED IN 'manual' PLACEMENT MODE AND WITHOUT --push, DELIBERATELY.
+    # The Mac agents are STILL RUNNING. If both fired in auto mode the same
+    # signal would be placed TWICE. These exist to be invoked by hand and
+    # compared against the Mac's output; they get no EventBridge rule and no
+    # auto mode until that comparison passes and the Mac agent is unloaded.
+    # Doubling a live order to save a migration step is not a trade anyone
+    # chose.
+    "paper_swing_dryrun": (
+        "tradepro_strategies.cli.paper_session",
+        ["--broker", "ibkr", "--strategy", "mean_reversion_swing",
+         "--strategy-id", "mean_reversion_swing_ibkr", "--universe", "tradeable",
+         "--capital-usd", "100000", "--interval", "1d",
+         "--max-open-positions", "15", "--max-position-pct-of-capital", "5",
+         "--placement-mode", "manual"]),
+    "paper_equity_dryrun": (
+        "tradepro_strategies.cli.paper_session",
+        ["--strategy-id", "ichimoku_equity", "--from-config",
+         "--placement-mode", "manual"]),
 }
 
 
