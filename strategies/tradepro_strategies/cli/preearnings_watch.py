@@ -140,10 +140,18 @@ def _daily(sym):
 
 
 def _intraday_15m(sym):
-    """Current-session 15m bars via yfinance — labelled, never IBKR."""
+    """Current-session 15m bars: OUR 5m store first (mostly ibkr_web-sourced,
+    uploaded to S3 on every partition write, so the Lambda reads them
+    minutes-fresh), resampled 3x5m -> 15m on completed windows only.
+    yfinance stays as the labelled fallback — owner, 6 Sep: "we do have it
+    from ibkr as well". IBKR is the golden source; the fallback is visible.
+    """
+    bars = _store_15m(sym)
+    if bars:
+        return bars
     from ..yahoo_session import yahoo_session
     import yfinance as yf
-    df = yf.Ticker(sym, session=yahoo_session()).history(period="2d", interval="15m")
+    df = yf.Ticker(sym, session=yahoo_session()).history(period="2d", interval="15m", prepost=True)
     if df is None or df.empty:
         return []
     today_et = _dt.datetime.now(ET).date()
@@ -152,8 +160,50 @@ def _intraday_15m(sym):
         if ts.astimezone(ET).date() == today_et:
             out.append({"t": ts.isoformat(), "o": float(row["Open"]),
                         "h": float(row["High"]), "l": float(row["Low"]),
-                        "c": float(row["Close"])})
+                        "c": float(row["Close"]), "src": "yfinance_15m"})
     return out
+
+
+def _store_15m(sym, day_et: "_dt.date | None" = None):
+    """Today's completed 15m windows from the 5m store partition, or []."""
+    try:
+        from ..bar_cache import asset_classes as _p  # noqa: F401 — registers
+        from ..bar_cache.store import BarStore
+        from ..ibkr_bars import route_asset_class
+        from pathlib import Path as _P
+        store = BarStore(base_dir=_P("~/.tradepro/bar_cache").expanduser())
+        now = _dt.datetime.now(_dt.UTC)
+        res = store.get(sym, route_asset_class(sym), "5m",
+                        now - _dt.timedelta(days=4), now,
+                        allow_partial=True, skip_fetch=True,
+                        fetched_by="preearnings_watch")
+        df = getattr(res, "df", res)
+        if df is None or df.empty:
+            return []
+        day = day_et or _dt.datetime.now(ET).date()
+        out, win = [], {}
+        for ts, row in df.iterrows():
+            ts_et = ts.astimezone(ET)
+            if ts_et.date() != day:
+                continue
+            key = ts_et.replace(minute=(ts_et.minute // 15) * 15,
+                                second=0, microsecond=0)
+            w = win.setdefault(key, {"t": key.isoformat(),
+                                     "o": float(row["open"]), "h": float(row["high"]),
+                                     "l": float(row["low"]), "c": float(row["close"]),
+                                     "n": 0, "src": "store_5m/" + str(row.get("source", "?"))})
+            w["h"] = max(w["h"], float(row["high"]))
+            w["l"] = min(w["l"], float(row["low"]))
+            w["c"] = float(row["close"])
+            w["n"] += 1
+        # COMPLETED windows only — the spec confirms on completed bars, and a
+        # window is complete when its 3 five-minute bars exist or its end has
+        # passed (a halt can leave a short window that is still closed).
+        cutoff = _dt.datetime.now(ET)
+        return [w for k, w in sorted(win.items())
+                if w["n"] >= 3 or (k + _dt.timedelta(minutes=15)) <= cutoff]
+    except Exception:  # noqa: BLE001 — the fallback chain handles it
+        return []
 
 
 def _confirmed_print(base, token, sym):
@@ -179,6 +229,88 @@ def _sessions_between(d0: _dt.date, d1: _dt.date) -> int:
     return n
 
 
+def _options_context(base, token, sym, print_date):
+    """§13/§7: how the market is PLACING it — context, never direction.
+
+    Reads the chain the capture lane already stores daily (option_quote_daily,
+    mostly ibkr_web-sourced). Computes the numbers the spec's valid-uses list
+    names: ATM IV on a pre-print expiry vs one CROSSING the print (the event
+    premium), the crossing straddle's implied move, put/call OI ratio and the
+    top OI strikes near spot. The forbidden-conclusions list applies: these
+    are displayed, they never create a directional action.
+    """
+    import requests
+    try:
+        r = requests.get(f"{base}/api/options/quotes-daily/{sym}",
+                         headers={"Authorization": f"Bearer {token}"} if token else {},
+                         params={"days": 4}, timeout=30)
+        body = r.json() if r.status_code == 200 else {}
+        legs = body if isinstance(body, list) else (body.get("quotes") or [])
+        if not legs:
+            return {"status": "INSUFFICIENT", "reason": "no captured chain"}
+        cap = max(str(x.get("capture_date"))[:10] for x in legs)
+        legs = [x for x in legs if str(x.get("capture_date"))[:10] == cap]
+        spot = next((float(x["spot"]) for x in legs if x.get("spot")), None)
+        if not spot:
+            return {"status": "INSUFFICIENT", "reason": "no spot on captured legs"}
+        exps = sorted({str(x.get("expiry"))[:10] for x in legs})
+        pre = [e for e in exps if e < print_date]
+        cross = [e for e in exps if e >= print_date]
+
+        def atm_iv(exp):
+            c = [x for x in legs if str(x.get("expiry"))[:10] == exp and x.get("iv")]
+            if not c:
+                return None
+            return float(min(c, key=lambda x: abs(float(x["strike"]) - spot))["iv"])
+
+        def straddle_move(exp):
+            near = [x for x in legs if str(x.get("expiry"))[:10] == exp
+                    and x.get("bid") and x.get("ask")]
+            if not near:
+                return None
+            k = min({float(x["strike"]) for x in near}, key=lambda v: abs(v - spot))
+            mids = {}
+            for x in near:
+                if abs(float(x["strike"]) - k) < 1e-6:
+                    mids[x["right"]] = (float(x["bid"]) + float(x["ask"])) / 2
+            if "C" in mids and "P" in mids:
+                return (mids["C"] + mids["P"]) / spot
+            return None
+
+        oi_p = sum(int(x.get("open_interest") or 0) for x in legs if x.get("right") == "P")
+        oi_c = sum(int(x.get("open_interest") or 0) for x in legs if x.get("right") == "C")
+        near = sorted((x for x in legs if x.get("open_interest")
+                       and abs(float(x["strike"]) / spot - 1) < 0.10),
+                      key=lambda x: -int(x["open_interest"]))[:3]
+        iv_pre = atm_iv(pre[-1]) if pre else None
+        iv_cross = atm_iv(cross[0]) if cross else None
+        # FULL TERM STRUCTURE — owner, 6 Sep: "we shd be looking at options at
+        # diff expiry and not just 30 sep". Every captured expiry, ATM IV and
+        # straddle-implied move, so the event premium is visible as the KINK
+        # in the curve rather than one pairwise difference.
+        term = []
+        for e in exps:
+            mv = straddle_move(e)
+            term.append({"expiry": e, "crosses_print": e >= print_date,
+                         "atm_iv": atm_iv(e),
+                         "implied_move_pct": (round(100 * mv, 2) if mv else None)})
+        return {
+            "term_structure": term,
+            "status": "CONTEXT_AVAILABLE", "capture_date": cap, "spot": spot,
+            "atm_iv_pre": iv_pre, "pre_expiry": (pre[-1] if pre else None),
+            "atm_iv_cross": iv_cross, "cross_expiry": (cross[0] if cross else None),
+            "event_iv_premium": (round(iv_cross - iv_pre, 4)
+                                 if iv_pre and iv_cross else None),
+            "implied_move_cross_pct": (lambda m: round(100 * m, 2) if m else None)(
+                straddle_move(cross[0]) if cross else None),
+            "put_call_oi_ratio": round(oi_p / oi_c, 2) if oi_c else None,
+            "top_oi": [{"strike": float(x["strike"]), "right": x["right"],
+                        "oi": int(x["open_interest"])} for x in near],
+        }
+    except Exception as exc:  # noqa: BLE001 — context, never a blocker
+        return {"status": "INSUFFICIENT", "reason": str(exc)[:80]}
+
+
 # ── the evaluation ────────────────────────────────────────────────────────
 
 def evaluate(sym, cfg, base, token, state):
@@ -192,19 +324,30 @@ def evaluate(sym, cfg, base, token, state):
 
     # -- calendar: exactly one confirmed future print --
     prints = _confirmed_print(base, token, sym)
-    if len(prints) != 1:
-        detail = f"{len(prints)} future print(s): {prints[:3]}"
+    if len(prints) > 1:
+        # A CONFLICT blocks everything — two future dates is the MU 21st/30th
+        # hazard and no source gets picked by guesswork (addendum §6.2).
+        detail = f"{len(prints)} conflicting future print(s): {prints[:3]}"
         gate("one_confirmed_print", False, detail)
-        return ("REVIEW_REQUIRED", f"earnings calendar must hold exactly one "
-                f"future print — {detail}", alerts, None), gates
-    pdate = _dt.date.fromisoformat(prints[0][0])
-    gate("one_confirmed_print", True, f"{prints[0][0]} {prints[0][1]}")
-
-    sessions_to = _sessions_between(_dt.date.today(), pdate)
-    e_state = ("POST_EVENT" if sessions_to < 0 else
-               "EVENT_DAY" if sessions_to == 0 else
-               "CAUTION" if sessions_to <= 2 else "NORMAL")
-    for k, s_id in ((5, "EARNINGS_5D"), (2, "EARNINGS_2D"), (0, "EARNINGS_DAY")):
+        return ("REVIEW_REQUIRED", f"earnings date CONFLICT — {detail}",
+                alerts, None), gates
+    if not prints:
+        # UNKNOWN is different from CONFLICT (addendum §6.2 table): the
+        # engine still WATCHES and alerts — pullback, reclaim, breakout,
+        # do-not-chase — but no swing proposal can exist, because
+        # SWING_DATA_OK requires a VERIFIED date. SNDK starts here.
+        gate("one_confirmed_print", False, "no confirmed future print — "
+             "earnings UNKNOWN; alerts on, swing proposals blocked")
+        pdate, sessions_to, e_state = None, None, "UNKNOWN"
+    else:
+        pdate = _dt.date.fromisoformat(prints[0][0])
+        gate("one_confirmed_print", True, f"{prints[0][0]} {prints[0][1]}")
+        sessions_to = _sessions_between(_dt.date.today(), pdate)
+        e_state = ("POST_EVENT" if sessions_to < 0 else
+                   "EVENT_DAY" if sessions_to == 0 else
+                   "CAUTION" if sessions_to <= 2 else "NORMAL")
+    for k, s_id in (((5, "EARNINGS_5D"), (2, "EARNINGS_2D"), (0, "EARNINGS_DAY"))
+                    if sessions_to is not None else ()):
         if sessions_to == k:
             alerts.append((s_id, prints[0][0],
                            f"{sym}: {k} trading session(s) to the print"
@@ -215,6 +358,17 @@ def evaluate(sym, cfg, base, token, state):
         return ("CYCLE_COMPLETE", "print has passed — alerts expired; renewal "
                 "needs refreshed levels, ATR, date and owner approval",
                 alerts, None), gates
+
+    opts = (_options_context(base, token, sym, prints[0][0]) if prints
+            else {"status": "INSUFFICIENT", "reason": "no confirmed print to "
+                                                       "anchor expiries"})
+    gate("options_context", opts.get("status") == "CONTEXT_AVAILABLE",
+         (f"IV pre {opts.get('atm_iv_pre')} vs cross {opts.get('atm_iv_cross')} "
+          f"(+{opts.get('event_iv_premium')}) · implied move "
+          f"{opts.get('implied_move_cross_pct')}% · P/C OI "
+          f"{opts.get('put_call_oi_ratio')}"
+          if opts.get("status") == "CONTEXT_AVAILABLE"
+          else opts.get("reason", "INSUFFICIENT")))
 
     # -- daily context (settled store) --
     d = _daily(sym)
@@ -282,6 +436,15 @@ def evaluate(sym, cfg, base, token, state):
     # sma50_non_falling rule M1 cannot QUALIFY until the advisor answers the
     # tolerance question. Alerting and qualifying are different claims.
     bw = cfg.get("breakout_watch_level")
+    if not bw and cfg.get("breakout_watch_mode") == "20d_high":
+        bw = round(max(d.high[-20:]), 2)   # recomputed live, never stored
+    # SNDK special filter (addendum §12): do not chase a large expansion day.
+    ext = ema + band.get("extended_from_ema_atr", 1.5) * atr
+    if px >= ext or (bars and bars[-1]["c"] >= ext):
+        alerts.append(("EXTENDED_DO_NOT_CHASE", d.dates[i],
+                       f"{sym} is ≥{band.get('extended_from_ema_atr', 1.5)}x "
+                       f"ATR above its EMA20 ({ext:.2f}) — extension, not "
+                       f"entry. Do not chase; wait for a pullback/reclaim."))
     if bw:
         bo = next((b for b in bars if b["c"] >= bw), None)
         if bo:
@@ -291,7 +454,13 @@ def evaluate(sym, cfg, base, token, state):
                 f"(M1). EMA20 {ema:.2f} · SMA50 {sma:.2f} · ATR14 {atr:.2f} · "
                 f"sector {'OK' if sector_ok else 'WEAK'} · earnings "
                 f"{e_state} ({sessions_to}s) · regime {regime} · options "
-                f"INSUFFICIENT (not wired) · daily src {d.source}. One "
+                + (f"IV cross {opts.get('atm_iv_cross')} (event prem "
+                   f"+{opts.get('event_iv_premium')}), implied move "
+                   f"{opts.get('implied_move_cross_pct')}%, P/C OI "
+                   f"{opts.get('put_call_oi_ratio')}"
+                   if opts.get("status") == "CONTEXT_AVAILABLE"
+                   else "INSUFFICIENT")
+                + f" · daily src {d.source}. One "
                 f"alert, no forecast, no order — manual decision."))
 
     if touched:
@@ -316,7 +485,7 @@ def evaluate(sym, cfg, base, token, state):
                if e_state == "CAUTION" else
                f"watching — armed: EMA20 band {prox_hi:.2f}, breakout "
                f"{cfg.get('breakout_watch_level') or '—'}, gap-down guard, "
-               f"{sessions_to} session(s) to the print")
+               f"{sessions_to if sessions_to is not None else '?'} session(s) to the print")
         return ("WATCH", why, alerts,
                 _row(sym, cfg, "watch", None, None, None, sessions_to, why)), gates
     if regime == "TOLERATED_SMA50_ROLLOVER":
@@ -379,7 +548,8 @@ def _row(sym, cfg, action, entry, stop, qty, sessions_to, why):
         symbol=sym, strategy="Pre-Earn", tier="unproven", action=action,
         as_of=_dt.datetime.now(_dt.UTC).isoformat(),
         entry=entry, level=stop, level_label="stop",
-        metric=float(sessions_to), metric_label="d→ER",
+        metric=(float(sessions_to) if sessions_to is not None else None),
+        metric_label="d→ER",
         eligible=True, why=why[:200],
         extra={"strategy_version": STRATEGY_VERSION,
                "proposed_qty": qty, "intraday_source": "yfinance_15m"},

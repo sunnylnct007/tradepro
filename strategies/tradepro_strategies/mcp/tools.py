@@ -4499,3 +4499,77 @@ def flatten_short_options() -> dict:
     except ApiUnreachable as exc:
         return _unreachable_envelope("flatten_short_options", exc)
     return d
+
+
+# ── pre-earnings watch (per-symbol spec engine) ──────────────────────────
+
+def preearnings_status(symbol: str = "MU") -> dict:
+    """The engine's current state for one symbol: config, last evaluation,
+    fired alerts, gate trace, and the live options context. Built for the
+    owner's verification loop — 'have the logic exposed as mcp so claude can
+    connect and verify' — so an external Claude can audit what the engine
+    decided and WHY without reading Lambda logs."""
+    import requests
+    sym = symbol.upper()
+    base, headers = _api_base(), _auth_headers()
+
+    def kv(key):
+        try:
+            r = requests.get(f"{base}/api/settings-kv/{key}", headers=headers,
+                             timeout=_default_timeout())
+            return r.json().get("value") if r.status_code == 200 else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    cfg = kv(f"preearnings_cfg_{sym}")
+    state = kv(f"preearnings_state_{sym}")
+    board = None
+    try:
+        r = requests.get(f"{base}/api/today-setups/preearnings/latest",
+                         headers=headers, timeout=_default_timeout())
+        if r.status_code == 200:
+            art = (r.json() or {}).get("artifact") or {}
+            board = next((c for c in art.get("candidates_v2", [])
+                          if c.get("symbol") == sym), None)
+    except Exception:  # noqa: BLE001
+        pass
+    opts = None
+    try:
+        from ..cli.preearnings_watch import _confirmed_print, _options_context
+        token = _resolve_api_token()
+        prints = _confirmed_print(base, token, sym)
+        if len(prints) == 1:
+            opts = _options_context(base, token, sym, prints[0][0])
+    except Exception as exc:  # noqa: BLE001
+        opts = {"status": "INSUFFICIENT", "reason": str(exc)[:80]}
+    return {"symbol": sym, "config": cfg,
+            "last_evaluation": (state or {}).get("last_eval"),
+            "fired_alerts": sorted((state or {}).get("fired", {}).items())[-15:],
+            "board_row": board, "options_context": opts,
+            "note": "alerts fire once per state transition; levels recompute "
+                    "from live EMA20/ATR14 each run; nothing here is an "
+                    "execution instruction"}
+
+
+def preearnings_evaluate(symbol: str = "MU") -> dict:
+    """Run one evaluation cycle NOW (same code path as the schedule) and
+    return the primary action, detail and gate trace — without sending
+    alerts, without saving state, without touching the board. A pure
+    verification read for an external Claude."""
+    from ..cli.preearnings_watch import MU_DEFAULT_CFG, evaluate
+    sym = symbol.upper()
+    base = _api_base()
+    token = _resolve_api_token()
+    import requests
+    r = requests.get(f"{base}/api/settings-kv/preearnings_cfg_{sym}",
+                     headers=_auth_headers(), timeout=_default_timeout())
+    cfg = (r.json().get("value") if r.status_code == 200 else None) \
+        or (MU_DEFAULT_CFG if sym == "MU" else None)
+    if not cfg:
+        return {"symbol": sym, "error": f"no preearnings_cfg_{sym} — onboard "
+                                        f"the symbol first (addendum §2.2)"}
+    (action, detail, alerts, row), gates = evaluate(sym, cfg, base, token,
+                                                    {"fired": {}})
+    return {"symbol": sym, "action": action, "detail": detail,
+            "would_alert": [a[0] for a in alerts], "gates": gates,
+            "board_row_preview": row}

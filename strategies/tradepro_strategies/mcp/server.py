@@ -163,6 +163,23 @@ def build_server():
         ))
 
     @mcp.tool()
+    @instrumented("preearnings_status")
+    def preearnings_status(symbol: str = "MU") -> str:
+        """Pre-earnings watch engine state for one symbol: config, last
+        evaluation, fired alerts, board row and live options context
+        (IV term structure, event premium, P/C OI, top OI strikes).
+        The verification surface for the per-symbol spec engine."""
+        return _json(t.preearnings_status(symbol))
+
+    @mcp.tool()
+    @instrumented("preearnings_evaluate")
+    def preearnings_evaluate(symbol: str = "MU") -> str:
+        """Run one pre-earnings evaluation NOW (same code as the 5-min
+        schedule) — returns action, detail and the full gate trace.
+        Sends nothing, saves nothing: a pure verification read."""
+        return _json(t.preearnings_evaluate(symbol))
+
+    @mcp.tool()
     @instrumented("get_market_state")
     def get_market_state(symbol: str, lookback_days: int = 365) -> str:
         """Live market state for any ticker on demand — price vs
