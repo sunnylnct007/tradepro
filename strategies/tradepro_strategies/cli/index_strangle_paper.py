@@ -942,6 +942,9 @@ def push_decisions(rows: list[dict]) -> dict:
                                  if (r.get("quote") or {}).get("ok") else None),
                 "quotedAtUtc": (_dt.datetime.now(_dt.UTC).isoformat()
                                 if (r.get("quote") or {}).get("ok") else None),
+                "putDelta": (r.get("quote") or {}).get("put_delta"),
+                "callDelta": (r.get("quote") or {}).get("call_delta"),
+                "netDelta": (r.get("quote") or {}).get("net_delta"),
                 "detail": json.dumps({k: v for k, v in r.items()
                                       if k not in ("legs", "economics")}),
             })
@@ -1048,12 +1051,23 @@ def quote_strangle(row: dict) -> dict | None:
         return {"ok": False, "error": (d.get("error") or "")[:200]}
     mid = float(d.get("midPerShare") or 0)
     lot = float(cfg.get("lot") or 100)
+    def _f(k):
+        v = d.get(k)
+        return None if v is None else round(float(v), 4)
+
     return {"ok": True,
             # MONEY. mid is per share; the lot turns it into what the position
             # would have been worth. Recording the per-share figure is the same
             # 100x mistake the close job made on 2 Sep.
             "credit": round(mid * lot, 2),
-            "spread": round(float(d.get("widestSpread") or 0), 4)}
+            "spread": round(float(d.get("widestSpread") or 0), 4),
+            # IS THE PAIR BALANCED? Equidistant strikes are not delta-neutral
+            # once skew is present. net_delta > 0 means the position is LONG
+            # the market — which a short strangle should not be, and which is
+            # why a falling session hurts more than the design intends.
+            "put_delta": _f("putDelta"),
+            "call_delta": _f("callDelta"),
+            "net_delta": _f("netDelta")}
 
 
 def record_execution(row: dict, res: dict) -> dict:
@@ -1815,8 +1829,12 @@ def main() -> int:
             r["quote"] = q
             m = r.get("market")
             if q.get("ok"):
+                nd = q.get("net_delta")
+                bal = (f"  net delta {nd:+.3f}"
+                       f"{'  <-- LONG bias' if nd is not None and nd > 0.05 else ''}"
+                       if nd is not None else "")
                 print(f"  quoted {m}: credit {q['credit']:,.2f} "
-                      f"(widest leg spread {q['spread']:.2f}) — NOT a fill")
+                      f"(widest leg spread {q['spread']:.2f}) — NOT a fill{bal}")
             else:
                 print(f"  quote failed {m}: {q.get('error')}")
 
