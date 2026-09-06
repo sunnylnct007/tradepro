@@ -72,7 +72,7 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # tagged signal vs shadow so the two populations are never averaged
     # together.
     "index_strangle_paper": ("tradepro_strategies.cli.index_strangle_paper",
-                             ["--email", "--place", "--place-shadow"]),
+                             ["--email", "--place", "--place-shadow", "--quote"]),
     # The exit half: profit target, or the bell. Runs through the session.
     "index_strangle_close": ("tradepro_strategies.cli.index_strangle_close", []),
     "index_strangle_alert": ("tradepro_strategies.cli.index_strangle_alert", ["--email"]),
