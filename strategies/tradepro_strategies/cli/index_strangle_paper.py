@@ -883,6 +883,12 @@ def push_decisions(rows: list[dict]) -> dict:
                 "jobsCommit": (_os.environ.get("JOBS_COMMIT") or "")[:12] or None,
                 "dataSource": r.get("data_source"),
                 "volAtDecision": r.get("vol_at_decision"),
+                "quotedCredit": ((r.get("quote") or {}).get("credit")
+                                 if (r.get("quote") or {}).get("ok") else None),
+                "quotedSpread": ((r.get("quote") or {}).get("spread")
+                                 if (r.get("quote") or {}).get("ok") else None),
+                "quotedAtUtc": (_dt.datetime.now(_dt.UTC).isoformat()
+                                if (r.get("quote") or {}).get("ok") else None),
                 "detail": json.dumps({k: v for k, v in r.items()
                                       if k not in ("legs", "economics")}),
             })
@@ -945,6 +951,56 @@ def _credit_from_broker(row: dict, leg: dict) -> float | None:
         total += float(px) * abs(float(p.get("quantity") or 0)) * mult
         seen += 1
     return round(total, 2) if seen else None
+
+
+def quote_strangle(row: dict) -> dict | None:
+    """PRICE the strangle without placing it — a real bid/ask mid.
+
+    Owner, 6 Sep 2026: for markets we cannot fund, "we can atleast see the
+    potential gain and loss if we would have placed".
+
+    NDX resolves perfectly and simply cannot be funded (~$2.85M collateral on a
+    ~$151k account), so it produces a decision every day and nothing
+    measurable. A mid is not a fill, but it IS a price someone was offering —
+    unlike credit_modelled, which is Black-Scholes with no skew, no spread and
+    no counterparty.
+
+    Also run on markets we DO place: quoted-at-entry against credit_actual is a
+    direct measurement of SLIPPAGE, which no backtest can supply.
+
+    India is skipped — there is no NSE option price source at any provider, so
+    a quote there would have to be invented.
+    """
+    cfg = MARKETS.get(row.get("market")) or {}
+    leg = (row.get("legs") or {}).get(PLACE_EXPIRY_KIND)
+    if not leg or not cfg.get("broker_symbol") and cfg.get("index", "").startswith("^"):
+        return None
+    try:
+        import requests
+        from .push_to_api import load_credentials
+        base, tok = load_credentials()
+        r = requests.post(f"{base.rstrip('/')}/api/integrations/ibkr/strangle/quote",
+                          json={"symbol": cfg.get("broker_symbol") or cfg["index"],
+                                "expiry": _monthly_expiry(leg["dte"]),
+                                "underlyingSecType": cfg.get("broker_sec_type") or "STK",
+                                "putStrike": leg["put_strike"],
+                                "callStrike": leg["call_strike"], "contracts": 1},
+                          timeout=60,
+                          headers={"Authorization": f"Bearer {tok}"} if tok else {})
+        d = r.json() if r.content else {}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("quote failed for %s: %s", row.get("market"), str(exc)[:120])
+        return None
+    if not d.get("ok"):
+        return {"ok": False, "error": (d.get("error") or "")[:200]}
+    mid = float(d.get("midPerShare") or 0)
+    lot = float(cfg.get("lot") or 100)
+    return {"ok": True,
+            # MONEY. mid is per share; the lot turns it into what the position
+            # would have been worth. Recording the per-share figure is the same
+            # 100x mistake the close job made on 2 Sep.
+            "credit": round(mid * lot, 2),
+            "spread": round(float(d.get("widestSpread") or 0), 4)}
 
 
 def record_execution(row: dict, res: dict) -> dict:
@@ -1660,6 +1716,10 @@ def main() -> int:
     # cover every market: the stand-aside rows are the ones that make the gate
     # testable, and narrowing those to prove a point about SPY would quietly
     # bias the record this whole exercise exists to build.
+    ap.add_argument("--quote", action="store_true",
+                    help="record a REAL bid/ask mid for every US market, placed "
+                         "or not — the counterfactual for what we cannot fund, "
+                         "and slippage for what we can")
     ap.add_argument("--place-market", default="",
                     help="comma-separated markets to PLACE (default: all "
                          "paper-tradeable). Does not narrow evaluation.")
@@ -1681,6 +1741,22 @@ def main() -> int:
         econ = economics(r, ev.get(r.get("market")))
         if econ:
             r["economics"] = econ
+    # QUOTE BEFORE RECORDING, so the price sits on the decision row from the
+    # start. Runs for every US market including the unfundable ones — NDX has
+    # produced a decision a day and nothing measurable since it was configured.
+    if args.quote:
+        for r in rows:
+            q = quote_strangle(r)
+            if not q:
+                continue
+            r["quote"] = q
+            m = r.get("market")
+            if q.get("ok"):
+                print(f"  quoted {m}: credit {q['credit']:,.2f} "
+                      f"(widest leg spread {q['spread']:.2f}) — NOT a fill")
+            else:
+                print(f"  quote failed {m}: {q.get('error')}")
+
     # DURABLE first, local second. The local ledger is ephemeral in Lambda.
     if not args.no_record:
         pushed = push_decisions(rows)

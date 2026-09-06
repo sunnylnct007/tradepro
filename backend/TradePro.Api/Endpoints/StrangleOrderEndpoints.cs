@@ -395,6 +395,82 @@ public static class StrangleOrderEndpoints
         })
         .WithName("PlaceOptionLeg");
 
+        // POST /api/integrations/ibkr/strangle/quote — PRICE a strangle
+        // without placing anything.
+        //
+        // Owner, 6 Sep 2026: for the markets we cannot fund, "we can atleast
+        // see the potential gain and loss if we would have placed".
+        //
+        // NDX resolves fine and simply cannot be funded, so today it yields a
+        // decision and nothing measurable. A real bid/ask mid is not a fill,
+        // but it IS a price someone was offering — unlike the Black-Scholes
+        // credit, which has no skew, no spread, and no counterparty.
+        //
+        // PLACES NOTHING. No AllowOrders check is needed because no order is
+        // constructed; this reads market data and returns arithmetic.
+        app.MapPost("/integrations/ibkr/strangle/quote", async (
+            StrangleRequest req,
+            IBKRClient ibkr,
+            ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("StrangleQuote");
+            if (!ibkr.IsEnabled)
+                return Results.Json(new { error = "IBKR disabled" }, statusCode: 503);
+            if (req is null || string.IsNullOrWhiteSpace(req.Symbol)
+                || req.PutStrike <= 0 || req.CallStrike <= 0)
+                return Results.BadRequest(new { error = "symbol, expiry, putStrike, callStrike required" });
+
+            var sym = req.Symbol.Trim().ToUpperInvariant();
+            var put = await ibkr.ResolveOptionConidAsync(
+                sym, req.Expiry, req.PutStrike, "P", ct, req.UnderlyingSecType);
+            var call = await ibkr.ResolveOptionConidAsync(
+                sym, req.Expiry, req.CallStrike, "C", ct, req.UnderlyingSecType);
+            if (put is null || call is null)
+            {
+                log.LogWarning("QUOTE resolve failed for {Sym} {Exp} {P}/{C}",
+                    sym, req.Expiry, req.PutStrike, req.CallStrike);
+                return Results.Json(new
+                {
+                    ok = false, stage = "resolve",
+                    error = "could not resolve one or both contracts",
+                    putResolved = put is not null, callResolved = call is not null,
+                }, statusCode: 502);
+            }
+
+            var q = await ibkr.GetOptionSnapshotBatchAsync(new[] { put.Value, call.Value }, ct);
+            decimal? mid = 0m, widest = 0m;
+            foreach (var conid in new[] { put.Value, call.Value })
+            {
+                var x = q.Quotes.FirstOrDefault(z => z.ConId == conid);
+                // NEVER substitute `last` for a missing side. A one-sided book
+                // has no mid, and inventing one is how a modelled number gets
+                // mistaken for a market number — the exact confusion this
+                // endpoint exists to remove.
+                if (x?.Bid is not decimal b || x.Ask is not decimal a || b <= 0 || a < b)
+                { mid = null; break; }
+                mid += (b + a) / 2m;
+                if (a - b > widest) widest = a - b;
+            }
+            if (mid is null)
+                return Results.Json(new
+                {
+                    ok = false, stage = "quote",
+                    error = "a leg had no two-sided quote — no honest mid exists",
+                }, statusCode: 502);
+
+            var contracts = req.Contracts <= 0 ? 1 : req.Contracts;
+            return Results.Ok(new
+            {
+                ok = true, symbol = sym, expiry = req.Expiry,
+                putStrike = req.PutStrike, callStrike = req.CallStrike,
+                midPerShare = mid, widestSpread = widest, contracts,
+                note = "QUOTED, NOT TRADED. A real bid/ask mid — not a fill, and "
+                     + "not Black-Scholes. Multiply by lot x contracts for money.",
+            });
+        })
+        .WithName("QuoteStrangle");
+
         // POST /api/integrations/ibkr/options/flatten — buy back EVERY short
         // option at the broker.
         //

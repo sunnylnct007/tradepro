@@ -51,7 +51,13 @@ public static class StrangleDecisionLogEndpoints
         // WHY it did not place — the broker's own words where we have them.
         // Until now this lived only in a Lambda log the owner cannot read, so
         // on screen a REFUSED placement looked identical to one never tried.
-        string? PlaceError = null);
+        string? PlaceError = null,
+        // QUOTED, NOT TRADED — a real bid/ask mid for a strangle we did not
+        // place. Separate from credit_actual on purpose: one is a fill, the
+        // other is an offer, and summing them would be a lie.
+        decimal? QuotedCredit = null, decimal? QuotedExit = null,
+        decimal? QuotedPnl = null, DateTime? QuotedAtUtc = null,
+        decimal? QuotedSpread = null);
 
     public static IEndpointRouteBuilder MapStrangleDecisionLogEndpoints(
         this IEndpointRouteBuilder app)
@@ -139,7 +145,12 @@ public static class StrangleDecisionLogEndpoints
                     close_trigger    = COALESCE(@CloseTrigger, close_trigger),
                     closed_at_utc    = COALESCE(@ClosedAtUtc, closed_at_utc),
                     realised_pnl     = COALESCE(@RealisedPnl, realised_pnl),
-                    place_error      = COALESCE(@PlaceError, place_error)
+                    place_error      = COALESCE(@PlaceError, place_error),
+                    quoted_credit    = COALESCE(@QuotedCredit, quoted_credit),
+                    quoted_exit      = COALESCE(@QuotedExit, quoted_exit),
+                    quoted_pnl       = COALESCE(@QuotedPnl, quoted_pnl),
+                    quoted_at_utc    = COALESCE(@QuotedAtUtc, quoted_at_utc),
+                    quoted_spread    = COALESCE(@QuotedSpread, quoted_spread)
                 WHERE market = @Market
                   -- SAME KEY AS THE DECISION UPSERT. Migration 073 moved that to
                   -- the TRADED session (exchange_date); this still matched as_of,
@@ -195,6 +206,10 @@ public static class StrangleDecisionLogEndpoints
                        exit_cost_actual::float8 AS exit_cost_actual,
                        close_trigger, closed_at_utc,
                        realised_pnl::float8 AS realised_pnl, place_error,
+                       quoted_credit::float8 AS quoted_credit,
+                       quoted_exit::float8   AS quoted_exit,
+                       quoted_pnl::float8    AS quoted_pnl,
+                       quoted_spread::float8 AS quoted_spread, quoted_at_utc,
                        index_close::float8 AS index_close,
                        outcome_pct::float8 AS outcome_pct, outcome_note, graded_at_utc,
                        jobs_commit
