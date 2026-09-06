@@ -31,3 +31,24 @@ Key contracts the desk has adopted:
 - Build order: framework → MU cycle → INTRADAY tagging/VWAP → SNDK →
   others one at a time → per-symbol review → only then non-executable
   proposals; unattended execution needs a separate signed spec.
+
+## Scale-invariance invariant (adopted 6 Sep 2026, external-Claude audit)
+
+Regime-shifted names (MU 8x in a year, SNDK +236% in 26 weeks) make every
+long-window statistic an average across a differently-priced asset — a
+200-SMA gate sitting 67-73% below spot is a filter that cannot fail.
+Therefore, for every per-symbol engine config:
+
+- Engine lookbacks are capped at 63 sessions (EMA20 / SMA50 / ATR14 /
+  20d-high are the working set).
+- Engine-computed thresholds are expressed as ATR multiples or slope
+  percentages, never fixed dollars or fixed percentages of price.
+- OWNER-ARMED reference levels (e.g. the MU 1050 breakout watch) are exempt:
+  a human may draw a dollar line; the machine may not derive one.
+- Slope tests over level tests where trend must be able to fail — the SMA50
+  rollover check is the working example (it fired on MU while a 200-SMA gate
+  would have slept).
+
+The population strategies (swing's 200-SMA floor) are NOT retro-edited by
+this: they are pre-registered and mid-forward-test; a 63-session variant is
+a v2 candidate with its own gates, not an edit.
