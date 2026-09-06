@@ -487,11 +487,28 @@ def evaluate(sym, cfg, base, token, state):
                       "threshold": "", "verdict": "armed"})
 
     if not long_regime:
-        why = (f"DECISION: no long. Close {px:.2f} vs EMA20 {ema:.2f} / SMA50 "
-               f"{sma:.2f} — structure is below the trend filter"
-               + (f" after a pullback (ATR {100*atr/px:.1f}% of price)" if px < sma else "")
-               + ". Nothing to do until price repairs.")
-        trigger(f"daily close back above SMA50 ({sma:.2f}) re-opens setups")
+        # NAME the failing condition. The first cut said "below the trend
+        # filter" even when price was ABOVE both averages and a SLOPE had
+        # failed — SNDK at 1740 over EMA20 1534/SMA50 1550 read as "below".
+        # A warning that misstates its own reason is worse than none.
+        fails = []
+        if px <= ema:
+            fails.append(f"close {px:.2f} below EMA20 {ema:.2f}")
+        if px <= sma:
+            fails.append(f"close {px:.2f} below SMA50 {sma:.2f}")
+        if not d.ema20[i] >= d.ema20[i - 3]:
+            fails.append(f"EMA20 falling ({d.ema20[i]:.2f} vs "
+                         f"{d.ema20[i-3]:.2f} three sessions ago)")
+        if px > ema and px > sma and d.ema20[i] >= d.ema20[i - 3]:
+            fails.append(f"SMA50 rolling over {sma_fall_pct:+.2f}%/5s, beyond "
+                         f"the −{tol}% tolerance")
+        why = (f"DECISION: no long ({'; '.join(fails) or 'regime failed'}). "
+               f"ATR {100*atr/px:.1f}% of price. Nothing to do until the "
+               f"failing condition repairs.")
+        if px <= sma:
+            trigger(f"daily close back above SMA50 ({sma:.2f}) re-opens setups")
+        else:
+            trigger("EMA20 turning back up (3-session slope ≥ 0) re-opens setups")
         trigger(f"a 15m reclaim of the EMA20 band ({prox_hi:.2f}) after a "
                 f"touch would surface for manual review only")
         return ("BLOCK_NEW_ENTRIES", why, alerts,
