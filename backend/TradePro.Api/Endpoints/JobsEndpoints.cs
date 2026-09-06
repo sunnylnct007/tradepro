@@ -45,6 +45,7 @@ public static class JobsEndpoints
         "index_strangle_alert",
         "post_earnings_puts",
         "index_strangle_close",
+        "preearnings_watch",
     };
 
     public static IEndpointRouteBuilder MapJobsEndpoints(this IEndpointRouteBuilder app)

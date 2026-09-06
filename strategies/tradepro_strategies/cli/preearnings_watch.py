@@ -111,13 +111,32 @@ def _kv_put(base, token, key, value, label, desc, create=False):
 # ── data ──────────────────────────────────────────────────────────────────
 
 def _daily(sym):
+    """Settled store first; labelled yfinance fallback for the Lambda runtime.
+
+    Verified 6 Sep: the BarStore does NOT read through from S3 on a cold
+    HOME, and Lambda's filesystem starts cold every invoke. The alert lane
+    may run on Yahoo daily bars — VISIBLY (`source` rides every payload) —
+    per the fallback rule; anything that sizes real risk must not.
+    """
     from .preearnings_profile import _atr, _ema, _load_ohlc
-    dates, o, h, l, c = _load_ohlc(sym)
+    try:
+        dates, o, h, l, c = _load_ohlc(sym)
+        src = "bar_store"
+    except SystemExit:
+        from ..yahoo_session import yahoo_session
+        import yfinance as yf
+        df = yf.Ticker(sym, session=yahoo_session()).history(period="400d",
+                                                             interval="1d")
+        if df is None or df.empty:
+            raise SystemExit(f"ERROR: no daily bars for {sym} from store OR yfinance")
+        dates = [str(x)[:10] for x in df.index]
+        o, h, l, c = (list(map(float, df[k])) for k in ("Open", "High", "Low", "Close"))
+        src = "yfinance_daily"
     ema20 = _ema(c)
     sma50 = [sum(c[max(0, i - 49):i + 1]) / min(i + 1, 50) for i in range(len(c))]
     atr14 = _atr(h, l, c)
     return SimpleNamespace(dates=dates, close=c, high=h, low=l,
-                           ema20=ema20, sma50=sma50, atr14=atr14)
+                           ema20=ema20, sma50=sma50, atr14=atr14, source=src)
 
 
 def _intraday_15m(sym):
@@ -201,11 +220,25 @@ def evaluate(sym, cfg, base, token, state):
     d = _daily(sym)
     i = len(d.close) - 1
     px, ema, sma, atr = d.close[i], d.ema20[i], d.sma50[i], d.atr14[i]
-    long_regime = gate(
-        "long_regime",
-        px > ema and px > sma and d.ema20[i] >= d.ema20[i - 3]
-        and d.sma50[i] >= d.sma50[i - 5],
-        f"close {px:.2f} vs EMA20 {ema:.2f} / SMA50 {sma:.2f}")
+    # Three regime states (advisor clarification, 6 Sep): a binary
+    # "SMA50 non-falling" wrongly vetoes current strength when an old spike
+    # rolls out of the 50-day window — exactly MU's situation. TOLERATED
+    # allows alerts and manual review WITH the warning; only QUALIFIED
+    # allows a standard proposal path.
+    sma_fall_pct = (d.sma50[i] / d.sma50[i - 5] - 1) * 100
+    tol = float(cfg.get("sma50_rollover_tolerance_pct", 2.0))
+    above = px > ema and px > sma
+    ema_ok = d.ema20[i] >= d.ema20[i - 3]
+    if above and ema_ok and d.sma50[i] >= d.sma50[i - 5]:
+        regime = "QUALIFIED"
+    elif above and ema_ok and sma_fall_pct >= -tol:
+        regime = "TOLERATED_SMA50_ROLLOVER"
+    else:
+        regime = "BLOCKED"
+    long_regime = regime != "BLOCKED"
+    gate("regime", long_regime,
+         f"{regime}: close {px:.2f} vs EMA20 {ema:.2f} / SMA50 {sma:.2f}, "
+         f"SMA50 5s slope {sma_fall_pct:+.2f}% (tolerance −{tol}%)")
 
     # -- sector (daily-level; intraday proxy return via its last two closes) --
     try:
@@ -254,20 +287,24 @@ def evaluate(sym, cfg, base, token, state):
         if bo:
             alerts.append((
                 "BREAKOUT_15M", f"{bw:.0f}",
-                f"{sym} 15m close {bo['c']:.2f} above the {bw:.0f} breakout "
-                f"watch (M1 momentum context). Daily regime filter is "
-                + ("PASSING" if long_regime else
-                   "FAILING — SMA50 still falling; per the spec this blocks "
-                   "qualification. Manual decision, eyes open.")))
+                f"{sym} 15m close {bo['c']:.2f} ≥ {bw:.0f} breakout watch "
+                f"(M1). EMA20 {ema:.2f} · SMA50 {sma:.2f} · ATR14 {atr:.2f} · "
+                f"sector {'OK' if sector_ok else 'WEAK'} · earnings "
+                f"{e_state} ({sessions_to}s) · regime {regime} · options "
+                f"INSUFFICIENT (not wired) · daily src {d.source}. One "
+                f"alert, no forecast, no order — manual decision."))
 
     if touched:
         alerts.append(("EMA20_PULLBACK_ZONE", d.dates[i],
                        f"{sym} touched the EMA20 proximity band "
-                       f"({prox_hi:.2f}; low {touch_low:.2f})"))
+                       f"({prox_hi:.2f}; low {touch_low:.2f}) · "
+                       f"blind-entry proxy {prox_hi:.2f} · journal armed"))
     if reclaim_bar:
         alerts.append(("RECLAIM_15M", reclaim_bar["t"],
                        f"{sym} 15m close {reclaim_bar['c']:.2f} back above the "
-                       f"band after the touch"))
+                       f"band after the touch (touch low {touch_low:.2f}, "
+                       f"blind proxy {prox_hi:.2f}) — forward journal row "
+                       f"written; MAE/MFE fill in over the session"))
 
     # -- primary action + proposal --
     if not long_regime:
@@ -282,6 +319,14 @@ def evaluate(sym, cfg, base, token, state):
                f"{sessions_to} session(s) to the print")
         return ("WATCH", why, alerts,
                 _row(sym, cfg, "watch", None, None, None, sessions_to, why)), gates
+    if regime == "TOLERATED_SMA50_ROLLOVER":
+        msg = (f"reclaim seen under TOLERATED regime (SMA50 rolling over "
+               f"{sma_fall_pct:+.2f}%/5s) — manual review with the warning, "
+               f"no automatic proposal")
+        alerts.append(("RECLAIM_TOLERATED_REGIME", d.dates[i], f"{sym}: {msg}"))
+        return ("REVIEW_REQUIRED", msg, alerts,
+                _row(sym, cfg, "review", reclaim_bar["c"], None, None,
+                     sessions_to, msg)), gates
     if not sector_ok:
         return ("REVIEW_REQUIRED", "setup reclaimed but sector filter failed",
                 alerts, _row(sym, cfg, "review", None, None, None, sessions_to,

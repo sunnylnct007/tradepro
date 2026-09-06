@@ -77,6 +77,12 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     "index_strangle_close": ("tradepro_strategies.cli.index_strangle_close", []),
     "index_strangle_alert": ("tradepro_strategies.cli.index_strangle_alert", ["--email"]),
     "post_earnings_puts":   ("tradepro_strategies.cli.post_earnings_puts", ["--push"]),
+    # Pre-earnings per-symbol spec engine (Phase 1, alerts only). State,
+    # dedupe keys and config all live in settings-kv, so the Mac schedule and
+    # this one can overlap without double-alerting — the fired-key store is
+    # shared. Daily bars come from the BarStore via S3 read-through (same as
+    # post_earnings_puts); intraday 15m from yfinance, labelled.
+    "preearnings_watch":    ("tradepro_strategies.cli.preearnings_watch", []),
 }
 
 
