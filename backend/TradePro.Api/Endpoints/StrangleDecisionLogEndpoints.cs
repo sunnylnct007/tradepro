@@ -57,7 +57,11 @@ public static class StrangleDecisionLogEndpoints
         // other is an offer, and summing them would be a lie.
         decimal? QuotedCredit = null, decimal? QuotedExit = null,
         decimal? QuotedPnl = null, DateTime? QuotedAtUtc = null,
-        decimal? QuotedSpread = null);
+        decimal? QuotedSpread = null,
+        // Balance of the pair. Equidistant strikes are not delta-neutral once
+        // skew is present; this is how we find out by how much.
+        decimal? PutDelta = null, decimal? CallDelta = null,
+        decimal? NetDelta = null);
 
     public static IEndpointRouteBuilder MapStrangleDecisionLogEndpoints(
         this IEndpointRouteBuilder app)
@@ -150,7 +154,10 @@ public static class StrangleDecisionLogEndpoints
                     quoted_exit      = COALESCE(@QuotedExit, quoted_exit),
                     quoted_pnl       = COALESCE(@QuotedPnl, quoted_pnl),
                     quoted_at_utc    = COALESCE(@QuotedAtUtc, quoted_at_utc),
-                    quoted_spread    = COALESCE(@QuotedSpread, quoted_spread)
+                    quoted_spread    = COALESCE(@QuotedSpread, quoted_spread),
+                    put_delta        = COALESCE(@PutDelta, put_delta),
+                    call_delta       = COALESCE(@CallDelta, call_delta),
+                    net_delta        = COALESCE(@NetDelta, net_delta)
                 WHERE market = @Market
                   -- SAME KEY AS THE DECISION UPSERT. Migration 073 moved that to
                   -- the TRADED session (exchange_date); this still matched as_of,
@@ -210,6 +217,9 @@ public static class StrangleDecisionLogEndpoints
                        quoted_exit::float8   AS quoted_exit,
                        quoted_pnl::float8    AS quoted_pnl,
                        quoted_spread::float8 AS quoted_spread, quoted_at_utc,
+                       put_delta::float8  AS put_delta,
+                       call_delta::float8 AS call_delta,
+                       net_delta::float8  AS net_delta,
                        index_close::float8 AS index_close,
                        outcome_pct::float8 AS outcome_pct, outcome_note, graded_at_utc,
                        jobs_commit
