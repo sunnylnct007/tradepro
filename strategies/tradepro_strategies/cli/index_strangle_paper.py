@@ -373,6 +373,52 @@ def economics(row: dict, ev_entry: dict | None) -> dict | None:
     }
 
 
+# HOW LONG AFTER THE BELL BEFORE WE WILL TRADE.
+#
+# Owner, 6 Sep 2026: "the timing to enter on index is very important. we try to
+# enter 20-25 mins after market open for that exchange".
+#
+# The opening auction and the minutes after it are the least representative
+# prices of the day: widest spreads, thinnest book, and the "session open" the
+# strikes are struck off has not settled. Both schedules ran at FIFTEEN
+# minutes, and a manual trigger or a Lambda retry could fire inside the auction
+# itself. A cron time is a convenience; this is the guarantee.
+ENTRY_MIN_MINUTES_AFTER_OPEN = 20
+
+
+def _minutes_since_open(cfg: dict, now_utc=None):
+    """Minutes since this market's open, or None when it is not trading."""
+    from zoneinfo import ZoneInfo
+    state, _ = _session_state(cfg, now_utc)
+    if state != "open":
+        return None
+    now_utc = now_utc or _dt.datetime.now(_dt.UTC)
+    local = now_utc.astimezone(ZoneInfo(cfg.get("tz", "America/New_York")))
+    oh, om = (int(x) for x in cfg.get("open_local", "09:30").split(":"))
+    opened = local.replace(hour=oh, minute=om, second=0, microsecond=0)
+    return (local - opened).total_seconds() / 60.0
+
+
+def _entry_min_minutes() -> float:
+    """The configured wait. Config, not a constant — the standing rule."""
+    import os as _os
+    try:
+        v = _os.environ.get("TRADEPRO_ENTRY_MIN_MINUTES_AFTER_OPEN")
+        if v:
+            return float(v)
+        import requests
+        from .push_to_api import load_credentials
+        base, tok = load_credentials()
+        r = requests.get(
+            f"{base.rstrip('/')}/api/settings-kv/strangle_entry_min_minutes_after_open",
+            timeout=15, headers={"Authorization": f"Bearer {tok}"} if tok else {})
+        if r.ok:
+            return float((r.json() or {}).get("value"))
+    except Exception:  # noqa: BLE001 — a config read must never block a decision
+        pass
+    return float(ENTRY_MIN_MINUTES_AFTER_OPEN)
+
+
 def strike_pair(spot: float, width: float, dte: int, rate: float,
                 grid: float) -> tuple[float, float, float]:
     """(put, call, forward), centred on the FORWARD and snapped to the grid.
@@ -780,6 +826,13 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
     if row.get("session_state") != "open":
         return {"placed": False, "reason": f"session is {row.get('session_state')}",
                 "expiry_kind": PLACE_EXPIRY_KIND}
+    # LET THE OPENING AUCTION PASS.
+    _wait = _entry_min_minutes()
+    _since = _minutes_since_open(cfg)
+    if _since is not None and _since < _wait:
+        return {"placed": False, "expiry_kind": PLACE_EXPIRY_KIND,
+                "reason": (f"only {_since:.0f} min after the open — waiting for "
+                           f"{_wait:.0f} min so the opening auction has passed")}
 
     # The expiry this desk actually trades. Named once, reported back in the
     # result, and consumed by record_execution — so the two can never drift.
@@ -1122,7 +1175,17 @@ def _email_cfg() -> dict:
         "smtp_user": data.get("smtp_user") or os.environ.get("TRADEPRO_SMTP_USER"),
         "smtp_password": data.get("smtp_password") or os.environ.get("TRADEPRO_SMTP_PASSWORD"),
         "from": data.get("from") or os.environ.get("TRADEPRO_EMAIL_FROM"),
-        "to": [t for t in (data.get("to") or [os.environ.get("TRADEPRO_EMAIL_TO")]) if t],
+        # INDEX-SPECIFIC RECIPIENTS when the secret declares them.
+        #
+        # `to` is the SHARED list every TradePro email uses, so adding an
+        # address there sends that person the wheel screen, the puts screen and
+        # everything else too. Owner, 6 Sep 2026: "can u add
+        # jeetendra.lnct@gmail.com for the index email" — for the INDEX email,
+        # which is a narrower ask than the shared list can express.
+        #
+        # `to_index` overrides it for this job only; absent, nothing changes.
+        "to": [t for t in (data.get("to_index") or data.get("to")
+                           or [os.environ.get("TRADEPRO_EMAIL_TO")]) if t],
     }
 
 
