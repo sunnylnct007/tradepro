@@ -476,16 +476,42 @@ def evaluate(sym, cfg, base, token, state):
                        f"written; MAE/MFE fill in over the session"))
 
     # -- primary action + proposal --
+    def trigger(text):
+        gates.append({"gate": "what_changes_this", "ok": None,
+                      "measured": text[:120]})
+
     if not long_regime:
-        return ("BLOCK_NEW_ENTRIES", "daily trend filter failed", alerts,
-                _row(sym, cfg, "block", None, None, None, sessions_to,
-                     "daily close below EMA20/SMA50 — no new longs")), gates
+        why = (f"DECISION: no long. Close {px:.2f} vs EMA20 {ema:.2f} / SMA50 "
+               f"{sma:.2f} — structure is below the trend filter"
+               + (f" after a pullback (ATR {100*atr/px:.1f}% of price)" if px < sma else "")
+               + ". Nothing to do until price repairs.")
+        trigger(f"daily close back above SMA50 ({sma:.2f}) re-opens setups")
+        trigger(f"a 15m reclaim of the EMA20 band ({prox_hi:.2f}) after a "
+                f"touch would surface for manual review only")
+        return ("BLOCK_NEW_ENTRIES", why, alerts,
+                _row(sym, cfg, "block", None, None, None, sessions_to, why)), gates
     if not (touched and reclaim_bar):
-        why = ("watching — in CAUTION window, manual approval required for any entry"
-               if e_state == "CAUTION" else
-               f"watching — armed: EMA20 band {prox_hi:.2f}, breakout "
-               f"{cfg.get('breakout_watch_level') or '—'}, gap-down guard, "
-               f"{sessions_to if sessions_to is not None else '?'} session(s) to the print")
+        oc = (f" Options: market prices the print at ±{opts['implied_move_cross_pct']}%"
+              if opts.get("implied_move_cross_pct") else
+              (f" Options: +{round(100*opts['event_iv_premium'],1)} IV pts of event "
+               f"premium, P/C OI {opts.get('put_call_oi_ratio')}"
+               if opts.get("event_iv_premium") else ""))
+        why = (f"DECISION: stand aside, watching ({regime}). No entry exists until "
+               f"a pullback to the EMA20 band ({prox_hi:.2f}) is RECLAIMED on a "
+               f"15m close"
+               + (f", or a 15m close ≥{bw:.0f} flags M1 momentum for manual review"
+                  if bw else "")
+               + (f". {sessions_to} sessions to the confirmed print — swing exits "
+                  f"before it." if sessions_to is not None else
+                  ". No confirmed earnings date — proposals stay blocked.")
+               + oc)
+        trigger(f"touch of {prox_hi:.2f} then a 15m close back above it → "
+                f"setup review" + ("" if regime == "QUALIFIED" else
+                                   f" (regime {regime}: review only, no proposal)"))
+        if bw:
+            trigger(f"15m close ≥ {bw:.0f} → M1 momentum alert (one-shot)")
+        trigger(f"open below ~{(ema - band['gap_down_atr']*atr):.0f} → gap-down "
+                f"guard blocks the day, fresh reclaim required")
         return ("WATCH", why, alerts,
                 _row(sym, cfg, "watch", None, None, None, sessions_to, why)), gates
     if regime == "TOLERATED_SMA50_ROLLOVER":
@@ -542,15 +568,22 @@ def evaluate(sym, cfg, base, token, state):
             _row(sym, cfg, "buy (proposal)", entry, stop, qty, sessions_to, why)), gates
 
 
-def _row(sym, cfg, action, entry, stop, qty, sessions_to, why):
+def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
+         gates_extra=None):
+    """Owner, 6 Sep, looking at the desk: the Pre-Earn label "is fne for MU
+    but not for SNDK as SNDK has no recent earning coming up". Right — the
+    lane is named by what the symbol is actually IN: an earnings cycle
+    (confirmed print inside 25 sessions) or plain swing watching."""
     from ..candidates import Candidate, emit
+    lane = ("Pre-Earn" if sessions_to is not None and sessions_to <= 25
+            else "SwingWatch")
     return emit([Candidate(
-        symbol=sym, strategy="Pre-Earn", tier="unproven", action=action,
+        symbol=sym, strategy=lane, tier="unproven", action=action,
         as_of=_dt.datetime.now(_dt.UTC).isoformat(),
         entry=entry, level=stop, level_label="stop",
         metric=(float(sessions_to) if sessions_to is not None else None),
         metric_label="d→ER",
-        eligible=True, why=why[:200],
+        eligible=True, why=why[:320],
         extra={"strategy_version": STRATEGY_VERSION,
                "proposed_qty": qty, "intraday_source": "yfinance_15m"},
     )])[0]
