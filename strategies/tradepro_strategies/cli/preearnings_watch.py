@@ -261,7 +261,7 @@ def _options_context(base, token, sym, print_date):
             c = [x for x in legs if str(x.get("expiry"))[:10] == exp and x.get("iv")]
             if not c:
                 return None
-            return float(min(c, key=lambda x: abs(float(x["strike"]) - spot))["iv"])
+            return round(float(min(c, key=lambda x: abs(float(x["strike"]) - spot))["iv"]), 3)
 
         def straddle_move(exp):
             near = [x for x in legs if str(x.get("expiry"))[:10] == exp
