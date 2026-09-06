@@ -213,3 +213,128 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ── ATR-stop variant study ────────────────────────────────────────────────
+# Requested by the owner's advisor (6 Sep 2026) before any ATR distance goes
+# into the spec: re-run the qualified setups across stop widths and make the
+# choice a DOCUMENTED CALIBRATION, not a new intuition.
+#
+# The 15m close-without-reclaim rule cannot be tested from daily bars. It is
+# BRACKETED instead: a daily TOUCH stop (low <= stop → filled at the stop, or
+# at the open when the session gaps through it) is the harshest reading; a
+# daily CLOSE stop (close < stop → out at that close) is the most lenient.
+# The live 15m rule sits between the two, and every table says so.
+
+def atr_variants(sym: str, variants=(0.5, 0.8, 1.0)) -> dict:
+    import bisect
+
+    import requests
+
+    from .push_to_api import load_credentials
+    base, token = load_credentials()
+    r = requests.get(f"{base.rstrip('/')}/api/earnings-calendar/{sym}",
+                     params={"back": 4000, "ahead": 0},
+                     headers={"Authorization": f"Bearer {token}"} if token else {},
+                     timeout=45)
+    today = _dt.date.today().isoformat()
+    raw = sorted({str(e.get("report_date"))[:10]
+                  for e in (r.json().get("events") or [])
+                  if str(e.get("report_date"))[:10] < today})
+    prints = []
+    for d in raw:
+        if prints and (_dt.date.fromisoformat(d)
+                       - _dt.date.fromisoformat(prints[-1])).days <= 3:
+            continue
+        prints.append(d)
+
+    dates, opens, highs, lows, closes = _load_ohlc(sym)
+    ema20 = _ema(closes)
+    atr14 = _atr(highs, lows, closes)
+
+    setups = []
+    for pd_ in prints:
+        di = bisect.bisect_right(dates, pd_) - 1
+        if di < max(SMA_N, EMA_N, ATR_N) + WINDOW or di + 1 >= len(closes):
+            continue
+        touch = next((i for i in range(di - WINDOW + 1, di + 1)
+                      if lows[i] <= ema20[i]), None)
+        entry_i = (next((i for i in range(touch, di + 1)
+                         if closes[i] > ema20[i]), None)
+                   if touch is not None else None)
+        if entry_i is not None and entry_i < di:
+            setups.append((entry_i, di))
+
+    med_atrpct = statistics.median(
+        atr14[e] / closes[e] for e, _ in setups) if setups else 0
+
+    def run(k: float, model: str):
+        rows = []
+        for e_i, di in setups:
+            e = closes[e_i]
+            d = atr14[e_i] * k
+            s = e - d
+            exit_px, stopped = closes[di], False
+            for j in range(e_i + 1, di + 1):
+                if model == "touch" and lows[j] <= s:
+                    exit_px, stopped = (opens[j] if opens[j] < s else s), True
+                    break
+                if model == "close" and closes[j] < s:
+                    exit_px, stopped = closes[j], True
+                    break
+            rows.append({
+                "ret": exit_px / e - 1,
+                "r_mult": (exit_px - e) / d,     # same fixed £ risk per trade
+                "stopped": stopped,
+                # stopped, but the planned pre-print exit was a WINNER anyway
+                "recovered": stopped and closes[di] > e,
+                "hi_vol": atr14[e_i] / closes[e_i] > med_atrpct,
+            })
+        return rows
+
+    out = {}
+    for k in variants:
+        for model in ("touch", "close"):
+            rows = run(k, model)
+            rets = [r["ret"] for r in rows]
+            rms = [r["r_mult"] for r in rows]
+            grp = {
+                "n": len(rows),
+                "win": sum(1 for x in rets if x > 0) / len(rows),
+                "mean": _mean(rets), "median": statistics.median(rets),
+                "worst": min(rets),
+                "mean_R": _mean(rms),
+                "stop_rate": sum(r["stopped"] for r in rows) / len(rows),
+                "stopped_would_have_won":
+                    sum(r["recovered"] for r in rows),
+                "mean_hiVol": _mean([r["ret"] for r in rows if r["hi_vol"]]),
+                "mean_loVol": _mean([r["ret"] for r in rows if not r["hi_vol"]]),
+            }
+            out[f"{k}atr/{model}"] = grp
+    return out
+
+
+def variants_main() -> int:
+    ap = argparse.ArgumentParser(prog="tradepro-preearnings-variants")
+    ap.add_argument("--symbol", required=True)
+    ap.add_argument("--out", default=None)
+    args = ap.parse_args()
+    res = atr_variants(args.symbol.upper())
+    n = next(iter(res.values()))["n"] if res else 0
+    print(f"{args.symbol.upper()} — {n} qualified setups. CALIBRATION, not proof.")
+    print("The 15m close-without-reclaim rule is BRACKETED: 'touch' = harshest "
+          "reading, 'close' = most lenient; live behaviour sits between.\n")
+    hdr = f"{'variant':14}{'win':>6}{'mean':>8}{'med':>8}{'worst':>8}{'mean-R':>8}{'stops':>7}{'won-anyway':>11}{'hiVol':>8}{'loVol':>8}"
+    print(hdr)
+    for k, g in res.items():
+        print(f"{k:14}{100*g['win']:5.0f}%{100*g['mean']:+7.1f}%{100*g['median']:+7.1f}%"
+              f"{100*g['worst']:+7.1f}%{g['mean_R']:+8.2f}{100*g['stop_rate']:6.0f}%"
+              f"{g['stopped_would_have_won']:>8}   {100*(g['mean_hiVol'] or 0):+6.1f}%"
+              f"{100*(g['mean_loVol'] or 0):+7.1f}%")
+    print("\nmean-R = return per unit of risk with the SAME fixed £ budget per "
+          "trade\n(shares scale inversely with stop width — the advisor's "
+          "risk-sized comparison).")
+    if args.out:
+        Path(args.out).write_text(json.dumps(res, indent=1))
+        print(f"wrote {args.out}")
+    return 0
