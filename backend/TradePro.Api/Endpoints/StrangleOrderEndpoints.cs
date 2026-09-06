@@ -459,12 +459,35 @@ public static class StrangleOrderEndpoints
                     error = "a leg had no two-sided quote — no honest mid exists",
                 }, statusCode: 502);
 
+            // THE DELTA ON EACH LEG — is this pair actually balanced?
+            //
+            // Strikes are placed at +/-1.5x the expected move: EQUIDISTANT in
+            // percent. Index options carry skew, so an equidistant put is far
+            // fatter than the call — more premium AND more delta. The position
+            // then sits NET LONG delta, which a short strangle is not supposed
+            // to be, and a falling market hurts more than it should. SPX on
+            // 1 Sep: put -1,625, call +686.
+            //
+            // The owner's manual trades sell the call 200-500 points closer
+            // than the system every time, which is delta-matching by feel.
+            // Recording both deltas turns that from an argument into a
+            // measurement — and nothing changes strike selection until there
+            // IS a measurement, because the published win rate describes the
+            // equidistant rule.
+            var putQ = q.Quotes.FirstOrDefault(z => z.ConId == put.Value);
+            var callQ = q.Quotes.FirstOrDefault(z => z.ConId == call.Value);
             var contracts = req.Contracts <= 0 ? 1 : req.Contracts;
             return Results.Ok(new
             {
                 ok = true, symbol = sym, expiry = req.Expiry,
                 putStrike = req.PutStrike, callStrike = req.CallStrike,
                 midPerShare = mid, widestSpread = widest, contracts,
+                putDelta = putQ?.Delta, callDelta = callQ?.Delta,
+                // Net delta of the SHORT pair: short a put is +delta, short a
+                // call is -delta. Zero is neutral; positive means the position
+                // is long the market, which is the imbalance being measured.
+                netDelta = (putQ?.Delta is decimal pd && callQ?.Delta is decimal cd)
+                           ? -pd - cd : (decimal?)null,
                 note = "QUOTED, NOT TRADED. A real bid/ask mid — not a fill, and "
                      + "not Black-Scholes. Multiply by lot x contracts for money.",
             });
