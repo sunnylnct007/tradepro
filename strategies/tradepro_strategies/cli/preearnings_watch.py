@@ -497,7 +497,7 @@ def evaluate(sym, cfg, base, token, state):
         return ("BLOCK_NEW_ENTRIES", why, alerts,
                 _row(sym, cfg, "block", px, sma, None, sessions_to, why,
                      provenance=_provenance(d, bars, opts),
-                     level_label="sma50")), gates
+                     level_label="sma50", options=opts)), gates
     if not (touched and reclaim_bar):
         oc = (f" Options: market prices the print at ±{opts['implied_move_cross_pct']}%"
               if opts.get("implied_move_cross_pct") else
@@ -523,7 +523,7 @@ def evaluate(sym, cfg, base, token, state):
         return ("WATCH", why, alerts,
                 _row(sym, cfg, "watch", px, prox_hi, None, sessions_to, why,
                      provenance=_provenance(d, bars, opts),
-                     level_label="band")), gates
+                     level_label="band", options=opts)), gates
     if regime == "TOLERATED_SMA50_ROLLOVER":
         msg = (f"reclaim seen under TOLERATED regime (SMA50 rolling over "
                f"{sma_fall_pct:+.2f}%/5s) — manual review with the warning, "
@@ -602,7 +602,7 @@ def _provenance(d, bars, opts):
 
 
 def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
-         gates_extra=None, provenance=None, level_label="stop"):
+         gates_extra=None, provenance=None, level_label="stop", options=None):
     """Owner, 6 Sep, looking at the desk: the Pre-Earn label "is fne for MU
     but not for SNDK as SNDK has no recent earning coming up". Right — the
     lane is named by what the symbol is actually IN: an earnings cycle
@@ -619,7 +619,8 @@ def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
         eligible=True, why=why[:320],
         provenance=provenance or [],
         extra={"strategy_version": STRATEGY_VERSION,
-               "proposed_qty": qty, "intraday_source": "yfinance_15m"},
+               "proposed_qty": qty,
+               "options_context": options},
     )])[0]
 
 

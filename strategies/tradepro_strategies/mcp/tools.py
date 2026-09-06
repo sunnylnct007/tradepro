@@ -4573,3 +4573,26 @@ def preearnings_evaluate(symbol: str = "MU") -> dict:
     return {"symbol": sym, "action": action, "detail": detail,
             "would_alert": [a[0] for a in alerts], "gates": gates,
             "board_row_preview": row}
+
+
+def get_option_chain_context(symbol: str, anchor_date: str | None = None) -> dict:
+    """The captured option chain for any symbol, aggregated the way a human
+    reads it: per-expiry ATM IV and implied move (term structure), event
+    premium vs `anchor_date` (defaults to the next confirmed print if one
+    exists), put/call OI ratio, and the top OI strikes near spot. Raw enough
+    for an external Claude to INVESTIGATE, shaped enough to read. The §13
+    forbidden-conclusions rules apply: context, never a directional signal."""
+    from ..cli.preearnings_watch import _confirmed_print, _options_context
+    sym = symbol.upper()
+    base = _api_base()
+    token = _resolve_api_token()
+    anchor = anchor_date
+    if not anchor:
+        prints = _confirmed_print(base, token, sym)
+        anchor = prints[0][0] if len(prints) == 1 else "9999-12-31"
+    out = _options_context(base, token, sym, anchor)
+    out["symbol"] = sym
+    out["anchor_date"] = anchor
+    out["note"] = ("captured daily by the chain lane (mostly ibkr-sourced); "
+                   "large OI is positioning context, not support/resistance")
+    return out

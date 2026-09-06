@@ -88,6 +88,9 @@ interface Row {
   /** What was checked and what it measured. The answer to "why is this a
    *  candidate", in the engine's own numbers rather than a sentence. */
   gates?: any[];
+  /** Producer-specific payload — e.g. the pre-earnings engine's full options
+   *  context (term structure, OI ladder), rendered in its own panel. */
+  extra?: any;
   /** You already own this. Set from the live book, not from the strategy —
    *  selling a put on a name you hold, or buying more of one, is a DIFFERENT
    *  trade from opening fresh, and the screen was silent about it. */
@@ -140,6 +143,7 @@ export function CandidatesView({ onOpenSymbol }:
         metric: c.metric ?? null, metricLabel: c.metric_label ?? "",
         asOf: c.as_of ?? asOf, eligible: !!c.eligible, why: c.why ?? "",
         provenance: c.provenance ?? [], gates: c.gates ?? [],
+        extra: c.extra ?? null,
       }));
 
     try {
@@ -539,6 +543,49 @@ function Detail({ r }: { r: Row }) {
           </table>
         )}
       </div>
+
+      {r.extra?.options_context?.status === "CONTEXT_AVAILABLE" && (() => {
+        const oc = r.extra.options_context;
+        return (
+          <div style={{ minWidth: 280, flex: "1 1 320px" }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
+                          color: MUTED, marginBottom: 5 }}>
+              Options — how the market is placing it
+            </div>
+            <table style={{ borderCollapse: "collapse", width: "100%",
+                            fontVariantNumeric: "tabular-nums", fontSize: 11.5 }}>
+              <tbody>
+                {(oc.term_structure ?? []).map((tr: any, i: number) => (
+                  <tr key={i} style={{ borderTop: "1px solid #141b2b" }}>
+                    <td style={{ padding: "3px 8px" }}>{tr.expiry}</td>
+                    <td style={{ padding: "3px 8px", color: tr.crosses_print ? WARN : MUTED }}>
+                      {tr.crosses_print ? "crosses print" : "pre-print"}
+                    </td>
+                    <td style={{ padding: "3px 8px", textAlign: "right" }}>
+                      {tr.atm_iv != null ? `IV ${(100 * tr.atm_iv).toFixed(1)}%` : "IV —"}
+                    </td>
+                    <td style={{ padding: "3px 8px", textAlign: "right", color: MUTED }}>
+                      {tr.implied_move_pct != null ? `±${tr.implied_move_pct}%` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop: 6, fontSize: 11.5, color: MUTED }}>
+              {oc.event_iv_premium != null &&
+                <>event premium <b style={{ color: WARN }}>
+                  +{(100 * oc.event_iv_premium).toFixed(1)} IV pts</b> · </>}
+              P/C OI {oc.put_call_oi_ratio ?? "—"} · top OI:{" "}
+              {(oc.top_oi ?? []).map((o: any) =>
+                `${o.strike}${o.right} (${o.oi.toLocaleString()})`).join(" · ")}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 10.5, color: MUTED }}>
+              captured {oc.capture_date} · context, never a directional signal —
+              large OI ≠ support/resistance
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ minWidth: 260, flex: "1 1 300px" }}>
         <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",

@@ -180,6 +180,14 @@ def build_server():
         return _json(t.preearnings_evaluate(symbol))
 
     @mcp.tool()
+    @instrumented("get_option_chain_context")
+    def get_option_chain_context(symbol: str, anchor_date: str = "") -> str:
+        """Captured option chain, aggregated: per-expiry ATM IV + implied
+        move (term structure), event premium vs the next confirmed print,
+        P/C OI ratio, top OI strikes near spot. Context, never direction."""
+        return _json(t.get_option_chain_context(symbol, anchor_date or None))
+
+    @mcp.tool()
     @instrumented("get_market_state")
     def get_market_state(symbol: str, lookback_days: int = 365) -> str:
         """Live market state for any ticker on demand — price vs
