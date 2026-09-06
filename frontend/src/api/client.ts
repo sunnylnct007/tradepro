@@ -655,6 +655,11 @@ export const api = {
     get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(
       "/api/today-setups/post_earnings_puts/latest"),
 
+  /** Trigger the pre-earnings engine on demand (runs in Lambda, ~seconds). */
+  runPreEarningsWatch: () =>
+    post<{ ok?: boolean; job?: string; error?: string }, Record<string, never>>(
+      "/api/jobs/preearnings_watch/run", {}),
+
   /** Pre-earnings watch (per-symbol spec engine, Phase 1 alerts-only). */
   preEarningsCandidates: () =>
     get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(

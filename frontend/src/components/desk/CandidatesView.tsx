@@ -341,7 +341,24 @@ export function CandidatesView() {
                 label={`${s} (${rows.filter((r) => r.strategy === s && r.eligible).length})${
                   rows.some((r) => r.strategy === s && r.tierRaw === "failed") ? " ⚠" : ""}`} />
         ))}
-        <label style={{ marginLeft: "auto", fontSize: 12, cursor: "pointer", color: "var(--text)" }}>
+        <button
+          onClick={async (e) => {
+            const b = e.currentTarget; b.disabled = true; b.textContent = "running…";
+            try {
+              // Invokes the Lambda synchronously (seconds), then re-reads the
+              // board so the Pre-Earn row reflects the fresh evaluation.
+              await api.runPreEarningsWatch();
+              await load();
+              b.textContent = "run Pre-Earn ✓";
+            } catch { b.textContent = "run failed — see logs"; }
+            finally { setTimeout(() => { b.disabled = false; b.textContent = "run Pre-Earn"; }, 4000); }
+          }}
+          style={{ marginLeft: "auto", padding: "3px 10px", borderRadius: 999,
+                   fontSize: 12, cursor: "pointer", border: "1px solid var(--border)",
+                   background: "var(--surface-2)", color: "var(--text)" }}>
+          run Pre-Earn
+        </button>
+        <label style={{ fontSize: 12, cursor: "pointer", color: "var(--text)" }}>
           <input type="checkbox" checked={hideBlocked}
                  onChange={(e) => setHideBlocked(e.target.checked)}
                  style={{ marginRight: 5, verticalAlign: "middle" }} />
