@@ -58,6 +58,7 @@ MU_DEFAULT_CFG = {
     "relative_strength_floor_pct": 0.0,
     "reference_zones": {          # chart REFERENCE, not triggers (v1.1 §3)
         "shallow_pullback": 990.0,
+        "breakout_watch": 1050.0,
         "primary_retest": [965.0, 975.0],
         "deeper_core": [935.0, 955.0],
         "profit_1": [1070.0, 1080.0],
@@ -73,6 +74,7 @@ MU_DEFAULT_CFG = {
         "extended_from_ema_atr": 1.5,
         "gap_down_atr": 1.0,
     },
+    "breakout_watch_level": 1050.0,   # owner, 6 Sep — M1 context alert
     # CONFIGURATION_BLOCKED until the owner sets BOTH (v1.1 §1).
     "max_risk_per_swing_trade_currency": None,
     "max_gap_risk_for_core_currency": None,
@@ -100,8 +102,10 @@ def _kv_put(base, token, key, value, label, desc, create=False):
                             "label": label, "description": desc,
                             "category": "Trading"})
     else:
+        # PUT stores the ENTIRE body as the value (SettingsKvEndpoints.cs
+        # takes JsonElement body raw) — wrapping in {"value": ...} double-wraps.
         requests.put(f"{base}/api/settings-kv/{key}", headers=H, timeout=15,
-                     json={"value": value})
+                     json=value)
 
 
 # ── data ──────────────────────────────────────────────────────────────────
@@ -237,6 +241,25 @@ def evaluate(sym, cfg, base, token, state):
                        f"{band['gap_down_atr']}x ATR below reference — "
                        f"automatic entries blocked, wait 30m, new reclaim required"))
         return ("REVIEW_REQUIRED", "gap-down protection", alerts, None), gates
+    # -- breakout watch (M1 momentum context) --------------------------------
+    # Owner, 6 Sep: "the opportunity of MU breaching 1050 tomorrow... it can
+    # go either way." Exactly — so the level is ARMED, not predicted: the
+    # first completed 15m close through it fires one alert, and the alert
+    # carries the honest regime state, because under the spec's own
+    # sma50_non_falling rule M1 cannot QUALIFY until the advisor answers the
+    # tolerance question. Alerting and qualifying are different claims.
+    bw = cfg.get("breakout_watch_level")
+    if bw:
+        bo = next((b for b in bars if b["c"] >= bw), None)
+        if bo:
+            alerts.append((
+                "BREAKOUT_15M", f"{bw:.0f}",
+                f"{sym} 15m close {bo['c']:.2f} above the {bw:.0f} breakout "
+                f"watch (M1 momentum context). Daily regime filter is "
+                + ("PASSING" if long_regime else
+                   "FAILING — SMA50 still falling; per the spec this blocks "
+                   "qualification. Manual decision, eyes open.")))
+
     if touched:
         alerts.append(("EMA20_PULLBACK_ZONE", d.dates[i],
                        f"{sym} touched the EMA20 proximity band "
@@ -254,7 +277,9 @@ def evaluate(sym, cfg, base, token, state):
     if not (touched and reclaim_bar):
         why = ("watching — in CAUTION window, manual approval required for any entry"
                if e_state == "CAUTION" else
-               f"watching for an EMA20 pullback ({prox_hi:.2f}) and 15m reclaim")
+               f"watching — armed: EMA20 band {prox_hi:.2f}, breakout "
+               f"{cfg.get('breakout_watch_level') or '—'}, gap-down guard, "
+               f"{sessions_to} session(s) to the print")
         return ("WATCH", why, alerts,
                 _row(sym, cfg, "watch", None, None, None, sessions_to, why)), gates
     if not sector_ok:
