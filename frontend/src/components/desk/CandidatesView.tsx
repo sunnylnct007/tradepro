@@ -142,6 +142,18 @@ export function CandidatesView() {
       }));
 
     try {
+      // Pre-earnings watch: rows arrive already in the common shape, and the
+      // WHY column carries the latest engine output (WATCH / ORDER_PROPOSAL /
+      // CONFIGURATION_BLOCKED) so the newest potential order is on this
+      // screen, not only in an email.
+      const r: any = await api.preEarningsCandidates();
+      const a: any = r?.artifact ?? {};
+      if (a.candidates_v2?.length) {
+        out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
+      }
+    } catch { /* engine not yet run this cycle — absence is not an error */ }
+
+    try {
       const r = await api.postEarningsPuts();
       const a: any = r?.artifact ?? {};
       if (a.candidates_v2?.length) {

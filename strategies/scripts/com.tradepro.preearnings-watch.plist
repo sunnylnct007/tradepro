@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.tradepro.preearnings-watch</string>
+  <!-- Phase 1 of the per-symbol pre-earnings spec: alerts only, stateful,
+       deduplicated, expires at each symbol's confirmed print. 15-minute
+       cadence matches the spec's confirmation timeframe; outside US hours
+       the engine still evaluates daily-level state cheaply (dedupe makes a
+       quiet tick free). -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-preearnings-watch >> "$HOME/.tradepro/logs/preearnings-watch-$(date -u +%Y-%m-%d).log" 2>&amp;1</string>
+  </array>
+  <key>StartInterval</key><integer>900</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>/tmp/tradepro-preearnings-watch.log</string>
+  <key>StandardErrorPath</key><string>/tmp/tradepro-preearnings-watch.log</string>
+</dict>
+</plist>

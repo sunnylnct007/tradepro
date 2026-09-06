@@ -62,6 +62,7 @@ SOURCES: tuple[tuple[str, str], ...] = (
     ("Momentum", "/api/today-setups/momentum/latest"),
     ("Puts", "/api/today-setups/post_earnings_puts/latest"),
     ("Wheel", "/api/today-setups/wheel/latest"),
+    ("Pre-Earn", "/api/today-setups/preearnings/latest"),
 )
 
 
