@@ -106,7 +106,8 @@ function ageHours(asOf: string | null): number | null {
   return Number.isNaN(t) ? null : (Date.now() - t) / 36e5;
 }
 
-export function CandidatesView() {
+export function CandidatesView({ onOpenSymbol }:
+    { onOpenSymbol?: (symbol: string) => void } = {}) {
   const [rows, setRows] = useState<Row[]>([]);
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -408,7 +409,16 @@ export function CandidatesView() {
                       style={{ borderTop: "1px solid #141b2b", cursor: "pointer",
                                background: r.eligible ? "rgba(12,163,12,.05)" : undefined }}>
                     <td style={{ padding: "7px 8px", fontWeight: 700,
-                                 fontFamily: "var(--font-mono)" }}>{r.symbol}</td>
+                                 fontFamily: "var(--font-mono)" }}>{onOpenSymbol ? (
+                      <span role="button"
+                            title="open chart + detail"
+                            onClick={() => onOpenSymbol(r.symbol)}
+                            style={{ cursor: "pointer", textDecoration: "underline",
+                                     textDecorationStyle: "dotted",
+                                     textUnderlineOffset: 3 }}>
+                        {r.symbol}
+                      </span>
+                    ) : r.symbol}</td>
                     <td style={{ padding: "7px 8px" }}>
                       {r.strategy}
                       {/* Tier beside the name, always — never colour alone. */}

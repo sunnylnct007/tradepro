@@ -318,8 +318,14 @@ def evaluate(sym, cfg, base, token, state):
     alerts = []      # (alert_id, state_detail, human_text)
     gates = []
 
-    def gate(name, ok, measured):
-        gates.append({"gate": name, "ok": bool(ok), "measured": str(measured)[:90]})
+    def gate(name, ok, measured, threshold=""):
+        # The desk's Detail renderer contract: {gate, actual, threshold,
+        # verdict}. The first cut emitted {ok, measured} and every cell
+        # rendered as a dash — a shape mismatch is indistinguishable from
+        # missing data on screen, which is exactly what the owner saw.
+        gates.append({"gate": name, "actual": str(measured)[:110],
+                      "threshold": threshold,
+                      "verdict": "pass" if ok else "FAIL"})
         return ok
 
     # -- calendar: exactly one confirmed future print --
@@ -477,8 +483,8 @@ def evaluate(sym, cfg, base, token, state):
 
     # -- primary action + proposal --
     def trigger(text):
-        gates.append({"gate": "what_changes_this", "ok": None,
-                      "measured": text[:120]})
+        gates.append({"gate": "→ what changes this", "actual": text[:120],
+                      "threshold": "", "verdict": "armed"})
 
     if not long_regime:
         why = (f"DECISION: no long. Close {px:.2f} vs EMA20 {ema:.2f} / SMA50 "
@@ -489,7 +495,9 @@ def evaluate(sym, cfg, base, token, state):
         trigger(f"a 15m reclaim of the EMA20 band ({prox_hi:.2f}) after a "
                 f"touch would surface for manual review only")
         return ("BLOCK_NEW_ENTRIES", why, alerts,
-                _row(sym, cfg, "block", None, None, None, sessions_to, why)), gates
+                _row(sym, cfg, "block", px, sma, None, sessions_to, why,
+                     provenance=_provenance(d, bars, opts),
+                     level_label="sma50")), gates
     if not (touched and reclaim_bar):
         oc = (f" Options: market prices the print at ±{opts['implied_move_cross_pct']}%"
               if opts.get("implied_move_cross_pct") else
@@ -513,7 +521,9 @@ def evaluate(sym, cfg, base, token, state):
         trigger(f"open below ~{(ema - band['gap_down_atr']*atr):.0f} → gap-down "
                 f"guard blocks the day, fresh reclaim required")
         return ("WATCH", why, alerts,
-                _row(sym, cfg, "watch", None, None, None, sessions_to, why)), gates
+                _row(sym, cfg, "watch", px, prox_hi, None, sessions_to, why,
+                     provenance=_provenance(d, bars, opts),
+                     level_label="band")), gates
     if regime == "TOLERATED_SMA50_ROLLOVER":
         msg = (f"reclaim seen under TOLERATED regime (SMA50 rolling over "
                f"{sma_fall_pct:+.2f}%/5s) — manual review with the warning, "
@@ -568,8 +578,31 @@ def evaluate(sym, cfg, base, token, state):
             _row(sym, cfg, "buy (proposal)", entry, stop, qty, sessions_to, why)), gates
 
 
+def _provenance(d, bars, opts):
+    """The Data panel's contract: {label, source_label, trust, age}."""
+    rows = [{"label": "daily bars", "source_label": d.source,
+             "trust": ("golden" if d.source == "bar_store" else "fallback"),
+             "age": d.dates[-1]}]
+    if bars:
+        rows.append({"label": "intraday 15m", "source_label": bars[-1].get("src", "?"),
+                     "trust": ("golden" if str(bars[-1].get("src", "")).startswith("store_5m")
+                               else "fallback"),
+                     "age": str(bars[-1]["t"])[:16]})
+    else:
+        rows.append({"label": "intraday 15m", "source_label": "no session bars yet",
+                     "trust": "unavailable", "age": ""})
+    if opts.get("status") == "CONTEXT_AVAILABLE":
+        rows.append({"label": "options chain", "source_label": "capture lane (ibkr)",
+                     "trust": "vendor", "age": opts.get("capture_date", "")})
+    else:
+        rows.append({"label": "options chain",
+                     "source_label": opts.get("reason", "INSUFFICIENT"),
+                     "trust": "unavailable", "age": ""})
+    return rows
+
+
 def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
-         gates_extra=None):
+         gates_extra=None, provenance=None, level_label="stop"):
     """Owner, 6 Sep, looking at the desk: the Pre-Earn label "is fne for MU
     but not for SNDK as SNDK has no recent earning coming up". Right — the
     lane is named by what the symbol is actually IN: an earnings cycle
@@ -580,10 +613,11 @@ def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
     return emit([Candidate(
         symbol=sym, strategy=lane, tier="unproven", action=action,
         as_of=_dt.datetime.now(_dt.UTC).isoformat(),
-        entry=entry, level=stop, level_label="stop",
+        entry=entry, level=stop, level_label=level_label,
         metric=(float(sessions_to) if sessions_to is not None else None),
         metric_label="d→ER",
         eligible=True, why=why[:320],
+        provenance=provenance or [],
         extra={"strategy_version": STRATEGY_VERSION,
                "proposed_qty": qty, "intraday_source": "yfinance_15m"},
     )])[0]
