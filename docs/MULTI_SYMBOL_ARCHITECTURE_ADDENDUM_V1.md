@@ -52,3 +52,26 @@ Therefore, for every per-symbol engine config:
 The population strategies (swing's 200-SMA floor) are NOT retro-edited by
 this: they are pre-registered and mid-forward-test; a 63-session variant is
 a v2 candidate with its own gates, not an edit.
+
+## Trigger/expectation distinction (adopted 7 Sep 2026, second-round audit)
+
+The scale-invariance rule holds cleanly for TRIGGERS and does not hold for
+EXPECTED VALUES. A 20-day-mean-and-sigma trigger is regime-current; the
+"86% win, +6.18% mean" attached to it is 14 signals over 17 years — a
+legacy-scale statistic sitting inside a trailing-window trigger, passing the
+invariant as written while importing the old regime. The regime-current
+sample for that rule on MU is n=3, which supports no expectation at all.
+
+**Rule: filters and triggers use trailing-window geometry only; win rates
+and expected values inherit the regime of the sample they were measured on,
+and must be labelled with that sample's era and n.**
+
+Operational consequence: fire on geometry, size as if you have no edge
+estimate wherever the in-regime n is small — which, for per-symbol earnings
+behaviour on 8x-rerated names, is everywhere. The forward journal exists to
+build the in-regime sample; it is the only source that can.
+
+(Population-scale strategies — swing at n=2,312, the strangle's per-market
+histories — carry their n and windows in their pre-registered gates docs
+already; this rule formalises the same discipline for the per-symbol sleeve,
+where the temptation to quote a decade's win rate is strongest.)
