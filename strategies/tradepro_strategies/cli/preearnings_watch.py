@@ -424,6 +424,11 @@ def key_stats_for(sym: str) -> dict:
             "beta": g("beta"),
             "short_pct_float": g("shortPercentOfFloat"),
             "next_earnings_hint": str(g("earningsTimestamp") or ""),
+            # ex-dividend: the date the price mechanically drops by the
+            # dividend — an EVENT, not a valuation stat (owner, 7 Sep:
+            # "dividend date announcement makes impact to share prices")
+            "ex_div_date": (dt.date.fromtimestamp(g("exDividendDate")).isoformat()
+                            if g("exDividendDate") else None),
         }
         _KS_CACHE[key] = out
         return out
@@ -520,6 +525,19 @@ def evaluate(sym, cfg, base, token, state):
                            f"{sym}: {k} trading session(s) to the print"
                            + (" — NO new swing entries; exit any swing before "
                               "the close" if k == 0 else "")))
+
+    # ── ex-dividend countdown (event lane, one-shot like earnings) ──────
+    try:
+        exd = key_stats_for(sym).get("ex_div_date")
+        if exd:
+            xs = _sessions_between(_dt.date.today(), _dt.date.fromisoformat(exd))
+            if 0 <= xs <= 5 and _dt.date.fromisoformat(exd) >= _dt.date.today():
+                alerts.append(("EX_DIV_SOON", exd,
+                               f"{sym} goes ex-dividend {exd} ({xs} session(s)) "
+                               f"— expect the mechanical price drop; a stop "
+                               f"just below spot can be clipped by it"))
+    except Exception:  # noqa: BLE001 — an event hint must never block
+        pass
 
     if e_state == "POST_EVENT":
         return ("CYCLE_COMPLETE", "print has passed — alerts expired; renewal "

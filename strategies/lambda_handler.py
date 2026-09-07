@@ -269,6 +269,30 @@ def handler(event, context):  # noqa: ANN001 — AWS signature
     os.environ.setdefault("HOME", "/tmp")
     os.makedirs("/tmp/.tradepro/research", exist_ok=True)
 
+    # DATA jobs return a payload instead of running a CLI — the first is the
+    # symbol-analysis card, promoted here from the Mac-only sidecar (the EC2
+    # API could never reach a laptop on a home network; a stateless
+    # request->response computation is exactly Lambda's shape).
+    if (event or {}).get("job") == "symbol_analysis":
+        sym = str((event or {}).get("symbol") or "").strip().upper()
+        if not sym:
+            return {"statusCode": 400, "body": json.dumps({"ok": False,
+                    "error": "symbol required"})}
+        try:
+            from tradepro_strategies.core_portfolio.symbol_analysis_card import (
+                build_symbol_analysis_card)
+            card = build_symbol_analysis_card(
+                sym, compare_row=None,
+                drawdown_pct=(event or {}).get("drawdown_pct"),
+                skip_long_term=bool((event or {}).get("skip_long_term")))
+            out = card.to_dict()
+            out["_source"] = f"lambda://symbol_analysis/{sym}"
+            return {"statusCode": 200, "body": json.dumps(out, default=str)}
+        except Exception as exc:  # noqa: BLE001 — a readable reason, always
+            log.exception("symbol_analysis failed for %s", sym)
+            return {"statusCode": 500, "body": json.dumps({"ok": False,
+                    "error": f"{type(exc).__name__}: {exc}"[:300]})}
+
     job = (event or {}).get("job") or os.environ.get("TRADEPRO_JOB")
     if not job:
         return {"statusCode": 400,

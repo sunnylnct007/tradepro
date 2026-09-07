@@ -1,3 +1,6 @@
+using Amazon;
+using Amazon.Lambda;
+using Amazon.Lambda.Model;
 using System.Net.Http;
 using System.Text;
 using System.Web;
@@ -72,12 +75,55 @@ public static class SymbolAnalysisEndpoints
                 }
                 catch (Exception ex)
                 {
-                    log.LogError(ex, "analysis sidecar unreachable at {Url}", sidecarBase);
-                    return Results.Problem(
-                        $"Symbol Analysis sidecar is not running. Start it with " +
-                        $"`docker compose --profile analysis up -d analysis` " +
-                        $"(or locally `uv run tradepro-analysis-server`). ({ex.Message})",
-                        statusCode: 502);
+                    // The sidecar only ever ran on the dev Mac — the EC2 API
+                    // cannot reach a laptop on a home network, so in prod this
+                    // branch fired on EVERY request and the fundamentals were
+                    // silently dead. A stateless request->response computation
+                    // is exactly Lambda's shape: fall back to the jobs
+                    // function, which ships the same Python package.
+                    log.LogWarning(ex,
+                        "analysis sidecar unreachable at {Url} — invoking Lambda",
+                        sidecarBase);
+                    try
+                    {
+                        var region = System.Environment.GetEnvironmentVariable("AWS_REGION")
+                                     ?? "eu-west-2";
+                        using var lambda = new AmazonLambdaClient(
+                            RegionEndpoint.GetBySystemName(region));
+                        var res = await lambda.InvokeAsync(new InvokeRequest
+                        {
+                            FunctionName = "tradepro-jobs",
+                            InvocationType = InvocationType.RequestResponse,
+                            Payload = System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                job = "symbol_analysis",
+                                symbol = ticker.Trim().ToUpperInvariant(),
+                                drawdown_pct = drawdownPct,
+                                skip_long_term = skipLongTerm ?? false,
+                            }),
+                        });
+                        using var rdr = new StreamReader(res.Payload);
+                        var lamBody = await rdr.ReadToEndAsync();
+                        if (res.FunctionError is not null)
+                            return Results.Problem(
+                                $"analysis Lambda errored: {res.FunctionError} {lamBody[..Math.Min(lamBody.Length, 300)]}",
+                                statusCode: 502);
+                        using var doc = System.Text.Json.JsonDocument.Parse(lamBody);
+                        var status = doc.RootElement.TryGetProperty("statusCode", out var sc)
+                            ? sc.GetInt32() : 200;
+                        var payload = doc.RootElement.TryGetProperty("body", out var b)
+                            ? b.GetString() ?? lamBody : lamBody;
+                        return status == 200
+                            ? Results.Content(payload, "application/json")
+                            : Results.Problem(payload, statusCode: status);
+                    }
+                    catch (Exception lex)
+                    {
+                        log.LogError(lex, "analysis Lambda fallback failed");
+                        return Results.Problem(
+                            $"analysis unavailable: sidecar unreachable AND Lambda fallback failed ({lex.Message})",
+                            statusCode: 502);
+                    }
                 }
 
                 var body = await sidecarResp.Content.ReadAsStringAsync();
