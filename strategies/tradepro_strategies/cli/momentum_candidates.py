@@ -539,7 +539,21 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
             ))
         except Exception:  # noqa: BLE001 — one bad row must not lose the screen
             pass
-    return emit(out)
+    rows = emit(out)
+    # Options context as DISPLAY (owner, 7 Sep): IV/HV, implied-vs-realized
+    # day, term structure — rendered by the desk's Options panel wherever a
+    # captured chain exists (wheel + watch symbols; others show nothing).
+    # Context only: per the audit, options price SIZE well and direction
+    # poorly, so nothing here gates or ranks.
+    try:
+        from .preearnings_watch import options_context_for
+        for r in rows:
+            oc = options_context_for(r["symbol"])
+            if oc.get("status") == "CONTEXT_AVAILABLE":
+                r.setdefault("extra", {})["options_context"] = oc
+    except Exception:  # noqa: BLE001 — display must never lose the screen
+        pass
+    return rows
 
 
 if __name__ == "__main__":

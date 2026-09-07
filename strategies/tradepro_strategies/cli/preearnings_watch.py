@@ -386,6 +386,35 @@ def _options_context(base, token, sym, print_date):
         return {"status": "INSUFFICIENT", "reason": str(exc)[:80]}
 
 
+def options_context_for(sym: str, base=None, token=None) -> dict:
+    """Full options context for ANY symbol, self-contained — the shared entry
+    point for other producers (momentum/swing display columns). Adds realized
+    20d vol and IV/HV to the chain fields. Fail-open: INSUFFICIENT, never a
+    crash in someone else's screen."""
+    try:
+        if base is None:
+            from .push_to_api import load_credentials
+            base, token = load_credentials()
+        base = base.rstrip("/")
+        prints = _confirmed_print(base, token, sym)
+        anchor = prints[0][0] if len(prints) == 1 else "9999-12-31"
+        opts = _options_context(base, token, sym, anchor)
+        if opts.get("status") != "CONTEXT_AVAILABLE":
+            return opts
+        import math
+        d = _daily(sym)
+        i = len(d.close) - 1
+        rets = [math.log(d.close[k] / d.close[k - 1]) for k in range(i - 19, i + 1)]
+        mu_ = sum(rets) / len(rets)
+        hv = round(100 * (sum((r - mu_) ** 2 for r in rets) / (len(rets) - 1)) ** 0.5, 2)
+        opts["realized_daily_move_pct"] = hv
+        if opts.get("atm_iv_near") and hv:
+            opts["iv_hv"] = round((100 * opts["atm_iv_near"] / (252 ** 0.5)) / hv, 2)
+        return opts
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "INSUFFICIENT", "reason": str(exc)[:80]}
+
+
 # ── the evaluation ────────────────────────────────────────────────────────
 
 def evaluate(sym, cfg, base, token, state):
@@ -784,8 +813,15 @@ def scout(base, token, watched: list, state: dict) -> list:
         barred = set(account_untradeable(base, token))
     except Exception:  # noqa: BLE001
         barred = set()
+    # Owner discovery list beyond the committed universe (7 Sep: "i am not
+    # seeing some names like nebius, super micro, iren"). Editable in
+    # settings-kv; extras may ride yfinance bars (labelled) since the harvest
+    # lane does not cover them.
+    extras = [str(x).upper() for x in
+              (_kv_get(base, token, "scout_extra_symbols") or [])]
     hits = []
-    for sym in universe_symbols(strict=False):
+    sweep = list(universe_symbols(strict=False)) + [x for x in extras]
+    for sym in sweep:
         if sym in watched or sym in barred:
             continue
         try:
@@ -793,8 +829,11 @@ def scout(base, token, watched: list, state: dict) -> list:
         except SystemExit:
             continue
         i = len(d.close) - 1
-        if i < 210 or d.source != "bar_store":
-            continue   # scout trusts settled store data only
+        if i < 210:
+            continue
+        if d.source != "bar_store" and sym not in extras:
+            continue   # universe names must come from the settled store;
+                       # owner extras may ride labelled yfinance bars
         px, ema, sma, atr = d.close[i], d.ema20[i], d.sma50[i], d.atr14[i]
         atr_pct = 100 * atr / px
         ret13w = 100 * (px / d.close[i - 63] - 1)
@@ -808,7 +847,7 @@ def scout(base, token, watched: list, state: dict) -> list:
         if regime is None:
             continue
         hits.append({"sym": sym, "ret13w": ret13w, "atr_pct": atr_pct,
-                     "regime": regime, "px": px})
+                     "regime": regime, "px": px, "src": d.source})
     hits.sort(key=lambda h: -h["ret13w"])
     state["scout_last_run"] = today
     rows = []
@@ -816,8 +855,9 @@ def scout(base, token, watched: list, state: dict) -> list:
         rows.append(_row(
             h["sym"], {}, "scout", h["px"], None, None, None,
             f"SCOUT: would be {h['regime']} on watch — 13w {h['ret13w']:+.0f}%, "
-            f"ATR {h['atr_pct']:.1f}% of price. Research only; say the word "
-            f"to onboard.", level_label="—"))
+            f"ATR {h['atr_pct']:.1f}% of price"
+            + (" · yfinance bars" if h.get("src") != "bar_store" else "")
+            + ". Research only; say the word to onboard.", level_label="—"))
         rows[-1]["strategy"] = "Scout"
     return rows
 
