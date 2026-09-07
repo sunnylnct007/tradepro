@@ -191,6 +191,20 @@ def main() -> int:
     else:
         from .options_screen import DEFAULT_UNIVERSE
         syms = list(DEFAULT_UNIVERSE)
+        # The watch framework's symbols ride along — its options context
+        # (IV/HV, risk reversal, event premium) is only as good as this
+        # capture, and SNDK had NO chain at all until this line.
+        try:
+            import requests as _rq
+            from .push_to_api import load_credentials as _lc
+            _b, _t = _lc()
+            _r = _rq.get(f"{_b.rstrip('/')}/api/settings-kv/preearnings_symbols",
+                         headers={"Authorization": f"Bearer {_t}"} if _t else {},
+                         timeout=10)
+            _extra = (_r.json().get("value") or []) if _r.status_code == 200 else []
+            syms += [x for x in _extra if x not in syms]
+        except Exception:  # noqa: BLE001 — the wheel walk must not die for this
+            pass
     if args.limit:
         syms = syms[: args.limit]
 

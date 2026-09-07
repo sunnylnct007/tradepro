@@ -308,6 +308,50 @@ def _options_context(base, token, sym, print_date):
                       key=lambda x: -int(x["open_interest"]))[:3]
         iv_pre = atm_iv(pre[-1]) if pre else None
         iv_cross = atm_iv(cross[0]) if cross else None
+
+        # ── size-not-direction fields (external audit, 7 Sep) ─────────────
+        # Options price MAGNITUDE well and direction poorly. These four are
+        # trailing-window and computed from chain MIDS (the flappy
+        # implied_vol_underlying field is deliberately not used — it moved
+        # 4.6 vol points within one session in the audit's own test).
+        near_exp = exps[0] if exps else None
+        implied_daily = None
+        implied_daily_src = None
+        if near_exp:
+            mv = straddle_move(near_exp)
+            if mv:
+                # daily-ize the straddle move over its remaining sessions
+                dsess = max(1, _sessions_between(_dt.date.today(),
+                                                 _dt.date.fromisoformat(near_exp)))
+                implied_daily = round(100 * mv / (dsess ** 0.5), 2)
+                implied_daily_src = "straddle"
+            else:
+                # capture lacks a matched C+P pair — derive from ATM IV
+                # (IV/sqrt(252)), labelled so nobody mistakes it for a traded
+                # straddle price
+                aiv = atm_iv(near_exp)
+                if aiv:
+                    implied_daily = round(100 * aiv / (252 ** 0.5), 2)
+                    implied_daily_src = "iv_derived"
+
+        def rr(exp):
+            """25-DELTA risk reversal: IV(25d put) - IV(25d call). The strike
+            version needs matched +/-10% pairs our puts-heavy capture rarely
+            holds; delta rides on every leg. Negative = calls dearer (inverted
+            smile - upside convexity being paid for). POSITIONING, not
+            prophecy - the daily CHANGE is the signal, not the level."""
+            legs_e = [x for x in legs if str(x.get("expiry"))[:10] == exp
+                      and x.get("iv") and x.get("delta") is not None]
+            put = [x for x in legs_e if x.get("right") == "P"]
+            call = [x for x in legs_e if x.get("right") == "C"]
+            if not put or not call:
+                return None
+            pv = min(put, key=lambda x: abs(abs(float(x["delta"])) - 0.25))
+            cv = min(call, key=lambda x: abs(float(x["delta"]) - 0.25))
+            if abs(abs(float(pv["delta"])) - 0.25) > 0.12 or \
+               abs(float(cv["delta"]) - 0.25) > 0.12:
+                return None
+            return round(100 * (float(pv["iv"]) - float(cv["iv"])), 1)
         # FULL TERM STRUCTURE — owner, 6 Sep: "we shd be looking at options at
         # diff expiry and not just 30 sep". Every captured expiry, ATM IV and
         # straddle-implied move, so the event premium is visible as the KINK
@@ -320,6 +364,11 @@ def _options_context(base, token, sym, print_date):
                          "implied_move_pct": (round(100 * mv, 2) if mv else None)})
         return {
             "term_structure": term,
+            "implied_daily_move_pct": implied_daily,
+            "implied_daily_source": implied_daily_src,
+            "atm_iv_near": atm_iv(near_exp) if near_exp else None,
+            "risk_reversal_near": rr(near_exp) if near_exp else None,
+            "risk_reversal_cross": rr(cross[0]) if cross else None,
             "status": "CONTEXT_AVAILABLE", "capture_date": cap, "spot": spot,
             "atm_iv_pre": iv_pre, "pre_expiry": (pre[-1] if pre else None),
             "atm_iv_cross": iv_cross, "cross_expiry": (cross[0] if cross else None),
@@ -332,6 +381,8 @@ def _options_context(base, token, sym, print_date):
                         "oi": int(x["open_interest"])} for x in near],
         }
     except Exception as exc:  # noqa: BLE001 — context, never a blocker
+        import traceback
+        log.debug("options context failed: %s", traceback.format_exc())
         return {"status": "INSUFFICIENT", "reason": str(exc)[:80]}
 
 
@@ -391,8 +442,7 @@ def evaluate(sym, cfg, base, token, state):
                 alerts, None), gates
 
     opts = (_options_context(base, token, sym, prints[0][0]) if prints
-            else {"status": "INSUFFICIENT", "reason": "no confirmed print to "
-                                                       "anchor expiries"})
+            else _options_context(base, token, sym, "9999-12-31"))
     gate("options_context", opts.get("status") == "CONTEXT_AVAILABLE",
          (f"IV pre {opts.get('atm_iv_pre')} vs cross {opts.get('atm_iv_cross')} "
           f"(+{opts.get('event_iv_premium')}) · implied move "
@@ -424,6 +474,25 @@ def evaluate(sym, cfg, base, token, state):
     gate("regime", long_regime,
          f"{regime}: close {px:.2f} vs EMA20 {ema:.2f} / SMA50 {sma:.2f}, "
          f"SMA50 5s slope {sma_fall_pct:+.2f}% (tolerance −{tol}%)")
+
+    # Realised daily vol (20d, close-to-close) beside the option-implied day.
+    # THE size-not-direction number: IV/HV < 1 means options price a smaller
+    # day than the stock delivers — a stop set from implied gets taken out by
+    # an ordinary session (SNDK's options price 64% of its actual moves).
+    import math
+    rets = [math.log(d.close[k] / d.close[k - 1]) for k in range(i - 19, i + 1)]
+    mu_ = sum(rets) / len(rets)
+    hv_daily = round(100 * (sum((r - mu_) ** 2 for r in rets) / (len(rets) - 1)) ** 0.5, 2)
+    opts["realized_daily_move_pct"] = hv_daily
+    if opts.get("atm_iv_near") and hv_daily:
+        iv_daily_ann = 100 * opts["atm_iv_near"] / (252 ** 0.5)
+        opts["iv_hv"] = round(iv_daily_ann / hv_daily, 2)
+    gate("size_vs_implied",
+         True,
+         (f"implied day ±{opts.get('implied_daily_move_pct')}% vs realized "
+          f"±{hv_daily}% · IV/HV {opts.get('iv_hv', '—')} · RR(near) "
+          f"{opts.get('risk_reversal_near', '—')} pts"
+          if opts.get("status") == "CONTEXT_AVAILABLE" else "options context unavailable"))
 
     # -- sector (daily-level; intraday proxy return via its last two closes) --
     try:
@@ -594,7 +663,14 @@ def evaluate(sym, cfg, base, token, state):
     # SETUP_QUALIFIED → size it, or say exactly why not
     entry = reclaim_bar["c"]
     ar = cfg["atr_risk"]
-    atr_stop = entry - ar["default_stop_distance_atr"] * atr
+    stop_mult = ar["default_stop_distance_atr"]
+    if (opts.get("iv_hv") or 1.0) < 0.9:
+        # Options underprice this name's realised moves — widen to the max
+        # unapproved distance. Sizing shrinks with the wider stop (same £
+        # risk), which is the audit's rule: fire on geometry, size for the
+        # day the stock actually delivers, not the one options imply.
+        stop_mult = ar["maximum_unapproved_stop_distance_atr"]
+    atr_stop = entry - stop_mult * atr
     struct_stop = ((touch_low - ar["structural_buffer_atr"] * atr)
                    if touch_low is not None else atr_stop)
     stop = min(atr_stop, struct_stop)
