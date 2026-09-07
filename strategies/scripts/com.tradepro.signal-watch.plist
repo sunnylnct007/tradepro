@@ -2,22 +2,28 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.tradepro.signal-watch</string>
-  <!-- Every 15 minutes, not once a day. The old wiring ran signal-watch only
-       inside screener-daily at 15:12 BST — BEFORE the US open — so a stop
-       breached during the session went unseen until the next afternoon. A
-       watcher that looks once a day is a diary, not a watcher.
-       signal_watch dedupes via _fired_today(), so a quiet tick costs one
-       API read and repeat ticks cannot re-send the same alert. -->
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/bash</string>
-    <string>-c</string>
-    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-signal-watch >> "$HOME/.tradepro/logs/signal-watch-$(date -u +%Y-%m-%d).log" 2>&amp;1</string>
-  </array>
-  <key>StartInterval</key><integer>900</integer>
-  <key>RunAtLoad</key><false/>
-  <key>StandardOutPath</key><string>/tmp/tradepro-signal-watch.log</string>
-  <key>StandardErrorPath</key><string>/tmp/tradepro-signal-watch.log</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>/Users/skumar</string>
+		<key>PATH</key>
+		<string>/opt/anaconda3/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.tradepro.signal-watch</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>-c</string>
+		<string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-signal-watch &gt;&gt; "$HOME/.tradepro/logs/signal-watch-$(date -u +%Y-%m-%d).log" 2&gt;&amp;1</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/tmp/tradepro-signal-watch.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/tradepro-signal-watch.log</string>
+	<key>StartInterval</key>
+	<integer>900</integer>
 </dict>
 </plist>

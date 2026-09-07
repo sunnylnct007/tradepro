@@ -368,7 +368,8 @@ def send_email(digest: EmailDigest, cfg: dict) -> None:
     msg["From"] = cfg["from"]
     msg["To"] = ", ".join(cfg["to"])
     msg.set_content(digest.text_body)
-    msg.add_alternative(digest.html_body, subtype="html")
+    if digest.html_body:   # a text-only mail is legal; None must not crash the send
+        msg.add_alternative(digest.html_body, subtype="html")
 
     # Attach the PDF deep-dive when build_digest produced one.
     # Lazy attribute — older callers that built the digest before the

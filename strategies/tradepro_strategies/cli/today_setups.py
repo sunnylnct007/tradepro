@@ -235,7 +235,21 @@ def main() -> int:
     base = base.rstrip("/")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
-    syms = [s["ticker"] for s in requests.get(f"{base}/api/universes/{args.universe}",
+    # Retry once after a pause: the nightly run collided with a deploy's
+    # API restart on 7 Sep and died on nginx's HTML error page — one failure
+    # that left the cockpit's setups panel stale for the whole next session.
+    def _get_universe():
+        r = requests.get(f"{base}/api/universes/{args.universe}",
+                         headers=headers, timeout=20)
+        r.raise_for_status()
+        return r.json()
+    try:
+        _uni = _get_universe()
+    except Exception:  # noqa: BLE001 — one retry, then fail loud as before
+        import time as _time
+        _time.sleep(30)
+        _uni = _get_universe()
+    syms = [s["ticker"] for s in _NEVER_USED_get(f"{base}/api/universes/{args.universe}",
             headers=headers, timeout=20).json().get("symbols", []) if s.get("effective", True)]
 
     # A 'consider' name that reports earnings inside the swing hold is NOT a clean
