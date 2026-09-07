@@ -220,11 +220,35 @@ def _confirmed_print(base, token, sym):
     return fut
 
 
-def _sessions_between(d0: _dt.date, d1: _dt.date) -> int:
+_HOLIDAYS_CACHE: list[str] = []
+
+
+def _us_holidays(base=None, token=None) -> set:
+    """US market holidays from settings-kv `us_market_holidays` (config-driven,
+    editable without a deploy), seeded with the remaining 2026 closures.
+    Owner, 7 Sep 2026: "market closed today" — Labor Day, which the weekday
+    counter was counting as a trading session, drifting the earnings
+    countdown (and the 5d/2d alerts near a print) one day per holiday."""
+    if _HOLIDAYS_CACHE:
+        return set(_HOLIDAYS_CACHE)
+    seed = ["2026-09-07", "2026-11-26", "2026-12-25", "2027-01-01",
+            "2027-01-18", "2027-02-15"]
+    got = None
+    if base:
+        try:
+            got = _kv_get(base, token, "us_market_holidays")
+        except Exception:  # noqa: BLE001
+            pass
+    _HOLIDAYS_CACHE.extend(got or seed)
+    return set(_HOLIDAYS_CACHE)
+
+
+def _sessions_between(d0: _dt.date, d1: _dt.date, holidays: set | None = None) -> int:
+    hol = holidays or _us_holidays()
     n, d = 0, d0
     while d < d1:
         d += _dt.timedelta(days=1)
-        if d.weekday() < 5:
+        if d.weekday() < 5 and d.isoformat() not in hol:
             n += 1
     return n
 
@@ -348,7 +372,8 @@ def evaluate(sym, cfg, base, token, state):
     else:
         pdate = _dt.date.fromisoformat(prints[0][0])
         gate("one_confirmed_print", True, f"{prints[0][0]} {prints[0][1]}")
-        sessions_to = _sessions_between(_dt.date.today(), pdate)
+        sessions_to = _sessions_between(_dt.date.today(), pdate,
+                                        _us_holidays(base, token))
         e_state = ("POST_EVENT" if sessions_to < 0 else
                    "EVENT_DAY" if sessions_to == 0 else
                    "CAUTION" if sessions_to <= 2 else "NORMAL")
@@ -641,6 +666,74 @@ def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
     )])[0]
 
 
+# ── daily scout: new names for the watch, by the SAME rules ──────────────
+
+def scout(base, token, watched: list, state: dict) -> list:
+    """Owner, 7 Sep: "we need dynamic list scanning on a daily basis so we can
+    capture some new names". Once per day, sweep the committed universe with
+    the SAME 63-session regime math the watch runs, and surface the top names
+    that would NOT be blocked if onboarded — ranked by 13-week momentum,
+    filtered by ATR%% so only genuinely moving names qualify. Display-only
+    (RESEARCH status): onboarding stays a decision, per the addendum — no
+    ticker activates merely for being volatile or popular.
+    """
+    today = _dt.date.today().isoformat()
+    if state.get("scout_last_run") == today:
+        return []
+    cfg = _kv_get(base, token, "preearnings_scout") or {}
+    if not cfg:
+        cfg = {"enabled": True, "min_atr_pct": 3.5, "min_13w_return_pct": 20.0,
+               "top_n": 5}
+        _kv_put(base, token, "preearnings_scout", cfg, "Watch scout config",
+                "Daily universe sweep for new watch candidates: same "
+                "63-session regime rules as the engine. Thresholds here, "
+                "not in code.", create=True)
+    if not cfg.get("enabled", True):
+        return []
+    from ..universe import universe_symbols
+    try:
+        from ..paper.broker_ineligible import account_untradeable
+        barred = set(account_untradeable(base, token))
+    except Exception:  # noqa: BLE001
+        barred = set()
+    hits = []
+    for sym in universe_symbols(strict=False):
+        if sym in watched or sym in barred:
+            continue
+        try:
+            d = _daily(sym)
+        except SystemExit:
+            continue
+        i = len(d.close) - 1
+        if i < 210 or d.source != "bar_store":
+            continue   # scout trusts settled store data only
+        px, ema, sma, atr = d.close[i], d.ema20[i], d.sma50[i], d.atr14[i]
+        atr_pct = 100 * atr / px
+        ret13w = 100 * (px / d.close[i - 63] - 1)
+        if atr_pct < cfg["min_atr_pct"] or ret13w < cfg["min_13w_return_pct"]:
+            continue
+        if not (px > ema and px > sma and d.ema20[i] >= d.ema20[i - 3]):
+            continue   # would be BLOCKED — not a candidate
+        sma_fall = 100 * (d.sma50[i] / d.sma50[i - 5] - 1)
+        regime = ("QUALIFIED" if d.sma50[i] >= d.sma50[i - 5]
+                  else "TOLERATED" if sma_fall >= -2.0 else None)
+        if regime is None:
+            continue
+        hits.append({"sym": sym, "ret13w": ret13w, "atr_pct": atr_pct,
+                     "regime": regime, "px": px})
+    hits.sort(key=lambda h: -h["ret13w"])
+    state["scout_last_run"] = today
+    rows = []
+    for h in hits[:int(cfg.get("top_n", 5))]:
+        rows.append(_row(
+            h["sym"], {}, "scout", h["px"], None, None, None,
+            f"SCOUT: would be {h['regime']} on watch — 13w {h['ret13w']:+.0f}%, "
+            f"ATR {h['atr_pct']:.1f}% of price. Research only; say the word "
+            f"to onboard.", level_label="—"))
+        rows[-1]["strategy"] = "Scout"
+    return rows
+
+
 # ── main ──────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -712,6 +805,21 @@ def main() -> int:
                     f"Pre-earnings state: {sym}",
                     "Engine state + fired-alert dedupe keys + journal. "
                     "Cleared only on deliberate cycle renewal.", create=True)
+
+    # -- daily scout for NEW names (once per day; display-only) --
+    try:
+        gstate = _kv_get(base, token, "preearnings_scout_state") or {}
+        srows = scout(base, token, symbols, gstate)
+        if srows:
+            rows += srows
+            log.info("scout: %d new-name candidate(s): %s", len(srows),
+                     ", ".join(r["symbol"] for r in srows))
+        if not args.dry_run and gstate:
+            _kv_put(base, token, "preearnings_scout_state", gstate,
+                    "Watch scout state", "last-run date for the daily sweep",
+                    create=True)
+    except Exception as exc:  # noqa: BLE001 — the watch must not die for the scout
+        log.warning("scout failed: %s", str(exc)[:120])
 
     # -- publish to the board (screen + regular digest email ride this) --
     if rows and not args.dry_run:

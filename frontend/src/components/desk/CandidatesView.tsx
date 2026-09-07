@@ -109,8 +109,15 @@ function ageHours(asOf: string | null): number | null {
   return Number.isNaN(t) ? null : (Date.now() - t) / 36e5;
 }
 
-export function CandidatesView({ onOpenSymbol }:
-    { onOpenSymbol?: (symbol: string) => void } = {}) {
+import { SymbolDetailModal } from "./SymbolDetailModal";
+
+export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void } = {}) {
+  // Symbol click opens the EXPANDED modal in place (owner, 7 Sep: the rail
+  // jump "takes us to the portfolio cockpit page and graph appears in bottom
+  // right" — he wants the pop-up, like the data screen). A candidate has no
+  // position yet, so empty position/order data is correct, and the chart
+  // card fetches its own bars by symbol.
+  const [chartSym, setChartSym] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -378,6 +385,18 @@ export function CandidatesView({ onOpenSymbol }:
         </div>
       )}
 
+      {chartSym && (
+        <SymbolDetailModal
+          symbol={chartSym}
+          strategy={null}
+          positions={[]}
+          orders={[]}
+          ordersLoading={false}
+          fills={[]}
+          onClose={() => setChartSym(null)}
+        />
+      )}
+
       {loading ? (
         <div style={{ color: MUTED }}>Loading…</div>
       ) : view.length === 0 ? (
@@ -413,10 +432,10 @@ export function CandidatesView({ onOpenSymbol }:
                       style={{ borderTop: "1px solid #141b2b", cursor: "pointer",
                                background: r.eligible ? "rgba(12,163,12,.05)" : undefined }}>
                     <td style={{ padding: "7px 8px", fontWeight: 700,
-                                 fontFamily: "var(--font-mono)" }}>{onOpenSymbol ? (
+                                 fontFamily: "var(--font-mono)" }}>{true ? (
                       <span role="button"
                             title="open chart + detail"
-                            onClick={() => onOpenSymbol(r.symbol)}
+                            onClick={() => setChartSym(r.symbol)}
                             style={{ cursor: "pointer", textDecoration: "underline",
                                      textDecorationStyle: "dotted",
                                      textUnderlineOffset: 3 }}>
