@@ -42,6 +42,7 @@ limit in the first place.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import logging
 import os
 import time
@@ -153,6 +154,14 @@ def capture_symbol(symbol: str, *, target_dte: int, rights: str = "PC") -> tuple
             "bid": float(q.bid) if q.bid else None,
             "ask": float(q.ask) if q.ask else None,
             "iv": float(q.iv) if q.iv else None,
+            # Delta computed at capture via the SAME pricer that shaped the
+            # chain — yfinance serves none, and without delta the 25Δ risk
+            # reversal (and any moneyness cut) is uncomputable downstream.
+            "delta": (_bs_delta(float(chain.spot), float(q.strike),
+                                max(1, ((_dt.date.fromisoformat(str(chain.expiry)[:10])
+                                         if not hasattr(chain.expiry, 'toordinal')
+                                         else chain.expiry) - _dt.date.today()).days),
+                                float(q.iv), right) if q.iv else None),
             "openInterest": int(q.open_interest) if q.open_interest is not None else None,
             "spot": float(chain.spot),
             # NEVER 'g3_chain'. A Yahoo quote and an IBKR quote must not be
@@ -161,6 +170,19 @@ def capture_symbol(symbol: str, *, target_dte: int, rights: str = "PC") -> tuple
         })
     return rows, "ok" if rows else "empty"
 
+
+
+def _bs_delta(spot: float, strike: float, dte_days: int, iv: float,
+              right: str, r: float = 0.04) -> float | None:
+    """Black-Scholes delta from the leg's own IV (N(d1); puts N(d1)-1)."""
+    import math
+    try:
+        t = dte_days / 365.0
+        d1 = (math.log(spot / strike) + (r + 0.5 * iv * iv) * t) / (iv * math.sqrt(t))
+        nd1 = 0.5 * (1.0 + math.erf(d1 / math.sqrt(2.0)))
+        return round(nd1 if right == "C" else nd1 - 1.0, 3)
+    except (ValueError, ZeroDivisionError):
+        return None
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -213,6 +235,18 @@ def main() -> int:
     stopped_early = False
     total_rows = upserted = ok = rate_limited = failed = 0
     sym_with_oi = sym_with_ba = 0
+    watch_syms, _b, _t = set(), None, None
+    try:
+        import requests as _rq
+        from .push_to_api import load_credentials as _lc
+        _b, _t = _lc()
+        _r = _rq.get(f"{_b.rstrip('/')}/api/settings-kv/preearnings_symbols",
+                     headers={"Authorization": f"Bearer {_t}"} if _t else {},
+                     timeout=10)
+        watch_syms = {str(x).upper() for x in
+                      ((_r.json().get("value") or []) if _r.status_code == 200 else [])}
+    except Exception:  # noqa: BLE001 — the wheel walk must not die for this
+        pass
     print(f"option-chain capture — {len(syms)} symbols, ~{args.dte} DTE, rights={args.rights}, "
           f"pace {pace:.0f}s  [{date.today()}]", flush=True)
 
@@ -228,7 +262,28 @@ def main() -> int:
         if i:
             time.sleep(pace)
         try:
-            rows, status = capture_symbol(sym, target_dte=args.dte, rights=args.rights)
+            # Watch symbols ALWAYS capture both rights — the watch lane's
+            # risk reversal, straddle and event premium need calls the wheel
+            # never did.
+            _rights = "PC" if sym in watch_syms else args.rights
+            rows, status = capture_symbol(sym, target_dte=args.dte, rights=_rights)
+            if rows and sym in watch_syms:
+                # Start the IV-percentile history: one ATM IV row per watch
+                # symbol per day. Empty until today; accrues forward.
+                try:
+                    spot0 = rows[0]["spot"]
+                    atm = min((x for x in rows if x.get("iv")),
+                              key=lambda x: abs(x["strike"] - spot0), default=None)
+                    if atm:
+                        import requests as _rq2
+                        _rq2.post(f"{_b.rstrip('/')}/api/options/iv-daily",
+                                  headers={"Authorization": f"Bearer {_t}"} if _t else {},
+                                  json={"rows": [{"symbol": sym, "tradeDate": None,
+                                                  "iv": float(atm["iv"]), "hv30": None,
+                                                  "source": "chain_capture_atm"}]},
+                                  timeout=15)
+                except Exception:  # noqa: BLE001 — history is a bonus, never a blocker
+                    pass
         except Exception as exc:  # noqa: BLE001
             name = type(exc).__name__
             if "RateLimit" in name:
