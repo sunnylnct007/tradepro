@@ -83,6 +83,11 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # shared. Daily bars come from the BarStore via S3 read-through (same as
     # post_earnings_puts); intraday 15m from yfinance, labelled.
     "preearnings_watch":    ("tradepro_strategies.cli.preearnings_watch", []),
+    # DID THE DESK ACTUALLY WORK TODAY? Runs after the bell and says so, in a
+    # subject line that differs on a bad day. Every failure in the first week —
+    # a job that never ran, a close that left four legs overnight, placements
+    # 404ing for days — was found by a human querying by hand, days late.
+    "index_strangle_eod":   ("tradepro_strategies.cli.index_strangle_eod", ["--email"]),
 
     # ── Paper sleeves, moving off the MacBook ───────────────────────────
     #
