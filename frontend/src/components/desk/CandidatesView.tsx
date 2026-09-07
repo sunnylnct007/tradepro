@@ -606,6 +606,47 @@ function Detail({ r }: { r: Row }) {
         );
       })()}
 
+      {r.extra?.key_stats?.source === "yfinance_info" && (() => {
+        const ks = r.extra.key_stats;
+        const fm = (v: any, d = 1, suf = "") =>
+          v == null ? "—" : `${Number(v).toFixed(d)}${suf}`;
+        const cap = ks.market_cap == null ? "—"
+          : ks.market_cap >= 1e12 ? `$${(ks.market_cap / 1e12).toFixed(2)}T`
+          : `$${(ks.market_cap / 1e9).toFixed(1)}B`;
+        // SIGNAL-RELEVANT ONLY (owner: "we only need data that will help us
+        // in trading signal" — no Koyfin replication). Each row earns its
+        // place: size = liquidity context; ttm->fwd P/E gap = how much EPS
+        // explosion is already priced; rev growth = the fundamental driver
+        // behind the momentum; beta = expected amplification; short float =
+        // squeeze fuel. Valuation trivia (P/B, EV/EBITDA, margins) cut.
+        const rows: [string, string][] = [
+          ["Mkt cap", cap],
+          ["P/E ttm → fwd", `${fm(ks.pe_ttm)} → ${fm(ks.pe_fwd)}`],
+          ["Rev growth", fm(100 * ks.rev_growth, 0, "%")],
+          ["Beta", fm(ks.beta)],
+          ["Short % float", fm(100 * ks.short_pct_float, 1, "%")],
+        ];
+        return (
+          <div style={{ minWidth: 210, flex: "0 1 240px" }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
+                          color: MUTED, marginBottom: 5 }}>
+              Key stats <span style={{ textTransform: "none" }}>· vendor (yfinance)</span>
+            </div>
+            <table style={{ borderCollapse: "collapse", width: "100%",
+                            fontVariantNumeric: "tabular-nums", fontSize: 11.5 }}>
+              <tbody>
+                {rows.map(([k, v], i) => (
+                  <tr key={i} style={{ borderTop: "1px solid #141b2b" }}>
+                    <td style={{ padding: "3px 8px", color: MUTED }}>{k}</td>
+                    <td style={{ padding: "3px 8px", textAlign: "right" }}>{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+
       <div style={{ minWidth: 260, flex: "1 1 300px" }}>
         <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
                       color: MUTED, marginBottom: 5 }}>

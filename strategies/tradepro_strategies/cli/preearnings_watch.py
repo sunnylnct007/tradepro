@@ -386,6 +386,51 @@ def _options_context(base, token, sym, print_date):
         return {"status": "INSUFFICIENT", "reason": str(exc)[:80]}
 
 
+_KS_CACHE: dict = {}
+
+
+def key_stats_for(sym: str) -> dict:
+    """Koyfin-grade ticker vitals, one call, cached per process per day.
+    Source: yfinance info — VENDOR data, labelled. The proper home is the
+    analysis sidecar, whose prod proxy currently 502s (sidecar is Mac-only);
+    until that deploys, the watch rows carry the essentials themselves."""
+    import datetime as dt
+    key = f"{sym}:{dt.date.today()}"
+    if key in _KS_CACHE:
+        return _KS_CACHE[key]
+    try:
+        from ..yahoo_session import yahoo_session
+        import yfinance as yf
+        inf = yf.Ticker(sym, session=yahoo_session()).info or {}
+        def g(*names):
+            for n in names:
+                v = inf.get(n)
+                if v is not None:
+                    return v
+            return None
+        out = {
+            "source": "yfinance_info",
+            "market_cap": g("marketCap"),
+            "pe_ttm": g("trailingPE"),
+            "pe_fwd": g("forwardPE"),
+            "ps_ttm": g("priceToSalesTrailing12Months"),
+            "pb": g("priceToBook"),
+            "ev_ebitda": g("enterpriseToEbitda"),
+            "gross_margin": g("grossMargins"),
+            "op_margin": g("operatingMargins"),
+            "rev_growth": g("revenueGrowth"),
+            "eps_ttm": g("trailingEps"),
+            "div_yield": g("dividendYield"),
+            "beta": g("beta"),
+            "short_pct_float": g("shortPercentOfFloat"),
+            "next_earnings_hint": str(g("earningsTimestamp") or ""),
+        }
+        _KS_CACHE[key] = out
+        return out
+    except Exception as exc:  # noqa: BLE001 — vitals must never sink a row
+        return {"source": "unavailable", "reason": str(exc)[:60]}
+
+
 def options_context_for(sym: str, base=None, token=None) -> dict:
     """Full options context for ANY symbol, self-contained — the shared entry
     point for other producers (momentum/swing display columns). Adds realized
@@ -434,6 +479,17 @@ def evaluate(sym, cfg, base, token, state):
 
     # -- calendar: exactly one confirmed future print --
     prints = _confirmed_print(base, token, sym)
+    # OWNER OVERRIDE BEATS THE FEED. Two phantom forward dates in one cycle
+    # (MU 9/21, CRDO 9/09 — CRDO had already reported 9/01 when the calendar
+    # still promised a print). Until a feed date is validated, the owner's
+    # stated fact wins: config `earnings_override` = "none" (no upcoming
+    # print → UNKNOWN state) or an ISO date (that date, full stop).
+    ov = cfg.get("earnings_override")
+    if ov == "none":
+        prints = []
+        gate("earnings_override", True, "owner: no upcoming print (feed date rejected)")
+    elif ov:
+        prints = [(str(ov)[:10], "owner")]
     if len(prints) > 1:
         # A CONFLICT blocks everything — two future dates is the MU 21st/30th
         # hazard and no source gets picked by guesswork (addendum §6.2).
@@ -779,7 +835,8 @@ def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
         provenance=provenance or [],
         extra={"strategy_version": STRATEGY_VERSION,
                "proposed_qty": qty,
-               "options_context": options},
+               "options_context": options,
+               "key_stats": key_stats_for(sym)},
     )])[0]
 
 
