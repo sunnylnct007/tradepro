@@ -945,3 +945,30 @@ none of this is strangle performance.
   matched a previous deploy and called a not-yet-deployed route a failure.
 - A **Python-only** merge produces no `aws-build-push`/`aws-redeploy`; watch
   `aws-lambda-jobs` instead or you will wait forever.
+
+## 7 Sep 2026 (00:xx) — PER-SYMBOL WATCH FRAMEWORK LIVE; first session is TODAY
+
+**8 symbols on the preearnings/SwingWatch board** (MU, SNDK, WDC, STX, NVDA,
+MRVL, CRDO, PLTR). Engine `tradepro-preearnings-watch`: Lambda cron(0/5 8-21
+MON-FRI) + Mac plist (shared settings-kv dedupe — no double alerts), IBKR-first
+bars (store 5m→15m resample; yfinance prepost fallback, labelled), options
+term-structure context from the chain capture, decision-first rows with named
+reasons + what-changes-this triggers, MCP tools preearnings_status /
+preearnings_evaluate / get_option_chain_context. UI: run Pre-Earn button;
+symbol click opens the chart rail.
+
+MU: WATCH (TOLERATED rollover) — armed 958 band reclaim / 1050 breakout
+one-shot / gap guard ~890; print 2026-09-30 AMC owner-confirmed (phantom 9/21
+row DELETED from earnings_calendar). Options: +9.7 IV pts event premium,
+P/C OI 9.05, put wall 980-1000. NVDA + PLTR QUALIFIED watch; SNDK/STX/MRVL/
+WDC/CRDO BLOCKED with exact reasons on-row.
+
+TRAPS: settings-kv PUT stores the RAW BODY as value (do not wrap). A rarely-
+touched symbol's first store read can be a stale partition — S3 read-through
+refreshes on second touch (SNDK 1554→1740). Scale-invariance invariant in
+docs/MULTI_SYMBOL_ARCHITECTURE_ADDENDUM_V1.md: engine lookbacks ≤63 sessions,
+ATR-multiple thresholds only; owner-armed dollar levels exempt.
+
+Budgets are PROVISIONAL_PAPER_DEFAULTS (swing $1k / core gap $2.5k / intraday
+$300), account IBKR_PAPER. Earnings workstream CLOSED (Q3 + both vetoes
+failed gates — do not re-raise). Funding gates 089a8ec await D1-D3.
