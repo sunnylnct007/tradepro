@@ -469,6 +469,18 @@ def evaluate(sym, cfg, base, token, state):
     bw = cfg.get("breakout_watch_level")
     if not bw and cfg.get("breakout_watch_mode") == "20d_high":
         bw = round(max(d.high[-20:]), 2)   # recomputed live, never stored
+    # Owner-armed levels beyond the breakout watch (e.g. MU's 850 deep-dip —
+    # a 20d-mean-minus-~2σ trigger from the external audit; dollar-denominated
+    # but derived from trailing stats, so regime-current). One-shot each.
+    for lv in (cfg.get("owner_alert_levels") or []):
+        side, level, label = lv.get("side", "below"), float(lv["level"]), lv.get("label", "")
+        hit = next((b for b in bars if (b["c"] <= level if side == "below"
+                                        else b["c"] >= level)), None)
+        if hit:
+            alerts.append((f"OWNER_LEVEL_{level:.0f}", f"{side}",
+                           f"{sym} 15m close {hit['c']:.2f} {side} owner level "
+                           f"{level:.0f} — {label}. Review, no forecast."))
+
     # SNDK special filter (addendum §12): do not chase a large expansion day.
     ext = ema + band.get("extended_from_ema_atr", 1.5) * atr
     if px >= ext or (bars and bars[-1]["c"] >= ext):
