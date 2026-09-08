@@ -945,6 +945,55 @@ def scout(base, token, watched: list, state: dict) -> list:
     return rows
 
 
+def market_movers(base, token, watched, state) -> dict | None:
+    """Top gainers/losers across the universe + extras — the owner's one-stop
+    'where is today's action' strip (8 Sep: 'we scanning the market again and
+    again but not showing something like market gainer/loser').
+
+    ONE batch quote call for all names, throttled to every ~15 min via state.
+    Each mover is annotated with its desk status (watched/scout/—) so the
+    strip feeds the signal loop instead of replacing it. Vendor-labelled.
+    """
+    import datetime as dt
+    now = dt.datetime.now(dt.UTC)
+    last = state.get("movers_at")
+    if last and (now - dt.datetime.fromisoformat(last)).total_seconds() < 840:
+        return None
+    try:
+        from ..universe import universe_symbols
+        extras = [str(x).upper() for x in
+                  (_kv_get(base, token, "scout_extra_symbols") or [])]
+        names = list(dict.fromkeys(list(universe_symbols(strict=False)) + extras))
+        from ..yahoo_session import yahoo_session
+        import yfinance as yf
+        df = yf.download(names, period="2d", interval="1d", progress=False,
+                         session=yahoo_session(), group_by="ticker",
+                         threads=True)
+        rows = []
+        for sym in names:
+            try:
+                sub = df[sym]["Close"].dropna()
+                if len(sub) >= 2:
+                    chg = float(sub.iloc[-1] / sub.iloc[-2] - 1) * 100
+                    rows.append({"symbol": sym, "last": round(float(sub.iloc[-1]), 2),
+                                 "chg_pct": round(chg, 2),
+                                 "status": ("watch" if sym in watched else "")})
+            except Exception:  # noqa: BLE001 — one bad column must not kill the strip
+                continue
+        rows.sort(key=lambda r: -r["chg_pct"])
+        state["movers_at"] = now.isoformat()
+        out = {"as_of_utc": now.isoformat(), "source": "yfinance_batch",
+               "gainers": rows[:8], "losers": rows[-8:][::-1]}
+        # Persist so THROTTLED ticks carry the strip forward — the 5-min
+        # Lambda cadence otherwise overwrites the artifact without movers
+        # four ticks out of five, and the strip flickers out of existence.
+        state["movers_last"] = out
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.warning("movers failed: %s", str(exc)[:100])
+        return None
+
+
 # ── main ──────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1033,12 +1082,26 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 — the watch must not die for the scout
         log.warning("scout failed: %s", str(exc)[:120])
 
+    # -- market movers strip (throttled ~15 min; shares the scout state) --
+    movers = None
+    try:
+        gstate2 = _kv_get(base, token, "preearnings_scout_state") or {}
+        movers = market_movers(base, token, symbols, gstate2)
+        if movers and not args.dry_run:
+            _kv_put(base, token, "preearnings_scout_state", gstate2, "", "")
+        if movers is None:
+            movers = gstate2.get("movers_last")   # throttled tick: carry forward
+    except Exception as exc:  # noqa: BLE001
+        log.warning("movers block failed: %s", str(exc)[:100])
+
     # -- publish to the board (screen + regular digest email ride this) --
     if rows and not args.dry_run:
         import requests
         art = {"as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),
                "strategy_version": STRATEGY_VERSION,
                "candidates_v2": rows, "journal_delta": journal_add}
+        if movers:
+            art["movers"] = movers
         r = requests.post(f"{base}/api/ingest/today-setups",
                           json={"universe": "preearnings", "label": "latest",
                                 "uploaded_by": "preearnings-watch", "artifact": art},

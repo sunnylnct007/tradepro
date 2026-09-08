@@ -118,6 +118,9 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
   // position yet, so empty position/order data is correct, and the chart
   // card fetches its own bars by symbol.
   const [chartSym, setChartSym] = useState<string | null>(null);
+  // One-stop market movers (universe + owner extras, ~15-min refresh) — the
+  // owner's "where is today's action" strip. Click a mover to chart it.
+  const [movers, setMovers] = useState<any | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -163,6 +166,7 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       if (a.candidates_v2?.length) {
         out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
       }
+      if (a.movers) setMovers(a.movers);
     } catch { /* engine not yet run this cycle — absence is not an error */ }
 
     try {
@@ -382,6 +386,33 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
         <div style={{ fontSize: 11.5, color: MUTED }}>
           {withheldCount} row(s) from a strategy whose backtest FAILED are not
           listed here — counted, never hidden. Click its pill to study them.
+        </div>
+      )}
+
+      {movers && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12,
+                      padding: "6px 10px", border: "1px solid var(--border)",
+                      borderRadius: 8, alignItems: "baseline" }}>
+          <span style={{ color: MUTED, fontSize: 10.5, textTransform: "uppercase",
+                         letterSpacing: ".06em" }}>Movers</span>
+          {(movers.gainers ?? []).slice(0, 6).map((m: any) => (
+            <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
+                  onClick={() => setChartSym(m.symbol)}>
+              {m.symbol}{m.status === "watch" ? "•" : ""}{" "}
+              <b style={{ color: OK }}>{m.chg_pct > 0 ? "+" : ""}{m.chg_pct}%</b>
+            </span>
+          ))}
+          <span style={{ color: MUTED }}>·</span>
+          {(movers.losers ?? []).slice(0, 6).map((m: any) => (
+            <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
+                  onClick={() => setChartSym(m.symbol)}>
+              {m.symbol}{m.status === "watch" ? "•" : ""}{" "}
+              <b style={{ color: WARN }}>{m.chg_pct}%</b>
+            </span>
+          ))}
+          <span style={{ color: MUTED, fontSize: 10.5 }}>
+            {String(movers.as_of_utc ?? "").slice(11, 16)}Z · universe + your list · • = watched
+          </span>
         </div>
       )}
 
