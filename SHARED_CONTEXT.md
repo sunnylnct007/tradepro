@@ -1007,3 +1007,9 @@ OPEN / needs an owner call:
     realised_pnl from the 13:53 one. Blocks re-entry.
   - placement cron fires ONCE (13:52Z). Nothing re-enters after an exit.
   - 13:52Z is 22 min after the open, which is when the chain is emptiest.
+
+## 2026-09-08 (evening session — swing σ + scout)
+- SWING ENTRY IS NOW −2.25σ (was −2.5): pre-registered band study, `strategies/SWING_SIGMA_BAND_GATES_V1.md` + RESULT. Band C (−2.25..−2.0) FAILED the tail gate — do not widen further without a new gates doc. Trade records split at 8 Sep.
+- Scout has a second lens: repeat movers (top-8 gainers ≥2 of last 5 sessions, above EMA20) — INTC-shaped V-recoveries. State in `preearnings_scout_state.movers_history`; thresholds in `preearnings_scout`.
+- DO NOT clear `scout_last_run` casually: before commit 32c3c7d that froze the whole watch board for an hour (sweep outlived the 5-min tick and re-armed itself). Marker is now written BEFORE the sweep; sweep is store-only + 120s budget.
+- Yahoo got throttled tonight from repeated batch calls; extras (NBIS/IREN/SMCI/CRWV/ROIV/SMR) ride yfinance and go last in the sweep.
