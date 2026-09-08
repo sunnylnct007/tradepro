@@ -252,4 +252,18 @@ public class StrangleDecisionKeyTest
         Assert.Contains("closedAtUtc = (DateTime?)r.closed_at_utc", s);
         Assert.Contains("heldMinutes", s);
     }
+
+    [Fact]
+    public void ANegativeHoldIsWithheldNotRendered()
+    {
+        // 8 Sep 2026 this read -100.9m: placed 15:41, closed 14:00. The row is
+        // keyed one-per-market-per-session, so a re-entry overwrote
+        // placed_at_utc while closed_at_utc still described a DIFFERENT
+        // round-trip. A negative duration printed as a number invites being
+        // read as one.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("(DateTime)r.closed_at_utc >= (DateTime)r.placed_at_utc", s);
+        Assert.Contains("timingIncoherent", s);
+        Assert.Contains("closed BEFORE it was placed", s);
+    }
 }
