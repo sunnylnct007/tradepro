@@ -41,6 +41,27 @@ log = logging.getLogger("tradepro.index_strangle_close")
 # close-at-close from the recorded exits, and it should not be moved before
 # there is a sample to move it on.
 TARGET_PCT = 0.50
+# STOP LOSS, as a multiple of the credit collected. Spec v1.0 §6, and §8 is
+# blunt about it: "The stop loss is not optional."
+#
+# Until now this desk had NONE. A short strangle's loss is unbounded on the call
+# side and bounded only by the strike on the put side; the time exit at the bell
+# was the sole thing between a bad session and an arbitrarily bad one. On 1 Sep
+# 2026 the time exit itself failed and four legs ran overnight — the only
+# reason that was survivable is that the market did not gap.
+#
+# 2.0x means: close when buying the pair back costs three times what it was
+# sold for (credit + 2x credit of loss). Spec default.
+#
+# §8 also requires this be measured on CUMULATIVE credit once rolling exists —
+# otherwise the stop widens with every roll. There is no roll loop yet, so
+# cumulative == entry credit; the parameter name says cumulative so the
+# meaning does not silently change when rolls arrive.
+STOP_LOSS_MULTIPLE = 2.0
+# Spec §6: "VIX up more than 40% intraday from the entry reading". A vol shock
+# is the regime the gate exists to avoid; being IN one mid-position is the case
+# for leaving rather than waiting for the bell.
+VOL_SHOCK_RISE = 0.40
 # Minutes before the close at which the time exit fires regardless of P&L.
 # Wide enough to actually get filled rather than racing the bell.
 EOD_MINUTES_BEFORE_CLOSE = 15
@@ -75,6 +96,11 @@ def decide_close(position: dict, cfg: dict,
 
     if mins is None:
         return {"close": False, "reason": "market is not open"}
+    # ORDER MATTERS. Spec §6 checks position-level exits BEFORE anything else
+    # and any one of them closes the whole position. The time exit stays first
+    # because overnight is the one risk nothing else caps; the STOP comes next,
+    # ahead of the profit target, because a position can be both past its stop
+    # and nowhere near its target and must leave on the worse of the two.
     if mins <= EOD_MINUTES_BEFORE_CLOSE:
         # TIME EXIT FIRST, and unconditionally. Even at a loss: carrying a
         # short strangle overnight is a different trade from the one measured.
@@ -83,6 +109,25 @@ def decide_close(position: dict, cfg: dict,
                           f"and carrying it overnight is a trade nothing here has measured"}
     if credit > 0 and cost is not None:
         decayed = (credit - float(cost)) / credit
+        # STOP LOSS — §6, and §8: "not optional". decayed is negative when the
+        # position is underwater; -2.0 means the loss is twice the credit.
+        if decayed <= -STOP_LOSS_MULTIPLE:
+            return {"close": True, "trigger": "stop_loss",
+                    "decayed_pct": round(100 * decayed, 1),
+                    "reason": (f"loss is {abs(decayed):.1f}x the credit collected "
+                               f"(stop {STOP_LOSS_MULTIPLE:.1f}x) — out now, not at "
+                               f"the bell")}
+        # VOL SHOCK — §6. Entry vol comes from the decision that opened the
+        # position; without it this check is SKIPPED rather than guessed at,
+        # because a missing reading is not a calm market.
+        v0, v1 = position.get("vol_at_entry"), position.get("vol_now")
+        if v0 and v1 and float(v0) > 0:
+            rise = float(v1) / float(v0) - 1.0
+            if rise >= VOL_SHOCK_RISE:
+                return {"close": True, "trigger": "vol_shock",
+                        "reason": (f"volatility {float(v0):.2f} -> {float(v1):.2f} "
+                                   f"({rise * 100:+.0f}%) since entry — the regime "
+                                   f"the gate exists to avoid, and we are in it")}
         if decayed >= TARGET_PCT:
             return {"close": True, "trigger": "profit_target",
                     "decayed_pct": round(100 * decayed, 1),
@@ -149,6 +194,33 @@ def _market_for(symbol: str, markets: dict) -> tuple[str, dict] | None:
         if want in {str(r).upper() for r in roots}:
             return name, cfg
     return None
+
+
+_VOL_NOW: dict = {}
+
+
+def _current_vol(sym: str) -> float | None:
+    """The volatility index NOW, for the vol-shock exit. Cached per run.
+
+    One fetch per distinct index per tick, not per market — SPY, XSP and SPX
+    all gate on ^VIX and there is no reason to ask three times. A failure
+    returns None and the shock check is SKIPPED: a missing reading is not a
+    calm market, and closing on an absence would be the worst kind of guess.
+    """
+    if not sym:
+        return None
+    if sym in _VOL_NOW:
+        return _VOL_NOW[sym]
+    val = None
+    try:
+        import yfinance as yf
+        h = yf.Ticker(sym).history(period="1d", interval="5m")
+        if not h.empty:
+            val = float(h["Close"].iloc[-1])
+    except Exception as exc:  # noqa: BLE001
+        print(f"     (could not read {sym} for the vol-shock check: {str(exc)[:80]})")
+    _VOL_NOW[sym] = val
+    return val
 
 
 def _record_exit(base, tok, market: str, expiry: str,
@@ -225,12 +297,17 @@ def _placed_today(base, tok) -> set | None:
     # the day it happened to close. A stale position closes the NEXT morning,
     # and stamping today's date made the write miss the row entirely.
     sessions: dict = {}
+    vols: dict = {}
     for d in rows:
         if not d.get("placed"):
             continue
         m = d.get("market")
         sess = str(d.get("exchange_date") or d.get("as_of") or "")[:10]
         when = str(d.get("placed_at_utc") or "")[:10]
+        # The volatility reading the decision was MADE on — the baseline the
+        # vol-shock exit measures against. Same read, no second fetch.
+        if d.get("vol_index") is not None:
+            vols.setdefault(m, float(d["vol_index"]))
         for right, key in (("P", "put_strike"), ("C", "call_strike")):
             k = d.get(key)
             if k is None:
@@ -240,6 +317,7 @@ def _placed_today(base, tok) -> set | None:
             if when == today:
                 out.add(ident)
     _placed_today.sessions = sessions  # type: ignore[attr-defined]
+    _placed_today.vols = vols          # type: ignore[attr-defined]
     return out
 
 
@@ -364,7 +442,9 @@ def main() -> int:
 
         verdict = decide_close(
             {"credit": None if unmarkable else credit,
-             "current_cost": None if unmarkable else cost}, cfg)
+             "current_cost": None if unmarkable else cost,
+             "vol_at_entry": (getattr(_placed_today, "vols", {}) or {}).get(market),
+             "vol_now": _current_vol(cfg.get("vol", ""))}, cfg)
 
         # A LEFTOVER POSITION GOES AT THE FIRST OPPORTUNITY. It still needs an
         # open market to trade in, so this only upgrades a "hold" once the
