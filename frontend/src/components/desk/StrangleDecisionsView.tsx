@@ -69,6 +69,7 @@ type PnlLeg = {
 type PnlTrade = {
   market: string; shadow: boolean;
   placedAtUtc: string | null; closedAtUtc: string | null; heldMinutes: number | null;
+  timingIncoherent: string | null;
   credit: number | null; realised: number | null;
 };
 type Pnl = {
@@ -311,11 +312,13 @@ export function StrangleDecisionsView() {
                     <td style={{ padding: "6px" }}>{hhmmss(t.placedAtUtc)}</td>
                     <td style={{ padding: "6px" }}>{hhmmss(t.closedAtUtc)}</td>
                     <td style={{ padding: "6px", textAlign: "right",
-                                 color: brief ? TONE.warn : "inherit",
-                                 fontWeight: brief ? 600 : 400 }}
-                        title={brief ? "under an hour — check the exit trigger before "
-                                     + "reading this as a strategy result" : ""}>
-                      {held(t.heldMinutes)}
+                                 color: t.timingIncoherent ? TONE.bad
+                                      : brief ? TONE.warn : "inherit",
+                                 fontWeight: t.timingIncoherent || brief ? 600 : 400 }}
+                        title={t.timingIncoherent
+                          ?? (brief ? "under an hour — check the exit trigger before "
+                                    + "reading this as a strategy result" : "")}>
+                      {t.timingIncoherent ? "INCOHERENT" : held(t.heldMinutes)}
                     </td>
                     <td style={{ padding: "6px", textAlign: "right" }}>
                       {t.credit == null ? "—" : t.credit.toFixed(2)}
