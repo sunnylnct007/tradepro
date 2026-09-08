@@ -157,9 +157,12 @@ public static class StrangleDecisionLogEndpoints
                     -- CLEARED ON SUCCESS. COALESCE alone never unsets, so a
                     -- refusal from an earlier run of the same session survived
                     -- a later successful placement: on 8 Sep 2026 the SPX row
-                    -- read placed=true with credit_actual 5,316.74 AND
-                    -- "strikes are PROVISIONAL" from the 04:10 attempt. A row
+                    -- read placed=true with credit_actual 5,316.74 AND a
+                    -- PROVISIONAL-strikes refusal from the 04:10 attempt. A row
                     -- carrying both is a row nobody can read.
+                    -- (No double quotes in this block: it is a C# verbatim
+                    -- string and a bare quote ends it. Second time — the same
+                    -- mistake produced 110 compile errors on 1 Sep.)
                     place_error      = CASE WHEN @Placed IS TRUE THEN NULL
                                             ELSE COALESCE(@PlaceError, place_error) END,
                     quoted_credit    = COALESCE(@QuotedCredit, quoted_credit),
