@@ -199,6 +199,83 @@ public static class StrangleDecisionLogEndpoints
                           + "decision that was never logged",
                 }, statusCode: 404);
 
+            // ── AND AS ITS OWN ROW ───────────────────────────────────────
+            //
+            // The UPDATE above keeps the decision row current, because the
+            // close job and the history table read it and neither is being
+            // moved tonight with live positions open. This second write is the
+            // one that is actually correct: an execution is a ROUND-TRIP, and a
+            // session can hold several.
+            //
+            // OPEN inserts a new entry. CLOSE updates the entry that is still
+            // open. That asymmetry is the fix -- the old writer did an in-place
+            // COALESCE update for both, so a re-entry overwrote the first
+            // trade's placement while keeping its exit.
+            var session = row.AsOf.Date;
+            var kind = row.ExpiryKind ?? "";
+            var isClose = row.ClosedAtUtc is not null || row.RealisedPnl is not null;
+
+            if (isClose)
+            {
+                // The OPEN entry, newest first. Nothing to close is not an
+                // error here: a close can legitimately arrive for a position
+                // opened before this table existed.
+                await conn.ExecuteAsync(@"
+                    UPDATE strangle_execution SET
+                        exit_cost_actual = COALESCE(@ExitCostActual, exit_cost_actual),
+                        close_trigger    = COALESCE(@CloseTrigger, close_trigger),
+                        closed_at_utc    = COALESCE(@ClosedAtUtc, closed_at_utc),
+                        realised_pnl     = COALESCE(@RealisedPnl, realised_pnl)
+                      WHERE id = (
+                        SELECT id FROM strangle_execution
+                         WHERE market = @Market AND session = @Session
+                           AND expiry_kind = @Kind
+                           AND placed IS TRUE AND closed_at_utc IS NULL
+                         ORDER BY entry_seq DESC LIMIT 1)",
+                    new { row.ExitCostActual, row.CloseTrigger, row.ClosedAtUtc,
+                          row.RealisedPnl, row.Market, Session = session, Kind = kind });
+            }
+            else
+            {
+                // Idempotent on the PLACEMENT INSTANT. record_execution can be
+                // retried, and a retry must not manufacture a second entry for
+                // one trade -- that would corrupt the very count this table
+                // exists to keep honest.
+                await conn.ExecuteAsync(@"
+                    INSERT INTO strangle_execution
+                        (market, session, expiry_kind, entry_seq, put_strike, call_strike,
+                         placed, partial, shadow, place_error, broker_order_ids,
+                         credit_actual, placed_at_utc)
+                    SELECT @Market, @Session, @Kind,
+                           COALESCE((SELECT MAX(entry_seq) FROM strangle_execution
+                                      WHERE market = @Market AND session = @Session
+                                        AND expiry_kind = @Kind), 0) + 1,
+                           -- The strikes come from the DECISION row for this
+                           -- session, which the UPDATE above has just refreshed.
+                           -- Sourced here rather than added to the request DTO
+                           -- so the strategy caller does not have to send the
+                           -- same numbers twice and cannot send them differently.
+                           (SELECT put_strike FROM strangle_decision_log
+                             WHERE market = @Market
+                               AND COALESCE(exchange_date, as_of) = @Session
+                               AND COALESCE(expiry_kind, '') = @Kind LIMIT 1),
+                           (SELECT call_strike FROM strangle_decision_log
+                             WHERE market = @Market
+                               AND COALESCE(exchange_date, as_of) = @Session
+                               AND COALESCE(expiry_kind, '') = @Kind LIMIT 1),
+                           @Placed, @Partial, @Shadow,
+                           CASE WHEN @Placed IS TRUE THEN NULL ELSE @PlaceError END,
+                           @BrokerOrderIds, @CreditActual, @PlacedAtUtc
+                     WHERE NOT EXISTS (
+                        SELECT 1 FROM strangle_execution
+                         WHERE market = @Market AND session = @Session
+                           AND expiry_kind = @Kind
+                           AND placed_at_utc IS NOT DISTINCT FROM @PlacedAtUtc)",
+                    new { row.Market, Session = session, Kind = kind,
+                          row.Placed, row.Partial, row.Shadow, row.PlaceError,
+                          row.BrokerOrderIds, row.CreditActual, row.PlacedAtUtc });
+            }
+
             return Results.Ok(new { ok = true, updated = n });
         });
 
@@ -335,28 +412,31 @@ public static class StrangleDecisionLogEndpoints
             // Placed rows for the window, closed or not. The OPEN ones carry
             // the placement time a leg is attributed to; the CLOSED ones carry
             // the realised half. One read, both jobs.
+            // ONE ROW PER ROUND-TRIP. Read from strangle_execution, not from
+            // the decision row: a session can hold several entries and the
+            // decision row can only ever describe one of them. Reading the
+            // decision row is what produced a leg with no placement time and a
+            // trade that closed 101 minutes before it opened.
             var placedRows = (await conn.QueryAsync(@"
-                SELECT market, placed_at_utc, closed_at_utc,
+                SELECT market, placed_at_utc, closed_at_utc, entry_seq,
                        put_strike::float8  AS put_strike,
                        call_strike::float8 AS call_strike,
                        realised_pnl::float8 AS realised_pnl
-                  FROM strangle_decision_log
+                  FROM strangle_execution
                  WHERE placed IS TRUE
-                   AND COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@days || ' days')::interval)",
+                   AND session >= (CURRENT_DATE - (@days || ' days')::interval)",
                 new { days = days <= 0 ? 1 : days })).AsList();
 
             var closed = (await conn.QueryAsync(@"
-                SELECT market,
-                       COALESCE(exchange_date, as_of)::date AS session,
-                       shadow,
+                SELECT market, session, shadow, entry_seq,
                        placed_at_utc, closed_at_utc,
                        realised_pnl::float8   AS realised_pnl,
                        credit_actual::float8  AS credit_actual
-                  FROM strangle_decision_log
+                  FROM strangle_execution
                  WHERE placed IS TRUE
                    AND realised_pnl IS NOT NULL
-                   AND COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@days || ' days')::interval)
-                 ORDER BY market;",
+                   AND session >= (CURRENT_DATE - (@days || ' days')::interval)
+                 ORDER BY market, entry_seq;",
                 new { days = days <= 0 ? 1 : days })).AsList();
 
             var realised = closed.Sum(r => (double)(r.realised_pnl ?? 0d));
@@ -509,6 +589,10 @@ public static class StrangleDecisionLogEndpoints
                     trades = closed.Select(r => new
                     {
                         market = (string)r.market,
+                        // Which round-trip of that session. A day with two
+                        // entries now shows as two rows instead of one row
+                        // built from both.
+                        entry = (int)r.entry_seq,
                         shadow = r.shadow == true,
                         placedAtUtc = (DateTime?)r.placed_at_utc,
                         closedAtUtc = (DateTime?)r.closed_at_utc,
@@ -580,16 +664,19 @@ public static class StrangleDecisionLogEndpoints
             var d = days <= 0 ? 90 : days;
             await using var conn = await db.OpenConnectionAsync(ct);
 
+            // Per ROUND-TRIP, so two entries in a day count as two trades. The
+            // decision-row version counted them as one and reported whichever
+            // realised_pnl happened to survive the overwrite.
             var auto = (await conn.QueryAsync(@"
                 SELECT market,
-                       COALESCE(shadow, false)              AS shadow,
+                       COALESCE(shadow, false) AS shadow,
                        close_trigger,
-                       realised_pnl::float8                 AS pnl,
-                       COALESCE(exchange_date, as_of)::date AS session
-                  FROM strangle_decision_log
+                       realised_pnl::float8    AS pnl,
+                       session
+                  FROM strangle_execution
                  WHERE placed IS TRUE
                    AND realised_pnl IS NOT NULL
-                   AND COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@d || ' days')::interval)",
+                   AND session >= (CURRENT_DATE - (@d || ' days')::interval)",
                 new { d })).AsList();
 
             var manual = (await conn.QueryAsync(@"

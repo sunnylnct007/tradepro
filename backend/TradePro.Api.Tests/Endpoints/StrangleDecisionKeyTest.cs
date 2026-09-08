@@ -266,4 +266,48 @@ public class StrangleDecisionKeyTest
         Assert.Contains("timingIncoherent", s);
         Assert.Contains("closed BEFORE it was placed", s);
     }
+
+    [Fact]
+    public void AnOpenInsertsANewEntryAndACloseUpdatesTheOpenOne()
+    {
+        // THE fix. The old writer did an in-place COALESCE update for both, so
+        // a re-entry overwrote the first trade's placement while keeping its
+        // exit -- SPX ended 8 Sep 2026 with placed 15:41 and closed 14:00.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("var isClose = row.ClosedAtUtc is not null || row.RealisedPnl is not null;", s);
+        Assert.Contains("INSERT INTO strangle_execution", s);
+        Assert.Contains("AND placed IS TRUE AND closed_at_utc IS NULL", s);
+    }
+
+    [Fact]
+    public void ARetriedPlacementDoesNotBecomeASecondEntry()
+    {
+        // record_execution is retried. A retry that manufactured a second entry
+        // would corrupt the very count this table exists to keep honest.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("placed_at_utc IS NOT DISTINCT FROM @PlacedAtUtc", s);
+    }
+
+    [Fact]
+    public void PnlAndStatsReadRoundTripsNotDecisionRows()
+    {
+        // A decision row can only ever describe ONE execution. Reading it is
+        // what produced a leg with no placement time and a trade that closed
+        // 101 minutes before it opened.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("FROM strangle_execution", s);
+        Assert.DoesNotContain("realised_pnl IS NOT NULL\n                   AND COALESCE(exchange_date, as_of)", s);
+    }
+
+    [Fact]
+    public void TheMigrationMakesAnIncoherentRoundTripUNREPRESENTABLE()
+    {
+        var sql = Src("backend/TradePro.Api/db/migrations/078_execution_is_its_own_row.sql");
+        // Reporting a negative hold was the stopgap. A CHECK is the fix: the
+        // database will not accept the state at all.
+        Assert.Contains("CHECK (closed_at_utc IS NULL OR placed_at_utc IS NULL", sql);
+        Assert.Contains("UNIQUE (market, session, expiry_kind, entry_seq)", sql);
+        // And the backfill must not launder a known-false timestamp forward.
+        Assert.Contains("closed_at_utc < placed_at_utc", sql);
+    }
 }
