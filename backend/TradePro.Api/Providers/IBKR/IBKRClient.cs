@@ -1016,8 +1016,25 @@ public sealed class IBKRClient
                     $"secdef/strikes failed for conid {underlyingConId} month {month}: {text}", (int)resp.StatusCode);
             var (calls, puts) = IBKRResponseParser.ParseStrikes(text);
             if (calls.Count == 0 && puts.Count == 0)
+            {
+                // WHAT DID IBKR ACTUALLY SAY? On 8 Sep 2026 this returned
+                // nothing for SPY (756733), QQQ (320227571) and GLD (51529211)
+                // — all STK underlyings — while SPX and XSP (IND) resolved and
+                // placed normally. The same request had worked for SPY on
+                // 1 Sep, so it is not a permanent property of the symbol.
+                //
+                // I have guessed at this cause twice and been wrong twice: an
+                // ordering problem, then a caching problem. Neither survived
+                // contact with the evidence. The response body is the evidence,
+                // and it was being discarded. 400 characters is enough to see
+                // an error object, an empty array, or an unexpected shape.
+                _log.LogWarning(
+                    "EMPTY CHAIN for conid={ConId} month={Month} — IBKR said: {Body}",
+                    underlyingConId, month,
+                    text.Length > 400 ? text[..400] : text);
                 return new IBKROptionStrikesResult(calls, puts,
                     $"IBKR returned NO strikes for conid {underlyingConId} month {month}", (int)resp.StatusCode);
+            }
             var ok = new IBKROptionStrikesResult(calls, puts, null, (int)resp.StatusCode);
             _strikesCache[strikesKey] = (DateTime.UtcNow, ok);
             return ok;

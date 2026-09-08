@@ -316,6 +316,22 @@ def _placed_today(base, tok) -> set | None:
             sessions.setdefault(ident, sess)
             if when == today:
                 out.add(ident)
+                # ALSO mark the MARKET fresh, not just the exact strike.
+                #
+                # Strike matching is too brittle to decide whether to CLOSE a
+                # position. On 8 Sep SPX and XSP were placed at 13:52 with
+                # placed=True and a real credit_actual, and the 14:00 tick
+                # flattened them anyway as 'stale_overnight' — half an hour
+                # old. Any drift between the row's strikes and the fill's (a
+                # re-run, a rounding difference, an earlier provisional row
+                # updated later) turns a fresh position into a leftover.
+                #
+                # A market that placed TODAY has no leftovers in it: this desk
+                # closes every position the same session. Market-level
+                # freshness has fewer ways to be wrong, and every way it can
+                # be wrong errs toward HOLDING.
+                out.add((m, '*', 0.0))
+
     _placed_today.sessions = sessions  # type: ignore[attr-defined]
     _placed_today.vols = vols          # type: ignore[attr-defined]
     return out
@@ -405,9 +421,20 @@ def main() -> int:
         cfg = legs[0][2]
         stale = False
         if fresh is not None:
-            stale = not any(
+            # Fresh if the exact contract placed today, OR if anything in this
+            # market did. See the note in _placed_today.
+            stale = (market, "*", 0.0) not in fresh and not any(
                 (market, o["right"], round(float(o["strike"]), 2)) in fresh
                 for _p, o, _c in legs)
+            # NOTHING placed today anywhere, yet we are holding? That is our
+            # RECORD being wrong, not a book full of leftovers. Hold and say so
+            # — flattening on an empty answer is how 8 Sep closed two fresh
+            # positions half an hour after opening them.
+            if stale and not fresh:
+                print("  !! holding: the decision log shows NOTHING placed today, "
+                      "yet positions exist. Refusing to treat them as stale — "
+                      "our record is wrong, not the book.")
+                stale = False
         # TWO SETS OF NUMBERS, AND THEY ARE NOT INTERCHANGEABLE.
         #
         # PER SHARE drives the profit target. decide_close computes

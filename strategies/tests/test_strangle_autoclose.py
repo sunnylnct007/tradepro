@@ -416,3 +416,42 @@ def test_the_stop_is_stated_as_a_MULTIPLE_of_credit():
     from tradepro_strategies.cli.index_strangle_close import STOP_LOSS_MULTIPLE, VOL_SHOCK_RISE
     assert STOP_LOSS_MULTIPLE == 2.0
     assert VOL_SHOCK_RISE == 0.40
+
+
+# ---------------------------------------------------------------------------
+# FRESHNESS IS PER MARKET, NOT PER STRIKE — and an empty answer means HOLD.
+#
+# 8 Sep 2026: SPX and XSP were placed at 13:52 with placed=true and a real
+# credit_actual (5,316.74 and 424.78). The 14:00 tick flattened both as
+# "stale_overnight" — thirty minutes old.
+#
+# Strike matching is too brittle to decide whether to CLOSE. Any drift between
+# the row's strikes and the fill's — a re-run, a rounding difference, an
+# earlier provisional row updated later — turns a fresh position into a
+# leftover. A market that placed today has no leftovers in it: this desk closes
+# every position the same session.
+# ---------------------------------------------------------------------------
+
+def test_market_level_freshness_is_recorded_alongside_the_strike():
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C._placed_today)
+    assert "out.add((m, '*', 0.0))" in src or 'out.add((m, "*", 0.0))' in src
+
+
+def test_a_market_that_placed_today_is_not_stale_whatever_the_strike():
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C.main)
+    assert '(market, "*", 0.0) not in fresh' in src
+
+
+def test_an_EMPTY_fresh_set_holds_rather_than_flattening():
+    # Nothing placed today anywhere, yet positions exist? That is our RECORD
+    # being wrong, not a book full of leftovers. Flattening on an empty answer
+    # is exactly what closed two fresh positions on 8 Sep.
+    import inspect
+    import tradepro_strategies.cli.index_strangle_close as C
+    src = inspect.getsource(C.main)
+    assert "if stale and not fresh:" in src
+    assert "our record is wrong" in src
