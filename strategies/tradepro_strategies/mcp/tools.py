@@ -4670,3 +4670,62 @@ def get_option_chain_context(symbol: str, anchor_date: str | None = None) -> dic
     out["note"] = ("captured daily by the chain lane (mostly ibkr-sourced); "
                    "large OI is positioning context, not support/resistance")
     return out
+
+
+def symbol_workup(symbol: str) -> dict:
+    """The DECISION BRIEF for one symbol — the in-house version of the
+    advisor's CRDO memo, composed from everything the desk already measures.
+    Owner, 8 Sep: 'I had to take the CRDO decision myself... we cannot have
+    a uniform parameter for all symbols.' This is the per-symbol analyst
+    surface: state+triggers, ITS OWN calibration (n disclosed), options
+    context (IV/HV, RR, event premium, term structure), vitals, sector
+    position among today's movers, journal history, and the honest limits
+    (what the desk cannot know: earnings-call quality, news narrative)."""
+    import requests
+    sym = symbol.upper()
+    base = _api_base()
+    token = _resolve_api_token()
+    H = _auth_headers()
+    out = {"symbol": sym}
+    st = preearnings_status(sym)
+    out["decision"] = st.get("last_evaluation")
+    out["board_row"] = st.get("board_row")
+    out["options"] = st.get("options_context")
+    cfg = st.get("config") or {}
+    out["calibration"] = cfg.get("calibration") or {
+        "note": "NOT on the watch — no per-symbol calibration exists; "
+                "any parameter you see is a population default"}
+    out["proposals_disabled"] = cfg.get("proposals_disabled")
+    out["owner_levels"] = cfg.get("owner_alert_levels")
+    try:
+        from ..cli.preearnings_watch import key_stats_for
+        out["vitals"] = key_stats_for(sym)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        r = requests.get(f"{base}/api/today-setups/preearnings/latest",
+                         headers=H, timeout=_default_timeout())
+        m = ((r.json() or {}).get("artifact") or {}).get("movers") or {}
+        rank = next((f"gainer #{i+1} ({x['chg_pct']:+.1f}%)"
+                     for i, x in enumerate(m.get("gainers", []))
+                     if x["symbol"] == sym), None) or \
+               next((f"loser #{i+1} ({x['chg_pct']:+.1f}%)"
+                     for i, x in enumerate(m.get("losers", []))
+                     if x["symbol"] == sym), None)
+        out["today_vs_market"] = rank or "not among today's top movers"
+    except Exception:  # noqa: BLE001
+        pass
+    out["journal"] = ((st.get("config") or {}), )
+    try:
+        stt = requests.get(f"{base}/api/settings-kv/preearnings_state_{sym}",
+                           headers=H, timeout=_default_timeout())
+        j = (stt.json().get("value") or {}).get("journal") if stt.status_code == 200 else None
+        out["journal"] = j or []
+    except Exception:  # noqa: BLE001
+        out["journal"] = []
+    out["not_covered_here"] = (
+        "earnings-call quality, guidance narrative, customer concentration, "
+        "news — the desk measures price/vol/options structure; the "
+        "fundamental story is your advisor loop's half. Both halves were "
+        "needed for CRDO and both will be needed again.")
+    return out

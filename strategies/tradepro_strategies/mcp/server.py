@@ -163,6 +163,14 @@ def build_server():
         ))
 
     @mcp.tool()
+    @instrumented("symbol_workup")
+    def symbol_workup(symbol: str) -> str:
+        """The decision brief for one symbol: state+triggers, per-symbol
+        calibration (n disclosed), options context, vitals, today-vs-market,
+        journal, and what the desk cannot know. The analyst surface."""
+        return _json(t.symbol_workup(symbol))
+
+    @mcp.tool()
     @instrumented("preearnings_status")
     def preearnings_status(symbol: str = "MU") -> str:
         """Pre-earnings watch engine state for one symbol: config, last

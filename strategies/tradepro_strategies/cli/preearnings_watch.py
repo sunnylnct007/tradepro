@@ -766,6 +766,14 @@ def evaluate(sym, cfg, base, token, state):
                 alerts, _row(sym, cfg, "review", None, None, None, sessions_to,
                              "reclaim seen, sector weak — manual review")), gates
 
+    if cfg.get("proposals_disabled"):
+        msg = (f"reclaim seen, but proposals are DISABLED for {sym}: "
+               f"{cfg['proposals_disabled']}")
+        return ("REVIEW_REQUIRED", msg, alerts,
+                _row(sym, cfg, "review", reclaim_bar["c"], None, None,
+                     sessions_to, msg, provenance=_provenance(d, bars, opts),
+                     options=opts)), gates
+
     # SETUP_QUALIFIED → size it, or say exactly why not
     entry = reclaim_bar["c"]
     ar = cfg["atr_risk"]
