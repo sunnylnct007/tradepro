@@ -4337,6 +4337,48 @@ def get_strangle_decision_summary(days: int = 30) -> dict:
             "window_days": days}
 
 
+def get_strangle_live_pnl(days: int = 1) -> dict:
+    """The desk's P&L RIGHT NOW: closed trades plus the live mark on what is open.
+
+    Owner, 8 Sep 2026: "we shd be able to see live pnl at any point of time."
+    Both halves already existed and nothing added them up — realised sat in the
+    decision log, the open position was marked continuously by the broker, and
+    the screen said "P&L lands when the position closes".
+
+    `total` is null unless BOTH halves are known. A realised figure added to an
+    unknown open one is a number that looks complete and is not.
+
+    Read `warnings` before quoting the total. In particular the decision log
+    holds ONE row per market per session, so a day with two round-trips reports
+    a realised result and an open position that may belong to different trades.
+    """
+    try:
+        d = _get("/api/strangle-decisions/pnl", params={"days": days})
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_strangle_live_pnl", exc)
+    return {
+        "ok": True,
+        "as_of_utc": d.get("asOfUtc"),
+        "broker": d.get("broker"),
+        "realised": d.get("realised"),
+        "open": d.get("open"),
+        "total": d.get("total"),
+        "warnings": d.get("warnings") or [],
+        "how_to_read": {
+            "total": ("closed + live mark on open. NULL means the open half "
+                      "could not be read — that is UNKNOWN, never flat."),
+            "open.unrealised": ("marked by the broker on every request. This desk "
+                                "sells premium, so a FALLING option price is a GAIN."),
+            "open.unmarkable": ("legs the broker returned no mark for. They are "
+                                "EXCLUDED from the figure, so the total understates "
+                                "the book by however many are listed."),
+            "realised.shadow": ("trades the volatility gate REFUSED and we placed "
+                                "anyway, kept apart on purpose — averaging them "
+                                "with gated trades destroys the measurement."),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Closing option positions.
 #

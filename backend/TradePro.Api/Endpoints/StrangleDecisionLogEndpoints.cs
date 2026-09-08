@@ -291,7 +291,11 @@ public static class StrangleDecisionLogEndpoints
                        AVG(outcome_pct)::float8                        AS mean_outcome_pct,
                        MIN(outcome_pct)::float8                        AS worst_outcome_pct
                   FROM strangle_decision_log
-                 WHERE as_of >= (CURRENT_DATE - (@days || ' days')::interval)
+                 -- Same key as the upsert and the row SELECT. This was the
+                 -- THIRD site reading as_of while the table is keyed on the
+                 -- traded session; it was found only by looking for the other
+                 -- two. Fix every site or the next holiday finds the one left.
+                 WHERE COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@days || ' days')::interval)
                  GROUP BY market
                  ORDER BY market;",
                 new { days = days <= 0 ? 90 : days });
@@ -300,6 +304,152 @@ public static class StrangleDecisionLogEndpoints
                 rows = rows.AsList(),
                 note = "declined rows are included on purpose — the gate is the "
                      + "strategy, and only the refusals show whether it is set right",
+            });
+        });
+
+        // ── LIVE DESK P&L ────────────────────────────────────────────────
+        //
+        // Owner, 8 Sep 2026: "we shd be able to see live pnl at any point of
+        // time." Both halves of the number already existed and neither was
+        // ever added up: realised sits in this table, and the open position is
+        // marked continuously by the broker. The screen said "P&L lands when
+        // the position closes" while a live mark sat one panel above it.
+        //
+        // Served as an ENDPOINT, not only on screen, because the owner reviews
+        // this desk through an agent and an agent cannot read a screen.
+        //
+        // Deliberately does NOT attribute legs to markets. That mapping
+        // (market -> broker root, SPX/SPXW, GOLD -> GLD) is defined once, in
+        // the strategy config, and a second copy here is the exact shape of
+        // bug that has cost this desk the most: one value, two definitions,
+        // one of them fixed. Every leg is returned with its contract so the
+        // caller can attribute; the TOTAL never depends on attribution.
+        g.MapGet("/pnl", async (
+            NpgsqlDataSource db,
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            CancellationToken ct,
+            int days = 1) =>
+        {
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var closed = (await conn.QueryAsync(@"
+                SELECT market,
+                       COALESCE(exchange_date, as_of)::date AS session,
+                       shadow,
+                       realised_pnl::float8   AS realised_pnl,
+                       credit_actual::float8  AS credit_actual
+                  FROM strangle_decision_log
+                 WHERE placed IS TRUE
+                   AND realised_pnl IS NOT NULL
+                   AND COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@days || ' days')::interval)
+                 ORDER BY market;",
+                new { days = days <= 0 ? 1 : days })).AsList();
+
+            var realised = closed.Sum(r => (double)(r.realised_pnl ?? 0d));
+
+            // The open half. A broker that cannot be reached is reported as
+            // such — it is NOT zero. A zero here would read as "flat", which
+            // is the single most dangerous thing this endpoint could say.
+            double? unrealised = null;
+            var legRows = new List<object>();
+            var unmarkable = new List<object>();
+            string? openError = null;
+
+            if (!ibkr.IsEnabled)
+            {
+                openError = "IBKR is not enabled — the open half of this number is UNKNOWN, not zero";
+            }
+            else
+            {
+                try
+                {
+                    var pos = await ibkr.GetPositionsAsync(ct, forceFresh: true);
+                    // The broker's OWN error, surfaced rather than swallowed. A
+                    // failed read that falls through to an empty list would
+                    // report the book as flat.
+                    if (pos.Error is not null)
+                        throw new InvalidOperationException(pos.Error);
+                    // fresh: true is not optional. IBKR serves positions from
+                    // its own cache, and a CLOSED position comes back as a
+                    // qty-0 row, so both filters below are load-bearing.
+                    var legs = pos.Positions.Where(p => string.Equals(p.AssetClass, "OPT",
+                                                  StringComparison.OrdinalIgnoreCase)
+                                           && p.Quantity != 0m).ToList();
+                    double sum = 0;
+                    foreach (var p in legs)
+                    {
+                        var mult = p.Multiplier is decimal m && m > 0 ? m : 100m;
+                        var contract = p.ContractDesc ?? p.Symbol ?? $"conid {p.ConId}";
+                        if (p.UnrealizedPnl is decimal u)
+                        {
+                            sum += (double)u;
+                            legRows.Add(new
+                            {
+                                contract,
+                                conid = p.ConId,
+                                quantity = p.Quantity,
+                                soldAt = p.AvgCost is decimal ac ? ac / mult : (decimal?)null,
+                                markedAt = p.MarketPrice,
+                                unrealised = u,
+                            });
+                        }
+                        else
+                        {
+                            // No mark = no number. Listed by name so the gap is
+                            // legible instead of quietly missing from a total.
+                            unmarkable.Add(new { contract, conid = p.ConId, quantity = p.Quantity });
+                        }
+                    }
+                    unrealised = sum;
+                }
+                catch (Exception ex)
+                {
+                    openError = $"could not read positions from the broker: {ex.Message}";
+                }
+            }
+
+            // A total is offered ONLY when both halves are known. Adding a
+            // known realised figure to an unknown open one produces a number
+            // that looks complete and is not.
+            double? total = unrealised is double u2 ? realised + u2 : null;
+
+            var warnings = new List<string>();
+            if (openError is not null) warnings.Add(openError);
+            if (unmarkable.Count > 0)
+                warnings.Add($"{unmarkable.Count} open leg(s) have NO broker mark and are "
+                           + "excluded from the open figure — the total understates the book");
+            // One row per market per session cannot hold two round-trips. When
+            // a session shows a realised result AND a position is still open,
+            // the two may belong to different trades in the same day.
+            if (closed.Count > 0 && legRows.Count > 0)
+                warnings.Add("a session here has BOTH a realised result and an open position: "
+                           + "the decision log holds one row per market per session, so these "
+                           + "may be two different round-trips and must not be read as one");
+
+            return Results.Ok(new
+            {
+                asOfUtc = DateTime.UtcNow,
+                days = days <= 0 ? 1 : days,
+                broker = ibkr.IsEnabled ? ibkr.BrokerLabel : null,
+                realised = new
+                {
+                    total = realised,
+                    pairs = closed.Count,
+                    gated = closed.Where(r => r.shadow != true)
+                                  .Sum(r => (double)(r.realised_pnl ?? 0d)),
+                    shadow = closed.Where(r => r.shadow == true)
+                                   .Sum(r => (double)(r.realised_pnl ?? 0d)),
+                },
+                open = new
+                {
+                    unrealised,
+                    legs = legRows.Count,
+                    detail = legRows,
+                    unmarkable,
+                },
+                total,
+                warnings,
+                note = "realised comes from the decision log; open is marked by the broker "
+                     + "on every request. total is null unless BOTH halves are known.",
             });
         });
 

@@ -781,6 +781,16 @@ def build_server():
         it is set right."""
         return _json(t.get_strangle_decision_summary(days))
 
+    @mcp.tool()
+    @instrumented("get_strangle_live_pnl")
+    def get_strangle_live_pnl(days: int = 1) -> str:
+        """The strangle desk's P&L RIGHT NOW — closed trades PLUS the live broker
+        mark on whatever is still open. Use this for "how are we doing"; the
+        decision log alone only knows about positions that have already closed.
+        `total` is null when the open half could not be read: that means UNKNOWN,
+        not flat. Always read `warnings` before quoting the number."""
+        return _json(t.get_strangle_live_pnl(days))
+
     # ---- Closing option positions ---------------------------------------
     #
     # Owner, 31 Aug 2026: "u shd be able to close them". TradePro could open a

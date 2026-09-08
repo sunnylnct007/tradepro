@@ -74,3 +74,47 @@ def test_sim_runs_are_bounded():
     """An unbounded paths argument from a chat prompt would hang the server."""
     assert t.run_index_strangle_sim("NIFTY", paths=10**7)["ok"] is False
     assert t.run_index_strangle_sim("NIFTY", trades=10**6)["ok"] is False
+
+
+def test_the_live_pnl_tool_is_registered_and_explains_its_nulls():
+    """An agent must be able to ask "how are we doing" and get the WHOLE number.
+
+    Owner, 8 Sep 2026: "we shd be able to see live pnl at any point of time."
+    The desk is reviewed through an agent, and an agent cannot read a screen —
+    a figure that exists only in the UI does not exist for the review.
+    """
+    from tradepro_strategies.mcp import tools
+
+    assert hasattr(tools, "get_strangle_live_pnl")
+    doc = tools.get_strangle_live_pnl.__doc__ or ""
+    # The dangerous misreading is null-as-flat. It must be stated where it is
+    # read, not only in the endpoint that produces it.
+    assert "null" in doc.lower()
+    assert "warnings" in doc.lower()
+
+
+def test_the_live_pnl_tool_calls_the_pnl_endpoint_and_keeps_the_warnings():
+    import types
+    from tradepro_strategies.mcp import tools
+
+    seen = {}
+
+    def fake_get(path, params=None):
+        seen["path"], seen["params"] = path, params
+        return {"asOfUtc": "2026-09-08T16:00:00Z", "broker": "IBKR_PAPER",
+                "realised": {"total": 188.73}, "open": {"unrealised": -48.35},
+                "total": 140.38,
+                "warnings": ["a session here has BOTH a realised result and an open position"]}
+
+    orig = tools._get
+    tools._get = fake_get
+    try:
+        out = tools.get_strangle_live_pnl(days=1)
+    finally:
+        tools._get = orig
+
+    assert seen["path"] == "/api/strangle-decisions/pnl"
+    assert out["total"] == 140.38
+    # A warning dropped in transit is a warning that does not exist. The blend
+    # caveat is the whole reason today's number needs reading twice.
+    assert out["warnings"] and "open position" in out["warnings"][0]

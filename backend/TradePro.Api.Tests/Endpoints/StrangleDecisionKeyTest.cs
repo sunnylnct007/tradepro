@@ -123,4 +123,45 @@ public class StrangleDecisionKeyTest
         var s = CodeOnly(Src(Endpoint));
         Assert.Contains("ORDER BY COALESCE(exchange_date, as_of) DESC, market", s);
     }
+
+    [Fact]
+    public void TheSummaryFiltersOnTheKeyToo()
+    {
+        // The THIRD site. Found only by going looking for the other two after
+        // fixing the row SELECT — it filtered on as_of like the others, so the
+        // per-market tally silently dropped the same holiday-shifted rows.
+        // One value, three definitions; fixing two of them is not fixing it.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.DoesNotContain("WHERE as_of >= (CURRENT_DATE", s);
+    }
+
+    [Fact]
+    public void TheLivePnlRefusesATotalWhenTheOpenHalfIsUnknown()
+    {
+        // A realised figure added to an unknown open one is a number that looks
+        // complete and is not. Null means UNKNOWN; it must never render as flat.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("double? total = unrealised is double u2 ? realised + u2 : null;", s);
+    }
+
+    [Fact]
+    public void TheLivePnlSurfacesABrokerErrorRatherThanReportingFlat()
+    {
+        // GetPositionsAsync returns its error in the result rather than
+        // throwing. Falling through to an empty list would report the book as
+        // FLAT — the single most dangerous thing this endpoint could say.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("if (pos.Error is not null)", s);
+        Assert.Contains("throw new InvalidOperationException(pos.Error)", s);
+    }
+
+    [Fact]
+    public void TheLivePnlReadsPositionsFresh()
+    {
+        // IBKR serves positions from its own cache, and a CLOSED position comes
+        // back as a qty-0 row. A stale read here prices a book we do not hold.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("GetPositionsAsync(ct, forceFresh: true)", s);
+        Assert.Contains("p.Quantity != 0m", s);
+    }
 }
