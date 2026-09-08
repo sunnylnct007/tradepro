@@ -235,7 +235,8 @@ export function StrangleDecisionsView() {
         const over = done.filter((r) => r.shadow);
         const sumOf = (xs: Row[]) => xs.reduce((a, r) => a + (r.realised_pnl || 0), 0);
         const openNow = rows.filter((r) => r.placed === true && r.realised_pnl == null).length;
-        if (!done.length && !openNow) return null;
+        // An OPEN book with nothing closed yet still has a live P&L to show.
+        if (!done.length && !openNow && !legs.length) return null;
         const cell = (label: string, n: number, pnl: number | null, note: string) => (
           <div style={{ flex: 1, minWidth: 190, border: "1px solid var(--border)",
                         borderRadius: 8, padding: "10px 12px" }}>
@@ -254,13 +255,34 @@ export function StrangleDecisionsView() {
             </div>
           </div>
         );
+        // LIVE, NOT "WHEN IT CLOSES". Owner, 8 Sep 2026: "we shd be able to
+        // see live pnl at any point of time." Both halves already existed and
+        // nothing added them up — this cell used to read "P&L lands when the
+        // position closes" while the broker's live mark sat one panel above.
+        //
+        // openPnl is null when there is nothing open, NOT 0: an empty book and
+        // a book marked flat are different facts and must not render alike.
+        const openPnl = legs.length
+          ? legs.reduce((a, l) => a + (l.unrealisedAbs || 0), 0)
+          : null;
+        // A leg the broker did not mark cannot be added. Counted so the total
+        // can say it is understating the book rather than quietly doing it.
+        const unmarked = legs.filter((l) => l.unrealisedAbs == null).length;
+        const deskTotal = openPnl == null ? sumOf(done) : sumOf(done) + openPnl;
         return (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 8px" }}>
             {cell("Gate said trade — closed", gated.length, gated.length ? sumOf(gated) : null,
                   "the strategy as designed")}
             {cell("Gate REFUSED — traded anyway", over.length, over.length ? sumOf(over) : null,
                   "captured on purpose. A LOSS here is evidence the gate is set right")}
-            {cell("Still open", openNow, null, "P&L lands when the position closes")}
+            {cell("Still open — live", legs.length, openPnl,
+                  unmarked
+                    ? `${unmarked} leg(s) have no broker mark and are NOT in this figure`
+                    : "marked by the broker, refreshes every 60s")}
+            {cell("Desk total", done.length + legs.length, deskTotal,
+                  openPnl == null
+                    ? "closed trades only — nothing is open"
+                    : "closed trades plus the live mark on what is still open")}
           </div>
         );
       })()}
