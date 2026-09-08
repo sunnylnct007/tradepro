@@ -345,6 +345,15 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
                         "pct_to_fire": round(100 * ((_m - 2.5 * _sd) / c[i] - 1), 1),
                         "filter_note": ("filter measured NEUTRAL 29 Aug — refused earned ~ the rule (+1.06 vs +1.10%/trade); your judgement call"
                                         if c[i] <= _s200 else ""),
+                        # STRUCTURE, so 'judgement call' ships with the material
+                        # to judge (owner, 8 Sep, on COST: 'where do you see any
+                        # sign of reversal' — there was none, and the row let a
+                        # population stat read like a per-name signal). Lower
+                        # lows and down-day count are the knife test; CRDO-style
+                        # basing (higher lows after a hammer) is the reversal
+                        # test. A dip with no basing is a knife, whatever the
+                        # filter's fleet average says.
+                        "structure": _structure_note(l, c, i),
                     })
             continue
         sma200 = sum(c[i - TREND_WINDOW + 1:i + 1]) / TREND_WINDOW
@@ -660,6 +669,28 @@ def main() -> int:
             log.warning("push failed: %s", exc)
     return 0
 
+
+
+def _structure_note(l, c, i) -> str:
+    """Knife-vs-basing in one phrase, from the last 10 sessions."""
+    ll = 0
+    for k in range(i, max(i - 9, 0), -1):
+        if l[k] < l[k - 1]:
+            ll += 1
+        else:
+            break
+    hl = 0
+    for k in range(i, max(i - 9, 0), -1):
+        if l[k] > l[k - 1]:
+            hl += 1
+        else:
+            break
+    down = sum(1 for k in range(max(i - 9, 1), i + 1) if c[k] < c[k - 1])
+    if ll >= 3:
+        return f"KNIFE: {ll} straight lower lows, {down}/10 days down — no reversal sign"
+    if hl >= 2:
+        return f"basing: {hl} higher lows, {down}/10 days down"
+    return f"mixed: {down}/10 days down"
 
 def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     """Our rows in the shape every strategy emits (Phase 3).
