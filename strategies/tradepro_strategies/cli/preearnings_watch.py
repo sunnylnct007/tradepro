@@ -935,9 +935,33 @@ def scout(base, token, watched: list, state: dict) -> list:
         hits.append({"sym": sym, "ret13w": ret13w, "atr_pct": atr_pct,
                      "regime": regime, "px": px, "src": d.source})
     hits.sort(key=lambda h: -h["ret13w"])
+    # Second lens: REPEAT MOVERS. Qualify any name on the gainers strip on
+    # >= 2 of the last 5 sessions that closes above its EMA20 — regardless of
+    # 13-week return. Thresholds live in the same config key.
+    min_app = int(cfg.get("movers_min_appearances", 2))
+    hist = state.get("movers_history") or {}
+    recent = sorted(hist.items())[-int(cfg.get("movers_lookback_days", 5)):]
+    counts = {}
+    for _d, syms in recent:
+        for sy in syms:
+            counts[sy] = counts.get(sy, 0) + 1
+    already = {h["sym"] for h in hits}
+    for sy, n_app in sorted(counts.items(), key=lambda kv: -kv[1]):
+        if n_app < min_app or sy in watched or sy in barred or sy in already:
+            continue
+        try:
+            d = _daily(sy)
+        except Exception:  # noqa: BLE001
+            continue
+        i = len(d.close) - 1
+        if i < 63 or d.close[i] <= d.ema20[i]:
+            continue
+        hits.append({"sym": sy, "ret13w": 100 * (d.close[i] / d.close[i - 63] - 1),
+                     "atr_pct": 100 * d.atr14[i] / d.close[i], "regime": "MOVER",
+                     "px": d.close[i], "src": d.source, "n_app": n_app})
     state["scout_last_run"] = today
     rows = []
-    for h in hits[:int(cfg.get("top_n", 5))]:
+    for h in hits[:int(cfg.get("top_n", 5)) + sum(1 for h in hits if h.get("n_app"))]:
         rows.append(_row(
             h["sym"], {}, "scout", h["px"], None, None, None,
             f"SCOUT: would be {h['regime']} on watch — 13w {h['ret13w']:+.0f}%, "
@@ -991,6 +1015,16 @@ def market_movers(base, token, watched, state) -> dict | None:
         # Lambda cadence otherwise overwrites the artifact without movers
         # four ticks out of five, and the strip flickers out of existence.
         state["movers_last"] = out
+        # Roll a per-session log of gainer names. The scout's second lens
+        # (repeat movers) reads this — a fixed-lookback return can NET TO
+        # ZERO across a V-shaped recovery (INTC, 8 Sep: 13w -3.4% while +20%
+        # off the low in 10 sessions), but showing up on the gainers strip
+        # twice in a week cannot be netted away.
+        hist = state.get("movers_history") or {}
+        dkey = now.date().isoformat()
+        hist[dkey] = sorted(set(hist.get(dkey, [])) |
+                            {r["symbol"] for r in rows[:8]})
+        state["movers_history"] = dict(sorted(hist.items())[-10:])
         return out
     except Exception as exc:  # noqa: BLE001
         log.warning("movers failed: %s", str(exc)[:100])
@@ -1074,6 +1108,11 @@ def main() -> int:
     try:
         gstate = _kv_get(base, token, "preearnings_scout_state") or {}
         srows = scout(base, token, symbols, gstate)
+        if srows:
+            gstate["scout_last_rows"] = srows   # survive the next tick's rebuild
+        elif gstate.get("scout_last_run") == _dt.date.today().isoformat():
+            # throttled tick: re-attach today's rows, same pattern as movers_last
+            srows = gstate.get("scout_last_rows") or []
         if srows:
             rows += srows
             log.info("scout: %d new-name candidate(s): %s", len(srows),
