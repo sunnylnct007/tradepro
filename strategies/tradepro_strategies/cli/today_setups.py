@@ -81,8 +81,16 @@ def _setup_for(df) -> dict | None:
     # canonical verdict. Standard 26-period kijun (matches the chart).
     hi, lo, cl = df["high"], df["low"], df["close"]
     kj = float((hi.tail(26).max() + lo.tail(26).min()) / 2)
-    w = cl.tail(252)
+    # SCALE-INVARIANCE (addendum, 7 Sep; owner on rerated names, 8 Sep): a
+    # 52-week range percentile permanently reads "extended" on a name that
+    # re-rated 3-8x inside the year — the bottom of that range is a different
+    # asset. The range window is capped at 63 sessions so the classifier
+    # re-prices itself within a quarter. 252d kept ONLY as display context.
+    w = cl.tail(63)
     rng_pctile = float((c - w.min()) / (w.max() - w.min()) * 100) if w.max() > w.min() else 50.0
+    w252 = cl.tail(252)
+    rng_pctile_52w = (float((c - w252.min()) / (w252.max() - w252.min()) * 100)
+                      if w252.max() > w252.min() else 50.0)
     tr = pd.concat([hi - lo, (hi - cl.shift()).abs(), (lo - cl.shift()).abs()], axis=1).max(axis=1)
     atr = float(tr.tail(14).mean())
     atr_pct = ms.atr_14_pct if getattr(ms, "atr_14_pct", None) is not None else (atr / c * 100 if c else None)
@@ -99,9 +107,16 @@ def _setup_for(df) -> dict | None:
 
     # The hard veto the canonical engine LACKS: a pullback to kijun after a +150%
     # run is NOT the same risk as after +15%. Top-of-range AND/OR parabolic = chase.
-    extreme = (rng_pctile >= 90
-               or (rng_pctile >= 80 and mom3 is not None and mom3 > 60)
-               or (mom3 is not None and mom3 > 100)
+    # Extension in the units the name itself trades in. Fixed-percent momentum
+    # thresholds (mom3>60/100) condemned every rerated name forever; momentum
+    # is now measured in DAILY-SIGMA units (3m return / (ATR% x sqrt(63))) so
+    # +60% means something different on a 2%-ATR name than an 8%-ATR one.
+    atr_pct_day = (100 * atr / c) if (atr and c) else None
+    mom3_sigma = (mom3 / (atr_pct_day * (63 ** 0.5))
+                  if (mom3 is not None and atr_pct_day) else None)
+    extreme = (rng_pctile >= 95                       # top of its own QUARTER
+               or (rng_pctile >= 85 and mom3_sigma is not None and mom3_sigma > 2.0)
+               or (mom3_sigma is not None and mom3_sigma > 3.0)
                or (dist_atr is not None and dist_atr > 3)
                or boll == "AT_UPPER")                 # %B≥1: above the upper Bollinger band — overextended (V case)
     # Thin volume: <0.8x 20d is a CONVICTION reducer (flag, keep the ⭐ — ZBRA/UPS).
@@ -129,7 +144,9 @@ def _setup_for(df) -> dict | None:
                                 # (coherence with market_state; the CAT/ENTG-at-highs case)
     elif extreme:
         cls = "extended"        # chasing — top of range / parabolic / far above kijun
-    elif off_10d_high_pct < -8.0:
+    elif off_10d_high_pct < -max(8.0, 2.5 * (atr_pct_day or 3.2)):
+        # ATR-scaled: -8% is one ordinary session on a 6-8%-ATR name, not a
+        # falling knife; the floor stays 8% for calm names.
         cls = "reversal"        # sharp drop THROUGH the kijun — falling knife, not support
     elif not above_200sma:
         cls = "below_trend"     # above cloud but BELOW the 200d SMA — primary trend not
@@ -249,8 +266,8 @@ def main() -> int:
         import time as _time
         _time.sleep(30)
         _uni = _get_universe()
-    syms = [s["ticker"] for s in _NEVER_USED_get(f"{base}/api/universes/{args.universe}",
-            headers=headers, timeout=20).json().get("symbols", []) if s.get("effective", True)]
+    syms = [s["ticker"] for s in _uni.get("symbols", [])
+            if s.get("effective", True)]
 
     # A 'consider' name that reports earnings inside the swing hold is NOT a clean
     # swing buy — a binary print can gap it through the stop. Downgrade those to
