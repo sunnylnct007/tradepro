@@ -118,3 +118,33 @@ def test_the_live_pnl_tool_calls_the_pnl_endpoint_and_keeps_the_warnings():
     # A warning dropped in transit is a warning that does not exist. The blend
     # caveat is the whole reason today's number needs reading twice.
     assert out["warnings"] and "open position" in out["warnings"][0]
+
+
+def test_the_stats_tool_leads_with_what_the_sample_cannot_support():
+    """At n=5, the caveats ARE the finding — so they must survive the tool."""
+    from tradepro_strategies.mcp import tools
+
+    assert hasattr(tools, "get_strangle_stats")
+
+    seen = {}
+
+    def fake_get(path, params=None):
+        seen["path"] = path
+        return {"asOfUtc": "x", "windowDays": 90,
+                "automated": {"closed": 5, "gated": {"n": 0}, "shadow": {"n": 5}},
+                "manual": {"closed": 7},
+                "caveats": ["ZERO gated trades. All 5 closed trade(s) are SHADOW fills",
+                            "3 of 5 closed trade(s) exited on stale_overnight"],
+                "howToRead": {}}
+
+    orig = tools._get
+    tools._get = fake_get
+    try:
+        out = tools.get_strangle_stats(days=90)
+    finally:
+        tools._get = orig
+
+    assert seen["path"] == "/api/strangle-decisions/stats"
+    # A caveat dropped in transit is a caveat that does not exist.
+    assert len(out["caveats"]) == 2
+    assert "SHADOW" in out["caveats"][0]

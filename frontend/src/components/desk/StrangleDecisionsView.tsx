@@ -54,12 +54,34 @@ type Leg = {
   unrealisedAbs: number | null; multiplier: number | null; isOption?: boolean;
 };
 
+type Pop = {
+  label: string; n: number;
+  total: number | null; mean: number | null; best: number | null; worst: number | null;
+  wins: number; losses: number; scratches: number;
+  winRate: number | null; winRateWithheld: string | null;
+};
+type Stats = {
+  windowDays: number;
+  automated: {
+    currency: string; account: string; closed: number; sessions: number;
+    gated: Pop; shadow: Pop;
+    byTrigger: { trigger: string; n: number; total: number }[];
+    byMarket: { market: string; n: number; total: number; shadowOnly: boolean }[];
+  };
+  manual: {
+    closed: number;
+    byCurrency: { currency: string; stats: Pop; followedSignal: Pop; ignoredSignal: Pop }[];
+  };
+  caveats: string[];
+};
+
 export function StrangleDecisionsView() {
   const [rows, setRows] = useState<Row[]>([]);
   const [sum, setSum] = useState<Summary[]>([]);
   const [legs, setLegs] = useState<Leg[]>([]);
   const [legErr, setLegErr] = useState<string | null>(null);
   const [days, setDays] = useState(30);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -70,6 +92,9 @@ export function StrangleDecisionsView() {
       ]);
       setRows(d.rows || []); setSum(s.rows || []); setErr(null);
     } catch (e) { setErr(String((e as Error)?.message || e)); }
+    // Stats separately — a stats failure must not blank the history either.
+    try { setStats((await api.strangleStats(days)) as unknown as Stats); }
+    catch { setStats(null); }
     // LIVE LEGS, separately — a broker hiccup must not blank the history.
     try {
       const p = await api.ibkrPositions();
@@ -133,6 +158,106 @@ export function StrangleDecisionsView() {
           ))}
         </tbody>
       </table>
+
+      {/* DESK STATISTICS — and, at this sample size, mostly what they cannot say.
+          Owner, 8 Sep 2026: "we need proper stats."
+
+          The caveats render FIRST and in warning tone on purpose. When every
+          closed trade is a shadow fill and three of five exits came from a bug,
+          the honest headline is not the total — it is that nothing here measures
+          the strategy yet. A stats panel that led with a number would be worse
+          than no stats panel. */}
+      {stats && (stats.automated.closed > 0 || stats.manual.closed > 0) && (() => {
+        const A = stats.automated;
+        const money = (v: number | null | undefined, ccy: string) =>
+          v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(2)} ${ccy}`;
+        const popLine = (pp: Pop, ccy: string) => (
+          <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7 }}>
+            <b style={{ color: "var(--text)" }}>{pp.n}</b> closed
+            {pp.n > 0 && <>
+              {" · "}<span style={{ color: (pp.total ?? 0) >= 0 ? TONE.ok : TONE.bad,
+                                    fontWeight: 600 }}>{money(pp.total, ccy)}</span>
+              {" · "}{pp.wins}W/{pp.losses}L
+              {" · best "}{money(pp.best, ccy)}{" · worst "}{money(pp.worst, ccy)}
+            </>}
+            {pp.winRateWithheld && (
+              <div style={{ fontSize: 11, color: TONE.warn }}>
+                win rate withheld — {pp.winRateWithheld}
+              </div>
+            )}
+          </div>
+        );
+        return (
+          <div style={{ border: "1px solid var(--border)", borderRadius: 10,
+                        padding: 14, margin: "14px 0" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+              <span style={{ fontWeight: 600 }}>Desk statistics</span>
+              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                last {stats.windowDays} days · {A.sessions} session(s) traded
+              </span>
+            </div>
+
+            {stats.caveats.map((c, i) => (
+              <div key={i} style={{ fontSize: 12, color: TONE.warn, lineHeight: 1.5,
+                                    border: `1px solid ${TONE.warn}`, borderRadius: 6,
+                                    padding: "7px 10px", marginBottom: 7 }}>
+                {c}
+              </div>
+            ))}
+
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10 }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>
+                  Gate said trade — the strategy as designed
+                </div>
+                {popLine(A.gated, A.currency)}
+              </div>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>
+                  Gate REFUSED — traded anyway (shadow)
+                </div>
+                {popLine(A.shadow, A.currency)}
+              </div>
+            </div>
+
+            {A.byTrigger.length > 0 && (
+              <div style={{ marginTop: 12, fontSize: 12 }}>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>
+                  How they ended — the exit that actually fired
+                </div>
+                {A.byTrigger.map((t) => (
+                  <span key={t.trigger} style={{ marginRight: 14 }}>
+                    {t.trigger} <b>{t.n}</b>{" "}
+                    <span style={{ color: t.total >= 0 ? TONE.ok : TONE.bad }}>
+                      {money(t.total, A.currency)}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {stats.manual.byCurrency.map((m) => (
+              <div key={m.currency} style={{ marginTop: 14, paddingTop: 12,
+                                             borderTop: "1px solid var(--border)" }}>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>
+                  Manual book — REAL money in {m.currency}, never added to the paper desk above
+                </div>
+                {popLine(m.stats, m.currency)}
+                <div style={{ display: "flex", gap: 18, marginTop: 6, flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 220 }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>followed our signal</div>
+                    {popLine(m.followedSignal, m.currency)}
+                  </div>
+                  <div style={{ minWidth: 220 }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>did NOT follow it</div>
+                    {popLine(m.ignoredSignal, m.currency)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* WHAT IS OPEN RIGHT NOW, AT WHAT PRICE, AND WHAT IT IS WORTH.
           Owner, 4 Sep 2026: "i do not know what price it was executed, whats
