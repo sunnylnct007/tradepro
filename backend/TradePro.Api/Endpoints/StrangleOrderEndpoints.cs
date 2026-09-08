@@ -395,6 +395,118 @@ public static class StrangleOrderEndpoints
         })
         .WithName("PlaceOptionLeg");
 
+        // POST /api/integrations/ibkr/strangle/solve-delta — pick strikes by
+        // DELTA rather than by distance.
+        //
+        // Spec v1.0 §2.1: "K_call = smallest strike with Δ_call <= δ*;
+        // K_put = largest strike with |Δ_put| <= δ*". This is the only
+        // formulation that is delta-neutral BY CONSTRUCTION — a short call at
+        // -δ* and a short put at +δ* net to zero.
+        //
+        // WHY IT MATTERS HERE. Our strikes sit at ±1.5x the expected move:
+        // equidistant in percent. §4 predicts equidistant strikes run "net
+        // long delta by 3-8 deltas per lot". We measured SPX at +0.126 on
+        // 7 Sep — 12.6 deltas, WORSE than the spec's estimate. A short
+        // strangle is not supposed to be directional, and that bias is why a
+        // falling session hurts more than the design intends.
+        //
+        // Returns the solved pair and BOTH deltas. It places nothing.
+        app.MapPost("/integrations/ibkr/strangle/solve-delta", async (
+            SolveDeltaRequest req, IBKRClient ibkr, ILoggerFactory lf,
+            CancellationToken ct) =>
+        {
+            var log = lf.CreateLogger("SolveDelta");
+            if (!ibkr.IsEnabled)
+                return Results.Json(new { error = "IBKR disabled" }, statusCode: 503);
+            if (req is null || string.IsNullOrWhiteSpace(req.Symbol) || req.Spot <= 0)
+                return Results.BadRequest(new { error = "symbol, expiry, spot required" });
+
+            var sym = req.Symbol.Trim().ToUpperInvariant();
+            var target = req.TargetDelta <= 0 ? 0.16m : req.TargetDelta;
+            var secType = string.IsNullOrWhiteSpace(req.UnderlyingSecType)
+                ? "STK" : req.UnderlyingSecType;
+
+            var und = await ibkr.ResolveConidAsync(sym, secType, ct, useCache: true);
+            if (und is null)
+                return Results.Json(new { ok = false, stage = "resolve",
+                    error = $"could not resolve underlying {sym}" }, statusCode: 502);
+            if (!DateTime.TryParse(req.Expiry, out var exp))
+                return Results.BadRequest(new { error = "expiry must be YYYY-MM-DD" });
+            var month = exp.ToString("MMM", System.Globalization.CultureInfo.InvariantCulture)
+                            .ToUpperInvariant() + exp.ToString("yy");
+
+            var strikes = await ibkr.GetOptionStrikesAsync(und.Value, month, ct);
+            if (strikes.Error is not null || strikes.Calls.Count == 0)
+                return Results.Json(new { ok = false, stage = "strikes",
+                    error = strikes.Error ?? "no strikes listed" }, statusCode: 502);
+
+            // Only sample strikes plausibly near the target delta. A 16-delta
+            // wing sits roughly 1 sigma out; +/-12% of spot covers that in any
+            // regime this desk trades, and quoting the WHOLE chain would be
+            // hundreds of contracts per side for no gain.
+            var lo = req.Spot * 0.88m;
+            var hi = req.Spot * 1.12m;
+            var callK = strikes.Calls.Where(k => k >= req.Spot && k <= hi).OrderBy(k => k).Take(40).ToList();
+            var putK = strikes.Puts.Where(k => k <= req.Spot && k >= lo).OrderByDescending(k => k).Take(40).ToList();
+            if (callK.Count == 0 || putK.Count == 0)
+                return Results.Json(new { ok = false, stage = "strikes",
+                    error = "no listed strikes within 12% of spot" }, statusCode: 502);
+
+            async Task<(decimal? K, decimal? D)> Solve(List<decimal> ks, string right)
+            {
+                var conids = new List<long>();
+                var byConid = new Dictionary<long, decimal>();
+                foreach (var k in ks)
+                {
+                    var c = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, k, right, ct, secType);
+                    if (c is null) continue;
+                    conids.Add(c.Value); byConid[c.Value] = k;
+                    if (conids.Count >= 25) break;   // bound the work
+                }
+                if (conids.Count == 0) return (null, null);
+                var q = await ibkr.GetOptionSnapshotBatchAsync(conids, ct);
+                // The FIRST strike whose |delta| is at or below the target,
+                // walking outward from the money. Nulls are skipped, never
+                // treated as zero — a missing delta is not a 0-delta wing.
+                foreach (var conid in conids)
+                {
+                    var x = q.Quotes.FirstOrDefault(z => z.ConId == conid);
+                    if (x?.Delta is not decimal d) continue;
+                    if (Math.Abs(d) <= target) return (byConid[conid], d);
+                }
+                return (null, null);
+            }
+
+            var (kc, dc) = await Solve(callK, "C");
+            var (kp, dp) = await Solve(putK, "P");
+            if (kc is null || kp is null)
+                return Results.Json(new { ok = false, stage = "solve",
+                    error = "no strike reached the target delta with a live quote",
+                    callSolved = kc is not null, putSolved = kp is not null }, statusCode: 502);
+
+            // §2.1 guardrails: outside the band, SKIP THE DAY. A vol crush
+            // leaves you selling near-ATM for scraps; a spike blows the wings
+            // into illiquidity. Both are skip conditions, not trade conditions.
+            var lowB = req.DeltaMin <= 0 ? 0.08m : req.DeltaMin;
+            var highB = req.DeltaMax <= 0 ? 0.30m : req.DeltaMax;
+            var inBand = Math.Abs(dc!.Value) >= lowB && Math.Abs(dc.Value) <= highB
+                      && Math.Abs(dp!.Value) >= lowB && Math.Abs(dp.Value) <= highB;
+            if (!inBand)
+                log.LogWarning("{Sym} solved deltas OUTSIDE the band: call {DC} put {DP} "
+                    + "(band {Lo}-{Hi}) — spec §2.1 says skip the day", sym, dc, dp, lowB, highB);
+
+            return Results.Ok(new
+            {
+                ok = true, symbol = sym, expiry = req.Expiry, targetDelta = target,
+                putStrike = kp, callStrike = kc, putDelta = dp, callDelta = dc,
+                netDelta = -dp!.Value - dc.Value,
+                width = kc.Value - kp.Value, inDeltaBand = inBand,
+                note = "Solved by DELTA, not distance. Delta-neutral by construction; "
+                     + "asymmetric in POINTS because put skew pushes the put further out.",
+            });
+        })
+        .WithName("SolveStrangleByDelta");
+
         // POST /api/integrations/ibkr/strangle/quote — PRICE a strangle
         // without placing anything.
         //
@@ -580,6 +692,12 @@ public static class StrangleOrderEndpoints
     }
 
     /// <summary>One option contract. Right is P or C; side is BUY or SELL.</summary>
+    /// <summary>Solve a strangle's strikes for a target per-leg delta (spec §2.1).</summary>
+    public sealed record SolveDeltaRequest(
+        string Symbol, string Expiry, decimal Spot,
+        decimal TargetDelta = 0.16m, decimal DeltaMin = 0.08m, decimal DeltaMax = 0.30m,
+        string UnderlyingSecType = "STK");
+
     public sealed record OptionLegRequest(
         string Symbol,
         string Expiry,          // YYYY-MM-DD
