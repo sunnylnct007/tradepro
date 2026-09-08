@@ -719,9 +719,10 @@ def evaluate(sym, cfg, base, token, state):
         if px > ema and px > sma and d.ema20[i] >= d.ema20[i - 3]:
             fails.append(f"SMA50 rolling over {sma_fall_pct:+.2f}%/5s, beyond "
                          f"the −{tol}% tolerance")
-        why = (f"DECISION: no long ({'; '.join(fails) or 'regime failed'}). "
-               f"ATR {100*atr/px:.1f}% of price. Nothing to do until the "
-               f"failing condition repairs.")
+        why = ("NO LONG · " + (fails[0] if fails else "regime failed")
+               + " · repair: " + (f"close >{sma:.0f}" if px <= sma else
+                                  "EMA20 slope ≥0" if not d.ema20[i] >= d.ema20[i-3] else
+                                  f"SMA50 slope ≥−{tol}%"))
         if px <= sma:
             trigger(f"daily close back above SMA50 ({sma:.2f}) re-opens setups")
         else:
@@ -733,20 +734,14 @@ def evaluate(sym, cfg, base, token, state):
                      provenance=_provenance(d, bars, opts),
                      level_label="sma50", options=opts)), gates
     if not (touched and reclaim_bar):
-        oc = (f" Options: market prices the print at ±{opts['implied_move_cross_pct']}%"
-              if opts.get("implied_move_cross_pct") else
-              (f" Options: +{round(100*opts['event_iv_premium'],1)} IV pts of event "
-               f"premium, P/C OI {opts.get('put_call_oi_ratio')}"
-               if opts.get("event_iv_premium") else ""))
-        why = (f"DECISION: stand aside, watching ({regime}). No entry exists until "
-               f"a pullback to the EMA20 band ({prox_hi:.2f}) is RECLAIMED on a "
-               f"15m close"
-               + (f", or a 15m close ≥{bw:.0f} flags M1 momentum for manual review"
-                  if bw else "")
-               + (f". {sessions_to} sessions to the confirmed print — swing exits "
-                  f"before it." if sessions_to is not None else
-                  ". No confirmed earnings date — proposals stay blocked.")
-               + oc)
+        # TERSE (owner, 8 Sep: "do not want lots of indecisive texts") — the
+        # row reads like a quote line: state · triggers with live distances ·
+        # countdown. The prose lives in the expansion (gates + triggers).
+        why = (f"WAIT · reclaim {prox_hi:.0f} ({100*(prox_hi/px-1):+.1f}%)"
+               + (f" or M1 ≥{bw:.0f} ({100*(bw/px-1):+.1f}%)" if bw else "")
+               + (f" · {sessions_to}s→ER" if sessions_to is not None else " · no ER date")
+               + (f" · ±{opts['implied_daily_move_pct']}%/d"
+                  if opts.get("implied_daily_move_pct") else ""))
         trigger(f"touch of {prox_hi:.2f} then a 15m close back above it → "
                 f"setup review" + ("" if regime == "QUALIFIED" else
                                    f" (regime {regime}: review only, no proposal)"))
