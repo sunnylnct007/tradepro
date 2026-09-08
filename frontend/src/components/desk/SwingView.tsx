@@ -159,7 +159,7 @@ export function SwingView() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ textAlign: "left", color: "var(--text-muted)" }}>
-                      {["Symbol", "σ from mean", "Close", "Why not"].map((x) => (
+                      {["Symbol", "σ from mean", "Close", "Fires at", "Structure", "Why not"].map((x) => (
                         <th key={x} style={{ padding: "5px 8px", fontWeight: 600, whiteSpace: "nowrap" }}>{x}</th>
                       ))}
                     </tr>
@@ -173,6 +173,15 @@ export function SwingView() {
                           {n.sigma_from_mean.toFixed(2)}
                         </td>
                         <td style={{ padding: "5px 8px", fontFamily: "var(--font-mono)" }}>{n.close.toFixed(2)}</td>
+                        <td style={{ padding: "5px 8px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                          {n.fires_at != null ? `≤${n.fires_at} (${n.pct_to_fire}%)` : "—"}
+                        </td>
+                        <td style={{ padding: "5px 8px", whiteSpace: "nowrap",
+                                     color: String(n.structure ?? "").startsWith("KNIFE") ? TONE.warn
+                                          : String(n.structure ?? "").startsWith("basing") ? TONE.ok ?? "var(--text)"
+                                          : "var(--text-muted)" }}>
+                          {n.structure ?? "—"}
+                        </td>
                         <td style={{ padding: "5px 8px", color: "var(--text-muted)" }}>
                           {n.sigma_from_mean <= n.sigma_needed && !n.above_trend
                             ? "σ MET — refused on trend (below its 200-SMA)"
