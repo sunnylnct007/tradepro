@@ -498,6 +498,17 @@ def main() -> int:
                             "action": "would_close", **verdict})
             continue
 
+        # SAY WHY, BEFORE ACTING. A "hold" states its reason and a dry run
+        # states its reason, but the real close printed only "OK CLOSED", so
+        # the one branch that moves money was the one branch that explained
+        # nothing. On 8 Sep 2026 four legs opened at 13:53Z were closed at
+        # 14:00Z and the log gave no way to tell a profit target from a
+        # stale-session flatten — the fault took another day to pin down for
+        # want of this line. decide_close's own docstring already says it: a
+        # close decision with no stated reason cannot be graded later.
+        print(f"  ->  CLOSING {label} ({len(legs)} leg) "
+              f"[{verdict.get('trigger') or 'target'}] — {verdict['reason']}")
+
         # Close EVERY leg of the group. A group that half-closes is reported as
         # such — the surviving leg is naked.
         group_failed = 0

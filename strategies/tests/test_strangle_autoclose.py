@@ -455,3 +455,47 @@ def test_an_EMPTY_fresh_set_holds_rather_than_flattening():
     src = inspect.getsource(C.main)
     assert "if stale and not fresh:" in src
     assert "our record is wrong" in src
+
+
+def test_the_real_close_states_its_reason_not_just_hold_and_dry_run():
+    """The branch that MOVES MONEY must explain itself.
+
+    'hold' printed a reason and --dry-run printed a reason, but the live close
+    printed only "OK CLOSED SPX 7630P x1". So on 8 Sep 2026 four legs opened at
+    13:53Z were closed at 14:00Z and the log could not distinguish a profit
+    target from a stale-session flatten. The verdict already carries the reason;
+    only the print dropped it.
+
+    Asserted against the source with COMMENTS STRIPPED. Three earlier tests in
+    this repo passed by matching a comment or a default rather than the code,
+    which is worse than no test: it reports green for an absent behaviour.
+    """
+    import io, tokenize
+    from pathlib import Path
+
+    from tradepro_strategies.cli import index_strangle_close as _mod
+    src = Path(_mod.__file__).read_text()
+    out, last = [], (1, 0)
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type == tokenize.COMMENT:
+            continue
+        if tok.start[0] > last[0]:
+            out.append("\n" * (tok.start[0] - last[0]))
+        out.append(tok.string)
+        last = tok.end
+    code = "".join(out)
+
+    assert "CLOSING" in code, (
+        "the live close no longer announces itself before acting"
+    )
+    # A fixed window, not a line: the call spans two source lines and the
+    # f-string itself contains newlines once comments are stripped.
+    stmt = code[code.index("CLOSING"):][:300]
+    assert "verdict['reason']" in stmt or 'verdict["reason"]' in stmt, (
+        "the CLOSING line must carry the verdict's reason — a close with no "
+        "stated reason cannot be graded later"
+    )
+    assert "trigger" in stmt, (
+        "the CLOSING line must name the trigger, so a stale_overnight flatten "
+        "is distinguishable from a profit target in the log"
+    )
