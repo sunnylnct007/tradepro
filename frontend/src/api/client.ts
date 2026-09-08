@@ -705,6 +705,8 @@ export const api = {
         near_misses?: Array<{
           symbol: string; bar: string; close: number;
           sigma_from_mean: number; sigma_needed: number;
+          fires_at?: number; pct_to_fire?: number;
+          filter_note?: string; structure?: string;
           above_trend: boolean; blocked_by: string;
         }>;
         quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
