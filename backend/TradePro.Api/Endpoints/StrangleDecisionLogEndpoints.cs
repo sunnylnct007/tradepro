@@ -491,7 +491,10 @@ public static class StrangleDecisionLogEndpoints
                 SELECT market, currency, followed_signal,
                        realised_pnl::float8 AS pnl,
                        entry_date::date     AS session
-                  FROM strangle_manual_trades
+                  -- SINGULAR. The ROUTE is /strangle-manual-trades; the TABLE
+                  -- is strangle_manual_trade. Taking the name from the route
+                  -- shipped a 500 on this endpoint.
+                  FROM strangle_manual_trade
                  WHERE realised_pnl IS NOT NULL
                    AND entry_date >= (CURRENT_DATE - (@d || ' days')::interval)",
                 new { d })).AsList();
