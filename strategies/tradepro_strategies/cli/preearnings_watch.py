@@ -848,6 +848,15 @@ def _provenance(d, bars, opts):
     return rows
 
 
+def _relative(sym, cfg):
+    """Owner, 8 Sep: candidates carry index + sector-ETF RSI/ATR context."""
+    try:
+        from ..relative_context import relative_context
+        return relative_context(sym, (cfg or {}).get("sector_proxy"))
+    except (Exception, SystemExit):  # noqa: BLE001 — context must never kill a row
+        return None
+
+
 def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
          gates_extra=None, provenance=None, level_label="stop", options=None):
     """Owner, 6 Sep, looking at the desk: the Pre-Earn label "is fne for MU
@@ -868,7 +877,8 @@ def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
         extra={"strategy_version": STRATEGY_VERSION,
                "proposed_qty": qty,
                "options_context": options,
-               "key_stats": key_stats_for(sym)},
+               "key_stats": key_stats_for(sym),
+               "relative": _relative(sym, cfg)},
     )])[0]
 
 

@@ -418,6 +418,12 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict]]:
             "volume_vs_20d_unavailable": _vol_why,
             "chg_5d_pct": (round(100 * (c[i] / c[i - 5] - 1), 1) if i >= 5 and c[i - 5] else None),
         })
+    for r in out:
+        try:
+            from ..relative_context import relative_context
+            r["relative"] = relative_context(r["symbol"])
+        except (Exception, SystemExit):  # noqa: BLE001
+            r["relative"] = None
     out.sort(key=lambda r: -(r["pct_above_200sma"] or 0))
     return out, quarantined
 

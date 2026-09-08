@@ -216,7 +216,14 @@ export function SwingView() {
             <tbody>
               {a.candidates.map((c) => (
                 <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b" }}>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{c.symbol}</td>
+                  <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+                    {c.symbol}
+                    {(c as any).extra?.relative?.line && (
+                      <div style={{ fontWeight: 400, fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                        {(c as any).extra.relative.line}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: "8px 10px" }}>
                     <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 999,
                                    color: c.tier === "core" ? TONE.ok : TONE.warn,

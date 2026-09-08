@@ -606,6 +606,24 @@ function Detail({ r }: { r: Row }) {
         )}
       </div>
 
+      {(r.extra as any)?.relative?.line && (
+        <div style={{ fontSize: 11.5, color: MUTED, margin: "6px 0" }}>
+          <span style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 }}>
+            Relative&nbsp;·&nbsp;
+          </span>
+          {(r.extra as any).relative.line}
+          <span style={{ opacity: 0.55 }}> — context, not a gate</span>
+        </div>
+      )}
+      {(r as any)?.relative?.line && (
+        <div style={{ fontSize: 11.5, color: MUTED, margin: "6px 0" }}>
+          <span style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 }}>
+            Relative&nbsp;·&nbsp;
+          </span>
+          {(r as any).relative.line}
+          <span style={{ opacity: 0.55 }}> — context, not a gate</span>
+        </div>
+      )}
       {r.extra?.options_context?.status === "CONTEXT_AVAILABLE" && (() => {
         const oc = r.extra.options_context;
         return (

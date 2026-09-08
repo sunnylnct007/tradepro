@@ -748,6 +748,13 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
             oc = options_context_for(r["symbol"])
             if oc.get("status") == "CONTEXT_AVAILABLE":
                 r.setdefault("extra", {})["options_context"] = oc
+            try:
+                from ..relative_context import relative_context
+                rel = relative_context(r["symbol"])
+                if rel:
+                    r.setdefault("extra", {})["relative"] = rel
+            except (Exception, SystemExit):  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001 — display must never lose the screen
         pass
     return rows

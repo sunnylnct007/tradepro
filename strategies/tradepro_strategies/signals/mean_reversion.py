@@ -11,7 +11,7 @@ port it once and pin it with a parity test.
 THE RULE (MEAN_REVERSION_GATES_V1.md, amended by MEAN_REVERSION_HOLD_V3.md,
 measured in backtests/studies/mean_reversion_v2.py):
 
-    entry    close < 2.5 sigma below the 20-day mean, while above the 200-SMA
+    entry    close < 2.25 sigma below the 20-day mean, while above the 200-SMA
     target   the 20-day mean, recomputed daily
     stop     -8% from the fill
     timeout  20 sessions            <- raised from 10 on 23 Aug 2026
