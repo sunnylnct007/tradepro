@@ -349,3 +349,70 @@ def test_the_xsp_case_that_prompted_this():
     # the ratio is identical either way — that is the point
     assert round((credit_ps - cost_ps) / credit_ps, 4) == \
            round((credit_ps * mult - cost_ps * mult) / (credit_ps * mult), 4)
+
+
+# ---------------------------------------------------------------------------
+# PHASE 2 — position-level exits. Spec v1.0 §6, and §8: "The stop loss is not
+# optional."
+#
+# Until 8 Sep 2026 this desk had NO STOP. A short strangle's loss is unbounded
+# on the call side and bounded only by the strike on the put; the time exit at
+# the bell was the sole thing between a bad session and an arbitrarily bad one.
+# On 1 Sep the time exit ITSELF failed and four legs ran overnight — the only
+# reason that was survivable is that the market did not gap.
+# ---------------------------------------------------------------------------
+
+def test_the_stop_fires_at_twice_the_credit():
+    # credit 10, cost 30 -> decayed -2.0 -> exactly the stop.
+    v = decide_close({"credit": 10.0, "current_cost": 30.0}, _cfg(), _at(13, 0))
+    assert v["close"] is True and v["trigger"] == "stop_loss"
+
+
+def test_a_loss_INSIDE_the_stop_still_holds():
+    v = decide_close({"credit": 10.0, "current_cost": 25.0}, _cfg(), _at(13, 0))
+    assert v["close"] is False
+
+
+def test_the_stop_outranks_the_profit_target():
+    # A position cannot be both, but the ORDER must put the worse outcome
+    # first — a stop checked after a target is a stop that can be skipped.
+    import inspect
+    from tradepro_strategies.cli import index_strangle_close as C
+    src = inspect.getsource(C.decide_close)
+    assert src.index("stop_loss") < src.index("profit_target")
+
+
+def test_the_time_exit_still_outranks_the_stop():
+    # Overnight is the one risk nothing else caps. Deep underwater at the bell
+    # must leave on the BELL, not wait for a stop it may never reach.
+    v = decide_close({"credit": 10.0, "current_cost": 12.0}, _cfg(), _at(15, 50))
+    assert v["trigger"] == "end_of_day"
+
+
+def test_vol_shock_closes_the_position():
+    # §6: VIX up more than 40% from the entry reading.
+    v = decide_close({"credit": 10.0, "current_cost": 9.0,
+                      "vol_at_entry": 14.0, "vol_now": 20.0}, _cfg(), _at(13, 0))
+    assert v["close"] is True and v["trigger"] == "vol_shock"
+
+
+def test_a_vol_rise_below_the_threshold_does_not_close():
+    v = decide_close({"credit": 10.0, "current_cost": 9.0,
+                      "vol_at_entry": 14.0, "vol_now": 18.0}, _cfg(), _at(13, 0))
+    assert v["close"] is False
+
+
+def test_a_MISSING_vol_reading_skips_the_check_rather_than_closing():
+    # A missing reading is not a calm market — and it is not a shock either.
+    # Closing on an absence would be the worst kind of guess.
+    v = decide_close({"credit": 10.0, "current_cost": 9.0,
+                      "vol_at_entry": None, "vol_now": None}, _cfg(), _at(13, 0))
+    assert v["close"] is False
+
+
+def test_the_stop_is_stated_as_a_MULTIPLE_of_credit():
+    # §8: measured on CUMULATIVE credit, so the stop cannot widen with each
+    # roll once rolling exists. No rolls yet, so cumulative == entry credit.
+    from tradepro_strategies.cli.index_strangle_close import STOP_LOSS_MULTIPLE, VOL_SHOCK_RISE
+    assert STOP_LOSS_MULTIPLE == 2.0
+    assert VOL_SHOCK_RISE == 0.40
