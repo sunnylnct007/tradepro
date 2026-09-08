@@ -116,6 +116,12 @@ export const api = {
   // cannot support, and at small n it is the most important field here.
   // Live desk P&L. Carries its OWN mark timestamp — a P&L without one is a
   // number of unknown age.
+  // The newest session a QUORUM of the universe reported. Weekends and
+  // exchange holidays are absent from the bar store, so they are absent from
+  // this answer — which is why nothing here maintains a holiday calendar.
+  lastSettledSession: () =>
+    get<{ lastSettledSession: string | null; symbols: number; note: string }>(
+      "/api/admin/data-trust/last-settled-session"),
   strangleLivePnl: (days = 1) =>
     get<Record<string, unknown>>(`/api/strangle-decisions/pnl?days=${days}`),
   strangleStats: (days = 90) =>

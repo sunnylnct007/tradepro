@@ -853,28 +853,38 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
   const _lastCandle = series?.candles?.[(series?.candles?.length ?? 0) - 1];
   const _lastMs = _lastCandle ? Date.parse(String(_lastCandle.timestamp).replace(" ", "T")) : NaN;
   const _ageDays = Number.isFinite(_lastMs) ? (Date.now() - _lastMs) / 86_400_000 : null;
-  // Count only weekdays between the last bar and now — a Sat/Sun gap is not
-  // staleness, it is the calendar. (US holidays are not modelled; a holiday
-  // Monday will read one session behind, which is the safe direction.)
-  const _sessionsBehind = (() => {
-    if (!Number.isFinite(_lastMs)) return null;
-    let n = 0;
-    const cur = new Date(_lastMs);
-    cur.setUTCHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    while (cur < today) {
-      cur.setUTCDate(cur.getUTCDate() + 1);
-      const d = cur.getUTCDay();
-      if (d !== 0 && d !== 6) n += 1;
-    }
-    return n;
-  })();
-  // Daily: one session behind is NORMAL — today's bar does not settle until the
-  // close. Two or more means a genuinely missed harvest. Intraday must be
-  // same-day.
+  // ASK THE DATA WHICH DAYS WERE SESSIONS. Counting weekdays here called
+  // LABOR DAY a trading session, so on 8 Sep 2026 a chart whose last bar was
+  // Friday 4 Sep — the correct latest settled bar, shared by all 169 symbols
+  // in the store — was branded "2 trading sessions behind. Do not trade off
+  // this chart."
+  //
+  // The comment this replaces claimed a holiday would read ONE session behind,
+  // "the safe direction". It reads TWO, which is exactly the threshold. The
+  // reasoning was written down and the arithmetic was never run.
+  //
+  // A holiday table would have to be maintained and would rot. The bar store
+  // already knows: a session is a day the market produced bars. This symbol is
+  // stale when it is behind the SESSION, not behind the calendar.
+  const [_marketSession, _setMarketSession] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void api.lastSettledSession()
+      .then((r) => { if (alive) _setMarketSession(r.lastSettledSession?.slice(0, 10) ?? null); })
+      .catch(() => { if (alive) _setMarketSession(null); });
+    return () => { alive = false; };
+  }, []);
+
+  const _lastBar = _lastCandle ? String(_lastCandle.timestamp).slice(0, 10) : null;
+  // How far behind the market this symbol is, in SESSIONS the market actually
+  // held. Null while the reference is loading — and an unknown reference must
+  // NOT raise the alarm, because a warning nobody can verify is the thing that
+  // gets muted.
+  const _sessionsBehind = (_lastBar && _marketSession)
+    ? (_lastBar < _marketSession ? 1 : 0)
+    : null;
   const isStale = resolution === "1d"
-    ? (_sessionsBehind !== null && _sessionsBehind >= 2)
+    ? (_sessionsBehind !== null && _sessionsBehind > 0)
     : (_ageDays !== null && _ageDays > 1);
   const lastBarDate = _lastCandle ? String(_lastCandle.timestamp).slice(0, 10) : "";
 
@@ -1039,7 +1049,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
         }}>
           ⚠ STALE DATA — last {resolution} bar is {lastBarDate}
           {resolution === "1d"
-            ? ` (${_sessionsBehind} trading sessions behind)`
+            ? ` — the market last settled ${_marketSession}`
             : ` (${Math.floor(_ageDays as number)} days old)`}.
           The latest price/move is NOT shown here. Do not trade off this chart.
         </div>
