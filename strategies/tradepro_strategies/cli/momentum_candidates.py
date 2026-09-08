@@ -539,6 +539,22 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
             ))
         except Exception:  # noqa: BLE001 — one bad row must not lose the screen
             pass
+    # Account-barred names (PRIIPs ETFs) must never render as actionable
+    # "buy" rows — the swing producer marks them; momentum never did, so
+    # GDX/SPY/VOO/DBA sat at the TOP of the momentum list as gated buys the
+    # account cannot execute (owner's board, 8 Sep).
+    try:
+        from .push_to_api import load_credentials as _lc
+        from ..paper.broker_ineligible import account_untradeable
+        _b2, _t2 = _lc()
+        _barred = set(account_untradeable(_b2.rstrip("/"), _t2))
+    except Exception:  # noqa: BLE001
+        _barred = set()
+    for c in out:
+        if c.symbol in _barred:
+            c.eligible = False
+            c.blocks = ["this account cannot trade it — US-domiciled ETF (PRIIPs)"]
+            c.why = (c.why or "") + " · ACCOUNT CANNOT TRADE"
     rows = emit(out)
     # Options context as DISPLAY (owner, 7 Sep): IV/HV, implied-vs-realized
     # day, term structure — rendered by the desk's Options panel wherever a

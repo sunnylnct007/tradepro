@@ -365,14 +365,14 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
               // board so the Pre-Earn row reflects the fresh evaluation.
               await api.runPreEarningsWatch();
               await load();
-              b.textContent = "run Pre-Earn ✓";
+              b.textContent = "re-scan ✓";
             } catch { b.textContent = "run failed — see logs"; }
-            finally { setTimeout(() => { b.disabled = false; b.textContent = "run Pre-Earn"; }, 4000); }
+            finally { setTimeout(() => { b.disabled = false; b.textContent = "re-scan watch"; }, 4000); }
           }}
           style={{ marginLeft: "auto", padding: "3px 10px", borderRadius: 999,
                    fontSize: 12, cursor: "pointer", border: "1px solid var(--border)",
                    background: "var(--surface-2)", color: "var(--text)" }}>
-          run Pre-Earn
+          re-scan watch
         </button>
         <label style={{ fontSize: 12, cursor: "pointer", color: "var(--text)" }}>
           <input type="checkbox" checked={hideBlocked}
