@@ -164,4 +164,46 @@ public class StrangleDecisionKeyTest
         Assert.Contains("GetPositionsAsync(ct, forceFresh: true)", s);
         Assert.Contains("p.Quantity != 0m", s);
     }
+
+    [Fact]
+    public void StatsWithholdARatioTheSampleCannotCarry()
+    {
+        // 5 closed trades cannot support a win rate, and quoting one to a
+        // decimal place is how a defect gets mistaken for an edge. Counts are
+        // always shown; the RATIO is what is withheld, with the n stated.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("const int MinForRate = 20;", s);
+        Assert.Contains("winRateWithheld", s);
+    }
+
+    [Fact]
+    public void StatsNeverAverageGatedWithShadow()
+    {
+        // The gate IS the strategy. Averaging the days it refused with the days
+        // it allowed destroys the only measurement the shadow fills exist to
+        // produce.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("r.shadow != true", s);
+        Assert.Contains("r.shadow == true", s);
+    }
+
+    [Fact]
+    public void StatsNeverSumAcrossCurrencies()
+    {
+        // The automated desk is paper USD; the manual India book is real money
+        // in INR. One total across both is not a number.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("manual.GroupBy(r => (string?)r.currency", s);
+    }
+
+    [Fact]
+    public void StatsSayWhenNothingHasMeasuredTheStrategyYet()
+    {
+        // Every closed trade being a shadow fill means the strategy as designed
+        // has never traded. That is the headline, and it must be emitted rather
+        // than left for the reader to infer from a zero.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("if (gated.Count == 0 && shadow.Count > 0)", s);
+        Assert.Contains("stale_overnight", s);
+    }
 }

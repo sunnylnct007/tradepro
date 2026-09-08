@@ -453,6 +453,162 @@ public static class StrangleDecisionLogEndpoints
             });
         });
 
+        // ── DESK STATISTICS ──────────────────────────────────────────────
+        //
+        // Owner, 8 Sep 2026: "we need proper stats."
+        //
+        // What makes them PROPER is mostly what this refuses to do. At the time
+        // of writing the desk has FIVE closed automated trades, every one of
+        // them a shadow fill, and three of those five closed on the
+        // stale_overnight bug fixed the same day. A win rate computed over that
+        // would be a measurement of a defect, quoted to two decimal places.
+        //
+        // So: descriptive figures always, ratios only above a stated minimum,
+        // and every population kept apart that must be kept apart --
+        //   gated vs shadow   averaging them destroys the only measurement the
+        //                     gate exists to produce
+        //   USD vs INR        the automated desk is paper USD, the manual India
+        //                     book is real money in rupees. One total across
+        //                     both is not a number.
+        g.MapGet("/stats", async (NpgsqlDataSource db, CancellationToken ct, int days = 90) =>
+        {
+            var d = days <= 0 ? 90 : days;
+            await using var conn = await db.OpenConnectionAsync(ct);
+
+            var auto = (await conn.QueryAsync(@"
+                SELECT market,
+                       COALESCE(shadow, false)              AS shadow,
+                       close_trigger,
+                       realised_pnl::float8                 AS pnl,
+                       COALESCE(exchange_date, as_of)::date AS session
+                  FROM strangle_decision_log
+                 WHERE placed IS TRUE
+                   AND realised_pnl IS NOT NULL
+                   AND COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@d || ' days')::interval)",
+                new { d })).AsList();
+
+            var manual = (await conn.QueryAsync(@"
+                SELECT market, currency, followed_signal,
+                       realised_pnl::float8 AS pnl,
+                       entry_date::date     AS session
+                  FROM strangle_manual_trades
+                 WHERE realised_pnl IS NOT NULL
+                   AND entry_date >= (CURRENT_DATE - (@d || ' days')::interval)",
+                new { d })).AsList();
+
+            // Ratios below this are noise quoted as fact. Stated, not hidden,
+            // so the caller can see how far off the sample is.
+            const int MinForRate = 20;
+
+            static object Pop(string label, List<double> xs, int minForRate) => new
+            {
+                label,
+                n = xs.Count,
+                total = xs.Count == 0 ? (double?)null : Math.Round(xs.Sum(), 2),
+                mean = xs.Count == 0 ? (double?)null : Math.Round(xs.Average(), 2),
+                best = xs.Count == 0 ? (double?)null : Math.Round(xs.Max(), 2),
+                worst = xs.Count == 0 ? (double?)null : Math.Round(xs.Min(), 2),
+                wins = xs.Count(v => v > 0),
+                losses = xs.Count(v => v < 0),
+                scratches = xs.Count(v => v == 0),
+                // A RATE, not a count, and therefore withheld until the sample
+                // can carry one. Counts above are always safe to read.
+                winRate = xs.Count >= minForRate
+                    ? Math.Round(100.0 * xs.Count(v => v > 0) / xs.Count, 1)
+                    : (double?)null,
+                winRateWithheld = xs.Count >= minForRate
+                    ? null
+                    : $"{xs.Count} closed trade(s); a win rate is not quoted below {minForRate}",
+            };
+
+            var gated = auto.Where(r => r.shadow != true).Select(r => (double)r.pnl).ToList();
+            var shadow = auto.Where(r => r.shadow == true).Select(r => (double)r.pnl).ToList();
+
+            var byTrigger = auto.GroupBy(r => (string?)r.close_trigger ?? "unrecorded")
+                .Select(gr => new
+                {
+                    trigger = gr.Key,
+                    n = gr.Count(),
+                    total = Math.Round(gr.Sum(r => (double)r.pnl), 2),
+                })
+                .OrderByDescending(x => x.n).ToList();
+
+            var byMarket = auto.GroupBy(r => (string)r.market)
+                .Select(gr => new
+                {
+                    market = gr.Key,
+                    n = gr.Count(),
+                    total = Math.Round(gr.Sum(r => (double)r.pnl), 2),
+                    shadowOnly = gr.All(r => r.shadow == true),
+                })
+                .OrderBy(x => x.market).ToList();
+
+            var caveats = new List<string>();
+            if (gated.Count == 0 && shadow.Count > 0)
+                caveats.Add($"ZERO gated trades. All {shadow.Count} closed trade(s) are SHADOW fills "
+                          + "-- the gate refused and we placed anyway. The strategy AS DESIGNED has "
+                          + "never traded, so nothing here measures it.");
+            var stale = auto.Count(r => (string?)r.close_trigger == "stale_overnight");
+            if (stale > 0)
+                caveats.Add($"{stale} of {auto.Count} closed trade(s) exited on stale_overnight. Until "
+                          + "8 Sep 2026 that trigger fired on FRESH positions because the close job "
+                          + "could not read its own placements -- those exits are a defect, not a "
+                          + "strategy decision, and their P&L should not be read as a result.");
+            if (auto.Count > 0 && auto.Count < MinForRate)
+                caveats.Add($"{auto.Count} closed automated trade(s) across "
+                          + $"{auto.Select(r => (object)r.session).Distinct().Count()} session(s). "
+                          + "Descriptive totals only; no ratio, expectancy or drawdown is computed.");
+
+            // Manual India: real money, INR, and NEVER folded into the USD desk.
+            var manualByCcy = manual.GroupBy(r => (string?)r.currency ?? "unknown")
+                .Select(gr => new
+                {
+                    currency = gr.Key,
+                    stats = Pop($"manual {gr.Key}", gr.Select(r => (double)r.pnl).ToList(), MinForRate),
+                    followedSignal = Pop("followed our signal",
+                        gr.Where(r => r.followed_signal == true).Select(r => (double)r.pnl).ToList(),
+                        MinForRate),
+                    ignoredSignal = Pop("did NOT follow our signal",
+                        gr.Where(r => r.followed_signal != true).Select(r => (double)r.pnl).ToList(),
+                        MinForRate),
+                }).ToList();
+
+            return Results.Ok(new
+            {
+                asOfUtc = DateTime.UtcNow,
+                windowDays = d,
+                automated = new
+                {
+                    currency = "USD",
+                    account = "paper",
+                    closed = auto.Count,
+                    sessions = auto.Select(r => (object)r.session).Distinct().Count(),
+                    gated = Pop("gate said trade", gated, MinForRate),
+                    shadow = Pop("gate REFUSED, traded anyway", shadow, MinForRate),
+                    byTrigger,
+                    byMarket,
+                },
+                manual = new
+                {
+                    note = "real money, entered by hand. Reported per currency and NEVER "
+                         + "added to the automated desk.",
+                    closed = manual.Count,
+                    byCurrency = manualByCcy,
+                },
+                caveats,
+                howToRead = new
+                {
+                    gatedVsShadow = "kept apart on purpose. The gate IS the strategy, so the only "
+                                  + "way to know whether it is set right is to trade some refused "
+                                  + "days deliberately and never average the two.",
+                    withheldRatios = $"a win rate is quoted only at {MinForRate}+ closed trades. "
+                                   + "Counts are always shown; the ratio is what the sample cannot carry.",
+                    total = "there is deliberately no single all-in figure: the automated desk is "
+                          + "paper USD and the manual book is real INR.",
+                },
+            });
+        });
+
         return app;
     }
 }

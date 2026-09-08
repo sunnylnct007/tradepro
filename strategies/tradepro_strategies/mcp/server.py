@@ -791,6 +791,17 @@ def build_server():
         not flat. Always read `warnings` before quoting the number."""
         return _json(t.get_strangle_live_pnl(days))
 
+    @mcp.tool()
+    @instrumented("get_strangle_stats")
+    def get_strangle_stats(days: int = 90) -> str:
+        """Strangle desk statistics over a window: gated vs shadow, by close
+        trigger, by market, plus the manual India book per currency. Read
+        `caveats` FIRST — they say what the sample cannot support. Win rates are
+        WITHHELD below a stated minimum rather than quoted thin, and there is no
+        single all-in total because the automated desk is paper USD and the
+        manual book is real INR."""
+        return _json(t.get_strangle_stats(days))
+
     # ---- Closing option positions ---------------------------------------
     #
     # Owner, 31 Aug 2026: "u shd be able to close them". TradePro could open a

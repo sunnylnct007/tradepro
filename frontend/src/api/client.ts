@@ -112,6 +112,10 @@ export const api = {
   strangleDecisionSummary: (days = 30) =>
     get<{ rows: Record<string, unknown>[] }>(
       `/api/strangle-decisions/summary?days=${days}`),
+  // Desk statistics. `caveats` is not decoration — it carries what the sample
+  // cannot support, and at small n it is the most important field here.
+  strangleStats: (days = 90) =>
+    get<Record<string, unknown>>(`/api/strangle-decisions/stats?days=${days}`),
   // Integration/provider readiness — broker connectivity + cash, LLM, Finnhub.
   // Public, no auth. Feeds the Health page + the cockpit caveats banner.
   integrationsHealth: () =>

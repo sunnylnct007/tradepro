@@ -4379,6 +4379,38 @@ def get_strangle_live_pnl(days: int = 1) -> dict:
     }
 
 
+def get_strangle_stats(days: int = 90) -> dict:
+    """Desk statistics over a window — and what the sample cannot yet support.
+
+    Owner, 8 Sep 2026: "we need proper stats."
+
+    Read `caveats` FIRST. As of writing, every closed automated trade is a
+    SHADOW fill (the gate refused and we placed anyway), so nothing here
+    measures the strategy as designed; and three of five exits fired on the
+    stale_overnight defect fixed that day, which are not strategy decisions.
+
+    Ratios are withheld below a stated minimum rather than quoted thin —
+    `winRateWithheld` says how many trades there are and how many are needed.
+    Counts, totals and extremes are always safe to read.
+
+    There is deliberately NO single all-in number: the automated desk is paper
+    USD and the manual India book is real money in INR.
+    """
+    try:
+        d = _get("/api/strangle-decisions/stats", params={"days": days})
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_strangle_stats", exc)
+    return {
+        "ok": True,
+        "as_of_utc": d.get("asOfUtc"),
+        "window_days": d.get("windowDays"),
+        "automated": d.get("automated"),
+        "manual": d.get("manual"),
+        "caveats": d.get("caveats") or [],
+        "how_to_read": d.get("howToRead"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Closing option positions.
 #
