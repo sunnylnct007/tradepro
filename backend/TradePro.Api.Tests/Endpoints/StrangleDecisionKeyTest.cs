@@ -86,4 +86,41 @@ public class StrangleDecisionKeyTest
         Assert.DoesNotContain("BEGIN;", m);
         Assert.DoesNotContain("COMMIT;", m);
     }
+
+    /// <summary>Comments stripped: this file now EXPLAINS the old behaviour in
+    /// prose, so a plain Contains would happily match the description of the
+    /// bug instead of the code. Three tests in this repo have already passed
+    /// that way.</summary>
+    private static string CodeOnly(string src) =>
+        string.Join("\n", src.Split('\n')
+            .Where(l => !l.TrimStart().StartsWith("--")
+                     && !l.TrimStart().StartsWith("//")));
+
+    [Fact]
+    public void TheSelectFiltersOnTheSameKeyTheUpsertWritesOn()
+    {
+        // The upsert keys on COALESCE(exchange_date, as_of); the SELECT filtered
+        // on as_of. Those are the same column only until a weekend or a holiday
+        // separates them.
+        //
+        // 8 Sep 2026: US rows for exchange_date 2026-09-08 carried as_of
+        // 2026-09-04, because 7 Sep was Labor Day. The close job asks days=3,
+        // so its window began 2026-09-05 and every US row fell outside it. It
+        // read zero placed rows while four pairs were open at the broker,
+        // judged them opened on an earlier session, and flattened all four
+        // seven minutes after they were opened.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains(
+            "AND COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@days || ' days')::interval)", s);
+        Assert.DoesNotContain("AND as_of >= (CURRENT_DATE", s);
+    }
+
+    [Fact]
+    public void TheSelectOrdersOnThatSameKeyToo()
+    {
+        // Ordering by as_of puts a row from a holiday-shortened week in the
+        // wrong place, so "the latest decision" is not the latest one traded.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("ORDER BY COALESCE(exchange_date, as_of) DESC, market", s);
+    }
 }

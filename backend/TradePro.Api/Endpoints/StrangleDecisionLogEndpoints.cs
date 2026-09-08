@@ -250,8 +250,24 @@ public static class StrangleDecisionLogEndpoints
                   FROM strangle_decision_log
                  WHERE (@market IS NULL OR market = @market)
                    AND (@decision IS NULL OR decision = @decision)
-                   AND as_of >= (CURRENT_DATE - (@days || ' days')::interval)
-                 ORDER BY as_of DESC, market
+                   -- FILTER ON THE KEY, NOT ON as_of. The upsert above keys on
+                   -- COALESCE(exchange_date, as_of) -- the session being TRADED --
+                   -- but this SELECT filtered on as_of, the settled session the
+                   -- gate READ. Those diverge across a weekend or a holiday.
+                   --
+                   -- 8 Sep 2026: US rows for exchange_date 2026-09-08 carried
+                   -- as_of 2026-09-04, because 7 Sep was Labor Day. The close
+                   -- job asks for days=3, so the window began 2026-09-05 and
+                   -- every US row fell outside it. The job read zero placed
+                   -- rows while four pairs sat open at the broker, concluded
+                   -- they must have been opened on an earlier session, and
+                   -- flattened all four SEVEN MINUTES after they were opened.
+                   --
+                   -- Migration 073 fixed exactly this divergence in the UPSERT
+                   -- and left the SELECT reading the other column. Half a fix
+                   -- reads as a whole one until the calendar separates them.
+                   AND COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@days || ' days')::interval)
+                 ORDER BY COALESCE(exchange_date, as_of) DESC, market
                  LIMIT 2000;",
                 new { market, decision, days = days <= 0 ? 90 : days });
             return Results.Ok(new { rows = rows.AsList() });
