@@ -34,6 +34,10 @@ type Row = {
   // since migration 072; until then the platform could not answer "did the
   // strangle work or not" from its own records.
   placed: boolean | null; partial: boolean | null; shadow: boolean | null;
+  // Served by the API since 072 and never declared here, so the one
+  // question asked of this screen — WHEN did we place it — had no
+  // answer on it at all.
+  placed_at_utc: string | null;
   broker_order_ids: string | null; credit_actual: number | null;
   credit_modelled: number | null; realised_pnl: number | null;
   close_trigger: string | null; closed_at_utc: string | null;
@@ -613,6 +617,7 @@ export function StrangleDecisionsView() {
                       fontVariantNumeric: "tabular-nums" }}>
         <thead><tr style={{ color: "var(--text-muted)", textAlign: "left", fontSize: 11 }}>
           <th style={{ padding: "6px 8px" }}>Date</th>
+          <th style={{ padding: "6px 8px" }}>Placed at</th>
           <th style={{ padding: "6px 8px" }}>Market</th>
           <th style={{ padding: "6px 8px" }}>Gate said</th>
           <th style={{ padding: "6px 8px" }}>We did</th>
@@ -636,6 +641,14 @@ export function StrangleDecisionsView() {
                                    background: override ? "rgba(210,153,34,.07)" : undefined }}>
                 <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
                   {String(r.exchange_date || r.as_of).slice(0, 10)}
+                </td>
+                {/* THE TIME, on the row that says what we did. A session date
+                    alone cannot distinguish an entry 20 minutes after the open
+                    from one three hours in, and on this desk that is the
+                    difference between the strategy and an accident. */}
+                <td style={{ padding: "6px 8px", whiteSpace: "nowrap",
+                             color: r.placed_at_utc ? "inherit" : "var(--text-muted)" }}>
+                  {r.placed_at_utc ? hhmmss(r.placed_at_utc) : "—"}
                 </td>
                 <td style={{ padding: "6px 8px", fontWeight: 600 }}>
                   {r.market}
