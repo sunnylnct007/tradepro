@@ -154,7 +154,14 @@ public static class StrangleDecisionLogEndpoints
                     close_trigger    = COALESCE(@CloseTrigger, close_trigger),
                     closed_at_utc    = COALESCE(@ClosedAtUtc, closed_at_utc),
                     realised_pnl     = COALESCE(@RealisedPnl, realised_pnl),
-                    place_error      = COALESCE(@PlaceError, place_error),
+                    -- CLEARED ON SUCCESS. COALESCE alone never unsets, so a
+                    -- refusal from an earlier run of the same session survived
+                    -- a later successful placement: on 8 Sep 2026 the SPX row
+                    -- read placed=true with credit_actual 5,316.74 AND
+                    -- "strikes are PROVISIONAL" from the 04:10 attempt. A row
+                    -- carrying both is a row nobody can read.
+                    place_error      = CASE WHEN @Placed IS TRUE THEN NULL
+                                            ELSE COALESCE(@PlaceError, place_error) END,
                     quoted_credit    = COALESCE(@QuotedCredit, quoted_credit),
                     quoted_exit      = COALESCE(@QuotedExit, quoted_exit),
                     quoted_pnl       = COALESCE(@QuotedPnl, quoted_pnl),
