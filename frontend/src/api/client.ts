@@ -114,6 +114,10 @@ export const api = {
       `/api/strangle-decisions/summary?days=${days}`),
   // Desk statistics. `caveats` is not decoration — it carries what the sample
   // cannot support, and at small n it is the most important field here.
+  // Live desk P&L. Carries its OWN mark timestamp — a P&L without one is a
+  // number of unknown age.
+  strangleLivePnl: (days = 1) =>
+    get<Record<string, unknown>>(`/api/strangle-decisions/pnl?days=${days}`),
   strangleStats: (days = 90) =>
     get<Record<string, unknown>>(`/api/strangle-decisions/stats?days=${days}`),
   // Integration/provider readiness — broker connectivity + cash, LLM, Finnhub.
