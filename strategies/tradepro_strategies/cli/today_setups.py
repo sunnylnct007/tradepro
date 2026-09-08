@@ -347,6 +347,24 @@ def main() -> int:
         "note": ("Ichimoku 9/26/52 (matches the chart). consider = LONG + at/above kijun support; "
                  "weak/suspect/excluded not shown. Earnings not checked (catalyst gap). Discretionary entry."),
     }
+    # ONE BOARD (owner, 8 Sep: "portfolio screen showing completely diff
+    # candidate"). This lane's stars join the common candidates_v2 shape so
+    # the cockpit panel and the Candidates board can never disagree again —
+    # third producer folded into the architecture, none left outside it.
+    try:
+        from ..candidates import Candidate, emit
+        artifact["candidates_v2"] = emit([
+            Candidate(symbol=r["symbol"], strategy="Setups", tier="unproven",
+                      action=r["classification"], as_of=artifact["as_of_utc"],
+                      entry=r.get("close"), level=r.get("kijun"),
+                      level_label="kijun",
+                      metric=r.get("atr_pct"), metric_label="ATR%",
+                      eligible=(r["classification"] == "consider"),
+                      why=(r.get("why") or "")[:300])
+            for r in artifact["setups"]
+        ])
+    except Exception as _exc:  # noqa: BLE001 — the legacy panel must survive
+        log.warning("candidates_v2 emit failed: %s", str(_exc)[:80])
 
     for r in artifact["setups"]:
         log.info("%-2s %-9s %-8s %6.2f  %s", {"consider": "⭐", "earnings": "📅", "reversal": "🔪", "extended": "⚠", "below_trend": "📉", "hold": "·"}.get(r["classification"], " "),

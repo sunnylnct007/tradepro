@@ -169,6 +169,18 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       if (a.movers) setMovers(a.movers);
     } catch { /* engine not yet run this cycle — absence is not an error */ }
 
+    // Setups lane (the cockpit's Today's Setups stars) — same artifact the
+    // cockpit panel reads, so the two surfaces cannot disagree.
+    for (const uni of ["large_50", "high_beta"]) {
+      try {
+        const r: any = await api.todaySetupsArtifact(uni);
+        const a: any = r?.artifact ?? {};
+        if (a.candidates_v2?.length) {
+          out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
+        }
+      } catch { /* lane optional */ }
+    }
+
     try {
       const r = await api.postEarningsPuts();
       const a: any = r?.artifact ?? {};

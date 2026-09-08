@@ -668,6 +668,11 @@ export const api = {
     post<{ ok?: boolean; job?: string; error?: string }, Record<string, never>>(
       "/api/jobs/preearnings_watch/run", {}),
 
+  /** Today's Setups scanner artifact by universe (large_50 / high_beta). */
+  todaySetupsArtifact: (universe: string) =>
+    get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(
+      `/api/today-setups/${universe}/latest`),
+
   /** Pre-earnings watch (per-symbol spec engine, Phase 1 alerts-only). */
   preEarningsCandidates: () =>
     get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(

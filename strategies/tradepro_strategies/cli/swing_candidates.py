@@ -341,6 +341,10 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
                         "blocked_by": ("trend filter (below the 200-SMA)"
                                        if c[i] <= _s200 else
                                        "not stretched enough below the 20-day mean"),
+                        "fires_at": round(_m - 2.5 * _sd, 2),
+                        "pct_to_fire": round(100 * ((_m - 2.5 * _sd) / c[i] - 1), 1),
+                        "filter_note": ("filter measured NEUTRAL 29 Aug — refused earned ~ the rule (+1.06 vs +1.10%/trade); your judgement call"
+                                        if c[i] <= _s200 else ""),
                     })
             continue
         sma200 = sum(c[i - TREND_WINDOW + 1:i + 1]) / TREND_WINDOW
