@@ -402,6 +402,22 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
             "atr_pct": round(atr_pct, 2),
             "pct_above_200sma": round(100 * (c[i] / sma200 - 1), 1),
             "off_52w_high_pct": round(100 * (hi52 - c[i]) / hi52, 1) if hi52 else None,
+            # Red-day context (advisor audit, 8 Sep, adopted with reasons):
+            # a mean-reversion screen FIRES on red days — show the red, and
+            # show the trend cushion in the units that exposed SHOP as half a
+            # day's range above a FALLING 200-SMA while "+2.2%" looked safe.
+            "day_chg_pct": (round(100 * (c[i] / c[i - 1] - 1), 1)
+                            if i >= 1 and c[i - 1] else None),
+            "below_20d_high_pct": (lambda hi20: round(100 * (hi20 - c[i]) / hi20, 1)
+                                   if hi20 else None)(max(h[i - 19:i + 1])),
+            "sma200_cushion_atr": (round((c[i] - sma200) / atr, 2) if atr else None),
+            "sma200_slope_20s_pct": (round(100 * (sum(c[i - 219:i - 19]) / 200
+                                                  and (sma200 / (sum(c[i - 219:i - 19]) / 200) - 1)), 2)
+                                     if i >= 219 else None),
+            "instrument_note": ("ETF — the dip rule is calibrated on single names"
+                                if (sym in ETFS or sym in {"USMV", "SPLV", "MTUM",
+                                                           "QUAL", "VLUE", "SCHD"})
+                                else None),
             "volume_vs_20d": _vol,
             "volume_vs_20d_unavailable": _vol_why,
             "max_hold_sessions": MAX_HOLD,

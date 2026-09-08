@@ -208,7 +208,7 @@ export function SwingView() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Tier", "Entry", "Now", "Target", "Stop", "Upside", "R:R", "Depth", "ATR%", "vs 200-SMA"].map((x) => (
+                {["Symbol", "Tier", "Entry", "Now", "Day", "Target", "Stop", "Upside", "R:R", "Depth", "ATR%", "vs 200-SMA"].map((x) => (
                   <th key={x} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{x}</th>
                 ))}
               </tr>
@@ -218,6 +218,11 @@ export function SwingView() {
                 <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
                     {c.symbol}
+                    {(c as any).instrument_note && (
+                      <div style={{ fontWeight: 400, fontSize: 10, color: TONE.warn }}>
+                        {(c as any).instrument_note}
+                      </div>
+                    )}
                     {(c as any).extra?.relative?.line && (
                       <div style={{ fontWeight: 400, fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                         {(c as any).extra.relative.line}
@@ -253,13 +258,36 @@ export function SwingView() {
                       </>
                     ) : <span style={{ color: "var(--text-muted)" }}>—</span>}
                   </td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                    {(c as any).day_chg_pct != null ? (
+                      <>
+                        <b style={{ color: (c as any).day_chg_pct < 0 ? TONE.bad : TONE.ok }}>
+                          {(c as any).day_chg_pct >= 0 ? "+" : ""}{(c as any).day_chg_pct.toFixed(1)}%
+                        </b>
+                        {(c as any).below_20d_high_pct != null && (
+                          <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                            −{(c as any).below_20d_high_pct.toFixed(1)}% off 20d hi
+                          </div>
+                        )}
+                      </>
+                    ) : <span style={{ color: "var(--text-muted)" }}>—</span>}
+                  </td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: TONE.ok }}>{c.target.toFixed(2)}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: TONE.bad }}>{c.stop.toFixed(2)}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: TONE.ok }}>+{c.target_pct.toFixed(1)}%</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>{c.reward_risk?.toFixed(2) ?? "—"}</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>{c.sigma_below.toFixed(1)}σ</td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>{c.atr_pct.toFixed(1)}%</td>
-                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>+{c.pct_above_200sma.toFixed(1)}%</td>
+                  <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+                    +{c.pct_above_200sma.toFixed(1)}%
+                    {(c as any).sma200_cushion_atr != null && (
+                      <div style={{ fontSize: 10, color: (c as any).sma200_cushion_atr < 1 ? TONE.warn : "var(--text-muted)" }}>
+                        {(c as any).sma200_cushion_atr.toFixed(1)} ATRs
+                        {(c as any).sma200_slope_20s_pct != null &&
+                          `, avg ${(c as any).sma200_slope_20s_pct >= 0 ? "rising" : "FALLING"}`}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
