@@ -206,4 +206,50 @@ public class StrangleDecisionKeyTest
         Assert.Contains("if (gated.Count == 0 && shadow.Count > 0)", s);
         Assert.Contains("stale_overnight", s);
     }
+
+    [Fact]
+    public void ALegsPlacementTimeIsAttributedOnlyOnAnUNAMBIGUOUSMatch()
+    {
+        // IBKR gives a position no open time, so it comes from the decision row
+        // that placed it, matched on the OCC strike. Two markets can print the
+        // same strike, and a confident WRONG timestamp is worse than none --
+        // the whole reason timings were asked for is to tell a six-hour trade
+        // from a seven-minute one.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("if (hits.Count == 1)", s);
+        Assert.Contains("not guessing which", s);
+        // And an unattributed leg must SAY why rather than render a bare dash.
+        Assert.Contains("whyNoTime", s);
+    }
+
+    [Fact]
+    public void OnlyStillOpenRowsCanClaimAnOpenLeg()
+    {
+        // A row that already closed cannot be the origin of a leg open right
+        // now. Without this, yesterday's SPX 7630P row would lend its
+        // timestamp to today's identical strike and report it held for a day.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("r.closed_at_utc == null", s);
+    }
+
+    [Fact]
+    public void ThePnlCarriesTheInstantTheOpenHalfWasPriced()
+    {
+        // The realised half is historical and does not move; the open half
+        // does. A P&L without its mark time is a number of unknown age.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("markedAtUtc = DateTime.UtcNow", s);
+    }
+
+    [Fact]
+    public void ClosedTradesCarryPlacedAndClosedSoHoldTimeIsDerivable()
+    {
+        // +187.45 over six hours and +187.45 over seven minutes are different
+        // facts. On this desk that gap is a strategy result versus the
+        // stale_overnight defect.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("placedAtUtc = (DateTime?)r.placed_at_utc", s);
+        Assert.Contains("closedAtUtc = (DateTime?)r.closed_at_utc", s);
+        Assert.Contains("heldMinutes", s);
+    }
 }

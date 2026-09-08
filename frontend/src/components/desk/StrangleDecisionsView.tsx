@@ -49,6 +49,7 @@ const TONE = { ok: "#0f8a5f", off: "#8b95a5", warn: "#d29922", bad: "#f85149" };
 
 /** A live option leg at the broker — the only place a FILL PRICE exists. */
 type Leg = {
+  conid: number;
   instrumentName: string | null; ticker: string | null; quantity: number;
   averagePricePaid: number | null; currentPrice: number | null;
   unrealisedAbs: number | null; multiplier: number | null; isOption?: boolean;
@@ -60,6 +61,24 @@ type Pop = {
   wins: number; losses: number; scratches: number;
   winRate: number | null; winRateWithheld: string | null;
 };
+type PnlLeg = {
+  contract: string; conid: number; market: string | null; quantity: number;
+  soldAt: number | null; markedAt: number | null; unrealised: number;
+  placedAtUtc: string | null; heldMinutes: number | null; whyNoTime: string | null;
+};
+type PnlTrade = {
+  market: string; shadow: boolean;
+  placedAtUtc: string | null; closedAtUtc: string | null; heldMinutes: number | null;
+  credit: number | null; realised: number | null;
+};
+type Pnl = {
+  asOfUtc: string; broker: string | null; total: number | null;
+  realised: { total: number; pairs: number; trades: PnlTrade[] };
+  open: { markedAtUtc: string; unrealised: number | null; legs: number;
+          detail: PnlLeg[]; unmarkable: { contract: string }[] };
+  warnings: string[];
+};
+
 type Stats = {
   windowDays: number;
   automated: {
@@ -82,6 +101,12 @@ export function StrangleDecisionsView() {
   const [legErr, setLegErr] = useState<string | null>(null);
   const [days, setDays] = useState(30);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [pnl, setPnl] = useState<Pnl | null>(null);
+  // When the browser last got a reply. The server timestamp says when the mark
+  // was taken; this says how stale the copy on screen is. They are different
+  // questions and a P&L needs both answered.
+  const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
+  const [tick, setTick] = useState(0);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -95,6 +120,10 @@ export function StrangleDecisionsView() {
     // Stats separately — a stats failure must not blank the history either.
     try { setStats((await api.strangleStats(days)) as unknown as Stats); }
     catch { setStats(null); }
+    try {
+      setPnl((await api.strangleLivePnl(days)) as unknown as Pnl);
+      setFetchedAt(new Date());
+    } catch { setPnl(null); }
     // LIVE LEGS, separately — a broker hiccup must not blank the history.
     try {
       const p = await api.ibkrPositions();
@@ -104,6 +133,12 @@ export function StrangleDecisionsView() {
   }, [days]);
 
   useEffect(() => { void load(); }, [load]);
+  // "18s ago" must keep counting between the 60s reloads, or the screen shows a
+  // freshness claim that was true once and silently stopped being true.
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
   // Open positions move; the decision history does not. Re-poll while open.
   useEffect(() => {
     const t = setInterval(() => void load(), 60_000);
@@ -112,8 +147,85 @@ export function StrangleDecisionsView() {
 
   if (err) return <div style={{ padding: 16, color: TONE.bad }}>Unavailable: {err}</div>;
 
+  // ── formatting helpers ───────────────────────────────────────────────
+  // UTC, always, and labelled Z. This desk spans New York, London and Mumbai;
+  // a bare "14:00" is ambiguous across all three and the exchange calendar is
+  // the thing being reasoned about, not the reader's wall clock.
+  const hhmmss = (iso: string | null | undefined) =>
+    iso ? `${new Date(iso).toISOString().slice(11, 19)}Z` : "—";
+  const held = (mins: number | null | undefined) => {
+    if (mins == null) return "—";
+    const m = Math.round(mins);
+    return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+  };
+  const ago = (d: Date | null) => {
+    if (!d) return "—";
+    const sec = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
+    return sec < 60 ? `${sec}s ago` : `${Math.floor(sec / 60)}m ${sec % 60}s ago`;
+  };
+  const signed = (v: number | null | undefined, dp = 2) =>
+    v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(dp)}`;
+  void tick; // re-render each second so `ago` stays true
+  // Aliased: inside the leg table `pnl` is that ROW's P&L, and a
+  // shadowed name there would silently read the wrong object.
+  const pnl0 = pnl;
+
   return (
     <div style={{ padding: 16 }}>
+      {/* THE ONE NUMBER, AND WHEN IT WAS TRUE.
+          Owner, 8 Sep 2026: "we need to provide timings as well when we placed
+          it, what time is pnl based on etc."
+
+          A P&L with no timestamp is a number of unknown age, and this one moves
+          every second the market is open. Two clocks, because they answer two
+          different questions: markedAtUtc is when the BROKER priced the book;
+          "ago" is how stale the copy in this browser is. A screen that shows
+          only the second can look fresh while quoting an hour-old mark.
+
+          Exactly one hero figure per view, and it uses proportional digits —
+          tabular figures give every digit the width of a zero, which makes a
+          large standalone number look gappy. Tabular is for the columns below,
+          where digits must line up. */}
+      {pnl && (
+        <div style={{ border: "1px solid var(--border)", borderRadius: 10,
+                      padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>
+                Desk P&amp;L{pnl.total == null && " — INCOMPLETE"}
+              </div>
+              <div style={{ fontSize: 48, lineHeight: 1.05, fontWeight: 600,
+                            color: pnl.total == null ? TONE.warn
+                                 : pnl.total >= 0 ? TONE.ok : TONE.bad }}>
+                {pnl.total == null ? "unknown" : signed(pnl.total)}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8,
+                          paddingBottom: 4 }}>
+              <div>
+                realised <b style={{ color: "var(--text)" }}>{signed(pnl.realised.total)}</b>
+                {" over "}{pnl.realised.pairs} closed pair(s)
+              </div>
+              <div>
+                open <b style={{ color: "var(--text)" }}>{signed(pnl.open.unrealised)}</b>
+                {" across "}{pnl.open.legs} leg(s)
+              </div>
+            </div>
+            <div style={{ marginLeft: "auto", textAlign: "right", fontSize: 11,
+                          color: "var(--text-muted)", lineHeight: 1.8, paddingBottom: 4 }}>
+              <div>open half marked <b style={{ color: "var(--text)" }}>
+                {hhmmss(pnl.open.markedAtUtc)}</b></div>
+              <div>this screen refreshed {ago(fetchedAt)}</div>
+              <div>{pnl.broker ?? "broker unreadable"}</div>
+            </div>
+          </div>
+          {pnl.warnings.map((w, i) => (
+            <div key={i} style={{ marginTop: 9, fontSize: 12, color: TONE.warn,
+                                  border: `1px solid ${TONE.warn}`, borderRadius: 6,
+                                  padding: "7px 10px", lineHeight: 1.5 }}>{w}</div>
+          ))}
+        </div>
+      )}
       {/* What is actually OPEN comes first. A decision log is history; a live
           short position is money at risk right now. */}
       <div style={{ marginBottom: 16 }}><OptionPositionsCard /></div>
@@ -158,6 +270,67 @@ export function StrangleDecisionsView() {
           ))}
         </tbody>
       </table>
+
+      {/* CLOSED TRADES, WITH THE CLOCK ON THEM.
+          "+187.45" says nothing about whether it was earned over six hours or
+          seven minutes — and on this desk that distinction is exactly the
+          difference between a strategy result and the stale_overnight defect
+          that flattened fresh positions until 8 Sep 2026. HELD is therefore not
+          a nicety here; it is the column that tells you which one you are
+          looking at, so it is tinted when the trade lasted under an hour. */}
+      {pnl && pnl.realised.trades.length > 0 && (
+        <div style={{ border: "1px solid var(--border)", borderRadius: 10,
+                      padding: 14, margin: "14px 0" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
+            <span style={{ fontWeight: 600 }}>Closed — last {days} day(s)</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              all times UTC · a trade held minutes did not earn its result from decay
+            </span>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5,
+                          fontVariantNumeric: "tabular-nums" }}>
+            <thead><tr style={{ color: "var(--text-muted)", textAlign: "left", fontSize: 11 }}>
+              <th style={{ padding: "5px 6px" }}>Market</th>
+              <th style={{ padding: "5px 6px" }}>Gate</th>
+              <th style={{ padding: "5px 6px" }}>Placed</th>
+              <th style={{ padding: "5px 6px" }}>Closed</th>
+              <th style={{ padding: "5px 6px", textAlign: "right" }}>Held</th>
+              <th style={{ padding: "5px 6px", textAlign: "right" }}>Credit</th>
+              <th style={{ padding: "5px 6px", textAlign: "right" }}>Realised</th>
+            </tr></thead>
+            <tbody>
+              {pnl.realised.trades.map((t, i) => {
+                const brief = t.heldMinutes != null && t.heldMinutes < 60;
+                return (
+                  <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ padding: "6px", fontWeight: 600 }}>{t.market}</td>
+                    <td style={{ padding: "6px", fontSize: 11,
+                                 color: t.shadow ? TONE.warn : "var(--text-muted)" }}>
+                      {t.shadow ? "OVERRODE" : "agreed"}
+                    </td>
+                    <td style={{ padding: "6px" }}>{hhmmss(t.placedAtUtc)}</td>
+                    <td style={{ padding: "6px" }}>{hhmmss(t.closedAtUtc)}</td>
+                    <td style={{ padding: "6px", textAlign: "right",
+                                 color: brief ? TONE.warn : "inherit",
+                                 fontWeight: brief ? 600 : 400 }}
+                        title={brief ? "under an hour — check the exit trigger before "
+                                     + "reading this as a strategy result" : ""}>
+                      {held(t.heldMinutes)}
+                    </td>
+                    <td style={{ padding: "6px", textAlign: "right" }}>
+                      {t.credit == null ? "—" : t.credit.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "6px", textAlign: "right", fontWeight: 600,
+                                 color: (t.realised ?? 0) >= 0 ? TONE.ok : TONE.bad }}>
+                      {signed(t.realised)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* DESK STATISTICS — and, at this sample size, mostly what they cannot say.
           Owner, 8 Sep 2026: "we need proper stats."
@@ -302,6 +475,12 @@ export function StrangleDecisionsView() {
                           fontVariantNumeric: "tabular-nums" }}>
             <thead><tr style={{ color: "var(--text-muted)", textAlign: "left", fontSize: 11 }}>
               <th style={{ padding: "5px 6px" }}>Contract</th>
+              {/* WHEN IT WENT ON. The broker gives no open time for a position,
+                  so this is the decision row that placed it, matched on the OCC
+                  strike. A leg we cannot attribute shows "—" and says why on
+                  hover rather than borrowing a neighbour's timestamp. */}
+              <th style={{ padding: "5px 6px" }}>Placed</th>
+              <th style={{ padding: "5px 6px", textAlign: "right" }}>Held</th>
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Qty</th>
               <th style={{ padding: "5px 6px", textAlign: "right" }}>SOLD AT</th>
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Now</th>
@@ -313,6 +492,10 @@ export function StrangleDecisionsView() {
                 const mult = l.multiplier || 100;
                 const credit = (l.averagePricePaid || 0) * Math.abs(l.quantity) * mult;
                 const pnl = l.unrealisedAbs ?? 0;
+                // Timings come from the P&L endpoint, which does the OCC match
+                // server-side. Matched on conid: the contract STRING is
+                // formatted for humans and is not an identifier.
+                const t = pnl0?.open.detail.find((x) => x.conid === l.conid);
                 return (
                   <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={{ padding: "6px" }}>
@@ -320,6 +503,14 @@ export function StrangleDecisionsView() {
                       {l.quantity < 0 && (
                         <span style={{ fontSize: 9, marginLeft: 5, color: "var(--text-muted)" }}>SHORT</span>
                       )}
+                    </td>
+                    <td style={{ padding: "6px", color: t ? "inherit" : "var(--text-muted)" }}
+                        title={t?.whyNoTime ?? ""}>
+                      {hhmmss(t?.placedAtUtc)}
+                    </td>
+                    <td style={{ padding: "6px", textAlign: "right",
+                                 color: t?.heldMinutes == null ? "var(--text-muted)" : "inherit" }}>
+                      {held(t?.heldMinutes)}
                     </td>
                     <td style={{ padding: "6px", textAlign: "right" }}>{l.quantity}</td>
                     <td style={{ padding: "6px", textAlign: "right", fontWeight: 600 }}>

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Dapper;
 using Npgsql;
 
@@ -331,10 +332,24 @@ public static class StrangleDecisionLogEndpoints
             int days = 1) =>
         {
             await using var conn = await db.OpenConnectionAsync(ct);
+            // Placed rows for the window, closed or not. The OPEN ones carry
+            // the placement time a leg is attributed to; the CLOSED ones carry
+            // the realised half. One read, both jobs.
+            var placedRows = (await conn.QueryAsync(@"
+                SELECT market, placed_at_utc, closed_at_utc,
+                       put_strike::float8  AS put_strike,
+                       call_strike::float8 AS call_strike,
+                       realised_pnl::float8 AS realised_pnl
+                  FROM strangle_decision_log
+                 WHERE placed IS TRUE
+                   AND COALESCE(exchange_date, as_of) >= (CURRENT_DATE - (@days || ' days')::interval)",
+                new { days = days <= 0 ? 1 : days })).AsList();
+
             var closed = (await conn.QueryAsync(@"
                 SELECT market,
                        COALESCE(exchange_date, as_of)::date AS session,
                        shadow,
+                       placed_at_utc, closed_at_utc,
                        realised_pnl::float8   AS realised_pnl,
                        credit_actual::float8  AS credit_actual
                   FROM strangle_decision_log
@@ -382,14 +397,65 @@ public static class StrangleDecisionLogEndpoints
                         if (p.UnrealizedPnl is decimal u)
                         {
                             sum += (double)u;
+
+                            // WHEN WAS THIS PUT ON? The broker does not say --
+                            // an IBKR position carries no open time -- so it
+                            // comes from the decision row that placed it,
+                            // matched on the OCC strike embedded in the
+                            // contract description (yymmdd + C/P + strike*1000).
+                            // Matched on STRIKE, which the decision row already
+                            // stores; no desk config is duplicated here.
+                            //
+                            // Attributed only on an UNAMBIGUOUS single match.
+                            // Two markets can print the same strike, and a
+                            // confident wrong timestamp is worse than none.
+                            string? market = null;
+                            DateTime? placedAt = null;
+                            string? whyNoTime = null;
+                            var occ = Regex.Match(contract, @"(\d{6})([CP])(\d{8})");
+                            if (!occ.Success)
+                            {
+                                whyNoTime = "contract description carries no OCC symbol to match on";
+                            }
+                            else
+                            {
+                                var right = occ.Groups[2].Value;
+                                var strike = double.Parse(occ.Groups[3].Value) / 1000.0;
+                                var hits = placedRows.Where(r =>
+                                    r.closed_at_utc == null &&
+                                    (right == "P"
+                                        ? r.put_strike != null && Math.Abs((double)r.put_strike - strike) < 0.005
+                                        : r.call_strike != null && Math.Abs((double)r.call_strike - strike) < 0.005))
+                                    .ToList();
+                                if (hits.Count == 1)
+                                {
+                                    market = (string)hits[0].market;
+                                    placedAt = (DateTime?)hits[0].placed_at_utc;
+                                }
+                                else
+                                {
+                                    whyNoTime = hits.Count == 0
+                                        ? $"no OPEN placed row matches strike {strike:0.##}{right} -- "
+                                        + "this leg was not opened by this desk, or its row is missing"
+                                        : $"{hits.Count} placed rows match strike {strike:0.##}{right}; "
+                                        + "not guessing which";
+                                }
+                            }
+
                             legRows.Add(new
                             {
                                 contract,
                                 conid = p.ConId,
+                                market,
                                 quantity = p.Quantity,
                                 soldAt = p.AvgCost is decimal ac ? ac / mult : (decimal?)null,
                                 markedAt = p.MarketPrice,
                                 unrealised = u,
+                                placedAtUtc = placedAt,
+                                heldMinutes = placedAt is DateTime t
+                                    ? Math.Round((DateTime.UtcNow - t).TotalMinutes, 1)
+                                    : (double?)null,
+                                whyNoTime,
                             });
                         }
                         else
@@ -434,6 +500,22 @@ public static class StrangleDecisionLogEndpoints
                 {
                     total = realised,
                     pairs = closed.Count,
+                    // WHEN each closed trade ran. "+187.45" says nothing about
+                    // whether it was earned over six hours or seven minutes --
+                    // and on this desk that distinction is the difference
+                    // between a strategy result and the stale_overnight defect.
+                    trades = closed.Select(r => new
+                    {
+                        market = (string)r.market,
+                        shadow = r.shadow == true,
+                        placedAtUtc = (DateTime?)r.placed_at_utc,
+                        closedAtUtc = (DateTime?)r.closed_at_utc,
+                        heldMinutes = r.placed_at_utc != null && r.closed_at_utc != null
+                            ? Math.Round(((DateTime)r.closed_at_utc - (DateTime)r.placed_at_utc).TotalMinutes, 1)
+                            : (double?)null,
+                        credit = r.credit_actual,
+                        realised = r.realised_pnl,
+                    }).ToList(),
                     gated = closed.Where(r => r.shadow != true)
                                   .Sum(r => (double)(r.realised_pnl ?? 0d)),
                     shadow = closed.Where(r => r.shadow == true)
@@ -441,6 +523,10 @@ public static class StrangleDecisionLogEndpoints
                 },
                 open = new
                 {
+                    // The instant this half was priced. The realised half is
+                    // historical and does not move; this one does, so a P&L
+                    // without its timestamp is a number of unknown age.
+                    markedAtUtc = DateTime.UtcNow,
                     unrealised,
                     legs = legRows.Count,
                     detail = legRows,
