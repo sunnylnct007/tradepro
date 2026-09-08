@@ -52,7 +52,14 @@ from __future__ import annotations
 
 import statistics as st
 
-SIGMA = 2.5
+SIGMA = 2.25   # WIDENED from 2.5 on 8 Sep 2026 by pre-registered amendment.
+# SWING_SIGMA_BAND_GATES_V1.md (1a9088f) froze the bars BEFORE the run; the
+# -2.5..-2.25 band then passed all five (n=1660, 70.4% win, +0.87%/trade with
+# fill-at-open slippage, positive in all four two-split cells, worst -19.6%).
+# The -2.25..-2.0 band FAILED the tail gate (worst -27.9% vs -25 bar) and
+# stays out. Owner's instinct, desk's ceremony: "shouldn't be a hard limit
+# provided we can prove with analytics" - proven, then moved. Live records
+# split at this date: trades before ran the 2.5 entry.
 BB_WINDOW = 20
 TREND_WINDOW = 200
 STOP_PCT = 0.08

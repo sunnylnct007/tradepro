@@ -140,20 +140,20 @@ export function SwingView() {
             ? <>The rule was evaluated against <b>{a.evaluated}</b> symbols on the {a.signal_bar} close
                and none cleared it.</>
             : <>The screen is deliberately selective — roughly 1–2 signals a day.</>}{" "}
-          It fires only on a 2.5σ dip in a name still above its 200-day average.
+          It fires only on a 2.25σ dip in a name still above its 200-day average (entry widened from 2.5σ on 8 Sep 2026 — band study passed all pre-registered gates).
 
           {a.near_misses && a.near_misses.length > 0 && (
             <div style={{ marginTop: 14 }}>
               {/* Two DIFFERENT reasons, and calling both "closest to firing" was
                   wrong: BC at -2.67 and NEE at -2.61 have ALREADY cleared the
-                  2.5σ test. Telling the reader they "need σ below −2.5" about a
+                  2.25σ test. Telling the reader they "need σ below −2.25" about a
                   name that is at −2.67 is a screen contradicting itself. They
                   are not close to firing — they fired on σ and were refused on
                   trend. Split, and each group labelled for its own reason. */}
               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
                 {a.near_misses.some((n) => n.sigma_from_mean <= n.sigma_needed && !n.above_trend)
                   ? "Refused, and how far off the rest are"
-                  : "Closest to firing — entry needs σ below −2.5"}
+                  : "Closest to firing — entry needs σ below −2.25"}
               </div>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>

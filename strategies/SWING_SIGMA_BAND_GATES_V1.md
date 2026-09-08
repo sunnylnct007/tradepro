@@ -39,3 +39,15 @@ shallower dips lean harder on regime. Band C fails S1 or S2 outright.
 ~30% that any band earns in. If B passes cleanly, the entry widens to −2.25
 via a gates amendment and the screen's near-misses become candidates — which
 is exactly what the owner suspects. Thresholds do not move after the numbers.
+
+## RESULT — run 8 Sep 2026, thresholds untouched
+
+| band | n | win | mean | worst | cells | verdict |
+|---|---|---|---|---|---|---|
+| A ≤−2.5 (control) | 1989 | 71.7% | +1.01% | −17.7% | all + | reproduces the record |
+| B −2.5..−2.25 | 1660 | 70.4% | +0.87% | −19.6% | +0.91/+0.82/+1.25/+0.50 | **PASSES ALL FIVE → entry widens to −2.25** |
+| C −2.25..−2.0 | 2582 | 72.3% | +0.89% | −27.9% | all + | FAILS S4 (tail) — stays out |
+
+Prediction was wrong (expected B to drop a cell; ~30% any band earns in).
+Amendment executed: `SIGMA = 2.25` in signals/mean_reversion.py. Live trade
+records split at this date. Harness: backtests/studies/sigma_band_v1.py.

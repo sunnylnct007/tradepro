@@ -10,7 +10,8 @@ order").
 THE EVIDENCE BEHIND IT (MEAN_REVERSION_GATES_V1.md, gates committed 6c9f330
 BEFORE the run; parameters chosen by a 24-combination sweep):
 
-    entry   close < 2.5 sigma below the 20-day mean, while ABOVE the 200-SMA
+    entry   close < 2.25 sigma below the 20-day mean, while ABOVE the 200-SMA
+            (widened from 2.5 on 8 Sep 2026 — SWING_SIGMA_BAND_GATES_V1.md, band B passed all gates)
     target  the 20-day mean
     stop    -8%
     timeout 10 sessions
