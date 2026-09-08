@@ -945,6 +945,11 @@ def push_decisions(rows: list[dict]) -> dict:
                 "putDelta": (r.get("quote") or {}).get("put_delta"),
                 "callDelta": (r.get("quote") or {}).get("call_delta"),
                 "netDelta": (r.get("quote") or {}).get("net_delta"),
+                "deltaPutStrike": (r.get("delta_mode") or {}).get("put_strike"),
+                "deltaCallStrike": (r.get("delta_mode") or {}).get("call_strike"),
+                "deltaModeNet": (r.get("delta_mode") or {}).get("net_delta"),
+                "deltaTarget": (DELTA_TARGET if r.get("delta_mode") else None),
+                "deltaInBand": (r.get("delta_mode") or {}).get("in_band"),
                 "detail": json.dumps({k: v for k, v in r.items()
                                       if k not in ("legs", "economics")}),
             })
@@ -1007,6 +1012,60 @@ def _credit_from_broker(row: dict, leg: dict) -> float | None:
         total += float(px) * abs(float(p.get("quantity") or 0)) * mult
         seen += 1
     return round(total, 2) if seen else None
+
+
+# TARGET DELTA PER LEG, spec v1.0 §2.1. 0.16 is the spec default.
+DELTA_TARGET = 0.16
+DELTA_BAND = (0.08, 0.30)
+
+
+def solve_delta_strikes(row: dict) -> dict | None:
+    """What DELTA-mode selection WOULD have chosen for this market today.
+
+    Spec §2.1: solve each strike for a target delta instead of placing them
+    equidistant. It is the only formulation that is delta-neutral BY
+    CONSTRUCTION — short a call at -δ* and a put at +δ* net to zero.
+
+    §4 predicts equidistant strikes run "net long delta by 3-8 deltas per lot".
+    We measured SPX at +0.126 on 7 Sep — 12.6 deltas, worse than the estimate.
+
+    RECORDED, NOT APPLIED. strike_pair still places on distance. The published
+    82.9% win rate describes the equidistant rule and swapping the selection
+    would invalidate it, exactly as the condor substitution would have. Both
+    pairs go on the row every day so the switch becomes an evidence-based
+    decision instead of an argument about skew.
+
+    India is skipped: no NSE option chain exists at any provider, so there are
+    no deltas to solve against.
+    """
+    cfg = MARKETS.get(row.get("market")) or {}
+    leg = (row.get("legs") or {}).get(PLACE_EXPIRY_KIND)
+    spot = row.get("spot")
+    if not leg or not spot or str(cfg.get("index", "")).startswith("^") and not cfg.get("broker_symbol"):
+        return None
+    try:
+        import requests
+        from .push_to_api import load_credentials
+        base, tok = load_credentials()
+        r = requests.post(f"{base.rstrip('/')}/api/integrations/ibkr/strangle/solve-delta",
+                          json={"symbol": cfg.get("broker_symbol") or cfg["index"],
+                                "expiry": _monthly_expiry(leg["dte"]),
+                                "spot": float(spot),
+                                "targetDelta": DELTA_TARGET,
+                                "deltaMin": DELTA_BAND[0], "deltaMax": DELTA_BAND[1],
+                                "underlyingSecType": cfg.get("broker_sec_type") or "STK"},
+                          timeout=120,
+                          headers={"Authorization": f"Bearer {tok}"} if tok else {})
+        d = r.json() if r.content else {}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("delta solve failed for %s: %s", row.get("market"), str(exc)[:120])
+        return None
+    if not d.get("ok"):
+        return {"ok": False, "error": (d.get("error") or "")[:200]}
+    return {"ok": True,
+            "put_strike": d.get("putStrike"), "call_strike": d.get("callStrike"),
+            "net_delta": d.get("netDelta"), "in_band": d.get("inDeltaBand"),
+            "put_delta": d.get("putDelta"), "call_delta": d.get("callDelta")}
 
 
 def quote_strangle(row: dict) -> dict | None:
@@ -1823,6 +1882,20 @@ def main() -> int:
     # produced a decision a day and nothing measurable since it was configured.
     if args.quote:
         for r in rows:
+            # DELTA-MODE COMPARISON, recorded not applied. Cheap enough to run
+            # beside the quote and the only way the switch ever becomes a
+            # decision rather than an argument.
+            ds = solve_delta_strikes(r)
+            if ds and ds.get("ok"):
+                r["delta_mode"] = ds
+                leg = (r.get("legs") or {}).get(PLACE_EXPIRY_KIND) or {}
+                print(f"  delta-mode {r.get('market')}: "
+                      f"{ds['put_strike']:,.0f}/{ds['call_strike']:,.0f} "
+                      f"(net {ds['net_delta']:+.3f}) vs placed "
+                      f"{leg.get('put_strike', 0):,.0f}/{leg.get('call_strike', 0):,.0f}"
+                      f"{'' if ds.get('in_band') else '  [OUT OF BAND — spec says skip]'}")
+            elif ds:
+                print(f"  delta-mode {r.get('market')} unsolved: {ds.get('error')}")
             q = quote_strangle(r)
             if not q:
                 continue

@@ -61,7 +61,12 @@ public static class StrangleDecisionLogEndpoints
         // Balance of the pair. Equidistant strikes are not delta-neutral once
         // skew is present; this is how we find out by how much.
         decimal? PutDelta = null, decimal? CallDelta = null,
-        decimal? NetDelta = null);
+        decimal? NetDelta = null,
+        // What DELTA-mode selection WOULD have chosen (spec §2.1), recorded
+        // beside what we traded. Selection itself is unchanged.
+        decimal? DeltaPutStrike = null, decimal? DeltaCallStrike = null,
+        decimal? DeltaModeNet = null, decimal? DeltaTarget = null,
+        bool? DeltaInBand = null);
 
     public static IEndpointRouteBuilder MapStrangleDecisionLogEndpoints(
         this IEndpointRouteBuilder app)
@@ -157,7 +162,12 @@ public static class StrangleDecisionLogEndpoints
                     quoted_spread    = COALESCE(@QuotedSpread, quoted_spread),
                     put_delta        = COALESCE(@PutDelta, put_delta),
                     call_delta       = COALESCE(@CallDelta, call_delta),
-                    net_delta        = COALESCE(@NetDelta, net_delta)
+                    net_delta        = COALESCE(@NetDelta, net_delta),
+                    delta_put_strike  = COALESCE(@DeltaPutStrike, delta_put_strike),
+                    delta_call_strike = COALESCE(@DeltaCallStrike, delta_call_strike),
+                    delta_mode_net    = COALESCE(@DeltaModeNet, delta_mode_net),
+                    delta_target      = COALESCE(@DeltaTarget, delta_target),
+                    delta_in_band     = COALESCE(@DeltaInBand, delta_in_band)
                 WHERE market = @Market
                   -- SAME KEY AS THE DECISION UPSERT. Migration 073 moved that to
                   -- the TRADED session (exchange_date); this still matched as_of,
@@ -220,6 +230,10 @@ public static class StrangleDecisionLogEndpoints
                        put_delta::float8  AS put_delta,
                        call_delta::float8 AS call_delta,
                        net_delta::float8  AS net_delta,
+                       delta_put_strike::float8  AS delta_put_strike,
+                       delta_call_strike::float8 AS delta_call_strike,
+                       delta_mode_net::float8    AS delta_mode_net,
+                       delta_target::float8      AS delta_target, delta_in_band,
                        index_close::float8 AS index_close,
                        outcome_pct::float8 AS outcome_pct, outcome_note, graded_at_utc,
                        jobs_commit
