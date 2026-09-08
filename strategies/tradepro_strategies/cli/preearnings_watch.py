@@ -678,17 +678,25 @@ def evaluate(sym, cfg, base, token, state):
                 + f" · daily src {d.source}. One "
                 f"alert, no forecast, no order — manual decision."))
 
+    # Touch/reclaim on a BLOCKED regime is JOURNAL DATA, not a setup — the
+    # advisor's §19 wants every pullback recorded whether traded or not, but
+    # a mail that reads like a bullish trigger on a name the engine blocks is
+    # misleading (owner, 8 Sep, on a WDC reclaim mail: "seems wrong" — WDC
+    # was below its SMA50 with a falling EMA). Convention: alert ids prefixed
+    # "J_" are journal-only; main() never mails them.
+    _j = "" if long_regime else "J_"
+    _rtag = "" if long_regime else f" [regime {regime} — journal only, NOT a setup]"
     if touched:
-        alerts.append(("EMA20_PULLBACK_ZONE", d.dates[i],
+        alerts.append((f"{_j}EMA20_PULLBACK_ZONE", d.dates[i],
                        f"{sym} touched the EMA20 proximity band "
                        f"({prox_hi:.2f}; low {touch_low:.2f}) · "
-                       f"blind-entry proxy {prox_hi:.2f} · journal armed"))
+                       f"blind-entry proxy {prox_hi:.2f} · journal armed{_rtag}"))
     if reclaim_bar:
-        alerts.append(("RECLAIM_15M", reclaim_bar["t"],
+        alerts.append((f"{_j}RECLAIM_15M", reclaim_bar["t"],
                        f"{sym} 15m close {reclaim_bar['c']:.2f} back above the "
                        f"band after the touch (touch low {touch_low:.2f}, "
                        f"blind proxy {prox_hi:.2f}) — forward journal row "
-                       f"written; MAE/MFE fill in over the session"))
+                       f"written{_rtag}"))
 
     # -- primary action + proposal --
     def trigger(text):
@@ -997,7 +1005,8 @@ def main() -> int:
                                     "at": state["fired"][key],
                                     "action": action})
         if fresh and not args.dry_run:
-            mail_lines += [f"  {a_id:24} {text}" for a_id, text in fresh]
+            mail_lines += [f"  {a_id:24} {text}" for a_id, text in fresh
+                           if not a_id.startswith("J_")]
         elif fresh:
             for a_id, text in fresh:
                 print(f"  WOULD ALERT {a_id}: {text}")
