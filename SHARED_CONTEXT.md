@@ -972,3 +972,38 @@ ATR-multiple thresholds only; owner-armed dollar levels exempt.
 Budgets are PROVISIONAL_PAPER_DEFAULTS (swing $1k / core gap $2.5k / intraday
 $300), account IBKR_PAPER. Earnings workstream CLOSED (Q3 + both vetoes
 failed gates — do not re-raise). Funding gates 089a8ec await D1-D3.
+
+## 8 Sep 2026 — the close job was blind to its own placements (ROOT CAUSE)
+
+Four pairs opened 13:53Z were flattened at 14:00Z, seven minutes old. Same
+shape as last week. Root cause was NOT the flatten logic:
+
+  UPSERT keys on COALESCE(exchange_date, as_of)  -- the session TRADED
+  SELECT filtered on as_of                       -- the session the gate READ
+
+Migration 073 fixed the write path on 1 Sep and left the read path on the other
+column. Identical on an ordinary Tuesday. 7 Sep was Labor Day, so US rows for
+exchange_date 09-08 carried as_of 09-04; the close job asks days=3, its window
+began 09-05, and EVERY US row fell outside it. It read zero placed rows against
+four live pairs and flattened them. India was never affected — NSE traded 7 Sep.
+Fixed at all THREE sites (row SELECT, /summary, and the upsert already correct).
+
+Shipped today: e746679 select key · c49b048 close states its reason (the live
+close printed no reason at all, which is why this took a week) · 31088ad live
+desk P&L.
+
+LIVE P&L now exists: GET /strangle-decisions/pnl, MCP get_strangle_live_pnl,
+plus "Still open — live" and "Desk total" on screen. total is NULL when the
+open half cannot be read — that is UNKNOWN, never flat.
+
+Also learned: the IBKR option chain is EMPTY early in the session. SPY/QQQ
+failed at 13:52Z (22 min after the open) with "NO strikes for conid" and
+resolved fine at 15:39Z, same conids, same month. Not an entitlement problem.
+GOLD (conid 51529211) still fails mid-session — separate issue.
+
+OPEN / needs an owner call:
+  - the decision log holds ONE row per market per session, so two round-trips
+    in a day collide. Today SPX shows credit_actual from the 15:39 entry with
+    realised_pnl from the 13:53 one. Blocks re-entry.
+  - placement cron fires ONCE (13:52Z). Nothing re-enters after an exit.
+  - 13:52Z is 22 min after the open, which is when the chain is emptiest.
